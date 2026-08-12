@@ -1,11 +1,11 @@
 # URmessage — Message Server and Operator Context
 
 **Spec B of three.** Companion documents: spec A (`connect`/`sdk` protocol and client core) and spec C (Windows messaging client).
-**Normative parent:** `docs/specs/2026-08-12-urmessage-protocol-design.md` (revision 5) — referred to below as *the master spec*, cited by section (e.g. §9.3).
+**Normative parent:** `docs/specs/2026-08-12-urmessage-protocol-design.md` (revision 6) — referred to below as *the master spec*, cited by section (e.g. §9.3).
 **Decision record:** `SPEC-LEDGER.md`.
-**Date:** 2026-08-12 · **Revision:** 2 · **Status:** Design, pending owner review
+**Date:** 2026-08-12 · **Revision:** 3 · **Status:** Design, pending owner review
 
-Notation follows the master spec: `LP(x)` = 32-bit length prefix then `x`; `‖` = concatenation; `H` = SHA-256. All timestamps in Postgres are `timestamp` in UTC, never `timestamp with time zone`, matching the operator's convention.
+Notation follows the master spec: `LP(x)` = 32-bit **big-endian** length prefix then `x`; `u8/u16/u32/u64` = big-endian fixed width; `‖` = concatenation; `H` = SHA-256; HKDF is HKDF-SHA-256. All timestamps in Postgres are `timestamp` in UTC, never `timestamp with time zone`, matching the operator's convention.
 
 ---
 
@@ -15,8 +15,8 @@ Notation follows the master spec: `LP(x)` = 32-bit length prefix then `x`; `‖`
 
 | Item | State |
 |---|---|
-| Master protocol design | Revision 5, awaiting owner review |
-| This spec | Revision 2, R4 review applied |
+| Master protocol design | Revision 6, awaiting owner review |
+| This spec | Revision 3, R4 and R5 review applied |
 | Message server code | None |
 | Repo | `Ryanmello07/urnetwork-message-server` (seeded: LICENSE, README, SPEC-LEDGER, docs) |
 | Branch for protocol code | `beta/message` on the `connect` and `sdk` forks (not yet created) |
@@ -46,7 +46,7 @@ Verified against the checked-out trees at `C:\Users\ryanm\Downloads\claude_sandb
 | **B6** | **No client-initiated server-side erase in v1.** Bodies are removed by class expiry and by the sweep only. `TOMBSTONE` remains a purely client-side, MLS-authenticated construct. | `write_key` is group-wide (§9.2), so an erase request cannot be attributed to a device or to the original sender — any member could erase any body, a history-destroying DoS. §9.2 already defers per-device capabilities to V2 for precisely this reason, and §12.3 already tells users delete-for-everyone does not claw anything back. Early erase is therefore gated on the V2 per-device capability work. |
 | **B7** | **Split transport: protobuf request/response over the connect frame path for the control plane; TLS/HTTP over the mesh for the bulk (blob) plane.** Argued in §4.1. | A 100 MB upload driven through a 3 KiB-batched, ack-windowed client sequence head-of-line-blocks every message in that sequence. Ranged and resumable semantics already exist in HTTP and in MinIO multipart. Meanwhile subscribe needs *server-initiated* push, which the frame path gives free and HTTP does not. |
 | **B8** | **Four `MessageType` enum values only** (`MessageServerRequest`, `MessageServerResponse`, `MessageServerPush`, `MessageServerFragment`), reserved at **1000–1099**, with a `oneof` inside for every operation. Spec A owns `connect/protocol/message.proto`; Spec B owns the `oneof` arms and their semantics (§4.2). | `frame.proto` is shared with `beta/algorithm-dpi` and `beta/custom-server`. Adding one enum value per operation guarantees a merge conflict on every branch every time we add an operation. A reserved high block plus an internal `oneof` reduces the shared-file diff to four lines, permanently. Spec A's `MessageEnvelope` / `MessageOp` alternative is deleted (§4.2). |
-| **B9** | The server keeps the **current** epoch's `write_key` plus **one briefly-retired predecessor**, wrapped under a KEK loaded from the vault. Advancing an epoch sets `retire_time = now()` on the outgoing epoch instead of NULLing it; the 5-minute tidy loop (§7.4) NULLs `write_key_wrapped` where `retire_time < now() - interval '60 seconds'`. | Destroying the superseded key immediately made `REASON_EPOCH_STALE` unreachable — check 6 would return the deliberately undiagnosable `REASON_REJECTED` for the single most common benign race in the system (a record submitted at epoch *n* while a commit to *n+1* lands), making `SubmitResult.current_epoch`'s "always set, so a stale client resynchronises in one round trip" a dead promise and §6.4's row for that race dead code. The blast-radius argument is unchanged at two keys. |
+| **B9** | The server keeps the **current** epoch's `write_key` plus **one briefly-retired predecessor**, wrapped under a KEK loaded from the vault. Advancing an epoch sets `retire_time = now()` on the outgoing epoch instead of NULLing it; the 5-minute tidy loop (§7.4) NULLs `write_key_wrapped` where `retire_time < now() - interval '60 seconds'`. **This two-key window is why reads are not authenticated under an epoch key**: `req_auth` uses the group's lifetime `read_key` instead (§5.3), which is never retired, because a member offline across one commit would otherwise be locked out of every route back. | Destroying the superseded key immediately made `REASON_EPOCH_STALE` unreachable — check 6 would return the deliberately undiagnosable `REASON_REJECTED` for the single most common benign race in the system (a record submitted at epoch *n* while a commit to *n+1* lands), making `SubmitResult.current_epoch`'s "always set, so a stale client resynchronises in one round trip" a dead promise and §6.4's row for that race dead code. The blast-radius argument is unchanged at two keys. |
 | **B10** | The message server runs against a **separate Postgres cluster and separate credentials from the operator**, even though one organisation runs both. | Same operator, separate blast radius. An operator database compromise must not also yield message ciphertext and epoch write keys. Cheap; do it on day one, because retrofitting a database split after launch is not cheap. |
 | **B11** | Forbidden identifiers are made **structurally unprintable** in Go — `GroupId`, `SenderHandle`, `BlobId`, `RecoveryHandle`, `ClientId` are **opaque structs wrapping an unexported `[]byte`**, never named slice or array types, whose `String()`, `Format()`, `LogValue()`, `MarshalJSON()` and `MarshalText()` all return a redaction constant, with an explicit `.Unwrap()` at every store boundary. | §9.7 is a normative requirement, and a rule that depends on every future developer remembering it will be violated. Making an accidental `%v` physically incapable of printing the value is the only enforcement that survives contact with a team. The struct (rather than a named `[]byte`) is load-bearing: pgx v5 would otherwise encode such a type through its `TextMarshaler` and write the literal bytes `<redacted>` into a `bytea` column — see §11.2 item 1. |
 | **B12** | Bodies over the inline ladder go to the blob store; `ct_head` and `ct_body` use `STORAGE EXTERNAL` (no TOAST compression). | Ciphertext is incompressible; `pglz` would burn CPU on every write and every read for a ~0% ratio. |
@@ -55,7 +55,7 @@ Verified against the checked-out trees at `C:\Users\ryanm\Downloads\claude_sandb
 
 | Direction | Summary | Detail |
 |---|---|---|
-| **Requires from spec A** | Byte-exact record encoding; the `write_auth` and `req_auth` preimages including the `server_attachment` amendment; the recovery proof; the size-bucket and eph-bucket ladders; the blob id derivation and padding ladder; a shared Go package `connect/message` the server links so it never reimplements the parser or the encoder; a shared interop vector file. | §12.1 |
+| **Requires from spec A** | Byte-exact record encoding, including `blob_id` as a header field; the `write_auth` and `req_auth` preimages including the `server_attachment` amendment; `req_auth` keyed on the group's lifetime `read_key`; the recovery proof; the size-bucket and eph-bucket ladders; the blob id derivation and padding ladder; a shared Go package `connect/message` the server links so it never reimplements the parser or the encoder; a shared interop vector file. | §12.1 |
 | **Provides to spec A** | The reject-reason contract, the losing-committer contract, the capability document, and the exact idempotency semantics of a retried submit. | §12.1 |
 | **Provides to spec C** | Everything C consumes goes through `sdk` — C never speaks to the message server directly. What C must surface in UI: blob cap before the file picker opens, retention notices, resumable-upload progress, attestation warnings, hole detection on the gapless `record_id`. | §12.2 |
 | **Requires from the operator** | A network + client ids for the server fleet; a discovery endpoint listing the fleet; the KT log and its signed tree heads; a transport `FramerSettings.MaxMessageLen` measurement. | §9 |
@@ -66,7 +66,7 @@ Verified against the checked-out trees at `C:\Users\ryanm\Downloads\claude_sandb
 2. **Control-plane message size.** `ClientSettings.MinimumMessageLenLimit()` is 4 KiB and `sendPackBatchMaxMessageByteCount` is 3 KiB. A 64 KiB inline record does not fit one frame. This spec defines an application-level fragmentation wrapper (§4.6) so the protocol is transport-cap independent, but the platform's *actual* production `MaxMessageLen` must be measured before we size the inline ladder. **Assumption to confirm by measurement.**
 3. **Retention floor negotiation — RULED, warn and proceed in both directions. See §7.3.** Longer than `media_ttl_max_seconds` clamps **down**; shorter than `durable_retention_min_seconds` floors **up**; both accept the commit and return `REASON_RETENTION_CLAMPED` with `RetentionApplied`. Refusal is not an option in either direction.
 4. **Blob padding ladder — CLOSED.** Spec A §5.13 owns it: `blob_id = HKDF-Expand(record_key[i], "blob/v1", 32)`, padding to a **262144-byte (256 KiB)** multiple. `Capabilities.blob_pad_multiple` advertises the value and does not define it.
-5. **KT staging — needs a date, not a plan.** §9.4 now specifies the VRF suite, the tree arithmetic, the STH preimage, the history tree and the four client endpoints in full. Staging the VRF-indexed prefix tree behind the append-only log is a weakening of master §10.1's "required, not optional" unless it is explicitly time-boxed. **Owner ruling required: a completion date for slice 9, not a staging plan.**
+5. **KT staging — RULED, a release gate rather than a date.** §9.4 specifies the VRF suite, the tree arithmetic, the STH preimage, the history tree, the four client endpoints, the signing key and the monitor role. The ruling, matching MASTER §15 item 6: **the log is a general-availability gate.** Beta testers may run against a log that is not yet live, with every key-change row and every directory lookup rendering `kt_unavailable` explicitly; no non-beta user is served until the log, its four client endpoints and its monitor role are running. Closed.
 6. **Group-row lock throughput.** B4 serialises writes per group. Expected ceiling ~1–2k records/s/group; a 500-member group at peak is nowhere near that. **Assumption to confirm by benchmark in slice 3.**
 7. **Push transport** (ledger open item 2). Out of scope for this spec beyond leaving `presence` in Redis and a `push_token` field reserved. WNS wiring is a later slice.
 
@@ -94,6 +94,19 @@ convergence, migration ownership, backup trap 3 and rotation runbooks §10.5 (B-
 logging block and opaque redaction structs (B-20). §12 interfaces rebuilt around the single `connect/message`
 export table (B-21). Fifteen new acceptance tests and five new V2 rows (B-22, B-24). Open items 1, 3 and 4
 closed; item 5 reduced to "needs a date".
+
+---
+
+**Revision 3 — 2026-08-12 — R5 convergence pass.** `blob_id` became a header field and entered both
+preimages; §5.1 check 3 acts on the parsed value. `req_auth` re-keyed from the epoch `write_key` to
+the group's lifetime `read_key`, carried in `EpochAttachment`, stored on `message_group` and never
+retired; §4.3.8 now names all five authorized reads with their op bytes and §5.1.1 agrees with it.
+`durable_ttl_seconds = 0` explicitly maps to a `NULL` column and is never floored. `message_recovery`
+re-keyed per group and §5.4 point 2 rewritten to state what `write_auth` does and does not prove.
+`DURABLE` added to the blob-grant class list with its rung mapping. Epoch-bundle sizing recomputed
+against the padded ladder (~6.9 MB per commit, ~2.5 GB/year). `CreateGroup` carve-out extended to
+check 3. Open item 5 closed as a release gate. Tests 28–30 added. Every internal edit-plan label
+replaced with a real section reference.
 
 ---
 
@@ -198,7 +211,7 @@ Deployment requirement: `slowlog-log-slower-than -1`, `MONITOR` disabled by ACL,
 
 - All ids are `bytea` with an exact-length `CHECK`. `group_id` is 32 B, `sender_handle` 16 B, `body_hash` 32 B, `recovery_handle` 16 B, `blob_id` 32 B. They are **not** `uuid` — `uuid` is 128-bit and would silently truncate a 256-bit group id.
 - All timestamps are `timestamp` (UTC). **The cluster MUST be configured `timezone = 'UTC'`** in `postgresql.conf` on the primary, on every streaming replica, and on every restore or staging target, and the pgx pool MUST set it explicitly: `pool_config.ConnConfig.RuntimeParams["timezone"] = "UTC"`. This is not a convention — `now()` returns `timestamptz` and assigning it to a `timestamp` column casts through the session's `TimeZone`. Retention is split across two clocks (§7.1 computes `prune_after` in Go from `time.Now().UTC()`; §7.4 sweeps with `WHERE prune_after <= now()` in the database), so a non-UTC cluster prunes media up to 14 hours early or late, fleet-wide, silently. Early pruning destroys user data. `/readyz` asserts `SELECT now()::timestamp` against `time.Now().UTC()` within a few seconds and **refuses readiness on failure** — one query, converting a silent multi-hour retention error into a deploy-time failure.
-- `expire_at` is unix **milliseconds** on the wire and in both preimages; see BLOCK-EXP in §5.4. The `timestamp` column is a lossy projection with no authority.
+- `expire_at` is unix **milliseconds** on the wire and in both preimages; see the `expire_at` units paragraph of §5.4. The `timestamp` column is a lossy projection with no authority.
 
 The wire encoding is MASTER §8's and is restated here character-for-character because Spec A §5.1 restates the same table; a divergence makes every EPH record fail both AEAD and MAC:
 
@@ -237,18 +250,25 @@ CREATE TABLE message_group (
 
     -- per-group gapless record id allocator (decision B4). 1-BASED: record_id = 0 is
     -- never assigned, so since_record_id = 0 is the well-defined "from the beginning"
-    -- exclusive cursor (BLOCK-RID). At DEFAULT 0 the group's founding commit was
+    -- exclusive cursor. At DEFAULT 0 the group's founding commit was
     -- permanently unfetchable by every client that did not create it.
     next_record_id      bigint      NOT NULL DEFAULT 1,
 
     -- retention policy, as published by the committer in the epoch attachment,
     -- already clamped to this server's advertised caps
     media_ttl_seconds   int         NOT NULL,
-    durable_ttl_seconds int         NULL,          -- NULL = indefinite
+    durable_ttl_seconds int         NULL,          -- NULL = indefinite (wire sentinel 0; §5.4)
+
+    -- the group's lifetime read key, from EpochAttachment.read_key. Same wrap format as
+    -- message_epoch.write_key_wrapped: u8(kek_id) || nonce(12) || ct(32) || tag(16).
+    -- Installed once, verified unchanged on every later commit, NEVER retired (§5.3).
+    read_key_wrapped    bytea       NULL,
+
     group_context_hash  bytea       NULL,          -- echoed to clients; never interpreted
     policy_version      int         NOT NULL DEFAULT 0,
 
-    -- false between an accepted commit and its EpochComplete marker (BLOCK-EPOCH step 3)
+    -- false between an accepted commit and its EpochComplete marker (§6.1, epoch
+    -- publication step 3)
     epoch_complete      boolean     NOT NULL DEFAULT true,
 
     closed              boolean     NOT NULL DEFAULT false,
@@ -260,6 +280,7 @@ CREATE TABLE message_group (
     CHECK (1 <= next_record_id),
     CHECK (0 < media_ttl_seconds),
     CHECK (durable_ttl_seconds IS NULL OR 0 < durable_ttl_seconds),
+    CHECK (read_key_wrapped IS NULL OR octet_length(read_key_wrapped) = 61),
     CHECK (group_context_hash IS NULL OR octet_length(group_context_hash) = 32),
     CHECK (NOT closed OR close_time IS NOT NULL)
 );
@@ -313,7 +334,7 @@ CREATE TABLE message_record (
     -- message.ParseServerAttachment before acting (§5.1 check 3).
     server_attachment  bytea  NULL,
     recovery_handle    bytea  NULL,       -- from a RecoveryTag (§4.3.7)
-    wrap_target_handle bytea  NULL,       -- from a WrapTag (BLOCK-SA, BLOCK-EPOCH)
+    wrap_target_handle bytea  NULL,       -- from a WrapTag (§5.4; §6.1 epoch publication)
 
     create_time     timestamp NOT NULL DEFAULT now(),
 
@@ -326,7 +347,7 @@ CREATE TABLE message_record (
     CHECK (wrap_target_handle IS NULL OR octet_length(wrap_target_handle) = 16),
     CHECK (ct_body IS NULL OR blob_id IS NULL),          -- inline XOR blob, never both
     CHECK (0 <= stream_index),
-    -- the wire byte of BLOCK-RC (§3.1): 0, 1, 2, or 16..21. No other value is legal.
+    -- the retention-class wire byte of §3.1: 0, 1, 2, or 16..21. No other value is legal.
     CHECK (retention_class IN (0,1,2) OR (16 <= retention_class AND retention_class <= 21)),
     CHECK (0 <= size_bucket AND size_bucket <= 5)
 ) PARTITION BY HASH (group_id);
@@ -352,7 +373,7 @@ CREATE UNIQUE INDEX message_record_stream
 -- message_commit table below, which is a better CAS anyway: a one-row insert against a
 -- full primary key rather than a predicate index (§6.1).
 
--- epoch wrap fan-out, indexed by target (BLOCK-EPOCH, Q10)
+-- epoch wrap fan-out, indexed by target (§6.1 epoch publication, Q10)
 CREATE INDEX message_record_wrap
     ON message_record (group_id, epoch, wrap_target_handle)
     WHERE wrap_target_handle IS NOT NULL;
@@ -464,19 +485,25 @@ CREATE TABLE message_kt_gossip (
     PRIMARY KEY (kt_epoch)
 );
 
--- ── 009  recovery verification keys (BLOCK-RP, §4.3.7) ─────────────────────────────
+-- ── 009  recovery verification keys (§4.3.7) ─────────────────────────────────────
+-- Keyed per group ON PURPOSE. A single global row would let one hostile first-sight write
+-- deny seed-only restore to the handle's real owner in EVERY group, permanently. Per group,
+-- a poisoning write is contained to the group whose members could already read the records
+-- it concerns.
 CREATE TABLE message_recovery (
+    group_id        bytea NOT NULL,
     recovery_handle bytea NOT NULL,
     verify_pub      bytea NOT NULL,
     alg_id          int   NOT NULL,
     first_seen      timestamp NOT NULL DEFAULT now(),
-    PRIMARY KEY (recovery_handle),
+    PRIMARY KEY (group_id, recovery_handle),
+    CHECK (octet_length(group_id) = 32),
     CHECK (octet_length(recovery_handle) = 16),
     CHECK (octet_length(verify_pub) = 32)
 );
 ```
 
-Trust-on-first-use: the server records `verify_pub` on first sight of a `RecoveryTag` and **refuses any later differing pub for the same handle** — the same shape as the client's server-key pin.
+Trust-on-first-use, **scoped to one group**: the server records `verify_pub` on first sight of a `RecoveryTag` in that group and **refuses any later differing pub for the same handle in the same group** — the same shape as the client's server-key pin.
 
 ### 3.3 Index rationale against the real query patterns
 
@@ -496,6 +523,7 @@ Trust-on-first-use: the server records `verify_pub` on first sight of a `Recover
 | Q12 | `UPDATE message_epoch SET write_key_wrapped = NULL WHERE group_id=$1 AND epoch <= $2 AND write_key_wrapped IS NOT NULL` | Every commit | **The `IS NOT NULL` predicate is load-bearing** — it bounds the update to one or two rows. Without it a group at epoch 10,000 rewrites 10,000 already-NULL rows, with matching dead tuples and WAL, **inside the group row lock** that §6.7 already flags as the throughput ceiling | `PRIMARY KEY (group_id, epoch)` |
 | Q13 | `SELECT blob_id, object_key FROM message_blob WHERE prune_after <= now() ORDER BY prune_after FOR UPDATE SKIP LOCKED LIMIT 500` | Blob GC, every 60 s | Partial index scan | `message_blob_prune` |
 | Q14 | `INSERT INTO message_commit (group_id, epoch, record_id) VALUES (…) ON CONFLICT (group_id, epoch) DO NOTHING` | Every commit | One-row PK insert; **the** CAS | `PRIMARY KEY (group_id, epoch)` |
+| Q15 | `SELECT read_key_wrapped FROM message_group WHERE group_id=$1` | Every authorized read, on cache miss | PK lookup, served from the same in-process LRU as Q9. Per group, not per epoch, so it never invalidates on a commit (§5.1.1) | `PRIMARY KEY (group_id)` |
 
 Two properties of `message_record_prune` are load-bearing and easy to lose in a refactor:
 
@@ -528,12 +556,12 @@ It does **not** enable a drop-partition retention trick: a pruned `MEDIA` record
 |---|---|---|
 | `DURABLE` text | ~700 B inline + ~200 B row overhead | only if the group sets a TTL |
 | `MEDIA` head after prune | ~250 B, **forever** | body only |
-| `PERMANENT` device wrap | ~1,210 B | **never** |
-| `PERMANENT` recovery wrap | ~1,242 B | **never** |
+| `PERMANENT` device wrap | ~4.6 KB (`ct_body` padded to exactly 4,112 B at `size_bucket 2`, plus head and columns) | **never** |
+| `PERMANENT` recovery wrap | ~4.6 KB, padded identically | **never** |
 | `PERMANENT` epoch snapshot | ~300 KB, blob | **never** |
 | `EPH(1..5)` after expiry | ~60 B placeholder, **forever** | body only |
 
-Per commit at 2 / 50 / 500 members: ~7 KB / ~130 KB / **~2.1 MB**. A 500-member group with one membership change per day accumulates roughly **767 MB/year of unprunable `PERMANENT` data**. State it plainly: **`PERMANENT`-class epoch-bundle data is the dominant unprunable term in this system**, and §3.4's row counts do not express it. An operator provisioning disk from row counts alone will under-provision by an order of magnitude. The only reclamation lever in v1 is group closure (§7.5); per-group quotas are V2.
+Per commit at 2 / 50 / 500 members: ~30 KB / ~700 KB / **~6.9 MB**. A 500-member group with one membership change per day accumulates roughly **2.5 GB/year of unprunable `PERMANENT` data**. State it plainly: **`PERMANENT`-class epoch-bundle data is the dominant unprunable term in this system**, by a wide margin, and §3.4's row counts do not express it. The padded ladder is what sets the number — a 1.2 KB wrap occupies a 4 KiB rung because the encoding admits no smaller one above 1 KiB — and an operator provisioning disk from row counts alone will under-provision by more than an order of magnitude. The only reclamation lever in v1 is group closure (§7.5); per-group quotas are V2.
 
 ---
 
@@ -646,7 +674,7 @@ message HelloResponse {
     uint64 server_time_ms        = 4;
 
     // Issued here, scoped to THIS connection, valid for the life of the connection,
-    // never rotated, and NOT carried in requests (§5.1 check 2, BLOCK-NONCE).
+    // never rotated, and NOT carried in requests (§5.1 check 2).
     bytes  server_nonce          = 5;    // 32 B
 
     Capabilities capabilities    = 6;
@@ -743,7 +771,7 @@ message Record {
     uint64 epoch              = 3;
     uint64 stream_index       = 4;
     bool   is_commit          = 5;
-    uint32 retention_class    = 6;   // the wire byte of BLOCK-RC: 0, 1, 2, or 16..21
+    uint32 retention_class    = 6;   // the retention-class wire byte of §3.1: 0, 1, 2, or 16..21
     uint32 size_bucket        = 7;   // 0..5
     uint64 expire_at_ms       = 8;   // unix MILLISECONDS, 0 = unset
     bytes  body_hash          = 9;   // 32 B
@@ -762,6 +790,12 @@ message Record {
 > columns — with `ct_body` nil when the body has been erased or when `heads_only` is set — and sets
 > `record_id`. There is exactly one encoder and one parser in the system, and the server links the same
 > Go code the client does.
+>
+> `write_auth` is **zero on read**. The stored columns cannot reproduce it — it is a MAC over the
+> submitting connection's `server_nonce`, which no other party holds and which is gone with that
+> connection — and no verifier exists for it: by **I5** record authenticity is MLS's, checked at the
+> client. `message.EncodeRecord` accepts a zero `WriteAuth`, `message.ParseRecord` never rejects one,
+> and the server retains no `write_auth` column because retaining it would serve nobody.
 
 ```proto
 message SubmitResponse {
@@ -784,7 +818,7 @@ message SubmitResult {
 ```proto
 message FetchRequest {
     bytes  group_id        = 1;
-    uint64 since_record_id = 2;   // exclusive; 0 = from the beginning (BLOCK-RID)
+    uint64 since_record_id = 2;   // exclusive; 0 = from the beginning (decision B4)
     uint32 limit           = 3;
     bool   heads_only      = 4;   // skip ct_body; used for fast catch-up and for hole scans
     uint32 class_mask      = 5;   // bitmask of retention_class values to include; 0 = all
@@ -858,7 +892,7 @@ message BlobGrantRequest {
     bytes  blob_id         = 2;   // 32 B, from Spec A §5.13 (content-independent; see §8.1)
     Direction direction    = 3;   // DIRECTION_UPLOAD | DIRECTION_DOWNLOAD
     uint64 declared_bytes  = 4;   // upload only; already padded per Capabilities
-    uint32 retention_class = 5;   // PERMANENT, MEDIA, or the parent's EPH class (BLOCK-ILM)
+    uint32 retention_class = 5;   // PERMANENT, DURABLE, MEDIA, or the parent's EPH class (§8.3)
     bytes  req_auth        = 15;  // §4.3.8. REQUIRED — this is a read-path authorization,
                                   // not a record, so it is req_auth and not write_auth
 }
@@ -898,48 +932,51 @@ recovery_verify_pub= Ed25519 public key of recovery_sig_sk                   (32
 recovery_proof = Ed25519(recovery_sig_sk,
                    "URmessage/v1/recovery" ‖ LP(server_nonce) ‖ LP(recovery_handle))
 
-The archive record's server_attachment RecoveryTag (BLOCK-SA, kind 0x0002) carries
+The archive record's server_attachment RecoveryTag (§5.4, kind 0x0002) carries
 {recovery_handle, recovery_verify_pub, alg_id} and is covered by write_auth, so the
 public half arrives authenticated as a member of the group.
 
-The server stores the public half on first sight and REFUSES any later differing
-recovery_verify_pub for the same recovery_handle (trust-on-first-use, the same shape as
-the client's server-key pin). RecoveryFetchRequest.proof is verified against it.
+The server stores the public half on first sight WITHIN THAT GROUP and REFUSES any later
+differing recovery_verify_pub for the same recovery_handle in the same group
+(trust-on-first-use, the same shape as the client's server-key pin).
+RecoveryFetchRequest.proof is verified against it.
 ```
 
 The proof is **asymmetric on purpose**. A symmetric MAC under a `recovery_root`-derived key is unverifiable by construction: the server holds only `recovery_handle` and MUST NOT hold `recovery_root` (a server holding it reads all durable history in every group), so it can derive no MAC key. As previously written this request was an **unauthenticated cross-group read keyed on a 16-byte handle** — which §4.3.7 itself concedes is a handle-existence oracle.
 
-This request is the one place a client asks for data across groups, and it is exactly the disclosure the master spec §5.4 already makes ("the server learns how many groups that handle participates in"). It is rate-limited hard (§4.7) because it is otherwise an oracle for handle existence.
+`RecoveryFetchRequest` is the one cross-group read. With `message_recovery` keyed per group, a handle may have a row in many groups; the server verifies the proof against **each candidate group's row** and returns only the groups whose stored `recovery_verify_pub` validates it. A group whose row was poisoned drops out of the result; every other group still restores. The disclosure is unchanged from master spec §5.4 — the server learns how many groups the handle participates in — and the request stays hard rate-limited (§4.7) because it is otherwise a handle-existence oracle.
 
 #### 4.3.8 Request authentication
 
 ```
-req_auth = MAC(write_key[current_epoch],
-               "URmessage/v1/req" ‖ LP(server_nonce) ‖ u8(op) ‖ LP(canonical_request_bytes))
+req_auth = MAC(read_key, "URmessage/v1/req" ‖ LP(server_nonce) ‖ u8(op)
+                         ‖ LP(canonical_request_bytes))
 
+  read_key                = the group's lifetime read key, HKDF-Expand(storage_root[0],
+                            "read/v1", 32), installed from EpochAttachment.read_key and
+                            identical in every epoch (§5.3).
   op                      = the field number of the selected `oneof body` arm in
-                            MessageServerRequest (10..18), as a u8.
+                            MessageServerRequest, as a u8.
   canonical_request_bytes = the deterministically-marshaled request body message
                             (protobuf deterministic marshal, fields ascending) with its
                             own `req_auth` field set to zero length.
 
-Required on: FetchRequest, SubscribeRequest, BlobGrantRequest, GroupStatusRequest.
-NOT used on: HelloRequest (no group), CreateGroupRequest (self-certified, see X-24),
-             SubmitRequest (records carry write_auth individually),
-             RecoveryFetchRequest (asymmetric proof, see X-10).
+Required on, with their op bytes:  FetchRequest (13), SubscribeRequest (14),
+                                   GroupStatusRequest (16), BlobGrantRequest (17),
+                                   WrapFetchRequest (19).
 
-Verified with §5.1 checks 2, 4, 5, 6 and then this MAC, returning the same non-specific
-REASON_REJECTED on failure. No transaction is opened and no row is allocated on the read path.
+Verified with §5.1 checks 1, 2, 4, 5 and the group read-key lookup, and then this MAC,
+returning the same non-specific REASON_REJECTED on failure. No transaction is opened and
+no row is allocated on the read path.
 ```
 
-`WrapFetchRequest` (§4.3.9) is a Spec-B addition to the same `oneof` at field number **19** and carries `req_auth` on the same terms; its `op` byte is 19.
+The arms that carry no `req_auth`, each for its own reason:
 
-Restating the negative cases in this document's own terms, since the block above cites the resolution numbers:
-
-- `HelloRequest` carries no `req_auth` because it names no group and its whole purpose is to obtain the `server_nonce` the MAC is computed over.
-- `CreateGroupRequest` carries none because the group does not yet exist and there is no installed epoch key to MAC under; it is self-certified against `bootstrap_write_key` and protected only by the 20/day per-`client_id` rate limit (§6.1).
-- `SubmitRequest` carries none because every record in it already carries its own `write_auth`.
-- `RecoveryFetchRequest` carries none because a seed-only restorer holds no `write_key`; it is authorized by the Ed25519 recovery proof of §4.3.7 instead.
+- `HelloRequest` (10) names no group, and its whole purpose is to obtain the `server_nonce` the MAC is computed over.
+- `CreateGroupRequest` (11) is issued before the group exists, so there is no installed key to MAC under. It is self-certified against `bootstrap_write_key` and protected by the 20/day per-`client_id` rate limit and nothing else (§6.1).
+- `SubmitRequest` (12) needs none: every record inside it carries its own `write_auth`.
+- `UnsubscribeRequest` (15) reads no group state and cancels only the caller's own subscription.
+- `RecoveryFetchRequest` (18) is issued by a seed-only restorer, which holds no group key at all; it is authorized by the Ed25519 recovery proof of §4.3.7 instead.
 
 #### 4.3.9 Wrap fetch
 
@@ -960,7 +997,7 @@ message WrapFetchResponse {
 }
 ```
 
-Served by `message_record_wrap` (§3.3 Q10). Without it every device add and every join pulls the whole ~2.1 MB epoch bundle through Q1 and discards 99.9% of it, at `max_records_per_fetch = 512`, over a 3 KiB-batched control plane — the exact failure MASTER §8.2's "the server MUST index wraps by target" exists to prevent. A request naming a target with no wrap at that epoch returns `REASON_WRAP_TARGET_UNKNOWN`.
+Served by `message_record_wrap` (§3.3 Q10). Without it every device add and every join pulls the whole ~6.9 MB epoch bundle through Q1 and discards 99.9% of it, at `max_records_per_fetch = 512`, over a 3 KiB-batched control plane — the exact failure MASTER §8.2's "the server MUST index wraps by target" exists to prevent. A request naming a target with no wrap at that epoch returns `REASON_WRAP_TARGET_UNKNOWN`.
 
 #### 4.3.10 Supporting messages
 
@@ -973,7 +1010,7 @@ message GroupStatusRequest  { bytes group_id = 1; bytes req_auth = 15; }
 message GroupStatusResponse {
     uint64 current_epoch        = 1;
     uint64 high_water_record_id = 2;
-    bool   epoch_complete       = 3;   // BLOCK-EPOCH step 3
+    bool   epoch_complete       = 3;   // §6.1 epoch publication step 3
     bool   closed               = 4;
     RetentionApplied applied    = 5;
 }
@@ -998,7 +1035,9 @@ message RetentionApplied {
 }
 ```
 
-`EpochAttachment`, `RecoveryTag`, `WrapTag` and `EpochComplete` are **not** declared here. They are `connect/message` encodings owned by Spec A (BLOCK-SA, §5.4) and are carried opaquely inside `Record.record_bytes`; the server parses them with `message.ParseServerAttachment` and never reimplements them (§12.1 A-2).
+`sdk` surfaces this message field-for-field as `MessageRetentionApplied`, in **seconds**, differing only in Go casing (Spec A §7.7). Nothing on either side converts to milliseconds; `durable_ttl_seconds = 0` continues to mean indefinite all the way to the user-visible notice.
+
+`EpochAttachment`, `RecoveryTag`, `WrapTag` and `EpochComplete` are **not** declared here. They are `connect/message` encodings owned by Spec A, restated in §5.4, and are carried opaquely inside `Record.record_bytes`; the server parses them with `message.ParseServerAttachment` and never reimplements them (§12.1 A-2).
 
 ### 4.4 The subscribe race, resolved
 
@@ -1032,7 +1071,8 @@ enum Reason {
     REASON_BLOB_INCOMPLETE          = 11;
     REASON_UNSUPPORTED_VERSION      = 12;
     REASON_INTERNAL                 = 13;
-    REASON_EPOCH_INCOMPLETE         = 14;  // the epoch's wrap set has not landed (BLOCK-EPOCH step 3)
+    REASON_EPOCH_INCOMPLETE         = 14;  // the epoch's wrap set has not landed (§6.1, step 3 of
+                                           // the epoch publication sequence)
     REASON_WRAP_TARGET_UNKNOWN      = 15;  // WrapFetch: no wrap for that target at that epoch
 }
 ```
@@ -1048,7 +1088,7 @@ enum Reason {
 `ClientSettings.MinimumMessageLenLimit()` is 4 KiB and `sendPackBatchMaxMessageByteCount` is 3 KiB. A 64 KiB inline record does not fit a frame, and we must not assume any particular production `MaxMessageLen`. Therefore the control plane carries its own fragmentation, transport-cap independent:
 
 ```proto
-// MessageType 1003 (§4.2 BLOCK-FRAME). It previously had no code point at all.
+// MessageType 1003, from the reserved block of §4.2. It previously had no code point at all.
 message MessageServerFragment {
     uint64 request_id = 1;
     uint32 index      = 2;
@@ -1095,8 +1135,8 @@ Order matters for denial of service, not just correctness. Nothing that costs a 
 | # | Check | Cost | On failure |
 |---|---|---|---|
 | 1 | Frame decodes; fragment reassembly within `max_request_bytes` | CPU, bounded | `REASON_OVERSIZE`, free buffer |
-| 2 | Connection is authenticated at the connect layer (`ByJwt` validated by the platform; §4.3 master). The `server_nonce` is **not** carried in the request — the server knows its own connection's nonce and looks it up from the connection (BLOCK-NONCE) | memory | `REASON_REJECTED` |
-| 3 | **Static shape.** `octet_length(sender_handle)==16`, `body_hash`==32, `retention_class` and `size_bucket` in range, `expire_at` parses, `ct_head` ≤ head cap, and **`octet_length(ct_body)` is exactly `size_bucket_bytes[b] + 16`** (the AEAD tag) — equality, not a range, because §9.5 pads into buckets. `size_bucket == 5` requires `ct_body` absent and `blob_id` present. And `server_attachment` parses via `message.ParseServerAttachment` and is well-formed for its record kind: `EpochAttachment` iff `is_commit`, with `epoch == current_epoch + 1`, `write_key` exactly 32 bytes, known `alg_id`, retention fields in range and `expected_wrap_count > 0`; `RecoveryTag` with a 16-byte handle and a 32-byte Ed25519 pub; `WrapTag` with a 16-byte target; `EpochComplete` with a matching `wrap_count`. Every projection field of `Record` equals the corresponding field of `ParseRecord(record_bytes)` (BLOCK-PBREC-RULE) | CPU | `REASON_OVERSIZE` / `REASON_REJECTED` |
+| 2 | Connection is authenticated at the connect layer (`ByJwt` validated by the platform; §4.3 master). The `server_nonce` is **not** carried in the request — the server knows its own connection's nonce and looks it up from the connection, never from the request | memory | `REASON_REJECTED` |
+| 3 | **Static shape.** `octet_length(sender_handle)==16`, `body_hash`==32, `retention_class` and `size_bucket` in range, `expire_at` parses, `ct_head` ≤ head cap, and **`octet_length(ct_body)` is exactly `size_bucket_bytes[b] + 16`** (the AEAD tag) — equality, not a range, because §9.5 pads into buckets. `size_bucket == 5` requires `ct_body` absent and a 32-byte `blob_id` present in the parsed header; any other `size_bucket` requires `blob_id` absent. Both are read from `message.ParseRecord`, never from the request's projection alone. And `server_attachment` parses via `message.ParseServerAttachment` and is well-formed for its record kind: `EpochAttachment` iff `is_commit`, with `epoch == current_epoch + 1`, `write_key` exactly 32 bytes, `read_key` exactly 32 bytes **and equal to `message_group.read_key_wrapped`'s plaintext whenever the group already has one**, known `alg_id`, retention fields in range and `expected_wrap_count > 0`; `RecoveryTag` with a 16-byte handle and a 32-byte Ed25519 pub; `WrapTag` with a 16-byte target; `EpochComplete` with a matching `wrap_count`. Every projection field of `Record` equals the corresponding field of `ParseRecord(record_bytes)` (§4.3.3) | CPU | `REASON_OVERSIZE` / `REASON_REJECTED` |
 | 4 | **Rate limits** (§4.7), including the §9.6 quarantine check | Redis / DB | `REASON_RATE_LIMITED` |
 | 5 | **Known-group filter.** An in-memory cuckoo filter of every `group_id`. An unknown group is rejected here with **no database read**. See the insert path below — the timer is a backstop only | memory | `REASON_REJECTED` |
 | 6 | **Epoch key lookup.** In-process LRU keyed `(group_id, epoch)`; miss reads `message_epoch` once, unwraps under the `kek_id` in the row, caches. Negative results cached 5 s with jitter. The **current** epoch's key and one briefly-retired predecessor both resolve (§5.3) | memory / 1 read | `REASON_REJECTED` |
@@ -1112,7 +1152,7 @@ Steps 1–8 are lock-free and touch the database at most once, only for a group 
 
 #### 5.1.1 The read path
 
-`Fetch`, `Subscribe`, `BlobGrant` and `GroupStatus` are authorized by `req_auth` (§4.3.8). Checks 1, 2, 4, 5, 6 apply unchanged, then the `req_auth` MAC replaces check 7. **No transaction is opened and no row is allocated on the read path.** Failure returns the same non-specific `REASON_REJECTED` with the same padded latency floor as the submit path.
+`Fetch`, `Subscribe`, `GroupStatus`, `BlobGrant` and `WrapFetch` are authorized by `req_auth` (§4.3.8). Checks 1, 2, 4 and 5 apply unchanged; check 6 becomes a **group read-key lookup** rather than an epoch-key lookup — the read key is per group, not per epoch, so no request needs to name an epoch and none does — and the `req_auth` MAC then replaces check 7. **No transaction is opened and no row is allocated on the read path.** Failure returns the same non-specific `REASON_REJECTED` with the same padded latency floor as the submit path.
 
 Before this, `FetchRequest` and `SubscribeRequest` carried no authenticator at all and §5 specified verification for submit only: any client holding a valid `ByJwt` that learned a 32-byte `group_id` could read a group's complete ciphertext history, every wrap and every attestation. That is a better enumeration and disclosure oracle than the submit path, which §4.5 goes to real trouble to close, and it makes MASTER §9.5's description of what the server sees ("your account, your group list") false.
 
@@ -1153,7 +1193,7 @@ MASTER §9.2 and Spec A §12.1 have both been amended to strike the `H(write_key
 >    fails MLS verification at every client (**I5**).
 > 2. `write_key` is a label-separated HKDF child of `storage_root[n]`, so holding it yields neither
 >    `storage_root[n]` nor the sibling class keys `K_perm` / `K_durable` / `K_media` / `eph_root`. It MUST
->    NOT be reused for any second purpose beyond `write_auth` and `req_auth`.
+>    NOT be reused for any second purpose beyond `write_auth`.
 > 3. The server retains the **current** epoch's key plus **one** briefly-retired predecessor (60 s), and
 >    nothing older.
 >
@@ -1163,6 +1203,12 @@ MASTER §9.2 and Spec A §12.1 have both been amended to strike the `H(write_key
 
 One consequence of point 3 that the DDL carries: **a stolen database dump alone must not yield write keys.** Keys are stored wrapped as `u8(kek_id) ‖ nonce(12) ‖ ct(32) ‖ tag(16)` under a KEK loaded from vault resource `message_server.yml`, never written to the database, never in a database backup, and rotated on the schedule in §5.5.
 
+**The read key is a separate key with a separate lifetime.** `read_key = HKDF-Expand(storage_root[0], "read/v1", 32)` is fixed at group creation, arrives in every commit's `EpochAttachment` (identical in every epoch), and is stored on `message_group` wrapped in exactly the same format as an epoch write key, under the same KEK. **It is never retired and never NULLed.** The tidy loop of §7.4 touches `message_epoch` only.
+
+This is not symmetry for its own sake. `req_auth` under an epoch key would be unusable: decision B9 keeps one predecessor for 60 seconds, so a member offline across a single commit for longer than that holds a key this server cannot resolve — and it cannot call `GroupStatus` to discover the current epoch, cannot `Fetch` the commits that would let it derive the new key, and cannot `WrapFetch` its own wrap, because all three are reads. The read key removes the cycle. The cost is that a removed member retains read authorization for the life of the group; it decrypts nothing from the epoch of its removal onward, and the levers against it are the §4.7 rate limits and group closure (§7.5).
+
+The server never derives `read_key`. It receives it, verifies it is unchanged, and refuses the commit if it is not — a changed read key would silently lock out every member still holding the old one.
+
 **Normative:** the message server binary MUST NOT link an MLS implementation. A CI check asserts `connect/mls` does not appear in `go list -deps`. This is not fussiness — the moment an MLS parser is in this process, the temptation to "just validate the commit" becomes a one-line change, and I5 dies quietly.
 
 ### 5.4 The `server_attachment` amendment to master spec §9.2 — RULED, adopted
@@ -1170,7 +1216,7 @@ One consequence of point 3 that the DDL carries: **a stolen database dump alone 
 Two server-visible fields have no home in the original preimage, and **I6** forbids the server from acting on anything it cannot verify:
 
 1. **Epoch attachment.** A commit's `write_key[n+1]` and retention policy. Without it the server cannot verify the next epoch's records at all, and a forged attachment would let any member set the next epoch's write key or set `media_ttl` to one second.
-2. **`recovery_handle`.** The server indexes and serves by it (§5.4 of the master spec). An unauthenticated handle would let a member tag another member's archive records into their own recovery index.
+2. **`recovery_handle`.** The server indexes and serves by it (master spec §5.4). It must be authenticated, because the server acts on it — but be exact about what the authentication proves. `write_auth` is group-wide, so it proves only that *a current member of this group* submitted the record. It does **not** prove that the submitting member owns the handle, and no server-side check can: the server holds no identity keys and by **I5** never verifies authorship. What binds a handle to an identity is the `RECOVERY_PUB` body signature under the publishing member's `identity` key (MASTER §5.3), which the **client** verifies before honouring any `RecoveryTag`. The server's job is narrower and is stated in full below: keep the first `recovery_verify_pub` it sees for a handle **within one group**, refuse a later differing one, and contain the damage of a bad first write to that group alone.
 
 The adopted amendment covers both, and every future server-visible field. It is applied in MASTER §8, §8.3 and §9.2 and in Spec A §5.1 and §5.11:
 
@@ -1178,14 +1224,16 @@ The adopted amendment covers both, and every future server-visible field. It is 
 write_auth = MAC(write_key, "URmessage/v1/write" ‖ LP(server_nonce) ‖ LP(group_id)
                  ‖ LP(sender_handle) ‖ u64(epoch) ‖ u64(stream_index) ‖ u8(is_commit)
                  ‖ u8(retention_class) ‖ u8(size_bucket) ‖ u64(expire_at)
-                 ‖ LP(H(ct_head)) ‖ LP(body_hash)
+                 ‖ LP(H(ct_head)) ‖ LP(body_hash) ‖ LP(blob_id)
                  ‖ LP(H(server_attachment)))
 
 AAD_head  = "URmessage/v1/aad/head" ‖ u16(alg_id) ‖ LP(group_id) ‖ LP(sender_handle)
           ‖ u64(epoch) ‖ u64(stream_index) ‖ u8(is_commit) ‖ u8(retention_class)
-          ‖ u8(size_bucket) ‖ u64(expire_at) ‖ LP(body_hash)
+          ‖ u8(size_bucket) ‖ u64(expire_at) ‖ LP(body_hash) ‖ LP(blob_id)
           ‖ LP(H(server_attachment))
 ```
+
+`LP(blob_id)` is a **zero-length** prefix on every record whose `size_bucket` is not 5. `blob_id` is now a header field of the record, parsed out of `record_bytes` by `message.ParseRecord` like every other projection — which is what makes §8.3's bind checks act on an authenticated value rather than on an unverifiable field of the request.
 
 The encoding is `connect/message`'s (Spec A §5.11) and is restated here character-for-character:
 
@@ -1203,6 +1251,9 @@ EpochAttachment {
     u64  epoch                  // the epoch this attachment OPENS. MUST equal current_epoch + 1
     u16  alg_id                 // 0x0031 (HKDF-SHA-256) in v1
     LP   write_key              // exactly 32 bytes: write_key[epoch]
+    LP   read_key               // exactly 32 bytes: read_key = HKDF-Expand(storage_root[0],
+                                //   "read/v1", 32). Identical in every epoch of this group;
+                                //   the server refuses a commit that changes it (§5.3)
     u32  media_ttl_seconds
     u32  durable_ttl_seconds    // 0 = indefinite
     LP   group_context_hash     // exactly 32 bytes
@@ -1232,6 +1283,8 @@ wrap_target_handle = HKDF-Expand(group_handle_key, "wt/v1" ‖ u64(epoch) ‖ u3
 
 `server_attachment` is **zero-length** for ordinary records, and a zero-length attachment and an `AttachmentNone` attachment MUST encode identically, or `H(server_attachment)` differs between client and server for every ordinary record.
 
+**`durable_ttl_seconds = 0` means indefinite, on the wire and nowhere else.** The wire sentinel is `0`; the column's sentinel is `NULL`; §6.1 step (6) is the only place the two meet. An indefinite policy is **never floored**: it is already longer than any minimum this server could advertise, so `durable_floored_up` is false and `RetentionApplied.durable_ttl_seconds` echoes `0` back. Flooring it would convert "keep forever" into a finite TTL and then delete the history the group asked to keep.
+
 **`expire_at` units.**
 
 > `expire_at` is **unix milliseconds, `u64`, big-endian, `0` meaning unset**, on the wire, in `AAD_head`,
@@ -1248,9 +1301,9 @@ wrap_target_handle = HKDF-Expand(group_handle_key, "wt/v1" ‖ u64(epoch) ‖ u3
 
 The KEK is the most consequential secret in the deployment and had no lifecycle at all: §5.3 forward-referenced a rotation procedure in §10.4 that does not exist, the 60-byte `CHECK` on `write_key_wrapped` left no room for a key identifier so a dual-KEK window was impossible without a migration on the table that gates every submit, and the loss mode was unstated.
 
-**Format.** `write_key_wrapped = u8(kek_id) ‖ nonce(12) ‖ ct(32) ‖ tag(16)` = 61 bytes (§3.2).
+**Format.** `write_key_wrapped = u8(kek_id) ‖ nonce(12) ‖ ct(32) ‖ tag(16)` = 61 bytes (§3.2). `message_group.read_key_wrapped` uses the identical format under the identical KEK (§5.3).
 
-**Rotation (§10.5).** Load both KEKs. Unwrap under the `kek_id` in the row. A bounded background pass rewraps every row with `epoch = current_epoch` under the new id. Retire the old KEK only when `SELECT count(*) FROM message_epoch WHERE substring(write_key_wrapped from 1 for 1) = old_id` is zero. Export `message_kek_rewrap_pending`. Cadence: 180 days, or immediately on suspected exposure.
+**Rotation (§10.5).** Load both KEKs. Unwrap under the `kek_id` in the row. A bounded background pass rewraps every `message_epoch` row with `epoch = current_epoch`, **and every `message_group.read_key_wrapped`**, under the new id. Retire the old KEK only when both `SELECT count(*) FROM message_epoch WHERE substring(write_key_wrapped from 1 for 1) = old_id` and `SELECT count(*) FROM message_group WHERE substring(read_key_wrapped from 1 for 1) = old_id` are zero. Missing the second one retires a KEK that is still the only way to unwrap every group's read key, and every authorized read in the system fails at §5.1.1's key lookup. Export `message_kek_rewrap_pending` over the sum of both. Cadence: 180 days, or immediately on suspected exposure.
 
 **Loss is unrecoverable, and must be stated.** If `write_key_kek` is lost, no `write_key_wrapped` can be unwrapped, §5.1 check 6 fails for every group, and every submit returns `REASON_REJECTED`. There is no path back: installing a new epoch key requires an accepted commit whose `write_auth` must verify under the epoch key that can no longer be unwrapped. **Every group on the server is permanently bricked.** The KEK MUST therefore be escrowed — Shamir *m*-of-*n* split, or an offline copy under separate access control — with a **documented, tested recovery drill**, and it MUST stay out of the database and off the database backup schedule (§10.4 trap 2). `grant_kek` and `channel_key` carry the same `kek_id` treatment; grants are 15-minute-lived so their rollover is trivial — say so rather than leaving it inferred.
 
@@ -1341,8 +1394,14 @@ UPDATE message_epoch SET write_key_wrapped = NULL
 UPDATE message_group
    SET current_epoch       = current_epoch + 1,
        epoch_complete      = false,
+       -- installed once and never changed thereafter; check 3 has already refused a
+       -- commit whose attachment carries a different read_key (§5.3)
+       read_key_wrapped    = COALESCE(read_key_wrapped, wrap(attachment.read_key)),
        media_ttl_seconds   = LEAST(attachment.media_ttl_seconds,  $server_media_cap),
-       durable_ttl_seconds = GREATEST(attachment.durable_ttl_seconds, $server_durable_min),
+       durable_ttl_seconds = CASE WHEN attachment.durable_ttl_seconds = 0
+                                  THEN NULL
+                                  ELSE GREATEST(attachment.durable_ttl_seconds,
+                                                $server_durable_min) END,
        group_context_hash  = attachment.group_context_hash,
        policy_version      = policy_version + 1
  WHERE group_id = $1;
@@ -1350,9 +1409,10 @@ UPDATE message_group
 -- (6b) On an accepted EpochComplete marker whose wrap_count equals that epoch's
 --      expected_wrap_count: UPDATE message_group SET epoch_complete = true.
 
--- (6c) On any record carrying a RecoveryTag: INSERT INTO message_recovery ... ON CONFLICT
---      DO NOTHING, then verify the stored verify_pub equals the tag's. A mismatch is
---      REASON_REJECTED and rolls the batch back (TOFU, §4.3.7).
+-- (6c) On any record carrying a RecoveryTag: INSERT INTO message_recovery ...
+--      ON CONFLICT (group_id, recovery_handle) DO NOTHING, then verify the stored
+--      verify_pub equals the tag's. A mismatch is REASON_REJECTED and rolls the batch
+--      back (TOFU, scoped to this group, §4.3.7).
 
 -- (7) Sender high-water and accounting.
 INSERT INTO message_sender (...) VALUES (...)
@@ -1368,7 +1428,7 @@ COMMIT;
 
 Why both the row lock and the `message_commit` primary key: the lock makes the losing path deterministic and lets the winner be read and returned in the same round trip; the primary key guarantees the invariant even if some future code path forgets the lock. The invariant is worth two mechanisms.
 
-**Attachment validation precedes acceptance (normative).** A commit is validated for attachment well-formedness — `epoch == current_epoch + 1`, `write_key` exactly 32 bytes, `alg_id` known, retention fields in range, and `expected_wrap_count > 0` — at step 3 of §5.1, *before* the CAS. An accepted commit carrying a malformed attachment would open an epoch with no verifiable write key and **brick the group permanently**: no member could ever submit again, and there is no epoch to commit from. This is the single most damaging failure available to a buggy client, and it is prevented by refusing the commit rather than by accepting and repairing.
+**Attachment validation precedes acceptance (normative).** A commit is validated for attachment well-formedness — `epoch == current_epoch + 1`, `write_key` exactly 32 bytes, `read_key` exactly 32 bytes and unchanged from the installed one, `alg_id` known, retention fields in range, and `expected_wrap_count > 0` — at step 3 of §5.1, *before* the CAS. An accepted commit carrying a malformed attachment would open an epoch with no verifiable write key and **brick the group permanently**: no member could ever submit again, and there is no epoch to commit from. This is the single most damaging failure available to a buggy client, and it is prevented by refusing the commit rather than by accepting and repairing.
 
 **CreateGroup, written out.**
 
@@ -1390,14 +1450,20 @@ message CreateGroupResponse {
 ```
 
 > The `CreateGroup` transaction inserts, atomically: `message_group{current_epoch = 1, next_record_id = 2,
-> epoch_complete = false}`; `message_epoch{epoch 0, wrap(write_key[0])}` and
+> epoch_complete = false, read_key_wrapped = wrap(attachment.read_key)}`;
+> `message_epoch{epoch 0, wrap(write_key[0])}` and
 > `{epoch 1, wrap(write_key[1])}`; `message_record{record_id = 1, epoch = 0, is_commit = true}`;
 > `message_commit{group_id, epoch 0, record_id 1}`; the creator's `message_sender` row; and a
-> `message_recovery` row if the initial commit carries a `RecoveryTag`.
+> `message_recovery` row if the initial commit carries a `RecoveryTag`. The initial commit's attachment is
+> mapped exactly as a steady-state commit's is, including `durable_ttl_seconds = 0 → NULL`.
 >
-> **§5.1 carve-out (normative):** `CreateGroup` skips check 5 (known-group filter) and check 6 (epoch key
-> lookup) and verifies the MAC in check 7 against `bootstrap_write_key` from its own request. Every other
-> check applies unchanged.
+> **§5.1 carve-out (normative):** `CreateGroup` skips check 5 (known-group filter) and check 6 (key
+> lookup: there is neither an installed epoch key nor an installed read key yet) and verifies the MAC in
+> check 7 against `bootstrap_write_key` from its own request. In check 3 the `EpochAttachment` rule
+> `epoch == current_epoch + 1` is evaluated as `epoch == 1`, because there is no `message_group` row and
+> therefore no `current_epoch` to compare against: the initial commit is at epoch 0 and its attachment
+> opens epoch 1. The attachment's `read_key` is installed unconditionally, since the group has none to
+> compare against. Every other check applies unchanged.
 >
 > The previous design supplied only `epoch0` "carrying `write_key[0]`" plus an initial commit at epoch 0.
 > Applying §6.1's steady-state rule to it gave either `current_epoch = 1` with no key installed for epoch 1
@@ -1417,18 +1483,22 @@ message CreateGroupResponse {
 >    `PERMANENT`-class record, `WrapTag` with `leaf_index = 0xFFFFFFFF`).
 > 3. The committer closes the fan-out with one `EpochComplete` marker record whose `wrap_count` MUST equal
 >    the attachment's `expected_wrap_count`. Until that marker is accepted, the group is
->    **readable-but-not-writable for members other than the committer**: the server returns
->    `REASON_EPOCH_INCOMPLETE` to any non-wrap submit at epoch `n+1`.
+>    **readable-but-not-writable**: the server returns `REASON_EPOCH_INCOMPLETE` to any non-wrap submit at
+>    epoch `n+1`. Step (2) of the transaction already implements exactly this and exempts wrap, snapshot
+>    and marker records for every submitter, so no change to the SQL is needed.
 > 4. A member or device that finds no wrap for its target at epoch `n+1` after the marker has landed
 >    surfaces a `gap` entry with reason `no_wrap`. It never fails silently.
 > 5. If the committer dies mid-fan-out, the marker never lands, the group stays non-writable, and any
 >    member may re-publish the missing wraps for epoch `n+1` (they are all derivable from the epoch state
 >    every member holds) and submit the marker.
 >
-> **Sizing at the 500-member × 2-device design target:** 1 commit + 1,000 device wraps + 500 recovery
-> wraps + 1 snapshot + 1 marker ≈ 1,503 records ≈ 2.1 MB. Per-record size caps apply to individual wrap
-> records, never to the commit as a whole. `max_records_per_submit` is 256 and `max_submit_bytes` is
-> 131072; both bind; a wrap-only batch therefore takes ~16 round trips.
+> **Sizing at the 500-member × 2-device design target.** Wraps pad to the ladder like everything else: a
+> device wrap (~1,210 B) and a recovery wrap (~1,242 B) both land in `size_bucket 2`, a `ct_body` of
+> exactly 4,112 bytes, about 4.6 KB on the wire each. One commit + 1,000 device wraps + 500 recovery
+> wraps + 1 snapshot + 1 marker ≈ 1,503 records ≈ **6.9 MB**, plus a ~300 KB snapshot object on the bulk
+> plane. Per-record size caps apply to individual wrap records, never to the commit as a whole.
+> `max_records_per_submit` is 256 and `max_submit_bytes` is 131072; the byte cap binds first at about
+> 28 wraps per submission, so a wrap-only batch takes **~55 round trips**.
 
 **stream_index scope.**
 
@@ -1517,6 +1587,7 @@ prune_after = LEAST(class_deadline, expire_at_or_infinity), where:
     PERMANENT (0)   -> infinity                                 -- never
     DURABLE   (1)   -> infinity, or create_time + group.durable_ttl_seconds when set,
                        FLOORED at Capabilities.durable_retention_min_seconds
+                       durable_ttl_seconds IS NULL (wire 0) -> infinity, never floored
     MEDIA     (2)   -> create_time + LEAST(group.media_ttl_seconds,
                                            Capabilities.media_ttl_max_seconds)
     EPH(0)          -> never stored at all (§7.6)
@@ -1565,7 +1636,7 @@ Three numbers in `Capabilities`, all configuration:
 |---|---|---|
 | `max_blob_bytes` | 100 MB | Master spec §12.2. Clients respect it; the server also enforces it at grant time and at assembly time |
 | `media_ttl_max_seconds` | 30 days | The cap. A group policy above it is silently clamped and the commit returns `REASON_RETENTION_CLAMPED` |
-| `durable_retention_min_seconds` | 0 (indefinite) | The minimum this server promises to honour for `DURABLE` |
+| `durable_retention_min_seconds` | **0 (no minimum)** | The minimum this server promises to honour for `DURABLE`. A group requesting indefinite `DURABLE` retention is above every minimum by construction and is stored as `NULL`, not floored |
 
 **Retention negotiation — RULED, warn and proceed, in both directions** (closes open item 3 and ledger open item 1). MASTER open item 1's original wording ("a group's policy **exceeds** the server's advertised **minimum**") was incoherent — exceeding a minimum is not a conflict. The two real cases:
 
@@ -1656,7 +1727,7 @@ Before this, `message_blob_prune` indexed a column no query ever selected on; th
 
 - **Set by** `messagectl close-group --group <id> --reason <r>`, an operator action, and by an owner-issued close record (V2).
 - **Means**: submits are rejected with `REASON_REJECTED`; fetch is still served, so members can read what they have.
-- `close_time` is stamped. After `group_reclaim_seconds` (config, default 30 days) the sweep deletes the group's records, blobs, epochs, sender rows and the group row itself.
+- `close_time` is stamped. After `group_reclaim_seconds` (config, default 30 days) the sweep deletes the group's records, blobs, epochs, sender rows, recovery rows and the group row itself — which is also what finally discards the group's `read_key`.
 
 This is the **only** storage-reclamation lever in v1. `DURABLE` defaults to indefinite and `PERMANENT` is never pruned, so a group whose members have all left otherwise keeps its full corpus forever, and an operator watching the disk fill has only `media_ttl_max_seconds` — which affects the class that is already the shortest-lived. Add `message_group_closed_total` and `message_group_reclaimed_total`.
 
@@ -1744,7 +1815,11 @@ Rounding rule (normative): an object is placed on the largest rung NOT EXCEEDING
 prune_after interval — never the nearest. ILM may therefore only delete early relative to the
 sweep, never late. A record with no prune_after (PERMANENT, or DURABLE with no TTL) uses perm/.
 
-BlobGrantRequest.retention_class MAY be PERMANENT, MEDIA, or the parent's EPH class.
+BlobGrantRequest.retention_class MAY be PERMANENT, DURABLE, MEDIA, or the parent's EPH class.
+
+DURABLE rung mapping: a DURABLE record with no TTL has no prune_after and uses perm/, exactly
+as PERMANENT does. A DURABLE record whose group set a TTL uses media/ttl-<rung>, rounded DOWN
+by the rule above like any other bounded record.
 
 Normative: SetLifecycle MUST NOT install any rule whose prefix matches `<prefix>/<env>/msg/perm/`.
 At startup the process reads back the bucket's ILM configuration and REFUSES READINESS if any rule
@@ -1946,7 +2021,7 @@ The second path is this server, and the mechanism is deliberately narrow:
 - **It MUST NOT accept an STH handed to it by a client**, and MUST NOT relay one client's STH to another. Doing either would collapse the two paths into one and hand an equivocating operator a way to launder its own fork.
 - A client compares the STH it got directly from the operator against the one the message server observed. Divergence at the same `kt_epoch` is equivocation, and the client surfaces it as the blocking warning of master §10.2.
 
-**Open item 5** stages the prefix tree behind the log. That is a weakening of master §10.1's "required, not optional" unless it is explicitly time-boxed. **It must carry a date, not a staging plan.**
+**Open item 5** stages the prefix tree behind the log. That is a weakening of master §10.1's "required, not optional" unless it is explicitly time-boxed. It is time-boxed by release rather than by calendar: see ledger open item 5, which makes the live log a gate on general availability.
 
 ### 9.6 Abuse response
 
@@ -2071,7 +2146,7 @@ Base backup nightly, WAL archived continuously, PITR window 7 days. Object store
 
 | What | Procedure |
 |---|---|
-| **KEK** (`write_key_kek`) | The §5.5 procedure: load both KEKs, unwrap under the row's `kek_id`, bounded background rewrap of every `epoch = current_epoch` row under the new id, retire the old id only when `message_kek_rewrap_pending` reaches zero. Cadence 180 days, or immediately on suspected exposure |
+| **KEK** (`write_key_kek`) | The §5.5 procedure: load both KEKs, unwrap under the row's `kek_id`, bounded background rewrap of every `message_epoch` row with `epoch = current_epoch` **and every `message_group.read_key_wrapped`** under the new id, retire the old id only when `message_kek_rewrap_pending` reaches zero. Cadence 180 days, or immediately on suspected exposure |
 | **`server_keys`** | Mint the successor → sign it with the outgoing key (`ServerKey.sig_by_previous`) → publish both in `HelloResponse` and `CapabilityChange` for one full pin window → switch signing → retire the predecessor |
 | **Instance credential** | §9.1 *Rotate*: second credential for the ordinal, restart, retire the first after the connect session drains. Cadence 90 days |
 | **`grant_kek` / `channel_key`** | Same `kek_id` treatment; grants live 15 minutes, so the rollover window is one grant lifetime |
@@ -2090,7 +2165,7 @@ Made operational:
 
 **MUST NOT appear in any log line, metric label, trace span, error string, panic message, core dump, database log, object-store access log, or Redis slowlog:**
 
-`group_id` · `sender_handle` · `record_id` · `stream_index` · `blob_id` · `grant_ref` · `recovery_handle` · `wrap_target_handle` · `client_id` · `network_id` · any IP address · any `ByJwt` · `write_auth` · `req_auth` · `write_key` (wrapped or not) · any KEK · any ciphertext or any prefix of it · any request or response body · any URL path containing a blob key · any `pgconn.PgError` `Detail`, `Hint` or `Where` field · the fact that a particular client fetched a particular range · any record that a record once existed and was deleted.
+`group_id` · `sender_handle` · `record_id` · `stream_index` · `blob_id` · `grant_ref` · `recovery_handle` · `wrap_target_handle` · `client_id` · `network_id` · any IP address · any `ByJwt` · `write_auth` · `req_auth` · `write_key` or `read_key` (wrapped or not) · any KEK · any ciphertext or any prefix of it · any request or response body · any URL path containing a blob key · any `pgconn.PgError` `Detail`, `Hint` or `Where` field · the fact that a particular client fetched a particular range · any record that a record once existed and was deleted.
 
 **MAY appear:** process lifecycle events; migration start/finish and version; aggregate counters and histograms; error *classes* without identifiers; panic type and stack frames. **Go's runtime always prints argument words in a traceback** — `GOTRACEBACK=single` reduces which goroutines print, not what each frame shows, and only `GOTRACEBACK=none` suppresses stacks, at the cost of all crash diagnostics. The mitigation is structural: the §11.2 redact types are opaque structs, so only a pointer and a length appear in registers.
 
@@ -2212,8 +2287,9 @@ A message-server-**local** sink with a stated retention of 7 days. The operator'
 | A-7 | Blob padding ladder and `blob_id` derivation — Spec A §5.13, which closes open item 4 | §8.1 |
 | A-8 | **A shared interop vector file** `testdata/message-server-vectors.json`: N records with epoch keys, nonces, and the expected verdict for each (accept / reject with reason), plus a commit-race scenario with the expected winner | The single artefact that keeps client and server agreeing. A **blocking CI job in both repos** |
 | A-9 | A measurement of the platform transport's production `FramerSettings.MaxMessageLen` (open item 2) | Sizes the inline ladder and the fragmentation budget |
-| A-10 | `ComputeRequestAuth` / `VerifyRequestAuth` (§4.3.8) and `RecoveryProof` / `VerifyRecoveryProof` (§4.3.7) | The read path and the seed-only restore path have no authenticator without them |
+| A-10 | `ComputeRequestAuth` / `VerifyRequestAuth` (§4.3.8), taking the group's `read_key` rather than an epoch key, and `RecoveryProof` / `VerifyRecoveryProof` (§4.3.7) | The read path and the seed-only restore path have no authenticator without them, and keying reads to an epoch would lock out any member that was offline across a commit |
 | A-11 | `expire_at` is unix **milliseconds**, `u64`, big-endian, `0` = unset, on the wire and in both preimages; the shared `connect/message` encoder is the **only** producer of the preimage on both sides and it is never re-derived from the database | A seconds/milliseconds mismatch passes for the common case (`expire_at` unset, value 0) and fails only for the minority that set it — A-1's exact warning, but intermittent |
+| A-12 | `blob_id` as a header field of the record, present iff `size_bucket == 5`, inside `AAD_head` and the `write_auth` preimage | §8.3 binds blobs by it and §5.1 check 3 acts on it; **I6** forbids the server acting on an unauthenticated field |
 
 The A-1 surface, in full:
 
@@ -2231,9 +2307,9 @@ func ComputeWriteAuth(writeKey []byte, serverNonce []byte, h *RecordHeader,
 func VerifyWriteAuth(writeKey []byte, serverNonce []byte, r *Record) bool           // constant time
 
 func RequestAuthPreimage(serverNonce []byte, op uint8, requestBytes []byte) []byte
-func ComputeRequestAuth(writeKey []byte, serverNonce []byte, op uint8,
+func ComputeRequestAuth(readKey []byte, serverNonce []byte, op uint8,
                         requestBytes []byte) [32]byte
-func VerifyRequestAuth(writeKey []byte, serverNonce []byte, op uint8,
+func VerifyRequestAuth(readKey []byte, serverNonce []byte, op uint8,
                        requestBytes []byte, auth []byte) bool                        // constant time
 
 func RecoveryProof(recoveryRoot []byte, serverNonce []byte,
@@ -2294,12 +2370,12 @@ Master spec §14 makes §9.7 an acceptance criterion for this slice. Concretely,
 9. **Dependency deny-list.** §2.2's `go list -deps` gate.
 10. **DoS ordering.** 10^5 submits with invalid `write_auth` against random group ids produce zero rows in `pg_stat_statements` beyond the epoch-key negative-cache reads. Guards §5.1's check order.
 11. **Migration-on-populated-database.** Every migration applied to a database restored from the previous release's schema with representative data.
-12. **`record_id` starts at 1.** Create a group, fetch with `since_record_id = 0`, assert the initial commit is returned.
+12. **`record_id` starts at 1.** Create a group, fetch with `since_record_id = 0`, assert the initial commit is returned, and assert a `CreateGroupRequest` whose initial commit carries an attachment for any epoch but 1 is refused.
 13. **Batch atomicity.** A 5-record batch whose third record regresses its stream index leaves `next_record_id` unchanged and writes zero rows.
 14. **Idempotent retry.** A submit that landed, replayed after a timeout at an epoch that has since advanced, returns `REASON_OK` — not `STREAM_INDEX_REGRESSED` and not `EPOCH_STALE`.
 15. **EPH gaplessness.** After an `EPH` sweep, `count(*) WHERE group_id = $1` is unchanged and `max(record_id) - min(record_id) + 1 == count(*)`.
 16. **Epoch-key update is bounded.** A commit at epoch 10,000 touches the same number of `message_epoch` rows as a commit at epoch 2.
-17. **Blob class match and the permanent rung.** Bind an `eph/ttl-1h`-rung blob to a `MEDIA` record; assert rejection. Create one blob per class; assert the object key's rung, and assert **no ILM rule matches the `perm/` prefix**.
+17. **Blob class match and the permanent rung.** Bind an `eph/ttl-1h`-rung blob to a `MEDIA` record; assert rejection. Create one blob per class — including `DURABLE` in **both** variants, with and without a group TTL — assert the object key's rung for each, and assert **no ILM rule matches the `perm/` prefix**.
 18. **Response byte bound.** Fetch 512 records at `size_bucket 4`; assert the response is byte-bounded, `complete = false`, and resumable from `next_record_id`.
 19. **Redaction round-trip.** Insert and read back every identifier type through the real store layer; assert no column anywhere in the schema contains the byte sequence `<redacted>` and every length CHECK holds.
 20. **Redaction under hostile logging.** Run the full workload with `log_min_messages = debug1` deliberately and assert the guarantee still holds at the application layer, so it does not rest solely on cluster config an ops change can silently revert.
@@ -2310,6 +2386,9 @@ Master spec §14 makes §9.7 an acceptance criterion for this slice. Concretely,
 25. **Recovery proof.** A `RecoveryFetchRequest` whose proof is under a different `recovery_root` is refused; a second `RecoveryTag` presenting a different `verify_pub` for a known handle is refused.
 26. **Epoch publication.** A commit followed by an incomplete wrap fan-out leaves `epoch_complete = false` and rejects an ordinary submit with `REASON_EPOCH_INCOMPLETE`; the `EpochComplete` marker clears it.
 27. **`expire_at` units and direction.** The shared interop vector file carries at least one record with a **non-zero** `expire_at`, so a seconds/milliseconds mismatch cannot pass by defaulting to 0. Separately: a `DURABLE` record with `expire_at` one hour out is pruned at one hour, not at the class deadline; a `MEDIA` record with `expire_at = 2999` is pruned at the class deadline, not at `expire_at`.
+28. **Encoding guard.** A blocking job fails the build on any occurrence, in `docs/**/*.md`, of the four byte runs that double-encoded UTF-8 produces — the sequences U+00E2 U+20AC, U+00C2 U+00A7, U+00C3 U+00A2 and U+00C3 U+201A — and asserts that `.gitattributes` contains the line `*.md text working-tree-encoding=UTF-8 eol=lf`. The check is expressed by codepoint, never as literal corrupted text, so it does not fail on its own source.
+29. **Catch-up after missed epochs.** A client that has missed 5 epochs reconnects, calls `GroupStatus`, `Fetch` and `WrapFetch` with a `req_auth` computed under the group's `read_key`, and succeeds on all three. Assert also that a commit whose `EpochAttachment` carries a different `read_key` from the installed one is refused with `REASON_REJECTED` and installs nothing.
+30. **Every authorized read is authorized.** For each of the five op bytes 13, 14, 16, 17 and 19: the request with a correct `req_auth` succeeds; the same request with the MAC computed under another group's `read_key`, under an epoch `write_key`, or under the wrong op byte, is refused with `REASON_REJECTED` and the same padded latency.
 
 ---
 
@@ -2329,3 +2408,4 @@ Master spec §14 makes §9.7 an acceptance criterion for this slice. Concretely,
 | Asymmetric per-epoch write proof | §5.3 — removes the server's forgery capability at one signature per record |
 | Grant proof-of-possession | §8.2 — the v1 grant is bearer-only for 15 minutes and says so |
 | Per-instance signing keys under a fleet root | §9.1, with the accepted risk stated there |
+| A wrap-sized rung on the size ladder | Wraps are ~1.2 KB and pad to the 4 KiB rung, which is most of the 6.9 MB epoch bundle (§3.5). A new rung is a wire change to a ladder restated in three documents and enforced as an equality by §5.1 check 3 — worth doing deliberately in V2, not as a size optimisation in v1 |

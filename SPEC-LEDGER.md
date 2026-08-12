@@ -18,16 +18,22 @@ targets one operator, one message server, many providers.
 
 | Item | State |
 |---|---|
-| MASTER protocol design | Revision 5 + errata E1–E3 — awaiting owner review |
-| Spec A — protocol / sdk / connect | Draft A-1, reviewed, 1 blocker + cross-cutting |
-| Spec B — message-server / operator | Draft, reviewed, **10 blockers** |
-| Spec C — Windows client UI | Draft, reviewed, blockers present |
-| Cross-cutting findings | **69** — these are the ones that get half-fixed |
+| MASTER protocol design | Revision 6 — 1,078 lines |
+| Spec A — protocol / sdk / connect | Revision A-3 — 3,127 lines |
+| Spec B — message-server / operator | Revision 3 — 2,411 lines |
+| Spec C — Windows client UI | Revision 3 — 1,506 lines |
+| Blockers | **0** — down from 41 |
+| Remaining | 30: 8 major, 22 minor. Ordinary pre-implementation cleanup. |
 | Implementation plan | Not written |
 | Code | None |
 
-**Not ready to hand to teams.** 41 blockers outstanding across the three specs; see the edit log
-entry of 2026-08-12 and `docs/reviews/2026-08-12-r4-findings-full.json`.
+**Ready for owner review, and for handoff once the owner has read them.** Four review rounds and two
+edit passes have taken this from 41 blockers to none. The remaining 8 majors and 22 minors are the
+kind a team absorbs alongside the build rather than before it.
+
+What no review can supply: whether the *product* decisions are the ones the owner wants. Every
+finding to date has been internal consistency, cryptographic soundness, or implementability. Nobody
+has checked the specs against intent.
 
 ## 2. Document map
 
@@ -227,3 +233,46 @@ read path** so any `ByJwt` holder who learns a `group_id` reads the entire group
 nowhere to store the epoch bundle that dominates its own storage budget. Spec C's update path
 requires elevation the app does not have, and its screen inventory has no pending-invite flow
 although Spec A's group model is invite-based. These must land before any handoff.
+
+---
+
+### 2026-08-12 — R4 and R5 edit passes: 41 blockers to 0
+
+**Change:** Two passes, 177 edits total, across MASTER and specs A/B/C. R4 applied 89 (blockers
+41 → 7); R5 converged the remainder (7 → 0) and stripped 31 leaked plan labels.
+
+**Why:** The specs are handed to separate teams. A blocker that survives handoff becomes a team
+building the wrong thing for a week.
+
+**Method:** findings resolved into a per-document edit plan, then applied by one agent per document
+so the two halves of a cross-cutting fix could not diverge, then verified by readers who had not
+seen the plan. Everything read from disk; nothing passed inline.
+
+**Substantive decisions taken during the fix:**
+
+- **Reads are authenticated under a separate `read_key`**, not `write_key`. `read_key =
+  HKDF-Expand(storage_root[0], "read/v1", 32)` — fixed at group creation, carried in
+  `EpochAttachment`, **never retired**. `write_key` keeps its current-epoch-plus-60s rule for
+  `write_auth` only. The alternative failed on a subtlety worth recording: every route *out* of a
+  stale epoch is itself a read, so any finite retention window for a read key leaves permanent
+  lockout.
+- **Contact blocking cut from Spec C.** It was not in the agreed v1 scope, Spec A defined no calls
+  for it, and its "and your other devices" copy needed a sync carrier nobody had scoped.
+- `blob_id` moved into the record header and both authenticator preimages — the server cannot derive
+  it, because it is key-derived by design.
+- One sentinel for indefinite durable retention: wire `0` ⇒ column `NULL` ⇒ infinity, mapped at one
+  site. Two incompatible ones had been introduced side by side.
+- The Windows client gets its own **perUser** MSI, which resolves the multi-user hole and the
+  elevation contradiction together — the previous perMachine install needed elevation the app is
+  explicitly designed not to have.
+- **The epoch bundle is ~6.9 MB, not the ~2.1 MB previously recorded**, over ~55 round trips. The
+  earlier figure was wrong and Spec B had been planning storage against it.
+
+**Reviewed by:** three verifiers reading all four documents from disk. Result: **0 blockers, 0 leaked
+labels** (independently re-grepped), 8 majors and 22 minors remaining.
+
+**Process note:** the earlier instruction to copy shared blocks "verbatim" was correct in intent but
+the blocks were not self-contained — they carried the plan's own `BLOCK-xx` and `X-nn`
+cross-references, and 31 of them shipped into the documents. The rule now is that replacement text
+must read correctly to someone who has never seen the plan, and each applier greps its own file
+before finishing.

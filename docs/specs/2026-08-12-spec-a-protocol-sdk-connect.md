@@ -3,9 +3,9 @@
 **Component:** `connect/mls`, `connect/message`, `sdk` client core, `URmessageSdk.dll`
 **Branch:** `beta/message` on `Ryanmello07/urnetwork-connect` and `Ryanmello07/urnetwork-sdk`
 **Date:** 2026-08-12
-**Revision:** A-2 (R4 review pass: 148-finding edit plan applied; file re-encoded to clean UTF-8)
+**Revision:** A-3 (R5 convergence pass: `blob_id` in the header and both preimages; `req_auth` re-keyed to a group-lifetime `read_key`; the SDK surface Spec C calls fully declared)
 **Status:** Design, pending owner review
-**Normative parent:** `docs/specs/2026-08-12-urmessage-protocol-design.md` (revision 5), hereafter **MASTER**
+**Normative parent:** `docs/specs/2026-08-12-urmessage-protocol-design.md` (revision 6), hereafter **MASTER**
 **Ledger:** `SPEC-LEDGER.md`
 **Siblings:** Spec B (message server), Spec C (Windows messaging client)
 
@@ -22,8 +22,8 @@ section and specifies the **Go types, package boundaries, and test obligations**
 
 | Item | State |
 |---|---|
-| MASTER protocol design | Revision 5, awaiting owner review |
-| This spec | Revision A-2, R4 edit plan applied |
+| MASTER protocol design | Revision 6, awaiting owner review |
+| This spec | Revision A-3, R5 convergence pass applied |
 | Code | None. `beta/message` branches not yet cut. |
 | Go toolchain | 1.26.5, verified on the build host (`go version` → `go1.26.5`) |
 | `crypto/mlkem` | Verified present: `NewDecapsulationKey768(seed)` takes a **64-byte** `d ‖ z` seed |
@@ -61,19 +61,14 @@ section and specifies the **Go types, package boundaries, and test obligations**
 
 ### 0.4 Open items
 
-1. **Retention negotiation — RULED** (MASTER §15 item 1): warn and proceed in both directions. The
-   `RetentionPolicyConflict` refuse-to-commit placeholder is **deleted**. `GroupEvent` carries
-   `RetentionApplied` instead (§7.3).
-2. **Push** (MASTER open item 2) — no push wake-up path exists. `sdk` exposes `RegisterPushChannel(uri string) error` / `UnregisterPushChannel() error` (§7.2) as no-op stubs so Spec C can wire WNS without an ABI break later. Scheduled as slice A11 (§13); the Azure AD application registration needs a named owner.
-3. **`OWNER_SUCCESSOR_SET` placement** (MASTER open item 4) — this spec assumes group-context extension and reserves extension type `0xF003`.
-4. **Skipped-key window size** — §5.5 proposes 1024 per (sender, class). Needs a memory budget from Spec C before it is fixed.
+Open items are consolidated in §14, with stable numbers. There is no second list.
 
 ### 0.5 Assumptions to confirm
 
 | Id | Assumption | Blast radius if wrong |
 |---|---|---|
 | A-ASSUME-1 | `modernc.org/sqlite` is acceptable in `sdk` despite being ~6 MB of transpiled C-as-Go, and builds under gomobile for `android/arm` (32-bit) | Contained: `sdk.MessageStore` is 14 methods. Fallback is a segment-log + index store, roughly 3 engineer-weeks. |
-| A-ASSUME-3 | **CONFIRMED, not an assumption.** X-Wing is pinned at `draft-connolly-cfrg-xwing-kem-06` semantics: a **32-byte** seed, expanded internally to 96 bytes with SHAKE-256, SHA3-256 combiner. | MASTER revision 5 §5.2 already derives a 32-byte seed. There is nothing to rule on. |
+| A-ASSUME-3 | **CONFIRMED, not an assumption.** X-Wing is pinned at `draft-connolly-cfrg-xwing-kem-06` semantics: a **32-byte** seed, expanded internally to 96 bytes with SHAKE-256, SHA3-256 combiner. | MASTER §5.2 already derives a 32-byte seed. There is nothing to rule on. |
 | A-ASSUME-4 | v1 groups use `PrivateMessage` wire format for **all** handshake messages (no `PublicMessage` on the wire) | Simplifies the profile and removes the membership-tag path from production. `PublicMessage` is still implemented because the interop harness and ValSem007/008 require it; it is refused by policy at the group config. |
 | A-ASSUME-5 | The message server is trusted to be the single Delivery Service, so `connect/message` implements no client-side commit-conflict resolution beyond re-derive-and-retry | MASTER §9.3. If multi-server lands in V2 this becomes a real distributed-consensus problem. |
 
@@ -86,7 +81,8 @@ Append-only. Newest last. One entry per commit that changes this spec. Every cha
 
 | Date | Revision | Change |
 |---|---|---|
-| 2026-08-12 | A-2 | R4 review pass. File re-encoded from double-encoded UTF-8 to clean UTF-8, no BOM, LF (X-1). Wire binding adopted from Spec B and `MessageEnvelope`/`MessageOp`/`MessageStreamAck` deleted (X-2). `server_attachment` adopted, §5.11 added (X-3). `H(write_key)` language struck; the server holds `write_key` (X-4). Retention-class wire byte fixed to `0x10 \| bucket` (X-5). `stream_index` scoped to `(group_id, sender_handle)` (X-6). `record_id` made a 1-based `uint64` (X-7, X-8). `req_auth` added for reads (X-9); Ed25519 recovery proof (X-10). Epoch publication sequence and wrap indexing (X-11, X-12). `expire_at` fixed to milliseconds, may only shorten (X-13). Fetch attestation covers `class_mask`/`heads_only` (X-14). `server_nonce` per connection, never rotated (X-15). One exported-surface table (X-16). Evidence classes closed, `self_signed_rotation` reserved (X-17). `"delivered"` deleted (X-18). `RevealSeedphrase` added (X-19). One Go runtime, decision A12 (X-20, X-21). `CanSend`/health/`SyncState` vocabularies added (X-22). Key-change scope split DM/group (X-23). Retention negotiation ruled warn-and-proceed (X-25). Interfaces-out table added (X-26). Event drop counter and sequence (X-27). §5.12 (losing committer) and §5.13 (blobs) added. |
+| 2026-08-12 | A-2 | R4 review pass. File re-encoded from double-encoded UTF-8 to clean UTF-8, no BOM, LF. Wire binding adopted from Spec B and `MessageEnvelope`/`MessageOp`/`MessageStreamAck` deleted. `server_attachment` adopted, §5.11 added. `H(write_key)` language struck; the server holds `write_key`. Retention-class wire byte fixed to `0x10 \| bucket`. `stream_index` scoped to `(group_id, sender_handle)`. `record_id` made a 1-based `uint64`. `req_auth` added for reads; Ed25519 recovery proof. Epoch publication sequence and wrap indexing. `expire_at` fixed to milliseconds, may only shorten. Fetch attestation covers `class_mask`/`heads_only`. `server_nonce` per connection, never rotated. One exported-surface table. Evidence classes closed, `self_signed_rotation` reserved. `"delivered"` deleted. `RevealSeedphrase` added. One Go runtime, decision A12. `CanSend`/health/`SyncState` vocabularies added. Key-change scope split DM/group. Retention negotiation ruled warn-and-proceed. Interfaces-out table added. Event drop counter and sequence. §5.12 (losing committer) and §5.13 (blobs) added. |
+| 2026-08-12 | A-3 | R5 convergence pass. `blob_id` added to `RecordHeader` and to both preimages. `req_auth` re-keyed from the epoch `write_key` to a group-lifetime `read_key`, carried in `EpochAttachment` and delivered to joiners in the `Welcome`; `WrapFetch` added to the authorized-read set with op byte 19. `MessageInvite`, `MessageReaction`, `MessageReceipt` and `MessageHistoryGrant` defined. `Retry`, `SetDisappearing`, `SetGroupMuted`, `SetGroupNotificationMode`, `GrantHistory` and `HistoryGrants` added. `MessageRetentionApplied` moved to seconds to match the wire. `write_auth` declared zero on read. MIME authority ruled to `connect/message`. Epoch-bundle sizing recomputed against the padded ladder. Interfaces-out rows A-11 and A-12 added. Open-item numbering unified on §14. All internal edit-plan labels replaced with real section references. |
 
 ---
 
@@ -229,12 +225,19 @@ Spec B consumes `connect/message` through that same replace. The record codec ha
 implementation, shared by client and server, and the wire message is shaped to make that literally
 true rather than merely intended:
 
-> On **submit**, the server calls `message.ParseRecord(record_bytes)`, verifies every projection field
-> equals the parsed value, verifies `write_auth`, and stores the record **decomposed** into columns.
-> On **read**, the server rebuilds `record_bytes` by calling `message.EncodeRecord` over the stored
-> columns — with `ct_body` nil when the body has been erased or when `heads_only` is set — and sets
-> `record_id`. There is exactly one encoder and one parser in the system, and the server links the same
-> Go code the client does.
+On **submit**, the server calls `message.ParseRecord(record_bytes)`, verifies every projection field
+equals the parsed value, verifies `write_auth`, and stores the record **decomposed** into columns.
+On **read**, the server rebuilds `record_bytes` by calling `message.EncodeRecord` over the stored
+columns — with `ct_body` nil when the body has been erased or when `heads_only` is set — and sets
+`record_id`. There is exactly one encoder and one parser in the system, and the server links the same
+Go code the client does.
+
+`write_auth` is **zero on read**. It is a MAC over the submitting connection's `server_nonce`, which
+is scoped to that connection and meaningless to anyone else, so there is nothing to reconstruct and
+nobody who could verify it. `EncodeRecord` accepts a zero `WriteAuth` and `ParseRecord` never rejects
+one. A client MUST NOT verify `write_auth` on a fetched record: record authenticity is MLS's, per
+MASTER I5, and a client that treated a server-rebuilt MAC as evidence would be trusting the server
+to vouch for content.
 
 ---
 
@@ -262,7 +265,7 @@ silent skip.
 | Extensions, leaf node | `urmessage_leaf_keys` (0xF002) | `leaf_node.go` |
 | Extensions, reserved unimplemented | `urmessage_owner_successor` (0xF003) | reserved, parse-refused in v1 |
 | Lifetime enforcement on KeyPackages | yes, ±1h clock skew tolerance | `key_package.go:Validate` |
-| Max group size | no hard cap; design target 500 (MASTER P4). A soft warning fires above 1000 leaves | `group.go` |
+| Max group size | no hard cap; design target 500 (ledger P4). A soft warning fires above 1000 leaves | `group.go` |
 | Delivery service | ours, strongly consistent (MASTER §9.3) | `connect/message` |
 
 ### 3.2 Deliberately not implemented, and what happens instead
@@ -869,6 +872,10 @@ type RecordHeader struct {
     SizeBucket       SizeBucket
     ExpireAt         uint64    // unix MILLISECONDS, 0 = unset. May only shorten retention.
     BodyHash         [32]byte  // H(CtBody). RETAINED after CtBody is erased.
+    BlobId           []byte    // exactly 32 bytes iff SizeBucket == SizeBucketBlob, else nil.
+                               // Covered by AAD_head and by write_auth like every other header
+                               // field. Derived from the record's key material (§5.13), never
+                               // from content.
     ServerAttachment []byte    // nil/empty for ordinary records. §5.11.
 }
 
@@ -880,6 +887,11 @@ type Record struct {
     WriteAuth [32]byte      // computed last
 }
 ```
+
+The codec encodes `BlobId` as a length prefix in both `AAD_head` and the `write_auth` preimage, and
+that prefix is **zero-length** whenever `SizeBucket != SizeBucketBlob`. There is no conditional in
+the preimage builder and no special case for ordinary records; `ParseRecord` rejects a record whose
+`BlobId` presence disagrees with its `SizeBucket`.
 
 **The wire byte.** `RetentionClass` above is a Go-side tag. The wire encoding is fixed by MASTER §8 and
 is restated here character-for-character because Spec B §3.1 restates the same table and a divergence
@@ -915,12 +927,12 @@ split the class and the bucket. A grep gate forbids `class<<4`, `class|bucket`, 
 
 **`record_id`.**
 
-> `record_id` is a **per-group, gapless, monotonically allocated `uint64`**, server-assigned after
-> acceptance. It is **1-based**: `message_group.next_record_id` starts at 1 and `record_id = 0` is never
-> assigned, so `since_record_id = 0` is the well-defined "from the beginning" cursor for an exclusive lower
-> bound. It is used for pagination and for hole detection only. It is **never authenticated**: it appears in
-> neither `AAD_head`, nor `AAD_body`, nor the `write_auth` preimage, nor the `req_auth` preimage. It is
-> ignored on submit and populated on read.
+`record_id` is a **per-group, gapless, monotonically allocated `uint64`**, server-assigned after
+acceptance. It is **1-based**: `message_group.next_record_id` starts at 1 and `record_id = 0` is never
+assigned, so `since_record_id = 0` is the well-defined "from the beginning" cursor for an exclusive lower
+bound. It is used for pagination and for hole detection only. It is **never authenticated**: it appears in
+neither `AAD_head`, nor `AAD_body`, nor the `write_auth` preimage, nor the `req_auth` preimage. It is
+ignored on submit and populated on read.
 
 **Size-bucket byte lengths, including the AEAD tag.** Spec B indexes and `CHECK`s on the right-hand
 column; it is published here so the two never diverge (§12.1 A-3).
@@ -1082,7 +1094,7 @@ func (self *ReceiverRatchet) KeyFor(index uint64) ([]byte, error)      // fills 
 Window size: **1024 keys per (sender_handle, retention class)**, ~32 KB each, capped at 64 senders
 tracked per group before the oldest is evicted. For a 500-member group with two devices each this is
 a worst case of ~2 MB per group, which is why the cap on tracked senders exists. Needs a Spec C memory
-budget to finalize (open item 4).
+budget to finalize (§14 open item 7).
 
 Beyond the window, a record is undecryptable and surfaces as a `Kind == "gap"` entry with
 `GapReason == "out_of_window"` (§7.4) — not as an error. This is a deliberate, visible failure:
@@ -1097,14 +1109,14 @@ is entirely preventable.
 
 ### 5.6 `stream_index` is write-once, and durably so
 
-> `stream_index` is a single `u64` counter per `(group_id, sender_handle)`, write-once, assigned locally.
-> A device MUST durably record "index *k* consumed" **before** encrypting, and MUST NEVER encrypt a second
-> record at a consumed index. The server enforces **monotonicity, not contiguity**, so a refused write, a
-> crash between reserve and send, or a lost commit leaves a legal gap.
->
-> `EPH(bucket 0)` transients **do** consume an index locally (so the counter is never rewound) and are
-> **never** checked server-side, because the record is never stored and `message_sender.last_stream_index`
-> is not advanced for them.
+`stream_index` is a single `u64` counter per `(group_id, sender_handle)`, write-once, assigned locally.
+A device MUST durably record "index *k* consumed" **before** encrypting, and MUST NEVER encrypt a second
+record at a consumed index. The server enforces **monotonicity, not contiguity**, so a refused write, a
+crash between reserve and send, or a lost commit leaves a legal gap.
+
+`EPH(bucket 0)` transients **do** consume an index locally (so the counter is never rewound) and are
+**never** checked server-side, because the record is never stored and `message_sender.last_stream_index`
+is not advanced for them.
 
 Nonce reuse under a repeated `record_key` is a total break of both AEADs for that record, which is why
 the reservation is durable rather than best-effort.
@@ -1138,18 +1150,25 @@ func WriteKey(storageRoot []byte) []byte    // HKDF-Expand(storage_root[n], "wri
 // MAC(write_key, "URmessage/v1/write" ‖ LP(server_nonce) ‖ LP(group_id)
 //     ‖ LP(sender_handle) ‖ u64(epoch) ‖ u64(stream_index) ‖ u8(is_commit)
 //     ‖ u8(retention_class) ‖ u8(size_bucket) ‖ u64(expire_at)
-//     ‖ LP(H(ct_head)) ‖ LP(body_hash) ‖ LP(H(server_attachment)))
+//     ‖ LP(H(ct_head)) ‖ LP(body_hash) ‖ LP(blob_id) ‖ LP(H(server_attachment)))
 func WriteAuthPreimage(serverNonce []byte, h *RecordHeader, ctHead []byte,
                        serverAttachment []byte) []byte
 func ComputeWriteAuth(writeKey []byte, serverNonce []byte, h *RecordHeader,
                       ctHead []byte, serverAttachment []byte) [32]byte
 func VerifyWriteAuth(writeKey []byte, serverNonce []byte, record *Record) bool   // constant time
 
-// MAC(write_key, "URmessage/v1/req" ‖ LP(server_nonce) ‖ u8(op) ‖ LP(request_bytes))
+// read_key = HKDF-Expand(storage_root[0], "read/v1", 32). Fixed at group creation,
+// never rotated, and delivered to a joining member in its Welcome alongside
+// group_handle_key. Deriving it from the CURRENT epoch's storage_root would lock out
+// every client that was offline across a commit — see the read-authorization
+// discussion below.
+func ReadKey(storageRootZero []byte) []byte
+
+// MAC(read_key, "URmessage/v1/req" ‖ LP(server_nonce) ‖ u8(op) ‖ LP(request_bytes))
 func RequestAuthPreimage(serverNonce []byte, op uint8, requestBytes []byte) []byte
-func ComputeRequestAuth(writeKey []byte, serverNonce []byte, op uint8,
+func ComputeRequestAuth(readKey []byte, serverNonce []byte, op uint8,
                         requestBytes []byte) [32]byte
-func VerifyRequestAuth(writeKey []byte, serverNonce []byte, op uint8,
+func VerifyRequestAuth(readKey []byte, serverNonce []byte, op uint8,
                        requestBytes []byte, auth []byte) bool                     // constant time
 
 // recovery.go — MASTER §5.2, §9.2. Ed25519, NOT a MAC: the server holds only the
@@ -1164,30 +1183,52 @@ func VerifyRecoveryProof(recoveryVerifyPub []byte, serverNonce []byte,
 performs on the write path, and per MASTER I5 it is access control, never authenticity — a forged
 record fails MLS verification at every client no matter what the server accepts.
 
-**Read authorization.** Reads are authorized by a second authenticator under the same key and a
-distinct domain label:
+**Read authorization.** Reads are authorized under the group's lifetime `read_key` and a domain label
+distinct from `write_auth`'s:
 
 ```
-req_auth = MAC(write_key[current_epoch],
-               "URmessage/v1/req" ‖ LP(server_nonce) ‖ u8(op) ‖ LP(canonical_request_bytes))
+req_auth = MAC(read_key, "URmessage/v1/req" ‖ LP(server_nonce) ‖ u8(op)
+                         ‖ LP(canonical_request_bytes))
 
+  read_key                = HKDF-Expand(storage_root[0], "read/v1", 32), fixed at group
+                            creation and never rotated.
   op                      = the field number of the selected `oneof body` arm in
-                            MessageServerRequest (10..18), as a u8.
+                            MessageServerRequest, as a u8.
   canonical_request_bytes = the deterministically-marshaled request body message
                             (protobuf deterministic marshal, fields ascending) with its
                             own `req_auth` field set to zero length.
 
-Required on: FetchRequest, SubscribeRequest, BlobGrantRequest, GroupStatusRequest.
-NOT used on: HelloRequest (no group), CreateGroupRequest (self-certified, see X-24),
-             SubmitRequest (records carry write_auth individually),
-             RecoveryFetchRequest (asymmetric proof, see X-10).
+Required on, with their op bytes:  FetchRequest (13), SubscribeRequest (14),
+                                   GroupStatusRequest (16), BlobGrantRequest (17),
+                                   WrapFetchRequest (19).
 
-Verified with §5.1 checks 2, 4, 5, 6 and then this MAC, returning the same non-specific
-REASON_REJECTED on failure. No transaction is opened and no row is allocated on the read path.
+NOT used on: HelloRequest (names no group, and is where server_nonce is issued),
+             CreateGroupRequest (the group does not exist yet; the initial commit is
+               self-certified against bootstrap_write_key — Spec B §6.1),
+             UnsubscribeRequest (cancels only the caller's own subscription),
+             SubmitRequest (every record in it carries its own write_auth),
+             RecoveryFetchRequest (asymmetric Ed25519 proof, below).
+
+Verified on the server with Spec B §5.1 checks 1, 2, 4, 5 and the group read-key lookup,
+and then this MAC, returning Spec B's deliberately non-specific REASON_REJECTED on
+failure. No transaction is opened and no row is allocated on the read path.
 ```
 
-**The recovery proof.** A seed-only restorer holds no `write_key`, so `RecoveryFetch` is authorized
-asymmetrically:
+`read_key` is deliberately not the epoch's `write_key`. The server keeps only the current epoch's
+write key and one 60-second predecessor, so a client that was offline across one commit holds a key
+the server cannot resolve — and every route out of that condition (`GroupStatus` to learn the epoch,
+`Fetch` to obtain the commits, `WrapFetch` to obtain its own wrap) is itself a read. `connect/message`
+therefore takes a `read_key` on every request-auth call and has no code path that MACs a request
+under a `write_key`; `TestReadAuthNeverUsesWriteKey` asserts it by walking the call graph of
+`ComputeRequestAuth`.
+
+A group's `read_key` reaches the server inside `EpochAttachment.read_key` on every commit, identical
+in every epoch, and reaches a joining member in the `Welcome` alongside `group_handle_key` (MASTER
+§8). A member that holds neither cannot read at all — including the read that would fetch the commit
+that admitted it, which is why both travel out of band with the join.
+
+**The recovery proof.** A seed-only restorer holds no group key at all — neither `write_key` nor
+`read_key` — so `RecoveryFetch` is authorized asymmetrically:
 
 ```
 recovery_root      = HKDF-Expand(master_key, "recovery/v1", 32)              (unchanged)
@@ -1199,7 +1240,7 @@ recovery_verify_pub= Ed25519 public key of recovery_sig_sk                   (32
 recovery_proof = Ed25519(recovery_sig_sk,
                    "URmessage/v1/recovery" ‖ LP(server_nonce) ‖ LP(recovery_handle))
 
-The archive record's server_attachment RecoveryTag (BLOCK-SA, kind 0x0002) carries
+The archive record's server_attachment RecoveryTag (§5.11, kind 0x0002) carries
 {recovery_handle, recovery_verify_pub, alg_id} and is covered by write_auth, so the
 public half arrives authenticated as a member of the group.
 
@@ -1210,14 +1251,14 @@ the client's server-key pin). RecoveryFetchRequest.proof is verified against it.
 
 **The nonce.**
 
-> `server_nonce` is 32 bytes, issued by the message server at session start in `HelloResponse`, scoped to
-> **that connection**, valid for the life of that connection, and never rotated. It prevents
-> cross-connection replay. It is **not** carried in requests — the server knows its own connection's nonce
-> and looks it up from the connection, never from the request.
->
-> **Outbox rule (normative, client side).** On reconnect, every queued record MUST be re-MAC'd against the
-> new connection's nonce before submission. On `REASON_EPOCH_STALE`, a queued record MUST be discarded and
-> re-sealed at the new epoch, consuming a **fresh** `stream_index`.
+`server_nonce` is 32 bytes, issued by the message server at session start in `HelloResponse`, scoped to
+**that connection**, valid for the life of that connection, and never rotated. It prevents
+cross-connection replay. It is **not** carried in requests — the server knows its own connection's nonce
+and looks it up from the connection, never from the request.
+
+**Outbox rule (normative, client side).** On reconnect, every queued record MUST be re-MAC'd against the
+new connection's nonce before submission. On `REASON_EPOCH_STALE`, a queued record MUST be discarded and
+re-sealed at the new epoch, consuming a **fresh** `stream_index`.
 
 This layer takes the nonce as an opaque byte string and refuses to compute with an empty one.
 
@@ -1256,11 +1297,11 @@ These are the specific ways this code will be got wrong. Each has a mechanical d
 | G10 | `pq_secret[n+1]` carried across a lost commit | The provisional epoch state is a value that `ClearPendingCommit` destroys; there is no path that reads it afterwards. `TestLostCommitResamplesPqSecret` |
 | G11 | `stream_index` reused after a lost commit | Extend `TestStreamIndexNeverReused` with an injected commit loss between reserve and re-seal |
 
-### 5.10 Corrections adopted in MASTER revision 5
+### 5.10 Corrections adopted in MASTER
 
-Three problems were found while specifying this layer. **All three are already applied in MASTER
-revision 5**; they are recorded here only so a reader of this document does not implement the
-pre-correction variant. No ruling is outstanding and nothing blocks slice A6.
+Three problems were found while specifying this layer. **All three are applied in MASTER**; they are
+recorded here only so a reader of this document does not implement the pre-correction variant. No
+ruling is outstanding and nothing blocks slice A6.
 
 | # | Correction | Where it now lives in MASTER |
 |---|---|---|
@@ -1268,8 +1309,10 @@ pre-correction variant. No ruling is outstanding and nothing blocks slice A6.
 | E2 | The per-epoch ratchet-tree snapshot is **one `PERMANENT`-class record per epoch** under `K_snapshot[n] = HKDF-Expand(storage_root[n], "snap/v1", 32)`, not a copy inside every wrap. | §8.2, "The epoch snapshot is a record, not part of the wrap" |
 | E3 | The recovery X-Wing key is derived from a **32-byte** seed, expanded internally with SHAKE-256 per draft-06. A 96-byte HKDF output used directly is not X-Wing and forfeits the security proof. | §5.2 |
 
-Sizing after all three, for 500 members × 2 devices, is MASTER §8.2's table and is unchanged: device
-wraps 1.21 MB, recovery wraps 0.62 MB, snapshot 0.30 MB, **~2.1 MB per commit**.
+Sizing after all three, for 500 members × 2 devices, is MASTER §8.2's sizing paragraph: every wrap
+pads to `size_bucket 2` (a `ct_body` of exactly 4,112 bytes), so a device wrap and a recovery wrap are
+each about 4.6 KB on the wire — device wraps 4.6 MB, recovery wraps 2.3 MB, snapshot 0.30 MB on the
+bulk plane, **≈ 6.9 MB per commit** and ~55 round trips at `max_submit_bytes = 131072`.
 
 ### 5.11 The server attachment
 
@@ -1292,6 +1335,9 @@ EpochAttachment {
     u64  epoch                  // the epoch this attachment OPENS. MUST equal current_epoch + 1
     u16  alg_id                 // 0x0031 (HKDF-SHA-256) in v1
     LP   write_key              // exactly 32 bytes: write_key[epoch]
+    LP   read_key               // exactly 32 bytes: read_key = HKDF-Expand(storage_root[0],
+                                //   "read/v1", 32). Identical in every epoch of this group;
+                                //   the server refuses a commit that changes it (§5.7)
     u32  media_ttl_seconds
     u32  durable_ttl_seconds    // 0 = indefinite
     LP   group_context_hash     // exactly 32 bytes
@@ -1319,36 +1365,39 @@ wrap_target_handle = HKDF-Expand(group_handle_key, "wt/v1" ‖ u64(epoch) ‖ u3
                      // The epoch snapshot record uses leaf_index = 0xFFFFFFFF.
 ```
 
-**Epoch publication.**
+**Epoch publication sequence.** A commit is submitted at `epoch == current_epoch = n`, MAC'd under
+`write_key[n]`, and carries an `EpochAttachment` for epoch `n+1`.
 
-> **Epoch publication sequence.** A commit is submitted at `epoch == current_epoch = n`, MAC'd under
-> `write_key[n]`, and carries an `EpochAttachment` for epoch `n+1`.
->
-> 1. The server accepts at most one commit per `(group_id, epoch)`. On acceptance it sets
->    `current_epoch := n+1` and installs `write_key[n+1]` from the attachment, in the same transaction.
-> 2. The committer then submits, **as ordinary records at epoch `n+1`, MAC'd under `write_key[n+1]`**: one
->    device wrap per active device leaf (`WrapTag`, indexed by `wrap_target_handle`), one recovery wrap per
->    member (`RecoveryTag`, indexed by `recovery_handle`), and the ratchet-tree snapshot (one
->    `PERMANENT`-class record, `WrapTag` with `leaf_index = 0xFFFFFFFF`).
-> 3. The committer closes the fan-out with one `EpochComplete` marker record whose `wrap_count` MUST equal
->    the attachment's `expected_wrap_count`. Until that marker is accepted, the group is
->    **readable-but-not-writable for members other than the committer**: the server returns
->    `REASON_EPOCH_INCOMPLETE` to any non-wrap submit at epoch `n+1`.
-> 4. A member or device that finds no wrap for its target at epoch `n+1` after the marker has landed
->    surfaces a `gap` entry with reason `no_wrap`. It never fails silently.
-> 5. If the committer dies mid-fan-out, the marker never lands, the group stays non-writable, and any
->    member may re-publish the missing wraps for epoch `n+1` (they are all derivable from the epoch state
->    every member holds) and submit the marker.
->
-> **Sizing at the 500-member × 2-device design target:** 1 commit + 1,000 device wraps + 500 recovery
-> wraps + 1 snapshot + 1 marker ≈ 1,503 records ≈ 2.1 MB. Per-record size caps apply to individual wrap
-> records, never to the commit as a whole. `max_records_per_submit` is 256 and `max_submit_bytes` is
-> 131072; both bind; a wrap-only batch therefore takes ~16 round trips.
+1. The server accepts at most one commit per `(group_id, epoch)`. On acceptance it sets
+   `current_epoch := n+1` and installs `write_key[n+1]` from the attachment, in the same transaction.
+2. The committer then submits, **as ordinary records at epoch `n+1`, MAC'd under `write_key[n+1]`**: one
+   device wrap per active device leaf (`WrapTag`, indexed by `wrap_target_handle`), one recovery wrap per
+   member (`RecoveryTag`, indexed by `recovery_handle`), and the ratchet-tree snapshot (one
+   `PERMANENT`-class record, `WrapTag` with `leaf_index = 0xFFFFFFFF`).
+3. The committer closes the fan-out with one `EpochComplete` marker record whose `wrap_count` MUST equal
+   the attachment's `expected_wrap_count`. Until that marker is accepted, the group is
+   **readable-but-not-writable**: the server returns `REASON_EPOCH_INCOMPLETE` to any non-wrap submit
+   at epoch `n+1`.
+4. A member or device that finds no wrap for its target at epoch `n+1` after the marker has landed
+   surfaces a `gap` entry with reason `no_wrap`. It never fails silently.
+5. If the committer dies mid-fan-out, the marker never lands, the group stays non-writable, and any
+   member may re-publish the missing wraps for epoch `n+1` (they are all derivable from the epoch state
+   every member holds) and submit the marker.
+
+**Sizing at the 500-member × 2-device design target.** Wraps pad to the ladder like everything else:
+a device wrap (~1,210 B) and a recovery wrap (~1,242 B) both land in `size_bucket 2`, a `ct_body` of
+exactly 4,112 bytes, about 4.6 KB on the wire each. One commit + 1,000 device wraps + 500 recovery
+wraps + 1 snapshot + 1 marker ≈ 1,503 records ≈ **6.9 MB**, plus a ~300 KB snapshot object. Per-record
+size caps apply to individual wrap records, never to the commit as a whole. `max_records_per_submit`
+is 256 and `max_submit_bytes` is 131072; the byte cap binds first at about 28 wraps per submission,
+so a wrap-only batch takes **~55 round trips**.
 
 The snapshot exceeds the 64 KiB inline ceiling and is therefore written by `wrap.go` as a **blob-ref
-record** (`size_bucket = 5`) of class `PERMANENT`. The server MUST offer a non-expiring object rung for
-it — see Spec B §8.3 — and MUST NOT place it on any TTL ladder. `BlobGrantRequest.retention_class` MAY
-therefore be `PERMANENT`, `MEDIA`, or the parent's `EPH` class.
+record** (`size_bucket = 5`) of class `PERMANENT`. The server MUST offer a non-expiring object rung
+for it — see Spec B §8.3 — and MUST NOT place it on any TTL ladder. `BlobGrantRequest.retention_class`
+MAY therefore be `PERMANENT`, `DURABLE`, `MEDIA`, or the parent's `EPH` class; the server binds a
+blob only to a record of the *same* class, so omitting `DURABLE` would make a durable attachment
+unrepresentable.
 
 The Go surface:
 
@@ -1421,6 +1470,11 @@ overhead, removes fine-grained size fingerprinting. This closes Spec B open item
 MIME type is determined by the client from the file's content sniff plus extension and is carried
 **inside** the encrypted body, never on the wire; the bulk plane always sees
 `application/octet-stream`.
+
+The `mimeType` argument of `SendAttachment` (§7.4) is a **hint** from the caller's file picker.
+`connect/message` sniffs the content itself and uses its own result whenever the two disagree; an
+empty hint is legal and means "sniff it". One layer decides, and it is this one, because the value
+travels inside the encrypted body that this layer builds.
 
 ---
 
@@ -1638,7 +1692,7 @@ type SyncState struct {
     TokenState               string   // "valid" | "expired" | "absent"
     BlockedReason            string   // a vocabulary-3 Reason, or "none"
     EvaluatedAtMs            int64
-    Dropped                  int64    // events dropped for this Sub since the last delivery (X-27)
+    Dropped                  int64    // events dropped for this Sub since the last delivery
 }
 // SyncStateChanged fires on every transition of any field.
 ```
@@ -1650,7 +1704,7 @@ type SyncState struct {
 //   "ok"
 //   "offline"                 no network on the machine
 //   "server_unreachable"      §9.4's reachability rule has fired
-//   "key_change_unresolved"   a DM peer's key changed and is unaccepted (X-23)
+//   "key_change_unresolved"   a DM peer's key changed and is unaccepted
 //   "not_a_member"            removed from the group
 //   "observer"                role is OBSERVER
 //   "no_leaf_after_restore"   seed-only restore; no MLS leaf in this group
@@ -1658,7 +1712,8 @@ type SyncState struct {
 //   "phrase_not_confirmed"    PhraseConfirmedAtMs() == 0 and C-1's gate applies
 //   "store_unavailable"       the local store could not be opened
 //   "group_closed"            the server has closed the group
-//   "epoch_incomplete"        the epoch's wrap set has not landed yet (BLOCK-EPOCH step 3)
+//   "epoch_incomplete"        the epoch's wrap set has not landed yet (§5.11, epoch
+//                             publication step 3)
 
 // ── 2. Send failure. SendStateChanged / MessageEntry.Reason ────────────────
 //   every value of vocabulary 1, plus:
@@ -1669,7 +1724,7 @@ type SyncState struct {
 //   "quota_exceeded"
 //   "internal"
 // NOT a value: "commit_lost" (A retries internally and never surfaces it — MASTER §9.3),
-//              "retention_refused" (deleted; retention is warn-and-proceed — X-25).
+//              "retention_refused" (deleted; retention is warn-and-proceed — MASTER §15 item 1).
 
 // ── 3. Health. MessageHealthEvent.State ───────────────────────────────────
 //   "no_account" | "offline" | "connecting" | "reachable" | "degraded"
@@ -1706,6 +1761,8 @@ type MessageServerInfo struct {
     MaxRecordsPerFetch    int32
     MaxRecordsPerSubmit   int32
     MaxSubmitBytes        int32
+    MaxRequestBytes       int32    // post-reassembly control-plane cap; exceeding it aborts
+                                   // the request server-side
     MaxResponseBytes      int32
     BlobChunkBytes        int32
     BlobPadMultiple       int32
@@ -1725,6 +1782,11 @@ type MessageHealthEvent struct {
 type HealthListener interface { HealthChanged(event *MessageHealthEvent) }
 ```
 
+`MessageServerInfo`'s `MediaTtlMaxMs`, `MediaTtlDefaultMs` and `DurableRetentionMinMs` are
+milliseconds because every other duration on this API surface is milliseconds; `sdk` converts them
+from the server's seconds once, on receipt of `Capabilities`. `MessageRetentionApplied` does **not**
+convert — it is a mirror of a wire message and stays in seconds.
+
 #### 7.2.1 Seedphrase custody
 
 ```go
@@ -1741,15 +1803,15 @@ func (self *MessageClient) RevealSeedphrase() (string, error)
 bool urmsg_client_reveal_seedphrase(uint64_t client, char** out_phrase, char** out_error);
 ```
 
-> **Correction.** An earlier revision of this section said `CreateIdentity` *"never returns the phrase and
-> never accepts a phrase it generated itself"*, immediately before describing the flow in which Spec C
-> passes back exactly the phrase `GenerateMessageSeedphrase` produced. The second clause was wrong and is
-> deleted. The contract is: `GenerateMessageSeedphrase` is a free function; Spec C displays the words,
-> requires confirmation, then calls `CreateIdentity(phrase)`; `CreateIdentity` derives `master_key`, seals
-> the **256-bit BIP39 entropy** under DPAPI context `"seed_entropy"` alongside the derived children, and
-> discards the words. `RevealSeedphrase()` reconstructs the words from that entropy. `RemoveIdentity()`
-> deletes the entropy, the derived children, and the whole local store; after it, the words are the only
-> way back.
+**Correction.** An earlier revision of this section said `CreateIdentity` *"never returns the phrase and
+never accepts a phrase it generated itself"*, immediately before describing the flow in which Spec C
+passes back exactly the phrase `GenerateMessageSeedphrase` produced. The second clause was wrong and is
+deleted. The contract is: `GenerateMessageSeedphrase` is a free function; Spec C displays the words,
+requires confirmation, then calls `CreateIdentity(phrase)`; `CreateIdentity` derives `master_key`, seals
+the **256-bit BIP39 entropy** under DPAPI context `"seed_entropy"` alongside the derived children, and
+discards the words. `RevealSeedphrase()` reconstructs the words from that entropy. `RemoveIdentity()`
+deletes the entropy, the derived children, and the whole local store; after it, the words are the only
+way back.
 
 ### 7.3 Groups
 
@@ -1769,6 +1831,25 @@ func (self *MessageClient) RemoveMember(groupId string, memberId string, callbac
 func (self *MessageClient) SetMemberRole(groupId string, memberId string, role string, callback GroupCallback) *MessageSendTicket
 func (self *MessageClient) LeaveGroup(groupId string, callback GroupCallback) *MessageSendTicket
 func (self *MessageClient) SetGroupPolicy(groupId string, policy *MessageGroupPolicy, callback GroupCallback) *MessageSendTicket
+
+// the single-field forms of SetGroupPolicy, because Spec C's disappearing sheet and its
+// Ctrl+Shift+D chord set one field and must not have to read-modify-write a whole policy.
+// Both are ADMIN/OWNER-only group state and both commit (MASTER §11).
+func (self *MessageClient) SetDisappearing(groupId string, bucket int32,
+    callback GroupCallback) *MessageSendTicket
+
+// personal, not group state: these write the local store and commit nothing.
+func (self *MessageClient) SetGroupMuted(groupId string, muted bool) error
+func (self *MessageClient) SetGroupNotificationMode(groupId string, mode string) error
+// mode is CLOSED: "default" | "name_and_message" | "name_only" | "nothing".
+// "default" means "follow the global notification setting" and is the initial value.
+
+// MASTER §11: owner-only, non-erasable. A grant is a group record, so it is a commit and
+// returns a ticket. Calling it as anyone but OWNER fails with a GroupResult reason.
+func (self *MessageClient) GrantHistory(groupId string, memberId string, fromEpoch int64,
+    callback GroupCallback) *MessageSendTicket
+func (self *MessageClient) HistoryGrants(groupId string) *MessageHistoryGrantList
+
 func (self *MessageClient) PendingInvites() *MessageInviteList
 func (self *MessageClient) AcceptInvite(inviteId string, callback GroupCallback) *MessageSendTicket
 func (self *MessageClient) DeclineInvite(inviteId string) error
@@ -1797,13 +1878,13 @@ type MessageGroupPolicy struct {
 clamps a policy longer than `media_ttl_max_seconds` **down**, floors a policy shorter than
 `durable_retention_min_seconds` **up**, accepts the commit either way, and reports what it applied.
 `GroupEvent` (§7.7) therefore carries `RetentionApplied *MessageRetentionApplied` with
-`{MediaTtlMs, DurableTtlMs, MediaClampedDown, DurableFlooredUp, RequestedMediaTtlMs,
-RequestedDurableTtlMs}`. The group's transcript-covered policy is unchanged; the client renders a
-one-time in-group notice naming the **effective** value, never the requested one. There is no
-`RetentionPolicyConflict` event and no refuse-to-commit path.
+`{MediaTtlSeconds, DurableTtlSeconds, MediaClampedDown, DurableFlooredUp,
+RequestedMediaTtlSeconds, RequestedDurableTtlSeconds}`. The group's transcript-covered policy is
+unchanged; the client renders a one-time in-group notice naming the **effective** value, never the
+requested one. There is no `RetentionPolicyConflict` event and no refuse-to-commit path.
 
-`CreateDirect` is not a different code path — MASTER P2, a DM is a two-member group. It exists only
-so the UI can express intent and the client can render it as a conversation. `MessageGroup.IsDirect`
+`CreateDirect` is not a different code path — ledger P2 — a DM is a two-member group (MASTER §6). It
+exists only so the UI can express intent and the client can render it as a conversation. `MessageGroup.IsDirect`
 is `MemberCount() == 2 && CreatedAsDirect`.
 
 Role strings are `"owner"`, `"admin"`, `"member"`, `"observer"` (MASTER §11). Strings rather than an
@@ -1819,6 +1900,13 @@ func (self *MessageClient) SendAttachment(groupId string, filePath string, mimeT
     caption string, callback UploadCallback) *MessageSendTicket
 func (self *MessageClient) ResumeAttachment(groupId string, messageId string,
     callback UploadCallback) *MessageSendTicket
+
+// re-send a message that reached State == "failed". The entry keeps its MessageId and
+// returns to "pending"; a fresh stream_index is consumed (§5.12 step 6). Calling it on
+// an entry in any other state returns a ticket that completes with an error.
+func (self *MessageClient) Retry(groupId string, messageId string,
+    callback SendCallback) *MessageSendTicket
+
 func (self *MessageClient) React(groupId string, targetId string, emoji string,
     callback SendCallback) *MessageSendTicket
 func (self *MessageClient) Unreact(groupId string, targetId string, emoji string,
@@ -1965,21 +2053,21 @@ delivery receipt.
 
 **Event delivery.**
 
-> 1. Every event payload A delivers carries `Dropped int64` (events discarded from this `Sub`'s bounded
->    256-event queue since the last successful delivery) and `Seq int64` (a per-`Sub` monotonic sequence
->    number). Both appear on **every** event struct, not only listener events.
-> 2. On any event with `Dropped > 0`, the client MUST treat its view of that group as **stale**: discard
->    the in-memory window, re-read via `History()`, and re-evaluate unread. It MUST NOT merge a post-drop
->    event into the existing list.
-> 3. `AddMessageListener("" , listener)` subscribes to **all** groups. The client holds exactly one
->    all-groups `Sub` plus at most one per open conversation.
-> 4. `AddRecordLifecycleListener(listener) *Sub` is **client-wide** and delivers
->    `RecordLifecycleEvent{Kind, GroupId, MessageId, Seq, Dropped}` with
->    `Kind ∈ {"expired", "tombstoned", "read_elsewhere"}`. A raises it for **every** expiring record from
->    the expiry sweep, regardless of whether any group listener is attached — this is what makes toast
->    revocation possible for a conversation the user never opened this session.
-> 5. A single UI-side event applier keyed by `(groupId, messageId)`, idempotent, tolerating out-of-order
->    arrival, using `Seq` to detect reordering rather than assuming it away.
+1. Every event payload A delivers carries `Dropped int64` (events discarded from this `Sub`'s bounded
+   256-event queue since the last successful delivery) and `Seq int64` (a per-`Sub` monotonic sequence
+   number). Both appear on **every** event struct, not only listener events.
+2. On any event with `Dropped > 0`, the client MUST treat its view of that group as **stale**: discard
+   the in-memory window, re-read via `History()`, and re-evaluate unread. It MUST NOT merge a post-drop
+   event into the existing list.
+3. `AddMessageListener("" , listener)` subscribes to **all** groups. The client holds exactly one
+   all-groups `Sub` plus at most one per open conversation.
+4. `AddRecordLifecycleListener(listener) *Sub` is **client-wide** and delivers
+   `RecordLifecycleEvent{Kind, GroupId, MessageId, Seq, Dropped}` with
+   `Kind ∈ {"expired", "tombstoned", "read_elsewhere"}`. A raises it for **every** expiring record from
+   the expiry sweep, regardless of whether any group listener is attached — this is what makes toast
+   revocation possible for a conversation the user never opened this session.
+5. A single UI-side event applier keyed by `(groupId, messageId)`, idempotent, tolerating out-of-order
+   arrival, using `Seq` to detect reordering rather than assuming it away.
 
 **Ephemeral containment (requirement on this layer).** No `DURABLE`-class artefact may contain `EPH`
 plaintext. Concretely: the search index **excludes `EPH` records entirely**; `Search` never returns a
@@ -2141,18 +2229,18 @@ type IntegrityListener interface { IntegrityChanged(event *IntegrityEvent) }
 
 **Where a key change blocks, and where it does not:**
 
-> **In a DM with the changed contact:** blocking modal, outbound sending to that conversation disabled until
-> resolved.
->
-> **In a group containing them:** a permanent, non-dismissible in-thread record plus a non-blocking bar.
-> **Sending stays enabled**, because the changed key is not in the group's ratchet tree and cannot read
-> anything sent there.
->
-> **New blocking condition:** an `Add` committing a member whose identity key differs from a pin the user
-> holds. This is blocking for that group, with its own permanent record, and its own copy:
-> *"Bo was added to this group with a different safety number than the one you have seen."*
+**In a DM with the changed contact:** blocking modal, outbound sending to that conversation disabled until
+resolved.
 
-There is **no verified badge in v1** (MASTER I4/§10.2). `MessagePin.Verified` exists for a future
+**In a group containing them:** a permanent, non-dismissible in-thread record plus a non-blocking bar.
+**Sending stays enabled**, because the changed key is not in the group's ratchet tree and cannot read
+anything sent there.
+
+**New blocking condition:** an `Add` committing a member whose identity key differs from a pin the user
+holds. This is blocking for that group, with its own permanent record, and its own copy:
+*"Bo was added to this group with a different safety number than the one you have seen."*
+
+There is **no verified badge in v1** (MASTER §10.2, ledger I4). `MessagePin.Verified` exists for a future
 release and for the "you verified this on 3 March" line in a contact detail sheet; Spec C must not
 render it as a badge in a message list. Stated here because it is the kind of decision that gets
 quietly reversed by a UI ticket.
@@ -2211,6 +2299,7 @@ type GroupEvent struct {
     Kind             string   // CLOSED: "created" | "changed" | "members_changed"
                               //       | "policy_changed" | "sendability_changed"
                               //       | "invited" | "left" | "removed" | "closed"
+                              //       | "history_granted"
     GroupId          string
     Group            *MessageGroup
     Sendability      *MessageSendability
@@ -2219,13 +2308,18 @@ type GroupEvent struct {
     Dropped          int64
 }
 
+// Seconds, not milliseconds: this struct is a field-for-field mirror of the message
+// server's RetentionApplied, and every retention value in the system is seconds
+// (EpochAttachment.media_ttl_seconds / durable_ttl_seconds, media_ttl_max_seconds,
+// durable_retention_min_seconds). The two differ only in Go casing. DurableTtlSeconds
+// == 0 means INDEFINITE, never "zero seconds", and DurableFlooredUp is then false.
 type MessageRetentionApplied struct {
-    MediaTtlMs            int64
-    DurableTtlMs          int64
-    MediaClampedDown      bool
-    DurableFlooredUp      bool
-    RequestedMediaTtlMs   int64
-    RequestedDurableTtlMs int64
+    MediaTtlSeconds            int64
+    DurableTtlSeconds          int64
+    MediaClampedDown           bool
+    DurableFlooredUp           bool
+    RequestedMediaTtlSeconds   int64
+    RequestedDurableTtlSeconds int64
 }
 
 type MessageGroup struct {
@@ -2240,6 +2334,11 @@ type MessageGroup struct {
     UnreadCount        int32
     Muted              bool
     DisappearingBucket int32
+    RetentionDurableMs int64    // effective policy, as applied by the server
+    RetentionMediaMs   int64
+    ReadReceipts       bool
+    TypingIndicators   bool
+    NotificationMode   string   // "default" | "name_and_message" | "name_only" | "nothing"
     MyRole             string
     Closed             bool
 }
@@ -2255,6 +2354,45 @@ type MessageMember struct {
     LeafIndex         int32
     Pinned            bool
     ChangePending     bool
+}
+
+type MessageInvite struct {
+    InviteId              string
+    GroupId               string
+    GroupName             string
+    InviterMemberId       string
+    InviterPrincipal      string
+    InviterDisplayName    string
+    InviterKeyFingerprint string
+    MemberCount           int32
+    CreatedAtMs           int64
+    ExpiresAtMs           int64    // 0 = no expiry
+    State                 string   // CLOSED: "pending" | "accepting" | "accepted"
+                                   //       | "declined" | "expired"
+}
+
+type MessageReaction struct {
+    Emoji     string        // one member of the v1 set; see Spec C §5.2a
+    Count     int32
+    MemberIds *StringList   // who reacted, in first-seen order
+    MineSet   bool          // this device's own account is among them
+}
+
+type MessageReceipt struct {
+    MemberId string
+    ReadAtMs int64
+}
+
+type MessageHistoryGrant struct {
+    GrantId               string
+    GranteeMemberId       string
+    GranteePrincipal      string
+    GranteeDisplayName    string
+    GrantedByMemberId     string
+    GrantedByDisplayName  string
+    FromEpoch             int64
+    FromMs                int64
+    GrantedAtMs           int64
 }
 
 type MessageDevice struct {
@@ -2288,6 +2426,14 @@ type RestoreProgress struct { Phase string; GroupId string; GroupName string
 type DownloadProgress struct { GroupId string; MessageId string; AttachmentId string
                                BytesReceived int64; BytesTotal int64; LocalPath string }
 ```
+
+`MessageInvite`, `MessageReaction`, `MessageReceipt` and `MessageHistoryGrant` each get a `*List`
+wrapper per the §7.1 pattern: `MessageInviteList`, `MessageReactionList`, `MessageReceiptList`,
+`MessageHistoryGrantList`.
+
+There is no `GroupDetails(groupId)` call. `Group(groupId)` already returns the snapshot and now
+carries every field a details screen renders; a second accessor returning the same data under
+another name is the kind of drift this pass exists to remove.
 
 ### 7.8 gomobile constraints
 
@@ -2373,11 +2519,11 @@ type MessageStore interface {
 Fourteen methods. That bound is the point (A8): if `modernc.org/sqlite` has to go, this is what has to
 be reimplemented.
 
-> **Store-open failure is an explicit value, never an empty result.** `Open` returns a typed error whose
-> reason is one of `unseal_failed`, `corrupt`, `disk_full`, `locked_by_another_process`; the client enters
-> health state `store_unavailable` with that reason. `ListConversations()` and `History()` MUST NOT return
-> empty in this condition — Spec C would then render "No conversations yet" to a user whose entire history
-> is intact on the server.
+**Store-open failure is an explicit value, never an empty result.** `Open` returns a typed error whose
+reason is one of `unseal_failed`, `corrupt`, `disk_full`, `locked_by_another_process`; the client enters
+health state `store_unavailable` with that reason. `Groups()` and `History()` MUST NOT return
+empty in this condition — Spec C would then render "No conversations yet" to a user whose entire history
+is intact on the server.
 
 ### 8.3 Sealing
 
@@ -2529,10 +2675,10 @@ bool     urmsg_client_start(uint64_t client, char** out_error);
 }
 ```
 
-> **Why there is no `urnet_device_handle` parameter.** An earlier revision took one, then struck it,
-> because a handle is an id in the *other* DLL's registry and resolving it cross-runtime is a lookup
-> failure at best. Decision A12 removes the question entirely: there is no other DLL in the process. The
-> messaging DLL constructs its own `connect.Client` and owns its own account session.
+**Why there is no `urnet_device_handle` parameter.** An earlier revision took one, then struck it,
+because a handle is an id in the *other* DLL's registry and resolving it cross-runtime is a lookup
+failure at best. Decision A12 removes the question entirely: there is no other DLL in the process. The
+messaging DLL constructs its own `connect.Client` and owns its own account session.
 
 Groups, messaging, devices, verification: one export per §7 method, generated. Illustrative:
 
@@ -2612,14 +2758,14 @@ Rules, each of which corresponds to a real failure mode:
    string. Programmatic cases (key change, gap, retention applied) come through **events**, which
    are JSON with a stable `kind` field.
 
-   > **Reason strings are not `out_error` strings.** `char** out_error` carries `err.Error()` — open,
-   > human-readable, never parsed. Separately, `MessageSendability.Reason`, `MessageEntry.Reason`,
-   > `MessageHealthEvent.State`/`.Reason`, `MessageEntry.GapReason`, `MessageAttachment.State`,
-   > `KeyChangeWarning.EvidenceClass`, `IntegrityEvent.Kind`, `MessageDirectoryResult.ProofState` and
-   > `DeviceLinkState.State` are **closed, versioned vocabularies** carried in JSON events with a stable
-   > `kind` field. Spec C switches on those; it never parses `out_error`. A new value in any of these
-   > vocabularies is a spec change in this document and a `TestVocabulariesAreClosed` failure, not a silent
-   > addition.
+   **Reason strings are not `out_error` strings.** `char** out_error` carries `err.Error()` — open,
+   human-readable, never parsed. Separately, `MessageSendability.Reason`, `MessageEntry.Reason`,
+   `MessageHealthEvent.State`/`.Reason`, `MessageEntry.GapReason`, `MessageAttachment.State`,
+   `KeyChangeWarning.EvidenceClass`, `IntegrityEvent.Kind`, `MessageDirectoryResult.ProofState` and
+   `DeviceLinkState.State` are **closed, versioned vocabularies** carried in JSON events with a stable
+   `kind` field. Spec C switches on those; it never parses `out_error`. A new value in any of these
+   vocabularies is a spec change in this document and a `TestVocabulariesAreClosed` failure, not a silent
+   addition.
 
 ### 9.6 Build matrix
 
@@ -2658,10 +2804,10 @@ beta branches (`beta/algorithm-dpi`, `beta/custom-server`) do not collide on the
     MessageServerFragment = 1003;
 ```
 
-> Spec A owns the file `connect/protocol/message.proto` and its codegen (it is generated by the existing
-> `connect/protocol/Makefile` and linked by both the client and the server). Spec B owns the set of `oneof`
-> arms and their semantics. A change to the file is an A commit; a change to an arm's meaning is a B
-> decision recorded in `SPEC-LEDGER.md`.
+Spec A owns the file `connect/protocol/message.proto` and its codegen (it is generated by the existing
+`connect/protocol/Makefile` and linked by both the client and the server). Spec B owns the set of `oneof`
+arms and their semantics. A change to the file is an A commit; a change to an arm's meaning is a B
+decision recorded in `SPEC-LEDGER.md`.
 
 There is no `MessageEnvelope`, no `MessageOp` and no `MessageStreamAck`. An earlier revision of this
 document proposed them; Spec B's binding supersedes them, flow control is B's `Backpressure` push, and
@@ -2681,7 +2827,7 @@ compatibility break.
 | Per-peer transit encryption, hybrid PQ | yes | — |
 | Contracts and billing | `ContractManager.CreateContract`, needs a `ByJwt` | supply the ByJwt from the existing account |
 | **Store and forward** | **no — verified absent in `transfer.go`** | the message server (Spec B) |
-| Push wake-up | no | open item 2 |
+| Push wake-up | no | §14 open item 9 |
 | Long-lived provider-terminated contract per (device, message server) | shaping only | MASTER §9.6; we request this shape |
 
 ### 10.3 Transport identity is not messaging authorization
@@ -2735,6 +2881,8 @@ contents for anything but transport setup and billing display.
 | `TestServerAttachmentRoundTripsAgainstVectors` | §5.11 — a zero-length attachment and `AttachmentNone` encode identically, so `H(server_attachment)` cannot differ between client and server |
 | `TestLostCommitResamplesPqSecret` | §5.12 / G10 — MASTER §7's per-epoch PQ independence across a lost commit |
 | `TestVocabulariesAreClosed` | §9.5 rule 7 — no silent addition to a closed reason vocabulary |
+| `TestReadAuthNeverUsesWriteKey` | §5.7 — `req_auth` is MAC'd under `read_key`; no call path reaches `ComputeRequestAuth` with an epoch key |
+| `TestBlobIdIsInBothPreimages` | §5.1 — a record with `size_bucket = 5` whose `blob_id` is altered fails both AEAD open and `VerifyWriteAuth`; a record with any other bucket encodes a zero-length `blob_id` prefix |
 
 ### 11.3 Running the suites
 
@@ -2770,6 +2918,15 @@ build so `./test.sh` stays usable, and unconditionally in CI.
 | `interop-random` (`deep_random.json`, logged seed) | connect | nightly | no (P0 issue) |
 | `interop-public` (`-public` matrix) | connect | nightly | no |
 | `peer-image-bump` | connect | weekly | opens a PR |
+| `encoding-guard` | connect, sdk | every push/PR | yes |
+
+`encoding-guard` fails the build on any occurrence, in `docs/**/*.md`, of the four byte runs that
+double-encoded UTF-8 produces — the sequences U+00E2 U+20AC, U+00C2 U+00A7, U+00C3 U+00A2 and
+U+00C3 U+201A — and asserts that `.gitattributes` contains the line
+`*.md text working-tree-encoding=UTF-8 eol=lf`. The check is written against codepoints, never
+against literal corrupted text, so the check's own source file does not trip it. Creating
+`.gitattributes` and the job file is repo work, not a change to this document; the requirement lives
+here.
 
 ### 11.5 The gomobile gate
 
@@ -2801,9 +2958,9 @@ func ComputeWriteAuth(writeKey []byte, serverNonce []byte, h *RecordHeader,
 func VerifyWriteAuth(writeKey []byte, serverNonce []byte, r *Record) bool           // constant time
 
 func RequestAuthPreimage(serverNonce []byte, op uint8, requestBytes []byte) []byte
-func ComputeRequestAuth(writeKey []byte, serverNonce []byte, op uint8,
+func ComputeRequestAuth(readKey []byte, serverNonce []byte, op uint8,
                         requestBytes []byte) [32]byte
-func VerifyRequestAuth(writeKey []byte, serverNonce []byte, op uint8,
+func VerifyRequestAuth(readKey []byte, serverNonce []byte, op uint8,
                        requestBytes []byte, auth []byte) bool                        // constant time
 
 func RecoveryProof(recoveryRoot []byte, serverNonce []byte,
@@ -2836,40 +2993,45 @@ design discussion, not a patch.
 
 | # | Requirement | Source |
 |---|---|---|
-| S1 | Accept a record only if `VerifyWriteAuth` passes against the epoch's published verification state | MASTER §9.2 |
+| S1 | Accept a record only if `VerifyWriteAuth` passes under `write_key[n]`, installed from the commit's `EpochAttachment.write_key` and held wrapped under a vault KEK | MASTER §9.2 |
 | S2 | Enforce **monotonic**, not contiguous, `stream_index` per `(group_id, sender_handle)` — **not** per class | MASTER §8; a refused write must not brick the stream |
 | S3 | Accept at most one `is_commit = 1` per `(group_id, epoch)`, first valid wins, never replaced; return the accepted commit to any later submitter | MASTER §9.3 |
 | S4 | Reject records whose `epoch` is not the current accepted epoch | MASTER §9.3 |
 | S5 | Index epoch wrap records by target: device wraps and the epoch snapshot by `wrap_target_handle` (16 B, from `WrapTag`), recovery wraps by `recovery_handle` (16 B, from `RecoveryTag`), both delivered inside the authenticated `server_attachment`. Serve a wrap by target in O(1). | §5.11, MASTER §8.2 |
-| S6 | A commit's epoch bundle reaches ~2.1 MB at 500 members. Per-record size caps apply to individual wrap records, never to the bundle. Honour the epoch-publication sequence of §5.11, including the `EpochComplete` marker. | §5.11 |
+| S6 | A commit's epoch bundle reaches ~6.9 MB at 500 members, every wrap padded to `size_bucket 2`. Per-record size caps apply to individual wrap records, never to the bundle. Honour the epoch-publication sequence of §5.11, including the `EpochComplete` marker. | §5.11 |
 | S7 | Serve a `FetchAttestation` on every history fetch, with the field list and signing preimage of MASTER §9.4 — including `class_mask` and `heads_only` inside the signature | MASTER §9.4 |
-| S8 | Advertise, as data the client can read before it acts: max blob bytes, media TTL cap and default, durable retention minimum, max records per fetch and submit, max submit bytes, max response bytes, blob chunk bytes, blob pad multiple, attestation support, and a monotonic `capability_version` | MASTER §12.2 |
+| S8 | Advertise, as data the client can read before it acts: max blob bytes, media TTL cap and default, durable retention minimum, max records per fetch and submit, max submit bytes, max request bytes, max response bytes, blob chunk bytes, blob pad multiple, attestation support, and a monotonic `capability_version` | MASTER §12.2 |
 | S9 | Supply a 32-byte `server_nonce` in `HelloResponse`, bound to the connection and valid for its life. **No rotation.** The nonce is not carried in requests. | MASTER §9.2 |
 | S10 | Prune by retention class **and** `expire_at`, where `expire_at` may only shorten retention, never extend it; retain `ct_head` and `body_hash` when `ct_body` is erased | MASTER §8, §9.1, §12.2 |
 | S11 | Never create, store, or transmit logs of client commands, transport connections, or a history of deleted records in production | MASTER §9.7 — an acceptance criterion, not a policy page |
 | S12 | Never decrypt; never be consulted on group admission; never satisfy an MLS validity condition | MASTER I1, §4.2 |
-| S13 | **Authorize reads.** `Fetch`, `Subscribe`, `BlobGrant` and `GroupStatus` MUST carry and verify `req_auth` (§5.7). An unauthenticated read is a full metadata dump and a group-existence oracle. `RecoveryFetch` uses the Ed25519 recovery proof instead. | MASTER §9.1, §9.2 |
+| S13 | **Authorize reads.** `Fetch`, `Subscribe`, `GroupStatus`, `BlobGrant` and `WrapFetch` MUST carry and verify `req_auth` under the group's `read_key`, installed from `EpochAttachment.read_key` and identical in every epoch (§5.7). An unauthenticated read is a full metadata dump and a group-existence oracle. `RecoveryFetch` uses the Ed25519 recovery proof instead. | MASTER §9.1, §9.2 |
+| S14 | Serve a wrap by target in O(1) from an authenticated `WrapFetch`, and return a defined refusal when the named target has no wrap at that epoch | §5.11, MASTER §8.2 |
 
 **What we give the server.**
 
-> The server holds `write_key[n]` itself. It is delivered to the server by the committer inside the commit
-> record's `server_attachment` (`EpochAttachment.write_key`), over the connect session's own hybrid-PQ
-> encryption, and is stored wrapped under a vault KEK. Three consequences, all accepted:
->
-> 1. A server holding `write_key` **can forge `write_auth`**. This changes nothing: the server is the party
->    enforcing `write_auth`, so it could equally accept an unauthenticated record, and any record it injects
->    fails MLS verification at every client (**I5**).
-> 2. `write_key` is a label-separated HKDF child of `storage_root[n]`, so holding it yields neither
->    `storage_root[n]` nor the sibling class keys `K_perm` / `K_durable` / `K_media` / `eph_root`. It MUST
->    NOT be reused for any second purpose beyond `write_auth` and `req_auth`.
-> 3. The server retains the **current** epoch's key plus **one** briefly-retired predecessor (60 s), and
->    nothing older.
->
-> An asymmetric per-epoch write proof (Ed25519 derived from `storage_root`, server holds only the public
-> half) removes the forgery capability at the cost of one signature per record. It is the right long-term
-> shape and is a **V2** item, not v1 text.
+The server holds `write_key[n]` itself. It is delivered to the server by the committer inside the commit
+record's `server_attachment` (`EpochAttachment.write_key`), over the connect session's own hybrid-PQ
+encryption, and is stored wrapped under a vault KEK. Four consequences, all accepted:
 
-**Interfaces out → to Spec B.** Mirrors Spec B §12.1's A-1…A-10 one for one, with owners and slices:
+1. A server holding `write_key` **can forge `write_auth`**. This changes nothing: the server is the party
+   enforcing `write_auth`, so it could equally accept an unauthenticated record, and any record it injects
+   fails MLS verification at every client (**I5**).
+2. `write_key` is a label-separated HKDF child of `storage_root[n]`, so holding it yields neither
+   `storage_root[n]` nor the sibling class keys `K_perm` / `K_durable` / `K_media` / `eph_root`. It MUST
+   NOT be reused for any second purpose beyond `write_auth`.
+3. The server retains the **current** epoch's key plus **one** briefly-retired predecessor (60 s), and
+   nothing older.
+4. `read_key` is a separate label-separated child of `storage_root[0]`, delivered in the same
+   attachment, stored the same way, and **never** discarded while the group exists. It is what makes
+   an offline member's catch-up possible; see §5.7.
+
+An asymmetric per-epoch write proof (Ed25519 derived from `storage_root`, server holds only the public
+half) removes the forgery capability at the cost of one signature per record. It is the right long-term
+shape and is a **V2** item, not v1 text.
+
+**Interfaces out → to Spec B.** The rows A-1…A-12 below are what Spec B's own interfaces-in table
+consumes, with owners and slices:
 
 | # | We supply | Where | Slice |
 |---|---|---|---|
@@ -2880,9 +3042,11 @@ design discussion, not a patch.
 | A-5 | `connect/protocol/message.proto` and its codegen | §10.1 | A7 |
 | A-6 | The losing-committer contract, implemented in `sdk` — especially "never reuse `pq_secret[n+1]`" and "never reuse a consumed `stream_index`" | §5.12 | A7 |
 | A-7 | Blob padding ladder (256 KiB multiple) and `blob_id` derivation from the record's key material | §5.13 | A9 |
-| A-8 | The shared interop vector file `testdata/message-server-vectors.json` — records with epoch keys, nonces, expected verdicts, a commit-race scenario, a non-zero `expire_at` record, a per-class stream-index collision case, and a `since_record_id = 0` fetch case. **A blocking CI job in both repos.** | §11.1, §11.4 | A6 |
+| A-8 | The shared interop vector file `testdata/message-server-vectors.json` — records with epoch keys, nonces, expected verdicts, a commit-race scenario, a non-zero `expire_at` record, a `size_bucket = 5` record with a `blob_id`, one authenticated request per `req_auth` op byte (13, 14, 16, 17, 19) including a `WrapFetch`, a per-class stream-index collision case, and a `since_record_id = 0` fetch case. **A blocking CI job in both repos.** | §11.1, §11.4 | A6 |
 | A-9 | A measurement of the platform transport's production `FramerSettings.MaxMessageLen` | §10.2 | A7, named owner required |
 | A-10 | `ComputeRequestAuth` / `VerifyRequestAuth` and `RecoveryProof` / `VerifyRecoveryProof` | §5.7 | A6 |
+| A-11 | `expire_at` as unix milliseconds, u64, big-endian, 0 = unset, on the wire and in both preimages; `connect/message` is the only producer of the preimage on both sides | §5.1, §5.7 | A6 |
+| A-12 | `read_key` and its delivery: `EpochAttachment.read_key`, identical in every epoch, and `ComputeRequestAuth` / `VerifyRequestAuth` taking it rather than an epoch key | §5.7, §5.11 | A6 |
 
 ### 12.2 To the Windows messaging client (Spec C)
 
@@ -2950,7 +3114,7 @@ A1–A8 produce something two people can text on.
 
 ## 14. Open items (consolidated)
 
-Item numbers are stable; items 1, 2, 3, 5 and 12 are closed and are not renumbered.
+Item numbers are stable; items 1, 2, 3, 5, 8 and 12 are closed and are not renumbered.
 
 | # | Item | Owner | Blocks |
 |---|---|---|---|
@@ -2958,6 +3122,6 @@ Item numbers are stable; items 1, 2, 3, 5 and 12 are closed and are not renumber
 | 6 | A-ASSUME-4 — `PrivateMessage`-only handshake policy | project owner | slice A4 |
 | 7 | Skipped-key window size and per-group memory budget (§5.5) | Spec C | slice A6 |
 | 8 | **RULED — warn and proceed both directions (MASTER §15 item 1). Closed.** | — | — |
-| 9 | Push transport / WNS wake-up (MASTER open item 2). A exposes `RegisterPushChannel(uri string) error` and `UnregisterPushChannel() error` in §7.2, owned jointly with Spec C's C-6 and scheduled as slice A11 (§13). | Spec A + Spec B + Spec C | post-A8 |
+| 9 | Push transport / WNS wake-up (MASTER open item 2). A exposes `RegisterPushChannel(uri string) error` and `UnregisterPushChannel() error` in §7.2 as no-op stubs, so wiring WNS later is not an ABI break; owned jointly with Spec C's C-6 and scheduled as slice A11 (§13). The Azure AD application registration WNS needs still has no named owner. | Spec A + Spec B + Spec C | post-A8 |
 | 10 | `OWNER_SUCCESSOR_SET` extension placement (MASTER open item 4) | MASTER owner | V2 |
 | 11 | Transcribe RFC 9420 errata 8745 and 8815 verbatim into `connect/mls/ERRATA.md` (§4.3) | implementer | slice A4 |
