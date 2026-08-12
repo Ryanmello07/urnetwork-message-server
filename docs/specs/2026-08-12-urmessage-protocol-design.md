@@ -1,7 +1,8 @@
 # URmessage — Protocol Design
 
 **Date:** 2026-08-12
-**Revision:** 5 — single-server v1; storage layer simplified; MLS contract corrected; X-Wing adopted
+**Revision:** 6 — R4 review applied: `server_attachment` (§8.3), `req_auth`, asymmetric recovery proof,
+epoch publication sequence, wire encodings fixed
 **Status:** Design, pending approval
 
 Notation: `LP(x)` = 32-bit length prefix then `x`. `u8/u32/u64` = big-endian fixed width. `‖` =
@@ -39,6 +40,29 @@ repository. Both changes came from the project owner finding OpenMLS. The combin
 hand-rolled cryptographic composition in the document and had drawn a finding in every review round;
 it is now a construction with a published security proof. The cost is ML-KEM-768 rather than 1024,
 taken deliberately — see §7.
+
+**Revision 6** applies the R4 review (148 findings) across this document and the three implementation
+specs. Nothing in the cryptographic core changed; what changed is that the server-facing surface is now
+fully authenticated and fully specified, where revision 5 left four things implied:
+
+- **§8.3, the `server_attachment`.** Three values the server must act on — the next epoch's `write_key`
+  and retention policy, the `recovery_handle` index, and the `wrap_target_handle` index — had no home in
+  the record header and were therefore either unauthenticated or undefined, in contradiction of **I6**.
+  They now travel in one typed, extensible field hashed into both `AAD_head` and the `write_auth`
+  preimage.
+- **Reads were unauthenticated.** `Fetch`, `Subscribe`, `BlobGrant` and `GroupStatus` now carry
+  `req_auth` (§9.2). An unauthenticated read was a full metadata dump and a group-existence oracle.
+- **The `H(write_key)` claim was false.** A hash of a MAC key verifies nothing. The server holds
+  `write_key[n]` itself, delivered in the commit's `server_attachment`, and §9.2 now states the three
+  consequences plainly instead of implying a property the construction never had.
+- **The recovery-fetch proof is asymmetric** (§5.2). The server holds only `recovery_handle` and must
+  never hold `recovery_root`, so a symmetric proof was unverifiable by construction.
+- **Encodings that two documents had to agree on are now stated once**: the `retention_class` and
+  `size_bucket` wire bytes (§8), `expire_at` in milliseconds and shortening-only (§8, §9.1), `record_id`
+  as a 1-based per-group counter (§8), `stream_index` scoped per `(group_id, sender_handle)` (§8), the
+  epoch publication sequence with its `EpochComplete` marker (§8.2), and the `FetchAttestation` preimage
+  (§9.4).
+- **Open item 1 is ruled** (§15): retention negotiation is warn-and-proceed in both directions.
 
 ## 1. Purpose and product target
 
@@ -164,7 +188,29 @@ master_key
 └─ recovery_root = HKDF-Expand(master_key, "recovery/v1", 32)
      ├─ per group g:  rk_xwing = XWing.KeyGen(
      │                    HKDF-Expand(recovery_root, "rk/v1" ‖ LP(g), 32))            [32 B seed]
-     └─ recovery_handle = HKDF-Expand(recovery_root, "idx/v1", 16)
+     ├─ recovery_handle    = HKDF-Expand(recovery_root, "idx/v1", 16)
+     └─ recovery_sig_seed  = HKDF-Expand(recovery_root, "idxsig/v1", 32)  → Ed25519
+```
+
+A seed-only restorer proves possession of `recovery_root` to the server without revealing it:
+
+```
+recovery_root      = HKDF-Expand(master_key, "recovery/v1", 32)              (unchanged)
+recovery_handle    = HKDF-Expand(recovery_root, "idx/v1", 16)                (unchanged)
+recovery_sig_seed  = HKDF-Expand(recovery_root, "idxsig/v1", 32)             (NEW)
+recovery_sig_sk    = Ed25519 private key from recovery_sig_seed
+recovery_verify_pub= Ed25519 public key of recovery_sig_sk                   (32 B)
+
+recovery_proof = Ed25519(recovery_sig_sk,
+                   "URmessage/v1/recovery" ‖ LP(server_nonce) ‖ LP(recovery_handle))
+
+The archive record's server_attachment RecoveryTag (BLOCK-SA, kind 0x0002) carries
+{recovery_handle, recovery_verify_pub, alg_id} and is covered by write_auth, so the
+public half arrives authenticated as a member of the group.
+
+The server stores the public half on first sight and REFUSES any later differing
+recovery_verify_pub for the same recovery_handle (trust-on-first-use, the same shape as
+the client's server-key pin). RecoveryFetchRequest.proof is verified against it.
 ```
 
 X-Wing key generation is deterministic from a seed — `crypto/mlkem`'s `NewDecapsulationKey768(seed)`
@@ -214,8 +260,9 @@ all, because `recovery_root` is known only to its owner.
    material is never included (**I4**).
 4. Existing device issues an MLS `Add` for the new device's leaf and commits it.
 
-**Seed-only restore** is the documented last resort: a bare seed derives `recovery_handle` and asks
-the server for the archive records indexed under it. The server learns how many groups that handle
+**Seed-only restore** is the documented last resort: a bare seed derives `recovery_handle`, proves
+possession of `recovery_root` with the §5.2 `recovery_proof`, and asks the server for the archive
+records indexed under that handle. The server learns how many groups that handle
 participates in — and in a single-server v1 it already knows the user's full group list, so this adds
 nothing it did not have. Disclosed in §13.
 
@@ -236,7 +283,11 @@ Consequences, all mandatory:
   `Add`, exactly as for a new member. Automatic re-admission would be the key-substitution attack of
   §10.2 performed by the operator.
 - Every contact holding a pin on the old key sees the blocking `KEY_CHANGE_NOTICE` warning of §10.2,
-  with `evidence_class` recording that the operator asserted it and no prior key signed it.
+  with `evidence_class = "operator_reset"` and `signed_by_old_key = false`. The closed set of evidence
+  classes is Spec A's (`kt_inclusion`, `operator_assertion`, `operator_reset`, `kt_unavailable`,
+  `unknown`). **In v1 the identity key changes only by this path**: `identity` is derived from the
+  seedphrase and nothing else, so a reinstall or a new computer from the same phrase produces the same
+  key and raises no warning at all. A self-signed rotation is a V2 mechanism and is never emitted in v1.
 - The reset is written to the key-transparency log (§10.1), so it is publicly auditable and cannot be
   performed quietly.
 
@@ -386,20 +437,46 @@ be deleted, and lets the server order and prune without decrypting.
 
 ```
 RECORD
-  record_id        server-assigned AFTER acceptance; pagination only; never authenticated
-  group_id         32B
-  sender_handle    16B  = HKDF-Expand(group_handle_key, "sh/v1" ‖ LP(leaf_index), 16)
-                         stable per group; every member computes it; the server cannot invert it
-  epoch            u64
-  stream_index     u64  monotonic per (sender_handle); write-once
-  is_commit        u8   1 on an MLS Commit record — the server acts on this, so it is authenticated
-  retention_class  u8   PERMANENT | DURABLE | MEDIA | EPH(bucket)
-  size_bucket      u8   256B / 1K / 4K / 16K / 64K / blob-ref
-  expire_at        u64  advisory; keys are authoritative
-  body_hash        32B  H(ct_body); RETAINED when ct_body is erased
-  ct_head          AEAD, always retained; MLS PrivateMessage header, type, sent_at
-  ct_body          AEAD, erasable; the MLS PrivateMessage payload
-  write_auth       MAC, computed last; see §9.2
+  record_id          u64  per-group, gapless, 1-based; server-assigned AFTER acceptance;
+                          pagination and hole detection only; NEVER authenticated
+  group_id           32B
+  sender_handle      16B  = HKDF-Expand(group_handle_key, "sh/v1" ‖ LP(leaf_index), 16)
+                          stable per group; every member computes it; the server cannot invert it
+  epoch              u64
+  stream_index       u64  monotonic per (group_id, sender_handle); write-once
+  is_commit          u8   1 on an MLS Commit record — the server acts on this, so it is authenticated
+  retention_class    u8   see the encoding table below
+  size_bucket        u8   256B / 1K / 4K / 16K / 64K / blob-ref
+  expire_at          u64  unix MILLISECONDS, big-endian, 0 = unset; advisory upper bound only —
+                          it may SHORTEN retention, never extend it
+  body_hash          32B  H(ct_body); RETAINED when ct_body is erased
+  server_attachment  opaque, typed, extensible; ZERO-LENGTH for ordinary records. The only
+                          server-visible structured field. See §8.3.
+  ct_head            AEAD, always retained; MLS PrivateMessage header, type, sent_at
+  ct_body            AEAD, erasable; the MLS PrivateMessage payload
+  write_auth         MAC, computed last; see §9.2
+```
+
+The `retention_class` and `size_bucket` bytes have exactly one encoding:
+
+```
+retention_class wire byte:
+
+  0x00  PERMANENT
+  0x01  DURABLE
+  0x02  MEDIA
+  0x10 | bucket   EPH(bucket), bucket in 0..5  →  0x10, 0x11, 0x12, 0x13, 0x14, 0x15
+                                                  (decimal 16, 17, 18, 19, 20, 21)
+
+No other value is legal. RetentionClassOf() and RetentionClassWire() in connect/message are the ONLY
+places the class and the bucket are joined or split.
+
+eph bucket → seconds:  [0] transient (never persisted), [1] 3600, [2] 28800,
+                       [3] 86400, [4] 604800, [5] 2419200
+
+size_bucket:  0 = 256 B, 1 = 1024 B, 2 = 4096 B, 3 = 16384 B, 4 = 65536 B, 5 = blob-ref
+              octet_length(ct_body) MUST equal size_bucket_bytes[b] + 16 exactly (the AEAD tag),
+              for b in 0..4. For b = 5, ct_body is absent and blob_id is present.
 ```
 
 Per **I7**, the two ciphertexts use **distinct keys and distinct AADs**, and `body_hash` appears only
@@ -412,19 +489,25 @@ AAD_body = "URmessage/v1/aad/body" ‖ u16(alg_id) ‖ LP(group_id) ‖ LP(sende
 AAD_head = "URmessage/v1/aad/head" ‖ u16(alg_id) ‖ LP(group_id) ‖ LP(sender_handle)
          ‖ u64(epoch) ‖ u64(stream_index) ‖ u8(is_commit) ‖ u8(retention_class)
          ‖ u8(size_bucket) ‖ u64(expire_at) ‖ LP(body_hash)
+         ‖ LP(H(server_attachment))
 
 key_head ‖ nonce_head = HKDF-Expand(record_key[i], "rec/v1/head", 56)
 key_body ‖ nonce_body = HKDF-Expand(record_key[i], "rec/v1/body", 56)
 ```
 
-Construction order: encrypt `ct_body` → compute `body_hash` → encrypt `ct_head` → compute
-`write_auth`. Every dependency is acyclic.
+Construction order: build `server_attachment` → encrypt `ct_body` → compute `body_hash` → encrypt
+`ct_head` → compute `write_auth`. Every dependency is acyclic.
 
 Per **I5**, this layer adds no signature. Sender authentication is MLS's, inside the ciphertext.
 
-`stream_index` is assigned write-once and locally: a device MUST durably record "index k consumed"
-*before* encrypting, and MUST NEVER encrypt a second record at a consumed index. The server enforces
-monotonicity, not strict contiguity, so a refused write does not brick the stream.
+> `stream_index` is a single `u64` counter per `(group_id, sender_handle)`, write-once, assigned locally.
+> A device MUST durably record "index *k* consumed" **before** encrypting, and MUST NEVER encrypt a second
+> record at a consumed index. The server enforces **monotonicity, not contiguity**, so a refused write, a
+> crash between reserve and send, or a lost commit leaves a legal gap.
+>
+> `EPH(bucket 0)` transients **do** consume an index locally (so the counter is never rewound) and are
+> **never** checked server-side, because the record is never stored and `message_sender.last_stream_index`
+> is not advanced for them.
 
 `sender_handle` is stable per group rather than rotating per epoch. Per-epoch rotation existed to stop
 *foreign* hosts linking a member across epochs; with one server that the client authenticates to, it
@@ -489,27 +572,107 @@ the 500-member design target; carried inside each member's wrap it would make a 
 `K_snapshot[n] = HKDF-Expand(storage_root[n], "snap/v1", 32)` — which the restorer can open precisely
 because `storage_root[n]` is in its wrap.
 
-Realistic commit sizing at 500 members × 2 devices: device wraps ~1.21 MB, recovery wraps ~0.62 MB,
-snapshot ~0.30 MB, **~2.1 MB per commit**. The server MUST index wraps by target (§9.1) so a joining
-device fetches ~1.2 KB rather than the whole bundle, and per-record size caps MUST apply to individual
-wrap records rather than to the commit as a whole.
+> **Epoch publication sequence.** A commit is submitted at `epoch == current_epoch = n`, MAC'd under
+> `write_key[n]`, and carries an `EpochAttachment` for epoch `n+1`.
+>
+> 1. The server accepts at most one commit per `(group_id, epoch)`. On acceptance it sets
+>    `current_epoch := n+1` and installs `write_key[n+1]` from the attachment, in the same transaction.
+> 2. The committer then submits, **as ordinary records at epoch `n+1`, MAC'd under `write_key[n+1]`**: one
+>    device wrap per active device leaf (`WrapTag`, indexed by `wrap_target_handle`), one recovery wrap per
+>    member (`RecoveryTag`, indexed by `recovery_handle`), and the ratchet-tree snapshot (one
+>    `PERMANENT`-class record, `WrapTag` with `leaf_index = 0xFFFFFFFF`).
+> 3. The committer closes the fan-out with one `EpochComplete` marker record whose `wrap_count` MUST equal
+>    the attachment's `expected_wrap_count`. Until that marker is accepted, the group is
+>    **readable-but-not-writable for members other than the committer**: the server returns
+>    `REASON_EPOCH_INCOMPLETE` to any non-wrap submit at epoch `n+1`.
+> 4. A member or device that finds no wrap for its target at epoch `n+1` after the marker has landed
+>    surfaces a `gap` entry with reason `no_wrap`. It never fails silently.
+> 5. If the committer dies mid-fan-out, the marker never lands, the group stays non-writable, and any
+>    member may re-publish the missing wraps for epoch `n+1` (they are all derivable from the epoch state
+>    every member holds) and submit the marker.
+>
+> **Sizing at the 500-member × 2-device design target:** 1 commit + 1,000 device wraps + 500 recovery
+> wraps + 1 snapshot + 1 marker ≈ 1,503 records ≈ 2.1 MB. Per-record size caps apply to individual wrap
+> records, never to the commit as a whole. `max_records_per_submit` is 256 and `max_submit_bytes` is
+> 131072; both bind; a wrap-only batch therefore takes ~16 round trips.
+
+> The snapshot exceeds the 64 KiB inline ceiling and is therefore written as a **blob-ref record**
+> (`size_bucket = 5`) of class `PERMANENT`. The server MUST offer a non-expiring object rung for it — see
+> Spec B §8.3 — and MUST NOT place it on any TTL ladder.
+>
+> The server MUST index wraps by target: device wraps and the snapshot by `wrap_target_handle`, recovery
+> wraps by `recovery_handle`, both delivered inside the authenticated `server_attachment` (§8.3). Without
+> this a 500-member group makes every join a 2.1 MB download.
+
+### 8.3 The server attachment
+
+> Anything the server acts on is covered by an authenticator the server can verify (**I6**). Three fields
+> the server must act on — the next epoch's `write_key` and retention policy, the `recovery_handle` index,
+> and the `wrap_target_handle` index — have no home in the record header. They travel in one typed,
+> extensible field, `server_attachment`, hashed into both `AAD_head` and the `write_auth` preimage. The
+> encoding is owned by `connect/message` (Spec A) and consumed by the message server (Spec B).
+
+```
+server_attachment := u16(kind) ‖ LP(body)
+
+  kind 0x0000  NONE            body is zero-length. Ordinary records carry a ZERO-LENGTH
+                               server_attachment (the whole field is empty), NOT kind 0x0000.
+  kind 0x0001  EpochAttachment carried by, and only by, a record with is_commit = 1
+  kind 0x0002  RecoveryTag     carried by RECOVERY_PUB records and by recovery wrap records
+  kind 0x0003  WrapTag         carried by per-device epoch wrap records and by the epoch snapshot
+  kind 0x0004  EpochComplete   carried by the wrap-set-complete marker record
+
+EpochAttachment {
+    u64  epoch                  // the epoch this attachment OPENS. MUST equal current_epoch + 1
+    u16  alg_id                 // 0x0031 (HKDF-SHA-256) in v1
+    LP   write_key              // exactly 32 bytes: write_key[epoch]
+    u32  media_ttl_seconds
+    u32  durable_ttl_seconds    // 0 = indefinite
+    LP   group_context_hash     // exactly 32 bytes
+    u32  expected_wrap_count    // device wraps + recovery wraps + 1 snapshot, for the epoch it opens
+}
+
+RecoveryTag {
+    LP   recovery_handle        // exactly 16 bytes
+    LP   recovery_verify_pub    // exactly 32 bytes, Ed25519
+    u16  alg_id                 // 0x0001 (Ed25519)
+}
+
+WrapTag {
+    LP   wrap_target_handle     // exactly 16 bytes
+    u64  epoch                  // the epoch whose wrap or snapshot this record carries
+}
+
+EpochComplete {
+    u64  epoch
+    u32  wrap_count             // MUST equal that epoch's EpochAttachment.expected_wrap_count
+}
+
+wrap_target_handle = HKDF-Expand(group_handle_key, "wt/v1" ‖ u64(epoch) ‖ u32(leaf_index), 16)
+                     // every member can compute it for every leaf; the server cannot invert it.
+                     // The epoch snapshot record uses leaf_index = 0xFFFFFFFF.
+```
 
 ## 9. Message server
 
 ### 9.1 Responsibilities
 
-Accept records whose `write_auth` verifies. Enforce monotonic `stream_index` per `sender_handle`.
-Enforce single-commit agreement (§9.3). Serve history. Prune by retention class and `expire_at`.
-Never decrypt.
+> Accept records whose `write_auth` verifies. **Authorize reads: `Fetch`, `Subscribe`, `BlobGrant` and
+> `GroupStatus` MUST carry `req_auth` (§9.2) and MUST be refused without it — an unauthenticated read is a
+> full metadata dump and a group-existence oracle.** Enforce monotonic `stream_index` per
+> `(group_id, sender_handle)`. Enforce single-commit agreement (§9.3). Serve history. Prune by retention
+> class **and `expire_at`, where `expire_at` may only shorten retention, never extend it**. Never decrypt.
 
 ### 9.2 Write authorisation
 
 ```
 write_key = HKDF-Expand(storage_root[n], "write/v1", 32)          group-wide
+
 write_auth = MAC(write_key, "URmessage/v1/write" ‖ LP(server_nonce) ‖ LP(group_id)
                  ‖ LP(sender_handle) ‖ u64(epoch) ‖ u64(stream_index) ‖ u8(is_commit)
                  ‖ u8(retention_class) ‖ u8(size_bucket) ‖ u64(expire_at)
-                 ‖ LP(H(ct_head)) ‖ LP(body_hash))
+                 ‖ LP(H(ct_head)) ‖ LP(body_hash)
+                 ‖ LP(H(server_attachment)))
 ```
 
 One group-wide key, so the server learns only "a current member of this group" — which is all it needs
@@ -517,11 +680,54 @@ for quota and spam control. Per **I5**, authenticity is MLS's job, and a forged 
 client no matter what the server accepts. Per **I6**, `write_auth` covers every header field the
 server acts on.
 
-The server holds `H(write_key)`-derived verification state per epoch, published by the committer as
-part of the commit record's cleartext. Revocation is by epoch rotation, which MLS already performs on
-every `Remove`.
+> The server holds `write_key[n]` itself. It is delivered to the server by the committer inside the commit
+> record's `server_attachment` (`EpochAttachment.write_key`), over the connect session's own hybrid-PQ
+> encryption, and is stored wrapped under a vault KEK. Three consequences, all accepted:
+>
+> 1. A server holding `write_key` **can forge `write_auth`**. This changes nothing: the server is the party
+>    enforcing `write_auth`, so it could equally accept an unauthenticated record, and any record it injects
+>    fails MLS verification at every client (**I5**).
+> 2. `write_key` is a label-separated HKDF child of `storage_root[n]`, so holding it yields neither
+>    `storage_root[n]` nor the sibling class keys `K_perm` / `K_durable` / `K_media` / `eph_root`. It MUST
+>    NOT be reused for any second purpose beyond `write_auth` and `req_auth`.
+> 3. The server retains the **current** epoch's key plus **one** briefly-retired predecessor (60 s), and
+>    nothing older.
+>
+> An asymmetric per-epoch write proof (Ed25519 derived from `storage_root`, server holds only the public
+> half) removes the forgery capability at the cost of one signature per record. It is the right long-term
+> shape and is a **V2** item, not v1 text.
 
-`server_nonce` comes from the connection challenge (§4.3) and prevents cross-connection replay.
+Revocation is by epoch rotation, which MLS already performs on every `Remove`.
+
+Reads are authorized by a second authenticator under the same key and a distinct domain label:
+
+```
+req_auth = MAC(write_key[current_epoch],
+               "URmessage/v1/req" ‖ LP(server_nonce) ‖ u8(op) ‖ LP(canonical_request_bytes))
+
+  op                      = the field number of the selected `oneof body` arm in
+                            MessageServerRequest (10..18), as a u8.
+  canonical_request_bytes = the deterministically-marshaled request body message
+                            (protobuf deterministic marshal, fields ascending) with its
+                            own `req_auth` field set to zero length.
+
+Required on: FetchRequest, SubscribeRequest, BlobGrantRequest, GroupStatusRequest.
+NOT used on: HelloRequest (no group), CreateGroupRequest (self-certified, see X-24),
+             SubmitRequest (records carry write_auth individually),
+             RecoveryFetchRequest (asymmetric proof, see X-10).
+
+Verified with §5.1 checks 2, 4, 5, 6 and then this MAC, returning the same non-specific
+REASON_REJECTED on failure. No transaction is opened and no row is allocated on the read path.
+```
+
+> `server_nonce` is 32 bytes, issued by the message server at session start in `HelloResponse`, scoped to
+> **that connection**, valid for the life of that connection, and never rotated. It prevents
+> cross-connection replay. It is **not** carried in requests — the server knows its own connection's nonce
+> and looks it up from the connection, never from the request.
+>
+> **Outbox rule (normative, client side).** On reconnect, every queued record MUST be re-MAC'd against the
+> new connection's nonce before submission. On `REASON_EPOCH_STALE`, a queued record MUST be discarded and
+> re-sealed at the new epoch, consuming a **fresh** `stream_index`.
 
 **What this gives up versus per-device capabilities:** the server cannot attribute a record to a
 device, so `OBSERVER` is enforced in the UI and by MLS proposal rules rather than at the server, and
@@ -544,10 +750,36 @@ per **I8**, so it cannot be flipped in transit.
 
 ### 9.4 Fetch attestation
 
-`FETCH_ATTESTATION{group_id, requested_range, record_ids_returned[], server_time, server_id, sig}`,
-signed by the server's long-term Ed25519 key, pinned by clients on first contact. Clients retain
-attestations covering their high-water range and warn when a later-learned record falls inside a
-covering attestation that omitted it.
+On every history fetch the server returns a `FetchAttestation`, signed by the fleet's long-term Ed25519
+key, pinned by clients on first contact. The normative field list and signing preimage are Spec B
+§4.3.4, restated here so the two implementations sign the same bytes:
+
+```proto
+message FetchAttestation {
+    bytes  group_id             = 1;
+    uint64 since_record_id      = 2;
+    uint64 until_record_id      = 3;
+    repeated uint64 record_ids  = 4;
+    uint64 high_water_record_id = 5;
+    uint64 server_time_ms       = 6;
+    bytes  server_id            = 7;
+    uint32 class_mask           = 8;
+    bool   heads_only           = 9;
+    bytes  sig                  = 10;   // Ed25519 over the preimage below
+}
+```
+
+```
+"URmessage/v1/attest" ‖ LP(server_id) ‖ LP(group_id)
+  ‖ u64(since_record_id) ‖ u64(until_record_id) ‖ u64(high_water_record_id)
+  ‖ u32(class_mask) ‖ u8(heads_only)
+  ‖ u32(count) ‖ u64(record_id[0]) ‖ … ‖ u64(record_id[count-1])
+  ‖ u64(server_time_ms)
+```
+
+Clients retain attestations covering their high-water range and warn when a later-learned record falls
+inside a covering attestation that omitted it. Clients compare attestations only within an identical
+`(class_mask, heads_only)` filter.
 
 ### 9.5 What the server sees
 
@@ -595,6 +827,17 @@ The client pins each contact's identity key on first use. If a later resolution 
 the client raises a **blocking warning** — the shape of SSH's changed-host-key prompt — naming what
 changed and when, and requires explicit approval. A user who has never contacted someone sees no
 warning, because there is no pin to contradict.
+
+> **In a DM with the changed contact:** blocking modal, outbound sending to that conversation disabled until
+> resolved.
+>
+> **In a group containing them:** a permanent, non-dismissible in-thread record plus a non-blocking bar.
+> **Sending stays enabled**, because the changed key is not in the group's ratchet tree and cannot read
+> anything sent there.
+>
+> **New blocking condition:** an `Add` committing a member whose identity key differs from a pin the user
+> holds. This is blocking for that group, with its own permanent record, and its own copy:
+> *"Bo was added to this group with a different safety number than the one you have seen."*
 
 Safety numbers are an out-of-band fingerprint over the pair's identity keys for deliberate
 verification. A key change is also written permanently into every group the pair shares.
@@ -708,26 +951,37 @@ contact's key changes from one you have seen before, and never silently switched
 | # | Slice | Contains |
 |---|---|---|
 | 1 | `connect/mls/` | RFC 9420. **Acceptance: the IETF test vectors pass**, cross-checked against OpenMLS. |
-| 2 | `connect/message/` | Storage records, retention classes, ratchet, PQ composition, `write_auth`, padding, `COVER`. Freezes the wire format. |
+| 2 | `connect/message/` | Storage records, retention classes, ratchet, PQ composition, `write_auth`, padding, `COVER`. `server_attachment`, `req_auth`, recovery proof. Freezes the wire format — §8, §8.3 and §9.2 must be final before this slice starts. |
 | 3 | `message-server` | Store, ordering, single-commit agreement, `write_auth` verification, retention, fetch attestation. §9.7 is an acceptance criterion. |
 | 4 | Client core in `sdk` | Group state, local store, KT client, provisioning. |
 | 5 | `message-windows` text | Send, receive, groups, TOFU warnings, reactions, receipts. **First testable build.** |
 | 6 | Disappearing messages | `eph_root`, buckets, tombstones. |
 | 7 | Multi-device | Provisioning UI, device management, revocation. |
 | 8 | Attachments | Blob store, `MEDIA` class, thumbnails, resumable upload. |
-| 9 | `/server` operator | Discovery directory, KT log. |
+| 9 | `/server` operator | Discovery directory, KT log. Includes the VRF-indexed prefix tree, the history tree, and the four client endpoints of Spec B §9.4 — not the log alone. |
 
 Slice 1 is the schedule risk and is first because it has an objective completion test. Slices 1–5
 produce something two people can text on.
 
 ## 15. Open items
 
-1. **Retention floor negotiation** — behaviour when a group's policy exceeds the server's advertised
-   minimum: warn and proceed, or refuse?
+1. **Retention negotiation — RULED, warn and proceed.** Two distinct cases, previously conflated as
+   "policy exceeds the server's advertised minimum," which is incoherent:
+   - a group policy **longer** than the server's `media_ttl_max_seconds` → the server clamps **down**;
+   - a group policy **shorter** than the server's `durable_retention_min_seconds` → the server floors
+     **up**.
+
+   In both cases the server accepts the commit and returns `REASON_RETENTION_CLAMPED` with the applied
+   values; the client renders a one-time in-group notice naming the **effective** policy. The group's
+   transcript-covered policy is unchanged. Refusal is not an option in either direction.
 2. **Push transport** — WNS for Windows; APNs/FCM when mobile lands. No push exists in the operator
-   today.
+   today. Owned jointly by Spec A (`RegisterPushChannel`), Spec B (server-side channel registry) and
+   Spec C (§10.2, and the Azure AD application registration, which needs a named owner).
 3. **Owner succession residual risk** — a colluding admin majority can displace an owner who is merely
    offline. The 30-day floor bounds but does not eliminate this.
 4. **`OWNER_SUCCESSOR_SET` placement** — group-context extension is likely right, since it should be
    transcript-covered.
 5. **Moderation recourse** deferred by decision — revisit with legal counsel before any public launch.
+6. **Key-transparency log completion date.** Spec B §9.4 now specifies the VRF suite, the tree
+   arithmetic, the STH preimage, the history tree, and the four client endpoints. §10.1 says the log is
+   "required, not optional," so staging it behind slice 9 needs a **date**, not a plan.
