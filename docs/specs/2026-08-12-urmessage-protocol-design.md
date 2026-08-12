@@ -163,7 +163,7 @@ master_key
 │                    (the MLS credential subject; published in the KT log)
 └─ recovery_root = HKDF-Expand(master_key, "recovery/v1", 32)
      ├─ per group g:  rk_xwing = XWing.KeyGen(
-     │                    HKDF-Expand(recovery_root, "rk/v1" ‖ LP(g), 96))            [96 B]
+     │                    HKDF-Expand(recovery_root, "rk/v1" ‖ LP(g), 32))            [32 B seed]
      └─ recovery_handle = HKDF-Expand(recovery_root, "idx/v1", 16)
 ```
 
@@ -460,16 +460,39 @@ would compile, pass tests, and silently make every expired message recoverable f
 | Target | Receives |
 |---|---|
 | Active device leaves | `pq_secret[n]` **and** `eph_root[n]` |
-| Member `RECOVERY_PUB` | `pq_secret[n]` **and** `archive_secret[n]` |
+| Member `RECOVERY_PUB` | **`storage_root[n]`** **and** `archive_secret[n]` |
 
 ```
 archive_secret[n] = sender_data_secret[n] ‖ encryption_secret[n]     RFC 9420 §8.1
 ```
 
 Those two named secrets — **not** the exporter output, which cannot regenerate its siblings, and
-**not** `epoch_secret`, which would also expose `confirmation_key` and `membership_key`. The wrap also
-carries a snapshot of the epoch's ratchet-tree public state and GroupContext, which a restoring device
-needs to verify signatures.
+**not** `epoch_secret`, which would also expose `confirmation_key` and `membership_key`.
+
+**Why the recovery wrap carries `storage_root[n]` and not `pq_secret[n]`.** `storage_root =
+HKDF-Extract(mls_secret, pq_secret)` requires `mls_secret`, which comes from `MLS-Exporter` and
+therefore requires live MLS epoch state. A seed-only restorer (§5.4) has none by definition, so a wrap
+carrying `pq_secret` would leave it able to derive no class key and open nothing — while holding an
+`archive_secret` that would decrypt the MLS payload inside. Seed-only restore would not work at all.
+
+This does not weaken the post-quantum property. The PQ layer exists against an adversary who harvested
+the classical MLS handshake and later gains a quantum computer; that adversary derives `mls_secret`
+from the harvested handshake regardless, so `pq_secret` and `storage_root` are equivalent to them —
+both protected solely by X-Wing, which is what §7 intends. Against a classical adversary the only way
+into the recovery wrap is the recovery X-Wing private key, derived from the seed, and a seed holder
+already reads everything (§13). No adversary class gains anything.
+
+**The epoch snapshot is a record, not part of the wrap.** A restoring device also needs the epoch's
+ratchet-tree public state and GroupContext to verify signatures. That snapshot is roughly 300 KB at
+the 500-member design target; carried inside each member's wrap it would make a single commit emit
+~150 MB. It is instead **one `PERMANENT`-class record per epoch**, encrypted under
+`K_snapshot[n] = HKDF-Expand(storage_root[n], "snap/v1", 32)` — which the restorer can open precisely
+because `storage_root[n]` is in its wrap.
+
+Realistic commit sizing at 500 members × 2 devices: device wraps ~1.21 MB, recovery wraps ~0.62 MB,
+snapshot ~0.30 MB, **~2.1 MB per commit**. The server MUST index wraps by target (§9.1) so a joining
+device fetches ~1.2 KB rather than the whole bundle, and per-record size caps MUST apply to individual
+wrap records rather than to the commit as a whole.
 
 ## 9. Message server
 

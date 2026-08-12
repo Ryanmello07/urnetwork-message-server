@@ -10,18 +10,24 @@ document; this ledger is the map, the reasoning, and the audit trail.
 
 ## 1. Current state
 
-**Protocol design at revision 5.** Group key agreement is MLS (RFC 9420), implemented in Go.
-Storage, retention, deletion, recovery, and identity verification are ours. v1 targets one operator,
-one message server, many providers.
+**Protocol design at revision 5**, with errata E1–E3 fixed. Group key agreement is MLS (RFC 9420),
+implemented in Go. Storage, retention, deletion, recovery, and identity verification are ours. v1
+targets one operator, one message server, many providers.
 
-**Nothing is implemented yet.** No code exists. The next artifact is an implementation plan in
-`docs/plans/`.
+**Nothing is implemented yet.** No code exists.
 
 | Item | State |
 |---|---|
-| Protocol design | Revision 5 — awaiting owner review |
+| MASTER protocol design | Revision 5 + errata E1–E3 — awaiting owner review |
+| Spec A — protocol / sdk / connect | Draft A-1, reviewed, 1 blocker + cross-cutting |
+| Spec B — message-server / operator | Draft, reviewed, **10 blockers** |
+| Spec C — Windows client UI | Draft, reviewed, blockers present |
+| Cross-cutting findings | **69** — these are the ones that get half-fixed |
 | Implementation plan | Not written |
 | Code | None |
+
+**Not ready to hand to teams.** 41 blockers outstanding across the three specs; see the edit log
+entry of 2026-08-12 and `docs/reviews/2026-08-12-r4-findings-full.json`.
 
 ## 2. Document map
 
@@ -56,7 +62,9 @@ Each was chosen explicitly by the project owner. Changing one requires a ledger 
 | # | Decision | Reasoning |
 |---|---|---|
 | C1 | **Group key agreement is MLS (RFC 9420)** | Two bespoke drafts (revisions 1–2) drew 10, then 12 blocking defects. RFC 9420 ships component-level test vectors, so correctness becomes pass/fail. Revision 3's review found **zero** defects in key agreement. |
-| C2 | Implement MLS ourselves in Go; **OpenMLS is the reference oracle, never a dependency** | Both Go libraries fail the owner's bar of *actively maintained and widely trusted*. OpenMLS clears it but is Rust — pure Go builds everywhere gomobile already goes, with no per-platform Rust cross-build. |
+| C2 | Implement MLS ourselves in Go; **OpenMLS is the reference oracle, never a dependency** | Settled by measurement, not preference. **OpenMLS exposes no C API at all** — a full-tree grep for `no_mangle\|extern "C"\|cbindgen\|uniffi` returns one hit, a `wasm_bindgen` block *importing* JS. So depending on it means authoring and forever maintaining the entire FFI surface of a stateful group-crypto library as its first Go consumer in existence. Worse, `StorageProvider<const VERSION: u16>` (62 methods, const generics) **cannot cross a C ABI**, so Go could not own key persistence — private keys would live in an opaque Rust store unreachable for DPAPI sealing or zeroization. For a key-custody messenger that is a contradiction, not a cost. Wire is the natural experiment: the only funded team to attempt this forked and froze against upstream churn, which destroys the very rationale (audit, security fixes, PQ suites) that justified depending on it. |
+| C6 | **Post-quantum is at-rest only for v1**; classical MLS ciphersuite | Deferring PQ is safe *except* where today's choice permanently exposes today's data. Harvest-now-decrypt-later makes stored ciphertext the one irreversible case; transit PQ is already free via connect, and MLS has ciphersuite agility so a PQ suite can be adopted later. The at-rest wrap is also the cheap part — one X-Wing wrap of 32 bytes per epoch per member, not TreeKEM. |
+| C7 | **"The test vectors pass" is NOT a sufficient acceptance gate** | Measured: the 16 IETF vector families are ~6,158 lines against 40,181 lines of behavioural tests inside OpenMLS — ~13% of the corpus — and they exercise **none** of the 43 ValSem validation codes. Six OpenMLS defects from 2026 each pass 100% of the vectors. The real gate is in spec A: narrow v1 profile, the mlswg gRPC interop harness in both roles, negative tests for all 43 ValSem codes, differential fuzzing, a swappable interface, and a funded external audit before any non-beta user. |
 | C3 | Hybrid KEM is **X-Wing** (X25519 + ML-KEM-768) | Replaced a hand-rolled combiner that drew a finding in every review round. A construction with a security proof at Level 3 beats a hand-rolled one at Level 5. |
 | C4 | ML-KEM-1024 revisited when draft-ietf-mls-pq-ciphersuites becomes an RFC | Algorithm identifiers make it a ciphersuite swap, not a format break. |
 | C5 | Ciphersuite `MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519` | ChaCha20 over AES-GCM to avoid AES-NI assumptions on ARM64. |
@@ -84,6 +92,11 @@ Each was chosen explicitly by the project owner. Changing one requires a ledger 
 | T6 | Disappearing messages off by default; receipts and typing **on** by default | Signal parity; ephemeral class, never persisted. |
 | T7 | Cover traffic built into the format, exposed as a setting, **off** by default | Costs constant bandwidth and battery; must run independently of real sending or it leaks anyway. |
 | T8 | Stream digests, per-device write capabilities, editing, voice/video, public groups → V2+ | Type codes reserved so none is a format break. |
+| T9 | Windows messaging client is a **separate app** from the VPN client, sharing the full SDK, connect and backend; optionally installed via the same installer, not by default | Different shapes of program — the VPN client is a tray utility, a messenger is a foreground app. Messaging bugs cannot take the VPN down, and release cycles decouple. |
+| T10 | **No administrator tunnel.** The messaging client forwards message traffic only | Removes the entire class of machinery behind most of the VPN client's hard bugs: no privileged service, no WFP filters, no wintun adapter, no LocalSystem process, no mTLS loopback RPC, no two-phase teardown. A normal user-mode app talking to a DLL. |
+| T11 | Message server on **PostgreSQL** (pgx/v5), matching the operator | Reuses migration patterns, connection handling, and ops knowledge. Records are a natural relational fit; the operator already runs Postgres and Redis. |
+| T12 | Protocol code on a new **`beta/message`** branch of the connect and sdk forks | Parallel to beta/algorithm-dpi and beta/custom-server. One workspace, one replace-directive layout, direct access to connect's transport and identity. |
+| T13 | A new **`URmessageSdk.dll`** (cgo c-shared), separate from `URnetworkSdk.dll` | The messaging client links only what it needs and shipping VPN builds are untouched. |
 
 ## 4. Revision history
 
@@ -165,3 +178,52 @@ rather than the ledger weakened, since the decisions were real and the spec was 
 
 **Notes:** Upstream was empty and could not be forked until seeded with the MPL-2.0 license from
 `urnetwork/android`. `upstream` remote is wired for later syncing.
+
+---
+
+### 2026-08-12 — Three component specs drafted; MASTER errata E1–E3 fixed
+
+**Change:** Added specs A (protocol/sdk/connect, 2,048 lines), B (message-server/operator, 1,377) and
+C (Windows client UI, 1,089), each with its own planning ledger. Added decisions C6, C7 and T9–T13.
+Fixed three defects in the MASTER protocol design that writing the implementation specs exposed.
+
+**Why:** The component specs are handed to separate teams. Writing them forced a level of concreteness
+prose review had not, which is what surfaced the MASTER errata.
+
+**MASTER errata fixed in this commit:**
+
+- **E1 — seed-only restore did not work at all.** The recovery wrap carried `pq_secret` and
+  `archive_secret`, but `storage_root = HKDF-Extract(mls_secret, pq_secret)` needs `mls_secret` from
+  `MLS-Exporter`, which requires live MLS epoch state a seed-only restorer does not have by
+  definition. It could derive no class key and open nothing. The recovery wrap now carries
+  `storage_root[n]` directly; §8.2 records why this weakens no adversary class.
+- **E2 — a commit would have emitted ~150 MB.** The per-epoch ratchet-tree snapshot (~300 KB at 500
+  members) was specified inside every member's wrap. It is now one `PERMANENT` record per epoch under
+  `K_snapshot[n]`. Realistic commit size is ~2.1 MB, which §8.2 now states so spec B can plan for it.
+- **E3 — the X-Wing derivation was not X-Wing.** §5.2 derived 96 bytes and used them directly as the
+  key; the draft takes a **32-byte seed** and expands it internally with SHAKE-256. The 96-byte form
+  belongs to an older draft. Using it forfeits the security proof that is the entire reason for
+  choosing X-Wing. Now 32 bytes.
+
+**Reviewed by:** two subagent passes. **Both had a coverage failure caused by input truncation, and
+the specs are NOT yet ready to hand to teams.**
+
+- Pass 1 bundled all three specs inline and capped at 120,000 chars against ~300,000 of content.
+  Spec B was cut mid-sentence and Spec C never reached the reviewers.
+- Pass 2 fixed that by having reviewers read from disk, and produced 148 findings. But its
+  *consolidator* input was capped at 45,000 chars, so the consolidated document at
+  `docs/reviews/2026-08-12-r4-three-spec-review.md` merges only ~47 of them and states — wrongly —
+  that Spec C was never reviewed. Spec C **was** reviewed and produced 22 findings.
+- The complete set is at `docs/reviews/2026-08-12-r4-findings-full.json`: **148 findings, 41
+  blockers** — B: 54, CROSS: 69, C: 22, MASTER: 2, A: 1. **Treat the JSON as authoritative and the
+  consolidated markdown as partial.**
+
+**Process lesson, recorded because it recurred:** truncating review input silently produces a review
+that looks complete and is not. Both failures were mine, one stage apart. Reviewers must read source
+from disk, and consolidation must either take the full finding set or be run per-spec.
+
+**Outstanding:** 41 blockers. Spec B cannot bootstrap a group (B-1), has **no authenticator on the
+read path** so any `ByJwt` holder who learns a `group_id` reads the entire group (B-3), and has
+nowhere to store the epoch bundle that dominates its own storage budget. Spec C's update path
+requires elevation the app does not have, and its screen inventory has no pending-invite flow
+although Spec A's group model is invite-based. These must land before any handoff.
