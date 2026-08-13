@@ -150,10 +150,25 @@ func (self *Reader) ReadRaw(n int) ([]byte, error)     // opaque x[N]; a COPY  �
 func (self *Reader) ReadVarint() (uint32, error)                              // → p8
 func (self *Reader) ReadOpaque() ([]byte, error)       // a COPY, never nil    → p2,p4,p5,p6,p7
 func (self *Reader) ReadOpaqueLP() ([]byte, error)     // connect/message only
-func (self *Reader) ReadSub() (*Reader, error)         // bounded view of the next opaque<V> → p5,p6,p7
-func (self *Reader) ReadSubLP() (*Reader, error)
+func (self *Reader) ReadSub() (*Reader, error)         // RAW escape hatch — see the warning below
+func (self *Reader) ReadSubLP() (*Reader, error)       // RAW escape hatch — see the warning below
+func (self *Reader) ReadNested(decodeOne func(r *Reader) error) error   // PREFER THIS → p5,p6,p7
+func (self *Reader) ReadNestedLP(decodeOne func(r *Reader) error) error // PREFER THIS
 func (self *Reader) ReadOptional(decodeOne func(r *Reader) error) (present bool, err error) // → p5,p6
 ```
+
+**⚠ p5-p7: call `ReadNested`/`ReadNestedLP`, not `ReadSub` plus a remembered `Done`.** Added in p1
+Task 13; this block previously listed only the raw forms, and that was a trap. `ReadSub` hands back a
+bounded sub-reader while **the parent advances past the whole region regardless of how much of it the
+sub consumes**, so any bytes a nested decoder leaves behind are *silently accepted* unless the caller
+remembers `sub.Done()` — and nothing obliges them to. That is a second valid encoding of one object,
+invisible to round-trip tests, in a codec whose serialized forms MLS signs over: the same class the
+minimal-varint rule exists to prevent. `ReadNested` calls `sub.Done()` itself and latches either
+failure on the **parent**, so a dropped return cannot leave a clean parent sitting at the next field.
+
+`ReadSub`/`ReadSubLP` remain for a caller that genuinely needs the raw view — chiefly a heterogeneous
+element sequence — and deliberately do **not** latch the parent. If you reach for them, you own the
+`Done` call, and say why in the code.
 
 `Finish()` (p6) is `Done()`. `Rest()` (p6) does not exist and is not added — a decoder that wants
 the tail writes `r.ReadRaw(r.Remaining())`, which is explicit about consuming it.
@@ -185,6 +200,14 @@ func CheckRoundTrip[T any, PT interface {
 	Codec
 }](bs []byte) error                                                            // → p8
 ```
+
+**`Marshal` never returns bytes alongside an error.** Whenever either half of
+`errors.Join(v.MarshalMLS(w), w.Err())` fires, the byte slice is dropped and the return is
+`nil, err` — a partial encoding is never handed back. Downstream may rely on that; it was left
+implicit here until p1 Task 13 and is stated now so no caller invents a "bytes may still be usable"
+path. `Unmarshal` is symmetric: it returns `errors.Join(v.UnmarshalMLS(r), r.Done())`, so a decoder
+that refuses semantically **and** leaves a tail surfaces both, rather than the tail vanishing behind
+an early return.
 
 The length prefix on a vector counts **bytes, not elements**; `ReadVector` runs `decodeOne` against
 a sub-reader until that sub-reader is empty. `WriteVector`/`ReadVector` stay free generics over a
