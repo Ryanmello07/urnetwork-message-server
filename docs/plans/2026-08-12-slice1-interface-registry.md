@@ -199,7 +199,32 @@ func CheckRoundTrip[T any, PT interface {
 	*T
 	Codec
 }](bs []byte) error                                                            // → p8
+
+func CheckRoundTripLimit[T any, PT interface {
+	*T
+	Codec
+}](bs []byte, maxVectorLength int) error        // → p8; REQUIRED for any tree-bearing type
 ```
+
+**⚠ p8: `CheckRoundTrip` is `CheckRoundTripLimit` at `MaxVectorLength`, and picking the bound too
+low fails SILENTLY.** A target that calls the default form on a tree-bearing type — a ratchet tree,
+or any `GroupInfo`/`Welcome` that may carry one — gets `nil` on every input, because input the bound
+rejects carries no round-trip obligation and is indistinguishable from input that passed. The target
+reports green having never once evaluated the property. Tree-bearing targets **must** call
+`CheckRoundTripLimit(bs, MaxRatchetTreeLength)`.
+
+**⚠ p8: the seed corpus is load-bearing, not an optimisation, and every target must fail at zero
+reachability.** Measured in p1 Task 14 against the *simplest possible* type (two octets and one
+opaque field): valid encodings reach the property 6/6, truncated encodings **0/450**, and uniform
+random bytes **14/4096 — 0.34%**. Full consumption leaves no slack, so a random input must get the
+varint prefix and an exact length right simultaneously. Real targets add a version, a cipher suite,
+nested vectors and an enumerated arm, each multiplying in another factor, so 0.34% is a generous
+upper bound and for `FuzzKeyPackageDecode` the realistic figure is indistinguishable from zero.
+Therefore every fuzz target: seeds `f.Add` with valid encodings **of its own type** covering the
+structural neighbourhood (empty, all-optionals-present, vectors at 0/63/64 for the varint octet
+boundary, one nested), **counts how many inputs `CheckRoundTrip` actually decoded, and fails the
+seed run at zero.** A target that has never reached its own property must not be able to report
+success — which is also the only defence against the silent-limit failure above.
 
 **`Marshal` never returns bytes alongside an error.** Whenever either half of
 `errors.Join(v.MarshalMLS(w), w.Err())` fires, the byte slice is dropped and the return is
