@@ -1,9 +1,10 @@
 # URmessage — Protocol Design
 
 **Date:** 2026-08-12
-**Revision:** 6 — R4 and R5 review applied: `server_attachment` (§8.3), `blob_id` in the record header
-and both preimages, `req_auth` under a group-lifetime `read_key` (§9.2), asymmetric recovery proof bound
-to `RECOVERY_PUB`, epoch publication sequence, wire encodings fixed
+**Revision:** 7 — the project owner's product rulings applied: operators are plural and separate from
+message servers (§2, §4), `read_key` becomes per-epoch with a 90-day server acceptance window (§8,
+§9.2), delivery receipts ship in v1, owner succession ships at a raised bar (§11), retention defaults
+to one year inside three server-advertised limits (§12.2), logging becomes aggregate-only (§9.7)
 **Status:** Design, pending approval
 
 Notation: `LP(x)` = 32-bit **big-endian** length prefix then `x`; `u8/u16/u32/u64` = big-endian
@@ -30,10 +31,12 @@ reappeared re-expressed, and three new ones were introduced by misreading MLS's 
   independent derivations. Corrected in §8.3.
 - §6 asserted a credential check RFC 9420 §7.3 does not perform. Corrected in §6.
 
-**Revision 4** narrows v1 to **one operator, one message server, many providers**, which removes the
-read-through proxy, per-epoch handle rotation, and per-device capability blinding — the three
+**Revision 4** narrows v1 to **one message server and many providers carrying traffic**, which removes
+the read-through proxy, per-epoch handle rotation, and per-device capability blinding — the three
 mechanisms responsible for most of the remaining blockers. It also adds §3, an explicit invariant
 list, because two revision-3 defects were contradictions of an invariant stated a line away.
+Revisions 4–6 also wrote "one operator" alongside it, which was never true of the platform; revision
+7 corrects it (§2).
 
 **Revision 5** replaces the hand-rolled hybrid-KEM combiner with **X-Wing**, and makes
 [OpenMLS](https://github.com/openmls/openmls) the reference oracle in place of a 24-star Go
@@ -66,10 +69,34 @@ implied:
   (§9.4).
 - **Open item 1 is ruled** (§15): retention negotiation is warn-and-proceed in both directions.
 - **Reads are authenticated under a key an offline member still holds.** `req_auth` is MAC'd under
-  `read_key`, fixed at group creation, not under the current epoch's `write_key` — which the server
-  discards a minute after the epoch changes and which a client cannot re-derive without first reading.
+  `read_key`, not under the current epoch's `write_key` — which the server discards a minute after
+  the epoch changes and which a client cannot re-derive without first reading. Revision 6 fixed that
+  key for the life of the group; revision 7 makes it per-epoch with a 90-day server-side window,
+  which keeps the property and expires a removed member's metadata access (§8, §9.2).
   `blob_id` joined the record header and both preimages, because the server binds blobs by it and
   **I6** forbids acting on anything unauthenticated.
+
+**Revision 7** applies the project owner's product rulings. Nothing in the cryptographic core
+changed. What changed is ownership of decisions that earlier revisions had taken as engineer
+defaults, and four places where the document contradicted itself or an implementation spec:
+
+- **Operators are plural.** Revisions 1–6 read "the operator" as a single party throughout. Two
+  operator servers exist today, they are separate from message servers, and a message server holds
+  an account on whichever compatible operator its administrator chooses. v1 still ships **one
+  message server**; nothing hardcodes one operator. §2, §4.1, §4.2, §4.4 and §13 are rewritten.
+- **`read_key` is per epoch, not per group lifetime**, with a 90-day server-side acceptance
+  window. A removed member's metadata access now expires. §8, §8.3, §9.1 and §9.2 are rewritten.
+- **Delivery receipts ship in v1.** A device emits an ephemeral record when it decrypts. This is a
+  wire-format addition and lands with the storage layer, not after it. §2, §12.2 and §13.
+- **Owner succession ships**, at a raised bar: supermajority of admins, a 90-day floor, escalating
+  warnings on every owner device, and an owner opt-out. Spec A's parse-refusal of the successor
+  extension is lifted. §11, and open items 3 and 4 close.
+- **Retention has a default and three server-advertised limits.** Text keeps for one year rather
+  than indefinitely; the message server advertises a text-storage cap, a media window and a file
+  size limit, and groups operate inside all three. §12.2.
+- **Logging is aggregate-only rather than absolutely prohibited.** §9.7 states what may be
+  recorded, which is enforceable, instead of a rule that an on-call engineer meets at 3 a.m. and
+  quietly breaks.
 
 ## 1. Purpose and product target
 
@@ -84,17 +111,28 @@ costs usability is rejected.
 
 ## 2. Scope
 
-**v1 topology:** one operator, one message server, many providers carrying traffic. Multi-server is
-V2 — the wire format keeps `server_id` fields so it is not a format break, but no code implements it.
+**v1 topology:** one message server, many providers carrying traffic, and **more than one
+operator**. Operators and message servers are different things: an operator is the URnetwork
+platform that authorizes transport, mints contracts and routes to providers; a message server
+stores ciphertext and orders records. Two operator servers run today. A message server holds an
+account on one compatible operator, chosen by whoever administers that server, and forwards its
+traffic through it. A client reaches its message server through its own operator. Multi-*server* is
+V2 — the wire format keeps `server_id` fields so it is not a format break, but no code implements
+it. **Nothing in v1 may hardcode a single operator**: every operator-facing value is
+configuration, and a build that compiles one operator's host into a constant is a defect.
 
 **v1 ships:** text messaging (DMs and groups), full multi-device, disappearing messages, safety
-numbers with key-change warnings, reactions, read receipts and typing indicators, attachments and
-images, and a WinUI 3 Windows client reusing the VPN app's shell and branding.
+numbers with key-change warnings, reactions, read receipts, delivery receipts and typing
+indicators, attachments and images, invite links, balance-code redemption, owner succession, and a
+WinUI 3 Windows client reusing the VPN app's shell and branding.
 
 **Deferred to V2+, type codes reserved so none is a format break:** message editing, multi-server and
 read-through proxy, group migration between hosts, stream digests, per-device write capabilities,
 voice and video (relayed through providers, not peer-to-peer), public groups, history export, mobile
-clients.
+clients, and **very large groups**, which get their own Community Server system rather than a larger
+ordinary group. That is a distinct design with its own admission, storage and moderation shape,
+well beyond V2. Nothing in the v1 wire format forecloses it: group size is bounded by policy and by
+the client, never by a format field.
 
 **Cross-platform:** `connect` and `sdk` changes must build for all supported platforms from the
 start. Windows is implemented first; platform notes are written as Windows development surfaces them.
@@ -131,19 +169,32 @@ exception.
 | Actor | Role |
 |---|---|
 | **Client** | Holds the seedphrase and all keys. The only place plaintext exists. |
-| **Message server** | Stores ciphertext, orders records, serves history, prunes. One in v1. Holds its own URnetwork account for routing. |
-| **Operator** | URnetwork platform. Authorizes transport, mints contracts, routes to providers, runs the discovery directory and key-transparency log. **Forwards traffic; never stores message records.** |
+| **Message server** | Stores ciphertext, orders records, serves history, prunes. One in v1. Holds an account on **one** operator — chosen by its administrator from the operators it is compatible with — and forwards its traffic through it. |
+| **Operator** | A URnetwork platform instance. **There is more than one; two run today.** Authorizes transport, mints contracts, routes to providers, sets data pricing, and runs its own discovery directory and key-transparency log. **Forwards traffic; never stores message records.** A client uses the operator its account is on; that need not be the one its message server uses. |
 | **Provider** | URnetwork relay. Sees ciphertext in transit only. |
 
 ### 4.2 The operator boundary
 
-**MAY:** mint `ByJwt` for transport and billing; create contracts and route; rate-limit and refuse
-service; run a discovery directory mapping `principal → identity master key`; publish it to a
-key-transparency log.
+**An operator MAY:** mint `ByJwt` for transport and billing; create contracts and route;
+rate-limit and refuse service; set the price of data on its own network; run a discovery directory
+mapping `principal → identity master key` **for the identities that have opted into being
+listed**; publish that directory to its own key-transparency log. Each operator runs its own
+directory and its own log; a client verifies against the log of the operator it resolved a
+principal from, and never treats one operator's signed tree head as evidence about another's.
+
+**The messaging identity and the paying URnetwork account are cryptographically unlinked.** The
+master identity of §5.2 is generated on-device from a phrase the operator never sees, and no
+operator-held record binds it to an account unless the user explicitly opts into directory listing.
+This is what makes "the operator cannot read your messages" structural rather than a policy
+statement: without the join, a compromised operator holds a payment record and a traffic pattern,
+not a social graph. The accepted cost is stated in §13 — there is no cross-boundary abuse tooling,
+and support cannot answer "which account is this".
 
 **MUST NOT:** store message records; satisfy any MLS proposal or commit's validity condition; be
 consulted by the message server on group admission. Operator assertions are advisory UI hints in
-discovery only.
+discovery only. No operator may be assumed to be *the* operator: a client, a message server and a
+contact may each be on a different one, and any check written as though one operator sees the whole
+system is wrong.
 
 If the server admitted a device because the operator vouched, the operator's signing key would *be* a
 group-membership key, and membership is decryption.
@@ -166,8 +217,28 @@ without a group leaf key fails MLS verification at every client regardless of wh
 `ContractManager.CreateContract` (`transfer_contract_manager.go:1278-1305`) obtains a contract by
 sending a control frame to `ControlId` — the platform — which requires a `ByJwt`. URmessage cannot
 operate without a URnetwork account. What is optional is *linking* the messaging identity to a
-human-identifiable SSO account. The message server likewise holds its own account; that credential is
-a server-side secret.
+human-identifiable SSO account, which §4.2 makes an explicit opt-in. The message server likewise
+holds an account — on the operator its administrator selected — and that credential is a
+server-side secret. The client's operator and the message server's operator are configuration on
+both sides and are not required to be the same.
+
+### 4.5 Who pays for the data
+
+**Operators set data pricing; nobody else does.** A message server does not price data and does not
+fund its members' traffic. Messaging consumes the **user's own URnetwork allowance** on the user's
+own operator, exactly as any other traffic on that account does — currently 40 GB per day free,
+which is ample for text, receipts and ordinary attachments.
+
+Message servers operated for the beta are given free data credit by the operator that hosts them.
+That is an arrangement between an operator and a server administrator; it is not a protocol
+feature and no client behaviour depends on it.
+
+**When an account runs out of credit, messaging stops and the client says so.** The failure is
+reported in the app with the reason named, and the user is directed to the URnetwork website, app
+or VPN client to add credit — URmessage does not sell data and contains no purchase flow. It does
+contain a redemption flow for **balance codes**: a code issued by an operator that grants credit
+against the user's account. Beta testers receive credit this way. The redemption surface is Spec A
+§7.9 and its screen is Spec C §12.4.
 
 ## 5. Identity and key custody
 
@@ -333,15 +404,23 @@ in how the client renders it. Group creation, epochs, and membership changes are
 | Joining | `Welcome`, §12.4.3 |
 
 **Ciphersuite:** `MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519` (0x0003). ChaCha20 rather than
-AES-GCM, to match the stack and avoid AES-NI assumptions on ARM64.
+AES-GCM, to match the stack and avoid AES-NI assumptions on ARM64. A **second ciphersuite,
+`MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519` (0x0001), is registered and implemented** alongside
+it. v1 groups are still created at 0x0003 and the group policy refuses anything else, so this
+changes no group on the wire. It exists because a registry with one entry is indistinguishable from
+a hardcoded constant, and the post-quantum MLS ciphersuites are still a draft we expect to adopt:
+the part that breaks later is the assumption of a singleton, and it is cheap to disprove now and
+expensive to disprove after the fact. `ReInit` remains unimplemented — registering a suite and
+migrating a live group are different problems, and only the first is v1.
 
 **Credential:** `BasicCredential` carrying the member's `identity` public key. RFC 9420 §7.3 does
 **not** verify that a credential corresponds to any external identity — it validates signature and
 capability consistency only. Binding `identity` to a human is entirely our job, and is done by the KT
 log plus local pinning (§10). The spec must not assume MLS checks this.
 
-**Extensions:** `required_capabilities`; `urmessage_leaf_keys` (§5.3); and a group-context extension
-carrying `{roles, retention_policy, disappearing_buckets, server_id}`, so those are covered by the
+**Extensions:** `required_capabilities`; `urmessage_leaf_keys` (§5.3); a group-context extension
+carrying `{roles, retention_policy, disappearing_buckets, server_id}`; and a second group-context
+extension carrying the owner-succession nomination of §11 — so all of those are covered by the
 transcript hash and no server can alter them.
 
 **Test vectors:** slice 1 MUST pass the RFC 9420 vectors for tree-math, crypto-basics, secret-tree,
@@ -355,8 +434,13 @@ and no per-platform static-library cross-build.
 
 **This is the acceptance criterion for slice 1** — not "it works," but "the vectors pass."
 
-**Group size:** design target 500. TreeKEM is O(log n); the practical limit is Welcome size and client
-memory, not the ratchet.
+**Group size: 500 members, enforced.** TreeKEM is O(log n) and the ratchet is not the constraint;
+Welcome size, epoch-bundle size and client memory are, and 500 is where they are still comfortable.
+A commit that would carry the group past 500 members is refused by the committing client and
+rejected by every receiving client, so the cap does not depend on one well-behaved participant.
+**Ten devices per identity**, enforced the same way. Both numbers are shown in the UI rather than
+discovered by hitting them (Spec C §12.5). Groups that genuinely need more than 500 people are the
+Community Server case named in §2, not a larger group.
 
 ## 7. Post-quantum composition
 
@@ -539,19 +623,27 @@ is not advanced for them.
 *foreign* hosts linking a member across epochs; with one server that the client authenticates to, it
 bought nothing and cost three defects.
 
-A group has exactly two lifetime values, both fixed at creation and neither ever rotated:
+A group has exactly one lifetime value, fixed at creation and never rotated, and one per-epoch read
+authorizer:
 
 ```
-group_handle_key = HKDF-Expand(storage_root[0], "gh/v1",   32)
-read_key         = HKDF-Expand(storage_root[0], "read/v1", 32)
+group_handle_key = HKDF-Expand(storage_root[0], "gh/v1",   32)     fixed for the life of the group
+read_key[n]      = HKDF-Expand(storage_root[n], "read/v1", 32)     one per epoch
 ```
 
 `group_handle_key` is what makes `sender_handle` and `wrap_target_handle` survive an epoch change.
-`read_key` is what makes read authorization survive one (§9.2). **Both are delivered to a joining
-member in its `Welcome`, alongside the group-context extension**, and neither is derivable from any
-later epoch's `storage_root`. A member that does not hold `group_handle_key` cannot compute its own
-handle and therefore cannot write; a member that does not hold `read_key` cannot authenticate a
-single read, including the read that would fetch the commit that admitted it.
+It is delivered to a joining member in its `Welcome` alongside the group-context extension, and is
+not derivable from any later epoch's `storage_root`. A member that does not hold it cannot compute
+its own handle and therefore cannot write.
+
+`read_key[n]` is what authorizes reads (§9.2). Every member derives it from the epoch state it
+already holds, so it needs no separate delivery except at join, where the `Welcome` carries the
+joining epoch's key. Each commit's `EpochAttachment` delivers to the server the read key of the
+epoch that commit opens. **The server retains every read key it has installed for 90 days from
+installation** and accepts a read authenticated under any retained key, so a member that was
+offline across many commits still authenticates with the newest key it holds and catches up. A
+member removed at epoch *n* keeps metadata access only until epoch *n*'s key falls out of that
+window. §9.2 states the consequences of the window in both directions.
 
 ### 8.1 Retention classes and their keys
 
@@ -674,9 +766,10 @@ EpochAttachment {
     u64  epoch                  // the epoch this attachment OPENS. MUST equal current_epoch + 1
     u16  alg_id                 // 0x0031 (HKDF-SHA-256) in v1
     LP   write_key              // exactly 32 bytes: write_key[epoch]
-    LP   read_key               // exactly 32 bytes: read_key = HKDF-Expand(storage_root[0],
-                                //   "read/v1", 32). Identical in every epoch of this group;
-                                //   the server refuses a commit that changes it (§9.2)
+    LP   read_key               // exactly 32 bytes: read_key[epoch] = HKDF-Expand(
+                                //   storage_root[epoch], "read/v1", 32), for the epoch this
+                                //   attachment OPENS. Different in every epoch; the server
+                                //   installs it per epoch and retains it for 90 days (§9.2)
     u32  media_ttl_seconds
     u32  durable_ttl_seconds    // 0 = indefinite
     LP   group_context_hash     // exactly 32 bytes
@@ -709,8 +802,10 @@ wrap_target_handle = HKDF-Expand(group_handle_key, "wt/v1" ‖ u64(epoch) ‖ u3
 ### 9.1 Responsibilities
 
 Accept records whose `write_auth` verifies. **Authorize reads: `Fetch`, `Subscribe`, `GroupStatus`,
-`BlobGrant` and `WrapFetch` MUST carry `req_auth` (§9.2) and MUST be refused without it — an
-unauthenticated read is a full metadata dump and a group-existence oracle.** Enforce monotonic
+`BlobGrant` and `WrapFetch` MUST carry `req_auth` and the epoch of the read key that computed it
+(§9.2), and MUST be refused without both — an unauthenticated read is a full metadata dump and a
+group-existence oracle.** Retain each group's read keys for 90 days from installation and refuse a
+request naming an epoch whose key has aged out. Enforce monotonic
 `stream_index` per `(group_id, sender_handle)`. Enforce single-commit agreement (§9.3). Serve history.
 Prune by retention class **and `expire_at`, where `expire_at` may only shorten retention, never extend
 it**. Never decrypt.
@@ -745,24 +840,31 @@ encryption, and is stored wrapped under a vault KEK. Three consequences, all acc
 3. The server retains the **current** epoch's key plus **one** briefly-retired predecessor (60 s), and
    nothing older.
 
+Consequence 1 is not buried here: §13 states it in the honest-limits list, because a reader who
+discovers it later will otherwise assume it is worse than it is.
+
 An asymmetric per-epoch write proof (Ed25519 derived from `storage_root`, server holds only the public
 half) removes the forgery capability at the cost of one signature per record. It is the right long-term
 shape and is a **V2** item, not v1 text.
 
 Revocation is by epoch rotation, which MLS already performs on every `Remove`.
 
-Reads are authorized by a second authenticator, under the group's lifetime `read_key` (§8) and a
-distinct domain label:
+Reads are authorized by a second authenticator, under the epoch's `read_key` and a distinct domain
+label:
 
 ```
-req_auth = MAC(read_key, "URmessage/v1/req" ‖ LP(server_nonce) ‖ u8(op)
-                         ‖ LP(canonical_request_bytes))
+req_auth = MAC(read_key[e], "URmessage/v1/req" ‖ LP(server_nonce) ‖ u8(op)
+                            ‖ LP(canonical_request_bytes))
 
+  e                       = the epoch named by the request's read_epoch field. The client uses
+                            the newest epoch whose state it holds.
   op                      = the field number of the selected `oneof body` arm in
                             MessageServerRequest, as a u8.
   canonical_request_bytes = the deterministically-marshaled request body message
                             (protobuf deterministic marshal, fields ascending) with its
-                            own `req_auth` field set to zero length.
+                            own `req_auth` field set to zero length. read_epoch is one of
+                            those fields, so the epoch the server selects a key by is inside
+                            the MAC and cannot be altered in transit.
 
 Required on, with their op bytes:  FetchRequest (13), SubscribeRequest (14),
                                    GroupStatusRequest (16), BlobGrantRequest (17),
@@ -777,33 +879,44 @@ NOT used on: HelloRequest (names no group, and is where server_nonce is issued),
              RecoveryFetchRequest (a seed-only restorer holds no group key; it is
                authorized by the asymmetric Ed25519 recovery proof of §5.2).
 
-Verified on the server with Spec B §5.1 checks 1, 2, 4, 5 and the group read-key lookup,
-and then this MAC, returning Spec B's deliberately non-specific REASON_REJECTED on
-failure. No transaction is opened and no row is allocated on the read path.
+Verified on the server with Spec B §5.1 checks 1, 2, 4, 5 and the group read-key lookup
+for the named epoch, and then this MAC, returning Spec B's deliberately non-specific
+REASON_REJECTED on failure. No transaction is opened and no row is allocated on the read
+path.
 ```
 
-**Why the read key is not the epoch key.** The server keeps only the current epoch's `write_key` and
-one briefly-retired predecessor, so a member that was offline across a single commit for more than a
-minute holds a `write_key` the server can no longer resolve. If reads were authenticated under that
-key, such a member could not call `GroupStatus` to learn the current epoch, could not `Fetch` the
-commits that would let it derive the current `storage_root`, and could not `WrapFetch` its own wrap —
-every path out of the condition is itself a read. The result would be permanent lockout after any
-membership change, for every client that was not online for it. `read_key` is fixed at group
-creation, so a member holds it however long it has been away, and catch-up always works.
+**Why the read key is not the epoch's write key.** The server keeps only the current epoch's
+`write_key` and one briefly-retired predecessor, so a member that was offline across a single
+commit for more than a minute holds a `write_key` the server can no longer resolve. If reads were
+authenticated under that key, such a member could not call `GroupStatus` to learn the current
+epoch, could not `Fetch` the commits that would let it derive the current `storage_root`, and could
+not `WrapFetch` its own wrap — every path out of the condition is itself a read. The read key
+exists to break that cycle, and its retention window is measured in months rather than seconds for
+exactly that reason.
 
-**How the server gets it.** Every commit's `EpochAttachment` carries `read_key`, byte-identical in
-every epoch of the group. The server installs it on first sight, stores it wrapped under the same
-vault KEK as the epoch write keys, and REFUSES any later commit whose attachment carries a different
-value. Because it travels inside `server_attachment` it is covered by `write_auth`, so **I6** holds:
-the server acts only on a value it can verify.
+**How the server gets it.** Every commit's `EpochAttachment` carries the read key of the epoch that
+commit opens. The server installs it against that epoch, stores it wrapped under the same vault KEK
+as the epoch write keys, and stamps the installation time. Because it travels inside
+`server_attachment` it is covered by `write_auth`, so **I6** holds: the server acts only on a value
+it can verify. Unlike the write key it is **not** discarded when the epoch advances.
 
-**What this costs, stated plainly.** A removed member keeps read authorization for the life of the
-group. Epoch rotation on `Remove` denies it every key from that epoch forward, so what it retains is
-the ability to fetch ciphertext it cannot decrypt and the metadata around it — record ids, sizes,
-timings, `sender_handle`s. There is no v1 mechanism that withdraws read authorization from a former
-member; the operator's levers are rate limiting and group closure. A per-epoch or per-device read
-capability is the right long-term shape and is reserved for **V2**, alongside the per-device write
-capabilities this section already defers.
+**The 90-day window, stated in both directions.** The server retains each installed read key for 90
+days and accepts a read authenticated under any retained key.
+
+- A member that returns within 90 days authenticates under the newest read key it holds and
+  catches up normally, however many commits it missed.
+- A member **removed** at epoch *n* keeps the ability to fetch ciphertext it cannot decrypt, and
+  the metadata around it — record ids, sizes, timings, `sender_handle`s — until epoch *n*'s key
+  ages out. After that the server refuses it. This is the property the window exists to create:
+  before it, a removed member kept a live metadata feed for the life of the group.
+- A member that is offline for **longer** than 90 days holds only keys the server has discarded and
+  cannot read until it is re-admitted, links from another of its devices, or restores from its
+  seedphrase — seed-only restore is authorized by the §5.2 recovery proof and never by a read key,
+  so it always remains available. The client names this state rather than presenting it as a
+  generic failure (Spec C §9.8).
+
+Epoch rotation on `Remove` already denies a removed member every decryption key from that epoch
+forward; the window is what finally denies it the metadata as well.
 
 `server_nonce` is 32 bytes, issued by the message server at session start in `HelloResponse`, scoped
 to **that connection**, valid for the life of that connection, and never rotated. It prevents
@@ -871,6 +984,13 @@ inside a covering attestation that omitted it. Clients compare attestations only
 Your account, your group list, `sender_handle` per group, record sizes by bucket, timing, retention
 class. **Not** content, and not which member a handle belongs to.
 
+Delivery receipts add one thing to that list: because a device emits an ephemeral record when it
+decrypts, the server sees **when a device of that group was online and processing**, at
+`sender_handle` granularity. Read receipts alone did not disclose that, since a user may leave a
+conversation unread for days. The trade was made deliberately — a delivery state that is a real
+signal from a real device is worth more than a server guess, and a server guess is the only other
+way to have one — and §13 records it.
+
 In a single-server v1 this is broadly Signal's position: one server that knows who you are and who you
 talk to, and cannot read anything. §13 says so rather than claiming otherwise.
 
@@ -884,20 +1004,45 @@ schedule independent of real sending or it leaks anyway.
 Transfer contracts are created per `(device, message server)`, long-lived, with a provider-terminated
 hop, so `transfer_contract` rows do not become a subpoena-able membership graph held by the operator.
 
-### 9.7 Normative logging prohibition
+### 9.7 Normative logging rule
 
-The message server MUST NOT create, store, or transmit logs of client commands, transport
-connections, or a history of deleted records in production. A requirement on implementations, not a
-policy page.
+The message server MUST NOT create, store, or transmit **per-identity** records of client commands,
+transport connections, or deleted records in production. Concretely, no log line, metric label,
+trace span, error string, database log or object-store access log may contain a `group_id`,
+`sender_handle`, `record_id`, `stream_index`, `blob_id`, `recovery_handle`, `wrap_target_handle`,
+`client_id`, network id, IP address, authenticator, key or ciphertext, nor the fact that a
+particular client fetched a particular range.
+
+**What it MAY record is aggregate:** counters and histograms with no identifier labels, error
+*classes*, process lifecycle, and migration state. This is a carve-out, stated deliberately, and it
+replaces an absolute prohibition that was aspirational: an on-call engineer meets an absolute rule
+at 3 a.m. during an outage and quietly adds a log line. A rule that says exactly what is allowed is
+one an engineer can follow under pressure, and is therefore the stronger privacy position in
+practice. Spec B §11 makes it operational and testable.
+
+**One narrow exception, opt-in and client-triggered.** A user who is diagnosing a problem may start
+a **diagnostic session** from the client. The client presents a short-lived token the server
+records against, and for the life of that session — bounded, and never longer than one hour — the
+server may retain per-request detail for **that client only**, in a separate store with its own
+retention, surfaced back to the user. No session, no per-identity record. The mechanism is Spec B
+§11.5 and the control is Spec C §12.
 
 ## 10. Identity verification
 
 ### 10.1 Key transparency
 
-The operator's `principal → identity master key` directory is published as an append-only log over a
-Merkle prefix tree. Clients require an inclusion proof for every resolution and gossip signed tree
-heads over two paths — the message server and peer clients — since an equivocating operator otherwise
-only has to fool one.
+An operator's `principal → identity master key` directory is published as an append-only log over a
+Merkle prefix tree. Each operator runs its own directory and its own log. Clients require an
+inclusion proof for every resolution and gossip signed tree heads over two paths — the message
+server and peer clients — since an equivocating operator otherwise only has to fool one.
+
+**Listing is opt-in and off by default.** No directory entry and no log leaf exists for an identity
+until its owner turns listing on, which is also the only act that creates a link between a
+messaging identity and a paying account (§4.2). An unlisted identity is reachable by **invite link
+or direct key exchange, which always work** and require no directory at all (§11). The cost of
+being unlisted is that key changes for that identity carry no log evidence and are attested by
+local pinning alone, which the client renders as an explicit "not in a transparency log" state
+rather than as silence (Spec A §7.6).
 
 Required rather than optional because `model/auth_model.go:125-153` associates a new SSO auth onto an
 existing user when `user_auth` matches. Control of the Google or Apple account is control of the
@@ -924,6 +1069,12 @@ anything sent there.
 holds. This is blocking for that group, with its own permanent record, and its own copy:
 *"Bo was added to this group with a different safety number than the one you have seen."*
 
+This split is deliberate and is not to be widened. A blocking prompt in a 40-member group fires for
+people the user cannot verify and has no way to act on, and the only thing it reliably teaches is
+that these prompts are dismissed. The two places it blocks are the two places the user can do
+something: a two-party conversation, and the moment a key the user has seen before is committed
+into a group by someone else.
+
 Safety numbers are an out-of-band fingerprint over the pair's identity keys for deliberate
 verification. A key change is also written permanently into every group the pair shares.
 
@@ -935,20 +1086,62 @@ assert a key, but never *quietly* replace one you have already seen.
 | Role | Count | May do |
 |---|---|---|
 | **OWNER** | exactly 1 | Everything. Sole authority for history grants, admin-set changes, ownership transfer |
-| **ADMIN** | 0..n, delegated by owner | Add/remove members, set MEMBER/OBSERVER, retention policy, group metadata, commit epochs |
+| **ADMIN** | 0..n, delegated by owner | Add members, **remove MEMBERs and OBSERVERs only**, set MEMBER/OBSERVER, retention policy, group metadata, commit epochs |
 | **MEMBER** | — | Send, read |
 | **OBSERVER** | — | Read only. UI- and MLS-enforced in v1; not server-enforced (§9.2) |
+
+**Only the OWNER may remove an ADMIN.** An admin may remove members and observers; a commit in
+which a non-owner removes an admin is invalid, is refused by the committing client, and is rejected
+by every receiving client on validation. This is two lines of rule and an unfixable incident
+without it: one compromised admin could otherwise strip the entire admin set including the owner in
+a single commit, and the removed owner's keys are gone from the very next epoch, so there is no
+undo by construction.
 
 No quorum for any normal operation. **Owner succession is the single exception**, and it is a
 deliberate one — see below. Roles live in the group-context extension (§6), so they are covered by
 the MLS transcript hash and no server can alter them.
 
 **Self-service device management.** A member may add or remove **their own** device leaves and commit
-that change. Otherwise revoking a stolen laptop would block on an admin.
+that change. Otherwise revoking a stolen laptop would block on an admin. An identity may hold at
+most **ten device leaves**, and a group at most **500 members** (§6). Both caps are enforced by the
+committing client and by every receiving client on validation, and both are shown in the UI before
+they are hit.
 
-**Owner succession.** The owner may issue `OWNER_SUCCESSOR_SET` naming a successor. Promotion requires
-the successor to claim it **and** a majority of current admins to countersign that the owner is
-unreachable, after a 30-day floor. Without it, owner seed loss freezes the admin set permanently.
+**A DM's policy is jointly controlled.** A DM is a two-member group and uses no second code path,
+but the member who created it does not get to decide alone how long the other's messages survive.
+Either party may **shorten** retention or the disappearing timer, and the change applies at once.
+Neither may **lengthen** either unilaterally: a lengthening change is recorded as a pending request
+and takes effect only when the other party sets the same value, expiring after seven days if they
+do not. Every change and every pending request is announced in the thread, so nothing about how
+long this conversation persists is decided silently.
+
+**An owner must hand the group over before leaving.** The leave action is refused for an OWNER
+until ownership has been transferred to a current member; the client offers the transfer in the
+same flow rather than reporting a bare failure. A group can therefore never reach the
+unadministrable state through an ordinary, deliberate departure. This does not replace succession,
+which covers the different case of an owner who simply stops using the app.
+
+**Owner succession.** The group-context extension may carry a successor nomination: the member
+nominated, the time of nomination, and whether succession is enabled at all. Promotion requires
+**all** of the following, and the absence of any one of them makes a promotion commit invalid at
+every receiving client:
+
+1. Succession is **enabled** for the group. An owner may switch it off, and a group with it off has
+   no succession path at all — that is the owner's choice to make, and the UI states its
+   consequence.
+2. The nominated successor claims the role.
+3. **A supermajority of current admins countersign** that the owner is unreachable: at least
+   two-thirds of them, rounded up, and never fewer than two. In a group with fewer than three
+   admins, unanimity of the admins is required.
+4. **Ninety days** have elapsed since the last record authored by any of the owner's device leaves
+   was accepted in this group.
+5. The owner has been warned, on **every one of its devices**, at 30, 60, 75 and 85 days, with
+   escalating prominence, and any single record the owner authors resets the clock.
+
+The earlier design — a majority of admins after 30 days — was a governance coup mechanism wearing a
+recovery mechanism's clothes. Ninety days with escalating warnings still rescues a dead owner while
+making the displacement of a live one effectively impossible: the live owner has four warnings on
+four occasions and needs to send one message to stop it.
 
 **History grants.** Owner-only, non-erasable, rendered as a persistent banner for the life of the
 group naming grantee, epoch range, and granting owner. New members receive keys from their join epoch
@@ -962,33 +1155,82 @@ forward by default.
   sender.
 - **An expired disappearing message is undecryptable by everyone**, including a device provisioned
   tomorrow and a seedphrase holder (§8.1).
+- **Delete for everyone is bounded to 24 hours from sending**, and leaves a visible "message
+  deleted" placeholder in the thread. A retraction request outside that window is refused by the
+  sending client and ignored by receiving clients. An unbounded silent retraction would let someone
+  rewrite a years-old shared conversation undetectably, which is a worse property than the one it
+  buys.
 
 ### 12.2 Retention classes
 
 | Class | Default | Set by |
 |---|---|---|
 | `PERMANENT` | never pruned | protocol (`RECOVERY_PUB`, key-change records) |
-| `DURABLE` | long-lived; text default | group admin; server publishes a minimum it honours |
-| `MEDIA` | **1 month** | group admin, bounded by the server's advertised cap |
+| `DURABLE` | **1 year**; text default | group admin, bounded by the server's advertised text-storage cap and minimum |
+| `MEDIA` | **1 month** | group admin, bounded by the server's advertised media window |
 | `EPH(bucket)` | off by default; 1h / 8h / 1d / 1w / 4w | per conversation; admin-settable for groups |
 
 Media is a distinct class rather than inheriting its parent's, because it is most of the storage and
 little of the value after a month. An attachment on an *ephemeral* parent inherits the parent's key
 class — it must not outlive the timer — and otherwise uses `MEDIA`.
 
-The server advertises a per-attachment size cap; clients respect it. Default **100 MB**.
+**A disappearing-timer change is forward-only.** It applies to messages sent after it; messages
+already sent keep the class they were sealed under. The cryptography forces this — a durable message
+is encrypted under the durable class key, and re-classing it after the fact would be a promise about
+client cooperation rather than a guarantee. So when either party to a DM shortens the timer (§11),
+what takes effect at once is the class of the next message, not the fate of the previous one.
+
+**The message server advertises three limits, and every group operates inside all three:**
+
+1. a **text storage cap** — the longest `DURABLE` retention it will hold, alongside the minimum it
+   promises to honour;
+2. a **media and file window** — the longest `MEDIA` retention it will hold;
+3. a **file size limit** — the largest single attachment it will accept. Default **100 MB**.
+
+A group policy outside any of them is clamped or floored by the server, which accepts the commit
+and reports what it applied (§15 item 1); the group's transcript-covered policy is unchanged, so a
+move to a server with different limits restores the original intent. **A group may raise its own
+text retention above the server's default only if the server permits group overrides**, which it
+advertises alongside the three limits; where it does not, every group on that server keeps text for
+the server's configured period and the UI says so.
+
+Text retention defaults to one year rather than to forever. "Forever" is not a default anyone
+chose; it is what happens when nobody sets a number, and it makes the honest-limits statement in
+§13 worse for every user who never opened a settings screen.
+
+**What an expired disappearing message leaves behind.** The record's row survives, because the
+per-group `record_id` sequence is gapless and a client detects a withheld record as a hole in it —
+deleting rows would make every disappearing message manufacture a false withholding warning. The
+row keeps its `record_id`, `epoch`, `retention_class` and `size_bucket`, and **its `sender_handle`
+is overwritten with sixteen zero bytes**. Keeping a row is justified by the gapless-id argument;
+keeping the sender in it is not, and would leave a permanent, per-sender, timestamped metadata
+trail as the residue of the feature whose entire purpose is to leave none. The server-side
+mechanism is Spec B §7.2.
 
 Read receipts and typing indicators are **on by default**, `EPH(bucket 0)`, never persisted, batched,
-individually disableable.
+individually disableable. **Delivery receipts are on by default and are the same class of record**: a
+device emits one `EPH(bucket 0)` receipt when it decrypts a message, so "delivered" is a statement
+by a device that actually decrypted rather than an inference by a server that cannot. They are
+batched, never persisted, and individually disableable, and their metadata cost is disclosed in
+§9.5 and §13.
 
 ### 12.3 Not guaranteed
 
 - Delete-for-everyone cannot claw back what a recipient already decrypted.
 - Durable-class messages remain recoverable while epoch keys survive.
 - **A server that silently withholds a deletion is not detectable in v1.** Stream digests are deferred
-  to V2. In v1 the server is operated by the same party as the operator, so this is a trust
-  assumption, and §13 says so.
+  to V2, and there is one message server with no second party auditing its pruning, so this is a
+  trust assumption in whoever administers it, and §13 says so.
 - Server-side pruning is best-effort.
+- **A backup is a copy that outlives a delete.** The message server takes nightly encrypted backups
+  and archives write-ahead logs continuously, and its point-in-time recovery window is **48 hours**.
+  Until a deletion falls out of that window, the operator of the message server can still produce
+  the ciphertext of a record you deleted. This qualifies the deletion story rather than sitting
+  beside it, and 48 hours is a number to publish in a transparency report rather than a database
+  parameter to tune quietly. Expired disappearing messages are the exception and are unaffected:
+  their guarantee is key destruction, not row deletion, which is precisely why it survives backups.
+- A group whose members have all left is reclaimed 30 days after it is closed, which is when the
+  last of its stored ciphertext and its retained read keys are destroyed.
 
 ### 12.4 Required UI language
 
@@ -998,6 +1240,9 @@ individually disableable.
   Anyone who already read it may have kept a copy, and we cannot detect that."*
 - Durable default: *"Messages are kept so your new devices can see your history. That means the server
   holds a copy until it's deleted or expires."*
+- Delete for everyone, outside the window: *"Messages can only be removed for everyone within 24
+  hours of sending."*
+- Expired disappearing message: *"The content disappears, the fact of the message does not."*
 
 Never say "gone forever" for the durable class.
 
@@ -1008,16 +1253,23 @@ Never say "gone forever" for the durable class.
 for stored messages, not just the connection. History follows you to a new device without it reaching
 back past the day it was added.
 
-**Same as Signal.** The server holds ciphertext only and cannot read anything. "Delete for everyone"
-cannot claw back what someone already read. **And in v1, one server that knows your account, your
-groups, and your activity** — server choice is a V2 feature, so this line is parity, not an advantage.
+**Same as Signal.** The server holds ciphertext only and cannot read anything. "Delete for
+everyone" cannot claw back what someone already read, and it is bounded to 24 hours. **And in v1,
+one message server that knows your account, your groups, and your activity** — server choice is a
+V2 feature, so this line is parity, not an advantage.
 
 **Worse than Signal, and why.** The server knows group membership; Signal hides it with anonymous
-credentials. We keep messages by default so your other devices can see history. The operator can see
-that your device talks to the message server and how much. **A server that ignores its own deletion
-policy is not detectable in v1.** And **the 24-word phrase is a master key: it cannot be rotated, and
-whoever holds it reads all durable history past and future in every group and can act as you.**
-Expired disappearing messages are the one thing it does not unlock.
+credentials. We keep messages by default — one year for text, one month for media — so your other
+devices can see history. Your operator can see that your device talks to a message server and how
+much. **A server that ignores its own deletion policy is not detectable in v1.** **The message
+server holds each epoch's `write_key`, so it can forge the access-control tag on a record it
+injects** — such a record fails MLS verification at every client, so this is a denial-of-service and
+noise vector rather than an authenticity break, and it is written here so nobody discovers it and
+assumes it is worse than it is. **Delivery receipts tell the server when a device of yours was
+online and decrypting**, which read receipts alone do not. **Backups outlive deletions for up to 48
+hours** (§12.3). And **the 24-word phrase is a master key: it cannot be rotated, and whoever holds
+it reads all durable history past and future in every group and can act as you.** Expired
+disappearing messages are the one thing it does not unlock.
 
 **Better than Matrix.** One message costs one upload regardless of group size. No conflicting-history
 problem. Membership payloads can be erased on request.
@@ -1031,6 +1283,17 @@ re-added, and recovered.
 **On verification.** Nobody is verified by default and there is no badge. You are warned loudly when a
 contact's key changes from one you have seen before, and never silently switched.
 
+**On metadata after removal.** A member you remove loses every decryption key from that epoch
+forward immediately, and loses the ability to read the group's metadata from the message server 90
+days later (§9.2). It is not instant, and 90 days is the price of letting a member who closed their
+laptop for a season come back and catch up.
+
+**On what is written down.** The message server records aggregate counters and error classes and
+nothing per identity (§9.7). It is not a claim that nothing is ever logged: it is a claim about what
+may be logged, which is a rule an engineer can follow at three in the morning. If you ask for help
+with a problem, you can turn on a bounded diagnostic session yourself, and nothing is recorded about
+you unless you do.
+
 ## 14. Implementation slices
 
 | # | Slice | Contains |
@@ -1039,14 +1302,35 @@ contact's key changes from one you have seen before, and never silently switched
 | 2 | `connect/message/` | Storage records, retention classes, ratchet, PQ composition, `write_auth`, padding, `COVER`. `server_attachment`, `req_auth`, recovery proof. Freezes the wire format — §8, §8.3 and §9.2 must be final before this slice starts. |
 | 3 | `message-server` | Store, ordering, single-commit agreement, `write_auth` verification, retention, fetch attestation. §9.7 is an acceptance criterion. |
 | 4 | Client core in `sdk` | Group state, local store, KT client, provisioning. |
-| 5 | `message-windows` text | Send, receive, groups, TOFU warnings, reactions, receipts. **First testable build.** |
+| 5 | `message-windows` text | Send, receive, groups, TOFU warnings, reactions, read and delivery receipts. **First testable build — internal only.** |
 | 6 | Disappearing messages | `eph_root`, buckets, tombstones. |
-| 7 | Multi-device | Provisioning UI, device management, revocation. |
+| 7 | Multi-device | Provisioning UI, device management, revocation. **The public beta starts here.** |
 | 8 | Attachments | Blob store, `MEDIA` class, thumbnails, resumable upload. |
 | 9 | `/server` operator | Discovery directory, KT log. Includes the VRF-indexed prefix tree, the history tree, and the four client endpoints of Spec B §9.4 — not the log alone. |
 
 Slice 1 is the schedule risk and is first because it has an objective completion test. Slices 1–5
 produce something two people can text on.
+
+**What "beta" means, and when it starts.** Slice 5 is an **internal-only** build. It is text-only,
+single-device and unnotified, and calling that a beta externally sets an expectation that is hard to
+walk back. **The public beta starts when slice 7 is complete** — text, disappearing messages and
+**multi-device**. Multi-device is deliberately ahead of attachments in the order above: it is the
+thing this product has that Signal Desktop does not, whereas attachments are table stakes that
+nobody switches for.
+
+**Three things gate general availability rather than the beta**, and each is checkable on the day of
+a release rather than on a calendar:
+
+- the key-transparency log, its four client endpoints and its monitor role (§15 item 6);
+- a working contentless push wake, so the product can notify a user while it is not running
+  (§15 item 2);
+- code signing for the shipped Windows binaries. The beta ships unsigned, with the cost accepted and
+  stated in Spec C §2.7.
+
+**The external cryptographic audit is a decision taken at slice 5**, when there is working code to
+scope a quote against, rather than a commitment made now against a design. The risk is worth
+restating rather than filing: audit firms book months out, so if the answer at slice 5 is yes, the
+lead time lands on the critical path to general availability instead of running alongside the build.
 
 ## 15. Open items
 
@@ -1059,20 +1343,41 @@ produce something two people can text on.
    In both cases the server accepts the commit and returns `REASON_RETENTION_CLAMPED` with the applied
    values; the client renders a one-time in-group notice naming the **effective** policy. The group's
    transcript-covered policy is unchanged. Refusal is not an option in either direction.
-2. **Push transport** — WNS for Windows; APNs/FCM when mobile lands. No push exists in the operator
-   today. Owned jointly by Spec A (`RegisterPushChannel`), Spec B (server-side channel registry) and
-   Spec C (§10.2, and the Azure AD application registration, which needs a named owner).
-3. **Owner succession residual risk** — a colluding admin majority can displace an owner who is merely
-   offline. The 30-day floor bounds but does not eliminate this.
-4. **`OWNER_SUCCESSOR_SET` placement** — group-context extension is likely right, since it should be
-   transcript-covered.
-5. **Moderation recourse** deferred by decision — revisit with legal counsel before any public launch.
+2. **Push transport — RULED, a general-availability gate.** WNS for Windows; APNs and FCM when
+   mobile lands. No push exists in any operator today. **The beta ships without push**, and Spec C's
+   copy stands as written: "URmessage can only notify you while it's running." A working
+   **contentless** wake — one that carries no sender, no preview and no plaintext group id — MUST be
+   live before any non-beta user, alongside the key-transparency log. Owned jointly by Spec A
+   (`RegisterPushChannel`), Spec B (server-side channel registry) and Spec C (§10.2). **The Azure AD
+   application registration the Windows path needs still has no named owner, and that is the long
+   pole on this item.**
+3. **Owner succession — RULED and specified in §11.** The nomination lives in the group-context
+   extension, so it is transcript-covered and no server can alter it. The residual risk that a
+   colluding admin majority displaces a merely-offline owner is bounded by four things rather than
+   one: a supermajority rather than a majority, a 90-day floor rather than 30, escalating warnings on
+   every owner device, and an owner opt-out that disables the mechanism entirely. A live owner stops
+   a displacement by sending one message. The item is closed.
+4. **Moderation recourse** deferred by decision — revisit with legal counsel before any public
+   launch. **Reporting a user is deferred with it**: a report route without a moderation process
+   behind it is a form that goes nowhere. What v1 ships instead is **mute and leave**, which is
+   sufficient because directory listing is opt-in (§10.1) and therefore most unsolicited contact
+   never starts. Blocking a contact is also deferred, for the same reason and because its
+   cross-device carrier is unscoped.
+5. *(folded into item 4.)*
 6. **Key-transparency log — RULED, a release gate rather than a date.** Spec B §9.4 specifies the
    VRF suite, the tree arithmetic, the STH preimage, the history tree, the four client endpoints, the
    signing key and the monitor role. §10.1 makes the log required rather than optional, and this item
    asked for a completion date. The ruling: **the log is a general-availability gate.** URmessage may
    be distributed to beta testers while every key-change row and every directory lookup renders
    `kt_unavailable` explicitly, and it MUST NOT be offered to any non-beta user until the log, its
-   four client endpoints and its monitor role are live. This is the same shape as the funded external
-   audit that gates the MLS implementation, and it is checkable on the day of a release rather than on
-   a calendar. The item is closed.
+   four client endpoints and its monitor role are live. This is the same shape as the external
+   cryptographic audit of item 7 — a condition checkable on the day of a release rather than a date on
+   a calendar. The item is closed. Confirmed by the project owner: this is the ruling, not a proposal,
+   and the log's absence blocks general availability rather than the beta.
+7. **External cryptographic audit — RULED, decided at slice 5.** Whether to commission a funded
+   external audit of the MLS implementation and the storage layer is decided when slice 5 exists and
+   a firm can be given working code to quote against. Spec A's audit gate is written accordingly: it
+   blocks general availability **if** an audit is commissioned, and the decision itself is scheduled
+   rather than assumed. The accepted risk, restated so it is not rediscovered: audit firms book
+   months out, so a "yes" at slice 5 puts the lead time on the critical path to general availability
+   rather than in parallel with the build.

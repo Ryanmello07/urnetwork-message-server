@@ -3,9 +3,9 @@
 **Component:** `connect/mls`, `connect/message`, `sdk` client core, `URmessageSdk.dll`
 **Branch:** `beta/message` on `Ryanmello07/urnetwork-connect` and `Ryanmello07/urnetwork-sdk`
 **Date:** 2026-08-12
-**Revision:** A-3 (R5 convergence pass: `blob_id` in the header and both preimages; `req_auth` re-keyed to a group-lifetime `read_key`; the SDK surface Spec C calls fully declared)
-**Status:** Design, pending owner review
-**Normative parent:** `docs/specs/2026-08-12-urmessage-protocol-design.md` (revision 6), hereafter **MASTER**
+**Revision:** A-4 (owner rulings applied: per-epoch `read_key` with a 90-day server window; delivery receipts; per-row local encryption and an optional PIN; owner succession accepted; invite links, join requests and balance codes; fleet-root server key custody)
+**Status:** Design, owner rulings applied
+**Normative parent:** `docs/specs/2026-08-12-urmessage-protocol-design.md` (revision 7), hereafter **MASTER**
 **Ledger:** `SPEC-LEDGER.md`
 **Siblings:** Spec B (message server), Spec C (Windows messaging client)
 
@@ -22,8 +22,8 @@ section and specifies the **Go types, package boundaries, and test obligations**
 
 | Item | State |
 |---|---|
-| MASTER protocol design | Revision 6, awaiting owner review |
-| This spec | Revision A-3, R5 convergence pass applied |
+| MASTER protocol design | Revision 7, owner rulings applied |
+| This spec | Revision A-4, owner rulings applied |
 | Code | None. `beta/message` branches not yet cut. |
 | Go toolchain | 1.26.5, verified on the build host (`go version` → `go1.26.5`) |
 | `crypto/mlkem` | Verified present: `NewDecapsulationKey768(seed)` takes a **64-byte** `d ‖ z` seed |
@@ -43,8 +43,8 @@ section and specifies the **Go types, package boundaries, and test obligations**
 | A5 | The TLS presentation-language codec is written once in `connect/mls/syntax` and used by `connect/message` too | MLS signs over serialized forms, so encode/decode must be byte-exact and round-trip stable. One codec, one fuzz corpus, one class of bug. |
 | A6 | The OpenMLS differential oracle runs **out of process**, over a stdio/gRPC boundary, only in CI | Keeps "read-only oracle, never a dependency" literal: OpenMLS is never in `go.mod`, never linked, never present in a shipped artifact. Its `StorageProvider<const VERSION: u16>` cannot cross a C ABI anyway (measurement pass). |
 | A7 | `URmessageSdk.dll` is a **new** cgo `c-shared` module at `sdk/cgo-message/`, with its own generator and its own `urmsg_` symbol prefix | The existing `sdk/cgo` generator walks the whole `github.com/urnetwork/sdk` surface and emits 10,444 lines of `urnet_*` exports. Reusing it would put the VPN surface in the messaging DLL and vice versa, and any messaging-driven generator change would perturb `URnetworkSdk.dll`'s ABI baseline. Separate module, separate baseline, separate symbol namespace, **zero** risk to VPN builds. |
-| A8 | Local message store is SQLite via `modernc.org/sqlite` (pure Go, no cgo) behind a 14-method `sdk.MessageStore` interface | The store needs indexed pagination, per-group cursors, and text search. Hand-rolling that is a large, bug-dense surface. `modernc.org/sqlite` is pure Go and gomobile-buildable. **Marked as an assumption to confirm — see §0.5 A-ASSUME-1.** The interface is deliberately narrow so replacing it is a contained job. |
-| A9 | Record ciphertext is stored **as ciphertext** in the local DB; only key material is DPAPI-sealed | No SQLCipher, no encrypted-DB dependency. The DB holds what the server holds plus decrypted-for-display text; the display cache is sealed as one blob per group per §8.3. |
+| A8 | Local message store is SQLite via `modernc.org/sqlite` (pure Go, no cgo) behind a 14-method `sdk.MessageStore` interface | The store needs indexed pagination, per-group cursors, and text search. Hand-rolling that is a large, bug-dense surface. `modernc.org/sqlite` is pure Go and gomobile-buildable. Accepted for v1. The interface is deliberately narrow so replacing it is a contained job. |
+| A9 | Record ciphertext is stored **as ciphertext** in the local DB. Everything decrypted for display is encrypted **per row** under one `local_store_key`, with a plaintext metadata index — group id, timestamps, sender handle, message id, state — left indexable | No SQLCipher and no encrypted-DB dependency, and the SQLite dependency A8 takes still earns itself. A single sealed blob per group would have meant unsealing and re-serialising a group's entire history to append one message, and no index at all — which is the opposite of the reason for taking a database. Per-row AEAD keeps the query surface A8 exists for while leaving no plaintext body at rest. §8.3a specifies it. |
 | A10 | Transport uses the existing `connect.Client` addressed send/receive path with four new `MessageType` frame codes in the reserved 1000-1099 block (§10.1) | `connect/transfer.go` already provides `Send`/`SendWithTimeout`/`AddReceiveCallback`. We add framing, not a transport. Confirmed no store-and-forward exists in `connect` — durability is the message server's job (Spec B). |
 | A11 | Every exported ABI function is panic-guarded and every handle is registry-allocated with non-reusable ids | Copied deliberately from the proven `sdk/cgo/handles.go` design: a panic unwinding into C aborts the host process, and a reused handle id resolves a stale pointer to a live object. |
 | A12 | `URmessage.exe` loads **`URmessageSdk.dll` only**. `URnetworkSdk.dll` is never loaded into the messaging process. `URmessageSdk.dll` therefore also exports the URnetwork account surface the messaging client needs, under the `urmsg_auth_*` prefix. | Two Go runtimes in one process means two `DLL_PROCESS_ATTACH` error-mode mutations, two signal-handler installations and two `SetUnhandledExceptionFilter` chains in the process that owns the UI (§14.1 trap 4 in Spec C is about exactly one of them), plus doubled resident memory — for the sole purpose of moving three strings across a DLL boundary. One runtime removes the problem instead of documenting it. VPN builds remain untouched: `URnetworkSdk.dll` is not modified. |
@@ -67,7 +67,7 @@ Open items are consolidated in §14, with stable numbers. There is no second lis
 
 | Id | Assumption | Blast radius if wrong |
 |---|---|---|
-| A-ASSUME-1 | `modernc.org/sqlite` is acceptable in `sdk` despite being ~6 MB of transpiled C-as-Go, and builds under gomobile for `android/arm` (32-bit) | Contained: `sdk.MessageStore` is 14 methods. Fallback is a segment-log + index store, roughly 3 engineer-weeks. |
+| A-ASSUME-1 | **CONFIRMED, not an assumption.** `modernc.org/sqlite` is accepted for the local store in `sdk`, behind the 14-method `sdk.MessageStore` interface. The gomobile `android/arm` build remains a CI gate (§11.4), not an open question. | — |
 | A-ASSUME-3 | **CONFIRMED, not an assumption.** X-Wing is pinned at `draft-connolly-cfrg-xwing-kem-06` semantics: a **32-byte** seed, expanded internally to 96 bytes with SHAKE-256, SHA3-256 combiner. | MASTER §5.2 already derives a 32-byte seed. There is nothing to rule on. |
 | A-ASSUME-4 | v1 groups use `PrivateMessage` wire format for **all** handshake messages (no `PublicMessage` on the wire) | Simplifies the profile and removes the membership-tag path from production. `PublicMessage` is still implemented because the interop harness and ValSem007/008 require it; it is refused by policy at the group config. |
 | A-ASSUME-5 | The message server is trusted to be the single Delivery Service, so `connect/message` implements no client-side commit-conflict resolution beyond re-derive-and-retry | MASTER §9.3. If multi-server lands in V2 this becomes a real distributed-consensus problem. |
@@ -83,6 +83,7 @@ Append-only. Newest last. One entry per commit that changes this spec. Every cha
 |---|---|---|
 | 2026-08-12 | A-2 | R4 review pass. File re-encoded from double-encoded UTF-8 to clean UTF-8, no BOM, LF. Wire binding adopted from Spec B and `MessageEnvelope`/`MessageOp`/`MessageStreamAck` deleted. `server_attachment` adopted, §5.11 added. `H(write_key)` language struck; the server holds `write_key`. Retention-class wire byte fixed to `0x10 \| bucket`. `stream_index` scoped to `(group_id, sender_handle)`. `record_id` made a 1-based `uint64`. `req_auth` added for reads; Ed25519 recovery proof. Epoch publication sequence and wrap indexing. `expire_at` fixed to milliseconds, may only shorten. Fetch attestation covers `class_mask`/`heads_only`. `server_nonce` per connection, never rotated. One exported-surface table. Evidence classes closed, `self_signed_rotation` reserved. `"delivered"` deleted. `RevealSeedphrase` added. One Go runtime, decision A12. `CanSend`/health/`SyncState` vocabularies added. Key-change scope split DM/group. Retention negotiation ruled warn-and-proceed. Interfaces-out table added. Event drop counter and sequence. §5.12 (losing committer) and §5.13 (blobs) added. |
 | 2026-08-12 | A-3 | R5 convergence pass. `blob_id` added to `RecordHeader` and to both preimages. `req_auth` re-keyed from the epoch `write_key` to a group-lifetime `read_key`, carried in `EpochAttachment` and delivered to joiners in the `Welcome`; `WrapFetch` added to the authorized-read set with op byte 19. `MessageInvite`, `MessageReaction`, `MessageReceipt` and `MessageHistoryGrant` defined. `Retry`, `SetDisappearing`, `SetGroupMuted`, `SetGroupNotificationMode`, `GrantHistory` and `HistoryGrants` added. `MessageRetentionApplied` moved to seconds to match the wire. `write_auth` declared zero on read. MIME authority ruled to `connect/message`. Epoch-bundle sizing recomputed against the padded ladder. Interfaces-out rows A-11 and A-12 added. Open-item numbering unified on §14. All internal edit-plan labels replaced with real section references. |
+| 2026-08-12 | A-4 | Owner rulings applied. `modernc.org/sqlite` accepted and A-ASSUME-1 closed. Decision A9 replaced by per-row AEAD over a plaintext metadata index (§8.3a), with an optional PIN wrap and idle auto-lock (§8.6). `read_key` re-keyed from a group lifetime value to a per-epoch key with a 90-day server window and a `read_epoch` request field (§5.7, §5.11, §12.1). Delivery receipts added: `MessageEntry.State` gains `delivered`, `DeliveredTo`, a user preference, and an `EPH(0)` receipt record (§7.4). A second ciphersuite registered (§3.1). Extension `0xF003` accepted and owner succession specified (§3.4, §7.3a). Group size capped at 500 and devices at 10, both client-enforced (§3.1). `PastEpochWindow` raised to 32 (§4.3). Invite links, join requests, ownership transfer, balance-code redemption, directory listing, diagnostics and fork auto-resync added to the `sdk` surface (§7.3, §7.3a, §7.6, §7.9). Server key custody moved to a hardcoded fleet root with signed-silent rotation; `AcceptServerKey` deleted (§7.6). Delete-for-everyone bounded to 24 hours. Attachment auto-download restricted to known senders. Slices resequenced: A9 disappearing and multi-device, A10 attachments, A11 fuzz and audit prep, A12 push. |
 
 ---
 
@@ -252,7 +253,7 @@ silent skip.
 | Dimension | v1 value | Enforcement point |
 |---|---|---|
 | Protocol version | `mls10` (0x0001) only | `profile.go:checkVersion` |
-| Ciphersuite | `MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519` (0x0003) only | `suite.go` registry has one entry |
+| Ciphersuite | Groups are created and accepted at `MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519` (0x0003). `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519` (0x0001) is **registered and implemented** but refused at group creation by policy | `suite.go` registry has **two** entries; `group.go:policyCheck` pins group creation to 0x0003 |
 | Credential type | `BasicCredential` (0x0001) only | `credential.go:Parse` |
 | Wire format, handshake | `PrivateMessage` on the wire; `PublicMessage` implemented and tested but refused by group policy (A-ASSUME-4) | `group.go:policyCheck` |
 | Wire format, application | `PrivateMessage` (ValSem005 makes this mandatory anyway) | `framing.go` |
@@ -263,10 +264,22 @@ silent skip.
 | ReInit / branch / subgroup | **not implemented** | rejected at parse |
 | Extensions, group context | `required_capabilities` (0x0003), `ratchet_tree` (0x0002), `urmessage_group_policy` (0xF001) | `profile.go:allowedGroupExtensions` |
 | Extensions, leaf node | `urmessage_leaf_keys` (0xF002) | `leaf_node.go` |
-| Extensions, reserved unimplemented | `urmessage_owner_successor` (0xF003) | reserved, parse-refused in v1 |
+| Extensions, group context | `urmessage_owner_successor` (0xF003) — **accepted and validated in v1** | `profile.go:allowedGroupExtensions`, validated per §3.4 |
 | Lifetime enforcement on KeyPackages | yes, ±1h clock skew tolerance | `key_package.go:Validate` |
-| Max group size | no hard cap; design target 500 (ledger P4). A soft warning fires above 1000 leaves | `group.go` |
+| Max group size | **500 members, hard.** A commit whose resulting membership exceeds it is refused at construction and rejected on receipt | `commit.go:checkGroupSize`, `ErrGroupSizeExceeded` |
+| Max devices per identity | **10 leaves per identity in one group**, hard, same enforcement on both sides | `commit.go:checkDeviceCount`, `ErrDeviceLimitExceeded` |
 | Delivery service | ours, strongly consistent (MASTER §9.3) | `connect/message` |
+
+**Why a second ciphersuite is registered before anything needs it.** A registry with one entry and a
+registry that is a hardcoded constant are indistinguishable by test, and the difference only shows up
+when a second suite is added — which the post-quantum MLS ciphersuites make a near certainty, since
+they are still an Internet-Draft (MASTER §7). Registering 0x0001 now costs an AES-GCM binding on
+stdlib primitives and a second pass through the vector families; discovering later that the suite id
+was assumed constant in eleven places costs a release. 0x0001 is implemented, vector-tested and
+refused by group policy, so no group on the wire changes.
+
+`ReInit` stays unimplemented. Registering a suite and migrating a live group to it are different
+problems, and only the first is in v1.
 
 ### 3.2 Deliberately not implemented, and what happens instead
 
@@ -278,7 +291,7 @@ silent skip.
 | ReInit (§12.1.6) | no | `ErrProfileReInit` |
 | Branching / subgroups (§11.2) | no | `ErrProfileBranch` |
 | `x509` credentials (§5.3.2) | no | `ErrProfileCredentialType` |
-| Ciphersuites other than 0x0003 | no | `ErrProfileCiphersuite` |
+| Creating or joining a group at any suite but 0x0003 | no | `ErrProfileCiphersuite`. 0x0001 is implemented and vector-tested but refused here by policy (§3.1) |
 | `application_id` leaf extension | no | ignored if not in `required_capabilities`; refused if required |
 | GREASE values (§13.2) | **parsed and ignored**, never generated | must not error — interop harness sends them |
 
@@ -287,6 +300,11 @@ obligation to test ValSem240–246 and ValSem401–403; it changes the expected 
 specific check fires" to "the profile gate rejects the whole message before the check is reached."
 Both are asserted, and the test asserts *which* error surfaced, so a future accidental implementation
 of external commits turns the test red rather than green. See §4.3.
+
+Note what is **not** on this list: the owner-succession group-context extension `0xF003` is
+implemented and validated in v1 (§3.4). An earlier revision of this document parse-refused it while
+MASTER §11 specified the mechanism, which meant shipping succession later would have required
+updating the entire fleet before the first group could use it.
 
 ### 3.3 Core Go types
 
@@ -426,13 +444,47 @@ type GroupPolicyExtension struct {
     DisappearingBuckets  []uint8
     ServerId             []byte          // v1: always the one server. V2 field, retained.
 }
+
+// urmessage_owner_successor, extension type 0xF003. MASTER §11.
+// group context, so the nomination is covered by the transcript hash and no
+// server can alter it, add one, or remove one.
+type OwnerSuccessorExtension struct {
+    Enabled            bool     // false disables succession for this group entirely
+    SuccessorMemberId  []byte   // empty when no successor is nominated
+    NominatedAtMs      uint64
+    FloorMs            uint64   // 7776000000 (90 days) in v1; smaller values are refused
+}
 ```
 
 `RequiredCapabilities` for a v1 group is fixed:
 `extension_types = [0xF001, 0xF002]`, `proposal_types = []`, `credential_types = [basic]`.
 This means a client that does not understand `urmessage_leaf_keys` cannot be added — which is exactly
 right, since a member with no X-Wing key cannot receive the epoch wrap and would silently lose
-history at the next commit.
+history at the next commit. `urmessage_owner_successor` is deliberately **not** in
+`required_capabilities`: it is accepted and validated by every v1 client, and requiring it would
+exclude a member for a governance feature its group may never enable.
+
+**Owner succession, validated at every client.** `commit.go` validates a commit that promotes the
+nominated successor to OWNER against all five of MASTER §11's conditions, and rejects it with a typed
+error naming the one that failed:
+
+| Condition | Error on failure |
+|---|---|
+| `Enabled` is true in the epoch being committed from | `ErrSuccessionDisabled` |
+| The committer is the nominated `SuccessorMemberId` | `ErrSuccessionNotNominee` |
+| Countersignatures from at least `ceil(2 * admins / 3)` current admins, and never fewer than two; in a group with fewer than three admins, from all of them | `ErrSuccessionQuorum` |
+| `now - lastOwnerRecordMs >= FloorMs`, where `lastOwnerRecordMs` is the most recent record authored by any of the owner's device leaves that this client has accepted | `ErrSuccessionFloor` |
+| `FloorMs >= 7776000000` | `ErrSuccessionFloorTooShort` |
+
+The countersignatures ride in the promotion record's MLS-authenticated payload, each an Ed25519
+signature by an admin's `identity` key over
+`"URmessage/v1/succession" ‖ LP(group_id) ‖ u64(epoch) ‖ LP(successor_member_id) ‖ u64(nominated_at_ms)`.
+Validation is client-side at every member, because the message server holds no identity keys and by
+MASTER I5 never verifies authorship.
+
+`TestSuccessionRequiresAllFive` constructs a valid promotion and then breaks exactly one condition at
+a time, asserting the specific error each time. `TestSuccessionOptOutIsAbsolute` asserts a promotion
+in a group with `Enabled == false` fails even when the other four conditions hold.
 
 ### 3.5 The state store
 
@@ -737,10 +789,20 @@ ValSem403 is **untested in OpenMLS** (tracked as openmls#1335). We test it.
 
 **ValSem400** — the RFC's SHOULD that an application bound the number of past epochs for which
 `resumption_psk` is stored — is **not implemented in OpenMLS at all** (tracked as openmls#1122). We
-implement it as a hard bound: `StateStore.DeleteGroupStateBefore` is called on every merged commit
-with `epoch - PastEpochWindow`, `PastEpochWindow = 8`, and `TestValSem400_PastEpochBound` asserts
+implement it as a hard bound: `StateStore.DeleteGroupStateBefore` is called on every merged commit with
+`epoch - PastEpochWindow`, **`PastEpochWindow = 32`**, and `TestValSem400_PastEpochBound` asserts
 that state older than the window is gone from the store. This is not optional politeness — it is the
 same deletion that makes MASTER §8.1's ephemeral guarantee true.
+
+**Why 32 and not 8.** The window is a product promise about how long a user may close their laptop,
+and eight epochs is not one: an active group with ordinary membership churn and self-service device
+management can burn eight epochs in a single day, so a machine closed over a weekend came back to
+permanent, unfillable holes in its history. Nobody chose that behaviour — it fell out of a memory
+budget. Thirty-two costs more stored epoch state per group (the dominant term is the per-epoch
+ratchet-tree state, so the increase is bounded and measurable) and slightly weakens the deletion
+guarantee, because `eph_root` for an epoch survives until that epoch leaves the window. Both costs
+are accepted; the ephemeral guarantee is unaffected, because `eph_root` is time-sliced and its
+window closes on the timer regardless of which epochs are retained (§5.3).
 
 **Errata**
 
@@ -808,12 +870,18 @@ against a second `GroupEngine` implementation — a deterministic in-memory fake
 — and asserts every test still passes. If a test needs a real MLS behaviour that the interface does
 not expose, the interface has leaked and the test fails to compile, which is the signal we want.
 
-### 4.6 Gate 6 — funded external audit before any non-beta user
+### 4.6 Gate 6 — the external audit decision, taken at slice 5
 
 Scope: `connect/mls` and `connect/message` in full, `sdk/message_*.go`, `sdk/cgo-message`, and the
 key schedule end to end. The audit brief includes this document, MASTER, and the ValSem coverage
 report. Not schedulable until gates 1–5 are green, because an auditor should not spend budget
 finding what a test suite finds.
+
+**Whether to commission this audit is decided when slice 5 exists**, so a firm can quote against
+working code rather than a design. If the answer is yes, it blocks general availability exactly as
+written above. The risk of deciding late is worth restating rather than filing: audit firms book
+months out, so a "yes" at slice 5 puts the lead time on the critical path to general availability
+instead of running alongside the build. MASTER §15 item 7 carries the same ruling.
 
 ### 4.7 Release gating
 
@@ -825,7 +893,7 @@ finding what a test suite finds.
 | 4 fuzz (properties 1–2) | yes | yes | yes |
 | 4 fuzz (differential, nightly clean for 14 days) | no | yes | yes |
 | 5 swappable interface | yes | yes | yes |
-| 6 external audit | no | no | **yes** |
+| 6 external audit — decision taken at slice 5 | no | no | **yes, if commissioned** |
 
 ---
 
@@ -1157,14 +1225,17 @@ func ComputeWriteAuth(writeKey []byte, serverNonce []byte, h *RecordHeader,
                       ctHead []byte, serverAttachment []byte) [32]byte
 func VerifyWriteAuth(writeKey []byte, serverNonce []byte, record *Record) bool   // constant time
 
-// read_key = HKDF-Expand(storage_root[0], "read/v1", 32). Fixed at group creation,
-// never rotated, and delivered to a joining member in its Welcome alongside
-// group_handle_key. Deriving it from the CURRENT epoch's storage_root would lock out
-// every client that was offline across a commit — see the read-authorization
-// discussion below.
-func ReadKey(storageRootZero []byte) []byte
+// read_key[n] = HKDF-Expand(storage_root[n], "read/v1", 32), one per epoch.
+// Every member derives it from epoch state it already holds; a joining member
+// receives its joining epoch's key in the Welcome alongside group_handle_key.
+// The server installs each epoch's key from that epoch's EpochAttachment and
+// RETAINS it for 90 days, which is what lets an offline member catch up and
+// what makes a removed member's metadata access expire. MASTER §9.2.
+func ReadKey(storageRootEpoch []byte) []byte
 
 // MAC(read_key, "URmessage/v1/req" ‖ LP(server_nonce) ‖ u8(op) ‖ LP(request_bytes))
+// The epoch whose read key computed the MAC travels in the request's read_epoch
+// field, which is inside canonical_request_bytes and therefore inside the MAC.
 func RequestAuthPreimage(serverNonce []byte, op uint8, requestBytes []byte) []byte
 func ComputeRequestAuth(readKey []byte, serverNonce []byte, op uint8,
                         requestBytes []byte) [32]byte
@@ -1183,15 +1254,18 @@ func VerifyRecoveryProof(recoveryVerifyPub []byte, serverNonce []byte,
 performs on the write path, and per MASTER I5 it is access control, never authenticity — a forged
 record fails MLS verification at every client no matter what the server accepts.
 
-**Read authorization.** Reads are authorized under the group's lifetime `read_key` and a domain label
+**Read authorization.** Reads are authorized under the epoch's `read_key` and a domain label
 distinct from `write_auth`'s:
 
 ```
-req_auth = MAC(read_key, "URmessage/v1/req" ‖ LP(server_nonce) ‖ u8(op)
-                         ‖ LP(canonical_request_bytes))
+req_auth = MAC(read_key[e], "URmessage/v1/req" ‖ LP(server_nonce) ‖ u8(op)
+                            ‖ LP(canonical_request_bytes))
 
-  read_key                = HKDF-Expand(storage_root[0], "read/v1", 32), fixed at group
-                            creation and never rotated.
+  read_key[e]             = HKDF-Expand(storage_root[e], "read/v1", 32).
+  e                       = the request's read_epoch field. The client uses the newest
+                            epoch whose state it holds. It is a field of the request
+                            body, so it is inside canonical_request_bytes and inside
+                            the MAC: the server selects a key by an authenticated value.
   op                      = the field number of the selected `oneof body` arm in
                             MessageServerRequest, as a u8.
   canonical_request_bytes = the deterministically-marshaled request body message
@@ -1209,9 +1283,10 @@ NOT used on: HelloRequest (names no group, and is where server_nonce is issued),
              SubmitRequest (every record in it carries its own write_auth),
              RecoveryFetchRequest (asymmetric Ed25519 proof, below).
 
-Verified on the server with Spec B §5.1 checks 1, 2, 4, 5 and the group read-key lookup,
-and then this MAC, returning Spec B's deliberately non-specific REASON_REJECTED on
-failure. No transaction is opened and no row is allocated on the read path.
+Verified on the server with Spec B §5.1 checks 1, 2, 4, 5 and the read-key lookup for
+(group_id, read_epoch), and then this MAC, returning Spec B's deliberately non-specific
+REASON_REJECTED on failure. No transaction is opened and no row is allocated on the
+read path.
 ```
 
 `read_key` is deliberately not the epoch's `write_key`. The server keeps only the current epoch's
@@ -1222,10 +1297,21 @@ therefore takes a `read_key` on every request-auth call and has no code path tha
 under a `write_key`; `TestReadAuthNeverUsesWriteKey` asserts it by walking the call graph of
 `ComputeRequestAuth`.
 
-A group's `read_key` reaches the server inside `EpochAttachment.read_key` on every commit, identical
-in every epoch, and reaches a joining member in the `Welcome` alongside `group_handle_key` (MASTER
-§8). A member that holds neither cannot read at all — including the read that would fetch the commit
-that admitted it, which is why both travel out of band with the join.
+**The 90-day window, and what the client does at its edge.** The server retains each installed read
+key for 90 days from installation. A client always authenticates under the newest epoch it holds, so
+the window binds only when the client has been away longer than 90 days. `sdk` detects that
+condition explicitly rather than retrying a refusal: when every read under every epoch key the
+client holds is refused and the connection is otherwise healthy, `MessageClient` reports sendability
+reason `read_authorization_expired` (§7.2 vocabulary 1) and health reason
+`read_authorization_expired` (§7.2 vocabulary 3), and the two recoveries that still work are named
+in the payload — link from another signed-in device (§7.5) or restore from the seedphrase, which is
+authorized by the Ed25519 recovery proof below and never by a read key.
+`TestReadKeyWindowSurfacesExplicitly` asserts the client never reports a generic failure for this
+condition.
+
+A group's read key for epoch *n* reaches the server inside `EpochAttachment.read_key` on the commit
+that opens epoch *n*, and reaches a joining member in the `Welcome` alongside `group_handle_key`
+(MASTER §8). Every later epoch's key is derived locally from that epoch's `storage_root`.
 
 **The recovery proof.** A seed-only restorer holds no group key at all — neither `write_key` nor
 `read_key` — so `RecoveryFetch` is authorized asymmetrically:
@@ -1335,11 +1421,14 @@ EpochAttachment {
     u64  epoch                  // the epoch this attachment OPENS. MUST equal current_epoch + 1
     u16  alg_id                 // 0x0031 (HKDF-SHA-256) in v1
     LP   write_key              // exactly 32 bytes: write_key[epoch]
-    LP   read_key               // exactly 32 bytes: read_key = HKDF-Expand(storage_root[0],
-                                //   "read/v1", 32). Identical in every epoch of this group;
-                                //   the server refuses a commit that changes it (§5.7)
+    LP   read_key               // exactly 32 bytes: read_key[epoch] = HKDF-Expand(
+                                //   storage_root[epoch], "read/v1", 32), for the epoch this
+                                //   attachment OPENS. Different in every epoch; the server
+                                //   installs it against that epoch and retains it 90 days (§5.7)
     u32  media_ttl_seconds
-    u32  durable_ttl_seconds    // 0 = indefinite
+    u32  durable_ttl_seconds    // the group's text retention. Default 31536000 (1 year);
+                                //   0 = indefinite, legal only on a server that advertises
+                                //   no text storage cap (§7.2 MessageServerInfo)
     LP   group_context_hash     // exactly 32 bytes
     u32  expected_wrap_count    // device wraps + recovery wraps + 1 snapshot, for the epoch it opens
 }
@@ -1475,6 +1564,13 @@ The `mimeType` argument of `SendAttachment` (§7.4) is a **hint** from the calle
 `connect/message` sniffs the content itself and uses its own result whenever the two disagree; an
 empty hint is legal and means "sniff it". One layer decides, and it is this one, because the value
 travels inside the encrypted body that this layer builds.
+
+**Auto-download is a client policy and is not a property of the blob.** `connect/message` neither
+knows nor cares which senders a user trusts; the decision is made in `sdk` before a
+`BlobGrantRequest` is issued (§7.4). This layer's only obligation is that a record whose body was
+never downloaded is still a complete, verifiable record: `ct_head`, `body_hash` and `blob_id` are
+retained and checked exactly as for a downloaded one, so a held attachment is a deliberate
+non-fetch rather than a partial parse.
 
 ---
 
@@ -1613,6 +1709,17 @@ func (self *MessageClient) IdentitySafetyDigits() string       // 12 groups of 5
 func (self *MessageClient) IdentityShortFingerprint() string   // 8 hex, for the Settings row
 func (self *MessageClient) IdentityPublicKey() []byte
 
+// ── local store lock (§8.6). Optional, and a real second factor: the PIN
+// wraps the store key, so the key cannot be unsealed without it. ──────────
+func (self *MessageClient) HasPin() bool
+func (self *MessageClient) SetPin(pin string) error          // "" clears it; requires Unlock first
+func (self *MessageClient) ChangePin(oldPin, newPin string) error
+func (self *MessageClient) Unlock(pin string) error          // wrong PIN returns a typed error
+func (self *MessageClient) Lock() error                      // immediate, manual
+func (self *MessageClient) IsLocked() bool
+func (self *MessageClient) AutoLockMinutes() int32           // 0 = never; default 15
+func (self *MessageClient) SetAutoLockMinutes(n int32) error
+
 // ── live settings (were construction-only; C exposes them as switches) ─────
 func (self *MessageClient) SetCoverTraffic(enabled bool) error   // takes effect on the next
                                                                  // scheduling window; the schedule
@@ -1621,14 +1728,27 @@ func (self *MessageClient) SetCoverTraffic(enabled bool) error   // takes effect
 func (self *MessageClient) SetMediaCacheBytes(n int64) error
 func (self *MessageClient) SetUserPreference(key string, value string) error
 func (self *MessageClient) UserPreference(key string) string
-// user-preference keys, closed: "read_receipts", "typing_indicators",
-// "disappearing_default_bucket". Backed by the sealed local store, NOT prefs.json.
+// user-preference keys, closed: "read_receipts", "delivery_receipts",
+// "typing_indicators", "disappearing_default_bucket", "attachment_auto_download",
+// "notification_mode". Backed by the sealed local store, NOT prefs.json.
 // COMPOSITION RULE: a receipt or typing indicator is emitted only if the user
 // preference AND the group policy allow it. See §7.3.
+// "attachment_auto_download" is CLOSED: "known_contacts" (default) | "always" | "never".
+
+// ── directory listing (MASTER §10.1). OFF by default; this is the only call
+// that creates a link between this messaging identity and the URnetwork
+// account paying for the traffic. ─────────────────────────────────────────
+func (self *MessageClient) DirectoryListed() bool
+func (self *MessageClient) SetDirectoryListed(listed bool, callback SendCallback) *MessageSendTicket
+
+// ── diagnostics (MASTER §9.7). Opt-in, bounded, and the only condition under
+// which the message server retains anything per-identity about this client. ─
+func (self *MessageClient) StartDiagnosticSession(minutes int32) (sessionId string, err error)
+func (self *MessageClient) StopDiagnosticSession() error
+func (self *MessageClient) DiagnosticSessionEndsAtMs() int64   // 0 = no session
 
 // ── server ────────────────────────────────────────────────────────────────
 func (self *MessageClient) ServerInfo() *MessageServerInfo
-func (self *MessageClient) AcceptServerKey(fingerprint string) error
 
 // ── lifecycle ─────────────────────────────────────────────────────────────
 func (self *MessageClient) Start() error
@@ -1637,7 +1757,7 @@ func (self *MessageClient) AddSyncListener(listener SyncListener) *Sub
 func (self *MessageClient) Health() *MessageHealthEvent
 func (self *MessageClient) AddHealthListener(listener HealthListener) *Sub
 
-// ── push (§14 open item 9; slice A11). No-op stubs until the channel registry
+// ── push (§14 open item 9; slice A12). No-op stubs until the channel registry
 // exists on the server, so wiring WNS later is not an ABI break. ────────────
 func (self *MessageClient) RegisterPushChannel(uri string) error
 func (self *MessageClient) UnregisterPushChannel() error
@@ -1686,9 +1806,11 @@ type SyncState struct {
     ConsecutiveSendFailures  int32
     LastAttemptMs            int64
     LastSuccessMs            int64
-    ServerPinState           string   // "unpinned" | "pinned" | "changed_unaccepted"
-    StoreState               string   // "ok" | "unseal_failed" | "corrupt" | "disk_full"
-                                      //      | "locked_by_another_process"
+    ServerKeyState           string   // CLOSED: "root_verified" | "untrusted" (§7.6). There is
+                                      // no "changed_unaccepted": a key either chains to the
+                                      // fleet root or the session is refused.
+    StoreState               string   // "ok" | "locked" | "unseal_failed" | "corrupt"
+                                      //      | "disk_full" | "locked_by_another_process"
     TokenState               string   // "valid" | "expired" | "absent"
     BlockedReason            string   // a vocabulary-3 Reason, or "none"
     EvaluatedAtMs            int64
@@ -1708,12 +1830,18 @@ type SyncState struct {
 //   "not_a_member"            removed from the group
 //   "observer"                role is OBSERVER
 //   "no_leaf_after_restore"   seed-only restore; no MLS leaf in this group
-//   "fork_detected"           transcript hash divergence in this group
 //   "phrase_not_confirmed"    PhraseConfirmedAtMs() == 0 and C-1's gate applies
 //   "store_unavailable"       the local store could not be opened
 //   "group_closed"            the server has closed the group
 //   "epoch_incomplete"        the epoch's wrap set has not landed yet (§5.11, epoch
 //                             publication step 3)
+//   "locked"                  the local store is PIN-locked (§8.6)
+//   "read_authorization_expired" away longer than the server's 90-day read-key
+//                             window; relink a device or restore from the phrase (§5.7)
+//   "out_of_credit"           the URnetwork account has no data allowance left (§7.9)
+//   "fork_unresolved"         automatic resynchronisation of this group failed (§7.6)
+//   (there is no "fork_detected" value. A transcript-hash divergence triggers an
+//    automatic resync first and only surfaces as "fork_unresolved" if that fails — §7.6.)
 
 // ── 2. Send failure. SendStateChanged / MessageEntry.Reason ────────────────
 //   every value of vocabulary 1, plus:
@@ -1723,19 +1851,29 @@ type SyncState struct {
 //   "oversize"                the record or request exceeded an advertised cap
 //   "quota_exceeded"
 //   "internal"
+//   "delete_window_expired"   a retraction was requested more than 24 hours after sending
 // NOT a value: "commit_lost" (A retries internally and never surfaces it — MASTER §9.3),
 //              "retention_refused" (deleted; retention is warn-and-proceed — MASTER §15 item 1).
 
 // ── 3. Health. MessageHealthEvent.State ───────────────────────────────────
 //   "no_account" | "offline" | "connecting" | "reachable" | "degraded"
-//   | "server_unreachable" | "blocked" | "store_unavailable"
+//   | "server_unreachable" | "blocked" | "store_unavailable" | "locked"
+//   | "out_of_credit"
 // MessageHealthEvent.Reason, closed:
-//   "none" | "token_expired" | "key_change_unresolved" | "server_key_change_unresolved"
-//   | "fork_detected" | "unseal_failed" | "corrupt" | "disk_full"
+//   "none" | "token_expired" | "key_change_unresolved" | "pin_required"
+//   | "read_authorization_expired" | "out_of_credit" | "server_key_untrusted"
+//   | "fork_unresolved" | "unseal_failed" | "corrupt" | "disk_full"
 //   | "locked_by_another_process"
+// The Reason set LOSES "server_key_change_unresolved", which no longer exists: a server
+// key that does not chain to the pinned fleet root is refused outright and reported as
+// "server_key_untrusted"; one that does chain is applied silently (§7.6). It also loses
+// "fork_detected", for the reason vocabulary 1 gives.
 ```
 
-Token expiry maps to health `no_account` with reason `token_expired`; no ninth state is added.
+Token expiry maps to health `no_account` with reason `token_expired`; it adds no state of its own.
+Vocabulary 3 is **ten** states. `locked` and `out_of_credit` are the two that are neither a transport
+condition nor a store failure, and both are evaluated before the transport states because a locked
+store or an exhausted allowance makes every other state meaningless.
 
 ```go
 type MessageSendability struct {
@@ -1752,12 +1890,15 @@ type MessageServerInfo struct {
     ServerIdHex           string
     ClientId              string
     SigningKeyFingerprint string
-    PinState              string   // "unpinned" | "pinned" | "changed_unaccepted"
-    PinnedAtMs            int64
-    MaxBlobBytes          int64
-    MediaTtlMaxMs         int64
+    KeyState              string   // CLOSED: "root_verified" | "untrusted" (§7.6)
+    KeyVerifiedAtMs       int64
+    MaxBlobBytes          int64    // the file size limit
+    MediaTtlMaxMs         int64    // the media and file window
     MediaTtlDefaultMs     int64
+    DurableTtlMaxMs       int64    // the text storage cap; 0 = the server sets no maximum
+    DurableTtlDefaultMs   int64    // what a group gets if it sets nothing; 1 year by default
     DurableRetentionMinMs int64
+    GroupDurableOverride  bool     // false = groups may not raise text retention on this server
     MaxRecordsPerFetch    int32
     MaxRecordsPerSubmit   int32
     MaxSubmitBytes        int32
@@ -1782,9 +1923,12 @@ type MessageHealthEvent struct {
 type HealthListener interface { HealthChanged(event *MessageHealthEvent) }
 ```
 
-`MessageServerInfo`'s `MediaTtlMaxMs`, `MediaTtlDefaultMs` and `DurableRetentionMinMs` are
-milliseconds because every other duration on this API surface is milliseconds; `sdk` converts them
-from the server's seconds once, on receipt of `Capabilities`. `MessageRetentionApplied` does **not**
+`MessageServerInfo`'s `MediaTtlMaxMs`, `MediaTtlDefaultMs`, `DurableTtlMaxMs`, `DurableTtlDefaultMs`
+and `DurableRetentionMinMs` are milliseconds because every other duration on this API surface is
+milliseconds; `sdk` converts them from the server's seconds once, on receipt of `Capabilities`.
+`MaxBlobBytes`, `MediaTtlMaxMs` and `DurableTtlMaxMs` are the **three limits every message server
+advertises** — file size, media and file window, text storage cap (MASTER §12.2) — and every group
+operates inside all three. `MessageRetentionApplied` does **not**
 convert — it is a mirror of a wire message and stays in seconds.
 
 #### 7.2.1 Seedphrase custody
@@ -1855,11 +1999,52 @@ func (self *MessageClient) AcceptInvite(inviteId string, callback GroupCallback)
 func (self *MessageClient) DeclineInvite(inviteId string) error
 func (self *MessageClient) AddGroupListener(listener GroupListener) *Sub
 
+// MASTER §11: an OWNER may not leave until ownership has moved. LeaveGroup called
+// by an OWNER fails with GroupResult reason "owner_must_transfer" and commits
+// nothing; TransferOwnership is the way out, and the two are separate calls so the
+// UI can offer the transfer rather than reporting a dead end.
+func (self *MessageClient) TransferOwnership(groupId string, memberId string,
+    callback GroupCallback) *MessageSendTicket
+
+// MASTER §11 succession. Nominating, clearing and disabling are OWNER-only and all
+// commit, because the nomination lives in the transcript-covered group context.
+func (self *MessageClient) NominateSuccessor(groupId string, memberId string,
+    callback GroupCallback) *MessageSendTicket
+func (self *MessageClient) ClearSuccessor(groupId string, callback GroupCallback) *MessageSendTicket
+func (self *MessageClient) SetSuccessionEnabled(groupId string, enabled bool,
+    callback GroupCallback) *MessageSendTicket
+func (self *MessageClient) Succession(groupId string) *MessageSuccessionState
+
+// countersign that this group's owner is unreachable, and claim a nomination.
+// Both fail with a GroupResult reason naming the unmet condition rather than a
+// generic error, because five conditions can each block a promotion (§3.4).
+func (self *MessageClient) CountersignSuccession(groupId string,
+    callback GroupCallback) *MessageSendTicket
+func (self *MessageClient) ClaimSuccession(groupId string,
+    callback GroupCallback) *MessageSendTicket
+
+type MessageSuccessionState struct {
+    Enabled                bool
+    SuccessorMemberId      string
+    SuccessorDisplayName   string
+    NominatedAtMs          int64
+    FloorMs                int64    // 90 days
+    OwnerLastActiveMs      int64
+    EligibleAtMs           int64    // OwnerLastActiveMs + FloorMs
+    CountersignsHeld       int32
+    CountersignsRequired   int32
+    IAmTheSuccessor        bool
+    IAmTheOwner            bool
+    OwnerWarningStage      int32    // 0 none, then 30, 60, 75, 85 days elapsed
+}
+
 type MessageGroupPolicy struct {
-    RetentionDurableMs   int64
-    RetentionMediaMs     int64    // default 1 month; server cap applies
+    RetentionDurableMs   int64    // default 1 year; the server's text cap, minimum and
+                                  // override rule all apply (MessageServerInfo, §7.2)
+    RetentionMediaMs     int64    // default 1 month; the server's media window applies
     DisappearingBucket   int32    // 0 = off; 1=1h 2=8h 3=1d 4=1w 5=4w
     ReadReceipts         bool     // default true
+    DeliveryReceipts     bool     // default true; the group half of the §7.4 composition rule
     TypingIndicators     bool     // default true
 }
 // NAMESPACE NOTE: this field and the wire EPH class number are DIFFERENT NAMESPACES.
@@ -1868,20 +2053,53 @@ type MessageGroupPolicy struct {
 // disappearing OFF; it never sends a receipt-class record. Spec C's open item C-8 is
 // closed by citing this line.
 //
-// LAYERING: these three fields are the GROUP policy, settable by ADMIN/OWNER only
+// LAYERING: the receipt, typing and disappearing fields are the GROUP policy, settable by ADMIN/OWNER only
 // (MASTER §11). The USER's own preferences are SetUserPreference/UserPreference (§7.2).
 // A receipt or typing indicator is emitted only if BOTH allow it. Spec C's Settings
 // toggles write the user preference; the group sheet writes the policy.
 ```
 
+**Removal authority is client-enforced, because the server cannot enforce it.** `RemoveMember`
+fails with `GroupResult` reason `"admin_removal_is_owner_only"` when the caller is an ADMIN and the
+target is an ADMIN or the OWNER, and `connect/mls` rejects such a commit on receipt (§3.4). MASTER
+§11 states the rule and the reason: one compromised admin could otherwise strip the whole admin set
+including the owner in a single commit, and the removed owner's keys are gone from the next epoch,
+so there is no recovery by construction.
+
+**A DM's policy is jointly controlled.** In a group where `IsDirect` is true, both members may call
+`SetGroupPolicy` and `SetDisappearing`. A change that **shortens** retention or the disappearing
+timer commits immediately. A change that **lengthens** either does not commit: it is recorded as a
+pending request, announced in the thread, and takes effect only when the other member sets the same
+value, expiring after seven days. `GroupEvent` carries it as
+`PendingPolicy *MessagePendingPolicy{RequestedByMemberId, RetentionDurableMs, RetentionMediaMs,
+DisappearingBucket, RequestedAtMs, ExpiresAtMs}`, and `SetGroupPolicy` returns `GroupResult` reason
+`"awaiting_other_party"` so the caller can say so rather than showing a failure. This keeps a DM a
+two-member group with no second code path while removing the surprise that whoever opened the chat
+silently controls how long the other person's messages survive.
+
+**Disappearing timers are forward-only.** `SetDisappearing` applies to messages sent after the
+commit that carries it; messages already sent keep the class they were sealed under. This is forced
+by the cryptography rather than chosen: a durable message is encrypted under the durable class key
+and re-classing it after the fact would be a promise about client cooperation, not a guarantee. The
+UI states it at the moment of the change (Spec C §8.3).
+
 **Retention negotiation is warn-and-proceed, in both directions** (MASTER §15 item 1). The server
-clamps a policy longer than `media_ttl_max_seconds` **down**, floors a policy shorter than
-`durable_retention_min_seconds` **up**, accepts the commit either way, and reports what it applied.
-`GroupEvent` (§7.7) therefore carries `RetentionApplied *MessageRetentionApplied` with
-`{MediaTtlSeconds, DurableTtlSeconds, MediaClampedDown, DurableFlooredUp,
-RequestedMediaTtlSeconds, RequestedDurableTtlSeconds}`. The group's transcript-covered policy is
-unchanged; the client renders a one-time in-group notice naming the **effective** value, never the
-requested one. There is no `RetentionPolicyConflict` event and no refuse-to-commit path.
+clamps a policy longer than `media_ttl_max_seconds` or `durable_ttl_max_seconds` **down**, floors a
+policy shorter than `durable_retention_min_seconds` **up**, accepts the commit either way, and
+reports what it applied. `GroupEvent` (§7.7) therefore carries
+`RetentionApplied *MessageRetentionApplied` with `{MediaTtlSeconds, DurableTtlSeconds,
+MediaClampedDown, DurableFlooredUp, RequestedMediaTtlSeconds, RequestedDurableTtlSeconds}`. The
+group's transcript-covered policy is unchanged, so a move to a server with different limits restores
+the original intent; the client renders a one-time in-group notice naming the **effective** value,
+never the requested one. There is no `RetentionPolicyConflict` event and no refuse-to-commit path.
+
+**Text retention defaults to one year, and a group may raise it only where the server allows.** A
+policy that sets no `RetentionDurableMs` gets `MessageServerInfo.DurableTtlDefaultMs`, which is one
+year unless the server advertises otherwise. When `MessageServerInfo.GroupDurableOverride` is false,
+`SetGroupPolicy` refuses a `RetentionDurableMs` above that default before it commits, with
+`GroupResult` reason `"durable_override_not_permitted"`, and Spec C states the server's fixed period
+in place of the control (Spec C §8.4). "Forever" is not a default anyone chose; it is what happens
+when nobody sets a number.
 
 `CreateDirect` is not a different code path — ledger P2 — a DM is a two-member group (MASTER §6). It
 exists only so the UI can express intent and the client can render it as a conversation. `MessageGroup.IsDirect`
@@ -1890,6 +2108,82 @@ is `MemberCount() == 2 && CreatedAsDirect`.
 Role strings are `"owner"`, `"admin"`, `"member"`, `"observer"` (MASTER §11). Strings rather than an
 int enum because gomobile enums are ints in Java/Swift with no name, and a mis-set role is a
 security-relevant bug.
+
+### 7.3a Invite links and join requests
+
+An invite link is **an invitation a member has already made**, not a public door. This is what
+reconciles links with the v1 profile: external commits are not implemented and are parse-refused
+(§3.1), so nothing arriving over a link can join a group by itself. Every join is still an `Add`
+proposed by a current member and a `Welcome` produced by a commit.
+
+Two kinds, and the default is the narrow one:
+
+- **One-time link (default).** A member creates it for one person. It carries a rendezvous id and a
+  one-time capability. Redeeming it produces a join request that is already attributed to the
+  inviting member, so accepting it needs no further approval: the client that created the link
+  commits the `Add` as soon as the redeemer presents a key package.
+- **Reusable published address.** A group may publish a durable address that means *requests land
+  here for a member to approve*. Redeeming it produces a **join request** that any ADMIN or the
+  OWNER accepts or declines. It never admits anyone by itself. **Revoking a published address
+  disturbs no existing member**: it invalidates the address for future requests and commits
+  nothing to the group's membership.
+
+```go
+func (self *MessageClient) CreateInviteLink(groupId string, reusable bool,
+    expiresInMs int64, callback InviteLinkCallback) *MessageSendTicket
+func (self *MessageClient) InviteLinks(groupId string) *MessageInviteLinkList
+func (self *MessageClient) RevokeInviteLink(groupId string, linkId string) error
+
+// the redeeming side. The URL is opaque to the caller and is parsed here, so a
+// malformed or expired link is a typed error rather than a request nobody answers.
+func (self *MessageClient) RedeemInviteLink(url string,
+    callback GroupCallback) *MessageSendTicket
+
+// the approving side, for reusable addresses.
+func (self *MessageClient) JoinRequests(groupId string) *MessageJoinRequestList
+func (self *MessageClient) AcceptJoinRequest(groupId string, requestId string,
+    callback GroupCallback) *MessageSendTicket
+func (self *MessageClient) DeclineJoinRequest(groupId string, requestId string) error
+func (self *MessageClient) AddJoinRequestListener(listener JoinRequestListener) *Sub
+
+type MessageInviteLink struct {
+    LinkId            string
+    GroupId           string
+    Url               string   // the urmessage:// form Spec C renders and shares
+    Reusable          bool
+    CreatedByMemberId string
+    CreatedAtMs       int64
+    ExpiresAtMs       int64    // 0 = no expiry; one-time links default to 7 days
+    Redeemed          bool     // one-time links only
+    Revoked           bool
+}
+
+type MessageJoinRequest struct {
+    RequestId        string
+    GroupId          string
+    Principal        string
+    DisplayName      string
+    KeyFingerprint   string
+    ViaLinkId        string
+    RequestedAtMs    int64
+    State            string   // CLOSED: "pending" | "accepting" | "accepted" | "declined" | "expired"
+}
+
+type InviteLinkCallback interface { InviteLinkCreated(link *MessageInviteLink, err error) }
+type JoinRequestListener interface { JoinRequestChanged(request *MessageJoinRequest) }
+```
+
+`MessageInviteLink` and `MessageJoinRequest` each get a `*List` wrapper per the §7.1 pattern.
+
+**What the link contains, and what it does not.** It carries the group id, the rendezvous id, the
+inviting member's identity fingerprint, and the capability. It carries **no group key**: a link that
+could decrypt anything would make the link the membership secret, which is the property invite-only
+exists to avoid. A redeemer learns the group exists and who invited them, and nothing else until a
+`Welcome` arrives.
+
+**Rate limits.** Redemption of a reusable address is rate-limited per redeeming client and per
+address; a burned one-time link is refused with a typed error rather than silently producing a
+request that no one will approve.
 
 ### 7.4 Messaging
 
@@ -1957,7 +2251,7 @@ type MessageEntry struct {
     GapReason        string   // set iff Kind == "gap"; see below
     Text             string
     ReplyToId        string
-    State            string   // "pending"|"sent"|"read"|"failed"|"expired"
+    State            string   // "pending"|"sent"|"delivered"|"read"|"failed"|"expired"
     Reason           string   // set iff State == "failed"; §7.2 vocabulary 2
     ReasonDetail     string
     ExpiresAtMs      int64    // 0 when not disappearing
@@ -1967,6 +2261,7 @@ type MessageEntry struct {
     Edited           bool     // reserved; always false in v1
     Attachments      *MessageAttachmentList
     Reactions        *MessageReactionList
+    DeliveredTo      *MessageReceiptList   // MemberId + the earliest receipt time
     ReadBy           *MessageReceiptList
     Seq              int64
     Dropped          int64
@@ -1995,6 +2290,9 @@ type MessageAttachment struct {
     State        string   // CLOSED: "available" | "not_downloaded" | "downloading"
                           //       | "pruned" | "expired" | "failed"
     LocalPath    string   // set iff State == "available"
+    AutoDownloadHeld bool // true when the body was NOT fetched because the sender is not
+                          // yet a known contact or the group is newly joined (§7.4).
+                          // State is "not_downloaded".
 }
 
 type MessageSearchResult struct {
@@ -2029,6 +2327,30 @@ type RecordLifecycleListener interface { RecordLifecycle(event *RecordLifecycleE
 deletion cannot be forged. `DeleteLocal` is local-only, does not affect anyone else, and says so in
 the UI copy.
 
+`DeleteForEveryone` is bounded to **24 hours from `SentAtMs`**. Outside the window the call fails
+with send-failure reason `delete_window_expired` and writes no record, and a `TOMBSTONE` naming a
+record older than 24 hours is ignored on receipt rather than applied — otherwise the bound would be
+a client-side courtesy that any modified client could ignore. Inside the window the entry becomes
+`Kind == "tombstone"` and stays visible as a placeholder; it is never removed from the timeline.
+
+**Attachments auto-download from known senders only.** `sdk` fetches an attachment body without
+being asked when **both** hold: the sender's principal already has a `MessagePin` (§7.6), and this
+device has been a member of the group for at least 24 hours. Otherwise the entry arrives with
+`MessageAttachment.State == "not_downloaded"` and `AutoDownloadHeld == true`, and the body is
+fetched when the user asks for it. The `"attachment_auto_download"` preference (§7.2) can widen this
+to `"always"` or narrow it to `"never"`; `"known_contacts"` is the default. This closes
+unsolicited-attachment decoder exposure — the case where an unknown party's first contact is bytes
+your image decoder parses — without making image-heavy groups feel broken, since every group you
+have been in for a day behaves normally.
+
+**Ordering is the server's; the timestamp is the sender's.** `History`, `Entry` and every
+`MessageEvent` order messages by the server-assigned `record_id`, which is per-group, gapless and
+agreed by every client, and which no client can manipulate. `MessageEntry.SentAtMs` is
+sender-claimed and is **rendered as the label** — it is what a user reads next to a message — and it
+**never determines order**. A message whose claimed timestamp precedes the one above it is displayed
+where the server put it, with its own claimed time. `TestOrderIsServerOrder` asserts that a record
+with a `sent_at` far in the past or the future lands in `record_id` position.
+
 `Kind == "gap"` is a first-class entry type: an undecryptable or missing record renders as a visible gap
 with its reason. `GapReason` is a **closed set**: `"expired"`, `"out_of_window"`, `"not_a_member_yet"`,
 `"withheld"`, `"no_wrap"`. Attachment outcomes are **not** gap reasons — a pruned or failed attachment is
@@ -2037,19 +2359,37 @@ failed", which are different sentences to a user. A messenger that silently drop
 a messenger that cannot be trusted to have shown you everything.
 
 ```
-MessageEntry.State is a CLOSED set:  "pending" | "sent" | "read" | "failed" | "expired"
+MessageEntry.State is a CLOSED set:
+  "pending" | "sent" | "delivered" | "read" | "failed" | "expired"
 
-  pending  in the local outbox; not yet accepted by the message server
-  sent     accepted by the message server
-  read     a read receipt was received (only when both sides have receipts on)
-  failed   terminal; carries a Reason from the closed send-failure vocabulary
-  expired  the disappearing timer elapsed and the key is gone
+  pending    in the local outbox; not yet accepted by the message server
+  sent       accepted by the message server
+  delivered  at least one device of at least one other member emitted a delivery
+             receipt for it — a statement by a device that decrypted the record,
+             never an inference by the server, which cannot make one (MASTER §9.5)
+  read       a read receipt was received (only when both sides have receipts on)
+  failed     terminal; carries a Reason from the closed send-failure vocabulary
+  expired    the disappearing timer elapsed and the key is gone
 
-There is NO "delivered" state. URmessage does not claim delivery: the server does not know which
-member a sender_handle belongs to (MASTER §9.5) and MUST NOT record which client fetched which
-range (MASTER §9.7, Spec B §11.1). Per-member delivery is a V2 item gated on a client-emitted
-delivery receipt.
+The state is monotonic in that order for a given message, and a receipt that would
+move it backwards is applied to the per-member list and ignored for the state.
 ```
+
+**The delivery receipt is a record, not a server signal.** When a device successfully opens a
+record's body it emits one `EPH(bucket 0)` receipt naming the record and nothing else, under the
+same batching and the same never-persisted handling as read receipts and typing indicators (MASTER
+§12.2). It is emitted only if the emitting user's `"delivery_receipts"` preference and the group
+policy's `DeliveryReceipts` both allow it, exactly as for read receipts (§7.3). `MessageEntry`
+therefore carries both lists:
+
+```go
+    DeliveredTo      *MessageReceiptList   // MemberId + the earliest receipt time
+    ReadBy           *MessageReceiptList
+```
+
+The cost is real and is disclosed rather than buried: a receipt emitted on decryption tells the
+message server when a device of that group was online and processing, which read receipts alone did
+not. MASTER §9.5 and §13 state it.
 
 **Event delivery.**
 
@@ -2094,13 +2434,20 @@ func (self *MessageDeviceLinkSession) AuthString() string         // both sides 
 func (self *MessageDeviceLinkSession) Confirm(matches bool) error // both sides
 func (self *MessageDeviceLinkSession) Cancel()
 
-// v1 is desktop-to-desktop with no camera on either end, so the TYPED path is primary
-// and the QR is the convenience. Both sides still compare the SAS.
+// v1 multi-device is desktop-to-desktop. Neither machine has a camera, so the
+// primary path is a SHORT typed code plus a numeric comparison, and the QR is a
+// convenience for a machine that can read one.
 func (self *MessageDeviceLinkSession) PairingCode() string
-// 8 groups of 4 uppercase Crockford base32 characters = 160 bits of rendezvous entropy.
-// Lifetime 10 minutes. The rendezvous is rate-limited to 5 attempts per code and 20 per
-// client_id per hour; 5 failures burn the code. A short code is an online-guessing
-// surface and these three numbers are what make it not one.
+// 2 groups of 4 uppercase Crockford base32 characters = 40 bits of rendezvous
+// entropy, e.g. "K7QM-3XB9". Lifetime 10 minutes. Rate-limited to 5 attempts per
+// code and 20 per client_id per hour; 3 failures burn the code permanently.
+// 40 bits with 3 attempts in 10 minutes is not an online-guessing surface, and a
+// 32-character code that a user retypes across a room is a code that gets
+// mistyped, abandoned, or photographed.
+func (self *MessageDeviceLinkSession) SasDigits() string
+// 6 decimal digits, shown on BOTH machines and compared by the user out loud or
+// by eye. This is the authentication; the pairing code is only the rendezvous.
+// Confirm(false) on either side aborts and burns the code.
 func (self *MessageClient) JoinDeviceLinkWithCode(code string,
     callback DeviceLinkCallback) *MessageDeviceLinkSession
 
@@ -2127,6 +2474,10 @@ type DeviceRemovalCallback interface {
 ```
 
 `DeviceLinkState`'s fields are defined in §7.7.
+
+An identity may hold at most **ten device leaves** (MASTER §11). `BeginDeviceLink` fails with a
+typed error naming the cap when the identity already holds ten, and the UI states the limit before
+the user starts (Spec C §12.5) rather than after they have typed a code on a second machine.
 
 The provisioning bundle carries the group list and **durable-class** archive material only.
 Ephemeral-class material is never included (MASTER I4). `TestProvisioningBundleHasNoEphemeral`
@@ -2196,7 +2547,9 @@ type DirectoryCallback interface {
 // "log_unavailable" and Spec C renders that state explicitly.
 
 type IntegrityEvent struct {
-    Kind                string   // CLOSED: "fork" | "attestation_gap" | "server_key_change"
+    Kind                string   // CLOSED: "fork_resyncing" | "fork_unresolved"
+                                 //       | "attestation_gap" | "server_key_rotated"
+                                 //       | "server_key_untrusted"
     GroupId             string
     Epoch               int64
     OursHex             string   // fork: our confirmed_transcript_hash
@@ -2205,7 +2558,7 @@ type IntegrityEvent struct {
     AttestationServerTimeMs int64
     CoveredSinceRecordId    int64
     CoveredUntilRecordId    int64
-    ServerHost          string   // server_key_change
+    ServerHost          string   // server_key_rotated | server_key_untrusted
     OldKeyFingerprint   string
     NewKeyFingerprint   string
     FirstSeenMs         int64
@@ -2251,10 +2604,65 @@ and surfaces `KtProofMissing`, which is a hard failure, not a warning. Until sli
 `EvidenceClass` reports `"kt_unavailable"` — **not** `"unsigned"`, which is not a member of the closed
 set — and Spec C renders that row explicitly.
 
-**Server key changes.** When a server key change is accepted via `AcceptServerKey`, A MUST discard
-every retained `FetchAttestation` signed under the old key rather than silently trusting it, and MUST
-report the invalidated `(since, until)` range on the `server_key_change` `IntegrityEvent` so Spec C can
-name it in the modal.
+**Server keys chain to a root compiled into this DLL.** `sdk` carries a hardcoded Ed25519 **fleet
+root public key** and verifies the message server's key against it on the **first** fetch, which is
+the only unauthenticated moment in the design and the only one that cannot be closed after
+installs have shipped. The server presents its current signing key with a signature by the root over
+`"URmessage/v1/serverkeyroot" ‖ LP(server_id) ‖ LP(key_pub) ‖ u64(not_before_ms) ‖ u64(not_after_ms)`,
+and successors chained by the outgoing key exactly as Spec B §4.3.1 specifies.
+
+- A key that **chains** — to the root, or to a key that chains to the root — is accepted
+  **silently**. No modal, no prompt, no user decision. `sdk` appends one entry to an inspectable
+  security log and raises `IntegrityEvent{Kind: "server_key_rotated"}`.
+- A key that **does not chain** is refused. The session is not established, no data is fetched,
+  `MessageServerInfo.KeyState` is `"untrusted"`, and health reports `server_key_untrusted`. **There
+  is no call that accepts it**, deliberately: an accept affordance on this screen is a button that
+  gets clicked, and with a root pin there is no legitimate case in which it would be correct to
+  click it.
+
+There is no `AcceptServerKey` call on this surface, and there must never be one: trust-on-first-use
+for the **server** key is replaced by the root pin. Trust-on-first-use for **contacts** is unchanged
+and is what the rest of this section is about.
+
+```go
+// the inspectable log Spec C §12.6 renders. Append-only, local, bounded to 500
+// entries, and never contains message content.
+func (self *MessageClient) SecurityLog() *MessageSecurityLogEntryList
+
+type MessageSecurityLogEntry struct {
+    AtMs           int64
+    Kind           string   // CLOSED: "server_key_rotated" | "server_key_untrusted"
+                            //       | "key_change_accepted" | "identity_removed"
+                            //       | "pin_set" | "pin_cleared" | "diagnostic_session"
+                            //       | "device_added" | "device_removed"
+    Subject        string   // a principal, a server host, or a device name
+    Detail         string   // display only; never parsed
+}
+```
+
+When a rotation is applied, `sdk` discards every retained `FetchAttestation` signed under the
+outgoing key rather than silently trusting it, and reports the invalidated
+`(CoveredSinceRecordId, CoveredUntilRecordId)` range on the `server_key_rotated` `IntegrityEvent` so
+Spec C can name it in the security log entry.
+
+**Fork detection resyncs before it stops anything.** A `confirmed_transcript_hash` divergence is a
+security signal and also the signal a bad server deploy produces, and the two are
+indistinguishable at the moment of detection. `sdk` therefore attempts an automatic
+`ResyncGroup` first — re-fetching the group's records and rebuilding epoch state from the snapshot
+— and raises `IntegrityEvent{Kind: "fork_resyncing"}` while it does. Sending in that group continues
+during the attempt.
+
+Only if the resync fails does the client raise `IntegrityEvent{Kind: "fork_unresolved"}`, disable
+sending with `CanSend` reason `fork_unresolved`, and surface the hard stop. The security property is
+unchanged — a genuine fork still stops sending, because a genuine fork does not resolve on a refetch
+— while the blast radius of one bad deploy is no longer "nobody in this group can send until every
+member individually clicks a button". Backoff is full jitter, base 2 s, cap 60 s, three attempts.
+
+**Directory listing is off until asked for.** `LookupPrincipal` resolves only identities that have
+opted in, and `SetDirectoryListed` (§7.2) is the only call that publishes one. An identity that has
+never called it has no directory entry and no key-transparency leaf, so `MessagePin.EvidenceClass`
+for that identity is `"kt_unavailable"` — which is a true statement rather than a degradation, and
+Spec C renders it as its own row (Spec C §7.3).
 
 ### 7.7 Listeners
 
@@ -2281,10 +2689,15 @@ type DeviceLinkCallback    interface { DeviceLinkChanged(state *DeviceLinkState,
 type DeviceRemovalCallback interface { DeviceRemovalChanged(progress *DeviceRemovalProgress, err error) }
 type SyncCallback          interface { SyncResult(result *SyncResult, err error) }
 type DirectoryCallback     interface { DirectoryResult(results *MessageDirectoryResultList, err error) }
+type InviteLinkCallback    interface { InviteLinkCreated(link *MessageInviteLink, err error) }
+type JoinRequestListener   interface { JoinRequestChanged(request *MessageJoinRequest) }
+type BalanceListener       interface { BalanceChanged(balance *MessageBalance) }
+type BalanceRedeemCallback interface { BalanceRedeemed(result *BalanceRedeemResult, err error) }
 
 type MessageEvent struct {
     Kind      string   // CLOSED: "appended" | "state_changed" | "reactions_changed"
-                       //       | "read_changed" | "typing_changed" | "removed" | "gap"
+                       //       | "delivered_changed" | "read_changed" | "typing_changed"
+                       //       | "removed" | "gap"
     GroupId   string
     Entries   *MessageEntryList   // "appended"
     MessageId string              // "state_changed" | "removed" | "gap"
@@ -2297,15 +2710,31 @@ type MessageEvent struct {
 
 type GroupEvent struct {
     Kind             string   // CLOSED: "created" | "changed" | "members_changed"
-                              //       | "policy_changed" | "sendability_changed"
-                              //       | "invited" | "left" | "removed" | "closed"
-                              //       | "history_granted"
+                              //       | "policy_changed" | "policy_pending"
+                              //       | "sendability_changed" | "invited" | "left"
+                              //       | "removed" | "closed" | "history_granted"
+                              //       | "ownership_changed" | "succession_changed"
+                              //       | "join_request_changed"
     GroupId          string
     Group            *MessageGroup
     Sendability      *MessageSendability
     RetentionApplied *MessageRetentionApplied
+    PendingPolicy    *MessagePendingPolicy   // "policy_pending"; §7.3's joint DM control
+    Succession       *MessageSuccessionState // "succession_changed" | "ownership_changed"
     Seq              int64
     Dropped          int64
+}
+
+// a DM policy change that LENGTHENS retention or the disappearing timer. It commits
+// nothing until the other member sets the same value, and expires after seven days.
+// §7.3.
+type MessagePendingPolicy struct {
+    RequestedByMemberId string
+    RetentionDurableMs  int64
+    RetentionMediaMs    int64
+    DisappearingBucket  int32
+    RequestedAtMs       int64
+    ExpiresAtMs         int64
 }
 
 // Seconds, not milliseconds: this struct is a field-for-field mirror of the message
@@ -2337,6 +2766,7 @@ type MessageGroup struct {
     RetentionDurableMs int64    // effective policy, as applied by the server
     RetentionMediaMs   int64
     ReadReceipts       bool
+    DeliveryReceipts   bool
     TypingIndicators   bool
     NotificationMode   string   // "default" | "name_and_message" | "name_only" | "nothing"
     MyRole             string
@@ -2378,6 +2808,8 @@ type MessageReaction struct {
     MineSet   bool          // this device's own account is among them
 }
 
+// used by both MessageEntry.DeliveredTo and MessageEntry.ReadBy. In DeliveredTo,
+// ReadAtMs carries the earliest delivery receipt seen from that member's devices.
 type MessageReceipt struct {
     MemberId string
     ReadAtMs int64
@@ -2410,7 +2842,8 @@ type DeviceLinkState struct {
     State      string   // CLOSED: "waiting" | "code_shown" | "peer_joined" | "sas_compare"
                         //       | "approved" | "refused" | "timed_out" | "failed"
     PairingCode string
-    AuthString string
+    SasDigits  string   // the 6 digits both machines show and the user compares (§7.5)
+    AuthString string   // the same authentication value in its long form, for display
     Reason     string
 }
 
@@ -2418,6 +2851,12 @@ type SyncResult   struct { GroupId string; RecordsFetched int32; Complete bool; 
 type SendResult   struct { GroupId string; MessageId string; State string; Reason string }
 type GroupResult  struct { GroupId string; Kind string; Reason string
                            PartialInvites *StringList /* principals whose invite failed */ }
+// GroupResult.Reason is CLOSED and is its own vocabulary, separate from §7.2's three:
+//   "ok" | "not_permitted" | "owner_must_transfer" | "admin_removal_is_owner_only"
+//   | "awaiting_other_party" | "durable_override_not_permitted" | "group_size_exceeded"
+//   | "device_limit_exceeded" | "succession_disabled" | "succession_not_nominee"
+//   | "succession_quorum" | "succession_floor" | "link_expired" | "link_revoked"
+//   | "link_already_redeemed" | "rate_limited" | "offline" | "internal"
 type RestoreProgress struct { Phase string; GroupId string; GroupName string
                               MessagesDone int64; MessagesTotal int64
                               GroupsDone int32; GroupsTotal int32
@@ -2427,9 +2866,10 @@ type DownloadProgress struct { GroupId string; MessageId string; AttachmentId st
                                BytesReceived int64; BytesTotal int64; LocalPath string }
 ```
 
-`MessageInvite`, `MessageReaction`, `MessageReceipt` and `MessageHistoryGrant` each get a `*List`
-wrapper per the §7.1 pattern: `MessageInviteList`, `MessageReactionList`, `MessageReceiptList`,
-`MessageHistoryGrantList`.
+`MessageInvite`, `MessageReaction`, `MessageReceipt`, `MessageHistoryGrant`, `MessageInviteLink`,
+`MessageJoinRequest` and `MessageSecurityLogEntry` each get a `*List` wrapper per the §7.1 pattern:
+`MessageInviteList`, `MessageReactionList`, `MessageReceiptList`, `MessageHistoryGrantList`,
+`MessageInviteLinkList`, `MessageJoinRequestList`, `MessageSecurityLogEntryList`.
 
 There is no `GroupDetails(groupId)` call. `Group(groupId)` already returns the snapshot and now
 carries every field a details screen renders; a second accessor returning the same data under
@@ -2454,6 +2894,57 @@ that cannot marshal to JSON cannot cross the ABI. `TestMessageSurfaceIsExportabl
 the generator does and fails on the first unmappable type, so the break shows up in `go test` rather
 than in a gomobile build on someone else's machine.
 
+### 7.9 Data allowance and balance codes
+
+Messaging consumes the user's own URnetwork data allowance on their own operator (MASTER §4.5).
+This DLL already owns the account session (decision A12), so it owns the balance surface too; there
+is no second runtime to ask.
+
+```go
+func (self *MessageClient) Balance() *MessageBalance
+func (self *MessageClient) AddBalanceListener(listener BalanceListener) *Sub
+
+// Redeem a balance code issued by an operator. Wraps the operator's existing
+// balance-code redemption endpoint through the account session this DLL holds;
+// no new server-side mechanism is required for it.
+func (self *MessageClient) RedeemBalanceCode(code string,
+    callback BalanceRedeemCallback) *MessageSendTicket
+
+type MessageBalance struct {
+    State            string   // CLOSED: "ok" | "low" | "exhausted" | "unknown"
+    AvailableBytes   int64    // -1 when unknown
+    PeriodEndsAtMs   int64    // when the current free allowance refreshes; 0 if not applicable
+    CheckedAtMs      int64
+}
+
+type BalanceRedeemResult struct {
+    Ok             bool
+    GrantedBytes   int64
+    Reason         string   // CLOSED: "ok" | "invalid_code" | "already_redeemed"
+                            //       | "expired" | "rate_limited" | "offline" | "internal"
+    Detail         string   // display only; never parsed
+}
+
+type BalanceListener       interface { BalanceChanged(balance *MessageBalance) }
+type BalanceRedeemCallback interface { BalanceRedeemed(result *BalanceRedeemResult, err error) }
+```
+
+```c
+uint64_t urmsg_client_redeem_balance_code(uint64_t client, const char* code,
+                                          urmsg_balance_redeem_cb cb, void* user_data);
+char*    urmsg_client_balance(uint64_t client);   /* json */
+```
+
+**`State == "exhausted"` is a first-class condition, not a transport failure.** `CanSend` returns
+reason `out_of_credit`, health reports state `out_of_credit`, and the client tells the user where to
+add credit — the URnetwork website, app or VPN client. **URmessage contains no purchase flow and
+sets no price**; operators price data, and this product only spends and redeems. `"unknown"` is what
+the client reports before it has ever reached the account API, and it is never rendered as a number.
+
+`"invalid_code"` and `"already_redeemed"` are deliberately distinguishable to the user, because the
+two have different remedies and a beta tester retyping a code needs to know which one they hit.
+Redemption is rate-limited at the operator; `"rate_limited"` carries a retry hint in `Detail`.
+
 ---
 
 ## 8. Local persistence and sealing
@@ -2462,16 +2953,20 @@ than in a gomobile build on someone else's machine.
 
 | Data | Store | Sealed | Deleted when |
 |---|---|---|---|
-| **BIP39 entropy (256 bits)** | keyfile | **yes**, DPAPI context `"seed_entropy"` | `RemoveIdentity()` |
+| **BIP39 entropy (256 bits)** | keyfile | **yes**, DPAPI context `"seed_entropy"`, and additionally under the PIN wrap when one is set | `RemoveIdentity()` |
 | `master_key` children (`identity` priv, `recovery_root`, `recovery_sig_seed`) | keyfile | **yes** | identity reset |
 | **`phrase_confirmed_at` (unix ms)** | keyfile | **yes** | `RemoveIdentity()` |
 | `device_sig` (Ed25519 leaf key), `device_xwing` (X-Wing seed) | keyfile | **yes** | device removed from all groups |
-| MLS group state per (group, epoch) | SQLite `mls_state` | **yes**, per-row blob | `DeleteGroupStateBefore`, epoch window 8 |
+| MLS group state per (group, epoch) | SQLite `mls_state` | **yes**, per-row blob | `DeleteGroupStateBefore`, epoch window **32** |
 | MLS private keys by public key | SQLite `mls_private` | **yes**, per-row | key superseded or leaf removed |
 | Pending KeyPackages + their private halves | SQLite `mls_keypackage` | **yes** | Welcome consumed, or 30-day lifetime expiry |
 | `eph_root[n]` | SQLite `eph_root`, inside the epoch state row | **yes** | window closes, or epoch falls out of the window |
 | Record ciphertext (as received) | SQLite `record` | no — it is already ciphertext | retention class + `expire_at` |
-| Decrypted display cache (text, sender, timestamps) | SQLite `entry` | **yes**, one blob per group | group left, message deleted, disappearing timer |
+| Decrypted display bodies | SQLite `entry.body_sealed` | **yes**, **per row** under `local_store_key` | group left, message deleted, disappearing timer |
+| Display metadata index (group id, message id, `record_id`, sender handle, timestamps, state, class) | SQLite `entry`, plaintext columns | no — deliberately, §8.3a | with the row |
+| **`local_store_key` (32 B)** | keyfile | **yes**, DPAPI, and additionally under the PIN wrap when one is set (§8.6) | `RemoveIdentity()` |
+| **PIN verifier and Argon2id parameters** | keyfile | **yes** | PIN cleared, or `RemoveIdentity()` |
+| Retained read keys per (group, epoch) | SQLite `read_key` | **yes**, per-row | group left, or the epoch ages out of the client's own retention |
 | Attachment blobs | files under `StorageDir/media/` | file body encrypted under the message's class key | MEDIA retention, 1 month default |
 | TOFU pins, KT tree heads | SQLite `pin`, `kt_head` | no (public data), but integrity-MAC'd | never |
 | `stream_index` high-water marks | SQLite `stream`, `PRAGMA synchronous=FULL` on that table's writes | no | never |
@@ -2561,6 +3056,47 @@ permissions only. Mobile lands with the platform keystores in slice 7+.
 The entropy file is created with an explicit owner-only DACL on Windows (not just `0600` semantics,
 which Go maps loosely on NTFS). `TestEntropyFileAcl` asserts the DACL on Windows CI.
 
+### 8.3a How the local store is encrypted
+
+One key, per-row encryption, and an index that stays queryable.
+
+```
+local_store_key   32 B, CSPRNG at first run, sealed by the Sealer (§8.3) and, once a
+                  PIN exists, wrapped under it as well (§8.6). Never derived from the
+                  seedphrase: it protects a cache, not history, and a device that loses
+                  it re-derives every row from the record store.
+
+per row:  key ‖ nonce = HKDF-Expand(local_store_key, "entry/v1" ‖ LP(group_id)
+                                    ‖ LP(message_id), 44)
+          body_sealed  = XChaCha20-Poly1305(key, nonce, aad = the row's plaintext
+                         index columns, plaintext = the decrypted body, sender display
+                         name, caption and attachment filenames)
+```
+
+**What stays plaintext, and why that is the point.** `group_id`, `message_id`, `record_id`,
+`sender_handle`, `sent_at`, `received_at`, `state`, `retention_class`, `eph_bucket` and
+`expires_at`. Those are the columns every query in the product filters and orders on — the
+conversation list, pagination, unread counts, the expiry sweep — and they are exactly what the
+message server already holds for the same records. Sealing them would buy nothing against an
+adversary who has the disk and the server's view, and would cost the reason for taking a database at
+all.
+
+**Search decrypts a bounded window.** `SearchEntries` walks candidate rows in `record_id` order,
+decrypting at most 2,000 bodies at a time into memory that is zeroed after the pass, and stops at the
+caller's limit. There is no plaintext full-text index on disk, and `EPH`-class rows are excluded from
+the walk entirely (§7.4). This is slower than an FTS index over plaintext and is the deliberate
+trade: a searchable plaintext index is a second copy of every message that survives the row it came
+from.
+
+**This replaces the sealed-blob-per-group cache.** A single blob per group would have required
+unsealing, appending to and resealing an entire group's history to store one message, would have
+supported no index, and would have made the SQLite dependency of decision A8 unjustifiable —
+A8 exists for indexed pagination, per-group cursors and search, none of which a blob provides.
+
+`TestNoPlaintextBodyAtRest` writes a known phrase through `PutEntries`, closes the client, and greps
+the raw database file, the WAL and the journal for it. `TestIndexColumnsAreQueryable` asserts the
+conversation-list and pagination queries execute without decrypting a single body.
+
 ### 8.4 Deletion actually deleting
 
 Three mechanisms, because SQLite `DELETE` alone leaves page contents in the freelist and the WAL:
@@ -2577,6 +3113,40 @@ and the raw record store and assert the plaintext, the entry blob, and the `eph_
 — and assert that a **freshly provisioned** device and a **seedphrase-only** restore both fail to
 decrypt it. That single test is the difference between the feature working and the feature being a
 UI label.
+
+### 8.6 The PIN, and what it actually protects
+
+A PIN is **optional** and, when set, is a genuine second factor rather than a screen the UI puts in
+front of data it has already unsealed.
+
+- **No PIN.** `local_store_key`, the seed entropy and the device keys are sealed by the platform
+  Sealer alone — DPAPI on Windows, user-scoped. Anyone who can run code as this Windows user can
+  unseal them, which `Sealer.Description()` says in as many words.
+- **PIN set.** The same material is additionally wrapped under a key derived from the PIN:
+  `pin_key = Argon2id(pin, salt = 16 B random, time = 3, memory = 64 MiB, parallelism = 4, 32 B)`,
+  and the sealed blob is `Seal(Wrap(pin_key, material))`. The platform seal still applies, so both
+  are required. **Without the PIN the store key cannot be unwrapped**, by this process or any other.
+
+```
+Locked state:      local_store_key is not in memory. Groups(), History(), Search() and
+                   every send path fail with CanSend reason "locked" and health state
+                   "locked" with reason "pin_required". The connect session and the
+                   outbox are NOT torn down: records still arrive and are stored as the
+                   ciphertext the server sent, and are decrypted for display on unlock.
+Auto-lock:         after AutoLockMinutes of no call from the host application.
+                   DEFAULT 15. 0 disables it. Manual Lock() is always available.
+Wrong PIN:         typed error, exponential delay after 5 consecutive failures
+                   (1 s, 2 s, 4 s … capped at 60 s). There is no lockout that destroys
+                   data: the PIN protects a cache and a seed the user may still hold on
+                   paper, and a device-wiping counter would destroy more than it defends.
+Forgetting it:     local history is lost and the store is re-created empty. The
+                   seedphrase still restores from the server (§7.2 RestoreIdentity).
+                   The client states this before the PIN is set, not after.
+```
+
+`TestPinIsNotAUiGate` asserts that with a PIN set and the client locked, the raw keyfile yields no
+usable `local_store_key` under the platform Sealer alone — that is, that unsealing without the PIN
+produces wrapped bytes and not a key.
 
 ---
 
@@ -2647,6 +3217,14 @@ uint64_t urmsg_auth_login_begin(uint64_t client, const char* request_json,
 bool     urmsg_client_set_by_jwt(uint64_t client, const char* jwt, char** out_error);
 bool     urmsg_client_by_jwt_state(uint64_t client, char** out_state);
 
+/* account — this DLL owns signup as well as login (decision A12). */
+uint64_t urmsg_auth_signup_begin(uint64_t client, const char* request_json,
+                                 urmsg_auth_cb cb, void* user_data);
+uint64_t urmsg_auth_verify_begin(uint64_t client, const char* request_json,
+                                 urmsg_auth_cb cb, void* user_data);
+uint64_t urmsg_auth_password_reset_begin(uint64_t client, const char* request_json,
+                                         urmsg_auth_cb cb, void* user_data);
+
 /* identity */
 bool     urmsg_generate_seedphrase(char** out_phrase, char** out_error);
 bool     urmsg_client_create_identity(uint64_t client, const char* phrase, char** out_error);
@@ -2674,6 +3252,18 @@ bool     urmsg_client_start(uint64_t client, char** out_error);
   "media_cache_bytes":  1073741824  // optional, default 1 GiB
 }
 ```
+
+A user with no URnetwork account creates one **inside URmessage**: signup, email or SSO
+verification, and password reset are all exported here, because this DLL already owns the account
+session and there is no second runtime to hand the flow to. The client never sends the user to a
+browser or to the VPN app to get an account.
+
+**One trap, and it is the kind that ships.** The URnetwork account has a seedphrase of its own, and
+so does the messaging identity. Both appear during onboarding, minutes apart, and they are
+completely different secrets: one is a login credential the operator receives on every use, the
+other is a master key that never leaves the device (MASTER §5.1). The two flows must never share a
+screen, a string, or a phrase-entry control, and each must name which phrase it means in its own
+title. Spec C §6.1 carries the user-facing form of this warning.
 
 **Why there is no `urnet_device_handle` parameter.** An earlier revision took one, then struck it,
 because a handle is an id in the *other* DLL's registry and resolving it cross-runtime is a lookup
@@ -2761,8 +3351,11 @@ Rules, each of which corresponds to a real failure mode:
    **Reason strings are not `out_error` strings.** `char** out_error` carries `err.Error()` — open,
    human-readable, never parsed. Separately, `MessageSendability.Reason`, `MessageEntry.Reason`,
    `MessageHealthEvent.State`/`.Reason`, `MessageEntry.GapReason`, `MessageAttachment.State`,
-   `KeyChangeWarning.EvidenceClass`, `IntegrityEvent.Kind`, `MessageDirectoryResult.ProofState` and
-   `DeviceLinkState.State` are **closed, versioned vocabularies** carried in JSON events with a stable
+   `KeyChangeWarning.EvidenceClass`, `IntegrityEvent.Kind`, `MessageDirectoryResult.ProofState`,
+   `DeviceLinkState.State`, `MessageServerInfo.KeyState`, `SyncState.ServerKeyState`,
+   `MessageSecurityLogEntry.Kind`, `MessageJoinRequest.State`, `MessageBalance.State`,
+   `BalanceRedeemResult.Reason` and `GroupResult.Reason` are **closed, versioned vocabularies**
+   carried in JSON events with a stable
    `kind` field. Spec C switches on those; it never parses `out_error`. A new value in any of these
    vocabularies is a spec change in this document and a `TestVocabulariesAreClosed` failure, not a silent
    addition.
@@ -2881,8 +3474,22 @@ contents for anything but transport setup and billing display.
 | `TestServerAttachmentRoundTripsAgainstVectors` | §5.11 — a zero-length attachment and `AttachmentNone` encode identically, so `H(server_attachment)` cannot differ between client and server |
 | `TestLostCommitResamplesPqSecret` | §5.12 / G10 — MASTER §7's per-epoch PQ independence across a lost commit |
 | `TestVocabulariesAreClosed` | §9.5 rule 7 — no silent addition to a closed reason vocabulary |
-| `TestReadAuthNeverUsesWriteKey` | §5.7 — `req_auth` is MAC'd under `read_key`; no call path reaches `ComputeRequestAuth` with an epoch key |
+| `TestReadAuthNeverUsesWriteKey` | §5.7 — `req_auth` is MAC'd under a `read_key`; no call path reaches `ComputeRequestAuth` with an epoch write key |
 | `TestBlobIdIsInBothPreimages` | §5.1 — a record with `size_bucket = 5` whose `blob_id` is altered fails both AEAD open and `VerifyWriteAuth`; a record with any other bucket encodes a zero-length `blob_id` prefix |
+| `TestNoPlaintextBodyAtRest` | §8.3a — per-row encryption; no body, name or filename in the raw database file |
+| `TestPinIsNotAUiGate` | §8.6 — the PIN wraps the store key rather than gating a screen |
+| `TestReadKeyWindowSurfacesExplicitly` | §5.7 — a client past the 90-day read window reports a named reason, never a generic failure |
+| `TestReadAuthNamesItsEpoch` | §5.7 — `read_epoch` is inside `canonical_request_bytes` and therefore inside the MAC |
+| `TestSuiteRegistryIsNotASingleton` | §3.1 — both registered ciphersuites pass the vector families and group creation still refuses 0x0001 |
+| `TestSuccessionRequiresAllFive` | §3.4 — each of the five succession conditions, broken one at a time |
+| `TestSuccessionOptOutIsAbsolute` | §3.4 — succession disabled defeats a valid quorum |
+| `TestAdminCannotRemoveAdmin` | §7.3 — a non-owner commit removing an ADMIN is rejected on receipt, not merely refused at construction |
+| `TestGroupAndDeviceCapsAreEnforcedOnReceipt` | §3.1 — a commit past 500 members or 11 device leaves is rejected by a receiving client |
+| `TestDeleteWindowIsEnforcedOnReceipt` | §7.4 — a `TOMBSTONE` naming a record older than 24 hours is ignored, not applied |
+| `TestDeliveryReceiptIsEphemeral` | §7.4 — a delivery receipt is `EPH(bucket 0)`, is never persisted, and is not emitted when either the user preference or the group policy forbids it |
+| `TestOrderIsServerOrder` | §7.4 — a record with an implausible `sent_at` lands in `record_id` position |
+| `TestForkResyncsBeforeStopping` | §7.6 — a recoverable divergence never disables sending; an unrecoverable one always does |
+| `TestAutoDownloadHoldsUnknownSenders` | §7.4 — a first-time sender's attachment is held; a known contact's is fetched |
 
 ### 11.3 Running the suites
 
@@ -3000,13 +3607,15 @@ design discussion, not a patch.
 | S5 | Index epoch wrap records by target: device wraps and the epoch snapshot by `wrap_target_handle` (16 B, from `WrapTag`), recovery wraps by `recovery_handle` (16 B, from `RecoveryTag`), both delivered inside the authenticated `server_attachment`. Serve a wrap by target in O(1). | §5.11, MASTER §8.2 |
 | S6 | A commit's epoch bundle reaches ~6.9 MB at 500 members, every wrap padded to `size_bucket 2`. Per-record size caps apply to individual wrap records, never to the bundle. Honour the epoch-publication sequence of §5.11, including the `EpochComplete` marker. | §5.11 |
 | S7 | Serve a `FetchAttestation` on every history fetch, with the field list and signing preimage of MASTER §9.4 — including `class_mask` and `heads_only` inside the signature | MASTER §9.4 |
-| S8 | Advertise, as data the client can read before it acts: max blob bytes, media TTL cap and default, durable retention minimum, max records per fetch and submit, max submit bytes, max request bytes, max response bytes, blob chunk bytes, blob pad multiple, attestation support, and a monotonic `capability_version` | MASTER §12.2 |
+| S8 | Advertise, as data the client can read before it acts: **the file size limit** (max blob bytes), **the media and file window** (media TTL cap and default), **the text storage cap and minimum** (durable TTL maximum, default and minimum) and whether groups may override the text default; plus max records per fetch and submit, max submit bytes, max request bytes, max response bytes, blob chunk bytes, blob pad multiple, attestation support, and a monotonic `capability_version` | MASTER §12.2 |
 | S9 | Supply a 32-byte `server_nonce` in `HelloResponse`, bound to the connection and valid for its life. **No rotation.** The nonce is not carried in requests. | MASTER §9.2 |
 | S10 | Prune by retention class **and** `expire_at`, where `expire_at` may only shorten retention, never extend it; retain `ct_head` and `body_hash` when `ct_body` is erased | MASTER §8, §9.1, §12.2 |
-| S11 | Never create, store, or transmit logs of client commands, transport connections, or a history of deleted records in production | MASTER §9.7 — an acceptance criterion, not a policy page |
+| S11 | Record nothing per identity: no `group_id`, `sender_handle`, `record_id`, `client_id`, address or authenticator in any log, metric label, trace or database log. Aggregate counters and error classes only. The single exception is a **client-initiated diagnostic session**, bounded and opt-in, retained separately and surfaced back to the user who started it | MASTER §9.7 — an acceptance criterion, not a policy page |
 | S12 | Never decrypt; never be consulted on group admission; never satisfy an MLS validity condition | MASTER I1, §4.2 |
-| S13 | **Authorize reads.** `Fetch`, `Subscribe`, `GroupStatus`, `BlobGrant` and `WrapFetch` MUST carry and verify `req_auth` under the group's `read_key`, installed from `EpochAttachment.read_key` and identical in every epoch (§5.7). An unauthenticated read is a full metadata dump and a group-existence oracle. `RecoveryFetch` uses the Ed25519 recovery proof instead. | MASTER §9.1, §9.2 |
+| S13 | **Authorize reads.** `Fetch`, `Subscribe`, `GroupStatus`, `BlobGrant` and `WrapFetch` MUST carry and verify `req_auth` under the read key of the epoch named by the request's `read_epoch` field (§5.7). Install each epoch's `read_key` from that epoch's `EpochAttachment`, retain it **90 days from installation**, and refuse a request naming an epoch whose key has aged out. An unauthenticated read is a full metadata dump and a group-existence oracle. `RecoveryFetch` uses the Ed25519 recovery proof instead. | MASTER §9.1, §9.2 |
 | S14 | Serve a wrap by target in O(1) from an authenticated `WrapFetch`, and return a defined refusal when the named target has no wrap at that epoch | §5.11, MASTER §8.2 |
+| S15 | Present a signing key chained to the hardcoded fleet root, and chain every rotation by the outgoing key. A key that does not chain MUST be refused by the client, so the server must never present one | MASTER §9.4, §12.1 A-13 |
+| S16 | Keep the row of an expired ephemeral record so `record_id` stays gapless, and **zero its `sender_handle`** when the body is erased | MASTER §12.2, Spec B §7.2 |
 
 **What we give the server.**
 
@@ -3022,15 +3631,16 @@ encryption, and is stored wrapped under a vault KEK. Four consequences, all acce
    NOT be reused for any second purpose beyond `write_auth`.
 3. The server retains the **current** epoch's key plus **one** briefly-retired predecessor (60 s), and
    nothing older.
-4. `read_key` is a separate label-separated child of `storage_root[0]`, delivered in the same
-   attachment, stored the same way, and **never** discarded while the group exists. It is what makes
-   an offline member's catch-up possible; see §5.7.
+4. `read_key[n]` is a separate label-separated child of **each epoch's** `storage_root[n]`,
+   delivered in that epoch's attachment, stored the same way, and retained for **90 days from
+   installation** rather than 60 seconds. That window is what makes an offline member's catch-up
+   possible and what makes a removed member's metadata access expire; see §5.7.
 
 An asymmetric per-epoch write proof (Ed25519 derived from `storage_root`, server holds only the public
 half) removes the forgery capability at the cost of one signature per record. It is the right long-term
 shape and is a **V2** item, not v1 text.
 
-**Interfaces out → to Spec B.** The rows A-1…A-12 below are what Spec B's own interfaces-in table
+**Interfaces out → to Spec B.** The rows A-1…A-15 below are what Spec B's own interfaces-in table
 consumes, with owners and slices:
 
 | # | We supply | Where | Slice |
@@ -3042,11 +3652,14 @@ consumes, with owners and slices:
 | A-5 | `connect/protocol/message.proto` and its codegen | §10.1 | A7 |
 | A-6 | The losing-committer contract, implemented in `sdk` — especially "never reuse `pq_secret[n+1]`" and "never reuse a consumed `stream_index`" | §5.12 | A7 |
 | A-7 | Blob padding ladder (256 KiB multiple) and `blob_id` derivation from the record's key material | §5.13 | A9 |
-| A-8 | The shared interop vector file `testdata/message-server-vectors.json` — records with epoch keys, nonces, expected verdicts, a commit-race scenario, a non-zero `expire_at` record, a `size_bucket = 5` record with a `blob_id`, one authenticated request per `req_auth` op byte (13, 14, 16, 17, 19) including a `WrapFetch`, a per-class stream-index collision case, and a `since_record_id = 0` fetch case. **A blocking CI job in both repos.** | §11.1, §11.4 | A6 |
+| A-8 | The shared interop vector file `testdata/message-server-vectors.json` — records with epoch keys, nonces, expected verdicts, a commit-race scenario, a non-zero `expire_at` record, a `size_bucket = 5` record with a `blob_id`, one authenticated request per `req_auth` op byte (13, 14, 16, 17, 19) including a `WrapFetch`, each naming its `read_epoch`, plus one request naming an epoch whose read key has aged out, a per-class stream-index collision case, and a `since_record_id = 0` fetch case. **A blocking CI job in both repos.** | §11.1, §11.4 | A6 |
 | A-9 | A measurement of the platform transport's production `FramerSettings.MaxMessageLen` | §10.2 | A7, named owner required |
 | A-10 | `ComputeRequestAuth` / `VerifyRequestAuth` and `RecoveryProof` / `VerifyRecoveryProof` | §5.7 | A6 |
 | A-11 | `expire_at` as unix milliseconds, u64, big-endian, 0 = unset, on the wire and in both preimages; `connect/message` is the only producer of the preimage on both sides | §5.1, §5.7 | A6 |
-| A-12 | `read_key` and its delivery: `EpochAttachment.read_key`, identical in every epoch, and `ComputeRequestAuth` / `VerifyRequestAuth` taking it rather than an epoch key | §5.7, §5.11 | A6 |
+| A-12 | `read_key[n]` and its delivery: `EpochAttachment.read_key`, one per epoch, and `ComputeRequestAuth` / `VerifyRequestAuth` taking a read key rather than an epoch write key | §5.7, §5.11 | A6 |
+| A-13 | The fleet-root verification preimage `"URmessage/v1/serverkeyroot" ‖ LP(server_id) ‖ LP(key_pub) ‖ u64(not_before_ms) ‖ u64(not_after_ms)`, and the rule that a non-chaining key is refused with no accept path | §7.6 | A7 |
+| A-14 | `read_epoch` as a field of every authorized read request, inside `canonical_request_bytes`; `ReadKey` taking an epoch's `storage_root` | §5.7 | A6 |
+| A-15 | The delivery-receipt record: `EPH(bucket 0)`, never persisted, fanned out on the transient channel exactly as read receipts are | §7.4 | A6 |
 
 ### 12.2 To the Windows messaging client (Spec C)
 
@@ -3073,6 +3686,11 @@ wrapper over the C ABI, using `nlohmann/json` exactly as the VPN client's wrappe
 | C13 | Render `Sealer.Description()` verbatim in a Security screen. It is lint-checked like the MASTER §12.4 strings. |
 | C14 | On any event with `Dropped > 0`, discard the in-memory window for that group and re-read via `History()`. Never merge a post-drop event. |
 | C15 | Render every closed vocabulary of §9.5 rule 7 by switching on the value. Never parse `out_error`, and never invent a value the vocabulary does not contain. |
+| C16 | Render the PIN as what it is: an optional second factor whose loss costs local history and whose absence is not a security failure. Never claim it protects anything when it is unset (§8.6) |
+| C17 | Never present an accept affordance for a message-server key that does not chain to the fleet root. There is no call for it and there must be no button (§7.6) |
+| C18 | Render the three server-advertised limits — file size, media window, text storage cap — from `ServerInfo()`, never as literals |
+| C19 | Render the security log verbatim from `SecurityLog()`, oldest to newest, with no editorial summary layer |
+| C20 | Start and stop diagnostic sessions only on explicit user action, and show when one is running and when it ends |
 
 **What Spec C must not assume.** That `URnetworkSdk.dll` is present at all. Per decision A12 it is
 never loaded into the messaging process: `URmessage.exe` loads `URmessageSdk.dll` only, and the
@@ -3100,28 +3718,37 @@ Refines MASTER §14 for the A-component only.
 | A3 | `connect/mls` schedule + framing | `key_schedule.go`, `secret_tree.go`, `framing.go`, `transcript.go` | families 3, 4, 5, 6, 7 pass |
 | A4 | `connect/mls` group | `treekem.go`, `proposal.go`, `commit.go`, `group.go`, `validation.go`, `profile.go` | families 8, 11, 12, 13, 14, 15 pass; **Gate 1 and Gate 3 green** |
 | A5 | `connect/mls/interop` | our gRPC client, vendored proto, CI job | **Gate 2 green**, both roles, three peers |
-| A6 | `connect/message` | records, key schedule, X-Wing, ratchet, wraps, `write_auth`, `req_auth`, recovery proof, `server_attachment`, tombstones, padding, COVER | wire format frozen; X-Wing draft KAT vectors pass both directions; the recovery wrap carries `storage_root ‖ archive_secret`; the shared interop vector file is committed and green in **both** repos; `TestStreamIndexNeverReused` and `TestEphRootHasNoDurableInput` green |
+| A6 | `connect/message` | records, key schedule, X-Wing, ratchet, wraps, `write_auth`, `req_auth` with `read_epoch`, recovery proof, `server_attachment`, tombstones, padding, COVER, **and the delivery-receipt record** — it uses an existing class and an existing transport path, so it is not a format break, but it must land before the format freezes here rather than with the client work that renders it | wire format frozen; X-Wing draft KAT vectors pass both directions; the recovery wrap carries `storage_root ‖ archive_secret`; the shared interop vector file is committed and green in **both** repos; `TestStreamIndexNeverReused` and `TestEphRootHasNoDurableInput` green |
 | A7 | `sdk` client core | `MessageClient`, store, sealer, KT client, sync loop, transport binding, `connect/protocol/message.proto` | two clients exchange a message against Spec B's server in `e2e` |
 | A8 | `sdk/cgo-message` | generator, exports, header, `.hpp`, smoke tests, build matrix, the `urmsg_auth_*` account surface | Spec C can build against the header; handle count zero at exit; §7 defines the fields of every type reachable from `MessageClient`; the `urmsg_auth_*` surface builds and the smoke test logs in |
-| A9 | Disappearing, multi-device, attachments | `eph.go`, provisioning, blob handling | `TestExpiredMessageIsUnrecoverable` green |
-| A10 | Fuzz hardening + audit prep | differential oracle, 14 clean nightlies, audit brief | **Gate 4 green**; Gate 6 scheduled |
-| A11 | Push channel | `RegisterPushChannel` / `UnregisterPushChannel` in §7.2, server-side channel registry (Spec B), WNS renderer (Spec C §10.2) | a raw WNS wake delivers a toast for a record received while the app was closed |
+| A9 | Disappearing messages and multi-device | `eph.go`, provisioning with the short code and numeric comparison, device management, revocation, the PIN and auto-lock (§8.6) | `TestExpiredMessageIsUnrecoverable` green; a second machine pairs and sends; **this is the slice the public beta ships from** |
+| A10 | Attachments | Blob handling, `MEDIA` class, thumbnails, resumable upload, auto-download policy | an image sends, resumes across a disconnect, and is held for an unknown sender |
+| A11 | Fuzz hardening + audit prep | differential oracle, 14 clean nightlies, audit brief | **Gate 4 green**; the audit decision of MASTER §15 item 7 is taken here |
+| A12 | Push channel | `RegisterPushChannel` / `UnregisterPushChannel` in §7.2, server-side channel registry (Spec B), WNS renderer (Spec C §10.2) | a raw WNS wake delivers a toast for a record received while the app was closed |
 
 A1–A5 are the schedule risk, and they are first because each has an objective completion test.
-A1–A8 produce something two people can text on.
+**A1–A8 produce an internal-only build** — two people can text on it, and it is text-only,
+single-device and unnotified, which is a demo rather than a beta. **A9 is what ships publicly**,
+because multi-device is the thing this product has that the obvious alternative does not, and
+attachments in A10 are table stakes nobody switches for.
+
+Invite links and join requests (§7.3a), ownership transfer and succession (§7.3), and balance-code
+redemption (§7.9) land in **A7** with the rest of the client core: each is a `sdk`-level flow over
+mechanisms A6 already froze, and all three are needed for the first group a stranger joins.
 
 ---
 
 ## 14. Open items (consolidated)
 
-Item numbers are stable; items 1, 2, 3, 5, 8 and 12 are closed and are not renumbered.
+Item numbers are stable; items 1, 2, 3, 4, 5, 8, 10 and 12 are closed and are not renumbered.
 
 | # | Item | Owner | Blocks |
 |---|---|---|---|
-| 4 | A-ASSUME-1 — `modernc.org/sqlite` in `sdk` | project owner | slice A7 |
+| 4 | **RULED — `modernc.org/sqlite` accepted (§0.2 A8, §0.5). Closed.** | — | — |
 | 6 | A-ASSUME-4 — `PrivateMessage`-only handshake policy | project owner | slice A4 |
 | 7 | Skipped-key window size and per-group memory budget (§5.5) | Spec C | slice A6 |
 | 8 | **RULED — warn and proceed both directions (MASTER §15 item 1). Closed.** | — | — |
-| 9 | Push transport / WNS wake-up (MASTER open item 2). A exposes `RegisterPushChannel(uri string) error` and `UnregisterPushChannel() error` in §7.2 as no-op stubs, so wiring WNS later is not an ABI break; owned jointly with Spec C's C-6 and scheduled as slice A11 (§13). The Azure AD application registration WNS needs still has no named owner. | Spec A + Spec B + Spec C | post-A8 |
-| 10 | `OWNER_SUCCESSOR_SET` extension placement (MASTER open item 4) | MASTER owner | V2 |
+| 9 | Push transport / WNS wake-up (MASTER open item 2). A exposes `RegisterPushChannel(uri string) error` and `UnregisterPushChannel() error` in §7.2 as no-op stubs, so wiring WNS later is not an ABI break; owned jointly with Spec C's C-6 and scheduled as slice A12 (§13). The Azure AD application registration WNS needs still has no named owner. | Spec A + Spec B + Spec C | post-A8 |
+| 10 | **RULED — the successor nomination is a group-context extension (`0xF003`), accepted and validated in v1 (§3.4). Closed.** | — | — |
 | 11 | Transcribe RFC 9420 errata 8745 and 8815 verbatim into `connect/mls/ERRATA.md` (§4.3) | implementer | slice A4 |
+| 13 | External cryptographic audit — the **decision** is scheduled for slice 5 (§4.6, MASTER §15 item 7), not deferred indefinitely. Owner action, not engineering work. | project owner | GA, if commissioned |
