@@ -1839,6 +1839,10 @@ func (self *Writer) WriteOpaqueLP(bs []byte) {
 Append to `connect/mls/syntax/decode.go`:
 
 ```go
+// ⚠ THIS SAMPLE IS VULNERABLE AND WAS NOT SHIPPED. It has no self.err guard, returns bare
+// sentinels that do not latch, and open-codes the checks instead of calling validateLength.
+// Measured: on input 00 00 00 40 11 it fails without latching, the next ReadUint32 returns
+// 0x40 with a NIL ERROR, and Done reports ErrTrailingBytes. See decode.go for what shipped.
 // LP(x): the result is a copy and is never nil. The prefix is read without
 // advancing, so a rejected length leaves the cursor where it was.
 func (self *Reader) ReadOpaqueLP() ([]byte, error) {
@@ -2014,6 +2018,10 @@ func (self *Reader) ReadSub() (*Reader, error) {
 	return sub, nil
 }
 
+// ⚠ THIS SAMPLE IS VULNERABLE AND WAS NOT SHIPPED — same four defects as the ReadOpaqueLP
+// sample in Task 9. What shipped routes through ReadUint32 and the shared takeRegion helper.
+// (The ReadSub sample above is safe: it routes through ReadVarint and validateLength, both of
+// which guard. Only the LP form, which open-codes the prefix read, is dangerous.)
 // as ReadSub, over an LP(x) region, for a record field that carries a structure
 func (self *Reader) ReadSubLP() (*Reader, error) {
 	if self.Remaining() < 4 {
@@ -2232,6 +2240,13 @@ func (self *Writer) WriteOptional(present bool, encodeOne func(w *Writer) error)
 	return nil
 }
 
+// ⚠ THIS SAMPLE IS VULNERABLE AND WAS NOT SHIPPED. Four defects: no self.err guard; bare
+// sentinels that do not latch; no setErr on a decodeOne refusal — which contradicts this very
+// task's own prose justifying setErr on the WRITE half, and matters more here because a nested
+// decoder can refuse semantically with no read failing, so nothing else latches it; and it
+// returns present=false when the value was in fact present. Measured: presence octet 02 be ef
+// fails without latching, the next ReadUint8 returns 0x02 with a NIL ERROR, and on empty input
+// Done reports nil after a failed decode. See optional.go for what shipped.
 // reports whether the value was present; decodeOne runs only when it was, and the
 // presence octet is validated before the cursor moves
 func (self *Reader) ReadOptional(decodeOne func(r *Reader) error) (bool, error) {
