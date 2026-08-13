@@ -1,12 +1,11 @@
 # URmessage — Protocol Design
 
 **Date:** 2026-08-12
-**Revision:** 8 — operators are plural throughout and no operator-facing value is a build constant
-(§2, §4); directory resolution renders `kt_unavailable` and proceeds until the transparency log is
-live (§10.1); an out-of-band contact card with a rotatable link (§10.1, §11); reactions carry any
-emoji (§12.2); read receipts and typing indicators are reciprocal (§12.2); the succession
-supermajority is one arithmetic rule and the owner warning is a client obligation (§11); text
-retention has two wire sentinels so the one-year default is enforceable (§8, §12.2)
+**Revision:** 9 — the out-of-band contact card gets the transport it was specified without: a
+group-less contact rendezvous with its own asymmetric authenticators, a per-card capability
+generation derived from the seedphrase, and a bounded, short-lived deposit the server cannot read
+(§5.2, §9.8, §10.1, §11, §14); the metadata cost of first contact is stated where the other costs
+are (§9.5, §9.7, §13); rotation is named as the v1 substitute for blocking (§13, §15)
 **Status:** Design, pending approval
 
 Notation: `LP(x)` = 32-bit **big-endian** length prefix then `x`; `u8/u16/u32/u64` = big-endian
@@ -143,6 +142,31 @@ core changed.
   a stock server stored forever for every group that never opened a retention screen, which made the
   one-year default a promise about client behaviour rather than a property of the system. §8.3 and
   §12.2.
+
+**Revision 9** gives the contact card a transport. Revision 8 ruled that an out-of-band card ships
+in v1 and specified it in the client and the SDK, where the redeemer "presents a key package at the
+rendezvous the token names" — and no document defined that rendezvous, no server component had any
+group-less ingress, and the one surface the beta cannot start a conversation without was the one
+surface no component owned. Nothing in the cryptographic core changed.
+
+- **A contact rendezvous is a group-less mailbox at the message server** (§9.8). It is keyed by
+  `rendezvous_id = H("URmessage/v1/rendezvous" ‖ token)`, registered and retired by the card's owner
+  under a key only the owner holds, and deposited into by any card holder under a key derived from
+  the token itself. Every value the server acts on is inside a signature preimage it verifies, so
+  **I6** holds on a path where no group key exists.
+- **The card is a capability generation, derived from the seedphrase** (§5.2). Rotation is an
+  increment of a counter, so every device of an identity derives every generation with no new sync
+  channel, and a seed-only restore recovers a card that is already printed on paper.
+- **The deposit is sealed to the card and is opaque to the server.** The server stores a
+  fixed-length blob, learns no identity key, no display name and no key package, and verifies a
+  token-derived signature that proves possession of the card and deliberately proves nothing about
+  who is holding it.
+- **The metadata cost is stated rather than implied** (§9.5, §13): the server learns that a client
+  sent a contact request to the owner of some rendezvous, at a time. That is a social-graph edge, it
+  is the first one in the design, and it exists for first contact only.
+- **Rotation is named as what v1 offers in place of blocking** (§13, §15 item 4). It withdraws the
+  capability from everyone holding it, which is a real remedy and a blunt one, and saying so is
+  better than letting a user discover the bluntness.
 
 ## 1. Purpose and product target
 
@@ -309,12 +333,22 @@ master_key = HKDF-Extract(salt = "URmessage/v1", ikm = seed)                  [3
 master_key
 ├─ identity      = HKDF-Expand(master_key, "identity/v1", 32)  → Ed25519 master identity
 │                    (the MLS credential subject; published in the KT log)
-└─ recovery_root = HKDF-Expand(master_key, "recovery/v1", 32)
-     ├─ per group g:  rk_xwing = XWing.KeyGen(
-     │                    HKDF-Expand(recovery_root, "rk/v1" ‖ LP(g), 32))            [32 B seed]
-     ├─ recovery_handle    = HKDF-Expand(recovery_root, "idx/v1", 16)
-     └─ recovery_sig_seed  = HKDF-Expand(recovery_root, "idxsig/v1", 32)  → Ed25519
+├─ recovery_root = HKDF-Expand(master_key, "recovery/v1", 32)
+│    ├─ per group g:  rk_xwing = XWing.KeyGen(
+│    │                    HKDF-Expand(recovery_root, "rk/v1" ‖ LP(g), 32))            [32 B seed]
+│    ├─ recovery_handle    = HKDF-Expand(recovery_root, "idx/v1", 16)
+│    └─ recovery_sig_seed  = HKDF-Expand(recovery_root, "idxsig/v1", 32)  → Ed25519
+└─ card_root     = HKDF-Expand(master_key, "card/v1", 32)
+     └─ card_seed[k] = HKDF-Expand(card_root, "cardgen/v1" ‖ u32(k), 32)   one per card generation
 ```
+
+`card_root` derives the contact card of §10.1 and its rendezvous, one generation at a time, and
+rotating the card is incrementing *k*. Deriving it from the master key rather than from a device is
+what makes the card work across an identity's devices with no channel to synchronise it and what
+makes a seed-only restore recover a card that is already printed on paper. It is **not** an
+exception to **I3**: `card_root` opens no group, decrypts no message body and appears in no wrap,
+so it is not a group-usable secret. Its whole power is to accept first-contact requests, which a
+seedphrase holder can already do by being you. The generation's own derivations are §9.8.
 
 A seed-only restorer proves possession of `recovery_root` to the server without revealing it:
 
@@ -1051,6 +1085,18 @@ conversation unread for days. The trade was made deliberately — a delivery sta
 signal from a real device is worth more than a server guess, and a server guess is the only other
 way to have one — and §13 records it.
 
+The contact rendezvous adds the first social-graph edge in this design, and it is named here rather
+than left to be inferred. The server sees that a rendezvous with a given 32-byte id exists, which
+`client_id` registered it, which `client_id`s collect from it — which groups those clients as
+devices of one identity — and the count and arrival times of fixed-size deposits at it, each
+carrying the `client_id` that delivered it. In other words it sees **that some client sent a contact
+request to the owner of some card, at a time.** It does not see either party's identity key, either
+party's principal, the display name, the key package, whether the request was accepted, or the group
+that results. The edge is bounded three ways: it names nobody, it survives only the deposit's
+seven-day life, and it covers first contact only — the conversation that follows is an ordinary
+group and discloses exactly what §9.5's first paragraph says a group discloses. §13 states it to
+users.
+
 In a single-server v1 this is broadly Signal's position: one server that knows who you are and who you
 talk to, and cannot read anything. §13 says so rather than claiming otherwise.
 
@@ -1070,8 +1116,9 @@ The message server MUST NOT create, store, or transmit **per-identity** records 
 transport connections, or deleted records in production. Concretely, no log line, metric label,
 trace span, error string, database log or object-store access log may contain a `group_id`,
 `sender_handle`, `record_id`, `stream_index`, `blob_id`, `recovery_handle`, `wrap_target_handle`,
-`client_id`, network id, IP address, authenticator, key or ciphertext, nor the fact that a
-particular client fetched a particular range.
+`rendezvous_id`, `deposit_id`, `client_id`, network id, IP address, authenticator, key or
+ciphertext, nor the fact that a particular client fetched a particular range or deposited at a
+particular rendezvous.
 
 **What it MAY record is aggregate:** counters and histograms with no identifier labels, error
 *classes*, process lifecycle, and migration state. This is a carve-out, stated deliberately, and it
@@ -1086,6 +1133,56 @@ records against, and for the life of that session — bounded, and never longer 
 server may retain per-request detail for **that client only**, in a separate store with its own
 retention, surfaced back to the user. No session, no per-identity record. The mechanism is Spec B
 §11.5 and the control is Spec C §12.
+
+### 9.8 The contact rendezvous
+
+A contact card (§10.1) is handed to someone who is in none of your groups and may be in no
+directory. There is no group key between you, so there is no `write_auth` and no `req_auth`, and
+the only third party either of you shares is the message server. The rendezvous is the smallest
+mailbox that lets that first message land while satisfying **I6**.
+
+Every generation of a card derives one:
+
+```
+card_seed[k]         = HKDF-Expand(card_root, "cardgen/v1" ‖ u32(k), 32)
+token[k]             = HKDF-Expand(card_seed[k], "token/v1", 16)     ← the card's only secret
+card_xwing[k]        = XWing.KeyGen(HKDF-Expand(card_seed[k], "cardkem/v1", 32))
+collect_sig_seed[k]  = HKDF-Expand(card_seed[k], "colsig/v1", 32)   → collect_sig_sk
+
+rendezvous_id[k]     = H("URmessage/v1/rendezvous" ‖ token[k])                        [32 B]
+deposit_sig_seed[k]  = HKDF-Expand(HKDF-Extract("URmessage/v1/rendezvous", token[k]),
+                                   "depsig/v1", 32)                 → deposit_sig_sk
+```
+
+`rendezvous_id` and `deposit_sig_sk` follow from `token` alone, so every card holder derives them.
+`collect_sig_sk` and the private half of `card_xwing` follow only from `card_root`, so only the
+identity's own devices derive them. Successive `rendezvous_id`s are independent HKDF outputs, so
+the server cannot link one generation to the next and the holder of a retired token cannot compute
+the live one.
+
+The owner **registers** `{rendezvous_id, deposit_verify_pub, collect_verify_pub, card_xwing_pub}`
+under a signature by `collect_sig_sk`. The registration is self-certified — the server verifies it
+against the key the request carries and then pins that key — which is the same shape as
+`CreateGroupRequest`'s `bootstrap_write_key`, protected by a per-client rate limit and by 128 bits
+of unguessability in the token and by nothing else. Every later collect and the retirement verify
+against the pinned key. A card holder **opens** the rendezvous to fetch `card_xwing_pub`, proving
+possession of the token first, then **deposits** a fixed-length ciphertext sealed to that key under
+a signature by `deposit_sig_sk`. The owner **collects** and **retires**. The wire messages, the
+five preimages and the server's checks are Spec B §4.3.11; the encodings are Spec A §5.14.
+
+**Three properties, all deliberate.** The server holds only public halves, so unlike `write_key` it
+**cannot forge** any authenticator on this path. The deposit signature proves **possession of the
+card and nothing else**, because it is derived from the token and is therefore the same key for
+every holder — the server can separate card holders from everyone else and can separate nothing
+finer. And what binds the key package inside a deposit to the identity whose safety digits the
+owner is shown is an inner signature under the requester's `identity` key, verified by the
+**owner's client**, never by the server, exactly as §5.3 requires for a `RecoveryTag`. The server
+does the narrow check it can do, the client does the one that binds a key to a person, and neither
+pretends to do the other's.
+
+The mailbox is bounded rather than throttled: sixteen uncollected deposits per rendezvous, seven
+days each, one exact size. A card that is being sprayed fills up for a week; it does not grow a
+spool. What the server learns from all of this is §9.5.
 
 ## 10. Identity verification
 
@@ -1111,10 +1208,16 @@ which work with no directory at all and neither of which needs the log to be liv
 link made by a member who is already inside, and a **contact card** — a QR code or a copyable link
 the identity's owner hands to someone directly, carrying the display name, the identity key and a
 capability that lets the holder open a direct conversation. The card is what makes the product
-usable before anyone is listed and before the log exists, and the capability it carries can be
-rotated, which §11 specifies. The cost of being unlisted is that key changes for that identity carry
-no log evidence and are attested by local pinning alone, which the client renders as an explicit
-"not in a transparency log" state rather than as silence (Spec A §7.6).
+usable before anyone is listed and before the log exists. What carries it is a **contact
+rendezvous** (§9.8): a group-less, size-bounded, short-lived mailbox at the message server,
+addressed by an id derived from the card's own token, into which a card holder deposits one sealed
+contact request and from which the card's owner collects. The capability the card carries is
+rotatable, and rotating it retires the rendezvous — §11 specifies what that costs and what it does
+not. The metadata price of the mechanism is one line and is not buried: the message server learns
+that a contact request for some rendezvous id arrived from some client at some time, and learns
+nothing about either party from it (§9.5). The cost of being unlisted is that key changes for that
+identity carry no log evidence and are attested by local pinning alone, which the client renders as
+an explicit "not in a transparency log" state rather than as silence (Spec A §7.6).
 
 Required rather than optional because `model/auth_model.go:125-153` associates a new SSO auth onto an
 existing user when `user_auth` matches. Control of the Google or Apple account is control of the
@@ -1192,10 +1295,15 @@ by a member who is already inside the group and admits its holder to that group,
 group's admission policy and by whoever issued it. A **contact card** (§10.1) is issued by an
 identity for itself and admits nobody to anything: it carries a capability token that lets its
 holder ask that identity for a two-member group, and nothing else. Because the card is a capability
-rather than a membership, it is rotatable — its owner may mint a fresh token at any time, which
-retires the current one, so a redemption of the retired link is refused while **every conversation
-already started is untouched**. Rotating therefore costs printed cards and old screenshots and never
-a conversation, which is what makes it a control people use rather than avoid. The calls are Spec A
+rather than a membership, it is rotatable: its owner mints the next generation at any time, which
+registers a fresh rendezvous and retires the current one, so a redemption of the retired link is
+refused while **every conversation already started is untouched**. Rotating costs printed cards and
+old screenshots and never a conversation, which is what makes it a control people use rather than
+avoid. It costs one thing more, and the client says so before it acts: a request that had been
+deposited at the old rendezvous and not yet collected is discarded with it, because that request was
+made under the capability being withdrawn. A client therefore collects everything outstanding at the
+current generation **before** it retires it, and a rotation interrupted between minting and retiring
+leaves both live and is completed on the next run rather than being restarted. The calls are Spec A
 §7.3b and the screen is Spec C §12.7.
 
 **An owner must hand the group over before leaving.** The leave action is refused for an OWNER
@@ -1414,7 +1522,12 @@ assumes it is worse than it is. **Delivery receipts tell the server when a devic
 online and decrypting**, which read receipts alone do not. **Backups outlive deletions for up to 48
 hours** (§12.3). And **the 24-word phrase is a master key: it cannot be rotated, and whoever holds
 it reads all durable history past and future in every group and can act as you.** Expired
-disappearing messages are the one thing it does not unlock.
+disappearing messages are the one thing it does not unlock. **A contact card leaves the server a
+first-contact edge:** it learns that a client sent a contact request to the owner of a card, and
+when, though it learns neither party's identity from it and the record is gone in a week (§9.5).
+**And rotating a card is the only block we ship**: with per-contact blocking deferred, the way to
+stop unwanted contact requests is to mint a new card, which cuts off the person who is abusing you
+and everyone else you handed the old one to, at the same moment.
 
 **Better than Matrix.** One message costs one upload regardless of group size. No conflicting-history
 problem. Membership payloads can be erased on request.
@@ -1456,14 +1569,18 @@ removing the person if you administer the group.
 | # | Slice | Contains |
 |---|---|---|
 | 1 | `connect/mls/` | RFC 9420. **Acceptance: the IETF test vectors pass**, cross-checked against OpenMLS. |
-| 2 | `connect/message/` | Storage records, retention classes, ratchet, PQ composition, `write_auth`, padding, `COVER`. `server_attachment`, `req_auth`, recovery proof, **the `EPH(0)` delivery-receipt record**, **the reaction body as a length-prefixed UTF-8 string**, and **the two-sentinel `durable_ttl_seconds` encoding**. Freezes the wire format — §8, §8.3 and §9.2 must be final before this slice starts, and the three additions named in bold must land here rather than with the client work that renders them. |
-| 3 | `message-server` | Store, ordering, single-commit agreement, `write_auth` verification, retention, fetch attestation. §9.7 is an acceptance criterion. |
+| 2 | `connect/message/` | Storage records, retention classes, ratchet, PQ composition, `write_auth`, padding, `COVER`. `server_attachment`, `req_auth`, recovery proof, **the `EPH(0)` delivery-receipt record**, **the reaction body as a length-prefixed UTF-8 string**, **the two-sentinel `durable_ttl_seconds` encoding**, and **the contact-card encoding, the rendezvous derivations and the five rendezvous signature preimages**. Freezes the wire format — §8, §8.3 and §9.2 must be final before this slice starts, and the additions named in bold must land here rather than with the client work that renders them. |
+| 3 | `message-server` | Store, ordering, single-commit agreement, `write_auth` verification, retention, fetch attestation, **the contact rendezvous of §9.8**. §9.7 is an acceptance criterion. |
 | 4 | Client core in `sdk` | Group state, local store, KT client, provisioning. |
 | 5 | `message-windows` text | Send, receive, groups, TOFU warnings, reactions, **rendering** read and delivery receipts. **First testable build — internal only.** |
 | 6 | Disappearing messages | `eph_root`, buckets, tombstones. |
 | 7 | Multi-device | Provisioning UI, device management, revocation. **The public beta starts here.** |
 | 8 | Attachments | Blob store, `MEDIA` class, thumbnails, resumable upload. |
 | 9 | `/server` operator | Discovery directory, KT log. Includes the VRF-indexed prefix tree, the history tree, and the four client endpoints of Spec B §9.4 — not the log alone. |
+
+The rendezvous is split across those two slices on purpose: its encodings are wire format and freeze
+with everything else in slice 2, and its endpoint is server work in slice 3, so slice 5 — whose
+first acceptance criterion is two strangers exchanging cards — has both halves before it starts.
 
 Slice 1 is the schedule risk and is first because it has an objective completion test. Slices 1–5
 produce something two people can text on.
@@ -1519,7 +1636,11 @@ lead time lands on the critical path to general availability instead of running 
    behind it is a form that goes nowhere. What v1 ships instead is **mute and leave**, which is
    sufficient because directory listing is opt-in (§10.1) and therefore most unsolicited contact
    never starts. Blocking a contact is also deferred, for the same reason and because its
-   cross-device carrier is unscoped.
+   cross-device carrier is unscoped. Blocking's absence has one concrete substitute and it is stated
+   rather than implied: rotating a contact card withdraws the capability from every holder at once
+   (§11). It is a real remedy for unwanted first contact and a blunt one, and it does nothing at all
+   about someone already inside a conversation, for whom v1 offers mute, leave, and removal by
+   whoever administers the group.
 5. *(folded into item 4.)*
 6. **Key-transparency log — RULED, a release gate rather than a date.** Spec B §9.4 specifies the
    VRF suite, the tree arithmetic, the STH preimage, the history tree, the four client endpoints, the

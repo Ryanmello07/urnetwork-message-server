@@ -3,9 +3,9 @@
 **Component:** `connect/mls`, `connect/message`, `sdk` client core, `URmessageSdk.dll`
 **Branch:** `beta/message` on `Ryanmello07/urnetwork-connect` and `Ryanmello07/urnetwork-sdk`
 **Date:** 2026-08-12
-**Revision:** A-5 (operators are plural and every operator-facing value is configuration; directory resolution renders `kt_unavailable` and proceeds until the transparency log is live; an out-of-band contact card with a rotatable capability; reactions carry any emoji; read receipts and typing indicators are reciprocal; succession quorum stated as one arithmetic rule and admin removal given an enforcement point; the text-retention sentinel split)
+**Revision:** A-6 (the contact card gets the transport it was specified without: §5.14 owns the card encoding, the seedphrase-derived capability generations, the sealed 5238-byte deposit and the five rendezvous signature preimages, and S18 and A-18 require the server to carry it; the card's `State`, `Generation` and expiry become part of the SDK contract and the card is per identity rather than per device; auto-accept degrades to manual review under load; `succession_floor_too_short` and `card_not_live` join `GroupResult.Reason`; §5.7's recovery pin is scoped per group; §7.3b is scheduled in slice A7)
 **Status:** Design, owner rulings applied
-**Normative parent:** `docs/specs/2026-08-12-urmessage-protocol-design.md` (revision 8), hereafter **MASTER**
+**Normative parent:** `docs/specs/2026-08-12-urmessage-protocol-design.md` (revision 9), hereafter **MASTER**
 **Ledger:** `SPEC-LEDGER.md`
 **Siblings:** Spec B (message server), Spec C (Windows messaging client)
 
@@ -22,8 +22,8 @@ section and specifies the **Go types, package boundaries, and test obligations**
 
 | Item | State |
 |---|---|
-| MASTER protocol design | Revision 8, owner rulings applied |
-| This spec | Revision A-5, owner rulings applied |
+| MASTER protocol design | Revision 9, owner rulings applied |
+| This spec | Revision A-6, owner rulings applied |
 | Code | None. `beta/message` branches not yet cut. |
 | Go toolchain | 1.26.5, verified on the build host (`go version` → `go1.26.5`) |
 | `crypto/mlkem` | Verified present: `NewDecapsulationKey768(seed)` takes a **64-byte** `d ‖ z` seed |
@@ -86,6 +86,7 @@ Append-only. Newest last. One entry per commit that changes this spec. Every cha
 | 2026-08-12 | A-3 | R5 convergence pass. `blob_id` added to `RecordHeader` and to both preimages. `req_auth` re-keyed from the epoch `write_key` to a group-lifetime `read_key`, carried in `EpochAttachment` and delivered to joiners in the `Welcome`; `WrapFetch` added to the authorized-read set with op byte 19. `MessageInvite`, `MessageReaction`, `MessageReceipt` and `MessageHistoryGrant` defined. `Retry`, `SetDisappearing`, `SetGroupMuted`, `SetGroupNotificationMode`, `GrantHistory` and `HistoryGrants` added. `MessageRetentionApplied` moved to seconds to match the wire. `write_auth` declared zero on read. MIME authority ruled to `connect/message`. Epoch-bundle sizing recomputed against the padded ladder. Interfaces-out rows A-11 and A-12 added. Open-item numbering unified on §14. All internal edit-plan labels replaced with real section references. |
 | 2026-08-12 | A-4 | Owner rulings applied. `modernc.org/sqlite` accepted and A-ASSUME-1 closed. Decision A9 replaced by per-row AEAD over a plaintext metadata index (§8.3a), with an optional PIN wrap and idle auto-lock (§8.6). `read_key` re-keyed from a group lifetime value to a per-epoch key with a 90-day server window and a `read_epoch` request field (§5.7, §5.11, §12.1). Delivery receipts added: `MessageEntry.State` gains `delivered`, `DeliveredTo`, a user preference, and an `EPH(0)` receipt record (§7.4). A second ciphersuite registered (§3.1). Extension `0xF003` accepted and owner succession specified (§3.4, §7.3a). Group size capped at 500 and devices at 10, both client-enforced (§3.1). `PastEpochWindow` raised to 32 (§4.3). Invite links, join requests, ownership transfer, balance-code redemption, directory listing, diagnostics and fork auto-resync added to the `sdk` surface (§7.3, §7.3a, §7.6, §7.9). Server key custody moved to a hardcoded fleet root with signed-silent rotation; `AcceptServerKey` deleted (§7.6). Delete-for-everyone bounded to 24 hours. Attachment auto-download restricted to known senders. Slices resequenced: A9 disappearing and multi-device, A10 attachments, A11 fuzz and audit prep, A12 push. |
 | 2026-08-12 | A-5 | Operator plurality reached every operator-facing value and every key-transparency artefact: `NetworkSpaceHost` became configuration with `NetworkSpaceHost()` / `SetNetworkSpaceHost()` and decision A13; `MessageServerInfo` gained `OperatorHost`, `KtGossipUsable`, `HostingJurisdiction` and `ReadKeyWindowMs`; `MessagePin`, `KeyChangeWarning` and `MessageDirectoryResult` each carry the operator they came from; `pin` and `kt_head` are keyed by operator (§8.1); §7.6a and §12.3 state that each operator runs its own directory and its own log. Directory lookups render `kt_unavailable` and proceed until the log is live: `ProofState` now separates a failed proof (fails closed) from an unreachable log (proceeds), §7.6b written, §12.3's fail-closed sentence struck. Contact cards added as §7.3b with rotation, the `out_of_band` evidence class, two `GroupResult.Reason` values and one security-log kind. The reaction body widened to arbitrary emoji against a pinned Unicode version (§5.1, §7.4a), `MessageReaction` split into `Emoji` and `EmojiRaw`, and `"malformed"` added to `GapReason`. Read receipts and typing indicators made reciprocal in the user-preference block (§7.2); delivery receipts explicitly not. Succession quorum restated as `max(2, ceil(2 × admins / 3))` and the owner warning removed from the validity table as a client obligation; admin removal given an enforcement point, a typed error and a profile row (§3.1, §3.4). Text retention split into two wire sentinels (§5.11) with `MessageRetentionApplied` gaining `DurableClampedDown` and `DurableDefaulted`. `MessageProtocolLimits` and `MessageBalance.FreeAllowanceBytesPerDay` added so the client renders no literal. The write-key custody block returned to three consequences with the read key stated outside it (§12.1). S17, A-16 and A-17 added; §14's preamble corrected; §4.6 and slice A11 separated the audit decision from its scheduling. |
+| 2026-08-12 | A-6 | The contact card got its transport. §5.14 added: `card_root` and the numbered capability generations, the 131-byte card encoding, the 5238-byte deposit sealed under X-Wing to the card's KEM key, and the five `server_nonce`-bound Ed25519 preimages (`register_auth`, `open_auth`, `deposit_auth`, `collect_auth`, `retire_auth`), with the client-side `request_sig` obligation and the rotation ordering. §12.1 gained the nine rendezvous functions and two types on the A-1 surface, requirement S18, interface row A-18 (and the A-1…A-17 range became A-1…A-18), and rendezvous cases on the A-8 vector file. §7.3b: `MessageContactCard` gained `Generation`, `State` and `ExpiresAtMs` and `TokenId` was defined; the card was stated to be per identity and not per device; redemption was rewritten onto the rendezvous with `StartDirectFromCard` returning a ticket rather than a conversation; the rate-limit paragraph took its values from `ServerInfo()` and merged retired with unknown; auto-accept now degrades to manual review after three requests in an hour, adding `"held_for_review"` to `MessageContactRequest.State` and `RefusedSinceLastCollect` to the struct; `MessageContactCard` lost its `*List`. `MessageServerInfo` gained `RendezvousTtlSeconds`, `RendezvousDepositTtlSeconds` and `RendezvousMailboxDepth`. §7.5's provisioning bundle carries the current generation number. `GroupResult.Reason` gained `"succession_floor_too_short"` and `"card_not_live"`. §5.7's recovery trust-on-first-use scoped per group. §7.2's duplicate `MessageClientSettings` deleted. §13 scheduled §7.3b in A7 and added the card encoding and preimages to A6. |
 
 ---
 
@@ -1365,11 +1366,14 @@ recovery_proof = Ed25519(recovery_sig_sk,
 The archive record's server_attachment RecoveryTag (§5.11, kind 0x0002) carries
 {recovery_handle, recovery_verify_pub, alg_id} and is covered by write_auth, so the
 public half arrives authenticated as a member of the group.
+```
 
 The server stores the public half on first sight and REFUSES any later differing
-recovery_verify_pub for the same recovery_handle (trust-on-first-use, the same shape as
-the client's server-key pin). RecoveryFetchRequest.proof is verified against it.
-```
+`recovery_verify_pub` for the same `recovery_handle` **within that group** (trust-on-first-use, the
+same shape as the client's server-key pin, kept per group so one bad first write cannot deny restore
+everywhere — Spec B §5.4). `RecoveryFetchRequest.proof` is verified against **each candidate
+group's** stored key, and a group whose row was poisoned drops out of the result while every other
+group still restores.
 
 **The nonce.**
 
@@ -1613,6 +1617,91 @@ never downloaded is still a complete, verifiable record: `ct_head`, `body_hash` 
 retained and checked exactly as for a downloaded one, so a held attachment is a deliberate
 non-fetch rather than a partial parse.
 
+### 5.14 Contact cards and the rendezvous
+
+`connect/message` owns the card encoding, the rendezvous derivations, the five signature preimages
+and the sealed deposit, because the message server links the verifiers and two implementations of a
+preimage diverge (§12.1 A-1). The mechanism is MASTER §9.8 and the wire messages are Spec B §4.3.11.
+
+**Derivations.** A card is a numbered capability generation of the identity:
+
+```
+card_root            = HKDF-Expand(master_key, "card/v1", 32)              MASTER §5.2
+card_seed[k]         = HKDF-Expand(card_root, "cardgen/v1" ‖ u32(k), 32)
+token[k]             = HKDF-Expand(card_seed[k], "token/v1", 16)
+card_xwing[k]        = XWing.KeyGen(HKDF-Expand(card_seed[k], "cardkem/v1", 32))
+collect_sig_seed[k]  = HKDF-Expand(card_seed[k], "colsig/v1", 32)   → Ed25519 collect_sig_sk
+rendezvous_id[k]     = H("URmessage/v1/rendezvous" ‖ token[k])                        [32 B]
+deposit_sig_seed[k]  = HKDF-Expand(HKDF-Extract("URmessage/v1/rendezvous", token[k]),
+                                   "depsig/v1", 32)                → Ed25519 deposit_sig_sk
+```
+
+**The card.** `u8 version = 0x01 ‖ u16 alg_id ‖ LP(identity_pub) ‖ LP(token) ‖ LP(display_name) ‖
+u32 checksum`, where `display_name` is at most 64 UTF-8 bytes and `checksum` is the first four
+bytes of `H("URmessage/v1/card" ‖ every byte above)`. 131 bytes at a full-length name; the
+`urmessage://` form and the QR payload are the same bytes, base64url. The card carries no
+encryption key deliberately — the card's KEM public half is fetched from the rendezvous by a holder
+that has already proved possession of the token — because a card that carried an X-Wing public key
+would be 1.3 KB and a QR nobody can print.
+
+**The sealed deposit**, exactly 5238 bytes:
+
+```
+CONTACT_REQUEST, padded to exactly 4096 bytes as u16(body_len) ‖ body ‖ zeros:
+  u16  alg_id
+  LP   identity_pub          // 32 B Ed25519, the requester's master identity
+  LP   key_package           // the MLS KeyPackage the card's owner will Add
+  LP   display_name          // UTF-8, at most 64 bytes
+  u64  requested_at_ms
+  LP   request_sig           // Ed25519 under identity_pub over
+                             //   "URmessage/v1/rzvrequest" ‖ LP(rendezvous_id)
+                             //   ‖ LP(H(key_package)) ‖ LP(display_name) ‖ u64(requested_at_ms)
+
+(ct_xwing, ss) = XWing.Encapsulate(card_xwing_pub)
+deposit_key    = HKDF-Expand(ss, "URmessage/v1/rzvdeposit" ‖ LP(rendezvous_id), 32)
+deposit_ct     = u16(alg_id) ‖ LP(ct_xwing) ‖ AEAD(deposit_key, nonce = 0,
+                   aad = "URmessage/v1/aad/rzv" ‖ LP(rendezvous_id), padded_body)
+                 // 2 + 1124 + 4112 = 5238 bytes, an equality the server asserts
+```
+
+Every encapsulation yields a fresh `deposit_key`, so the zero nonce uses no key twice (**I7**).
+
+**The five preimages**, each binding the connection's `server_nonce` so a captured frame does not
+replay onto another connection:
+
+```
+register_auth = Ed25519(collect_sig_sk, "URmessage/v1/rzvregister" ‖ LP(server_nonce)
+                  ‖ LP(rendezvous_id) ‖ LP(deposit_verify_pub) ‖ LP(collect_verify_pub)
+                  ‖ LP(card_xwing_pub) ‖ u16(alg_id))
+open_auth     = Ed25519(deposit_sig_sk, "URmessage/v1/rzvopen" ‖ LP(server_nonce)
+                  ‖ LP(rendezvous_id))
+deposit_auth  = Ed25519(deposit_sig_sk, "URmessage/v1/rzvdeposit" ‖ LP(server_nonce)
+                  ‖ LP(rendezvous_id) ‖ LP(H(deposit_ct)))
+collect_auth  = Ed25519(collect_sig_sk, "URmessage/v1/rzvcollect" ‖ LP(server_nonce)
+                  ‖ LP(rendezvous_id) ‖ u64(since_deposit_id) ‖ u64(ack_through_deposit_id)
+                  ‖ u32(limit) ‖ u8(subscribe))
+retire_auth   = Ed25519(collect_sig_sk, "URmessage/v1/rzvretire" ‖ LP(server_nonce)
+                  ‖ LP(rendezvous_id))
+```
+
+**What the client MUST verify and the server never can.** A collected deposit is opened, its
+`request_sig` verified under the `identity_pub` inside it, and the request refused without a word to
+the user if it does not verify. `SafetyDigits` are computed from that same `identity_pub`, so the
+digits the owner reads back over a phone call are the digits of the key that signed the request. The
+server holds no identity keys and by **I5** never verifies authorship; a `deposit_auth` that
+verifies proves possession of the card and nothing else.
+
+**Client obligations on rotation.** `RotateContactCard` registers generation *k+1*, collects
+everything outstanding at *k*, retires *k*, and only then persists *k+1* as current. An interrupted
+rotation leaves both generations live and is resumed rather than restarted. A device that has been
+offline across a rotation discovers the current generation by opening forward from the last one it
+knows, bounded to sixteen probes, after which it reports the card as unavailable on this device
+rather than handing out a dead link.
+
+Tests: `TestRendezvousIdIsTokenDerived`, `TestDepositIsExactly5238Bytes`,
+`TestDepositSigProvesOnlyTokenPossession`, `TestCollectKeyIsNotDerivableFromToken`,
+`TestCardGenerationsAreUnlinkable`, `TestRotateCollectsBeforeRetiring`.
+
 ---
 
 ## 6. The narrow swappable interface
@@ -1799,7 +1888,10 @@ func (self *MessageClient) UserPreference(key string) string
 // and the two are not the same disclosure.
 //
 // "attachment_auto_download" is CLOSED: "known_contacts" (default) | "always" | "never".
-// "contact_card_auto_accept" is CLOSED: "true" (default) | "false" — §7.3b.
+// "contact_card_auto_accept" is CLOSED: "true" (default) | "false" — §7.3b. The SDK
+// suspends automatic acceptance for the remainder of the hour once more than three
+// requests arrive at one card within an hour, whatever this preference says, and
+// reports the suspension on MessageContactRequest.State.
 
 // ── directory listing (MASTER §10.1). OFF by default; this is the only call
 // that creates a link between this messaging identity and the URnetwork
@@ -1854,19 +1946,6 @@ same shape:
                                     // or, when set, from the operator discovery response
   "enable_cover":       false,      // optional, default false  (MASTER §9.5)
   "media_cache_bytes":  1073741824  // optional, default 1 GiB
-}
-```
-
-```go
-type MessageClientSettings struct {
-    StorageDir       string   // Spec C supplies; sealed material lives under here
-    NetworkSpaceHost string   // the URnetwork network space this client's account is on, e.g.
-                              // "ur.network". This names the client's OWN operator. It is a
-                              // configured value with a build-time default, never a compile-time
-                              // constant — see the operator note below.
-    MessageServerId  string   // v1: the one server's URnetwork client id
-    EnableCover      bool     // MASTER §9.5 — off by default
-    MediaCacheBytes  int64
 }
 ```
 
@@ -2009,6 +2088,10 @@ type MessageServerInfo struct {
     MaxResponseBytes      int32
     BlobChunkBytes        int32
     BlobPadMultiple       int32
+    RendezvousTtlSeconds       int64  // how long a card's registration lives without a collect
+    RendezvousDepositTtlSeconds int64 // how long one uncollected contact request lives
+    RendezvousMailboxDepth     int32  // uncollected requests one card may hold (§7.3b, §5.14).
+                                      // Spec C formats all three; it renders no literal for them.
     AttestationSupported  bool
     CapabilityVersion     int64
     Advertised            bool     // false before the first HelloResponse of this install.
@@ -2355,9 +2438,16 @@ type MessageContactCard struct {
     IdentityKeyFingerprint string
     SafetyDigits           string   // the same 12 groups of 5 that SafetyNumber() renders,
                                     // so a recipient can read them back over a phone call
-    TokenId                string   // identifies the capability, not the identity
+    TokenId                string   // Crockford base32 of the first 8 bytes of rendezvous_id.
+                                    // A display and log handle for "which card"; never an
+                                    // authenticator, and it identifies the capability, not
+                                    // the identity
+    Generation             int32    // the capability generation k of §5.14; 0 is the first
+    State                  string   // CLOSED: "registering" | "live" | "expired" | "retired"
+                                    //       | "unavailable"
     CreatedAtMs            int64
     RotatedAtMs            int64    // 0 until the first rotation
+    ExpiresAtMs            int64    // when the registration lapses if no device collects
 }
 
 type MessageContactRequest struct {
@@ -2368,46 +2458,92 @@ type MessageContactRequest struct {
     SafetyDigits   string
     ViaTokenId     string
     RequestedAtMs  int64
+    RefusedSinceLastCollect int32   // requests the server refused at this card since the last
+                                    // collection. A property of the card, so it carries the same
+                                    // value on every request in one collection (§7.3b)
     State          string   // CLOSED: "pending" | "accepting" | "accepted" | "declined"
-                            //       | "expired" | "token_retired"
+                            //       | "expired" | "token_retired" | "held_for_review"
 }
 
 type ContactRequestListener interface { ContactRequestChanged(request *MessageContactRequest) }
 ```
 
-`MessageContactCard` and `MessageContactRequest` each get a `*List` wrapper per the §7.1 pattern.
+`"held_for_review"` is the state a request takes when automatic acceptance is suspended by the rate
+fallback below: the request is intact and waiting for the owner, and it is not `"pending"`, because
+the owner needs to know the difference between a request that is waiting for a tap by preference and
+one that is waiting because the card is under load.
 
-**What the card contains.** A version byte, the owner's Ed25519 identity public key, a display name, a
-16-byte capability token, and a checksum over all of it. It carries **no group key**, no device key,
-and **no URnetwork principal** — handing someone a way to message you should not also hand them the
-name of the account that pays for your traffic, and the two are unlinked by design (MASTER §4.2). A
-holder who also knows the principal learns nothing new; a holder who does not, does not learn it here.
+`ContactCard()` is local and does not block on the network, but the card it returns is not usable
+until its registration has reached the server, so `State` is part of the contract rather than a
+detail: `"registering"` until the rendezvous exists, `"live"` once it does, `"expired"` when the
+registration lapsed because no device of this identity collected inside the server's advertised
+window, `"retired"` for a generation that has been rotated away, and `"unavailable"` on a device
+that has been offline across more rotations than it can probe forward through. A client MUST NOT
+present a link or a QR for a card that is not `"live"`, because a card that cannot receive is worse
+than no card: the person it was handed to gets a refusal and no explanation.
+
+`MessageContactRequest` gets a `*List` wrapper per the §7.1 pattern. `MessageContactCard` does not:
+this identity has exactly one current card, and `ContactCard()` returns it directly.
+
+**The card is per identity, not per device.** `card_root` derives from the master key (§5.14), so
+every device of an identity computes the same generation, the same token and the same
+`rendezvous_id`: `ContactCard()` returns the same `Url`, `QrPayload` and `TokenId` on the laptop and
+on the desktop, and `RotateContactCard` on either retires the identity's card everywhere. A device
+that is offline at the moment of rotation still shows the stale card until it next syncs, and that
+stale card is **inert** rather than live — the rendezvous it addresses has been retired, so a
+redemption of it is refused. A newly linked device receives the current generation number in the
+device-link payload (§7.5) and derives the rest; the payload never carries the token itself, because
+the generation number plus the seed is smaller and is all that is needed.
+
+**What the card contains.** A version byte, an algorithm id, the owner's Ed25519 identity public
+key, a 16-byte capability token, a display name of at most 64 UTF-8 bytes, and a checksum over all
+of it — 131 bytes, encoded identically in the `urmessage://` link and in the QR (§5.14). It carries
+**no group key**, no device key, **no encryption key** and **no URnetwork principal** — handing
+someone a way to message you should not also hand them the name of the account that pays for your
+traffic, and the two are unlinked by design (MASTER §4.2). A holder who also knows the principal
+learns nothing new; a holder who does not, does not learn it here.
 
 **What redeeming one does.** The redeemer pins the identity key immediately and locally, with
 `MessagePin.EvidenceClass == "out_of_band"` — the key came from the person, not from a directory or a
-log, and that is a stronger provenance than either, not a weaker one. It then presents a key package
-at the rendezvous the token names, and the **card owner's** client creates the two-member group and
-issues the `Welcome`. No external commit is involved and none is possible: the v1 profile
-parse-refuses them (§3.1), so a card can never admit anyone by itself. Whether the owner's client
-commits immediately or waits for a tap is the `"contact_card_auto_accept"` user preference,
-defaulting to immediate, because a token the owner handed out is already the owner's decision.
+log, and that is a stronger provenance than either, not a weaker one. It then opens the **contact
+rendezvous** the token addresses (MASTER §9.8, Spec B §4.3.11), seals a contact request carrying its
+key package and a signature under its own `identity` key to the card's KEM key, and deposits it.
+Nothing has happened in any group at that point and the redeemer has no conversation yet:
+`StartDirectFromCard` returns a ticket that completes when the deposit is accepted, and the
+conversation appears only when the card owner's client collects the request, verifies the inner
+signature, creates the two-member group and issues the `Welcome`. No external commit is involved and
+none is possible: the v1 profile parse-refuses them (§3.1), so a card can never admit anyone by
+itself. Whether the owner's client commits immediately or waits for a tap is the
+`"contact_card_auto_accept"` user preference, defaulting to immediate, because a token the owner
+handed out is already the owner's decision.
 
 **The card is a capability, and capabilities have to be revocable.** Anyone who obtains the link —
 forwarded, screenshotted, scraped from a slide — can open a conversation with the owner until the
 token is retired. `RotateContactCard` mints a fresh token and retires the current one: a redemption
 of the old link fails with `GroupResult` reason `"card_retired"`, and **every conversation already
 started stays exactly as it was**, because the token authorises first contact and nothing else. A
-user who rotates loses only the printed cards and old screenshots, never a friend. The rotation is
-written to the local security log as `MessageSecurityLogEntry{Kind: "contact_card_rotated"}`, so
-"when did I last change this" has an answer.
+user who rotates loses the printed cards and the old screenshots, never a friend — and, unless the
+client collects first, any request deposited at the old rendezvous and not yet collected, which is
+why `RotateContactCard` collects everything outstanding before it retires (§5.14, MASTER §11). The
+rotation is written to the local security log as
+`MessageSecurityLogEntry{Kind: "contact_card_rotated"}`, so "when did I last change this" has an
+answer.
 
-**Rate limits.** Redemption is rate-limited per redeeming client and per token, a retired token is
-refused with a typed error rather than silently producing a request nobody sees, and a card that has
-produced an unusual number of requests in a short window surfaces that fact to its owner rather than
-only throttling in silence.
+**Rate limits, and what happens when they bind.** The server limits deposits per rendezvous and per
+depositing client, and bounds each rendezvous to sixteen uncollected requests; the values are
+advertised in `Capabilities` and reach this surface through `ServerInfo()`, never as literals (Spec
+B §4.3.11, §4.7). A refusal for depth or rate is `GroupResult` reason `"card_rate_limited"`. A
+retired card, and a token the server has never seen, both return `"card_retired"` — the same answer,
+deliberately, because "this link is no longer live" is true of both and distinguishing them would
+let a party test guessed tokens. A card that has taken an unusual number of requests in a short
+window surfaces that fact to its owner rather than only throttling in silence: `ContactRequests()`
+carries the count the server refused since the last collection, and the SDK falls back to manual
+review for the remainder of the hour once more than three requests arrive at one card within an
+hour, regardless of the `"contact_card_auto_accept"` preference, so a firehose cannot turn itself
+into groups while the owner is asleep.
 
-`"card_retired"` and `"card_rate_limited"` are members of `GroupResult.Reason`'s closed set (§7.7),
-and `"contact_card_rotated"` of `MessageSecurityLogEntry.Kind`'s (§7.6).
+`"card_retired"`, `"card_rate_limited"` and `"card_not_live"` are members of `GroupResult.Reason`'s
+closed set (§7.7), and `"contact_card_rotated"` of `MessageSecurityLogEntry.Kind`'s (§7.6).
 
 ### 7.4 Messaging
 
@@ -2747,6 +2883,12 @@ The provisioning bundle carries the group list and **durable-class** archive mat
 Ephemeral-class material is never included (MASTER I4). `TestProvisioningBundleHasNoEphemeral`
 asserts by construction: the bundle builder takes a `DurableArchive` type that has no field capable
 of holding an `eph_root`.
+
+The bundle also carries the identity's **current contact-card generation number** (§5.14), so a
+newly linked device shows the same card as every other device of the identity rather than minting
+one of its own. It carries the number and not the token: the token derives from the seed and the
+generation, and shipping the smaller value is what keeps a linked device from holding a capability
+it could not have re-derived anyway.
 
 ### 7.6 Verification — MASTER §10, SSH-style TOFU
 
@@ -3199,8 +3341,9 @@ type GroupResult  struct { GroupId string; Kind string; Reason string
 //   "ok" | "not_permitted" | "owner_must_transfer" | "admin_removal_is_owner_only"
 //   | "awaiting_other_party" | "durable_override_not_permitted" | "group_size_exceeded"
 //   | "device_limit_exceeded" | "succession_disabled" | "succession_not_nominee"
-//   | "succession_quorum" | "succession_floor" | "link_expired" | "link_revoked"
-//   | "link_already_redeemed" | "card_retired" | "card_rate_limited"
+//   | "succession_quorum" | "succession_floor" | "succession_floor_too_short"
+//   | "link_expired" | "link_revoked" | "link_already_redeemed"
+//   | "card_retired" | "card_rate_limited" | "card_not_live"
 //   | "rate_limited" | "offline" | "internal"
 type RestoreProgress struct { Phase string; GroupId string; GroupName string
                               MessagesDone int64; MessagesTotal int64
@@ -3210,6 +3353,12 @@ type RestoreProgress struct { Phase string; GroupId string; GroupName string
 type DownloadProgress struct { GroupId string; MessageId string; AttachmentId string
                                BytesReceived int64; BytesTotal int64; LocalPath string }
 ```
+
+`"succession_floor_too_short"` maps from `ErrSuccessionFloorTooShort`, which §3.4 defines and which
+previously fell through to `"internal"` — the exact outcome §7.3 promises will not happen; extend
+`TestSuccessionRequiresAllFive` to assert each of the five typed errors surfaces as its own reason.
+`"card_not_live"` is returned by `StartDirectFromCard` when the *local* card is not `"live"`, which
+is a different failure from the remote card being retired.
 
 `MessageInvite`, `MessageReaction`, `MessageReceipt`, `MessageHistoryGrant`, `MessageInviteLink`,
 `MessageJoinRequest`, `MessageContactRequest` and `MessageSecurityLogEntry` each get a `*List` wrapper
@@ -3951,10 +4100,30 @@ func ClassIsPrunable(c RetentionClass) bool
 func ParseServerAttachment(b []byte) (*ServerAttachment, error)
 func EncodeServerAttachment(a *ServerAttachment) ([]byte, error)
 
+// ── contact rendezvous (§5.14) ─────────────────────────────────────────────
+func RendezvousId(token []byte) [32]byte
+func DepositVerifyKey(token []byte) ([]byte, error)                            // Ed25519 public
+func RendezvousRegisterPreimage(serverNonce []byte, r *RendezvousRegistration) []byte
+func VerifyRendezvousRegister(r *RendezvousRegistration, serverNonce []byte, sig []byte) bool
+func VerifyRendezvousOpen(depositVerifyPub []byte, serverNonce []byte,
+                          rendezvousId []byte, sig []byte) bool
+func VerifyRendezvousDeposit(depositVerifyPub []byte, serverNonce []byte,
+                             rendezvousId []byte, depositCt []byte, sig []byte) bool
+func VerifyRendezvousCollect(collectVerifyPub []byte, serverNonce []byte,
+                             c *RendezvousCollectParams, sig []byte) bool
+func VerifyRendezvousRetire(collectVerifyPub []byte, serverNonce []byte,
+                            rendezvousId []byte, sig []byte) bool
+func RendezvousDepositBytes() int                                              // 5238, exactly
+
 // ── exported types ─────────────────────────────────────────────────────────
 type Record, RecordHeader, RetentionClass, SizeBucket,
-     ServerAttachment, EpochAttachment, RecoveryTag, WrapTag, EpochComplete
+     ServerAttachment, EpochAttachment, RecoveryTag, WrapTag, EpochComplete,
+     RendezvousRegistration, RendezvousCollectParams
 ```
+
+The server gets verifiers and no signers, and no function that opens a deposit — a sealing or
+opening function on this surface would be a decryption capability in the process that holds the
+mailbox.
 
 The server may use **only** this surface. It gets no decryption function, no key-schedule function, and no
 MLS type. A test in the message-server repo asserts the allowlist. If Spec B ever needs more, that is a
@@ -3981,6 +4150,7 @@ design discussion, not a patch.
 | S15 | Present a signing key chained to the hardcoded fleet root, and chain every rotation by the outgoing key. A key that does not chain MUST be refused by the client, so the server must never present one | MASTER §9.4, §12.1 A-13 |
 | S16 | Keep the row of an expired ephemeral record so `record_id` stays gapless, and **zero its `sender_handle`** when the body is erased | MASTER §12.2, Spec B §7.2 |
 | S17 | Advertise the operator this server holds its account on, its hosting jurisdiction, and the length of its read-key retention window, as fields a client can read before it acts | MASTER §4.1, §9.2, Spec B §7.3, §10.4 |
+| S18 | **Carry the contact rendezvous.** Register, open, deposit, collect and retire a group-less mailbox keyed on `rendezvous_id`, verifying one Ed25519 signature per operation over a preimage covering every value acted on: `register_auth` against the key the registration carries and pins, `open_auth` and `deposit_auth` against the pinned `deposit_verify_pub`, `collect_auth` and `retire_auth` against the pinned `collect_verify_pub`. Assert `deposit_ct` is exactly `rendezvous_deposit_bytes`. Bound each rendezvous to `rendezvous_mailbox_depth` uncollected deposits and each deposit to `rendezvous_deposit_ttl_seconds`. Return the same `REASON_CARD_RETIRED` for a retired and for an unknown id. Store no depositor identifier on the deposit row. | MASTER §9.8, §9.5; §5.14 |
 
 **What we give the server.**
 
@@ -4009,7 +4179,7 @@ An asymmetric per-epoch write proof (Ed25519 derived from `storage_root`, server
 half) removes the forgery capability at the cost of one signature per record. It is the right long-term
 shape and is a **V2** item, not v1 text.
 
-**Interfaces out → to Spec B.** The rows A-1…A-17 below are what Spec B's own interfaces-in table
+**Interfaces out → to Spec B.** The rows A-1…A-18 below are what Spec B's own interfaces-in table
 consumes, with owners and slices:
 
 | # | We supply | Where | Slice |
@@ -4021,7 +4191,7 @@ consumes, with owners and slices:
 | A-5 | `connect/protocol/message.proto` and its codegen | §10.1 | A7 |
 | A-6 | The losing-committer contract, implemented in `sdk` — especially "never reuse `pq_secret[n+1]`" and "never reuse a consumed `stream_index`" | §5.12 | A7 |
 | A-7 | Blob padding ladder (256 KiB multiple) and `blob_id` derivation from the record's key material | §5.13 | A9 |
-| A-8 | The shared interop vector file `testdata/message-server-vectors.json` — records with epoch keys, nonces, expected verdicts, a commit-race scenario, a non-zero `expire_at` record, a `size_bucket = 5` record with a `blob_id`, one authenticated request per `req_auth` op byte (13, 14, 16, 17, 19) including a `WrapFetch`, each naming its `read_epoch`, plus one request naming an epoch whose read key has aged out, a per-class stream-index collision case, and a `since_record_id = 0` fetch case. **A blocking CI job in both repos.** | §11.1, §11.4 | A6 |
+| A-8 | The shared interop vector file `testdata/message-server-vectors.json` — records with epoch keys, nonces, expected verdicts, a commit-race scenario, a non-zero `expire_at` record, a `size_bucket = 5` record with a `blob_id`, one authenticated request per `req_auth` op byte (13, 14, 16, 17, 19) including a `WrapFetch`, each naming its `read_epoch`, plus one request naming an epoch whose read key has aged out, a per-class stream-index collision case, and a `since_record_id = 0` fetch case; plus one rendezvous registration, one open, one deposit at the exact length, one collect with an acknowledgement and one retirement, each with its expected verdict, plus a deposit one byte short and a collect signed under the deposit key. **A blocking CI job in both repos.** | §11.1, §11.4 | A6 |
 | A-9 | A measurement of the platform transport's production `FramerSettings.MaxMessageLen` | §10.2 | A7, named owner required |
 | A-10 | `ComputeRequestAuth` / `VerifyRequestAuth` and `RecoveryProof` / `VerifyRecoveryProof` | §5.7 | A6 |
 | A-11 | `expire_at` as unix milliseconds, u64, big-endian, 0 = unset, on the wire and in both preimages; `connect/message` is the only producer of the preimage on both sides | §5.1, §5.7 | A6 |
@@ -4031,6 +4201,7 @@ consumes, with owners and slices:
 | A-15 | The delivery-receipt record: `EPH(bucket 0)`, never persisted, fanned out on the transient channel exactly as read receipts are | §7.4 | A6 |
 | A-16 | The reaction body encoding: `LP(emoji_utf8)`, one extended grapheme cluster, validated against a pinned Unicode version on both sides | §5.1, §7.4a | A6 |
 | A-17 | The two-sentinel `durable_ttl_seconds` encoding, and the rule that the server applies its own advertised default on the unset sentinel | §5.11 | A6 |
+| A-18 | The contact-card encoding, the rendezvous derivations, the sealed deposit at its exact length, and the five rendezvous signature preimages with their verifiers | §5.14 | A6 |
 
 ### 12.2 To the Windows messaging client (Spec C)
 
@@ -4094,7 +4265,7 @@ Refines MASTER §14 for the A-component only.
 | A3 | `connect/mls` schedule + framing | `key_schedule.go`, `secret_tree.go`, `framing.go`, `transcript.go` | families 3, 4, 5, 6, 7 pass |
 | A4 | `connect/mls` group | `treekem.go`, `proposal.go`, `commit.go`, `group.go`, `validation.go`, `profile.go` | families 8, 11, 12, 13, 14, 15 pass; **Gate 1 and Gate 3 green** |
 | A5 | `connect/mls/interop` | our gRPC client, vendored proto, CI job | **Gate 2 green**, both roles, three peers |
-| A6 | `connect/message` | records, key schedule, X-Wing, ratchet, wraps, `write_auth`, `req_auth` with `read_epoch`, recovery proof, `server_attachment`, tombstones, padding, COVER, **and the delivery-receipt record**, **the reaction body as a length-prefixed UTF-8 string**, and **the two-sentinel `durable_ttl_seconds` encoding** — all three use existing classes and existing transport paths, so none is a format break, but all three must land before the format freezes here rather than with the client work that renders them | wire format frozen; X-Wing draft KAT vectors pass both directions; the recovery wrap carries `storage_root ‖ archive_secret`; the shared interop vector file is committed and green in **both** repos; `TestStreamIndexNeverReused` and `TestEphRootHasNoDurableInput` green |
+| A6 | `connect/message` | records, key schedule, X-Wing, ratchet, wraps, `write_auth`, `req_auth` with `read_epoch`, recovery proof, `server_attachment`, tombstones, padding, COVER, **and the delivery-receipt record**, **the reaction body as a length-prefixed UTF-8 string**, **the two-sentinel `durable_ttl_seconds` encoding**, and **the contact-card encoding and the rendezvous preimages of §5.14** — all use existing classes and existing transport paths, so none is a format break, but all must land before the format freezes here rather than with the client work that renders them | wire format frozen; X-Wing draft KAT vectors pass both directions; the recovery wrap carries `storage_root ‖ archive_secret`; the shared interop vector file is committed and green in **both** repos; the rendezvous interop vectors are green in both repos; `TestStreamIndexNeverReused` and `TestEphRootHasNoDurableInput` green |
 | A7 | `sdk` client core | `MessageClient`, store, sealer, KT client, sync loop, transport binding, `connect/protocol/message.proto` | two clients exchange a message against Spec B's server in `e2e` |
 | A8 | `sdk/cgo-message` | generator, exports, header, `.hpp`, smoke tests, build matrix, the `urmsg_auth_*` account surface | Spec C can build against the header; handle count zero at exit; §7 defines the fields of every type reachable from `MessageClient`; the `urmsg_auth_*` surface builds and the smoke test logs in |
 | A9 | Disappearing messages and multi-device | `eph.go`, provisioning with the short code and numeric comparison, device management, revocation, the PIN and auto-lock (§8.6) | `TestExpiredMessageIsUnrecoverable` green; a second machine pairs and sends; **this is the slice the public beta ships from** |
@@ -4108,9 +4279,13 @@ single-device and unnotified, which is a demo rather than a beta. **A9 is what s
 because multi-device is the thing this product has that the obvious alternative does not, and
 attachments in A10 are table stakes nobody switches for.
 
-Invite links and join requests (§7.3a), ownership transfer and succession (§7.3), and balance-code
-redemption (§7.9) land in **A7** with the rest of the client core: each is a `sdk`-level flow over
-mechanisms A6 already froze, and all three are needed for the first group a stranger joins.
+Invite links and join requests (§7.3a), **contact cards and their rotation (§7.3b)**, ownership
+transfer and succession (§7.3), and balance-code redemption (§7.9) land in **A7** with the rest of
+the client core: each is an `sdk`-level flow over mechanisms A6 already froze, and all four are
+needed for the first group a stranger joins. A7 is done for the card when a card minted on one
+client opens a two-member group on another with `EvidenceClass == "out_of_band"`, and a rotated
+card's old link is refused with `card_retired` while the conversation it already opened is
+untouched.
 
 ---
 

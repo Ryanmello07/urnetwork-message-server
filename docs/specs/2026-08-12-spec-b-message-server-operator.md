@@ -1,9 +1,9 @@
 # URmessage — Message Server and Operator Context
 
 **Spec B of three.** Companion documents: spec A (`connect`/`sdk` protocol and client core) and spec C (Windows messaging client).
-**Normative parent:** `docs/specs/2026-08-12-urmessage-protocol-design.md` (revision 8) — referred to below as *the master spec*, cited by section (e.g. §9.3).
+**Normative parent:** `docs/specs/2026-08-12-urmessage-protocol-design.md` (revision 9) — referred to below as *the master spec*, cited by section (e.g. §9.3).
 **Decision record:** `SPEC-LEDGER.md`.
-**Date:** 2026-08-12 · **Revision:** 5 · **Status:** Design, owner rulings applied
+**Date:** 2026-08-12 · **Revision:** 6 · **Status:** Design, owner rulings applied
 
 Notation follows the master spec: `LP(x)` = 32-bit **big-endian** length prefix then `x`; `u8/u16/u32/u64` = big-endian fixed width; `‖` = concatenation; `H` = SHA-256; HKDF is HKDF-SHA-256. All timestamps in Postgres are `timestamp` in UTC, never `timestamp with time zone`, matching the operator's convention.
 
@@ -15,8 +15,8 @@ Notation follows the master spec: `LP(x)` = 32-bit **big-endian** length prefix 
 
 | Item | State |
 |---|---|
-| Master protocol design | Revision 8, owner rulings applied |
-| This spec | Revision 5, R4 and R5 review plus the owner's product rulings applied |
+| Master protocol design | Revision 9, contact rendezvous applied |
+| This spec | Revision 6, R4 and R5 review, the owner's product rulings, and the contact rendezvous applied |
 | Message server code | None |
 | Repo | `Ryanmello07/urnetwork-message-server` (seeded: LICENSE, README, SPEC-LEDGER, docs) |
 | Branch for protocol code | `beta/message` on the `connect` and `sdk` forks (not yet created) |
@@ -48,12 +48,13 @@ Verified against the checked-out trees at `C:\Users\ryanm\Downloads\claude_sandb
 | **B8** | **Four `MessageType` enum values only** (`MessageServerRequest`, `MessageServerResponse`, `MessageServerPush`, `MessageServerFragment`), reserved at **1000–1099**, with a `oneof` inside for every operation. Spec A owns `connect/protocol/message.proto`; Spec B owns the `oneof` arms and their semantics (§4.2). | `frame.proto` is shared with `beta/algorithm-dpi` and `beta/custom-server`. Adding one enum value per operation guarantees a merge conflict on every branch every time we add an operation. A reserved high block plus an internal `oneof` reduces the shared-file diff to four lines, permanently. Spec A's `MessageEnvelope` / `MessageOp` alternative is deleted (§4.2). |
 | **B9** | The server keeps the **current** epoch's `write_key` plus **one briefly-retired predecessor**, wrapped under a KEK loaded from the vault. Advancing an epoch sets `retire_time = now()` on the outgoing epoch instead of NULLing it; the 5-minute tidy loop (§7.4) NULLs `write_key_wrapped` where `retire_time < now() - interval '60 seconds'`. **This two-key window is why reads are not authenticated under an epoch *write* key**: `req_auth` uses the epoch's `read_key` instead (§5.3), which is retained for 90 days rather than 60 seconds, because a member offline across one commit would otherwise be locked out of every route back. | Destroying the superseded key immediately made `REASON_EPOCH_STALE` unreachable — check 6 would return the deliberately undiagnosable `REASON_REJECTED` for the single most common benign race in the system (a record submitted at epoch *n* while a commit to *n+1* lands), making `SubmitResult.current_epoch`'s "always set, so a stale client resynchronises in one round trip" a dead promise and §6.4's row for that race dead code. The blast-radius argument is unchanged at two keys. |
 | **B10** | The message server runs against a **separate Postgres cluster and separate credentials from the operator**, even though one organisation runs both. | Same operator, separate blast radius. An operator database compromise must not also yield message ciphertext and epoch write keys. Cheap; do it on day one, because retrofitting a database split after launch is not cheap. |
-| **B11** | Forbidden identifiers are made **structurally unprintable** in Go — `GroupId`, `SenderHandle`, `BlobId`, `RecoveryHandle`, `ClientId` are **opaque structs wrapping an unexported `[]byte`**, never named slice or array types, whose `String()`, `Format()`, `LogValue()`, `MarshalJSON()` and `MarshalText()` all return a redaction constant, with an explicit `.Unwrap()` at every store boundary. | §9.7 is a normative requirement, and a rule that depends on every future developer remembering it will be violated. Making an accidental `%v` physically incapable of printing the value is the only enforcement that survives contact with a team. The struct (rather than a named `[]byte`) is load-bearing: pgx v5 would otherwise encode such a type through its `TextMarshaler` and write the literal bytes `<redacted>` into a `bytea` column — see §11.2 item 1. |
+| **B11** | Forbidden identifiers are made **structurally unprintable** in Go — `GroupId`, `SenderHandle`, `BlobId`, `RecoveryHandle`, `ClientId`, `RendezvousId`, `DepositId` are **opaque structs wrapping an unexported `[]byte`**, never named slice or array types, whose `String()`, `Format()`, `LogValue()`, `MarshalJSON()` and `MarshalText()` all return a redaction constant, with an explicit `.Unwrap()` at every store boundary. | §9.7 is a normative requirement, and a rule that depends on every future developer remembering it will be violated. Making an accidental `%v` physically incapable of printing the value is the only enforcement that survives contact with a team. The struct (rather than a named `[]byte`) is load-bearing: pgx v5 would otherwise encode such a type through its `TextMarshaler` and write the literal bytes `<redacted>` into a `bytea` column — see §11.2 item 1. |
 | **B12** | Bodies over the inline ladder go to the blob store; `ct_head` and `ct_body` use `STORAGE EXTERNAL` (no TOAST compression). | Ciphertext is incompressible; `pglz` would burn CPU on every write and every read for a ~0% ratio. |
 | **B13** | **The fleet's attestation signing private key lives in an HSM or a signing sidecar, never on a replica.** Replicas call it to sign; they never hold it. The fleet **root** key that certifies it is offline and is used only to certify a new signing key. | §9.1 accepted the opposite and stated the risk: the signing private half on every replica means one compromised replica compromises the fleet's pinned identity. With clients pinning a hardcoded root (Spec A §7.6), a compromised signing key is now revocable by certifying a successor from the offline root — but only if the root was never on a replica, and only if the signing key can be rotated without a replica ever having held it. Both properties have to exist on day one; neither can be retrofitted onto shipped installs. |
 | **B14** | **The message server holds an account on exactly one operator, named in configuration.** Which operator is the administrator's choice among the operators this server is compatible with. Nothing in this module may assume the client is on the same operator, and no operator host may appear as a constant in code. | MASTER §2 and §4.1: operators are plural, two run today, and they are a different thing from message servers. A server that hardcodes one operator cannot be run by anyone else, and a check written as though one operator sees the whole system is wrong on the day the second one is used. |
 | **B15** | **Placeholder rows for expired ephemeral records carry no `sender_handle`.** The stream-uniqueness and idempotency claim moves out of `message_record` into a dedicated `message_stream_claim` table so the handle column can be zeroed without colliding on a unique index. | MASTER §12.2. Keeping the row is justified by the gapless-`record_id` argument; keeping the sender in it is not, and left a permanent per-sender timestamped trail as the residue of the feature whose purpose is to leave none. The claim table is also the honest home for the idempotency probe, which was never about the record's content. |
 | **B16** | **Aggregate-only logging with one opt-in, client-triggered exception**, replacing the absolute prohibition. | An absolute rule is met at 3 a.m. by an on-call engineer who quietly adds a log line. §11.5 specifies the bounded diagnostic session so that the supported answer to "we cannot debug this" exists and is the user's to grant. |
+| **B17** | **The contact rendezvous is the one group-less surface, and its authenticators are asymmetric** because the server holds no key of either party (§4.3.11). | Unlike `write_key`, the server cannot forge them; unlike `write_auth`, they prove possession of a capability rather than membership. A group-less deposit has no group key to authenticate under, and **I6** still requires that everything the server acts on sit inside a preimage it verifies — one Ed25519 signature per operation is what satisfies both at once. |
 
 ### Interfaces to the other two components
 
@@ -75,6 +76,7 @@ Verified against the checked-out trees at `C:\Users\ryanm\Downloads\claude_sandb
 7. **Push transport — a general-availability gate, not a beta gate** (MASTER §15 item 2). Out of scope for this spec beyond leaving `presence` in Redis and a `push_token` field reserved, and the server-side channel registry, which lands with the client's push slice. The beta ships without push and says so in the client. A working **contentless** wake must exist before any non-beta user.
 8. **Read-key retention window.** `read_key_window_seconds`, default **7776000** (90 days), is the single number that decides both how long an offline member may be away and how long a removed member keeps metadata access. It is configuration in `message.yml`, it is **advertised** as `Capabilities.read_key_window_seconds` (§4.3.1) so the client states it rather than hardcoding it, and it is a **published** number, not a tuning knob: changing it changes a statement in MASTER §13.
 9. **Backup, RPO and jurisdiction.** Nightly encrypted base backups, continuous WAL archiving, a **48-hour** point-in-time window, and a **named hosting jurisdiction** are required before any user beyond the two beta testers, and the jurisdiction is published rather than inferred from an IP address — advertised as `Capabilities.hosting_jurisdiction` (§4.3.1) and refused as empty at startup. §10.4.
+10. **Rendezvous storage sizing.** Worst case is `rendezvous_mailbox_depth × rendezvous_deposit_bytes` = 16 × 5238 ≈ 82 KiB per live card, and it is a **depth** bound rather than a rate bound, so a card that is being sprayed does not grow a spool. **Assumption to confirm against real card counts by benchmark in slice 3.**
 
 ### Edit log
 
@@ -164,6 +166,35 @@ used to harass, this server cannot see it, and a server-side reaction filter wou
 message content. §9.5 now cites the client half of the per-operator gossip rule. The deferred-to-V2
 row for per-member delivery receipts, whose body said the item was not deferred, is deleted (§14).
 Test 33 extended to cover the unset sentinel; ledger open items 3, 8 and 9 updated.
+
+---
+
+**Revision 6 — 2026-08-12 — the contact rendezvous applied (edits B1 … B22 of
+`research/rendezvous-plan.md`).** MASTER revision 8 ruled that out-of-band contact cards ship in v1 and
+specified the redemption path in the client and the SDK — "presents a key package at the rendezvous the
+token names" — while no server component had any group-less ingress at all, so the one surface the beta
+cannot start a conversation without was unbuildable here. This revision gives it a transport. A new
+**§4.3.11** defines the group-less mailbox: five request arms, five response arms and one push arm at
+field numbers 20–24 and 6 (§4.3), register / open / deposit / collect / retire, each authorized by one
+Ed25519 signature over a preimage covering every value the server then acts on, so **I6** holds where no
+group key exists (decision **B17**). Migration **011** adds `message_rendezvous` and
+`message_rendezvous_deposit`, deliberately unpartitioned, with **no depositor column** — a `client_id` on
+a deposit row would be the durable social graph §4.2 exists to prevent — and `collect_verify_pub` pinned
+from the self-certified registration in the same shape as `message_recovery` (§3.2, §3.3 Q17–Q19).
+`Capabilities` gains four advertised rendezvous values (§4.3.1, §7.3); `Reason` gains
+`REASON_CARD_RETIRED` and `REASON_CARD_RATE_LIMITED`, the first of which deliberately merges "retired"
+with "never registered" so a party holding guessed tokens learns nothing (§4.5). A new **§5.1.2** maps
+the §5.1 check order onto the group-less path, including a known-rendezvous cuckoo filter at check 5, so
+a party with no token forces neither a row lock nor a WAL byte. Retention runs on its own two clocks:
+deposits deleted at seven days, registrations lapsing at ninety and reclaimed at
+`card_tombstone_seconds` (§7.1, §7.2, §7.4). Five rate-limit rows across both scopes (§4.7), the abuse
+posture stated rather than assumed (§9.6), `rendezvous_id` and `deposit_id` added to the MUST-NOT-LOG
+list and to decision B11's unprintable structs (§11.1, §11.2). §12.1's requires-from-A table gains rows
+**A-13 … A-18** — A-13 through A-17 were missing entirely while Spec A claimed the two tables
+corresponded — and the A-1 surface gains nine rendezvous functions and two types, **verifiers only**.
+C-12 added for Spec C (§12.2); tests 37–41 added (§13). One word corrected in §10.2: `backup_jurisdiction`
+became `hosting_jurisdiction`, which is what every other reference and startup validation reads. Ledger
+open item 10 added.
 
 ---
 
@@ -611,9 +642,64 @@ CREATE TABLE message_diagnostic_session (
     CHECK (end_time <= start_time + interval '1 hour')
 );
 CREATE INDEX message_diagnostic_active ON message_diagnostic_session (end_time);
+
+-- ── 011  contact rendezvous (§4.3.11, MASTER §9.8) ────────────────────────
+-- Deliberately NOT partitioned: the whole table is one row per live contact card,
+-- and hash partitioning a table that is three orders of magnitude smaller than
+-- message_record buys nothing and costs 64 empty relations.
+CREATE TABLE message_rendezvous (
+    rendezvous_id       bytea     NOT NULL,   -- 32 B, = H("URmessage/v1/rendezvous" || token)
+    deposit_verify_pub  bytea     NOT NULL,   -- 32 B Ed25519, derived from the token; every
+                                              -- holder of the card signs under it
+    collect_verify_pub  bytea     NOT NULL,   -- 32 B Ed25519, held only by the card's owner.
+                                              -- Pinned from the self-certified registration
+                                              -- and never re-read from a later request
+    card_xwing_pub      bytea     NOT NULL,   -- 1216 B, disclosed on Open to a holder that
+                                              -- has proved possession of the token
+    alg_id              int       NOT NULL,
+    next_deposit_id     bigint    NOT NULL DEFAULT 1,
+    deposit_count       int       NOT NULL DEFAULT 0,   -- uncollected depth; bounded
+    refused_count       bigint    NOT NULL DEFAULT 0,   -- refusals since the last collect,
+                                                        -- reported to the owner, no cause kept
+    register_time       timestamp NOT NULL DEFAULT now(),
+    refresh_time        timestamp NOT NULL DEFAULT now(),
+    expire_time         timestamp NOT NULL,   -- refresh_time + rendezvous_ttl_seconds
+    retired_time        timestamp NULL,
+    reclaim_after       timestamp NOT NULL,   -- the sweep deletes the row at this point
+
+    PRIMARY KEY (rendezvous_id),
+    CHECK (octet_length(rendezvous_id) = 32),
+    CHECK (octet_length(deposit_verify_pub) = 32),
+    CHECK (octet_length(collect_verify_pub) = 32),
+    CHECK (octet_length(card_xwing_pub) = 1216),
+    CHECK (1 <= next_deposit_id),
+    CHECK (0 <= deposit_count AND deposit_count <= 16)
+);
+CREATE INDEX message_rendezvous_reclaim ON message_rendezvous (reclaim_after);
+
+CREATE TABLE message_rendezvous_deposit (
+    rendezvous_id bytea     NOT NULL,
+    deposit_id    bigint    NOT NULL,   -- per-rendezvous, monotonic, 1-based
+    deposit_hash  bytea     NOT NULL,   -- 32 B, H(deposit_ct); the idempotency key
+    deposit_ct    bytea     NOT NULL,   -- EXACTLY rendezvous_deposit_bytes
+    create_time   timestamp NOT NULL DEFAULT now(),
+    prune_after   timestamp NOT NULL,   -- create_time + rendezvous_deposit_ttl_seconds
+
+    PRIMARY KEY (rendezvous_id, deposit_id),
+    UNIQUE (rendezvous_id, deposit_hash),
+    FOREIGN KEY (rendezvous_id) REFERENCES message_rendezvous (rendezvous_id) ON DELETE CASCADE,
+    CHECK (octet_length(deposit_hash) = 32),
+    CHECK (octet_length(deposit_ct) = 5238)
+);
+CREATE INDEX message_rendezvous_deposit_prune ON message_rendezvous_deposit (prune_after);
+ALTER TABLE message_rendezvous_deposit ALTER COLUMN deposit_ct SET STORAGE EXTERNAL;
 ```
 
 Trust-on-first-use, **scoped to one group**: the server records `verify_pub` on first sight of a `RecoveryTag` in that group and **refuses any later differing pub for the same handle in the same group** — the same shape as the client's server-key pin.
+
+**There is no depositor column, and its absence is the design.** A `client_id` on the deposit row would make the mailbox a durable, queryable record of who contacted whom, which is precisely the social graph §4.2 exists to prevent and which this endpoint is otherwise the only place in the system that could hold. Per-depositor rate limiting lives in Redis with the rest of §4.7 and expires with its bucket; `refused_count` is a bare integer the owner reads and carries no cause and no subject.
+
+**Trust on first sight, scoped to one rendezvous.** `collect_verify_pub` is taken from the self-certified registration and pinned. Every later `Collect` and `Retire` verifies against the pinned value and never against a key in the request, which is the same shape as `message_recovery` and the client's server-key pin. A registration arriving for an id that already exists under a different `collect_verify_pub` is refused with `REASON_REJECTED` — the same deliberately non-specific answer `CreateGroup` gives for an existing `group_id`, and for the same reason.
 
 ### 3.3 Index rationale against the real query patterns
 
@@ -635,6 +721,9 @@ Trust-on-first-use, **scoped to one group**: the server records `verify_pub` on 
 | Q14 | `INSERT INTO message_commit (group_id, epoch, record_id) VALUES (…) ON CONFLICT (group_id, epoch) DO NOTHING` | Every commit | One-row PK insert; **the** CAS | `PRIMARY KEY (group_id, epoch)` |
 | Q15 | `SELECT read_key_wrapped FROM message_epoch WHERE group_id=$1 AND epoch=$2 AND read_key_wrapped IS NOT NULL` | Every authorized read, on cache miss | PK lookup, served from the same in-process LRU as Q9. Keyed by the request's authenticated `read_epoch`, so no scan and no key trial | `PRIMARY KEY (group_id, epoch)` |
 | Q16 | `UPDATE message_epoch SET read_key_wrapped = NULL, read_key_install = NULL WHERE read_key_install < now() - $window AND read_key_wrapped IS NOT NULL` | Read-key tidy, every 5 min | Partial index scan over outstanding work only | `message_epoch_read_key_expiry` |
+| Q17 | `SELECT deposit_verify_pub, collect_verify_pub, card_xwing_pub, deposit_count, retired_time FROM message_rendezvous WHERE rendezvous_id = $1` | Every rendezvous operation | PK lookup, served from an in-process LRU | `PRIMARY KEY (rendezvous_id)` |
+| Q18 | `SELECT deposit_id, deposit_ct FROM message_rendezvous_deposit WHERE rendezvous_id = $1 AND deposit_id > $2 ORDER BY deposit_id LIMIT $3` | Every collect | PK range scan, bounded by depth 16 | `PRIMARY KEY (rendezvous_id, deposit_id)` |
+| Q19 | `DELETE FROM message_rendezvous_deposit WHERE prune_after <= now()` and `DELETE FROM message_rendezvous WHERE reclaim_after <= now()`, both `LIMIT`ed | Sweep, every 5 min | Index scan over outstanding work; deleted rows leave the index, so it holds the backlog and not the corpus | `message_rendezvous_deposit_prune`, `message_rendezvous_reclaim` |
 
 Two properties of `message_record_prune` are load-bearing and easy to lose in a refactor:
 
@@ -740,6 +829,11 @@ message MessageServerRequest {
         BlobGrantRequest      blob_grant      = 17;
         RecoveryFetchRequest  recovery_fetch  = 18;
         WrapFetchRequest      wrap_fetch      = 19;
+        RendezvousRegisterRequest rendezvous_register = 20;
+        RendezvousOpenRequest     rendezvous_open     = 21;
+        RendezvousDepositRequest  rendezvous_deposit  = 22;
+        RendezvousCollectRequest  rendezvous_collect  = 23;
+        RendezvousRetireRequest   rendezvous_retire   = 24;
     }
 }
 
@@ -756,6 +850,11 @@ message MessageServerResponse {
         BlobGrantResponse     blob_grant      = 17;
         RecoveryFetchResponse recovery_fetch  = 18;
         WrapFetchResponse     wrap_fetch      = 19;
+        RendezvousRegisterResponse rendezvous_register = 20;
+        RendezvousOpenResponse     rendezvous_open     = 21;
+        RendezvousDepositResponse  rendezvous_deposit  = 22;
+        RendezvousCollectResponse  rendezvous_collect  = 23;
+        RendezvousRetireResponse   rendezvous_retire   = 24;
     }
 }
 
@@ -766,6 +865,7 @@ message MessageServerPush {
         CapabilityChange capability   = 3;
         Backpressure     backpressure = 4;
         Drain            drain        = 5;   // §2.3 graceful shutdown
+        RendezvousPush   rendezvous   = 6;   // §4.3.11; {rendezvous_id, pending_count} only
     }
 }
 ```
@@ -843,6 +943,11 @@ message Capabilities {
                                                 // Advertised because the client names this number
                                                 // to a user who has been away (Spec C §9.8) and
                                                 // must not hardcode it.
+    // ── the contact rendezvous (§4.3.11, MASTER §9.8) ────────────────────────
+    uint32 rendezvous_deposit_bytes       = 22;  // 5238, asserted as an equality (§4.3.11)
+    uint32 rendezvous_mailbox_depth       = 23;  // 16 uncollected deposits per rendezvous
+    uint32 rendezvous_deposit_ttl_seconds = 24;  // 604800 (7 days)
+    uint32 rendezvous_ttl_seconds         = 25;  // 7776000 (90 days), refreshed on every collect
 }
 
 message BlobEndpoint {
@@ -857,6 +962,8 @@ message BlobEndpoint {
 `Capabilities` is the whole of the server-advertised contract. The client MUST fetch it before its first submit of a session and MUST re-read it on `CapabilityChange`. Spec C must surface `max_blob_bytes` **before** the file picker opens, not after the user has waited for a 400 MB read.
 
 `Capabilities` also names, in `HelloResponse`, **which operator this server holds its account on**, as `operator_host`. A client does not need to be on the same operator, and MUST NOT treat this value as naming *the* operator — it names *this server's*. The field exists so the client can render where its traffic is forwarded and so a future compatibility check has something to read.
+
+The four rendezvous values are advertised for the reason the rest are: a client that cannot read a number prints one, and every one of these reaches a user as a sentence about how long a contact request waits and how many a card will hold.
 
 **Both caps bind.** A submit MUST satisfy `max_records_per_submit` **and** `max_submit_bytes`; `max_submit_bytes` governs when they disagree. Sixty-four records at the top inline bucket is ~4 MiB against a 128 KiB reassembly budget, and §5.1 check 1 would reject it only after the client had fragmented and sent every byte.
 
@@ -1140,6 +1247,7 @@ The arms that carry no `req_auth`, each for its own reason:
 - `SubmitRequest` (12) needs none: every record inside it carries its own `write_auth`.
 - `UnsubscribeRequest` (15) reads no group state and cancels only the caller's own subscription.
 - `RecoveryFetchRequest` (18) is issued by a seed-only restorer, which holds no group key at all; it is authorized by the Ed25519 recovery proof of §4.3.7 instead.
+- `RendezvousRegisterRequest` (20), `RendezvousOpenRequest` (21), `RendezvousDepositRequest` (22), `RendezvousCollectRequest` (23) and `RendezvousRetireRequest` (24) name no group and by construction involve at least one party that holds no group key at all. Each carries its own Ed25519 authenticator instead (§4.3.11), verified against a key the request self-certifies once and the server pins thereafter.
 
 #### 4.3.9 Wrap fetch
 
@@ -1215,6 +1323,94 @@ message RetentionApplied {
 
 `EpochAttachment`, `RecoveryTag`, `WrapTag` and `EpochComplete` are **not** declared here. They are `connect/message` encodings owned by Spec A, restated in §5.4, and are carried opaquely inside `Record.record_bytes`; the server parses them with `message.ParseServerAttachment` and never reimplements them (§12.1 A-2).
 
+#### 4.3.11 Contact rendezvous (MASTER §9.8)
+
+The one group-less surface in the system. A contact card is handed to someone who is in none of the owner's groups, so no `write_auth` and no `req_auth` exist between them, and every operation here is authorized by an Ed25519 signature instead. The derivations, the card encoding, the sealed deposit and the five preimages are Spec A §5.14; the server implements the verifiers and never the signers.
+
+```proto
+message RendezvousRegisterRequest {
+    bytes  rendezvous_id       = 1;   // 32 B
+    bytes  deposit_verify_pub  = 2;   // 32 B Ed25519, derived from the card's token
+    bytes  collect_verify_pub  = 3;   // 32 B Ed25519, held only by the card's owner
+    bytes  card_xwing_pub      = 4;   // 1216 B, disclosed on Open
+    uint32 alg_id              = 5;
+    bytes  register_auth       = 15;  // Ed25519 under collect_sig_sk over the §5.14 preimage
+}
+message RendezvousRegisterResponse {
+    uint64 expire_time_ms      = 1;   // when this registration lapses without a collect
+    uint32 mailbox_depth       = 2;   // uncollected deposits waiting right now
+}
+
+message RendezvousOpenRequest {
+    bytes  rendezvous_id       = 1;
+    bytes  open_auth           = 15;  // Ed25519 under deposit_sig_sk
+}
+message RendezvousOpenResponse {
+    bytes  card_xwing_pub      = 1;
+    uint32 alg_id              = 2;
+    uint32 deposit_bytes       = 3;   // echoes Capabilities.rendezvous_deposit_bytes
+}
+
+message RendezvousDepositRequest {
+    bytes  rendezvous_id       = 1;
+    bytes  deposit_ct          = 2;   // EXACTLY rendezvous_deposit_bytes
+    bytes  deposit_auth        = 15;  // Ed25519 under deposit_sig_sk over
+                                      //   rendezvous_id and H(deposit_ct)
+}
+message RendezvousDepositResponse {
+    uint64 deposit_id          = 1;   // the id assigned, or the existing one on an
+                                      // idempotent replay of identical bytes
+}
+
+message RendezvousCollectRequest {
+    bytes  rendezvous_id            = 1;
+    uint64 since_deposit_id         = 2;
+    uint64 ack_through_deposit_id   = 3;   // deletes everything through this id
+    uint32 limit                    = 4;
+    bool   subscribe                = 5;   // push while this connection lives
+    bytes  collect_auth             = 15;  // Ed25519 under collect_sig_sk
+}
+message RendezvousCollectResponse {
+    repeated RendezvousDeposit deposits = 1;
+    uint32 pending_count       = 2;
+    uint64 refused_count       = 3;   // refusals since the previous collect, then zeroed
+    uint64 expire_time_ms      = 4;   // refreshed by this call
+    bool   complete            = 5;
+}
+message RendezvousDeposit {
+    uint64 deposit_id          = 1;
+    bytes  deposit_ct          = 2;
+    uint64 create_time_ms      = 3;
+}
+
+message RendezvousRetireRequest {
+    bytes  rendezvous_id       = 1;
+    bytes  retire_auth         = 15;  // Ed25519 under collect_sig_sk
+}
+message RendezvousRetireResponse {
+    uint32 discarded_deposits  = 1;   // uncollected requests destroyed by the retirement
+}
+
+message RendezvousPush {
+    bytes  rendezvous_id       = 1;
+    uint32 pending_count       = 2;   // and nothing else; there is nothing else to say
+}
+```
+
+**Register.** Verify `register_auth` against the `collect_verify_pub` **in the request**. This is self-certification and it is stated plainly rather than implied: it is protected by the 20/day per-`client_id` rate limit and by the 128 bits of unguessability in the token the id derives from, and by nothing else — the same standing as `CreateGroupRequest.bootstrap_write_key` (§4.3.2). Insert the row and pin the key. A registration for an existing id presenting the **same** `collect_verify_pub` refreshes `refresh_time`, `expire_time` and `reclaim_after` and returns `REASON_OK`; that is the client's idempotent retry and its keep-alive. One presenting a different key returns `REASON_REJECTED`.
+
+**Open.** Verify `open_auth` against the pinned `deposit_verify_pub` and return the card's KEM key. The step exists so the card stays small enough to print, and it is the cheapest place to discover a retired card — before a redeemer has minted a key package. It is authorized rather than open because an unauthenticated probe would be a rendezvous-existence oracle over guessed ids.
+
+**Deposit.** Verify `deposit_auth` against the pinned `deposit_verify_pub`; assert `octet_length(deposit_ct) = rendezvous_deposit_bytes` as an **equality**, for the same reason §5.1 check 3 asserts equality on `ct_body` — a range check silently permits an unpadded deposit and the length then fingerprints the display name inside it. Check `deposit_count < rendezvous_mailbox_depth` and both rate limits. Insert with `ON CONFLICT (rendezvous_id, deposit_hash) DO NOTHING` and return the existing `deposit_id` on conflict, so a retry after a lost response yields one request rather than two.
+
+**Collect.** Verify `collect_auth` against the pinned `collect_verify_pub`. Delete through `ack_through_deposit_id`, return deposits after `since_deposit_id` bounded by `limit` and by `max_response_bytes`, recompute `deposit_count`, return and zero `refused_count`, and refresh the registration. With `subscribe` set, register the connection for `RendezvousPush` for the life of the connection; there is no cross-connection subscription state here any more than there is for a group.
+
+**Retire.** Verify `retire_auth`, stamp `retired_time`, delete every deposit at that id in the same transaction, and set `reclaim_after = now() + card_tombstone_seconds`. The row survives as a tombstone so a holder of the old link is told the link is dead during the window in which old screenshots actually circulate.
+
+**A retired id and an unknown id return the same `REASON_CARD_RETIRED`**, on `Open`, `Deposit` and `Collect` alike, with the same response size and the same padded latency floor as §4.5's other merged refusals. "This link is no longer live" is true of a withdrawn card and of a token that never existed, so the endpoint answers exactly one question and never confirms that a guessed id exists. A refusal for depth or rate is `REASON_CARD_RATE_LIMITED`; a full mailbox is folded into it rather than given a third code, because it is a limit on the card.
+
+**What this endpoint proves, and what it does not.** A verifying `deposit_auth` proves possession of the card, because the key derives from the token and is therefore the same key for every holder. It does **not** prove who the depositor is, that they came by the card honourably, that the sealed payload is a well-formed contact request, or that the identity inside it is theirs — the server cannot open the payload and by **I5** never verifies authorship. The inner `request_sig` under the requester's `identity` key is what binds the key package to a person, and the card owner's client verifies it (Spec A §5.14), exactly as it verifies a `RECOVERY_PUB` body signature before honouring a `RecoveryTag` (§5.4). The server's job here is admission and nothing more.
+
 ### 4.4 The subscribe race, resolved
 
 Naive subscribe has a well-known hole: register-then-backfill duplicates and misses, backfill-then-register loses everything written in between. The required sequence is:
@@ -1250,10 +1446,16 @@ enum Reason {
     REASON_EPOCH_INCOMPLETE         = 14;  // the epoch's wrap set has not landed (§6.1, step 3 of
                                            // the epoch publication sequence)
     REASON_WRAP_TARGET_UNKNOWN      = 15;  // WrapFetch: no wrap for that target at that epoch
+    REASON_CARD_RETIRED             = 16;  // rendezvous retired, or never registered — the same
+                                           // answer for both, deliberately (§4.3.11)
+    REASON_CARD_RATE_LIMITED        = 17;  // per-rendezvous or per-client deposit limit, or the
+                                           // mailbox is at rendezvous_mailbox_depth
 }
 ```
 
 **`REASON_REJECTED` deliberately merges "unknown group", "write_auth did not verify", and "epoch key unknown".** Distinguishing them would turn the submit path into an oracle for group existence: a party who holds no `write_key` could enumerate `group_id`s and learn which exist. The reject is the same code, the same response size, and the same timing envelope (the handler pads its response latency to a fixed floor on the reject path). A failed `req_auth` on the read path returns the same code with the same envelope (§5.1.1).
+
+`REASON_CARD_RETIRED` merges "this rendezvous was retired" with "this rendezvous does not exist" for the same reason `REASON_REJECTED` merges its three: distinguishing them would let a party with a list of guessed tokens learn which are real. It is a *distinct* code from `REASON_REJECTED` because the owner deliberately wants a holder of a rotated link told that the link is dead, which is the whole point of rotation being a remedy.
 
 `REASON_EPOCH_STALE` and `REASON_COMMIT_LOST` do reveal that the group exists — but they are only ever returned **after** a `write_auth` verified, so the caller already holds a group secret.
 
@@ -1297,6 +1499,11 @@ Until open item 2 is settled by measurement, the working assumption is `max_requ
 | RecoveryFetch | 5/hour, 20/day | `recovery_handle` **and** `client_id` | Redis, both must pass |
 | Fetch records/s | 5,000 | `client_id` | Redis |
 | Quarantine | see §9.6 | `client_id` | Postgres `message_quarantine`, checked at §5.1 check 4 |
+| Rendezvous registrations | 20/day | `client_id` | Redis + Postgres counter |
+| Rendezvous opens | 30/hour | `client_id` | Redis |
+| Rendezvous deposits | 8/hour, 32/day | `rendezvous_id` | Redis |
+| Rendezvous deposits | 10/hour, 30/day | `client_id` | Redis, both scopes must pass |
+| Rendezvous collects | 60/hour | `client_id` | Redis |
 
 On Redis unavailability, all limits fail **closed** to an in-process limiter at 25% of the configured rate. Availability is not worth an unmetered write path.
 
@@ -1333,6 +1540,12 @@ Steps 1–8 are lock-free and touch the database at most once, only for a group 
 Before this, `FetchRequest` and `SubscribeRequest` carried no authenticator at all and §5 specified verification for submit only: any client holding a valid `ByJwt` that learned a 32-byte `group_id` could read a group's complete ciphertext history, every wrap and every attestation. That is a better enumeration and disclosure oracle than the submit path, which §4.5 goes to real trouble to close, and it makes MASTER §9.5's description of what the server sees ("your account, your group list") false.
 
 `RecoveryFetch` is authorized by the Ed25519 recovery proof (§4.3.7) instead, because a seed-only restorer holds no `write_key`.
+
+#### 5.1.2 The rendezvous path
+
+§4.3.11's five operations are the only ones a party with no group key may issue, so the check order matters more here than anywhere else. Checks 1, 2 and 4 apply unchanged. Check 3 becomes a static shape check on the operation's own fields — 32-byte id, 32-byte public keys, 1216-byte `card_xwing_pub`, and `octet_length(deposit_ct)` **exactly** `rendezvous_deposit_bytes`. Check 5 becomes a **known-rendezvous cuckoo filter**, refreshed and inserted into by the same Redis channel and 60-second backstop timer as the known-group filter, so a deposit against a guessed id is refused with no database read at all. Check 6 becomes the `message_rendezvous` row lookup of Q17, served from an in-process LRU with negative results cached 5 s with jitter. Check 7 becomes the Ed25519 verification named for that operation. **No transaction is opened and no row is allocated before check 7 has passed**, and a party who holds no token can therefore force neither a row lock nor a WAL byte, which is the same property §5.1 gives the submit path.
+
+Registration is the one operation whose signature is verified against a key in the request rather than a key the server holds, and it is therefore the one operation an unauthenticated party can make the server act on. What bounds it is the 20/day per-`client_id` limit and the fact that the id is the hash of a 16-byte CSPRNG value that has not been published, exactly as `CreateGroup` is bounded. That is written here rather than left to be inferred.
 
 ### 5.2 What the server explicitly does NOT check, and why
 
@@ -1837,6 +2050,8 @@ A prune_after of infinity is stored as NULL.
 > the class deadline. This satisfies MASTER §9.1 and Spec A S10 while preserving the whole of decision B5's
 > reasoning (a member cannot pin `MEDIA` forever by declaring `expire_at = 2999`).
 
+Rendezvous state is on its own two clocks and does not enter the `prune_after` arithmetic above. A deposit is deleted at `create_time + rendezvous_deposit_ttl_seconds`. A registration lapses at `refresh_time + rendezvous_ttl_seconds`, where `refresh_time` advances on every successful collect, and its row is deleted at `reclaim_after` — which retirement sets to `now() + card_tombstone_seconds` so a rotated card answers "no longer live" for ninety days before it answers nothing at all.
+
 ### 7.2 What each class actually does at `prune_after`
 
 | Class | Action at `prune_after` | Head | Body | Blob | Row |
@@ -1846,6 +2061,9 @@ A prune_after of infinity is stored as NULL.
 | `MEDIA` | `ct_body = NULL`, `pruned = true`, blob deleted | **kept** | erased | deleted | **kept** |
 | `EPH(0)` | never persisted; fanned out through Redis and dropped (§7.6) | — | — | — | — |
 | `EPH(1..5)` | `ct_body = NULL`, `ct_head = NULL`, `body_hash` zeroed, **`sender_handle` overwritten with sixteen zero bytes**, blob deleted, `pruned = true`, and the row's `message_stream_claim` row **deleted** | cleared | erased | deleted | **kept as a ~60-byte placeholder** |
+| Rendezvous deposit | row deleted outright at `create_time + rendezvous_deposit_ttl_seconds` | — | — | — | **deleted** |
+
+A rendezvous deposit is the one thing in this store whose row is deleted rather than emptied. There is no gapless-id argument to preserve — `deposit_id` is a per-rendezvous cursor, not a withholding detector — and a placeholder would be a durable record that a contact request once arrived, which is the artefact the seven-day life exists to avoid.
 
 **The `EPH(1..5)` row survives, and this is not optional.** Deleting whole rows destroys the gapless `record_id` property that §4.3.4 sells ("a client can detect a withheld record as a hole in the id sequence"), that §14 lists as the v1 mitigation for T8, and that §12.2 C-4 makes normative for the client ("treat an id gap as a fault"). Disappearing messages are a shipped v1 feature, so the first client to set a one-hour timer would start manufacturing permanent, indistinguishable false withholding faults an hour later, forever. The placeholder keeps `record_id`, `size_bucket`, `retention_class` and `epoch` so the client renders the timeline correctly, and carries no key material, no ciphertext **and no sender**.
 
@@ -1881,8 +2099,12 @@ All configuration, all in `Capabilities`:
 | `group_durable_override` | **true** | When false, a group may not raise text retention above the default on this server, and the client says so rather than offering a control that does nothing |
 | `hosting_jurisdiction` | — (required in `message.yml`) | **Where this server is hosted.** Surfaced in the client's About screen; a server that advertises nothing here fails startup validation rather than shipping an empty answer |
 | `read_key_window_seconds` | **7776000 (90 days)** | How long each installed epoch read key is retained. The client renders this figure rather than a literal |
+| `rendezvous_deposit_bytes` | **5238** | The exact length of a sealed contact-card deposit, asserted as an **equality** and never as a range (§4.3.11) |
+| `rendezvous_mailbox_depth` | **16** | How many uncollected contact requests one card holds before further deposits are refused |
+| `rendezvous_deposit_ttl_seconds` | **604800 (7 days)** | How long an uncollected contact request survives before its row is deleted |
+| `rendezvous_ttl_seconds` | **7776000 (90 days)** | How long a card's registration lives without a collect, refreshed on every successful collect |
 
-The first rows are **the three limits MASTER §12.2 requires a server to advertise** — text, media, file size — plus the defaults and the override rule that make them usable. A group operates inside all three, and every one of them reaches the user as a formatted value rather than a literal (Spec C §8.4). The last two rows are not limits: they are advertised for the same reason the limits are, which is that a client that cannot read a number ends up printing one, and a printed number is a statement about someone else's deployment made without asking.
+The first rows are **the three limits MASTER §12.2 requires a server to advertise** — text, media, file size — plus the defaults and the override rule that make them usable. A group operates inside all three, and every one of them reaches the user as a formatted value rather than a literal (Spec C §8.4). `hosting_jurisdiction` and `read_key_window_seconds` are not limits at all, and the four rendezvous rows are limits on a *card* rather than on a group (§4.3.11); all six are advertised for the same reason the limits are, which is that a client that cannot read a number ends up printing one, and a printed number is a statement about someone else's deployment made without asking.
 
 **Retention negotiation — RULED, warn and proceed, in every direction** (closes open item 3 and ledger open item 1). MASTER open item 1's original wording ("a group's policy **exceeds** the server's advertised **minimum**") was incoherent — exceeding a minimum is not a conflict. The three real cases:
 
@@ -1946,6 +2168,21 @@ SELECT group_id, record_id, retention_class, blob_id
 - Per batch: update or delete rows, commit, then delete the batch's blob objects. **Postgres first, object store second.** A crash between them leaves an orphaned object, which the orphan reaper and the ILM backstop both clean up. The reverse order would leave a row pointing at a deleted object, which is a user-visible fault.
 - Between batches: 100 ms sleep. Per pass: max 50 batches or 20 s wall clock, whichever first. Steady state should keep `message_prune_lag_seconds` — `now() - min(prune_after)` over outstanding work — under an hour. That gauge is the retention SLO; alert above 6 h.
 - A second, slower loop every 5 minutes: blob orphan reaping (`message_blob_expire_grant`), `message_group_usage` recomputation, and epoch-row tidying, which is where **two independent expiries** run against `message_epoch`: `write_key_wrapped` is NULLed for rows whose `retire_time < now() - interval '60 seconds'`, and `read_key_wrapped` together with `read_key_install` is NULLed for rows whose `read_key_install < now() - read_key_window_seconds` (default 90 days). They are separate statements against separate predicates on purpose: collapsing them into one is how a maintenance change ends up destroying ninety days of read authorization in a single deploy (§5.3). Export `message_read_keys_retained` as a gauge and `message_read_key_expired_total` as a counter.
+- The same 5-minute loop reclaims rendezvous state (§4.3.11, §7.1), bounded exactly as everything else here is:
+
+```sql
+DELETE FROM message_rendezvous_deposit
+ WHERE ctid IN (SELECT ctid FROM message_rendezvous_deposit
+                 WHERE prune_after <= now() ORDER BY prune_after
+                   FOR UPDATE SKIP LOCKED LIMIT 1000);
+
+DELETE FROM message_rendezvous
+ WHERE ctid IN (SELECT ctid FROM message_rendezvous
+                 WHERE reclaim_after <= now() ORDER BY reclaim_after
+                   FOR UPDATE SKIP LOCKED LIMIT 500);
+```
+
+The deposit delete runs first, because the foreign key cascades and doing it in the other order makes the second statement do the first one's work under a wider lock. `deposit_count` is recomputed for every rendezvous the first statement touched, in the same transaction. Export `message_rendezvous_active` and `message_rendezvous_deposits_pending` as gauges and `message_rendezvous_deposit_refused_total{class}` as a counter over `retired | rate | full | malformed`, with no identifier labels.
 - `messagectl sweep-now --until-clean` runs the sweep to completion synchronously. It is required after every restore (§10.4).
 
 Three further loops, all outside the commit transaction.
@@ -1990,6 +2227,8 @@ Before this, `message_blob_prune` indexed a column no query ever selected on; th
 - `close_time` is stamped. After `group_reclaim_seconds` (config, default 30 days) the sweep deletes the group's records, blobs, epochs, sender rows, stream claims, recovery rows and the group row itself — which is also what destroys the last of its stored ciphertext and any read keys still inside their ninety-day window (§5.3).
 
 This is the **only** lever against the unprunable classes in v1. Text is bounded now — one year by default, and clamped by `durable_ttl_max_seconds` where the server advertises one (§7.3) — but `PERMANENT` is never pruned and is the dominant term (§3.5), so a group whose members have all left otherwise keeps its epoch bundles forever, and an operator watching the disk fill has only the two window settings, which affect the two classes that are already the shortest-lived. Add `message_group_closed_total` and `message_group_reclaimed_total`.
+
+Closing a group does not touch a rendezvous; a card belongs to an identity and not to a group, and an identity that leaves every group still has a card that works.
 
 ### 7.6 EPH(0) transients
 
@@ -2310,6 +2549,8 @@ This applies to reactions too, and the consequence is worth stating rather than 
 
 **Local lever:** `messagectl quarantine --client <id> --until <t>`, backed by `message_quarantine(client_id bytea PRIMARY KEY, until timestamp NOT NULL, class text NOT NULL)` in the **message-server** cluster, checked at §5.1 check 4. Metric `message_quarantine_active` (gauge).
 
+The rendezvous is the most attackable surface in this design and the levers against it are stated rather than assumed. It is **capability-gated**: there is no address derived from a principal or a name, so there is nothing to enumerate, and a deposit requires a 16-byte token nobody publishes. It is **depth-bounded**: sixteen uncollected deposits per card, so the cost of being sprayed is a full mailbox for a week rather than a growing spool. It is **rate-limited on both scopes**, per `rendezvous_id` and per `client_id`, both of which must pass. And a depositor is an authenticated `client_id` paying its own allowance, so `messagectl quarantine` applies here with no change and the permitted operator channel above — `client_id` plus a coarse class, nothing else — covers it with no new disclosure. What the server has no lever for, and must not acquire one for, is the *content* of a request: the deposit is sealed to the card and this server cannot read it. The user-side remedy is rotation, which withdraws the capability from every holder at once, and MASTER §13 describes it in exactly those terms rather than as a block.
+
 ---
 
 ## 10. Deployment, configuration, migrations, backup
@@ -2340,7 +2581,7 @@ Vault and config resources follow `server.Vault.RequireSimpleResource` / `server
 | `minio.yml` | vault | object store endpoint, credentials, prefix |
 | `message_server.yml` | vault | per-**ordinal** `client_id` + transport credential (§9.1) |
 | `message_fleet.yml` | vault | fleet-wide secrets: `write_key_kek`, `grant_kek`, `channel_key`, **the signing-sidecar endpoint and credential**, and the **fleet root public key** for verification. The signing private key is **not here and not anywhere on a replica** (§9.1) |
-| `message.yml` | config | `Capabilities` values, sweep tuning, rate limits, `group_reclaim_seconds`, `read_key_window_seconds` (default 7776000), `durable_ttl_default_seconds` (31536000), `durable_ttl_max_seconds` (0), `group_durable_override`, `operator_host`, `backup_jurisdiction`, and `diagnostic_session_max_minutes` (60) |
+| `message.yml` | config | `Capabilities` values, sweep tuning, rate limits, `group_reclaim_seconds`, `read_key_window_seconds` (default 7776000), `durable_ttl_default_seconds` (31536000), `durable_ttl_max_seconds` (0), `group_durable_override`, `operator_host`, `hosting_jurisdiction`, `rendezvous_ttl_seconds` (7776000), `rendezvous_deposit_ttl_seconds` (604800), `rendezvous_mailbox_depth` (16), `card_tombstone_seconds` (7776000), and `diagnostic_session_max_minutes` (60) |
 
 **Every value in `Capabilities` is config, never a constant in code.** Changing the blob cap must not require a release, and `CapabilityChange` pushes the new values to connected clients.
 
@@ -2460,13 +2701,13 @@ Made operational:
 
 **MUST NOT appear in any log line, metric label, trace span, error string, panic message, core dump, database log, object-store access log, or Redis slowlog:**
 
-`group_id` · `sender_handle` · `record_id` · `stream_index` · `blob_id` · `grant_ref` · `recovery_handle` · `wrap_target_handle` · `client_id` · `network_id` · any IP address · any `ByJwt` · `write_auth` · `req_auth` · `write_key` or `read_key` (wrapped or not) · any KEK · any ciphertext or any prefix of it · any request or response body · any URL path containing a blob key · any `pgconn.PgError` `Detail`, `Hint` or `Where` field · the fact that a particular client fetched a particular range · any record that a record once existed and was deleted.
+`group_id` · `sender_handle` · `record_id` · `stream_index` · `blob_id` · `grant_ref` · `recovery_handle` · `wrap_target_handle` · `rendezvous_id` · `deposit_id` · `client_id` · `network_id` · any IP address · any `ByJwt` · `write_auth` · `req_auth` · `write_key` or `read_key` (wrapped or not) · any KEK · any ciphertext or any prefix of it · any request or response body · any URL path containing a blob key · any `pgconn.PgError` `Detail`, `Hint` or `Where` field · the fact that a particular client fetched a particular range or deposited at a particular rendezvous · any record that a record once existed and was deleted.
 
 **MAY appear:** process lifecycle events; migration start/finish and version; aggregate counters and histograms; error *classes* without identifiers; panic type and stack frames. **Go's runtime always prints argument words in a traceback** — `GOTRACEBACK=single` reduces which goroutines print, not what each frame shows, and only `GOTRACEBACK=none` suppresses stacks, at the cost of all crash diagnostics. The mitigation is structural: the §11.2 redact types are opaque structs, so only a pointer and a length appear in registers.
 
 ### 11.2 Enforcement, in descending order of reliability
 
-1. **Structural (decision B11).** `GroupId`, `SenderHandle`, `BlobId`, `RecoveryHandle`, `ClientId` in `redact/` are **opaque structs wrapping an unexported `[]byte`** — never a named slice type and never a named array type — whose `String()`, `Format(fmt.State, rune)`, `LogValue()`, `MarshalJSON()`, and `MarshalText()` all return `"<redacted>"`. Access to the bytes is through an explicit `.Unwrap()` used only by the store and crypto layers. **An accidental `%v` cannot leak, because there is nothing to print.**
+1. **Structural (decision B11).** `GroupId`, `SenderHandle`, `BlobId`, `RecoveryHandle`, `ClientId`, `RendezvousId`, `DepositId` in `redact/` are **opaque structs wrapping an unexported `[]byte`** — never a named slice type and never a named array type — whose `String()`, `Format(fmt.State, rune)`, `LogValue()`, `MarshalJSON()`, and `MarshalText()` all return `"<redacted>"`. Access to the bytes is through an explicit `.Unwrap()` used only by the store and crypto layers. **An accidental `%v` cannot leak, because there is nothing to print.**
 
    This matters beyond style: pgx v5's encode planner consults `driver.Valuer`, `json.Marshaler` and `encoding.TextMarshaler` when a value is not directly handled by the target codec, so a *named type over `[]byte`* passed to a `bytea` parameter can be encoded through its `TextMarshaler` and **write the literal bytes `<redacted>` into the primary key column** — loud on a length-`CHECK`ed column, silent on an unconstrained one. An opaque struct cannot be passed to pgx at all, so the compiler enforces `.Unwrap()` at every store boundary instead of the developer discipline decision B11 exists to eliminate. Add the `store` package to item 2's analyser scope.
 2. **Compile-time.** A `go vet`-style analyser in CI fails the build on any format-verb application to a raw `[]byte` field of a record struct, and on any `glog`/`fmt` call taking a value from the store package's row types.
@@ -2558,6 +2799,9 @@ Prometheus via `client_golang`, matching the operator. **No metric may carry `gr
 | `message_read_key_expired_total` | counter | — |
 | `message_attestation_sign_failures_total` | counter | — |
 | `message_diagnostic_sessions_active` | gauge | — |
+| `message_rendezvous_active` | gauge | — |
+| `message_rendezvous_deposits_pending` | gauge | — |
+| `message_rendezvous_deposit_refused_total` | counter | `class` (retired, rate, full, malformed) |
 
 `message_reject_stage_total` is deliberately more specific than the wire code: the server has no reason to merge the three causes §4.5 merges *for the client*, and without it an enumeration attack at check 5 is indistinguishable from a client bug at check 7 or a key-cache problem at check 6.
 
@@ -2601,6 +2845,12 @@ Metric: `message_diagnostic_sessions_active` (gauge). Acceptance test 31 (§13) 
 | A-10 | `ComputeRequestAuth` / `VerifyRequestAuth` (§4.3.8), taking the **epoch's** `read_key` — with the epoch named by the request's `read_epoch` field, which is inside `canonical_request_bytes` and therefore inside the MAC — and `RecoveryProof` / `VerifyRecoveryProof` (§4.3.7) | The read path and the seed-only restore path have no authenticator without them. Keying reads to an epoch *write* key would lock out any member offline across a commit for more than sixty seconds; the read key's ninety-day window is what avoids that, and naming the epoch inside the MAC is what lets the server select one key rather than trial ninety days of them |
 | A-11 | `expire_at` is unix **milliseconds**, `u64`, big-endian, `0` = unset, on the wire and in both preimages; the shared `connect/message` encoder is the **only** producer of the preimage on both sides and it is never re-derived from the database | A seconds/milliseconds mismatch passes for the common case (`expire_at` unset, value 0) and fails only for the minority that set it — A-1's exact warning, but intermittent |
 | A-12 | `blob_id` as a header field of the record, present iff `size_bucket == 5`, inside `AAD_head` and the `write_auth` preimage | §8.3 binds blobs by it and §5.1 check 3 acts on it; **I6** forbids the server acting on an unauthenticated field |
+| A-13 | The fleet-root verification preimage `"URmessage/v1/serverkeyroot" ‖ LP(server_id) ‖ LP(key_pub) ‖ u64(not_before_ms) ‖ u64(not_after_ms)` | §4.3.1 signs it into `ServerKey.sig_by_root`; a byte-level disagreement surfaces as an intermittent first-contact failure |
+| A-14 | `read_epoch` inside `canonical_request_bytes` | §4.3.8, §5.1.1 — the server selects a key by an authenticated value and never trials keys |
+| A-15 | The `EPH(0)` delivery-receipt record | §4.3.3, §7.6 — indistinguishable from any other transient, which is the point |
+| A-16 | The reaction body encoding | §4.3.3 — opaque inside `ct_body`; nothing here validates it |
+| A-17 | The two-sentinel `durable_ttl_seconds` encoding | §5.4, §6.1 step (6), §7.1, §7.3 branch on it directly |
+| A-18 | The contact-card encoding, the rendezvous derivations, the sealed deposit at its exact length, and the five rendezvous signature preimages with their verifiers | §4.3.11 has no authenticator without them, and by **I6** the server may act on nothing it cannot verify. The server links the verifiers and never a signer, and gets no function that opens a deposit |
 
 The A-1 surface, in full:
 
@@ -2640,12 +2890,28 @@ func ClassIsPrunable(c RetentionClass) bool
 func ParseServerAttachment(b []byte) (*ServerAttachment, error)
 func EncodeServerAttachment(a *ServerAttachment) ([]byte, error)
 
+// ── contact rendezvous (§4.3.11, Spec A §5.14) ─────────────────────────────
+func RendezvousId(token []byte) [32]byte
+func DepositVerifyKey(token []byte) ([]byte, error)                            // Ed25519 public
+func RendezvousRegisterPreimage(serverNonce []byte, r *RendezvousRegistration) []byte
+func VerifyRendezvousRegister(r *RendezvousRegistration, serverNonce []byte, sig []byte) bool
+func VerifyRendezvousOpen(depositVerifyPub []byte, serverNonce []byte,
+                          rendezvousId []byte, sig []byte) bool
+func VerifyRendezvousDeposit(depositVerifyPub []byte, serverNonce []byte,
+                             rendezvousId []byte, depositCt []byte, sig []byte) bool
+func VerifyRendezvousCollect(collectVerifyPub []byte, serverNonce []byte,
+                             c *RendezvousCollectParams, sig []byte) bool
+func VerifyRendezvousRetire(collectVerifyPub []byte, serverNonce []byte,
+                            rendezvousId []byte, sig []byte) bool
+func RendezvousDepositBytes() int                                              // 5238, exactly
+
 // ── exported types ─────────────────────────────────────────────────────────
 type Record, RecordHeader, RetentionClass, SizeBucket,
-     ServerAttachment, EpochAttachment, RecoveryTag, WrapTag, EpochComplete
+     ServerAttachment, EpochAttachment, RecoveryTag, WrapTag, EpochComplete,
+     RendezvousRegistration, RendezvousCollectParams
 ```
 
-The server may use **only** this surface. It gets no decryption function, no key-schedule function, and no MLS type. A test in the message-server repo asserts the allowlist.
+The server may use **only** this surface. It gets no decryption function, no key-schedule function, and no MLS type. The rendezvous group is **verifiers only**: no signer and no function that opens a deposit, because a sealing or opening function on this surface would be a decryption capability in the process that holds the mailbox. A test in the message-server repo asserts the allowlist.
 
 ### 12.2 What this component exposes to spec C (through `sdk`, never directly)
 
@@ -2664,6 +2930,7 @@ Spec C never opens a socket to the message server. Everything below reaches C th
 | C-9 | Server key verification | The **first** `ServerKey` this fleet ever presents is verified against the fleet root public key compiled into the SDK (`ServerKey.sig_by_root`), not trusted on first use. `BlobEndpoint.tls_spki_sha256` is still pinned on first contact |
 | C-10 | `ServerKey` rotation | A change carrying a valid `sig_by_previous` chaining from a trusted key, or a valid `sig_by_root`, is accepted **silently** and written to the client's inspectable security log. A key chaining to neither is **refused** — the client does not connect and offers no way to accept it. There is no modal and no accept path (§4.3.1) |
 | C-11 | `hosting_jurisdiction` and `read_key_window_seconds`, advertised in `Capabilities` (§4.3.1, §7.3) and reaching C through A's `ServerInfo()` | Render the jurisdiction as its own row in About, and format the read-key window into the copy shown to a user who has been away, rather than printing a literal duration. Both render as "not known yet" until the server has advertised them; neither has a client-side default, because a fabricated one is a claim about someone else's deployment |
+| C-12 | The rendezvous limits — `rendezvous_deposit_ttl_seconds`, `rendezvous_mailbox_depth`, `rendezvous_ttl_seconds` — and `REASON_CARD_RETIRED` / `REASON_CARD_RATE_LIMITED`, all reaching C through A | Format how long a contact request waits and how many a card holds from these values, never as literals. Render a retired and an unknown card identically, because the server deliberately does not distinguish them. Never present a card whose registration has not landed as if it could receive |
 
 ---
 
@@ -2707,6 +2974,11 @@ Master spec §14 makes §9.7 an acceptance criterion for this slice. Concretely,
 34. **Read keys expire and write keys still expire faster.** Assert the two tidy statements are independent: after 61 seconds a write key is NULL and its read key is not; after 90 days the read key is NULL. Guards §5.3 and §7.4.
 35. **No signing key on a replica.** Assert the process holds no attestation signing private key in memory or configuration, that every signature is produced through the sidecar, and that `/readyz` fails when the sidecar is unreachable. Guards §9.1 and decision B13.
 36. **PITR window is 48 hours.** Assert the configured and restored-target retention of the WAL archive is 48 hours, and that the restore drill's marker gate refuses traffic until both `sweep-now --until-clean` and `reconcile-blobs` have completed. Guards §10.4.
+37. **Rendezvous authenticators.** For each of the five operations: the correct signature succeeds; the same request signed under the wrong key of the pair, under another rendezvous's key, over a mutated field, or against a different connection's `server_nonce` is refused with the same padded latency. A `Collect` signed under `deposit_sig_sk` — the key every card holder has — is refused, which is the property that separates collecting from depositing.
+38. **Deposit shape and idempotency.** A deposit one byte short and one byte long are both refused; a deposit replayed with identical bytes returns the original `deposit_id` and leaves one row; the seventeenth uncollected deposit is refused with `REASON_CARD_RATE_LIMITED`.
+39. **Retirement and the merged answer.** After `Retire`, `Open`, `Deposit` and `Collect` all return `REASON_CARD_RETIRED`; uncollected deposits are gone; the same code is returned for an id that was never registered, with the same response size and latency; the tombstone row is reclaimed by the sweep at `card_tombstone_seconds` and the id then behaves identically.
+40. **The mailbox holds no depositor.** Run a deposit workload and assert no column in `message_rendezvous` or `message_rendezvous_deposit` contains a `client_id` or any value derived from one, that deposits are deleted at `rendezvous_deposit_ttl_seconds`, and that the §11.1 workload assertion still finds no `rendezvous_id` or `deposit_id` in any sink.
+41. **Rendezvous DoS ordering.** 10^5 deposits against random rendezvous ids produce zero rows and zero row locks beyond the negative-cache reads. Guards §5.1.2.
 
 ---
 
