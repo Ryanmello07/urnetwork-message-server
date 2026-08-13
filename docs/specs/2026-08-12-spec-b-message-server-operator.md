@@ -1,9 +1,9 @@
 # URmessage — Message Server and Operator Context
 
 **Spec B of three.** Companion documents: spec A (`connect`/`sdk` protocol and client core) and spec C (Windows messaging client).
-**Normative parent:** `docs/specs/2026-08-12-urmessage-protocol-design.md` (revision 7) — referred to below as *the master spec*, cited by section (e.g. §9.3).
+**Normative parent:** `docs/specs/2026-08-12-urmessage-protocol-design.md` (revision 8) — referred to below as *the master spec*, cited by section (e.g. §9.3).
 **Decision record:** `SPEC-LEDGER.md`.
-**Date:** 2026-08-12 · **Revision:** 4 · **Status:** Design, owner rulings applied
+**Date:** 2026-08-12 · **Revision:** 5 · **Status:** Design, owner rulings applied
 
 Notation follows the master spec: `LP(x)` = 32-bit **big-endian** length prefix then `x`; `u8/u16/u32/u64` = big-endian fixed width; `‖` = concatenation; `H` = SHA-256; HKDF is HKDF-SHA-256. All timestamps in Postgres are `timestamp` in UTC, never `timestamp with time zone`, matching the operator's convention.
 
@@ -15,8 +15,8 @@ Notation follows the master spec: `LP(x)` = 32-bit **big-endian** length prefix 
 
 | Item | State |
 |---|---|
-| Master protocol design | Revision 7, owner rulings applied |
-| This spec | Revision 4, R4 and R5 review plus the owner's product rulings applied |
+| Master protocol design | Revision 8, owner rulings applied |
+| This spec | Revision 5, R4 and R5 review plus the owner's product rulings applied |
 | Message server code | None |
 | Repo | `Ryanmello07/urnetwork-message-server` (seeded: LICENSE, README, SPEC-LEDGER, docs) |
 | Branch for protocol code | `beta/message` on the `connect` and `sdk` forks (not yet created) |
@@ -68,13 +68,13 @@ Verified against the checked-out trees at `C:\Users\ryanm\Downloads\claude_sandb
 
 1. **`server_attachment` amendment to §9.2 — RULED, adopted. See §5.4.** Commit records carry a server-visible `EpochAttachment` (the next epoch's `write_key`, retention policy, group-context hash, `expected_wrap_count`), archive records a `RecoveryTag`, wrap records a `WrapTag`, and the fan-out marker an `EpochComplete`. `‖ LP(H(server_attachment))` is appended to the §9.2 `write_auth` preimage and to `AAD_head`. The encoding is owned by Spec A (`connect/message/attachment.go`) and consumed here. No longer blocking.
 2. **Control-plane message size.** `ClientSettings.MinimumMessageLenLimit()` is 4 KiB and `sendPackBatchMaxMessageByteCount` is 3 KiB. A 64 KiB inline record does not fit one frame. This spec defines an application-level fragmentation wrapper (§4.6) so the protocol is transport-cap independent, but the platform's *actual* production `MaxMessageLen` must be measured before we size the inline ladder. **Assumption to confirm by measurement.**
-3. **Retention negotiation — RULED, warn and proceed in every direction. See §7.3.** Longer than `media_ttl_max_seconds` clamps **down**; shorter than `durable_retention_min_seconds` floors **up**; longer than `durable_ttl_max_seconds`, including a request for indefinite text retention on a server that advertises a cap, clamps **down**. All three accept the commit and return `REASON_RETENTION_CLAMPED` with `RetentionApplied`. Refusal is not an option in any of them.
+3. **Retention negotiation — RULED, warn and proceed in every direction. See §7.3.** Longer than `media_ttl_max_seconds` clamps **down**; shorter than `durable_retention_min_seconds` floors **up**; longer than `durable_ttl_max_seconds`, including the explicit-indefinite sentinel on a server that advertises a cap, clamps **down**. All three accept the commit and return `REASON_RETENTION_CLAMPED` with `RetentionApplied`. Refusal is not an option in any of them. A group that sets nothing sends a separate sentinel and receives this server's own advertised text default — one year on a stock server — which is not a clamp and is reported as `durable_defaulted`.
 4. **Blob padding ladder — CLOSED.** Spec A §5.13 owns it: `blob_id = HKDF-Expand(record_key[i], "blob/v1", 32)`, padding to a **262144-byte (256 KiB)** multiple. `Capabilities.blob_pad_multiple` advertises the value and does not define it.
 5. **KT staging — RULED, a release gate rather than a date.** §9.4 specifies the VRF suite, the tree arithmetic, the STH preimage, the history tree, the four client endpoints, the signing key and the monitor role. The ruling, matching MASTER §15 item 6: **the log is a general-availability gate.** Beta testers may run against a log that is not yet live, with every key-change row and every directory lookup rendering `kt_unavailable` explicitly; no non-beta user is served until the log, its four client endpoints and its monitor role are running. Closed.
 6. **Group-row lock throughput.** B4 serialises writes per group. Expected ceiling ~1–2k records/s/group; a 500-member group at peak is nowhere near that. **Assumption to confirm by benchmark in slice 3.**
 7. **Push transport — a general-availability gate, not a beta gate** (MASTER §15 item 2). Out of scope for this spec beyond leaving `presence` in Redis and a `push_token` field reserved, and the server-side channel registry, which lands with the client's push slice. The beta ships without push and says so in the client. A working **contentless** wake must exist before any non-beta user.
-8. **Read-key retention window.** `read_key_window_seconds`, default **7776000** (90 days), is the single number that decides both how long an offline member may be away and how long a removed member keeps metadata access. It is configuration in `message.yml` and it is a **published** number, not a tuning knob: changing it changes a statement in MASTER §13.
-9. **Backup, RPO and jurisdiction.** Nightly encrypted base backups, continuous WAL archiving, a **48-hour** point-in-time window, and a **named hosting jurisdiction** are required before any user beyond the two beta testers, and the jurisdiction is published rather than inferred from an IP address. §10.4.
+8. **Read-key retention window.** `read_key_window_seconds`, default **7776000** (90 days), is the single number that decides both how long an offline member may be away and how long a removed member keeps metadata access. It is configuration in `message.yml`, it is **advertised** as `Capabilities.read_key_window_seconds` (§4.3.1) so the client states it rather than hardcoding it, and it is a **published** number, not a tuning knob: changing it changes a statement in MASTER §13.
+9. **Backup, RPO and jurisdiction.** Nightly encrypted base backups, continuous WAL archiving, a **48-hour** point-in-time window, and a **named hosting jurisdiction** are required before any user beyond the two beta testers, and the jurisdiction is published rather than inferred from an IP address — advertised as `Capabilities.hosting_jurisdiction` (§4.3.1) and refused as empty at startup. §10.4.
 
 ### Edit log
 
@@ -138,6 +138,32 @@ diagnostic session, backed by a new `message_diagnostic_session` table and a new
 RPO and a named hosting jurisdiction (§10.4). Delivery receipts ship in v1 on the existing `EPH(0)`
 path and leave the V2 list (§4.3.3, §14). Tests 29 and 30 rewritten; tests 31–36 added. Open item 7
 restated as a general-availability gate; open items 8 and 9 added.
+
+---
+
+**Revision 5 — 2026-08-12 — the second batch of owner product rulings applied.** `Capabilities` gains
+two advertised values that previously lived only in configuration: `hosting_jurisdiction` and
+`read_key_window_seconds`. Both are surfaced through `sdk` to the client, both render as "not known
+yet" until the server has advertised them, and `/readyz` now refuses readiness on an empty
+`hosting_jurisdiction` or `operator_host`, so a value that answers a legal question can no longer sit
+in a file nobody reads (§4.3.1, §7.3, §10.1, §10.4, §12.2 C-11). **Text retention gained a second
+wire sentinel**: `0` now means *the group set nothing* and `0xFFFFFFFF` means *the group asked for
+indefinite*, because one sentinel could not carry both requests and a stock server therefore stored
+"forever" for every group that never opened a retention screen — the one-year default was only ever
+true if every client volunteered the value. §6.1 step (6) applies this server's own
+`durable_ttl_default_seconds` on the unset sentinel, `RetentionApplied` gains `durable_defaulted` so
+"this server's default is a year" and "you asked for longer and got a year" are distinguishable
+sentences, and §5.4's sentinel paragraph, §5.1 check 3, the §3.2 DDL comment and §7.1's
+`class_deadline` were brought into line (§3.2, §4.3.10, §5.1, §5.4, §6.1, §7.1, §7.3). The §7.2
+`DURABLE` prune row said "none by default", which was the old reading; it now names the one-year
+default and reserves `NULL` for a server advertising no text cap. Reactions widened to arbitrary
+emoji, which changes nothing on the wire here and is stated as such: a reaction is an ordinary
+record with a length-prefixed UTF-8 body inside `ct_body`, unreadable and uncountable by this server
+(§4.3.3), and §9.6 records the consequence — a reaction is now user-authored content that can be
+used to harass, this server cannot see it, and a server-side reaction filter would require reading
+message content. §9.5 now cites the client half of the per-operator gossip rule. The deferred-to-V2
+row for per-member delivery receipts, whose body said the item was not deferred, is deleted (§14).
+Test 33 extended to cover the unset sentinel; ledger open items 3, 8 and 9 updated.
 
 ---
 
@@ -289,7 +315,10 @@ CREATE TABLE message_group (
     -- retention policy, as published by the committer in the epoch attachment,
     -- already clamped to this server's advertised caps
     media_ttl_seconds   int         NOT NULL,
-    durable_ttl_seconds int         NULL,          -- NULL = indefinite (wire sentinel 0; §5.4)
+    durable_ttl_seconds int         NULL,          -- NULL = indefinite (wire sentinel 0xFFFFFFFF
+                                                   -- on a server advertising no text cap; the
+                                                   -- unset sentinel 0 resolves to this server's
+                                                   -- advertised default. §5.4, §6.1 step 6)
 
     -- read keys are per epoch and live on message_epoch, not here (§5.3).
 
@@ -805,6 +834,15 @@ message Capabilities {
     string operator_host                 = 19;  // the operator THIS SERVER holds its account
                                                 // on, from message.yml. Not "the" operator:
                                                 // the client's may differ (§9.1)
+    string hosting_jurisdiction          = 20;  // where this server is hosted, from message.yml
+                                                // (§10.4). Advertised because "where is this
+                                                // server" has a legal answer and a user is
+                                                // entitled to it before choosing to use it.
+    uint32 read_key_window_seconds       = 21;  // how long this server retains each installed
+                                                // epoch read key. Default 7776000 (90 days).
+                                                // Advertised because the client names this number
+                                                // to a user who has been away (Spec C §9.8) and
+                                                // must not hardcode it.
 }
 
 message BlobEndpoint {
@@ -904,6 +942,8 @@ message Record {
 > and the server retains no `write_auth` column because retaining it would serve nobody.
 
 **Delivery receipts use this path unchanged.** A delivery receipt is an ordinary record of class `EPH(bucket 0)`: it is never persisted, never allocated a `record_id`, and fanned out on the transient channel of §7.6 exactly as a read receipt or a typing indicator is. The server does not know it is a delivery receipt, cannot distinguish it from any other transient, and gains no new capability from it — which is the point, because a delivery state the server manufactured would be a claim about someone else's device that no one could check (MASTER §9.5).
+
+**Reactions use this path unchanged too.** A reaction is an ordinary application record. Its body is a length-prefixed UTF-8 string inside `ct_body`, so this server cannot read it, cannot count reactions by emoji, and cannot distinguish a reaction from any other message of the same size bucket. Nothing here changes when the reaction vocabulary changes.
 
 ```proto
 message SubmitResponse {
@@ -1157,16 +1197,21 @@ message KtGossip         { uint64 kt_epoch = 1; bytes root_hash = 2; bytes prev_
 
 message RetentionApplied {
     uint32 media_ttl_seconds        = 1;   // what the server actually stored
-    uint32 durable_ttl_seconds      = 2;   // 0 = indefinite
+    uint32 durable_ttl_seconds      = 2;   // what the server actually stored. 4294967295 means
+                                           // indefinite; 0 never appears in an applied value,
+                                           // because "the group set nothing" is a request and
+                                           // not an outcome
     bool   media_clamped_down       = 3;
     bool   durable_floored_up       = 4;
     uint32 requested_media_ttl_seconds   = 5;
     uint32 requested_durable_ttl_seconds = 6;
     bool   durable_clamped_down          = 7;   // text clamped to durable_ttl_max_seconds
+    bool   durable_defaulted             = 8;   // the group sent the unset sentinel and this
+                                                // value is the server's own advertised default
 }
 ```
 
-`sdk` surfaces this message field-for-field as `MessageRetentionApplied`, in **seconds**, differing only in Go casing (Spec A §7.7). Nothing on either side converts to milliseconds; `durable_ttl_seconds = 0` continues to mean indefinite all the way to the user-visible notice.
+`sdk` surfaces this message field-for-field as `MessageRetentionApplied`, in **seconds**, differing only in Go casing (Spec A §7.7). Nothing on either side converts to milliseconds; the applied value carries `4294967295` for indefinite all the way to the user-visible notice, and never `0`.
 
 `EpochAttachment`, `RecoveryTag`, `WrapTag` and `EpochComplete` are **not** declared here. They are `connect/message` encodings owned by Spec A, restated in §5.4, and are carried opaquely inside `Record.record_bytes`; the server parses them with `message.ParseServerAttachment` and never reimplements them (§12.1 A-2).
 
@@ -1267,7 +1312,7 @@ Order matters for denial of service, not just correctness. Nothing that costs a 
 |---|---|---|---|
 | 1 | Frame decodes; fragment reassembly within `max_request_bytes` | CPU, bounded | `REASON_OVERSIZE`, free buffer |
 | 2 | Connection is authenticated at the connect layer (`ByJwt` validated by the platform; §4.3 master). The `server_nonce` is **not** carried in the request — the server knows its own connection's nonce and looks it up from the connection, never from the request | memory | `REASON_REJECTED` |
-| 3 | **Static shape.** `octet_length(sender_handle)==16`, `body_hash`==32, `retention_class` and `size_bucket` in range, `expire_at` parses, `ct_head` ≤ head cap, and **`octet_length(ct_body)` is exactly `size_bucket_bytes[b] + 16`** (the AEAD tag) — equality, not a range, because §9.5 pads into buckets. `size_bucket == 5` requires `ct_body` absent and a 32-byte `blob_id` present in the parsed header; any other `size_bucket` requires `blob_id` absent. Both are read from `message.ParseRecord`, never from the request's projection alone. And `server_attachment` parses via `message.ParseServerAttachment` and is well-formed for its record kind: `EpochAttachment` iff `is_commit`, with `epoch == current_epoch + 1`, `write_key` exactly 32 bytes, `read_key` exactly 32 bytes — **different in every epoch, and therefore never compared against a previously installed one** — known `alg_id`, retention fields in range and `expected_wrap_count > 0`; `RecoveryTag` with a 16-byte handle and a 32-byte Ed25519 pub; `WrapTag` with a 16-byte target; `EpochComplete` with a matching `wrap_count`. Every projection field of `Record` equals the corresponding field of `ParseRecord(record_bytes)` (§4.3.3) | CPU | `REASON_OVERSIZE` / `REASON_REJECTED` |
+| 3 | **Static shape.** `octet_length(sender_handle)==16`, `body_hash`==32, `retention_class` and `size_bucket` in range, `expire_at` parses, `ct_head` ≤ head cap, and **`octet_length(ct_body)` is exactly `size_bucket_bytes[b] + 16`** (the AEAD tag) — equality, not a range, because §9.5 pads into buckets. `size_bucket == 5` requires `ct_body` absent and a 32-byte `blob_id` present in the parsed header; any other `size_bucket` requires `blob_id` absent. Both are read from `message.ParseRecord`, never from the request's projection alone. And `server_attachment` parses via `message.ParseServerAttachment` and is well-formed for its record kind: `EpochAttachment` iff `is_commit`, with `epoch == current_epoch + 1`, `write_key` exactly 32 bytes, `read_key` exactly 32 bytes — **different in every epoch, and therefore never compared against a previously installed one** — known `alg_id`, retention fields in range — both `durable_ttl_seconds` sentinels, `0` and `4294967295`, are legal values here and are resolved at §6.1 step (6), never refused — and `expected_wrap_count > 0`; `RecoveryTag` with a 16-byte handle and a 32-byte Ed25519 pub; `WrapTag` with a 16-byte target; `EpochComplete` with a matching `wrap_count`. Every projection field of `Record` equals the corresponding field of `ParseRecord(record_bytes)` (§4.3.3) | CPU | `REASON_OVERSIZE` / `REASON_REJECTED` |
 | 4 | **Rate limits** (§4.7), including the §9.6 quarantine check | Redis / DB | `REASON_RATE_LIMITED` |
 | 5 | **Known-group filter.** An in-memory cuckoo filter of every `group_id`. An unknown group is rejected here with **no database read**. See the insert path below — the timer is a backstop only | memory | `REASON_REJECTED` |
 | 6 | **Epoch key lookup.** In-process LRU keyed `(group_id, epoch)`; miss reads `message_epoch` once, unwraps under the `kek_id` in the row, caches. Negative results cached 5 s with jitter. The **current** epoch's key and one briefly-retired predecessor both resolve (§5.3) | memory / 1 read | `REASON_REJECTED` |
@@ -1393,7 +1438,13 @@ EpochAttachment {
                                 //   attachment OPENS. Different in every epoch; the server
                                 //   installs it per epoch and retains it for 90 days (§5.3)
     u32  media_ttl_seconds
-    u32  durable_ttl_seconds    // 0 = indefinite
+    u32  durable_ttl_seconds    // 0          = the group set nothing; the server applies its own
+                                //              advertised text default
+                                // 0xFFFFFFFF = the group asked for indefinite retention, which a
+                                //              server advertising a text cap clamps down to that cap
+                                // any other value = the group's requested retention in seconds,
+                                //              floored up to this server's advertised minimum and
+                                //              clamped down to its advertised cap
     LP   group_context_hash     // exactly 32 bytes
     u32  expected_wrap_count    // device wraps + recovery wraps + 1 snapshot, for the epoch it opens
 }
@@ -1421,7 +1472,9 @@ wrap_target_handle = HKDF-Expand(group_handle_key, "wt/v1" ‖ u64(epoch) ‖ u3
 
 `server_attachment` is **zero-length** for ordinary records, and a zero-length attachment and an `AttachmentNone` attachment MUST encode identically, or `H(server_attachment)` differs between client and server for every ordinary record.
 
-**`durable_ttl_seconds = 0` means indefinite, on the wire and nowhere else.** The wire sentinel is `0`; the column's sentinel is `NULL`; §6.1 step (6) is the only place the two meet. An indefinite policy is **never floored**: it is already longer than any minimum this server could advertise, so `durable_floored_up` is false. It **is** clamped down where this server advertises a text storage cap: `durable_ttl_max_seconds` non-zero maps wire `0` to the cap, sets `durable_clamped_down`, and `RetentionApplied.durable_ttl_seconds` reports the cap rather than echoing `0`. Only a server advertising no cap stores `NULL` and echoes `0` back. Clamping down is honest — a server with a stated cap cannot honour "keep forever" — whereas flooring up would convert "keep forever" into a shorter finite TTL and then delete the history the group asked to keep.
+**Text retention carries two wire sentinels, not one, and neither of them is a column value.** `0` means *the group set nothing*; `0xFFFFFFFF` means *the group asked for indefinite*. The column's sentinel for indefinite is `NULL`, and §6.1 step (6) is the only place the wire and the column meet. Two sentinels rather than one, because "the group set nothing" and "the group asked for forever" are different requests and a single value cannot carry both: with one sentinel, a stock server stored *forever* for every group that never opened a retention screen, and the one-year text default then held only if every client volunteered the value — client cooperation, which the default exists to replace.
+
+On the unset sentinel the server applies **its own advertised text default**, which is one year on a stock server, and sets `durable_defaulted`. On the explicit-indefinite sentinel an indefinite policy is **never floored** — it is already longer than any minimum this server could advertise, so `durable_floored_up` is false — and it **is** clamped down where this server advertises a text storage cap: a non-zero `durable_ttl_max_seconds` maps it to the cap, sets `durable_clamped_down`, and `RetentionApplied.durable_ttl_seconds` reports the cap rather than echoing the sentinel back. Only a server advertising no cap stores `NULL` and reports `4294967295`. Clamping down is honest — a server with a stated cap cannot honour "keep forever" — whereas flooring up would convert "keep forever" into a shorter finite TTL and then delete the history the group asked to keep. Neither sentinel is ever a reason to refuse a commit (§7.3).
 
 **`expire_at` units.**
 
@@ -1547,15 +1600,19 @@ UPDATE message_group
    SET current_epoch       = current_epoch + 1,
        epoch_complete      = false,
        media_ttl_seconds   = LEAST(attachment.media_ttl_seconds,  $server_media_cap),
-       -- Text retention is bounded on BOTH sides now: floored up to the advertised
-       -- minimum and clamped down to the advertised cap. 0 means indefinite on the wire;
-       -- it maps to NULL only when this server permits it, which is when
-       -- durable_ttl_max_seconds is 0 (no maximum). Where a maximum is advertised,
-       -- indefinite is clamped to it, because "keep forever" is not something a server
-       -- with a stated cap can honour (§7.3).
+       -- Text retention is bounded on both sides, and the wire carries two distinct
+       -- sentinels: 0 means "the group set nothing", 0xFFFFFFFF means "the group asked for
+       -- indefinite". A single sentinel could not express both, and with one sentinel a
+       -- stock server stored "forever" for every group that never opened a retention screen —
+       -- which is the client-cooperation promise the one-year default exists to replace.
        durable_ttl_seconds = CASE
-           WHEN attachment.durable_ttl_seconds = 0 AND $server_durable_max = 0 THEN NULL
-           WHEN attachment.durable_ttl_seconds = 0 THEN $server_durable_max
+           WHEN attachment.durable_ttl_seconds = 0 THEN
+               CASE WHEN $server_durable_default = 0 AND $server_durable_max = 0 THEN NULL
+                    WHEN $server_durable_default = 0 THEN $server_durable_max
+                    WHEN $server_durable_max = 0     THEN $server_durable_default
+                    ELSE LEAST($server_durable_default, $server_durable_max) END
+           WHEN attachment.durable_ttl_seconds = 4294967295 THEN
+               CASE WHEN $server_durable_max = 0 THEN NULL ELSE $server_durable_max END
            ELSE LEAST(GREATEST(attachment.durable_ttl_seconds, $server_durable_min),
                       CASE WHEN $server_durable_max = 0
                            THEN attachment.durable_ttl_seconds
@@ -1584,6 +1641,8 @@ ON CONFLICT (group_id, sender_handle) DO UPDATE
 COMMIT;
 -- (8) AFTER commit, never before: publish {mask, group_id_enc, lo, hi} to Redis.
 ```
+
+`RetentionApplied.durable_defaulted` is set on the first branch, `durable_clamped_down` on the second whenever a cap is advertised, and both are false on the third unless a clamp or a floor actually moved the value. The client needs the three cases distinguishable, because "this server's default is a year", "you asked for forever and got a year" and "you asked for two years and got a year" are three different sentences.
 
 Why both the row lock and the `message_commit` primary key: the lock makes the losing path deterministic and lets the winner be read and returned in the same round trip; the primary key guarantees the invariant even if some future code path forgets the lock. The invariant is worth two mechanisms.
 
@@ -1748,7 +1807,9 @@ prune_after = LEAST(class_deadline, expire_at_or_infinity), where:
   class_deadline =
     PERMANENT (0)   -> infinity                                 -- never
     DURABLE   (1)   -> create_time + group.durable_ttl_seconds, which §6.1 step (6) has
-                       already FLOORED at Capabilities.durable_retention_min_seconds and
+                       already DEFAULTED to Capabilities.durable_ttl_default_seconds where
+                       the group set nothing, FLOORED at
+                       Capabilities.durable_retention_min_seconds and
                        CLAMPED at Capabilities.durable_ttl_max_seconds.
                        durable_ttl_seconds IS NULL -> infinity. NULL is reachable only on
                        a server that advertises no text cap (durable_ttl_max_seconds = 0);
@@ -1781,7 +1842,7 @@ A prune_after of infinity is stored as NULL.
 | Class | Action at `prune_after` | Head | Body | Blob | Row |
 |---|---|---|---|---|---|
 | `PERMANENT` | none | kept | kept | **kept** (`perm/` rung, no ILM rule) | kept |
-| `DURABLE` | none by default; if the group set a TTL, same as `MEDIA` | kept | erased | deleted | kept |
+| `DURABLE` | body erased at `create_time + durable_ttl_seconds` — one year by default, because a group that sets nothing gets this server's advertised text default (§6.1 step 6, §7.3) — otherwise identical to `MEDIA`. `durable_ttl_seconds IS NULL` means indefinite and no action, and is reachable only on a server that advertises no text cap | kept | erased | deleted | kept |
 | `MEDIA` | `ct_body = NULL`, `pruned = true`, blob deleted | **kept** | erased | deleted | **kept** |
 | `EPH(0)` | never persisted; fanned out through Redis and dropped (§7.6) | — | — | — | — |
 | `EPH(1..5)` | `ct_body = NULL`, `ct_head = NULL`, `body_hash` zeroed, **`sender_handle` overwritten with sixteen zero bytes**, blob deleted, `pruned = true`, and the row's `message_stream_claim` row **deleted** | cleared | erased | deleted | **kept as a ~60-byte placeholder** |
@@ -1818,8 +1879,10 @@ All configuration, all in `Capabilities`:
 | `durable_ttl_default_seconds` | **31536000 (1 year)** | What a group gets for text if it sets nothing. Text retention defaults to a year, not to forever |
 | `durable_retention_min_seconds` | **0 (no minimum)** | The minimum this server promises to honour for text |
 | `group_durable_override` | **true** | When false, a group may not raise text retention above the default on this server, and the client says so rather than offering a control that does nothing |
+| `hosting_jurisdiction` | — (required in `message.yml`) | **Where this server is hosted.** Surfaced in the client's About screen; a server that advertises nothing here fails startup validation rather than shipping an empty answer |
+| `read_key_window_seconds` | **7776000 (90 days)** | How long each installed epoch read key is retained. The client renders this figure rather than a literal |
 
-These are **the three limits MASTER §12.2 requires a server to advertise** — text, media, file size — plus the defaults and the override rule that make them usable. A group operates inside all three, and every one of them reaches the user as a formatted value rather than a literal (Spec C §8.4).
+The first rows are **the three limits MASTER §12.2 requires a server to advertise** — text, media, file size — plus the defaults and the override rule that make them usable. A group operates inside all three, and every one of them reaches the user as a formatted value rather than a literal (Spec C §8.4). The last two rows are not limits: they are advertised for the same reason the limits are, which is that a client that cannot read a number ends up printing one, and a printed number is a statement about someone else's deployment made without asking.
 
 **Retention negotiation — RULED, warn and proceed, in every direction** (closes open item 3 and ledger open item 1). MASTER open item 1's original wording ("a group's policy **exceeds** the server's advertised **minimum**") was incoherent — exceeding a minimum is not a conflict. The three real cases:
 
@@ -1829,8 +1892,8 @@ These are **the three limits MASTER §12.2 requires a server to advertise** — 
 > **Case 2 — the group's policy is shorter than the server's `durable_retention_min_seconds`.** The server
 > floors **up**, accepts the commit, and returns `REASON_RETENTION_CLAMPED` with `RetentionApplied`.
 >
-> **Case 3 — the group's text policy is longer than the server's `durable_ttl_max_seconds`, or asks for
-> indefinite retention on a server that advertises a cap.** The server clamps **down**, accepts the
+> **Case 3 — the group's text policy is longer than the server's `durable_ttl_max_seconds`, or carries
+> the explicit-indefinite sentinel on a server that advertises a cap.** The server clamps **down**, accepts the
 > commit, and returns `REASON_RETENTION_CLAMPED` with `RetentionApplied`. This is the same shape as case
 > 1 and exists because text is now bounded on both sides: a server that advertises a one-year cap and
 > silently honoured "keep forever" would be lying in its own capability document.
@@ -1841,15 +1904,22 @@ These are **the three limits MASTER §12.2 requires a server to advertise** — 
 > Refusing the commit is not an option in any of the three cases: an operator config change would otherwise
 > block a group from committing at all.
 
+**The unset sentinel is not a fourth case, and is not a clamp.** A group that sends `durable_ttl_seconds = 0` asked for nothing, so nothing was refused: the server stores its own `durable_ttl_default_seconds`, returns `REASON_OK`, and sets `durable_defaulted` in `RetentionApplied`. The client still has something to say — "this group keeps messages for a year because that is this server's default" — and it is a different sentence from "this group asked for longer and got a year", which is why the flag exists rather than being inferred from the numbers.
+
 ```proto
 message RetentionApplied {
     uint32 media_ttl_seconds        = 1;   // what the server actually stored
-    uint32 durable_ttl_seconds      = 2;   // 0 = indefinite
+    uint32 durable_ttl_seconds      = 2;   // what the server actually stored. 4294967295 means
+                                           // indefinite; 0 never appears in an applied value,
+                                           // because "the group set nothing" is a request and
+                                           // not an outcome
     bool   media_clamped_down       = 3;
     bool   durable_floored_up       = 4;
     uint32 requested_media_ttl_seconds   = 5;
     uint32 requested_durable_ttl_seconds = 6;
     bool   durable_clamped_down          = 7;   // text clamped to durable_ttl_max_seconds
+    bool   durable_defaulted             = 8;   // the group sent the unset sentinel and this
+                                                // value is the server's own advertised default
 }
 ```
 
@@ -2223,7 +2293,7 @@ Response encoding: protobuf, with the same length-prefix conventions as §4.3.
 
 The second path is this server, and the mechanism is deliberately narrow:
 
-- The message server polls the STH endpoint of **the operator it holds its account on** — `operator_host`, §9.1 — on its own schedule, verifies the signature and the consistency proof against the STH it last stored, and writes it to `message_kt_gossip`. It gossips that operator's log and no other; one operator's signed tree head is never evidence about another's.
+- The message server polls the STH endpoint of **the operator it holds its account on** — `operator_host`, §9.1 — on its own schedule, verifies the signature and the consistency proof against the STH it last stored, and writes it to `message_kt_gossip`. It gossips that operator's log and no other; one operator's signed tree head is never evidence about another's. The client half of this rule is Spec A §7.6, which keys every pin and every stored tree head by the operator it came from and refuses to compare across two.
 - It echoes the latest verified STH in `HelloResponse.kt_gossip`, alongside the `operator_host` it came from, so a client can tell whether it is the log its own resolutions came from. **A client whose operator differs from this server's gets no second path from here** and must find its second gossip path among peer clients; it MUST NOT compare tree heads across two different operators' logs, because divergence between them is the normal case and means nothing.
 - **It MUST NOT accept an STH handed to it by a client**, and MUST NOT relay one client's STH to another. Doing either would collapse the two paths into one and hand an equivocating operator a way to launder its own fork.
 - A client on the same operator compares the STH it got directly from that operator against the one the message server observed. Divergence at the same `kt_epoch`, **in the same operator's log**, is equivocation, and the client surfaces it as the blocking warning of master §10.2.
@@ -2235,6 +2305,8 @@ The second path is this server, and the mechanism is deliberately narrow:
 The message server's only lever against a misbehaving client is a rate limit. It cannot ban: decision B1 forbids an account model, §5.2 means it cannot attribute a record to a device or member, and §9.2 forbids reporting per-group or per-handle information to the operator. The operator *can* refuse service at the transport layer, but only if told which `client_id` — and the only party that knows is normatively restricted to "aggregate only". A sustained campaign therefore had no runbook: the operator saw volume and no cause; the message server saw the cause and may not say. (Distinct from the content moderation deferred in MASTER §15 item 4; this is about keeping the service up.)
 
 **The permitted channel, exactly:** the message server MAY report `client_id` — which the operator already knows, having minted the `ByJwt` and routed the connection — together with a coarse abuse class (`rate`, `storage`, `malformed`) and **nothing else**. No `group_id`, no `sender_handle`, no per-group counts. Everything on §11.1's list remains forbidden. Naming `client_id` as permitted makes the boundary a rule rather than an inference.
+
+This applies to reactions too, and the consequence is worth stating rather than discovering. A reaction now carries text a person chose, so it can be used to say something unwelcome — and this server cannot see it, cannot act on a report about it, and must not be given a way to. The recourse is entirely client-side and entirely social: mute, leave, or removal by whoever administers the group. Adding a server-side reaction filter would require the server to read message content, which the whole design forbids.
 
 **Local lever:** `messagectl quarantine --client <id> --until <t>`, backed by `message_quarantine(client_id bytea PRIMARY KEY, until timestamp NOT NULL, class text NOT NULL)` in the **message-server** cluster, checked at §5.1 check 4. Metric `message_quarantine_active` (gauge).
 
@@ -2254,7 +2326,7 @@ Container image built from a Dockerfile in the shape of the operator's. Ships:
 | Object store | MinIO bucket with ILM lifecycle rules per TTL prefix (§8.3) |
 | Prometheus | Scrapes `/metrics` on a private port, never on the public interface |
 
-Health endpoints on a private port: `/healthz` (process alive) and `/readyz` (database reachable, KEK loaded, connect client attached, migrations at head). Neither returns any identifier.
+Health endpoints on a private port: `/healthz` (process alive) and `/readyz` (database reachable, KEK loaded, connect client attached, migrations at head, and every advertised value that has no honest default present — `operator_host` and `hosting_jurisdiction` both non-empty, §4.3.1). Neither returns any identifier.
 
 ### 10.2 Configuration
 
@@ -2326,8 +2398,8 @@ The operator's pattern, in its own database with its own `migration_audit`:
 Three things are required before any user beyond the two beta testers, and none of them is optional for a product that makes deletion claims:
 
 1. **Backups are encrypted at rest**, under a key held in the vault and not in the database backup schedule, on the same footing as the KEK (trap 2).
-2. **A stated recovery point objective.** The RPO is **24 hours for the object store** — its state is always "now", so a Postgres restore to T−*n* loses *n* of media regardless of what the database says — and **the WAL archive interval, five minutes, for Postgres**. Published, not inferred.
-3. **A named hosting jurisdiction**, written down and surfaced in the client's About screen, because "where is this server" is a question with a legal answer and users are entitled to it before they choose to use it. It is `backup_jurisdiction` in `message.yml` (§10.2).
+2. **A stated recovery point objective.** The RPO is **24 hours for the object store** — its state is always "now", so a Postgres restore to T−*n* loses *n* of media regardless of what the database says — and **the WAL archive interval, five minutes, for Postgres**. Published, not inferred. Published means published where a user can read it: the recovery point objective and the forty-eight-hour point-in-time window are stated on the service's own page, and the jurisdiction reaches the user through the capability advertisement below.
+3. **A named hosting jurisdiction**, written down in `message.yml` as `backup_jurisdiction` (§10.2), **advertised in `Capabilities.hosting_jurisdiction` (§4.3.1)**, and surfaced in the client's About screen — because "where is this server" is a question with a legal answer and users are entitled to it before they choose to use it. A value that lives only in a configuration file answers nobody: startup validation refuses to serve traffic when it is empty, and the client renders it as its own row rather than as a footnote.
 
 **The honest consequence, which belongs here and not beside it: a backup is a copy that outlives a delete.** For up to 48 hours after a record is deleted or pruned, the operator of this server can still produce its ciphertext from a point-in-time restore. That window is **the real upper bound on the deletion story** — a number for a transparency report, not a database parameter to tune quietly — and it is why it was cut from seven days to two. MASTER §12.3 and §13 state it to users. Expired disappearing messages are unaffected, for the reason given at the end of this section.
 
@@ -2591,6 +2663,7 @@ Spec C never opens a socket to the message server. Everything below reaches C th
 | C-8 | Honest-limits copy | Master §12.3: a server that silently withholds a deletion is not detectable in v1. §12.4's required UI language is normative and must not be softened |
 | C-9 | Server key verification | The **first** `ServerKey` this fleet ever presents is verified against the fleet root public key compiled into the SDK (`ServerKey.sig_by_root`), not trusted on first use. `BlobEndpoint.tls_spki_sha256` is still pinned on first contact |
 | C-10 | `ServerKey` rotation | A change carrying a valid `sig_by_previous` chaining from a trusted key, or a valid `sig_by_root`, is accepted **silently** and written to the client's inspectable security log. A key chaining to neither is **refused** — the client does not connect and offers no way to accept it. There is no modal and no accept path (§4.3.1) |
+| C-11 | `hosting_jurisdiction` and `read_key_window_seconds`, advertised in `Capabilities` (§4.3.1, §7.3) and reaching C through A's `ServerInfo()` | Render the jurisdiction as its own row in About, and format the read-key window into the copy shown to a user who has been away, rather than printing a literal duration. Both render as "not known yet" until the server has advertised them; neither has a client-side default, because a fabricated one is a claim about someone else's deployment |
 
 ---
 
@@ -2630,7 +2703,7 @@ Master spec §14 makes §9.7 an acceptance criterion for this slice. Concretely,
 30. **Every authorized read is authorized, and only inside the window.** For each of the five op bytes 13, 14, 16, 17 and 19: the request with a correct `req_auth` and matching `read_epoch` succeeds; the same request with the MAC computed under another group's read key, under an epoch `write_key`, under a different epoch's read key, or with the wrong op byte, is refused with `REASON_REJECTED` and the same padded latency. Then advance a fake clock past `read_key_window_seconds`, run the tidy loop, and assert the same request is now refused identically, and that `GroupStatus` under a still-retained epoch reports `oldest_read_epoch` correctly.
 31. **Aggregate-only logging, with and without a diagnostic session.** The §11.1 workload assertion runs twice: with no session live, no generated identifier appears in any sink; with a session live for one client, per-request detail appears **only** in the diagnostic store, **only** for that `client_id`, and disappears from acceptance at the session's end time. Guards §11.5.
 32. **Expired ephemerals keep no sender.** After an `EPH` sweep, every expired row has a `sender_handle` of sixteen zero bytes, its `message_stream_claim` row is gone, `record_id` remains gapless, and a replay at that `stream_index` is still refused with `REASON_STREAM_INDEX_REGRESSED`. Guards §7.2 and decision B15.
-33. **Text retention is bounded on both sides.** With `durable_ttl_max_seconds` set, a group asking for indefinite text retention is clamped to the cap and told so via `RetentionApplied` with `durable_clamped_down` true; with the cap at 0, the same request stores `NULL`. Guards §7.3.
+33. **Text retention is bounded on both sides, and the two sentinels are distinguishable.** With `durable_ttl_max_seconds` set, a group carrying the explicit-indefinite sentinel is clamped to the cap and told so via `RetentionApplied` with `durable_clamped_down` true; with the cap at 0, the same request stores `NULL`. Separately, a group carrying the **unset** sentinel against a stock configuration stores `durable_ttl_default_seconds` — one year, not `NULL` and not the cap — returns `REASON_OK` with `durable_defaulted` true and `durable_clamped_down` false, and its `DURABLE` bodies are erased at one year by the sweep. Guards §7.3 and §6.1 step (6).
 34. **Read keys expire and write keys still expire faster.** Assert the two tidy statements are independent: after 61 seconds a write key is NULL and its read key is not; after 90 days the read key is NULL. Guards §5.3 and §7.4.
 35. **No signing key on a replica.** Assert the process holds no attestation signing private key in memory or configuration, that every signature is produced through the sidecar, and that `/readyz` fails when the sidecar is unreachable. Guards §9.1 and decision B13.
 36. **PITR window is 48 hours.** Assert the configured and restored-target retention of the WAL archive is 48 hours, and that the restore drill's marker gate refuses traffic until both `sweep-now --until-clean` and `reconcile-blobs` have completed. Guards §10.4.
@@ -2649,7 +2722,6 @@ Master spec §14 makes §9.7 an acceptance criterion for this slice. Concretely,
 | Push (WNS/APNs/FCM) | Ledger open item 2. `presence` in Redis and a reserved `push_token` field are the only v1 hooks |
 | Public groups, history export, editing, voice/video | Master spec §2 |
 | Per-group storage quotas beyond a flat blob cap | Needs real usage data first; `message_group_usage` exists to collect it. The `blob_quota_bytes` column is dropped until then (§3.2) |
-| Per-member delivery receipts **shipped in v1** | Removed from this list. A device emits an `EPH(0)` receipt when it decrypts; the server fans it out on the transient channel of §7.6 and stores nothing. The `delivered` state is Spec A §7.4 |
 | Asymmetric per-epoch write proof | §5.3 — removes the server's forgery capability at one signature per record |
 | Grant proof-of-possession | §8.2 — the v1 grant is bearer-only for 15 minutes and says so |
 | Per-instance signing keys under a fleet root | Still V2. What v1 **does** ship is the fleet root itself, offline, with the signing key in an HSM or sidecar and never on a replica (§9.1, decision B13) — which is what makes per-instance keys an optimisation later rather than a prerequisite |

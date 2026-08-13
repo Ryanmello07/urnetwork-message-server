@@ -1,10 +1,12 @@
 # URmessage — Protocol Design
 
 **Date:** 2026-08-12
-**Revision:** 7 — the project owner's product rulings applied: operators are plural and separate from
-message servers (§2, §4), `read_key` becomes per-epoch with a 90-day server acceptance window (§8,
-§9.2), delivery receipts ship in v1, owner succession ships at a raised bar (§11), retention defaults
-to one year inside three server-advertised limits (§12.2), logging becomes aggregate-only (§9.7)
+**Revision:** 8 — operators are plural throughout and no operator-facing value is a build constant
+(§2, §4); directory resolution renders `kt_unavailable` and proceeds until the transparency log is
+live (§10.1); an out-of-band contact card with a rotatable link (§10.1, §11); reactions carry any
+emoji (§12.2); read receipts and typing indicators are reciprocal (§12.2); the succession
+supermajority is one arithmetic rule and the owner warning is a client obligation (§11); text
+retention has two wire sentinels so the one-year default is enforceable (§8, §12.2)
 **Status:** Design, pending approval
 
 Notation: `LP(x)` = 32-bit **big-endian** length prefix then `x`; `u8/u16/u32/u64` = big-endian
@@ -98,6 +100,50 @@ defaults, and four places where the document contradicted itself or an implement
   recorded, which is enforceable, instead of a rule that an on-call engineer meets at 3 a.m. and
   quietly breaks.
 
+**Revision 8** applies the project owner's second batch of product rulings, and corrects three places
+where a ruling already taken had reached some documents and not others. Nothing in the cryptographic
+core changed.
+
+- **Operators are plural in every document, not only in this one.** Revision 7 rewrote §2 and §4
+  here and left the implementation specs reading "the operator": the client SDK exposed no operator
+  value at all, and the Windows client compiled its network space host in as a build-time constant,
+  which is the one-operator assumption surviving as a build instruction. Every operator-facing value
+  is configuration with a build-time default, a message server advertises the operator it holds its
+  account on, and every key-transparency artefact is scoped to the operator it came from — one
+  operator's signed tree head is never evidence about another's. §2, §4.1, §4.2 and §10.1.
+- **A directory lookup made when no transparency log is reachable proceeds, and says so.** §15 item
+  6 permits a beta in which every key-change row **and every directory lookup** renders
+  `kt_unavailable`; key changes were given that treatment and lookups were left failing closed,
+  which would have left the beta with no way to start a conversation at all. A resolution answered
+  **with** a proof that does not verify still fails closed, because that is the event the machinery
+  exists to catch. §10.1.
+- **An out-of-band contact card ships in v1.** Directory listing is opt-in and off by default, and
+  an invite link needs someone who is already inside a group, so two people who have never met had
+  no way to reach each other at all. A contact card is a QR code or a copyable link its owner hands
+  over directly; it carries a capability rather than a membership, and the capability is rotatable.
+  §2, §10.1 and §11.
+- **A reaction carries any emoji rather than one of eight.** The reaction body becomes a
+  length-prefixed UTF-8 string on the wire, which makes it a format change that lands with the
+  storage layer rather than with the client work that renders it. Four consequences are stated here
+  rather than discovered later: font coverage, joined sequences, normalisation, and a reaction
+  becoming user-authored content and therefore a moderation surface the project has deliberately
+  deferred. §2, §12.2, §13 and §14.
+- **Read receipts and typing indicators are reciprocal.** Turning yours off also hides everyone
+  else's from you. Without that, the setting is a one-way observation tool in which the most
+  privacy-conscious person in a conversation learns the most about everyone else. Delivery receipts
+  are not covered by the rule and remain independently disableable. §12.2.
+- **The succession supermajority is one arithmetic rule, and the owner warning is a client
+  obligation rather than a validity condition.** Two rules written in prose disagreed for a group
+  with one admin, where one clause allowed a single signature to take a group and the other forbade
+  it. And no receiving client can observe what was displayed on the owner's devices, so warning
+  delivery cannot be a condition on a commit's validity — a validity condition nobody can check is a
+  condition that is silently skipped. §11.
+- **Text retention has two wire sentinels rather than one.** "The group set nothing" and "the group
+  asked for forever" are different requests, and one value cannot carry both: with a single sentinel
+  a stock server stored forever for every group that never opened a retention screen, which made the
+  one-year default a promise about client behaviour rather than a property of the system. §8.3 and
+  §12.2.
+
 ## 1. Purpose and product target
 
 URmessage is a private messenger built on the URnetwork mesh. It reuses URnetwork's transport and
@@ -122,9 +168,9 @@ it. **Nothing in v1 may hardcode a single operator**: every operator-facing valu
 configuration, and a build that compiles one operator's host into a constant is a defect.
 
 **v1 ships:** text messaging (DMs and groups), full multi-device, disappearing messages, safety
-numbers with key-change warnings, reactions, read receipts, delivery receipts and typing
-indicators, attachments and images, invite links, balance-code redemption, owner succession, and a
-WinUI 3 Windows client reusing the VPN app's shell and branding.
+numbers with key-change warnings, reactions with any emoji, read receipts, delivery receipts and
+typing indicators, attachments and images, invite links, contact cards, balance-code redemption,
+owner succession, and a WinUI 3 Windows client reusing the VPN app's shell and branding.
 
 **Deferred to V2+, type codes reserved so none is a format break:** message editing, multi-server and
 read-through proxy, group migration between hosts, stream digests, per-device write capabilities,
@@ -375,7 +421,8 @@ Consequences, all mandatory:
 - Every contact holding a pin on the old key sees the blocking `KEY_CHANGE_NOTICE` warning of §10.2,
   with `evidence_class = "operator_reset"` and `signed_by_old_key = false`. The closed set of evidence
   classes is Spec A's (`kt_inclusion`, `operator_assertion`, `operator_reset`, `kt_unavailable`,
-  `unknown`). **In v1 the identity key changes only by this path**: `identity` is derived from the
+  `out_of_band`, `unknown`), where `out_of_band` is a key that came from its owner directly rather
+  than from any directory (§10.1). **In v1 the identity key changes only by this path**: `identity` is derived from the
   seedphrase and nothing else, so a reinstall or a new computer from the same phrase produces the same
   key and raises no warning at all. A self-signed rotation is a V2 mechanism and is never emitted in v1.
 - The reset is written to the key-transparency log (§10.1), so it is publicly auditable and cannot be
@@ -771,7 +818,13 @@ EpochAttachment {
                                 //   attachment OPENS. Different in every epoch; the server
                                 //   installs it per epoch and retains it for 90 days (§9.2)
     u32  media_ttl_seconds
-    u32  durable_ttl_seconds    // 0 = indefinite
+    u32  durable_ttl_seconds    // 0          = the group set nothing; the server applies its own
+                                //              advertised text default
+                                // 0xFFFFFFFF = the group asked for indefinite retention, which a
+                                //              server advertising a text cap clamps down to that cap
+                                // any other value = the group's requested retention in seconds,
+                                //              floored up to the server's advertised minimum and
+                                //              clamped down to its advertised cap
     LP   group_context_hash     // exactly 32 bytes
     u32  expected_wrap_count    // device wraps + recovery wraps + 1 snapshot, for the epoch it opens
 }
@@ -796,6 +849,13 @@ wrap_target_handle = HKDF-Expand(group_handle_key, "wt/v1" ‖ u64(epoch) ‖ u3
                      // every member can compute it for every leaf; the server cannot invert it.
                      // The epoch snapshot record uses leaf_index = 0xFFFFFFFF.
 ```
+
+**On `EpochAttachment.durable_ttl_seconds`:** two sentinels rather than one, because "the group set
+nothing" and "the group asked for forever" are different requests and a single value cannot carry
+both. A server that advertises a one-year text default and receives an unset value stores one year. A
+server that advertises a cap and receives a request for indefinite retention stores the cap and
+reports what it applied. Neither case refuses the commit. The server-side arithmetic is Spec B §6.1
+and Spec B §7.3.
 
 ## 9. Message server
 
@@ -1032,17 +1092,29 @@ retention, surfaced back to the user. No session, no per-identity record. The me
 ### 10.1 Key transparency
 
 An operator's `principal → identity master key` directory is published as an append-only log over a
-Merkle prefix tree. Each operator runs its own directory and its own log. Clients require an
-inclusion proof for every resolution and gossip signed tree heads over two paths — the message
-server and peer clients — since an equivocating operator otherwise only has to fool one.
+Merkle prefix tree. Each operator runs its own directory and its own log. Clients gossip signed tree
+heads over two paths — the message server and peer clients — since an equivocating operator
+otherwise only has to fool one, and each client compares heads only within the log of the operator
+it resolved from. A resolution answered **with** a proof that does not verify is refused outright:
+the log spoke and the proof was wrong, which is the exact event this mechanism exists to catch. A
+resolution made when **no log is reachable at all** proceeds, and everything derived from it — the
+contact, the conversation, the key-change history — is marked as resting on no transparency
+evidence, in the same words and the same rows a key change with no log evidence gets. §15 item 6
+permits beta testers to run in that state and makes the live log a general-availability gate; a
+lookup that fails closed before the log exists would leave the beta with no way to start a
+conversation at all.
 
 **Listing is opt-in and off by default.** No directory entry and no log leaf exists for an identity
 until its owner turns listing on, which is also the only act that creates a link between a
-messaging identity and a paying account (§4.2). An unlisted identity is reachable by **invite link
-or direct key exchange, which always work** and require no directory at all (§11). The cost of
-being unlisted is that key changes for that identity carry no log evidence and are attested by
-local pinning alone, which the client renders as an explicit "not in a transparency log" state
-rather than as silence (Spec A §7.6).
+messaging identity and a paying account (§4.2). An unlisted identity is reachable two ways, both of
+which work with no directory at all and neither of which needs the log to be live: a group invite
+link made by a member who is already inside, and a **contact card** — a QR code or a copyable link
+the identity's owner hands to someone directly, carrying the display name, the identity key and a
+capability that lets the holder open a direct conversation. The card is what makes the product
+usable before anyone is listed and before the log exists, and the capability it carries can be
+rotated, which §11 specifies. The cost of being unlisted is that key changes for that identity carry
+no log evidence and are attested by local pinning alone, which the client renders as an explicit
+"not in a transparency log" state rather than as silence (Spec A §7.6).
 
 Required rather than optional because `model/auth_model.go:125-153` associates a new SSO auth onto an
 existing user when `user_auth` matches. Control of the Google or Apple account is control of the
@@ -1115,6 +1187,17 @@ and takes effect only when the other party sets the same value, expiring after s
 do not. Every change and every pending request is announced in the thread, so nothing about how
 long this conversation persists is decided silently.
 
+**Two ways into a conversation, and one of them is withdrawable.** A group **invite link** is issued
+by a member who is already inside the group and admits its holder to that group, bounded by the
+group's admission policy and by whoever issued it. A **contact card** (§10.1) is issued by an
+identity for itself and admits nobody to anything: it carries a capability token that lets its
+holder ask that identity for a two-member group, and nothing else. Because the card is a capability
+rather than a membership, it is rotatable — its owner may mint a fresh token at any time, which
+retires the current one, so a redemption of the retired link is refused while **every conversation
+already started is untouched**. Rotating therefore costs printed cards and old screenshots and never
+a conversation, which is what makes it a control people use rather than avoid. The calls are Spec A
+§7.3b and the screen is Spec C §12.7.
+
 **An owner must hand the group over before leaving.** The leave action is refused for an OWNER
 until ownership has been transferred to a current member; the client offers the transfer in the
 same flow rather than reporting a bare failure. A group can therefore never reach the
@@ -1130,13 +1213,26 @@ every receiving client:
    no succession path at all — that is the owner's choice to make, and the UI states its
    consequence.
 2. The nominated successor claims the role.
-3. **A supermajority of current admins countersign** that the owner is unreachable: at least
-   two-thirds of them, rounded up, and never fewer than two. In a group with fewer than three
-   admins, unanimity of the admins is required.
+3. **A supermajority of current admins countersign** that the owner is unreachable: countersignatures
+   from at least `max(2, ceil(2 × admins / 3))` current admins, counted at the epoch the promotion
+   commits from. A group with fewer than two admins therefore has no reachable succession path at
+   all, and the client states that as the consequence of having no admins rather than presenting
+   succession as available. One arithmetic rule, because two rules written in prose disagreed for a
+   group with one admin — where one clause allowed a single signature to take a group and the other
+   forbade it.
 4. **Ninety days** have elapsed since the last record authored by any of the owner's device leaves
    was accepted in this group.
-5. The owner has been warned, on **every one of its devices**, at 30, 60, 75 and 85 days, with
-   escalating prominence, and any single record the owner authors resets the clock.
+5. The nomination's floor is **at least ninety days**. A nomination carrying a shorter floor is
+   invalid, so a group cannot shorten its own succession delay after the fact.
+
+**The owner is warned, and that is a client obligation rather than a validity condition.** Every
+client that holds the owner's identity MUST warn the owner on **every one of its devices** at 30,
+60, 75 and 85 days since the last record any of the owner's device leaves authored in the group,
+with escalating prominence, and any single record the owner authors resets the clock. This is
+written as an obligation on clients rather than as a condition on the commit because no receiving
+client can verify that a warning was shown on someone else's machine, and a validity condition
+nobody can check is a condition that is silently skipped. The warning surfaces are Spec C §5.1 and
+Spec C §9.10; the state that drives them is Spec A's `MessageSuccessionState`.
 
 The earlier design — a majority of admins after 30 days — was a governance coup mechanism wearing a
 recovery mechanism's clothes. Ninety days with escalating warnings still rescues a dead owner while
@@ -1169,6 +1265,12 @@ forward by default.
 | `DURABLE` | **1 year**; text default | group admin, bounded by the server's advertised text-storage cap and minimum |
 | `MEDIA` | **1 month** | group admin, bounded by the server's advertised media window |
 | `EPH(bucket)` | off by default; 1h / 8h / 1d / 1w / 4w | per conversation; admin-settable for groups |
+
+A group that never opens a retention screen sends no value, and the message server applies its own
+advertised text default — one year on a stock server. Indefinite text retention is still reachable,
+but only by asking for it explicitly and only on a server that advertises no text cap; on a server
+that advertises one, the request is stored as that cap. This is what makes the one-year default a
+property of the system rather than a promise about how clients behave.
 
 Media is a distinct class rather than inheriting its parent's, because it is most of the storage and
 little of the value after a month. An attachment on an *ephemeral* parent inherits the parent's key
@@ -1208,11 +1310,54 @@ trail as the residue of the feature whose entire purpose is to leave none. The s
 mechanism is Spec B §7.2.
 
 Read receipts and typing indicators are **on by default**, `EPH(bucket 0)`, never persisted, batched,
-individually disableable. **Delivery receipts are on by default and are the same class of record**: a
-device emits one `EPH(bucket 0)` receipt when it decrypts a message, so "delivered" is a statement
-by a device that actually decrypted rather than an inference by a server that cannot. They are
-batched, never persisted, and individually disableable, and their metadata cost is disclosed in
-§9.5 and §13.
+individually disableable. **They are also reciprocal: turning yours off hides everyone else's from
+you.** With read receipts off, a message you send stops at delivered and never reaches read, and no
+read state from anyone else reaches you; with typing indicators off, nobody else's appears. Without
+that rule the setting is a one-way observation tool, in which the most privacy-conscious person in a
+conversation is the one who learns the most about everyone else — the opposite of what someone
+reaching for the switch is asking for. Signal, WhatsApp and iMessage all resolve it the same way,
+and the rule is enforced below the UI (Spec A §7.2) so a screen that forgot it could not leak
+anything.
+
+**Delivery receipts are on by default and are the same class of record**: a device emits one
+`EPH(bucket 0)` receipt when it decrypts a message, so "delivered" is a statement by a device that
+actually decrypted rather than an inference by a server that cannot. They are batched, never
+persisted, and individually disableable, and their metadata cost is disclosed in §9.5 and §13. They
+are **not** reciprocal: a delivery receipt is a statement about a device being online rather than
+about a person having read something, and the two are not the same disclosure.
+
+**A reaction carries any emoji.** The reaction field is not a fixed list. A reactor picks from the
+full emoji set their system offers, and the reaction travels as a length-prefixed UTF-8 string
+inside the encrypted body like any other message content. Four consequences follow, and all four are
+stated here rather than discovered later.
+
+**Font coverage.** Emoji are added to Unicode every year and no shipped font has all of them, so a
+reaction that renders as a picture on one device can render as a replacement box on another. A
+client shows what it received — the box, with the codepoint sequence available on inspection — and
+never substitutes a different emoji, drops the reaction, or hides the count. A missing glyph is a
+fact about the reader's fonts, and quietly rewriting someone's reaction to something the reader can
+see would be a worse property than showing a box.
+
+**Sequences.** Many emoji are several codepoints joined with zero-width joiners, and a client whose
+text shaper does not know a particular sequence renders its parts instead of the whole. A reaction is
+therefore bounded to exactly one extended grapheme cluster, so a sequence is one reaction and never
+becomes several, and the wire encoding is validated on both send and receipt against a Unicode
+version this project pins and updates deliberately. Two clients on different Unicode versions must
+agree on what is legal, and the only way to have that is to name the version.
+
+**Normalisation.** Reactions group into counts, and grouping fragments the moment two byte sequences
+that look identical are treated as different. The grouping key is the reaction in Normalisation Form
+C with skin-tone modifiers and variation selectors removed; the original bytes are kept for display.
+Skin tone is stripped rather than preserved because a reaction is a one-tap gesture and a skin tone
+attached to it says something about the person reacting that they did not choose to say, while a
+thumbs-up is a thumbs-up regardless of the tone the sender's keyboard defaults to.
+
+**A reaction is content, so reactions are a moderation surface.** With a fixed list, the worst a
+reaction could carry was one of eight approved meanings. With the full set, a reaction is something a
+person wrote, and it can be used to harass. There is no reporting route behind it, because
+moderation recourse is deferred (§15 item 4); what exists is muting, leaving, and removal by whoever
+administers the group. This is a cost accepted knowingly in exchange for the feature every user
+expects, and §13 states it to users in those terms.
 
 ### 12.3 Not guaranteed
 
@@ -1294,15 +1439,27 @@ may be logged, which is a rule an engineer can follow at three in the morning. I
 with a problem, you can turn on a bounded diagnostic session yourself, and nothing is recorded about
 you unless you do.
 
+**On the two identities.** Your messaging identity and the URnetwork account that pays for the
+traffic are not linked unless you turn on directory listing. The cost of that is ours to state:
+there is no cross-boundary abuse tooling, and support cannot answer "which account is this" — if you
+write to us about an account, we cannot tell you anything about the messages on it, and if someone
+is abusing you from an identity you cannot name, we cannot connect it to an account either.
+
+**On reactions.** A reaction can be any emoji, so a reaction is something a person wrote rather than
+a choice from a list we approved. That makes it the same kind of surface as a message: it can be
+used to say something unwelcome, and there is no reporting route behind it, because moderation
+recourse is deferred (§15 item 4). What you have instead is muting the conversation, leaving it, or
+removing the person if you administer the group.
+
 ## 14. Implementation slices
 
 | # | Slice | Contains |
 |---|---|---|
 | 1 | `connect/mls/` | RFC 9420. **Acceptance: the IETF test vectors pass**, cross-checked against OpenMLS. |
-| 2 | `connect/message/` | Storage records, retention classes, ratchet, PQ composition, `write_auth`, padding, `COVER`. `server_attachment`, `req_auth`, recovery proof. Freezes the wire format — §8, §8.3 and §9.2 must be final before this slice starts. |
+| 2 | `connect/message/` | Storage records, retention classes, ratchet, PQ composition, `write_auth`, padding, `COVER`. `server_attachment`, `req_auth`, recovery proof, **the `EPH(0)` delivery-receipt record**, **the reaction body as a length-prefixed UTF-8 string**, and **the two-sentinel `durable_ttl_seconds` encoding**. Freezes the wire format — §8, §8.3 and §9.2 must be final before this slice starts, and the three additions named in bold must land here rather than with the client work that renders them. |
 | 3 | `message-server` | Store, ordering, single-commit agreement, `write_auth` verification, retention, fetch attestation. §9.7 is an acceptance criterion. |
 | 4 | Client core in `sdk` | Group state, local store, KT client, provisioning. |
-| 5 | `message-windows` text | Send, receive, groups, TOFU warnings, reactions, read and delivery receipts. **First testable build — internal only.** |
+| 5 | `message-windows` text | Send, receive, groups, TOFU warnings, reactions, **rendering** read and delivery receipts. **First testable build — internal only.** |
 | 6 | Disappearing messages | `eph_root`, buckets, tombstones. |
 | 7 | Multi-device | Provisioning UI, device management, revocation. **The public beta starts here.** |
 | 8 | Attachments | Blob store, `MEDIA` class, thumbnails, resumable upload. |

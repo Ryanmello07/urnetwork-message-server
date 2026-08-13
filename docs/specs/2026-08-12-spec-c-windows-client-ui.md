@@ -1,7 +1,7 @@
 # URmessage — Spec C: Windows Client UI
 
 **Date:** 2026-08-12
-**Revision:** 4 — the project owner's product rulings applied (an optional PIN and lock screen; delivery receipts reinstated; the server-key modal deleted in favour of fleet-root verification and a security log; fork detection resyncs before it stops; retention gains a one-year text default and three server-advertised limits; balance codes, invite links, ownership and diagnostics get screens; no in-VPN promotion and an unsigned beta)
+**Revision:** 5 — the operator is runtime configuration with its own Settings row and a build gate, never a compiled-in constant (§1.1, §12.2, §16.1); an out-of-band contact card with a rotatable link and screen 32 (§12.7); directory lookups proceed with the transparency state named (§7.3); per-user install stated with its deployment cost (§2.1); read receipts and typing indicators are reciprocal (§5.3, §12); reactions carry any emoji, with the four consequences taken with them (§5.2a); the escalating owner warning (§9.10); §14.2's vocabularies regenerated and gate 8 raised to set equality; lint 6 rewritten against real sources; the acceptance list split into a slice-5 half, a beta half and a general-availability half (§16.5)
 **Status:** Design
 **Scope:** the Windows messaging client — app shape, screens, copy, states, brand, accessibility
 **Depends on:** [URmessage Protocol Design rev 7](../../../claude_sandbox_message/msgrepo/docs/specs/2026-08-12-urmessage-protocol-design.md) (the master spec, cited below as **§n**), [SPEC-LEDGER.md](../../../claude_sandbox_message/msgrepo/SPEC-LEDGER.md), Spec A (SDK / protocol client core), Spec B (message server)
@@ -17,7 +17,7 @@
 | Master protocol design | Revision 7, owner rulings applied |
 | Spec A — SDK / client core | Being written in parallel |
 | Spec B — message server | Being written in parallel |
-| This spec | Revision 4, owner rulings applied |
+| This spec | Revision 5, owner rulings applied |
 | `Ryanmello07/urnetwork-message-windows` | Not created |
 | Code | None |
 
@@ -30,7 +30,7 @@ The VPN client (`Ryanmello07/urnetwork-windows`, branch `beta/custom-server`) is
 | **W1** | Separate executable `URmessage.exe`, not a page inside `URnetwork.exe` | The VPN app is a tray flyout sized 480×760 (`WindowShell.h`) whose one screen is a connect button. A messenger is a workspace app with a three-pane layout and a 20k-message virtualized list. Merging them makes `MainWindow.xaml.cpp` — already 2128 lines and already the collision point for parallel UI work — the collision point for two products. Separate binaries also mean a messaging defect can never take down a VPN tunnel. |
 | **W2** | **User-mode only. No service, no driver, no elevation, ever.** | URmessage forwards message traffic through the SDK's own transport. It never captures packets, never rewrites routes, never touches DNS. Every mechanism the VPN client needs to do those things is a mechanism URmessage does not have and must not acquire. §0.3 states exactly what that removes. |
 | **W3** | All plaintext, all key material, and the entire local message store live **in Go, inside `URmessageSdk.dll`** (Spec A). The C++ layer is a view. | One place holds plaintext, so one place is audited, one place seals to DPAPI, and one store serves the mobile clients that follow. The C++ side holds only what is currently on screen and never writes message content to disk. |
-| **W4** | **Per-user install.** URmessage ships as its **own** `InstallScope="perUser"` MSI, `URmessage-<version>-<arch>.msi`, installed to `%LOCALAPPDATA%\Programs\URmessage\` with a per-user Start Menu shortcut (§2.1). It ships its **own** copy of the self-contained Windows App Runtime and its **own** copy of the four licensed brand faces. | A separate per-user package cannot reference the VPN package's per-machine `RuntimeFiles` components, so the shared payload of the original W4 is not available. The cost is roughly 60 MB of installed size. It is paid deliberately, to buy three things: an in-app rename-swap updater that works as a standard user (a `%ProgramFiles%` install cannot rename its own binaries without the LocalSystem service W2 removes); a truthful "URmessage installs and runs per-user" claim in §0.3; and **zero elevation anywhere in the product**: a per-user MSI needs none to install, and a `%LOCALAPPDATA%` install needs none to rename-swap itself on update. |
+| **W4** | **Per-user install.** URmessage ships as its **own** `InstallScope="perUser"` MSI, `URmessage-<version>-<arch>.msi`, installed to `%LOCALAPPDATA%\Programs\URmessage\` with a per-user Start Menu shortcut (§2.1). It ships its **own** copy of the self-contained Windows App Runtime and its **own** copy of the four licensed brand faces. | A separate per-user package cannot reference the VPN package's per-machine `RuntimeFiles` components, so the shared payload of the original W4 is not available. The cost is roughly 60 MB of installed size. It is paid deliberately, to buy three things: an in-app rename-swap updater that works as a standard user (a `%ProgramFiles%` install cannot rename its own binaries without the LocalSystem service W2 removes); a truthful "URmessage installs and runs per-user" claim in §0.3; and **zero elevation anywhere in the product**: a per-user MSI needs none to install, and a `%LOCALAPPDATA%` install needs none to rename-swap itself on update. The accepted cost is that there is no per-machine variant and therefore no central deployment, which §2.1 states rather than leaves to be discovered by the first administrator who tries. |
 | **W5** | The client's connection state is a **pure state machine in `Common/MessageHealth.h`** with a selftest-pinned transition table, in the exact shape of the VPN client's `Common/ConnectionHealth.h` (windows `1cfcf3c`). | That pattern was written because ad-hoc status text lied to users for weeks. The same class of lie is worse in a messenger, where "sent" is a claim about someone else's device. The state machine consumes `SyncState` (Spec A §7.2) and nothing else, so its transition table is testable against a fake `SyncState` rather than against the network. |
 | **W6** | Seedphrase display uses `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)`, clipboard writes use `Clipboard.SetContentWithOptions` with history and roaming disabled, and confirmation is a **typed** quiz over four random positions. | §6. This is the screen where the product can permanently destroy a user's data, and the failure mode is silent for months. |
 | **W7** | The key-change warning is a **blocking modal that stops outbound sending** until resolved, plus a permanent, non-dismissible inline record in every shared conversation. **The blocking scope is a DM, not a group** — see §7.1 and MASTER §10.2. In a group, the blocking event is the `Add` of a member whose identity key differs from a pin the user holds. | §10.2 and §5.5 of the master spec require it. The exact copy is fixed in §7 of this document. |
@@ -82,10 +82,10 @@ Detailed in §14. Summary:
 | C-1 | Seedphrase confirmation gates first send | **Gate.** Backed by A's `PhraseConfirmedAtMs()` in the sealed keyfile, surfaced as `CanSend` reason `phrase_not_confirmed` — not by a flag in `prefs.json`, which W3 forbids and which a user trying to skip the gate could edit. |
 | C-2 | Notification content | **Sender name only, no content preview, everywhere by default.** A conversation may be opted **up** to include the message, one conversation at a time (§10.3). Plus §10.3's lock-session rule. |
 | C-3 | Local search in v1 | **Yes**, local-only, A-backed via `Search(groupId, query, limit)`. The conversation-list filter (screen 9) is a **local filter over already-loaded rows** and does not touch the index. `Ctrl+F` is the group-scoped form. The index **excludes `EPH` records entirely** (§5.7). |
-| C-4 | Windows Hello gate | **Six** actions (§6.6): show the phrase, accept a changed **contact** key, remove a device, leave or delete a group you own, remove this identity from this computer, and **change or clear the PIN**. Accepting a changed **server** key is no longer one of them, because there is no such action (§7.6). App lock **ships** as the optional PIN of §6.9. |
+| C-4 | Windows Hello gate | **Six** actions (§6.6): show the phrase, accept a changed **contact** key, remove a device, leave a group or transfer ownership of one you own, remove this identity from this computer, and **change or clear the PIN**. Accepting a changed **server** key is no longer one of them, because there is no such action (§7.6). App lock **ships** as the optional PIN of §6.9. |
 | C-5 | Retention floor conflict | **Warn and proceed, both directions** — RULED in MASTER §15 item 1. §8.4's copy covers both. The `retention_refused` send-failure reason is **deleted**. |
 | C-6 | Push transport | **Beta ships without it**; a working contentless WNS wake is a general-availability gate alongside key transparency (MASTER §15 item 2). §10.2's copy stands: "URmessage can only notify you while it's running." **The Azure AD application registration still has no named owner**, and that remains the long pole. |
-| C-7 | Disabling read receipts hides others' | **Yes**, resolved against the **user-scoped** preference (`SetUserPreference("read_receipts", …)`), not the group policy. |
+| C-7 | Disabling read receipts hides others' | **Yes**, resolved against the **user-scoped** preference (`SetUserPreference("read_receipts", …)`), and **reciprocally**: with yours off, nobody else's reach you. The same holds for typing indicators. Delivery receipts are not covered by this rule and remain independently disableable. |
 | C-8 | EPH bucket numbering | **Closed by citing Spec A §7.3.** The wire EPH class number and `MessageGroupPolicy.DisappearingBucket` are different namespaces; policy `0` means disappearing off, never bucket 0. |
 | C-9 | "Delete for me" copy | §8.2's string, signed off. |
 | **C-10** | Contact blocking and reporting | **Neither in v1.** What ships is **mute and leave**, which covers most of the exposure because directory listing is opt-in (§12) and unsolicited contact mostly never starts. Blocking has no SDK surface and its cross-device carrier is unscoped; reporting without a moderation process behind it is a form that goes nowhere. Both are recorded in §15 against MASTER §15 item 4. |
@@ -101,6 +101,7 @@ Append-only. Newest last. One entry per commit that changes this spec. Every cha
 | 2 | **R4 review findings applied** (`docs/reviews/2026-08-12-r4-findings-full.json`, 148 findings). Revision 1 was **double-encoded UTF-8** — 305 mojibake runs, including all 131 `§` and every em dash — so the file was repaired first (decode each run via cp1252→UTF-8, BOM stripped, LF endings), and §8.1's three normative strings were then re-verified against MASTER §12.4 by codepoint. Substantive changes: per-user install with its own runtime and brand faces (W4, §2); one Go runtime, login inside `URmessageSdk.dll` (§0.3, §1.1, §14); the `Delivered` state **deleted** (§5.3); key-change blocking narrowed to DMs with a new blocking `Add` condition (§7.1); evidence classes replaced with Spec A's lowercase closed set and `self_signed_rotation` removed as a false security claim (§7.3); retention negotiation warn-and-proceed in both directions and `retention_refused` deleted (§8.4, §9.3); an eighth health state `StoreUnavailable` with its own full-screen stop and a `SyncState`-derived transition table (§9.2); seedphrase re-display backed by Spec A's sealed entropy (§6.5); four new screens, the §5.7 ephemeral-containment rule, §12.3 device removal, §14.4's mirror of Spec A's client obligations C1–C15, and three new DLL-boundary traps (§14.1). |
 | 3 | **R5 convergence pass.** URmessage ships as its own `InstallScope="perUser"` MSI rather than a feature of the VPN package, which makes W4's "zero elevation anywhere" literally true and gives a second Windows account on a shared machine a working app (§2, §0.2 W4, §0.3, §16.1 gate 7, §16.5 criterion 10). Contact blocking is **cut from v1** — Spec A defines no call for it and MASTER §2 does not ship it — and the gap is recorded honestly in §15 against MASTER §15 item 5; screen 25 was removed and "Store unavailable" renumbered 26 → 25 (§0.5 C-10, §3, §9.1, §9.2, §9.3, §12, §14.2, §16.2). The typing indicator, which MASTER §2 ships and §16.5 tests, now has pixels, wording, a clearing rule and an accessibility rule (§5.8, §13.1, §16.2). §14.2 was regenerated symbol-for-symbol against the finished Spec A §7 and finally carries the per-datum → screen → field table it declared a build gate, with §16.1 gate 8 enforcing it. The v1 reaction set is closed at eight emoji, by codepoint, with a normalisation rule (§5.2a). The history-grant banner names its source call and event (§5.5). The retention notice is formatted from Spec A's `MessageRetentionApplied`, whose values are **seconds**, with `0` rendered as indefinite (§8.4, §14.3). Mute and per-conversation notification mode name their carriers (§10.3, §12). Lint 7 is expressed by codepoint so it no longer fails on its own text (§16.3). Ledger and MASTER invariant numbering are separated: an `I`, `P` or `T` citation in this document is the ledger's unless it says MASTER (§17, and the citations in §5.1, §8.3, §9.4, §12.1, §12.2, §14.1). |
 | 4 | **Owner rulings applied.** Four new component decisions: the optional PIN (W11), fleet-root server-key verification with no accept modal (W12), an unsigned beta (W13), and no in-VPN promotion (W14). **Deleted:** §2.6's "Get URmessage" acquisition row and its state table, §7.6's server-key modal and its Hello gate, the "no delivered state" block in §5.3, §10.3's "Name and message" global position, and §15's app-lock and per-member-delivery rows. **Added:** §2.7 (unsigned beta), §6.9 (the PIN, auto-lock and screen 26), §9.8 (away longer than the 90-day read-authorization window), §9.9 (out of credit), §12.4 (redeeming a balance code), §12.5 (the 500-member and 10-device caps), §12.6 (the Security log), §12.3's short-code-plus-six-digit pairing, and screens 26–31. **Changed:** delivery receipts return as `MessageEntry.State == "delivered"` with `DeliveredTo` and their own glyph (§5.3, §10.1, §12); server order with the sender's timestamp as the label, and eight new system records (§5.1); attachments auto-download from known senders only (§5.4); seedphrase confirmation has no skip, and the two phrases are separated by three normative rules (§6.1, §6.3); the account is created in-app (screens 2 and 2a); delete-for-everyone is bounded to 24 hours with a permanent placeholder (§5.2a, §8.2); disappearing timers are forward-only and expired rows carry no sender (§8.3); retention gains a one-year text default and three advertised limits (§8.4, §12); two new health states, `Locked` and `OutOfCredit` (§9.2); fork detection resyncs before it stops (§9.5, §9.3's `fork_unresolved`); notifications are name-only with a per-conversation opt **up** (§10.3); directory listing is off by default and is the only link between the two identities (§12); the operator this server forwards through is shown alongside it (§12.2); two new verbatim strings (§8.1); §14.2, §14.3 and §14.4 regenerated against the new surface; three build gates, ten selftests, an eleventh acceptance criterion, and six more forbidden literals (§16). |
+| 5 | **Operators are plural, and the rest of the owner's rulings applied.** The network space host is an **operator**, so it is per-user configuration with a build-time default and a runtime setter rather than a compiled-in constant; §1.1 states the operator model, §12.2 shows three read-only rows (server, your operator, the server's operator) where it showed two, §12's Advanced entry and §15's row follow, and §16.1 gate 12 fails a build that compiles a host in as its only source. **The contact card ships**: §12.7 and screen 32, reached from Settings → Account and screen 13, with rotation, safety digits, the receiving flow, and card requests in screen 23 — which is what makes the product usable while directory listing is off and before the transparency log exists. **Directory lookups no longer fail closed**: §7.3 distinguishes a proof that did not verify (refused) from no reachable log (proceeds, with `kt_unavailable` rendered), adds the `out_of_band` evidence row for a key that came from a person, and screen 13 gains the matching states. **Per-user install is stated with its cost** — no Intune, SCCM or GPO deployment (§2.1, W4, §15). **Read receipts and typing indicators are reciprocal** (§5.3, §12, C-7). **Reactions take any emoji**: §5.2a replaces the eight-emoji table with the full picker, the SDK-supplied grouping key and `EmojiRaw`, and the four consequences — font coverage, joined sequences, normalisation, and reactions as a moderation surface; a received record that fails validation renders as the new `malformed` gap (§5.1). **§9.10** gives the owner-succession warning its four stages. **An owner's leave opens the transfer flow rather than an error** (§12, §6.6, §16.2). §14.2's three closed vocabularies and the Ownership row were regenerated against Spec A, the contact-card and protocol-limit rows added, the duplicate screen-10 delivery row merged, and gate 8 raised from existence to **set equality**. Lint 6 was rewritten so every forbidden literal names the source it is formatted from, and §9.8, §9.9, §12 and §12.5 now read the read-key window, the free allowance and the two protocol caps from data. §16.5 splits into slice-5, beta and general-availability lists, because inclusion-proof discovery and multi-device cannot gate a build that has neither. |
 
 ---
 
@@ -116,7 +117,7 @@ Append-only. Newest last. One entry per commit that changes this spec. Every cha
 | Runtime dependency | `URmessageSdk.dll` (cgo `c-shared`), load-time import. **This is the only Go DLL in the process.** |
 | Privilege | Standard user. The manifest requests `asInvoker` and the app **must fail to build** if any `requireAdministrator` or `highestAvailable` appears in it (CI check) |
 | Single-instance key | `ids::kMessageSingleInstanceKey` — **must differ from the VPN app's `ids::kSingleInstanceKey`**, which is fixed. Reusing it redirects URmessage's activation into the VPN app's window |
-| URI scheme | `urmessage://` (deep links, invite links). An invite link carries an invitation a member already made: a one-time link admits its named holder, and a published address opens a **request to join** that a member approves (screen 28). It is never a door that admits anyone holding the URL. The VPN app owns `urnetwork://`; no collision |
+| URI scheme | `urmessage://` (deep links, invite links, contact cards). An invite link carries an invitation a member already made: a one-time link admits its named holder, and a published address opens a **request to join** that a member approves (screen 28). It is never a door that admits anyone holding the URL. A **contact card** link is a different kind of thing and is bounded differently: it authorises a first hello with the person who made it and nothing else, it admits nobody to any group, and it is rotatable (§12.7). The VPN app owns `urnetwork://`; no collision |
 | Data root | `%LOCALAPPDATA%\URmessage\` — `app\logs\`, `app\storage\` (owned by A), `app\prefs.json`. The **program** files live in `%LOCALAPPDATA%\Programs\URmessage\` |
 | Min OS | Windows 10 21H2 (Mica degrades to the solid brand background, as in `WindowShell.h`) |
 
@@ -126,7 +127,9 @@ Append-only. Newest last. One entry per commit that changes this spec. Every cha
 // urmsg_client_open(settings_json, out_error). All keys required unless marked optional.
 {
   "storage_dir":        "string",   // absolute path, per-user, writable. NOT %PROGRAMDATA%.
-  "network_space_host": "string",   // e.g. "ur.network"; the URnetwork network space
+  "network_space_host": "string",   // e.g. "ur.network"; the operator this account is on.
+                                    // Configuration with a build-time default, never a
+                                    // compile-time constant — see below
   "message_server_id":  "string",   // the one server's URnetwork client id (UUID string),
                                     // from the build-time constant kMessageServerClientId
                                     // or, when set, from the operator discovery response
@@ -135,7 +138,13 @@ Append-only. Newest last. One entry per commit that changes this spec. Every cha
 }
 ```
 
-> `storage_dir` = `%LOCALAPPDATA%\URmessage\app\storage`. `network_space_host` and `message_server_id` are build-time constants in `Common/ServerConfig.h` (`kNetworkSpaceHost`, `kMessageServerClientId`). There is **no ByJwt at construction**: the client opens first, then signs in through the `urmsg_auth_*` surface, and refreshes with `urmsg_client_set_by_jwt`. `message_server_id` is a URnetwork **client id**, which is not the same thing as the host string shown in §12.2 — say both.
+> `storage_dir` = `%LOCALAPPDATA%\URmessage\app\storage`.
+>
+> `message_server_id` is the one server's URnetwork client id and comes from the build-time constant `kMessageServerClientId` in `Common/ServerConfig.h`. v1 has one message server, so a constant is the honest shape for it.
+>
+> `network_space_host` is **not** a constant. It is read from per-user configuration (`prefs.json`, key `network_space_host`), falling back to the value in `Common/ServerConfig.h` only when nothing is configured, and it is changeable at runtime through the SDK's `SetNetworkSpaceHost`. The reason is that this value names an **operator**, and URnetwork runs more than one — two are live today. An operator is a URnetwork platform instance that authorises transport, mints contracts, routes to providers, and runs its own discovery directory and its own key-transparency log. A message server is a different thing: it stores ciphertext and orders records, and it holds an account on one compatible operator chosen by whoever administers it. This client reaches its message server through the operator its **own** account is on, which need not be the operator the message server uses. A build that compiles one operator's host in as its only source cannot be pointed at a second one without shipping a new binary, which the master protocol design calls a defect in as many words (MASTER §2); §16.1's build gate enforces it here.
+>
+> There is **no ByJwt at construction**: the client opens first, then signs in through the `urmsg_auth_*` surface, and refreshes with `urmsg_client_set_by_jwt`. `message_server_id` is a URnetwork **client id**, which is not the same thing as the host string shown in §12.2 — say both.
 
 ### 1.2 Window shell
 
@@ -204,6 +213,12 @@ URmessage ships as its **own `InstallScope="perUser"` MSI**, `URmessage-<version
 A per-user package installs into `%LOCALAPPDATA%\Programs\URmessage\` with **no elevation at all**, and every Windows account on the machine installs it for itself. That is the only arrangement under which W4's "zero elevation anywhere in the product" is literally true and under which a second user on a shared PC gets a working app rather than a Start Menu entry pointing at nothing.
 
 Why not a component set inside the VPN's per-machine MSI: per-user components in a per-machine package land in the profile of whichever account ran the elevated installer and in no other. A second user would have no binaries under their `%LOCALAPPDATA%\Programs\URmessage\`, no shortcut, and no `HKCU\Software\Classes\urmessage` handler, while the product would already record itself as installed — so no repair path would fire, and that user would be left with a Start Menu entry pointing at nothing.
+
+**There is no per-machine variant, and there will not be one in v1.** URmessage installs for one Windows account at a time, into that account's own profile, with no elevation at any point. The accepted cost is that no organisation can deploy it centrally: it cannot be pushed through Intune, SCCM or Group Policy, and an administrator who wants it on fifty machines has fifty users to ask.
+
+That cost is paid for a property that is doing real work. No elevation means no privileged service, no driver, no firewall filters, and none of the machinery behind most of the hard defects in the VPN client — the service-restart budget, the adapter lifecycle, the kill-switch states, the loopback RPC reattach class. §0.3 lists them one by one. A per-machine installer would put the binaries under `%ProgramFiles%`, which the running user cannot rename-swap, which means an updater that needs a privileged helper or a UAC prompt on every update — and the prompt is the part that matters, because a product that asks for administrator rights routinely is a product whose users click through administrator prompts.
+
+A managed-deployment story is a later decision made deliberately, with a signing certificate and a support surface behind it. It is not a thing to acquire accidentally by making the installer a little more convenient.
 
 ### 2.2 Own payload, separate app
 
@@ -277,7 +292,7 @@ The table is the contract; the sections that follow expand the four screens that
 | 10 | **Conversation view** | Virtualized message list, day separators, system records, composer, disappearing chip, attachment button | empty, loading-history, at-top (no more history), populated, read-only (observer / restored / removed), blocked-by-key-change, fork-resyncing, fork-unresolved, away-too-long |
 | 11 | **Message context menu** | React, Reply, Copy, Save attachment, Message info, Delete for me, Delete for everyone | per-message; delete-for-everyone hidden when not the sender and outside the 24-hour window (§8.2) |
 | 12 | **Message info** | Only what Spec A returns: sender, sent time, received time, epoch, sender leaf index, retention class, size bucket, attestation state, **delivered-by list and read-by list** — this is the one place per-member delivery is shown, never the thread (§5.3) | own messages and received |
-| 13 | **New conversation** | Directory lookup by URnetwork principal, recent contacts, "New group" | empty query, searching, results, no-results, lookup-failed, KT-proof-failed |
+| 13 | **New conversation** | **Show my contact card** (screen 32), **Scan or paste someone's contact card**, directory lookup by URnetwork name where the other person has turned listing on, recent contacts, "New group" | empty query, searching, results, no-results, lookup-failed, KT-proof-failed, log-unavailable, card-scanned, card-retired |
 | 14 | **Group creation** | Name, members picker, retention, disappearing default | drafting, creating, created, failed |
 | 15 | **Group details** | Members with roles, invite, invite links and join requests (screen 28), ownership (screen 30), retention, disappearing, message previews in notifications, history-grant banner, leave | member view, admin view, owner view |
 | 16 | **Member detail** | Identicon, principal, safety number, role controls, remove, device count | self, member, admin, owner, unpinned, pinned, key-changed |
@@ -286,9 +301,9 @@ The table is the contract; the sections that follow expand the four screens that
 | 19 | **My devices** | This device + others: name, added date, last seen. Add device, Remove device (§12.3) | one device, several, removing (per-group progress), removed, **partially removed**, failed |
 | 20 | **Settings** | Eight groups; §12. Account carries the two exit doors — **Sign out of URnetwork** (non-destructive) and **Remove this identity from this computer** (destructive, Hello-gated, hard-blocked before phrase confirmation) — and the new **Security** group renders `Sealer.Description()` verbatim | — |
 | 21 | **Attachment viewer** | Image or file. Save as, Open with | loading, loaded, expired-by-policy, download-failed, too-large |
-| 22 | **About** | Version, `kCode`, message server host, licences, `THIRD-PARTY-NOTICES.txt` | static |
-| 23 | **Invitations** | Pending group invites, pinned at the top of the conversation list (a modal on launch is hostile). Inviter, group name, member count, Accept / Decline | none, pending, accepting, accepted, declined, expired |
-| 24 | **Reaction picker** | The v1 emoji set, recents, search | closed, open, searching |
+| 22 | **About** | Version, `kCode`, message server host, where the server is hosted (`ServerInfo().HostingJurisdiction`), licences, `THIRD-PARTY-NOTICES.txt` | static |
+| 23 | **Invitations** | Pending group invites, pinned at the top of the conversation list (a modal on launch is hostile). Inviter, group name, member count, Accept / Decline, plus requests from people who used your contact card, with the sender's name, safety digits and `[ Start chatting ]` / `[ Ignore ]` | none, pending, accepting, accepted, declined, expired |
+| 24 | **Reaction picker** | Full emoji picker with search, skin-tone selector, recents and a frequently-used row | closed, open, searching |
 | 25 | **Store unavailable** | Full-screen stop, §9.2. Not a banner | `unseal_failed`, `corrupt`, `disk_full`, `locked_by_another_process` |
 | 26 | **Locked** | Full-screen PIN entry over the brand background: app name, PIN field, `[ Unlock ]`, and "Forgot your PIN?" leading to §6.9's consequence copy. No message content, no conversation names, no counts | locked, entering, wrong-pin (with the delay shown), unlocking |
 | 27 | **Redeem a code** | A single field for a balance code, `[ Redeem ]`, and the result. Reached from Settings → Account and from the out-of-credit banner (§9.9) | empty, submitting, redeemed, invalid, already-used, expired, rate-limited, offline |
@@ -296,8 +311,9 @@ The table is the contract; the sections that follow expand the four screens that
 | 29 | **Security log** | Settings → Security. Append-only list from `SecurityLog()`: server key rotations, accepted contact key changes, devices added and removed, PIN set or cleared, diagnostic sessions | empty, populated |
 | 30 | **Ownership** | Group details → Ownership. Transfer ownership; nominate or clear a successor; turn succession off; the successor's claim; an admin's countersignature; the owner's own countdown | owner view, admin view, successor view, disabled, eligible, claiming |
 | 31 | **Diagnostics** | Settings → Advanced. Start a bounded diagnostic session, see when it ends, stop it early, read what was recorded | off, running, ended |
+| 32 | **My contact card** | The QR code, the copyable link, the safety digits under it, `[ Copy link ]`, `[ Save QR ]`, `[ Make a new link ]` and what that does to the old one | live, rotating, rotated |
 
-Screens 26–31 are reached from Settings and from group details; none of them appears in the onboarding stack, and none of them is a modal that opens on launch.
+Screens 26–32 are reached from Settings, from group details and from screen 13; none of them appears in the onboarding stack, and none of them is a modal that opens on launch.
 
 Screens 1–8 are the onboarding stack and never appear again once complete (except 8 and the phrase re-display in Settings). Screens 9–10 are the app.
 
@@ -358,7 +374,7 @@ Day separators, and a system-record row type rendered as a centred, muted, non-b
 | History grant | **Persistent banner**, not a row — §5.5 |
 | Retention policy changed | "Ana set media to be kept for 1 month." |
 | Observer message hidden | "A message from an observer was hidden." (§5.6) |
-| Gap (`Kind == "gap"`) | Per reason: `expired` → §9.7's ephemeral line; `out_of_window` → *"A message here couldn't be decrypted — this device joined after the key rotated."*; `not_a_member_yet` → reuse §9.1's "You joined here" boundary; `withheld` → §9.6's attestation copy; `no_wrap` → *"This device hasn't received its key for this part of the conversation yet."* |
+| Gap (`Kind == "gap"`) | Per reason: `expired` → §9.7's ephemeral line; `out_of_window` → *"A message here couldn't be decrypted — this computer was offline while the group's keys changed too many times."*, with the supporting line *"Linking another computer, or restoring from your phrase, brings the rest back."*; `not_a_member_yet` → reuse §9.1's "You joined here" boundary; `withheld` → §9.6's attestation copy; `no_wrap` → *"This device hasn't received its key for this part of the conversation yet."*; `malformed` → *"Something arrived here that this version couldn't read."* — no retry affordance and no error code; a record that fails validation is shown rather than hidden, because a messenger that silently drops what it cannot read cannot be trusted to have shown everything |
 | Invite accepted / declined | "Bo joined." / "Bo declined the invitation." |
 | Message deleted for everyone | "This message was deleted." — a permanent placeholder in place of the bubble, never a removed row |
 | Ownership transferred | "Ana made Bo the owner of this group." |
@@ -367,6 +383,9 @@ Day separators, and a system-record row type rendered as a centred, muted, non-b
 | DM policy changed | "Ana set messages here to be kept for 30 days." |
 | DM policy request pending | "Ana asked to keep messages here for 1 year. It takes effect when you set the same thing." |
 | Join request accepted | "Bo asked to join with Ana's link, and Cass let them in." |
+| Conversation started from a contact card | "This conversation started from your contact card." (§12.7) |
+| Succession warning, 30 and 60 days | "You haven't posted here for 30 days. If that reaches 90, Bo can take over this group with most admins' agreement." — an in-thread system row, at 30 and again at 60 |
+| Succession warning, 75 and 85 days | Not a row. A non-dismissible banner at 75 and a modal at 85 — §9.10 |
 
 > **Incremental loading, concretely.** `History()` is synchronous and reads SQLite, and §14.1 forbids blocking the UI thread on any SDK call, so it runs on a dedicated background thread that fetches a page of **50** entries and `TryEnqueue`s the completed page. While a page is in flight the list shows a single muted "Loading older messages" row at the top. `at-top` is **not** inferred from a short result — it is `HistoryState().HasMoreLocal == false && HasMoreRemote == false`, per §14.2 requirement 1.
 >
@@ -400,20 +419,21 @@ The data model exists and the pixels do not. Seven variants, with layout and tok
 | **Gap row** | Not a bubble — the centred muted system row, with per-reason copy from §5.1 |
 | **Deleted placeholder** | Not a bubble: a centred, muted line reading *"This message was deleted."* with the original sender's name and the original time, occupying the message's place in the order. It is what `Kind == "tombstone"` renders, it is never collapsed away, and there is no affordance to see what was there |
 
-**The v1 reaction set is closed**, eight emoji, by codepoint:
+**Any emoji, from the full picker.** Screen 24 is a real emoji picker: search, a skin-tone selector, a recently-used row, and the full set the system font provides. There is no approved list and no fallback list. The SDK validates what the picker returns and refuses anything that is not a single emoji cluster, which is the only rule the picker has to respect.
 
-| | Codepoint | Name |
-|---|---|---|
-| 👍 | U+1F44D | thumbs up |
-| 👎 | U+1F44E | thumbs down |
-| ❤️ | U+2764 U+FE0F | red heart |
-| 😂 | U+1F602 | face with tears of joy |
-| 😮 | U+1F62E | face with open mouth |
-| 😢 | U+1F622 | crying face |
-| 🙏 | U+1F64F | folded hands |
-| 🎉 | U+1F389 | party popper |
+**Grouping.** Reactions collapse into pills with counts, and the SDK supplies the grouping key — `MessageReaction.Emoji`, already normalised with skin tones and variation selectors folded out — alongside `MessageReaction.EmojiRaw`, which is what a reactor actually sent. The client groups on the key and never on the raw form. It must not implement its own folding: two folds that disagree produce two pills for one emoji, and the SDK's is the one the counts are computed from.
 
-Normalisation, so that grouped counts cannot fragment: strings are NFC; a skin-tone modifier is **stripped** before matching; a ZWJ sequence is not a member of the set and there is no allowlist for one in v1. The set is enforced in **one** place — Spec A refuses a `React` call whose emoji is not a member, delivering the error to the `SendCallback` and emitting no record — so the picker, the string store and the selftest all read the same list rather than each carrying a copy. No value is added to Spec A's closed send-failure vocabulary for this; a refused emoji is a call error, not a send state.
+Four consequences come with the full set, and each has a rendering rule rather than a hope.
+
+**Font coverage.** Windows ships an emoji font that lags Unicode by a year or more, and a reaction composed on a phone can arrive here with no glyph. Render the replacement box the shaper produces, keep the count, and put the codepoint sequence in the pill's tooltip and its `AutomationProperties.Name`. Never substitute a different emoji and never hide the reaction: a box is a true statement about this computer's fonts, and a silent substitution is a lie about what someone said.
+
+**Joined sequences.** Many emoji are several codepoints joined with zero-width joiners, and a shaper that does not know a sequence draws its parts. The SDK guarantees one cluster per reaction, so the pill is always one reaction even when it draws as three pictures; the count is never split.
+
+**Normalisation.** Skin-tone modifiers are folded out before grouping and before display selection, which is deliberate and worth knowing: a reaction is a one-tap gesture, and a skin tone carried on it says something about the person tapping that they did not choose to say. Variation selectors fold out too, so the same emoji sent with and without one is one pill.
+
+**A reaction is content now.** With a fixed set the worst a reaction could carry was one of eight approved meanings; with the full set it is something a person wrote, and it can be used to harass. There is no reporting route behind it — reporting and blocking are not in v1 (§15) — so the recourse the UI offers is the recourse that exists: mute the conversation, leave it, or remove the person if you administer the group. The context menu on a reaction pill therefore offers **Remove my reaction** and, in a group where the user is an admin or the owner, **Manage members**, and it offers nothing that implies a report will be read by anyone.
+
+A refused emoji is a call error rather than a send state: Spec A delivers the error to the `SendCallback` and emits no record, and no value is added to Spec A's closed send-failure vocabulary for it. A **received** reaction record that fails validation renders as the `malformed` gap of §5.1, never as a dropped row.
 
 ### 5.3 Delivery state
 
@@ -448,6 +468,8 @@ message, and it is off for a user who turns delivery receipts off (§12).
 **Uploading.** An attachment send additionally renders a determinate progress ring bound to A's `UploadProgress`, with a cancel affordance mapped to `MessageSendTicket.Cancel()`. It precedes `Queued` and is not a `MessageEntry.State` value.
 
 **What delivery means here, in the tooltip:** *"Delivered means a device belonging to someone in this conversation told us it decrypted your message. The server can't tell us that — it doesn't know who fetches what — so a message can sit read for hours before this appears, and it never appears at all for someone who has turned delivery receipts off."*
+
+**Turning your read receipts off hides everyone else's from you.** A message you send stops at **delivered** and never reaches **read**, and screen 12's read-by list is empty, for as long as the setting is off. The same applies to typing indicators: with yours off, nobody else's appears. This is not a UI courtesy — the SDK drops inbound receipts before they reach the store, so a screen that forgot the rule could not leak them anyway.
 
 In a group, `delivered` means **at least one** member's device reported it. Screen 12 lists which members, from `MessageEntry.DeliveredTo`, exactly as it lists who read it. There is no per-member glyph in the thread: a row of eleven checkmarks says less than one word does.
 
@@ -618,7 +640,7 @@ State the consequence on this screen: the phrase is recoverable from this machin
 1. Show the recovery phrase.
 2. Accept a changed identity key (§7).
 3. Remove a device from your own device list.
-4. Leave or delete a group you own.
+4. Leave a group, or transfer ownership of one you own.
 5. Change or clear the PIN (§6.9). Setting one for the first time is not gated — there is nothing to authorise yet — but changing or removing an existing one is, because both weaken a protection that is already in force.
 6. **Remove this identity from this computer** (§12, Account) — the one destructive action that can lose history.
 
@@ -786,9 +808,14 @@ Every row is a rendered datum from Spec A, never a claim C composes:
 | `operator_assertion` | the URnetwork operator | **No** |
 | `operator_reset` | the URnetwork operator, after an account reset | **No** |
 | `kt_unavailable` | *nobody — the transparency log could not be reached* | **No** |
+| `out_of_band` | *you got this key from them directly* | **No** |
 | `unknown` | *unknown* | **Unknown** |
 
 The "Signed by the old key" cell renders `KeyChangeWarning.SignedByOldKey`, never the class name. No row gets a softening sentence in v1.
+
+**`out_of_band` is the strongest row in this table, not the weakest.** It is the class a key carries when it came from a contact card the other person handed over (§12.7) rather than from any directory, and the copy says so plainly instead of dressing it as a missing-log warning. `kt_unavailable` is a different statement — the log could not be reached, or the identity has never been listed and therefore has no log leaf at all — and the two are never collapsed into one row, because folding the best provenance in the product into the weakest is a lie in the direction that costs a user something.
+
+**A directory lookup with no reachable log still opens a conversation, and says so.** Spec A distinguishes a resolution answered with a proof that does not verify — which fails closed, starts nothing, and is the event this whole mechanism exists to catch — from a resolution made when no log was reachable at all, which proceeds and carries `kt_unavailable`. The client renders the second as its own row here, on the contact sheet and on the key-change sheet, rather than as an error or as nothing: until the transparency log is live every lookup lands in that state, and a lookup that refused to proceed would leave the product with no way to start a conversation at all. Screen 13's `KT-proof-failed` state is the first case and offers no way through; its `log-unavailable` state is the second and continues with the row shown.
 
 **There is no self-signed-rotation row in v1.** `identity` is derived from the seedphrase and nothing else (MASTER §5.2), so a reinstall or a new computer from the same phrase produces the **same** key and raises no warning at all. The only v1 path to a changed key is a MASTER §5.5 operator reset. Claiming "Ana's old key signed this change" for a mechanism that does not exist would be a false security claim in the one screen where accuracy matters most. The identifier `self_signed_rotation` is reserved in Spec A for V2 and is never emitted.
 
@@ -921,7 +948,9 @@ This server publishes three limits, and a group's settings are fitted inside all
 > **Photos and files kept longer than this server allows:**
 > *"This server keeps photos and files for at most **30 days**. Your setting of 90 days can't be applied here — they will be kept for **30 days**."* `[ Use 30 days ]` `[ Cancel ]`
 >
-> `DurableTtlSeconds == 0` means indefinite and renders as *"kept until you delete them"*, never as "0 days" — and it is only reachable on a server that publishes no text cap. The group's own transcript-covered policy is unchanged in every case, so this is a notice, not a failure.
+> `MessageRetentionApplied.DurableTtlSeconds` is what the server **actually stored**. `4294967295` means indefinite and renders as *"kept until you delete them"*, never as a number of days, and it is only reachable on a server that publishes no text cap. `0` never appears in an applied value, because "the group set nothing" is a request and not an outcome. The group's own transcript-covered policy is unchanged in every case, so this is a notice, not a failure.
+>
+> **A default is not a clamp, and the two get different sentences.** When `DurableDefaulted` is true the group sent no text policy at all and the server supplied its own: *"This group keeps messages for **1 year** — that's this server's default."* When the group asked for longer and was clamped, the copy is the first notice above. Rendering both as a clamp tells a group it lost an argument it never had.
 
 **The default for text is one year, not forever**, and the group sheet shows it as the starting value rather than as an empty field meaning "keep everything". Where the server does not permit groups to raise it (`ServerInfo().GroupDurableOverride == false`), the control is **absent** and one line stands in its place: *"This server keeps messages for **1 year** and groups can't change it."* A disabled control that silently does nothing is worse than no control.
 
@@ -1105,25 +1134,27 @@ Master §12.2 prunes `MEDIA` on the group's media TTL. The client does not infer
 
 ### 9.8 When this computer has been away too long
 
-The message server keeps each group's read authorization for **90 days**. That window is what lets someone close a laptop for a season and come back, and it is also what finally cuts off a member who was removed. A device that has been away longer than the window holds only keys the server has discarded, and its reads are refused.
+The message server keeps each group's read authorization for the window it advertises as `ServerInfo().ReadKeyWindowMs` — ninety days on a stock server. That window is what lets someone close a laptop for a season and come back, and it is also what finally cuts off a member who was removed. A device that has been away longer than the window holds only keys the server has discarded, and its reads are refused.
 
 This is a named state, never a generic failure. Spec A reports sendability reason `read_authorization_expired`, and the conversation shows:
 
 > **This computer has been away too long to open this conversation.**
-> The message server stops recognising a device after 90 days offline. Nothing is lost — your history is still on the server and still encrypted to you.
+> The message server stops recognising a device after **{read_key_window}** offline. Nothing is lost — your history is still on the server and still encrypted to you.
 > `[ Link from another computer ]` `[ Restore from my phrase ]` `[ What's happening? ]`
+
+`{read_key_window}` is formatted from `ServerInfo().ReadKeyWindowMs` and never written as a literal (§16.3 lint 6). While `ServerInfo().Advertised == false` the duration is not known, so the banner drops it entirely and reads *"The message server stops recognising a device that has been offline too long."* — an unadvertised window is a number this client does not have, and inventing one would be a claim about how long a user may be away.
 
 Both buttons are live paths, not suggestions. `[ Link from another computer ]` opens screen 8's new-device half, which is the faster route if the user still has a signed-in machine. `[ Restore from my phrase ]` opens screen 6, which always works: seed-only restore is authorised by the recovery proof rather than by a read key, so the 90-day window does not apply to it.
 
 `[ What's happening? ]`:
 
-> URmessage asks the server for your messages with a key that changes as the group changes. The server keeps each of those keys for 90 days so you can come back after being away. Past that, it stops recognising them — which is also how someone removed from a group eventually stops being able to see even that messages are being sent.
+> URmessage asks the server for your messages with a key that changes as the group changes. The server keeps each of those keys for **{read_key_window}** so you can come back after being away. Past that, it stops recognising them — which is also how someone removed from a group eventually stops being able to see even that messages are being sent.
 
 The last sentence is there on purpose: this is a cost the user is paying for a property that protects them, and saying so is cheaper than letting them conclude the app is broken.
 
 ### 9.9 When the data allowance runs out
 
-URmessage sends through the user's own URnetwork data allowance — currently 40 GB a day free, which no amount of text will exhaust — and it does not sell data, set prices, or contain a purchase flow. Operators price data; this app spends it and can redeem a code against it.
+URmessage sends through the user's own URnetwork data allowance — a free daily figure no amount of text will exhaust — and it does not sell data, set prices, or contain a purchase flow. Operators price data; this app spends it and can redeem a code against it. The figure itself is `Balance().FreeAllowanceBytesPerDay`, formatted at render time and never written as a literal (§16.3 lint 6).
 
 `Balance().State == "exhausted"` gives health state `OutOfCredit`, a banner above the conversation list, and a composer that queues rather than sends:
 
@@ -1132,9 +1163,28 @@ URmessage sends through the user's own URnetwork data allowance — currently 40
 
 `[ Add credit ]` opens the URnetwork website in the default browser — this app has no checkout and must not grow one. `[ Redeem a code ]` opens screen 27. `[ What's happening? ]`:
 
-> Messaging uses the same URnetwork data allowance as everything else on your account, and the free allowance is 40 GB a day — far more than messages need. If it's gone, something else on this account used it. Add credit from the URnetwork website, app or VPN client, or redeem a code if you have one.
+> Messaging uses the same URnetwork data allowance as everything else on your account, and the free allowance is **{free_allowance}** a day — far more than messages need. If it's gone, something else on this account used it. Add credit from the URnetwork website, app or VPN client, or redeem a code if you have one.
+
+`{free_allowance}` is formatted from `Balance().FreeAllowanceBytesPerDay`. When that value is unknown the sentence drops the figure entirely — an operator sets this number and may change it, and a client that prints a literal is stating someone else's pricing decision as a fact about the product.
 
 `"low"` shows the same banner in a muted, dismissible form. `"unknown"` shows nothing at all: the client has not reached the account API yet, and inventing a number there would be worse than silence.
+
+### 9.10 When you are about to lose a group you own
+
+A group's owner who stops using the app can be replaced by its admins after ninety days of silence (MASTER §11). That mechanism exists to rescue a group from an owner who is gone, and the thing that keeps it from displacing an owner who is merely busy is that the owner is warned, repeatedly, on every machine they use, and that any single message resets the clock.
+
+The warnings are driven by `Succession(groupId)` — `MessageSuccessionState.IAmTheOwner` and `.OwnerWarningStage` — and the stage is computed from group state rather than from a per-device flag, which is what makes "on every device" true without any device having to coordinate with another. The successor's name comes from `.SuccessorDisplayName` and the date from `.EligibleAtMs`.
+
+| Stage | Surface | Copy |
+|---|---|---|
+| 30 days | An in-thread system row, in that group | *"You haven't posted here for 30 days. If that reaches 90, Bo can take over this group with most admins' agreement."* |
+| 60 days | The same row again | *"You haven't posted here for 60 days. Bo can take over this group in 30 days unless you post."* |
+| 75 days | A **non-dismissible** banner above the composer, `UrCardBrush` with a `UrBorderStrongBrush` top edge | *"Bo can take over this group on 3 March. Anything you post here stops it."* `[ Turn this off ]` |
+| 85 days | A **modal**, once per device per stage, on next launch or next focus of that conversation | *"Bo can take over **Design** on 3 March. Sending any message here stops it. If you'd rather this never happened, you can turn succession off for this group."* `[ Post now ]` `[ Turn succession off ]` `[ Not now ]` |
+
+`[ Turn this off ]` and `[ Turn succession off ]` both call `SetSuccessionEnabled(groupId, false)` and both state the consequence before committing: *"If you stop using this account, nobody will be able to take this group over and it can't be administered again."* That is the owner's decision to make and the screen makes it with the cost visible.
+
+None of these surfaces appears on a client where the local identity is not the owner. An admin sees the group's countdown on screen 30 and nothing in the thread: a warning aimed at the owner, rendered to everyone else, is a countdown to a coup posted publicly.
 
 ---
 
@@ -1284,20 +1334,27 @@ The owner's rule for the VPN app applies unchanged: Windows chrome, Mica, standa
 
 | Group | Contents |
 |---|---|
-| **Account** | URnetwork account, message identity (principal + short fingerprint), **Show my recovery phrase** (Hello-gated), **Check my recovery phrase** (§6.3, addition c), **Redeem a code** (screen 27), **Data allowance** (from `Balance()`), **Sign out of URnetwork**, **Remove this identity from this computer** |
+| **Account** | URnetwork account, message identity (principal + short fingerprint), **My contact card** (screen 32, §12.7), **Show my recovery phrase** (Hello-gated), **Check my recovery phrase** (§6.3, addition c), **Redeem a code** (screen 27), **Data allowance** (from `Balance()`), **Sign out of URnetwork**, **Remove this identity from this computer** |
 | **Security** | `Sealer.Description()`, rendered verbatim; **Require a PIN** and **auto-lock** (§6.9); **Lock now**; **Security log** (screen 29) |
 | **Notifications** | On/off, what notifications show (§10.3), sound, per-conversation list of overrides and mutes — see the carriers below — "Start URmessage when I sign in" |
 | **Privacy & retention** | `msg_durable_default_explainer` at the top; read receipts (on); **delivery receipts (on)**; typing indicators (on); disappearing default for new conversations (off); **Download photos and files automatically** (From people I've messaged); **Let people find me by my URnetwork name** (off); **Cover traffic (off)** — §12.1 |
 | **Appearance** | Enter-to-send, message density, time format |
 | **Storage** | Local store size, attachment cache, "Clear downloaded files" (local only, with copy saying so), and **this server's three limits, read-only**: file size, how long photos and files are kept, how long messages are kept |
 | **Devices** | Screen 19 |
-| **Advanced** | Message server host and **the operator it forwards through**, both read-only in v1 (§12.2); diagnostic log level; "Copy diagnostic"; **Diagnostics session** (screen 31); crash-report opt-in; version and `kCode` |
+| **Advanced** | Message server host, **your own operator**, and **the operator the server forwards through** — all three read-only in v1 (§12.2); diagnostic log level; "Copy diagnostic"; **Diagnostics session** (screen 31); crash-report opt-in; version and `kCode` |
 
 **Account — the two exit doors.** "Sign out" previously appeared exactly once, as a row label, with no defined semantics — one click from Settings, and potentially the most destructive action in the product. §6 goes to great lengths to make phrase loss survivable, so leaving the one action that can cause it undefined was the sharpest inconsistency in this document. It is now two rows:
 
 > **"Sign out of URnetwork"** — drops the `ByJwt`, **keeps** the identity and the local store, returns to screen 2. No confirmation beyond a simple one.
 >
 > **"Remove this identity from this computer"** — destructive. Windows Hello gated (§6.6 action 6) with the typed-`REMOVE` fallback, and this copy: *"Your messages will be removed from this computer. You can get your history back only with your 24 words."* **Hard-blocked** when `PhraseConfirmedAtMs() == 0`, offering `[ Show my phrase first ]`. Calls `RemoveIdentity()`.
+
+**An owner cannot leave a group without handing it over.** `LeaveGroup` returns `GroupResult.Reason == "owner_must_transfer"` and commits nothing, so the client never shows a failure: it opens the transfer flow of screen 30 inline, in place, with the member picker already open —
+
+> **You own this group. Choose who takes it over before you leave.**
+> `[ member picker ]` `[ Transfer and leave ]`
+
+— and the leave completes automatically once the transfer commits. Spec A §7.3 keeps the transfer and the leave as two calls precisely so this screen can offer the way out instead of reporting a dead end, and the two-call shape is worthless if the UI renders the refusal as an error.
 
 **Notifications — which carrier each control writes.** The per-conversation override is `SetGroupNotificationMode(groupId, mode)` with the closed set `default` / `name_and_message` / `name_only` / `nothing`, read back as `MessageGroup.NotificationMode`; mute is `SetGroupMuted(groupId, muted)`, read back as `MessageGroup.Muted`. Both are personal state and commit nothing to the group.
 
@@ -1307,16 +1364,16 @@ The owner's rule for the VPN app applies unchanged: Windows chrome, Mica, standa
 
 This is the factual statement A ties to MASTER §13's honesty standard, and when no PIN is set it is the whole of what protects the store — which is why §6.9's set-PIN copy is written as an addition to it rather than a correction of it.
 
-**Privacy & retention — which layer each toggle writes.** Read receipts, delivery receipts, typing indicators and the disappearing default are **user preferences** (`SetUserPreference` / `UserPreference`). The group sheet's equivalents are **group policy** (`SetGroupPolicy`, ADMIN/OWNER only). The composition line goes directly under them: *"A receipt is sent only if both you and the group allow it."* Without this the team builds a user-level preference that silently writes to nothing, because in Spec A those fields live in `MessageGroupPolicy` and a MEMBER cannot commit group metadata.
+**Privacy & retention — which layer each toggle writes.** Read receipts, delivery receipts, typing indicators and the disappearing default are **user preferences** (`SetUserPreference` / `UserPreference`). The group sheet's equivalents are **group policy** (`SetGroupPolicy`, ADMIN/OWNER only). The composition line goes directly under them: *"A receipt is sent only if both you and the group allow it."* And directly under **that**, on the read-receipt and typing rows: *"Turning this off also hides other people's from you."* Reciprocity is the same rule Signal, WhatsApp and iMessage use, and it exists because without it the setting becomes a one-way observation tool where the most privacy-conscious person in a conversation learns the most about everyone else. Without the composition line the team builds a user-level preference that silently writes to nothing, because in Spec A those fields live in `MessageGroupPolicy` and a MEMBER cannot commit group metadata.
 
 **Directory listing is off, and turning it on is the only thing that links these two identities.** The control reads:
 
 > **Let people find me by my URnetwork name**
-> Off by default. While it's off, nobody can look you up — people reach you by an invite link or by exchanging safety numbers directly, which always work.
+> Off by default. While it's off, nobody can look you up — people reach you by your contact card (§12.7) or by a group invite link, both of which work with no directory at all.
 >
 > Turning it on publishes your messaging key against your URnetwork account, so the operator can answer "who is this account's messaging identity". That link doesn't exist until you create it.
 
-**Group and device limits are stated, not discovered:** group details shows *"500 members maximum"* beside the member count as it approaches, and screen 19 shows *"10 devices maximum"*.
+**Group and device limits are stated, not discovered:** group details shows *"{max_members} members maximum"* beside the member count as it approaches, and screen 19 shows *"{max_devices} devices maximum"* — both formatted from `MessageProtocolLimitsValues()` and never written as literals (§12.5, §16.3 lint 6).
 
 **Storage.** The attachment cache path is `%LOCALAPPDATA%\URmessage\app\storage\media\` and is **owned by A**. "Clear downloaded files" calls A and deletes decrypted materialised copies only, never records. The three advertised limits are `ServerInfo().MaxBlobBytes`, `.MediaTtlMaxMs` and `.DurableTtlMaxMs`, each rendered as "not known yet" when `ServerInfo().Advertised == false`. `MediaCacheBytes` is a live switch via `SetMediaCacheBytes`.
 
@@ -1338,11 +1395,17 @@ v1 has one server (ledger T1/T2). The row shows the host, is not editable, and c
 
 The host string shown here is **not** the `message_server_id` URnetwork client id from §1.1; both exist and this row shows the human one.
 
-The row beneath it names the operator this server forwards through, also read-only:
+Beneath it, a second read-only row:
+
+> **Your operator** — the URnetwork network your account is on, and the one carrying this computer's traffic.
+
+Sourced from the SDK's `NetworkSpaceHost()`, which is a configured value rather than a compiled-in one (§1.1). Beneath **that**, a third read-only row, naming the operator the server itself uses:
 
 > **Forwards through** — the operator this message server holds its account on.
 
-URnetwork has more than one operator, and the one carrying your own traffic is the one your account is on, which need not be this one. Both are shown so the sentence "who can see that I am connected" has a complete answer.
+**Forwards through** is sourced from `ServerInfo().OperatorHost` and renders "not known yet" until the server has advertised it.
+
+URnetwork runs more than one operator — two are live today — and they are separate things from message servers. Your operator authorises and carries your traffic; the message server's operator carries the server's. The two need not be the same, and when they differ, both parties can see that a connection exists and neither can see what is in it. All three values are shown together because "who can see that I am connected" has three parts, and showing two of them answers a different question than the one the user asked.
 
 ### 12.3 Adding and removing a device (screen 19)
 
@@ -1391,15 +1454,39 @@ The field trims whitespace and is case-insensitive on submission. The code is ne
 
 Three numbers appear in the UI before a user can hit them, because each of them is a wall and none of them has a graceful failure:
 
-- **500 members per group.** Shown in group details from 400 members onward, and as a refusal with its reason when an invite would cross it. A group that needs more than 500 people is a different product surface and does not exist in v1.
-- **10 devices per identity.** Shown on screen 19 always, and as a refusal at the point of linking an eleventh, with the option to remove one first.
+- **The group size cap**, from `MessageProtocolLimitsValues().MaxGroupMembers`. Shown in group details from 80% of the cap onward, and as a refusal naming the number when an invite would cross it. A group that needs more people than the cap allows is a different product surface and does not exist in v1.
+- **The device cap per identity**, from `MessageProtocolLimitsValues().MaxDevicesPerIdentity`. Shown on screen 19 always, and as a refusal at the point of linking one too many, with the option to remove one first.
 - **The message server's file size limit**, from `ServerInfo().MaxBlobBytes`, checked before the file picker returns (§5.4).
+
+The first two are protocol constants enforced by the SDK and every receiving client, not values this server advertises, which is why they come from `MessageProtocolLimitsValues()` and not from `ServerInfo()`.
 
 ### 12.6 The Security log (screen 29)
 
 Settings → Security → **Security log**. An append-only list rendered verbatim from `SecurityLog()` — server key rotations, contact key changes the user accepted, devices added and removed, the PIN being set or cleared, diagnostic sessions started and ended — oldest at the bottom, with no summary layer and no editorialising. It exists because a rotation that is applied silently still has to be **inspectable**: silence is the right default and the wrong permanent state.
 
 Each row is a time, a kind and a subject. Nothing in it is message content, a group name, or a contact's display name for a contact the user has not pinned. There is no clear button: a security log a user can erase is a log an attacker can erase.
+
+### 12.7 My contact card (screen 32)
+
+Reached from Settings → Account and from screen 13.
+
+Directory listing is off by default, and an invite link needs someone already inside a group. Two people who have never met would otherwise have no way to start a conversation at all. The contact card is that way: a QR code and a copyable link the user hands to someone in person, in a message on another app, or on a slide.
+
+**Screen 32** shows, in this order: the QR code at a size that scans from across a desk; the link, in `UrMonoFontFamily`, with `[ Copy link ]`; the user's own safety digits underneath, in the same 12-groups-of-5 form as screen 17, so the two people can read them back to each other over a phone call and know the card was not swapped in transit; `[ Save QR ]`; and `[ Make a new link ]`.
+
+Above the code, this copy:
+
+> **Anyone with this link can start a conversation with you.** That's the point of it — but it also means a link you posted somewhere public is a link anyone can use. Making a new one stops the old one working. It doesn't remove anyone you're already talking to.
+
+`[ Make a new link ]` calls `RotateContactCard`, confirms once, and afterwards the screen states when the current link was made. Rotation appears in the Security log (screen 29). It commits nothing to any group and disturbs no conversation: the link authorises a first hello and nothing else.
+
+**Receiving one.** Screen 13's *Scan or paste someone's contact card* accepts a pasted link or an image of a QR code. The client shows the sender's name, their safety digits and this line before anything is sent —
+
+> **Check these numbers with them if you can.** They came from the link, not from a directory, so they're only as trustworthy as the way you got the link.
+
+— and `[ Start chatting ]` opens the conversation. The contact's evidence row (§7.3) reads *"you got this key from them directly"*, which is a stronger statement than anything a directory can make and is rendered as such rather than as a missing-log warning.
+
+**On the other side**, a request that arrives through a card appears in screen 23 alongside group invitations, with the requester's name, safety digits and `[ Start chatting ]` / `[ Ignore ]`. When the user has left card requests on automatic — the default, since handing out the link was already a decision — the conversation simply appears, with a system row saying it started from a contact card.
 
 ---
 
@@ -1442,7 +1529,7 @@ Full operation without a mouse is a v1 requirement, not a stretch goal.
 
 Rules: no chord may shadow a Windows system chord; focus never leaves the app on `Tab`; a modal traps focus and restores it on close; every focusable element has a visible focus rect (WinUI reveal focus, 2px, `UrAccentBrush`).
 
-**Focus in the message list, and what it costs.** `ItemsRepeater` deliberately implements **no** focus management, no item keyboard navigation and no selection model — it is a layout panel, not a `ListView` — so §16.5 criterion 6 (full keyboard operation plus Narrator) needs hand-written focus code that this spec budgets for explicitly:
+**Focus in the message list, and what it costs.** `ItemsRepeater` deliberately implements **no** focus management, no item keyboard navigation and no selection model — it is a layout panel, not a `ListView` — so §16.5.1 criterion 6 (full keyboard operation plus Narrator) needs hand-written focus code that this spec budgets for explicitly:
 
 - `↑` / `↓` move message focus when the composer is empty and the list has focus; `Ctrl+Shift+↑` / `↓` do so regardless.
 - `Tab` from the composer enters the list at the **last-read** message.
@@ -1504,27 +1591,29 @@ The client's entire dependency is `URmessageSdk.dll` (cgo `c-shared`), reached t
 | Account | the `urmsg_auth_*` surface (login, signup, SSO, profile) — **in this DLL**, not `URnetworkSdk.dll` | — |
 | Identity | `GenerateMessageSeedphrase()`, `ValidateMessageSeedphrase(phrase)`, `HasIdentity()`, `CreateIdentity(phrase)`, `RestoreIdentity(phrase, cb)`, `RevealSeedphrase()`, `RemoveIdentity()`, `MarkPhraseConfirmed()`, `PhraseConfirmedAtMs()`, `IdentitySafetyDigits()`, `IdentityShortFingerprint()` | `RestoreCallback` → `RestoreProgress{Phase, Outcome, …}` |
 | Devices | `Devices()`, `ThisDeviceId()`, `BeginDeviceLink(cb)`, `JoinDeviceLink(offerPayload, cb)`, `JoinDeviceLinkWithCode(code, cb)`, session methods `PairingCode()` / `AuthString()` / `Confirm(matches)` / `Cancel()`, `RemoveDevice(deviceId, cb)` | `DeviceLinkCallback` → `DeviceLinkState`; `DeviceRemovalCallback` → `DeviceRemovalProgress` |
-| Conversations | `Groups()`, `Group(gid)`, `Members(gid)`, `History(gid, beforeMessageId, limit)`, `HistoryState(gid)`, `Entry(gid, mid)`, `EntryDetail(gid, mid)`, `MarkRead(gid, throughMessageId)`, `Search(gid, query, limit)`, `RequestBackfill(gid, beforeMessageId, cb)` | `AddMessageListener("")` → `MessageEvent{Kind: "appended" \| "state_changed" \| "reactions_changed" \| "read_changed" \| "typing_changed" \| "removed" \| "gap"}`; `AddGroupListener` → `GroupEvent{Kind: …}` |
+| Conversations | `Groups()`, `Group(gid)`, `Members(gid)`, `History(gid, beforeMessageId, limit)`, `HistoryState(gid)`, `Entry(gid, mid)`, `EntryDetail(gid, mid)`, `MarkRead(gid, throughMessageId)`, `Search(gid, query, limit)`, `RequestBackfill(gid, beforeMessageId, cb)` | `AddMessageListener("")` → `MessageEvent{Kind: "appended" \| "state_changed" \| "reactions_changed" \| "delivered_changed" \| "read_changed" \| "typing_changed" \| "removed" \| "gap"}`; `AddGroupListener` → `GroupEvent{Kind: …}` |
 | Send | `SendText(gid, text, replyToId, cb)`, `SendAttachment(gid, filePath, mimeType, caption, cb)`, `ResumeAttachment(gid, mid, cb)`, `Retry(gid, mid, cb)`, `CanSend(gid)` → `*MessageSendability`, `MessageSendTicket.Cancel()` | `MessageEvent{Kind: "state_changed"}`; `GroupEvent{Kind: "sendability_changed"}`; `UploadCallback` → `UploadProgress`; `DownloadCallback` → `DownloadProgress` |
 | Reactions / typing | `React(gid, targetId, emoji, cb)`, `Unreact(gid, targetId, emoji, cb)`, `SetTyping(gid, typing)` | `MessageEvent{Kind: "reactions_changed"}`; `MessageEvent{Kind: "typing_changed", TypingIds}` |
 | Delete / ephemeral | `DeleteLocal(gid, mid)`, `DeleteForEveryone(gid, mid, cb)`, `SetDisappearing(gid, bucket, cb)` | `AddRecordLifecycleListener` → `RecordLifecycleEvent{Kind: "expired" \| "tombstoned" \| "read_elsewhere"}` ← **drives toast revocation (§10.1)** |
-| Groups | `CreateGroup(name, cb)`, `CreateGroupWithMembers(name, principals, policy, cb)`, `CreateDirect(principal, cb)`, `InviteMember(gid, principal, cb)`, `RemoveMember(gid, memberId, cb)`, `SetMemberRole(gid, memberId, role, cb)`, `LeaveGroup(gid, cb)`, `SetGroupPolicy(gid, policy, cb)`, `SetGroupMuted(gid, muted)`, `SetGroupNotificationMode(gid, mode)`, `ResyncGroup(gid, cb)` | `AddGroupListener` → `GroupEvent{Kind: "created" \| "changed" \| "members_changed" \| "policy_changed" \| "sendability_changed" \| "invited" \| "left" \| "removed" \| "closed" \| "history_granted"}` carrying `RetentionApplied` (§8.4) |
+| Groups | `CreateGroup(name, cb)`, `CreateGroupWithMembers(name, principals, policy, cb)`, `CreateDirect(principal, cb)`, `InviteMember(gid, principal, cb)`, `RemoveMember(gid, memberId, cb)`, `SetMemberRole(gid, memberId, role, cb)`, `LeaveGroup(gid, cb)`, `SetGroupPolicy(gid, policy, cb)`, `SetGroupMuted(gid, muted)`, `SetGroupNotificationMode(gid, mode)`, `ResyncGroup(gid, cb)` | `AddGroupListener` → `GroupEvent{Kind: "created" \| "changed" \| "members_changed" \| "policy_changed" \| "policy_pending" \| "sendability_changed" \| "invited" \| "left" \| "removed" \| "closed" \| "history_granted" \| "ownership_changed" \| "succession_changed" \| "join_request_changed"}` carrying `RetentionApplied` (§8.4) |
 | Invitations | `PendingInvites()` → `*MessageInviteList`, `AcceptInvite(inviteId, cb)`, `DeclineInvite(inviteId)` | `GroupEvent{Kind: "invited"}` |
 | History grants | `HistoryGrants(gid)` → `*MessageHistoryGrantList`, `GrantHistory(gid, memberId, fromEpoch, cb)` (owner only) | `GroupEvent{Kind: "history_granted"}` |
-| Verification | `SafetyNumber(principal)`, `Pins()`, `PinFor(principal)`, `AcceptKeyChange(principal, newKeyFingerprint)`, `MarkVerified(principal, viaSafetyNumber)` | `AddKeyChangeListener` → `KeyChangeWarning`; `AddIntegrityListener` → `IntegrityEvent{Kind: "fork" \| "fork_resyncing" \| "attestation_gap" \| "server_key_rotated" \| "server_key_untrusted"}` |
-| Directory | `LookupPrincipal(query, cb)` → `MessageDirectoryResultList` (each with `ProofState`) | — |
+| Verification | `SafetyNumber(principal)`, `Pins()`, `PinFor(principal)`, `AcceptKeyChange(principal, newKeyFingerprint)`, `MarkVerified(principal, viaSafetyNumber)` | `AddKeyChangeListener` → `KeyChangeWarning`; `AddIntegrityListener` → `IntegrityEvent{Kind: "fork_resyncing" \| "fork_unresolved" \| "attestation_gap" \| "server_key_rotated" \| "server_key_untrusted"}` |
+| Directory | `LookupPrincipal(query, cb)` → `MessageDirectoryResultList` (each with `ProofState` and `OperatorHost`) | — |
+| Contact card | `ContactCard()`, `RotateContactCard(cb)`, `AddContactByCard(url)`, `StartDirectFromCard(url, cb)`, `ContactRequests()`, `AcceptContactRequest(requestId, cb)`, `DeclineContactRequest(requestId)` | `AddContactRequestListener` → `MessageContactRequest` |
+| Protocol limits | `MessageProtocolLimitsValues()` → `MessageProtocolLimits` | — |
 | Preferences | `SetUserPreference(key, value)`, `UserPreference(key)`, `SetCoverTraffic(enabled)`, `SetMediaCacheBytes(n)` | — |
-| Server | `ServerInfo()` → `MessageServerInfo` | `IntegrityEvent{Kind: "server_key_rotated"}`, `IntegrityEvent{Kind: "server_key_untrusted"}`, `IntegrityEvent{Kind: "attestation_gap"}` |
+| Server | `ServerInfo()` → `MessageServerInfo` — including `.OperatorHost`, `.KtGossipUsable`, `.HostingJurisdiction`, `.ReadKeyWindowMs` — plus `NetworkSpaceHost()` and `SetNetworkSpaceHost(host)` | `IntegrityEvent{Kind: "server_key_rotated"}`, `IntegrityEvent{Kind: "server_key_untrusted"}`, `IntegrityEvent{Kind: "attestation_gap"}` |
 | Push | `RegisterPushChannel(uri)`, `UnregisterPushChannel()` | — |
 | Lock | `HasPin()`, `SetPin(pin)`, `ChangePin(old, new)`, `Unlock(pin)`, `Lock()`, `IsLocked()`, `AutoLockMinutes()`, `SetAutoLockMinutes(n)` | health `Locked` via `AddHealthListener` |
 | Invite links | `CreateInviteLink(gid, reusable, expiresInMs, cb)`, `InviteLinks(gid)`, `RevokeInviteLink(gid, linkId)`, `RedeemInviteLink(url, cb)`, `JoinRequests(gid)`, `AcceptJoinRequest(gid, requestId, cb)`, `DeclineJoinRequest(gid, requestId)` | `AddJoinRequestListener` → `MessageJoinRequest` |
-| Ownership | `TransferOwnership(gid, memberId, cb)`, `NominateSuccessor(gid, memberId, cb)`, `ClearSuccessor(gid, cb)`, `SetSuccessionEnabled(gid, enabled, cb)`, `Succession(gid)`, `CountersignSuccession(gid, cb)`, `ClaimSuccession(gid, cb)` | `GroupEvent{Kind: "changed"}` |
+| Ownership | `TransferOwnership(gid, memberId, cb)`, `NominateSuccessor(gid, memberId, cb)`, `ClearSuccessor(gid, cb)`, `SetSuccessionEnabled(gid, enabled, cb)`, `Succession(gid)`, `CountersignSuccession(gid, cb)`, `ClaimSuccession(gid, cb)` | `GroupEvent{Kind: "ownership_changed" \| "succession_changed"}` carrying `Succession *MessageSuccessionState` |
 | Balance | `Balance()`, `RedeemBalanceCode(code, cb)` | `AddBalanceListener` → `MessageBalance`; `BalanceRedeemCallback` → `BalanceRedeemResult` |
 | Directory listing | `DirectoryListed()`, `SetDirectoryListed(listed, cb)` | — |
 | Diagnostics | `StartDiagnosticSession(minutes)`, `StopDiagnosticSession()`, `DiagnosticSessionEndsAtMs()` | — |
 | Security log | `SecurityLog()` → `MessageSecurityLogEntryList` | `AddIntegrityListener` → `IntegrityEvent{Kind: "server_key_rotated" \| "server_key_untrusted"}` |
 
-**The field contract.** Every rendered datum in this document resolves to one `A type.field`, and the mapping is normative: one row per datum → screen → `A type.field`, drawn from `MessageGroup`, `MessageMember`, `MessageEntry`, `MessageEntryDetail`, `MessageAttachment`, `MessageReaction`, `MessageReceipt`, `MessageInvite`, `MessageHistoryGrant`, `MessageServerInfo`, `MessageSendability`, `MessageHealthEvent`, `SyncState`, `MessagePin`, `KeyChangeWarning`, `IntegrityEvent`, `MessageDirectoryResult`, `MessageDevice`, `DeviceLinkState`, `DeviceRemovalProgress`, `UploadProgress`, `DownloadProgress`, `RestoreProgress` and `RecordLifecycleEvent` — all of which Spec A §7 defines. Screens 9, 10, 12, 15, 16, 19, 23 and 24 could not be built from either document before this mapping existed; it is a build gate, not documentation, and §16.1 gate 8 is that gate. The mapping is:
+**The field contract.** Every rendered datum in this document resolves to one `A type.field`, and the mapping is normative: one row per datum → screen → `A type.field`, drawn from `MessageGroup`, `MessageMember`, `MessageEntry`, `MessageEntryDetail`, `MessageAttachment`, `MessageReaction`, `MessageReceipt`, `MessageInvite`, `MessageHistoryGrant`, `MessageServerInfo`, `MessageSendability`, `MessageHealthEvent`, `SyncState`, `MessagePin`, `KeyChangeWarning`, `IntegrityEvent`, `MessageDirectoryResult`, `MessageDevice`, `DeviceLinkState`, `DeviceRemovalProgress`, `UploadProgress`, `DownloadProgress`, `RestoreProgress`, `RecordLifecycleEvent`, `MessageSuccessionState`, `MessageInviteLink`, `MessageJoinRequest`, `MessagePendingPolicy`, `MessageBalance`, `BalanceRedeemResult`, `MessageSecurityLogEntry`, `MessageContactCard`, `MessageContactRequest` and `MessageProtocolLimits` — all of which Spec A §7 defines. Screens 9, 10, 12, 15, 16, 19, 23 and 24 could not be built from either document before this mapping existed; it is a build gate, not documentation, and §16.1 gate 8 is that gate. The mapping is:
 
 | Screen | Rendered datum | Source |
 |---|---|---|
@@ -1538,8 +1627,9 @@ The client's entire dependency is `URmessageSdk.dll` (cgo `c-shared`), reached t
 | 10 Conversation view | bubble text | `MessageEntry.Text` |
 | 10 | quoted reply | `MessageEntry.ReplyToId`, resolved by `Entry(gid, replyToId)` |
 | 10 | attachment card | `MessageAttachment{FileName, Bytes, Caption, State, LocalPath}` |
-| 10 | reaction strip | `MessageEntry.Reactions` → `MessageReaction{Emoji, Count, MemberIds, MineSet}` |
-| 10 | delivery glyph | `MessageEntry.State`, `.Reason`, `.ReasonDetail` |
+| 10 | reaction strip | `MessageEntry.Reactions` → `MessageReaction{Emoji, EmojiRaw, Count, MemberIds, MineSet}` |
+| 10 | delivery glyph, delivered-by list | `MessageEntry.State`, `.Reason`, `.ReasonDetail`, `.DeliveredTo` |
+| 10 | held attachment | `MessageAttachment.AutoDownloadHeld`, `.State == "not_downloaded"` |
 | 10 | gap row | `MessageEntry.Kind == "gap"`, `.GapReason` |
 | 10 | typing row | `MessageEvent.TypingIds` × `Members(gid)` (§5.8) |
 | 10 | observer collapse | `MessageEntry.SenderRoleAtSend` |
@@ -1547,11 +1637,14 @@ The client's entire dependency is `URmessageSdk.dll` (cgo `c-shared`), reached t
 | 12 | class, bucket | `MessageEntry.RetentionClass`, `.EphBucket`, `.SizeBucket` |
 | 12 | attestation state | `MessageEntryDetail.AttestationState`, `.ServerRecordId` |
 | 12 | read-by list | `MessageEntry.ReadBy` → `MessageReceipt{MemberId, ReadAtMs}` |
+| 12 | delivered-by list | `MessageEntry.DeliveredTo` → `MessageReceipt{MemberId, ReadAtMs}` |
 | 15 Group details | members and roles | `Members(gid)` → `MessageMember{DisplayName, Role, DeviceCount, Pinned, ChangePending}` |
 | 15 | retention | `MessageGroup.RetentionDurableMs`, `.RetentionMediaMs` |
 | 15 | disappearing | `MessageGroup.DisappearingBucket` |
 | 15 | receipts / typing policy | `MessageGroup.ReadReceipts`, `.TypingIndicators` |
 | 15 | history-grant banner | `HistoryGrants(gid)` → `MessageHistoryGrant{GranteeDisplayName, GrantedByDisplayName, FromMs, FromEpoch}` |
+| 15 | invite links | `InviteLinks(gid)` → `MessageInviteLink{Url, Reusable, ExpiresAtMs, Redeemed, Revoked}` |
+| 15 | join requests | `JoinRequests(gid)` → `MessageJoinRequest{DisplayName, KeyFingerprint, RequestedAtMs, State}` |
 | 16 Member detail | identicon, principal | `MessageMember.IdentityPublicKey`, `.Principal`, `.DisplayName` |
 | 16 | safety number | `SafetyNumber(principal)` |
 | 16 | pin state | `PinFor(principal)` → `MessagePin{KeyFingerprint, FirstSeenMs, EvidenceClass, ChangePending}` |
@@ -1559,20 +1652,20 @@ The client's entire dependency is `URmessageSdk.dll` (cgo `c-shared`), reached t
 | 19 My devices | rows | `Devices()` → `MessageDevice{Name, AddedAtMs, LastSeenMs, IsThisDevice}` |
 | 19 | removal progress | `DeviceRemovalProgress{GroupName, State, Reason, GroupsDone, GroupsTotal}` |
 | 23 Invitations | rows | `PendingInvites()` → `MessageInvite{GroupName, InviterDisplayName, MemberCount, CreatedAtMs, State}` |
-| 24 Reaction picker | the emoji set | §5.2a's literal set; `React(gid, targetId, emoji, cb)` |
-| 10 | delivery glyph, delivered-by list | `MessageEntry.State`, `.DeliveredTo` → `MessageReceipt{MemberId, ReadAtMs}` |
-| 10 | held attachment | `MessageAttachment.AutoDownloadHeld`, `.State == "not_downloaded"` |
-| 12 Message info | delivered-by | `MessageEntry.DeliveredTo` |
-| 15 | invite links | `InviteLinks(gid)` → `MessageInviteLink{Url, Reusable, ExpiresAtMs, Redeemed, Revoked}` |
-| 15 | join requests | `JoinRequests(gid)` → `MessageJoinRequest{DisplayName, KeyFingerprint, RequestedAtMs, State}` |
+| 23 Invitations | contact requests | `ContactRequests()` → `MessageContactRequest{DisplayName, KeyFingerprint, SafetyDigits, RequestedAtMs, State}` |
+| 24 Reaction picker | the emoji set | the system's own emoji set (§5.2a); `React(gid, targetId, emoji, cb)` validates what it returns |
 | 26 Locked | nothing but the app name and the field | `IsLocked()` — **no** group, member or message field may be read while locked |
 | 27 Redeem | result | `BalanceRedeemResult{Ok, GrantedBytes, Reason, Detail}` |
 | 29 Security log | rows | `SecurityLog()` → `MessageSecurityLogEntry{AtMs, Kind, Subject, Detail}` |
 | 30 Ownership | state | `Succession(gid)` → `MessageSuccessionState{Enabled, SuccessorDisplayName, EligibleAtMs, CountersignsHeld, CountersignsRequired, OwnerWarningStage}` |
 | 31 Diagnostics | session end | `DiagnosticSessionEndsAtMs()` |
 | 9, 12, 15 | this server's three limits | `MessageServerInfo.MaxBlobBytes`, `.MediaTtlMaxMs`, `.DurableTtlMaxMs`, `.DurableTtlDefaultMs`, `.GroupDurableOverride` |
+| 9, 12, 15 | the read-key window, the group cap, the device cap, the free allowance | `MessageServerInfo.ReadKeyWindowMs`, `MessageProtocolLimitsValues()`, `MessageBalance.FreeAllowanceBytesPerDay` |
+| 22 About | hosting jurisdiction | `MessageServerInfo.HostingJurisdiction` |
+| 22 About | message server host, your operator, the server's operator | `MessageServerInfo.Host`, `NetworkSpaceHost()`, `MessageServerInfo.OperatorHost` |
+| 32 Contact card | link, QR, digits, rotation time | `MessageContactCard{Url, QrPayload, SafetyDigits, RotatedAtMs}` |
 
-**The `gap` entry kind** is a first-class `MessageEntry.Kind` value with a reason of `expired` / `out_of_window` / `not_a_member_yet` / `withheld` / `no_wrap`, rendered per §5.1.
+**The `gap` entry kind** is a first-class `MessageEntry.Kind` value with a reason of `expired` / `out_of_window` / `not_a_member_yet` / `withheld` / `no_wrap` / `malformed`, rendered per §5.1.
 
 **Requirements C places on A:**
 
@@ -1591,6 +1684,7 @@ The client's entire dependency is `URmessageSdk.dll` (cgo `c-shared`), reached t
 13. **A refuses a message-server key that does not chain to the compiled-in fleet root, and exposes no call to accept one.** C must have no button for it because there is no call behind it.
 14. **A resyncs a forked group automatically before surfacing a stop**, and distinguishes the two states so C can keep sending during the attempt.
 15. **A exposes delivery receipts as `MessageEntry.State == "delivered"` and `DeliveredTo`**, both honouring the user preference and the group policy.
+16. **A scopes every key-transparency artefact to the operator it came from**, and tells this client whether the message server's gossip is a second path for it. C renders the operator alongside the evidence rather than presenting one operator's answer as the system's answer.
 
 ### 14.3 What C assumes of Spec B
 
@@ -1610,8 +1704,10 @@ C never talks to B. These are requirements on B that reach the UI through A, lis
 | B records nothing per identity except inside a diagnostic session the user started (MASTER §9.7) | §12's Diagnostics control implies a promise the rest of the product makes; if the server logs anyway, the promise is false, and the honest-limits page in MASTER §13 becomes false with it |
 | B never sees plaintext and never needs group membership from the operator (MASTER §4.2) | Everything |
 | Retention negotiation is warn-and-proceed in **both** directions, returning `RetentionApplied`, which reaches C as Spec A's `MessageRetentionApplied` in seconds (C-5, RULED) | §8.4's copy is wrong and a group's real retention is misstated to its members |
-| B retains each epoch's read key for **90 days** and refuses reads authenticated under an older one | §9.8 has no window to name, and either an offline member is locked out far sooner than the copy says or a removed member never loses metadata access |
+| B retains each epoch's read key for the window it advertises — **ninety days** on a stock server — and refuses reads authenticated under an older one | §9.8 has no window to name, and either an offline member is locked out far sooner than the copy says or a removed member never loses metadata access |
 | B's backups are encrypted, its point-in-time window is **48 hours**, and its hosting jurisdiction is published | §15's honest-limits copy about deletion is unqualified and therefore wrong |
+| B advertises its **hosting jurisdiction** and its **read-key window** as capability fields | §22's About screen has no answer to "where is this server", and §9.8 has to hardcode a duration that is a server configuration value |
+| B applies its **own** advertised text default when a group sends the unset retention sentinel | Every group that never opens a retention screen keeps text forever, and MASTER §13's "one year for text" is false for exactly the users least likely to notice |
 
 ### 14.4 What C supplies to A
 
@@ -1620,14 +1716,14 @@ Spec A §12.2 lists twenty obligations on this client. Each one has a named C-si
 | A's # | Obligation | Where C implements it |
 |---|---|---|
 | C1 | A writable per-user directory as `MessageClientSettings.StorageDir`, never `%PROGRAMDATA%` | §1.1: `%LOCALAPPDATA%\URmessage\app\storage`. The per-user install (W4, §2.2) is what makes this the natural path rather than an exception |
-| C2 | Supply `settings_json` per A's schema — `storage_dir`, `network_space_host`, `message_server_id`; no ByJwt at construction, no handle from another DLL | §1.1's `settings_json` block and the paragraph naming each value's origin (`Common/ServerConfig.h`) |
+| C2 | Supply `settings_json` per A's schema — `storage_dir`, `network_space_host`, `message_server_id`; no ByJwt at construction, no handle from another DLL | §1.1's `settings_json` block — `storage_dir` from the per-user data root, `message_server_id` from `kMessageServerClientId`, and `network_space_host` from per-user configuration with a build-time default, never from a compiled-in constant as its only source (§1.1, §16.1 gate 12) |
 | C3 | Marshal every callback to the UI dispatcher | §14.1 "Threading": `DispatcherQueue.TryEnqueue`, never a XAML touch on a callback thread |
 | C4 | Free every returned `char*` with `urmsg_free_string`, never the CRT `free` | §14.1 trap 1's `detail::dupCString` rule and the `compile_hpp.cpp` compile-only TU (§16.1 gate 3) |
 | C5 | Free `void* user_data` only after `urmsg_release(sub)` returns | §14.1 trap 7 |
 | C6 | Call `urmsg_client_close` before process exit; assert `urmsg_live_handle_count() == 0` in debug builds | §1.4 "Quit" — drain, stop, exit — with the assert in the debug build's shutdown path |
 | C7 / C13 | Render `Sealer.Description()` verbatim in a Security screen, lint-checked | §12's **Security** group; added to §16.3 lint 1's verbatim set |
 | C8 | Render MASTER §12.4's three strings verbatim; never "gone forever" for the durable class | §8.1, plus §16.3 lints 1 and 2 |
-| C9 | Render `Kind == "gap"` entries visibly, with the reason. Do not hide them | §5.1's gap row, five reasons; §16.2 pins all five |
+| C9 | Render `Kind == "gap"` entries visibly, with the reason. Do not hide them | §5.1's gap row, six reasons; §16.2 pins all six |
 | C10 | Treat `KeyChangeWarning` as blocking, SSH changed-host-key shape; no verified badge | §7 in full; W8 and §7.5 forbid the badge |
 | C11 | Never persist the seedphrase **words** | §6.5: A holds the entropy, C holds the rendered words only for the life of the §6.2 screen. W6, W10 and §6.2's clipboard rules are the enforcement |
 | C12 | No administrator tunnel, no privileged service, no WFP, no wintun, no LocalSystem, no mTLS loopback RPC | W2, §0.3's table, and §16.1 gates 4 and 5 |
@@ -1664,7 +1760,8 @@ The rule: **absent, not disabled.** A greyed-out call button teaches a user the 
 | Local search (C-3) | **In v1.** Local-only, A-backed, `EPH` records excluded from the index (§5.7) |
 | Signed binaries, during the beta | The download page and the installer's first screen say the build is unsigned and how to verify the hash (§2.7). Signing is decided before general availability |
 | Any mention of URmessage inside the VPN client | Absent entirely — no row, no banner, no "coming soon" (§2.6) |
-| Choosing a message server, or an operator | Settings shows both, read-only, with §12.2's sentences |
+| Choosing a message server, or an operator | Settings shows all three values, read-only, with §12.2's sentences. The operator is configuration rather than a compiled-in constant (§1.1), so a build can be pointed at another one; choosing one **in the UI** is not offered in v1 |
+| Per-machine or managed deployment (Intune, SCCM, Group Policy) | Not offered. URmessage installs per user, for the reasons in §2.1, and no organisation can roll it out centrally in v1 |
 
 ---
 
@@ -1679,10 +1776,11 @@ The rule: **absent, not disabled.** A greyed-out call button teaches a user the 
 5. Solution check: no reference to `urnetworkd`, wintun, WFP, or `SplitTunnel` from the URmessage projects.
 6. **Exactly one Go DLL is imported by `URmessage.exe`** — a CI check on the import table fails the build if `URnetworkSdk.dll` appears (A12, C-12).
 7. **Per-user install:** the URmessage package declares `InstallScope="perUser"`, its components target `%LOCALAPPDATA%\Programs\URmessage\`, and no component targets `ProgramFiles64Folder` or writes under `HKLM`.
-8. **Every symbol named in §14.2 exists in Spec A §7.** A CI check extracts the identifiers from §14.2's Calls and Events columns and fails the build on any that does not appear as a declaration in Spec A §7. §14.2 calls itself a build gate; this is the build gate.
+8. **Every symbol named in §14.2 exists in Spec A §7, and every closed set named in §14.2 matches Spec A's exactly.** A CI check extracts the identifiers from §14.2's Calls and Events columns and fails the build on any that does not appear as a declaration in Spec A §7. It then extracts each braced value list from §14.2 and compares it for **set equality** against the corresponding `// CLOSED:` comment in Spec A, failing on a missing value and on an extra one. Existence alone is what let a deleted event kind and four missing ones ship in the same table; equality is what catches both.
 9. **No "Get URmessage" entry point.** A CI check fails the build if the VPN client's solution contains a string resource, XAML row or handler referencing URmessage acquisition (§2.6).
 10. **No accept-server-key affordance.** A CI check fails the build on any reference to a server-key accept call or command in the URmessage projects (§7.6).
 11. **The unsigned-beta notice exists** while the signing property is off, and the build fails if the installer's first screen omits it (§2.7).
+12. **No operator host is compiled in as its only source.** A CI check fails the build if `kNetworkSpaceHost` is referenced anywhere except in the one function that supplies a default for an unset configuration value, and fails it if any string literal matching an operator hostname appears in XAML, in a string resource, or in a source file outside that function. More than one operator exists, and a build that can reach only one of them cannot be pointed at a second without shipping a new binary.
 
 ### 16.2 Selftest
 
@@ -1699,7 +1797,7 @@ The VPN client's `selftest` grew from 167 to 463 assertions over the beta and is
 | Toast revocation | Every one of the four revocation triggers in §10.1 |
 | `StoreUnavailable` transitions | All four store states (`unseal_failed`, `corrupt`, `disk_full`, `locked_by_another_process`) → screen 25, in and out |
 | Batched key-change review sheet | Two and more unresolved changes collapse into one sheet; per-contact accept resolves only that contact (§7.1) |
-| Gap rendering | All five gap reasons (§5.1) render their own copy; none is silently dropped |
+| Gap rendering | All six gap reasons (§5.1) render their own copy; none is silently dropped |
 | Ephemeral containment | The four §5.7 rules: reply-by-lookup, copy confirmation, search exclusion, metadata-only message info |
 | Event-drop re-read | Inject `Dropped > 0`; assert the window is discarded and `History()` is re-read, not merged (§14.1 trap 6) |
 | Focus by id | Focus survives a scroll that recycles the focused container (§13.2) |
@@ -1714,6 +1812,12 @@ The VPN client's `selftest` grew from 167 to 463 assertions over the beta and is
 | Fork resync | A recoverable divergence never disables the composer; an unrecoverable one shows the §9.5 stop (§9.5) |
 | Server key | A chaining rotation raises no UI and writes one Security-log line; a non-chaining key shows §7.6's banner with no accept affordance |
 | Notification default | A fresh install shows name-only for every conversation; opting one conversation up does not change any other (§10.3) |
+| Reaction grouping | Two reactors sending the same emoji with different skin tones and different variation selectors produce one pill with a count of two; a ZWJ sequence is one reaction and not its components; an emoji with no glyph in the shipped fonts renders its replacement box and its codepoint tooltip rather than being dropped (§5.2a) |
+| Receipt reciprocity | With read receipts off, an outgoing message stops at `delivered`, screen 12's read-by list is empty, and no typing row appears; turning them back on does not retroactively populate either (§5.3, §12) |
+| Succession warnings | Stages 30, 60, 75 and 85 produce a row, a row, a banner and a modal respectively, on a client where the local identity is the owner, and none of them on a client where it is not (§9.10) |
+| Contact card | A rotated card's old link produces "this link is no longer live" and existing conversations are untouched; a card link opens a DM with the evidence row reading that the key came from the person rather than from a log (§12.7) |
+| Operator rows | Settings → Advanced shows three distinct values, and the two operator rows differ when the client's operator and the server's differ (§12.2) |
+| Owner leave | An OWNER's leave never commits without a completed `TransferOwnership`; the refusal opens the transfer flow rather than an error dialog (§12) |
 
 ### 16.3 Copy and contrast lints (build-failing)
 
@@ -1722,7 +1826,7 @@ The VPN client's `selftest` grew from 167 to 463 assertions over the beta and is
 3. No `Foreground` binding to `UrTextFaintBrush` on any `TextBlock` that is not in the decoration allowlist (§13.3).
 4. No `SolidColorBrush` literal in `.xaml` or `.cpp` outside `UrColors.h` and `App.xaml` — otherwise the high-contrast dictionary cannot work.
 5. Every `Button` / `ToggleButton` whose content is a `FontIcon` has an `AutomationProperties.Name`.
-6. **No literal `100 MB`, `100MB`, `1 month`, `30 days` in the string store** — those values are formatted from `ServerInfo()` (§14.2 requirement 7). Add `1 year`, `365 days`, `90 days`, `500 members`, `10 devices` and `40 GB` to the forbidden literal list: the retention values and the server limits are formatted from `ServerInfo()`, the caps are formatted from the constants Spec A enforces, and the allowance figure changes when an operator changes it.
+6. **No hardcoded limit, retention period, cap or allowance in the string store.** Every one of the following is formatted from a named source at render time, and the lint fails the build on the literal: `100 MB` / `100MB` and any file-size literal → `ServerInfo().MaxBlobBytes`; `1 month` and `30 days` → `ServerInfo().MediaTtlMaxMs`; `1 year` and `365 days` → `ServerInfo().DurableTtlDefaultMs` and `.DurableTtlMaxMs`; `90 days` → `ServerInfo().ReadKeyWindowMs`; `500 members` → `MessageProtocolLimitsValues().MaxGroupMembers`; `10 devices` → `MessageProtocolLimitsValues().MaxDevicesPerIdentity`; `40 GB` → `Balance().FreeAllowanceBytesPerDay`; `48 hours` → the value the server publishes for its point-in-time window. Each literal is on this list **because** a source for it exists; a literal whose source does not exist does not belong on a lint that fails the build. The succession durations of §5.1 and §9.10 are the one place a number that looks like this list's is not from it: they are formatted from `Succession(gid)`'s `EligibleAtMs` and `OwnerWarningStage`, so the lint resolves each key against the source declared for it rather than matching on the number alone.
 7. **No double-encoded UTF-8 in any spec or string file.** The gate fails on any occurrence of the four byte runs that double-encoding produces, expressed by codepoint so this rule cannot trip on its own text: U+00E2 U+20AC, U+00C2 U+00A7, U+00C3 U+00A2, U+00C3 U+201A. The repo also carries `*.md text working-tree-encoding=UTF-8 eol=lf` in `.gitattributes`. Double-encoded UTF-8 is undetectable by eye and corrupts the one sentence in the product that must be exact.
 
 Both copy lints had defects that would have shipped:
@@ -1741,21 +1845,32 @@ The VPN project's ~40-second loop applies: kill → launch → drive → screens
 
 And one specific to this product: **the seedphrase screen cannot be screenshotted** while `WDA_EXCLUDEFROMCAPTURE` is set — that is the feature working. The harness verifies it by asserting the captured region is black, and exercises the screen's content through the automation tree instead.
 
-### 16.5 Acceptance for the first testable build (master §14, slice 5)
+### 16.5 Acceptance
 
-Two people, on two Windows machines, each having created an identity and written down a phrase, can:
+#### 16.5.1 The first testable build (MASTER §14 slice 5, Spec A slice A8 — internal only)
 
-1. Find each other through the directory, with a KT inclusion proof.
-2. Exchange text in a DM and in a 3-person group.
-3. React through the reaction picker (screen 24), see read receipts, and see the typing indicator render and clear.
+Text-only, single-device, unnotified. Two people, on two Windows machines, each having created an identity and written down a phrase, can:
+
+1. **Exchange contact cards** — one shows screen 32, the other scans or pastes it — and start a DM with no directory involved, with the evidence row reading that the key came from the person and not from a transparency log.
+2. Exchange text in that DM and in a 3-person group.
+3. React with an emoji neither of them has used before, through the full picker, and see one pill with a count of two when both send the same one; see read receipts and see the typing indicator render and clear.
 4. See the blocking key-change warning when one of them resets their identity, with the §7.2 copy and the §7.3 evidence rows populated correctly.
 5. Read the §8.1 strings, verbatim, at the moments specified in §8.1.
 6. Operate the whole flow with the keyboard alone, and hear it with Narrator.
-7. Do all of it with no UAC prompt, no service installed, and the VPN app not present on the machine.
-8. **Send and accept a group invitation (screen 23)** — criterion 2's three-person group cannot otherwise be formed, because the second and third members had no UI through which to join.
-9. **Link a second computer** from screen 1's link button and send from it.
-10. **Install the per-user URmessage MSI** as a standard user on a machine with no VPN app, sign in, and render in the brand faces — then do it again as a second standard user on the same machine.
-11. **A second machine is linked with the short code and the six-digit comparison**, one message is sent from it, and the first machine shows the message as **delivered** and then as **read** — which exercises pairing, multi-device and delivery receipts in one pass, and is the shape of the first thing a beta tester will try.
+7. Do all of it with no UAC prompt, no service installed, and the VPN app not present.
+8. Send and accept a group invitation (screen 23) — criterion 2's three-person group cannot otherwise be formed.
+9. Install the per-user MSI as a standard user on a machine with no VPN app, sign in, and render in the brand faces — then do it again as a second standard user on the same machine.
+
+#### 16.5.2 Additional acceptance for the public beta (MASTER §14 slice 7, Spec A slice A9)
+
+Multi-device lands here and not before, so these cannot gate the build above.
+
+10. **Link a second computer** from screen 1's link button, with the short code and the six-digit comparison, and send from it.
+11. The first machine shows that message as **delivered** and then as **read**, exercising pairing, multi-device and delivery receipts in one pass — the shape of the first thing a beta tester will try.
+
+#### 16.5.3 Additional acceptance for general availability
+
+12. **Find each other through the directory, with a valid inclusion proof**, and see the evidence row change from the out-of-band statement to the transparency-log one. This belongs here and not above because the log, its four client endpoints and its monitor role are a general-availability gate (MASTER §15 item 6), so a build in which it is guaranteed absent cannot be gated on it.
 
 ---
 
