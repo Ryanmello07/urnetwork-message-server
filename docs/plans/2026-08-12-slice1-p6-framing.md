@@ -22,8 +22,9 @@ for all wire encoding, standard library crypto only via the `CryptoProvider` int
 
 ## Global Constraints
 
-- Go 1.26.5, pinned. `connect/go.mod` says `go 1.26.3` today and MUST be bumped to `1.26.5` by the
-  wave-1 codec plan; this plan assumes it is already done.
+- Go 1.26.5, pinned. Per registry override O-3 the `go` directive in `connect/go.mod` stays at
+  `1.26.3` and the wave-1 codec plan adds `toolchain go1.26.5`; raising the directive would raise
+  the language floor for all of `connect`. This plan assumes that edit has already landed.
 - Standard library only for crypto: `crypto/mlkem`, `crypto/ecdh`, `crypto/hkdf`, `crypto/sha3`, plus
   `chacha20poly1305` from the already-pinned `golang.org/x/crypto`. NO cgo, NO Rust, NO new
   third-party crypto dependency. New dependencies permitted in `connect` on `beta/message`: **none.**
@@ -51,7 +52,7 @@ for all wire encoding, standard library crypto only via the `CryptoProvider` int
   helper in this plan returns `bool`.
 - Guardrail G8 (Spec A §5.9): every tag comparison goes through `crypto/subtle.ConstantTimeCompare`
   or `CryptoProvider.MacVerify`. `bytes.Equal` is forbidden in `framing.go` and
-  `framing_protect.go`; Task 18 enforces it with a test rather than a shell grep.
+  `framing_protect.go`; Task 19 enforces it with a test rather than a shell grep.
 - Padding: `PaddingSizeV1 = 0`. `connect/message` pads `ct_body` to a size bucket
   (`octet_length(ct_body) MUST equal size_bucket_bytes[b] + 16 exactly`, MASTER §8), so MLS-level
   padding would be padding inside padding. The decoder still accepts any all-zero padding length,
@@ -63,22 +64,65 @@ for all wire encoding, standard library crypto only via the `CryptoProvider` int
   branch `beta/message`. Test commands are written from the workspace root
   (`C:\Users\ryanm\Downloads\claude_sandbox_message`) in the house form `go test ./connect/mls/...`.
 
-### The codec/profile split (a decision this plan makes, because two gates disagree without it)
+### The four cross-plan conventions (canonical interface registry §0, verbatim)
 
-Spec A §3.2 says PSK proposals are refused with `ErrProfilePSK` "at proposal parse". The `messages`
+**C1 — one codec, one method set.** Every wire type in `package mls` implements exactly:
+
+```go
+MarshalMLS(w *syntax.Writer) error
+UnmarshalMLS(r *syntax.Reader) error
+```
+
+and nothing else. No `MarshalTo`, no `MarshalTLS`, no `Marshal() ([]byte, error)`, no
+`Parse<Type>(data []byte)` free constructor, no `tls:` struct tags, no reflection. Byte-level access
+is `syntax.Marshal(&v)` / `syntax.Unmarshal(bs, &v)`. Every wire type carries
+`var _ syntax.Codec = (*T)(nil)` in its own file so drift fails at build rather than at Gate 4.
+
+The two sanctioned exceptions, because they are a different operation rather than a second spelling
+of the same one:
+- **Extension bodies.** `Extension.ExtensionData` is opaque, so a concrete extension converts
+  bytes↔struct: `func (self *X) Encode() (Extension, error)` and
+  `func ParseXExtension(data []byte) (*X, error)`. Owned per-extension.
+- **p8's codec table.** Five decode/encode closures over `syntax.Marshal`/`Unmarshal`, built inside
+  p8 (§9.4). They export no new `Parse*`/`Encode*` names.
+
+`ParseMLSMessage`/`MarshalMLSMessage` (§7.2) are the one sanctioned pair of byte-level free
+functions outside p8's table, because `ParseMLSMessage` is the single entry point every byte off
+the wire passes through and the whole system names it.
+
+**C2 — the syntax Writer is sticky *and* `MarshalMLS` returns an error** (registry override O-1).
+Leaf writes (`WriteUint16`, `WriteOpaque`, `WriteRaw`, …) return nothing and route buffer failures
+into the Writer's sticky error, checked once at `Bytes() ([]byte, error)`. The `error` return on
+`MarshalMLS` carries **semantic** refusals the sticky Writer cannot express —
+`FramedContent.MarshalMLS` returning `ErrContentArmMismatch` is the example this plan contributes.
+Higher-order encode callbacks (`syntax.WriteVector`, `(*Writer).WriteOptional`) return `error` for
+the same reason.
+
+**C3 — counts are `LeafCount`, indices are `LeafIndex`/`NodeIndex`, and tree-math arithmetic that
+can be out of range returns an error.** p3's block is normative for every caller. `TreeSize` does
+not exist.
+
+**C4 — the GroupContext crosses a plan boundary as bytes.** Every entry point in this plan takes
+`groupContext []byte`. Callers obtain them from `syntax.Marshal(gc)` or `(*Group).GroupContext()`.
+This is this plan's decision and the registry upholds it: the GroupContext is inlined into
+`FramedContentTBS` with no length prefix, and taking bytes makes that impossible to get wrong.
+
+### The codec/profile split (settled by registry §7.4, carried by every task below)
+
+Spec A §3.2 says PSK proposals are refused with `ErrProfilePsk` "at proposal parse". The `messages`
 vector family requires `pre_shared_key_proposal`, `re_init_proposal` and `external_init_proposal` to
 **decode successfully and re-encode byte-exactly**. Both cannot be true of one function.
 
-Resolution, carried by every task below:
+Resolution:
 
-- `Proposal.UnmarshalMLS` / `MarshalMLS` (this plan, `proposal_types.go`) are **pure codec**. They
+- `Proposal.UnmarshalMLS` / `MarshalMLS` (this plan, `proposal_wire.go`) are **pure codec**. They
   accept all seven registered proposal types and any unknown 16-bit type as an opaque body. They
   never consult the profile.
-- `ParseProposal` (the wave-4 proposals plan, `proposal.go`) is the **profile gate** and is where
-  `ErrProfilePSK`, `ErrProfileReInit` and `ErrProfileExternalCommit` surface. ValSem401–403 test that
-  function, not the codec.
-- Nothing outside `proposal_types.go` and the vector harness calls the codec directly; `group.go`
-  goes through `ParseProposal`.
+- The profile gate is `func (self *Profile) CheckProposalType(t ProposalType) error`, owned by p8
+  (§9.3) and called by p7 at the parse boundary, where `ErrProfilePsk`, `ErrProfileReInit` and
+  `ErrProfileExternalCommit` surface. ValSem401–403 test that function, not the codec.
+- Nothing outside `proposal_wire.go` and the vector harness calls the codec directly; p7's
+  lifecycle code goes through the profile gate first.
 
 ---
 
@@ -86,115 +130,345 @@ Resolution, carried by every task below:
 
 | File | Single responsibility |
 |---|---|
-| `connect/mls/framing.go` | RFC 9420 §6 wire types and their codecs: `ProtocolVersion`, `WireFormat`, `ContentType`, `SenderType`, `Sender`, `FramedContent`, `FramedContentAuthData`, `AuthenticatedContent`, `PublicMessage`, `PrivateMessage`, `MLSMessage`. No crypto. |
-| `connect/mls/framing_preimage.go` | The three authenticated byte strings and nothing else: `FramedContentTBSBytes`, `AuthenticatedContentTBMBytes`, `(*AuthenticatedContent).ConfirmedTranscriptHashInput`. Isolated so a preimage change is a one-file diff an auditor can read. |
+| `connect/mls/framing.go` | RFC 9420 §6 wire types and their codecs: `WireFormat`, `ContentType`, `SenderType`, `Sender`, `FramedContent`, `FramedContentAuthData`, `AuthenticatedContent`, `PublicMessage`, `PrivateMessage`, `SenderData`, `MLSMessage`. No crypto. |
+| `connect/mls/framing_preimage.go` | The authenticated byte strings and nothing else: `FramedContentTBSBytes`, `AuthenticatedContentTBMBytes`, `(*AuthenticatedContent).ConfirmedTranscriptHashInput`, `(*AuthenticatedContent).ProposalRef`, and the two AADs. Isolated so a preimage change is a one-file diff an auditor can read. |
 | `connect/mls/framing_protect.go` | Sign/verify, membership tag, sender-data seal/open, `PrivateMessageContent` with padding, content encrypt/decrypt, the `MessageKeySource` and `SignatureKeyResolver` contracts, and the four `Seal*`/`Open*` entry points. |
-| `connect/mls/errors_framing.go` | Typed errors for framing, one per ValSem code plus the structural ones. Separate from `errors.go` so this plan and the wave-1 validation plan never edit the same file. |
-| `connect/mls/proposal_types.go` | `ProposalType`, `Proposal` and its seven arms, `ProposalOrRefType`, `ProposalRef`, `ProposalOrRef` — codec only, no validation. |
-| `connect/mls/commit_types.go` | `Commit` — codec only, no application logic. |
+| `connect/mls/framing_errors.go` | The ten **structural** framing errors of registry §7.6. The ten ValSem002–011 sentinels are **not** here — they are p8's `errors.go` (§9.1), wave 1. |
+| `connect/mls/framing_group_seams.go` | `sealFramedContentForTest` and `sealFramedContentWithPaddingForTest` — the two unexported construction-bypass seams p8's ValSem002–011 tests drive (registry §7.3, gap assigned here). |
+| `connect/mls/proposal_wire.go` | `Proposal` and its seven arms, `ProposalOrRefType`, `ProposalRef`, `ProposalOrRef` — codec only, no validation. `ProposalType` and its constants are p5's. |
+| `connect/mls/commit_wire.go` | `Commit` — codec only, no application logic. |
+| `connect/mls/welcome_wire.go` | `GroupInfo`, `GroupInfoTBS`, `PathSecret`, `GroupSecrets`, `EncryptedGroupSecrets`, `Welcome` — **codecs only** (registry §7.5); generation and processing stay in p7. |
 | `connect/mls/framing_test.go` | Unit tests for `framing.go` and `framing_preimage.go`. |
 | `connect/mls/framing_protect_test.go` | Unit tests for `framing_protect.go`, including the fixed-key `MessageKeySource` stub. |
-| `connect/mls/proposal_types_test.go` | Round-trip and width tests for the proposal codec. |
-| `connect/mls/commit_types_test.go` | Round-trip tests for the commit codec. |
-| `connect/mls/validation_framing_test.go` | `TestValSem002`…`TestValSem011`, one top-level func per code, plus the roster completeness test. |
-| `connect/mls/message_protection_kat_test.go` | Vector family 4, verify direction and generate direction. |
-| `connect/mls/messages_kat_test.go` | Vector family 12, decode/re-encode for every field. |
-| `connect/mls/framing_fuzz_test.go` | `FuzzMlsMessageDecode`, `FuzzMlsMessageDecodeBytes`, `FuzzProposalDecode`, `FuzzProposalDecodeBytes` — Gate 4 properties 1 and 2. |
-| `connect/mls/vectors_hex_test.go` | `hexBytes`, the shared JSON hex-decoding helper for every vector harness in `package mls`. |
-| `connect/mls/testdata/vectors/message-protection.json` | Vendored, pinned (wave-1 validation plan vendors the directory; this plan asserts the file is present). |
+| `connect/mls/proposal_wire_test.go` | Round-trip and width tests for the proposal codec. |
+| `connect/mls/commit_wire_test.go` | Round-trip tests for the commit codec. |
+| `connect/mls/welcome_wire_test.go` | Round-trip tests for the Welcome/GroupInfo/GroupSecrets codecs. |
+| `connect/mls/validation_framing_test.go` | One behaviour-named test per framing refusal, plus the sentinel-coverage roster test. |
+| `connect/mls/message_protection_kat_test.go` | Vector family 4, verify direction and generate direction, registered through `RegisterVectorFamily`. |
+| `connect/mls/messages_kat_test.go` | Vector family 12, decode/re-encode for every field, registered the same way. |
+| `connect/mls/framing_guard_test.go` | `TestFramingUsesConstantTimeComparison` (Spec A §5.9 G8) and the seed-corpus contribution for p8's fuzz targets. |
+| `connect/mls/testdata/vectors/message-protection.json` | Vendored and pinned by p8 Task 6, the single vendoring task; this plan asserts the file is present. |
 | `connect/mls/testdata/vectors/messages.json` | Same. |
 
 **Deviation from Spec A §2.2, stated deliberately:** Spec A lists `framing.go` as one file and puts
-`Proposal`/`Commit` in `proposal.go`/`commit.go`. This plan splits framing across three files
-(types / preimages / protection) and puts the proposal and commit **wire types** in
-`proposal_types.go` and `commit_types.go`, leaving `proposal.go` (list validation) and `commit.go`
-(commit application) entirely to the wave-4 plan. Reason: the `messages` gate is this plan's, and it
-cannot be green without a byte-exact `Proposal` and `Commit` codec; two plans editing one file in
-parallel is the failure mode this split exists to avoid. All files are `package mls`, so there is no
-import edge and no cycle.
+`Proposal`/`Commit` in `proposal.go`/`commit.go`. This plan splits framing across four files
+(types / preimages / protection / errors) and puts the proposal, commit and welcome **wire types**
+in `proposal_wire.go`, `commit_wire.go` and `welcome_wire.go`, leaving `proposal.go` (list
+validation), `commit.go` (commit application) and `welcome.go` (welcome generation and join)
+entirely to the wave-4 plan. Reason: the `messages` gate is this plan's and cannot be green without
+byte-exact `Proposal`, `Commit`, `Welcome` and `GroupInfo` codecs, and `MLSMessage` — a wave-3
+struct — names `*Welcome`, `*GroupInfo` and `*KeyPackage` by direct type, so those types cannot land
+in wave 4 without making wave 3 uncompilable. All files are `package mls`, so there is no import
+edge and no cycle.
+
+**No `vectors_hex_test.go` and no `hexBytes`.** Registry §9.2 gives `MustHex`, `HexOf` and
+`LoadVectorFile` to p8, wave 1. Three parallel hex decoders over one corpus is how two of them end
+up disagreeing about the empty string.
+
+**No fuzz targets here.** Registry §9.5 gives all nine Gate-4 targets to p8, which owns the codec
+table and the oracle hook. This plan keeps the G8 constant-time gate and contributes seed corpus.
 
 ---
 
 ## Interfaces consumed from other plans
 
-Every symbol below is `package mls` unless a package is named. If a signature here does not match
-what the other plan shipped, fix the call site — do not add an adapter layer.
+Every signature below is copied verbatim from the canonical interface registry. Every symbol is
+`package mls` unless a package is named. If an implementation disagrees with a signature here, fix
+the implementation — do not add an adapter layer.
 
-**From "Syntax and codec" (wave 1), package `github.com/urnetwork/connect/mls/syntax`:**
+**From p1, "Syntax and codec" (wave 1), package `github.com/urnetwork/connect/mls/syntax`:**
 
 ```go
-type Writer struct{ /* ... */ }
+const MaxVectorLength int = 1 << 20       // 1 MiB, every field but the tree
+
+var ErrTruncated error            // input ended before the value did
+var ErrTrailingBytes error        // a top-level decode left bytes unconsumed
+var ErrVarintNotMinimal error     // more octets than the value needs
+var ErrOptionalPresence error     // presence octet neither 0 nor 1
+
+type Writer struct{ ... }                        // not safe for concurrent use
 func NewWriter() *Writer
+func (self *Writer) Bytes() ([]byte, error)      // undefined when err non-nil
+func (self *Writer) Err() error
+func (self *Writer) Len() int
 func (self *Writer) WriteUint8(v uint8)
 func (self *Writer) WriteUint16(v uint16)
 func (self *Writer) WriteUint32(v uint32)
 func (self *Writer) WriteUint64(v uint64)
-func (self *Writer) WriteRaw(b []byte)                    // fixed-length, no length prefix
-func (self *Writer) WriteOpaque(b []byte) error           // opaque V<> — MLS varint length prefix
-func (self *Writer) WriteVector(n int, each func(w *Writer, i int) error) error
-func (self *Writer) Bytes() []byte
+func (self *Writer) WriteRaw(bs []byte)          // opaque x[N], no prefix
+func (self *Writer) WriteOpaque(bs []byte)       // opaque x<V>; nil == empty
+func (self *Writer) WriteOptional(present bool, encodeOne func(w *Writer) error) error
 
-type Reader struct{ /* ... */ }
-func NewReader(data []byte) *Reader
+type Reader struct{ ... }                                    // not safe for concurrent use
+func NewReader(bs []byte) *Reader
+func (self *Reader) Remaining() int
+func (self *Reader) Empty() bool
+func (self *Reader) Done() error             // ErrTrailingBytes when bytes remain
 func (self *Reader) ReadUint8() (uint8, error)
 func (self *Reader) ReadUint16() (uint16, error)
 func (self *Reader) ReadUint32() (uint32, error)
 func (self *Reader) ReadUint64() (uint64, error)
-func (self *Reader) ReadRaw(n int) ([]byte, error)
-func (self *Reader) ReadOpaque() ([]byte, error)          // rejects a non-minimal length prefix
-func (self *Reader) ReadVector(each func(r *Reader) error) error
-func (self *Reader) Rest() []byte                         // remaining bytes, no prefix consumed
-func (self *Reader) Remaining() int
-func (self *Reader) Finish() error                        // errors unless fully consumed
+func (self *Reader) ReadRaw(n int) ([]byte, error)     // opaque x[N]; a COPY
+func (self *Reader) ReadOpaque() ([]byte, error)       // a COPY, never nil
+func (self *Reader) ReadSub() (*Reader, error)         // bounded view of the next opaque<V>
+func (self *Reader) ReadOptional(decodeOne func(r *Reader) error) (present bool, err error)
 
-var ErrTruncated error
-var ErrNonMinimalLength error
-var ErrTrailingBytes error
+func WriteVector[T any](w *Writer, items []T, encodeOne func(w *Writer, item T) error) error
+func ReadVector[T any](r *Reader, decodeOne func(r *Reader) (T, error)) ([]T, error)
+
+type Marshaler interface {
+	MarshalMLS(w *Writer) error
+}
+type Unmarshaler interface {
+	UnmarshalMLS(r *Reader) error
+}
+type Codec interface {
+	Marshaler
+	Unmarshaler
+}
+
+func Marshal(v Marshaler) ([]byte, error)
+func Unmarshal(bs []byte, v Unmarshaler) error         // enforces full consumption
+func CheckRoundTrip[T any, PT interface {
+	*T
+	Codec
+}](bs []byte) error
 ```
 
-`WriteVector` writes the MLS variable-length byte count then each element; `ReadVector` reads the
-byte count, bounds a sub-reader to exactly that many bytes, calls `each` until the sub-reader is
-empty, and errors on a partial trailing element.
+The length prefix on a vector counts **bytes, not elements**; `ReadVector` runs `decodeOne` against
+a sub-reader until that sub-reader is empty. `WriteVector`/`ReadVector` are free generics over a
+typed slice, not methods on `Writer`/`Reader`. `Finish()` is `Done()`. There is no `Rest()`: a
+decoder that wants the tail writes `r.ReadRaw(r.Remaining())`, which is explicit about consuming it.
+There is no `Bytes() []byte`: take the error.
 
-**From "Crypto primitives and HPKE" (wave 1):** `CryptoProvider` exactly as Spec A §3.3, plus
+**From p2, "Crypto primitives and HPKE" (wave 1):**
 
 ```go
-type SignaturePrivateKey []byte
-type SignaturePublicKey []byte
 type CipherSuite uint16
-const CipherSuiteX25519ChaCha20SHA256Ed25519 CipherSuite = 0x0003
+const CipherSuiteX25519ChaCha20Sha256Ed25519 CipherSuite = 0x0003
+
+type HpkePublicKey []byte
+type HpkePrivateKey []byte
+type SignaturePublicKey []byte
+type SignaturePrivateKey []byte    // Ed25519 32-byte seed
+
+type CryptoProvider interface {                     // exactly Spec A §3.3
+    Suite() CipherSuite
+    HashSize() int
+    KeySize() int
+    NonceSize() int
+    Hash(data []byte) []byte
+    Mac(key []byte, data []byte) []byte
+    MacVerify(key []byte, data []byte, tag []byte) bool
+    Extract(salt []byte, ikm []byte) []byte
+    Expand(prk []byte, info []byte, length int) []byte
+    ExpandWithLabel(secret []byte, label string, context []byte, length int) []byte
+    DeriveSecret(secret []byte, label string) []byte
+    DeriveTreeSecret(secret []byte, label string, generation uint32, length int) []byte
+    AeadSeal(key []byte, nonce []byte, aad []byte, plaintext []byte) ([]byte, error)
+    AeadOpen(key []byte, nonce []byte, aad []byte, ciphertext []byte) ([]byte, error)
+    SignWithLabel(priv SignaturePrivateKey, label string, content []byte) ([]byte, error)
+    VerifyWithLabel(pub SignaturePublicKey, label string, content []byte, sig []byte) error
+    HpkeSeal(pub HpkePublicKey, info []byte, aad []byte, plaintext []byte) (kemOutput []byte, ciphertext []byte, err error)
+    HpkeOpen(priv HpkePrivateKey, kemOutput []byte, info []byte, aad []byte, ciphertext []byte) ([]byte, error)
+    DeriveKeyPair(ikm []byte) (HpkePrivateKey, HpkePublicKey, error)
+    SignatureKeyPair() (SignaturePrivateKey, SignaturePublicKey, error)
+    Random(n int) []byte
+}
+
 func NewCryptoProvider(suite CipherSuite) (CryptoProvider, error)
+func MakeProposalRef(crypto CryptoProvider, authenticatedContent []byte) []byte
+
+var ErrAeadOpen = errors.New("mls: aead open failed")
 ```
 
 Used here: `HashSize`, `KeySize`, `NonceSize`, `Mac`, `MacVerify`, `ExpandWithLabel`, `AeadSeal`,
-`AeadOpen`, `SignWithLabel`, `VerifyWithLabel`, `Random`.
+`AeadOpen`, `SignWithLabel`, `VerifyWithLabel`, `Random`, `SignatureKeyPair`. The suite constant is
+`CipherSuiteX25519ChaCha20Sha256Ed25519` — `Sha`, not `SHA`, per `CODESTYLE.md`, and the producer
+wins on the spelling.
 
-**From "Tree math" (wave 1):** `type LeafIndex uint32`.
-
-**From "Key schedule and secret tree" (wave 2):** a `*SecretTree` that satisfies this plan's
-`MessageKeySource` interface (Task 11) with exactly these three methods:
+**From p3, "Tree math" (wave 1):**
 
 ```go
+type LeafIndex uint32
+type LeafCount uint32
+```
+
+**From p4, "Key schedule and secret tree" (wave 2):**
+
+```go
+type GroupContext struct {
+    Version                 ProtocolVersion
+    CipherSuite             CipherSuite
+    GroupId                 []byte
+    Epoch                   uint64
+    TreeHash                []byte
+    ConfirmedTranscriptHash []byte
+    Extensions              []Extension
+}
+func (self *GroupContext) MarshalMLS(w *syntax.Writer) error
+func (self *GroupContext) UnmarshalMLS(r *syntax.Reader) error
+
+type PreSharedKeyId struct {
+    PskType    PskType
+    PskId      []byte
+    Usage      ResumptionPskUsage
+    PskGroupId []byte
+    PskEpoch   uint64
+    PskNonce   []byte
+}
+func (self *PreSharedKeyId) MarshalMLS(w *syntax.Writer) error
+func (self *PreSharedKeyId) UnmarshalMLS(r *syntax.Reader) error
+
+type KeySchedule struct{ /* unexported */ }
+type EpochSecrets struct {
+    SenderData         []byte
+    Encryption         []byte
+    Exporter           []byte
+    External           []byte
+    Confirmation       []byte
+    Membership         []byte
+    ResumptionPsk      []byte
+    EpochAuthenticator []byte
+    InitSecret         []byte
+}
+func (self *KeySchedule) Secrets() *EpochSecrets
+
+type SecretTree struct{ /* unexported, guarded by stateLock */ }
+func NewSecretTree(crypto CryptoProvider, leafCount LeafCount, encryptionSecret []byte) (*SecretTree, error)
+
+// p4 implements the MessageKeySource interface this plan declares (Task 11)
 func (self *SecretTree) NextMessageKey(contentType ContentType, leaf LeafIndex) (key, nonce []byte, generation uint32, err error)
 func (self *SecretTree) MessageKey(contentType ContentType, leaf LeafIndex, generation uint32) (key, nonce []byte, err error)
 func (self *SecretTree) EraseMessageKey(contentType ContentType, leaf LeafIndex, generation uint32)
+
+func SenderDataKeyNonce(crypto CryptoProvider, senderDataSecret []byte, ciphertext []byte) (key []byte, nonce []byte, err error)
 ```
 
 `ContentTypeApplication` selects the application ratchet; `ContentTypeProposal` and
 `ContentTypeCommit` select the handshake ratchet. The secret tree owns the skipped-key window.
+**`SenderDataKeyNonce` is p4's, exported, and returns an error** — registry §5.5: two
+implementations of one §6.3.2 derivation, only one of which is vector-tested, is precisely how the
+`ciphertext_sample` short-ciphertext trap gets got wrong. This plan's own unexported
+`senderDataKeyNonce` is deleted and its two short-ciphertext tests become regression tests against
+p4's implementation.
 
-**From the tree / leaf-node / key-package plans (waves 1–2), each with
-`MarshalMLS(w *syntax.Writer) error` and `UnmarshalMLS(r *syntax.Reader) error`:** `KeyPackage`,
-`LeafNode`, `UpdatePath`, `Extension`, `PreSharedKeyID`, `Node`.
+**From p5, "Registry enums, extensions, tree, TreeKEM" (wave 2):**
 
-**From the key-schedule / group-lifecycle plans, same two methods:** `Welcome`, `GroupInfo`,
-`GroupSecrets`.
+```go
+type ProtocolVersion uint16
+const ProtocolVersionMls10 ProtocolVersion = 0x0001
 
-**Not consumed:** `GroupContext`. Every function in this plan takes the GroupContext as
-**already-serialized bytes** (`groupContext []byte`, matching `(*Group).GroupContext() ([]byte, error)`
-in Spec A §3.3). This is deliberate: the GroupContext is inlined into `FramedContentTBS` with **no
-length prefix**, and taking bytes makes that impossible to get wrong by accident and removes a
-cross-plan type dependency from the hottest preimage in the system.
+type ProposalType uint16
+const (
+    ProposalTypeReserved               ProposalType = 0x0000
+    ProposalTypeAdd                    ProposalType = 0x0001
+    ProposalTypeUpdate                 ProposalType = 0x0002
+    ProposalTypeRemove                 ProposalType = 0x0003
+    ProposalTypePreSharedKey           ProposalType = 0x0004
+    ProposalTypeReInit                 ProposalType = 0x0005
+    ProposalTypeExternalInit           ProposalType = 0x0006
+    ProposalTypeGroupContextExtensions ProposalType = 0x0007
+)
+
+type ExtensionType uint16
+type Extension struct {
+    ExtensionType ExtensionType
+    ExtensionData []byte
+}
+func (self *Extension) MarshalMLS(w *syntax.Writer) error
+func (self *Extension) UnmarshalMLS(r *syntax.Reader) error
+func WriteExtensions(w *syntax.Writer, exts []Extension) error
+func ReadExtensions(r *syntax.Reader) ([]Extension, error)
+
+type LeafNode struct{ ... }
+func (self *LeafNode) MarshalMLS(w *syntax.Writer) error
+func (self *LeafNode) UnmarshalMLS(r *syntax.Reader) error
+
+type KeyPackage struct{ ... }
+func (self *KeyPackage) MarshalMLS(w *syntax.Writer) error
+func (self *KeyPackage) UnmarshalMLS(r *syntax.Reader) error
+func (self *KeyPackage) Ref(crypto CryptoProvider) ([]byte, error)
+
+type HpkeCiphertext struct {
+    KemOutput  []byte
+    Ciphertext []byte
+}
+func (self *HpkeCiphertext) MarshalMLS(w *syntax.Writer) error
+func (self *HpkeCiphertext) UnmarshalMLS(r *syntax.Reader) error
+
+type UpdatePath struct {
+    LeafNode LeafNode
+    Nodes    []UpdatePathNode
+}
+func (self *UpdatePath) MarshalMLS(w *syntax.Writer) error
+func (self *UpdatePath) UnmarshalMLS(r *syntax.Reader) error
+
+type RatchetTree struct{ /* opaque: nodes []*Node */ }
+func (self *RatchetTree) MarshalMLS(w *syntax.Writer) error
+func (self *RatchetTree) UnmarshalMLS(r *syntax.Reader) error
+func UnmarshalRatchetTree(data []byte) (*RatchetTree, error)   // UnmarshalLimit(MaxRatchetTreeLength)
+```
+
+**`ProtocolVersion`, `ProtocolVersionMls10`, `ProposalType` and its eight constants are p5's, not
+this plan's** (registry §6.1 and §11). Three plans declared `ProposalType` and two declared
+`ProtocolVersion`; `package mls` is one package, so that is a redeclaration compile error. The
+registry enums go to p5 — the earliest wave that needs them for `Capabilities` — and the wire
+structs that use them stay here. `ProtocolVersionMLS10` becomes `ProtocolVersionMls10`.
+
+**`MarshalExtensions`/`unmarshalExtensions` do not exist.** Registry override O-4 renames the
+extension-vector codec to `WriteExtensions(w, exts) error` / `ReadExtensions(r) ([]Extension, error)`
+and puts it in p5. This plan's private `marshalExtensions`/`unmarshalExtensions` helpers are deleted
+and every call site uses p5's pair.
+
+**From p7, "Group lifecycle" (wave 4) — Task 20 only:**
+
+```go
+type Group struct{ /* stateLock-guarded, not safe for concurrent use */ }
+func (self *Group) GroupContext() ([]byte, error)
+```
+
+**From p8, "Validation, profile, harness" (wave 1):**
+
+```go
+type ValSemCode uint16
+func ValSem(code ValSemCode, detail error) error
+// codes named here: ValSem002 … ValSem011
+
+// the ten framing sentinels — p8's errors.go is their single declaration site
+var ErrWrongGroupId, ErrWrongEpoch, ErrBlankSenderLeaf error
+var ErrApplicationMustBeCiphertext, ErrDecryptFailed error
+var ErrMissingMembershipTag, ErrBadMembershipTag error
+var ErrMissingConfirmationTag, ErrBadSignature, ErrNonZeroPadding error
+
+type Profile struct{ ... }
+func (self *Profile) CheckProposalType(t ProposalType) error   // p7 calls it at the parse boundary
+
+type VectorFamily struct {
+    Number   int                                       // 1..16, the Spec A §4.2.1 row
+    Name     string
+    File     string                                    // under testdata/vectors
+    Slice    string                                    // "A1".."A4"
+    Verify   func(t *testing.T, raw json.RawMessage)   // nil == not yet implemented
+    Generate func(t *testing.T) json.RawMessage        // nil == format has no generate direction
+}
+func RegisterVectorFamily(family VectorFamily)
+func LoadVectorFile(t *testing.T, file string) []json.RawMessage
+func MustHex(t *testing.T, s string) []byte
+func HexOf(b []byte) string
+```
+
+**The ten ValSem002–011 sentinels are p8's, not this plan's** (registry §7.6 and §9.1). They are
+wave 1 and therefore already available when this plan starts. `ErrBadSignature` in particular is
+declared three times across the eight plans; p8 keeps it because it is ValSem010 and Gate 3 asserts
+it, and p2's crypto-layer error is renamed `ErrCryptoBadSignature`. Every refusal in this plan
+returns `ValSem(ValSemNNN, ErrX)`, so `CodeOf` finds the code and `errors.Is` still finds the
+sentinel through `(*ValidationError).Unwrap`.
+
+**GroupContext crosses as bytes (C4).** Every entry point in this plan takes `groupContext []byte`.
+Callers build them with `syntax.Marshal(gc)` over p4's `*GroupContext`, or take them from
+`(*Group).GroupContext()`. The GroupContext is inlined into `FramedContentTBS` with **no length
+prefix**, and taking bytes makes that impossible to get wrong by accident.
 
 ---
 
@@ -202,9 +476,6 @@ cross-plan type dependency from the hottest preimage in the system.
 
 ```go
 // framing.go
-type ProtocolVersion uint16
-const ProtocolVersionMLS10 ProtocolVersion = 0x0001
-
 type WireFormat uint16
 const (
     WireFormatReserved       WireFormat = 0x0000
@@ -239,6 +510,7 @@ type Sender struct {
 }
 func (self *Sender) MarshalMLS(w *syntax.Writer) error
 func (self *Sender) UnmarshalMLS(r *syntax.Reader) error
+var _ syntax.Codec = (*Sender)(nil)
 
 type FramedContent struct {
     GroupId           []byte
@@ -252,7 +524,12 @@ type FramedContent struct {
 }
 func (self *FramedContent) MarshalMLS(w *syntax.Writer) error
 func (self *FramedContent) UnmarshalMLS(r *syntax.Reader) error
+var _ syntax.Codec = (*FramedContent)(nil)
 
+// the one sanctioned departure from C1's exact method set: FramedContentAuthData
+// is a select() on the enclosing FramedContent.content_type and carries no
+// discriminant of its own, so the content type is a parameter and this type is
+// deliberately not a syntax.Codec.
 type FramedContentAuthData struct {
     Signature       []byte
     ConfirmationTag []byte
@@ -267,6 +544,9 @@ type AuthenticatedContent struct {
 }
 func (self *AuthenticatedContent) MarshalMLS(w *syntax.Writer) error
 func (self *AuthenticatedContent) UnmarshalMLS(r *syntax.Reader) error
+func (self *AuthenticatedContent) ConfirmedTranscriptHashInput() ([]byte, error)
+func (self *AuthenticatedContent) ProposalRef(crypto CryptoProvider) (ProposalRef, error)
+var _ syntax.Codec = (*AuthenticatedContent)(nil)
 
 type PublicMessage struct {
     Content       FramedContent
@@ -276,6 +556,7 @@ type PublicMessage struct {
 func (self *PublicMessage) MarshalMLS(w *syntax.Writer) error
 func (self *PublicMessage) UnmarshalMLS(r *syntax.Reader) error
 func (self *PublicMessage) AuthenticatedContent() *AuthenticatedContent
+var _ syntax.Codec = (*PublicMessage)(nil)
 
 type PrivateMessage struct {
     GroupId             []byte
@@ -287,6 +568,16 @@ type PrivateMessage struct {
 }
 func (self *PrivateMessage) MarshalMLS(w *syntax.Writer) error
 func (self *PrivateMessage) UnmarshalMLS(r *syntax.Reader) error
+var _ syntax.Codec = (*PrivateMessage)(nil)
+
+type SenderData struct {
+    LeafIndex  LeafIndex
+    Generation uint32
+    ReuseGuard [4]byte
+}
+func (self *SenderData) MarshalMLS(w *syntax.Writer) error
+func (self *SenderData) UnmarshalMLS(r *syntax.Reader) error
+var _ syntax.Codec = (*SenderData)(nil)
 
 type MLSMessage struct {
     Version        ProtocolVersion
@@ -301,18 +592,19 @@ func (self *MLSMessage) MarshalMLS(w *syntax.Writer) error
 func (self *MLSMessage) UnmarshalMLS(r *syntax.Reader) error
 func MarshalMLSMessage(message *MLSMessage) ([]byte, error)
 func ParseMLSMessage(data []byte) (*MLSMessage, error)
+var _ syntax.Codec = (*MLSMessage)(nil)
 
 // framing_preimage.go
 func FramedContentTBSBytes(wireFormat WireFormat, content *FramedContent, groupContext []byte) ([]byte, error)
 func AuthenticatedContentTBMBytes(authContent *AuthenticatedContent, groupContext []byte) ([]byte, error)
-func (self *AuthenticatedContent) ConfirmedTranscriptHashInput() ([]byte, error)
 
 // framing_protect.go
-type MessageKeySource interface {
+type MessageKeySource interface {                    // implemented by p4's *SecretTree
     NextMessageKey(contentType ContentType, leaf LeafIndex) (key, nonce []byte, generation uint32, err error)
     MessageKey(contentType ContentType, leaf LeafIndex, generation uint32) (key, nonce []byte, err error)
     EraseMessageKey(contentType ContentType, leaf LeafIndex, generation uint32)
 }
+var _ MessageKeySource = (*SecretTree)(nil)
 
 type SignatureKeyResolver func(sender Sender) (SignaturePublicKey, error)
 func StaticSignatureKey(pub SignaturePublicKey) SignatureKeyResolver
@@ -340,23 +632,17 @@ func OpenPrivateMessage(crypto CryptoProvider, keys MessageKeySource, senderData
 func CheckFramedContentContext(content *FramedContent, groupId []byte, epoch uint64) error
 func CheckSenderLeaf(sender Sender, leafOccupied func(LeafIndex) bool) error
 
-// proposal_types.go
-type ProposalType uint16
-const (
-    ProposalTypeReserved               ProposalType = 0x0000
-    ProposalTypeAdd                    ProposalType = 0x0001
-    ProposalTypeUpdate                 ProposalType = 0x0002
-    ProposalTypeRemove                 ProposalType = 0x0003
-    ProposalTypePreSharedKey           ProposalType = 0x0004
-    ProposalTypeReInit                 ProposalType = 0x0005
-    ProposalTypeExternalInit           ProposalType = 0x0006
-    ProposalTypeGroupContextExtensions ProposalType = 0x0007
-)
+// framing_group_seams.go — unexported construction-bypass seams for p8's forge
+func (self *Group) sealFramedContentForTest(c *FramedContent, auth *FramedContentAuthData,
+    wf WireFormat, signer SignaturePrivateKey) ([]byte, error)
+func (self *Group) sealFramedContentWithPaddingForTest(c *FramedContent, auth *FramedContentAuthData,
+    wf WireFormat, signer SignaturePrivateKey, padding []byte) ([]byte, error)
 
+// proposal_wire.go — ProposalType and its constants are p5's; this file declares neither
 type Add struct{ KeyPackage KeyPackage }
 type Update struct{ LeafNode LeafNode }
 type Remove struct{ Removed LeafIndex }
-type PreSharedKey struct{ PSK PreSharedKeyID }
+type PreSharedKey struct{ Psk PreSharedKeyId }
 type ReInit struct {
     GroupId     []byte
     Version     ProtocolVersion
@@ -375,10 +661,12 @@ type Proposal struct {
     ReInit                 *ReInit
     ExternalInit           *ExternalInit
     GroupContextExtensions *GroupContextExtensions
+    UnknownType            ProposalType    // GREASE; the forge's malformed arm
     UnknownBody            []byte
 }
 func (self *Proposal) MarshalMLS(w *syntax.Writer) error
 func (self *Proposal) UnmarshalMLS(r *syntax.Reader) error
+var _ syntax.Codec = (*Proposal)(nil)
 
 type ProposalOrRefType uint8
 const (
@@ -394,39 +682,121 @@ type ProposalOrRef struct {
 }
 func (self *ProposalOrRef) MarshalMLS(w *syntax.Writer) error
 func (self *ProposalOrRef) UnmarshalMLS(r *syntax.Reader) error
+var _ syntax.Codec = (*ProposalOrRef)(nil)
 
-// commit_types.go
+// commit_wire.go
 type Commit struct {
     Proposals []ProposalOrRef
     Path      *UpdatePath
 }
 func (self *Commit) MarshalMLS(w *syntax.Writer) error
 func (self *Commit) UnmarshalMLS(r *syntax.Reader) error
+var _ syntax.Codec = (*Commit)(nil)
+
+// welcome_wire.go — codecs only; generation and processing stay in p7
+type GroupInfo struct {
+    GroupContext    GroupContext
+    Extensions      []Extension
+    ConfirmationTag []byte
+    Signer          LeafIndex
+    Signature       []byte
+}
+func (self *GroupInfo) MarshalMLS(w *syntax.Writer) error
+func (self *GroupInfo) UnmarshalMLS(r *syntax.Reader) error
+var _ syntax.Codec = (*GroupInfo)(nil)
+
+type GroupInfoTBS struct {
+    GroupContext    GroupContext
+    Extensions      []Extension
+    ConfirmationTag []byte
+    Signer          LeafIndex
+}
+func (self *GroupInfoTBS) MarshalMLS(w *syntax.Writer) error
+
+type PathSecret struct{ PathSecret []byte }
+func (self *PathSecret) MarshalMLS(w *syntax.Writer) error
+func (self *PathSecret) UnmarshalMLS(r *syntax.Reader) error
+
+type GroupSecrets struct {
+    JoinerSecret []byte
+    PathSecret   *PathSecret        // optional<PathSecret>
+    Psks         []PreSharedKeyId   // always empty in v1
+}
+func (self *GroupSecrets) MarshalMLS(w *syntax.Writer) error
+func (self *GroupSecrets) UnmarshalMLS(r *syntax.Reader) error
+var _ syntax.Codec = (*GroupSecrets)(nil)
+
+type EncryptedGroupSecrets struct {
+    NewMember             []byte           // KeyPackageRef
+    EncryptedGroupSecrets HpkeCiphertext
+}
+func (self *EncryptedGroupSecrets) MarshalMLS(w *syntax.Writer) error
+func (self *EncryptedGroupSecrets) UnmarshalMLS(r *syntax.Reader) error
+
+type Welcome struct {
+    CipherSuite        CipherSuite
+    Secrets            []EncryptedGroupSecrets
+    EncryptedGroupInfo []byte
+}
+func (self *Welcome) MarshalMLS(w *syntax.Writer) error
+func (self *Welcome) UnmarshalMLS(r *syntax.Reader) error
+var _ syntax.Codec = (*Welcome)(nil)
+
+// framing_errors.go — structural only; the ten ValSem002-011 sentinels are p8's
+var ErrUnknownWireFormat error
+var ErrUnsupportedVersion error
+var ErrUnknownContentType error
+var ErrUnknownSenderType error
+var ErrContentArmMismatch error
+var ErrMissingGroupContext error
+var ErrUnexpectedGroupContext error
+var ErrWireFormatMismatch error
+var ErrSenderNotMember error
+var ErrInvalidPaddingSize error
+var ErrUnknownProposalOrRefType error   // p6-private; no sibling plan names it
 ```
+
+**What this plan stopped producing, and who owns it now.** `ProtocolVersion`/`ProtocolVersionMls10`
+and `ProposalType` + its eight constants → p5 (§6.1). The ten ValSem002–011 sentinels →
+p8 (§9.1). `ErrOptionalPresence` → p1's `syntax` package (§2.1). `senderDataKeyNonce` →
+p4's exported `SenderDataKeyNonce` (§5.5). `hexBytes` → p8's `MustHex`/`HexOf`/`LoadVectorFile`
+(§9.2). `FuzzMlsMessageDecode`, `FuzzMlsMessageDecodeBytes`, `FuzzProposalDecode`,
+`FuzzProposalDecodeBytes` → p8 (§9.5). `marshalExtensions`/`unmarshalExtensions` → p5's
+`WriteExtensions`/`ReadExtensions` (O-4).
+
+**What this plan started producing.** `(*AuthenticatedContent).ProposalRef` (§7.2 gap),
+the two `*ForTest` seams (§7.3 gap), and the `GroupInfo`/`GroupInfoTBS`/`PathSecret`/`GroupSecrets`/
+`EncryptedGroupSecrets`/`Welcome` codecs moved here from p7 (§7.5).
 
 ---
 
-### Task 1: Framing enums, `Sender` codec and the framing error set
+### Task 1: Framing enums, `Sender` codec and the structural framing errors
 
 **Files:**
 - Create: `connect/mls/framing.go`
-- Create: `connect/mls/errors_framing.go`
+- Create: `connect/mls/framing_errors.go`
 - Test: `connect/mls/framing_test.go`
 
 **Interfaces:**
-- Consumes: `syntax.NewWriter() *syntax.Writer`, `(*syntax.Writer).WriteUint8`, `WriteUint32`,
-  `Bytes`; `syntax.NewReader([]byte) *syntax.Reader`, `(*syntax.Reader).ReadUint8`, `ReadUint32`,
-  `Finish`; `type LeafIndex uint32` (tree math, wave 1).
-- Produces: `ProtocolVersion`, `ProtocolVersionMLS10`, `WireFormat` and its six constants,
-  `ContentType` and its four constants, `SenderType` and its five constants,
-  `Sender`, `(*Sender).MarshalMLS(w *syntax.Writer) error`,
-  `(*Sender).UnmarshalMLS(r *syntax.Reader) error`, and the error variables
-  `ErrUnknownWireFormat`, `ErrUnsupportedVersion`, `ErrUnknownContentType`, `ErrUnknownSenderType`,
-  `ErrContentArmMismatch`, `ErrMissingGroupContext`, `ErrUnexpectedGroupContext`,
-  `ErrWireFormatMismatch`, `ErrSenderNotMember`, `ErrInvalidPaddingSize`, `ErrWrongGroupId`,
-  `ErrWrongEpoch`, `ErrBlankSenderLeaf`, `ErrApplicationMustBeCiphertext`, `ErrDecryptFailed`,
-  `ErrMissingMembershipTag`, `ErrBadMembershipTag`, `ErrMissingConfirmationTag`, `ErrBadSignature`,
-  `ErrNonZeroPadding`.
+- Consumes: `syntax.NewWriter() *syntax.Writer`; `(*syntax.Writer).WriteUint8(v uint8)`,
+  `(*syntax.Writer).WriteUint32(v uint32)`, `(*syntax.Writer).Bytes() ([]byte, error)`;
+  `syntax.NewReader(bs []byte) *syntax.Reader`; `(*syntax.Reader).ReadUint8() (uint8, error)`,
+  `(*syntax.Reader).ReadUint32() (uint32, error)`, `(*syntax.Reader).Done() error`;
+  `syntax.Marshal(v syntax.Marshaler) ([]byte, error)`,
+  `syntax.Unmarshal(bs []byte, v syntax.Unmarshaler) error`; `syntax.Codec`;
+  `type LeafIndex uint32` (p3, wave 1).
+- Produces: `WireFormat` and its six constants, `ContentType` and its four constants, `SenderType`
+  and its five constants, `Sender`, `(*Sender).MarshalMLS(w *syntax.Writer) error`,
+  `(*Sender).UnmarshalMLS(r *syntax.Reader) error`, `var _ syntax.Codec = (*Sender)(nil)`, and the
+  ten **structural** error variables `ErrUnknownWireFormat`, `ErrUnsupportedVersion`,
+  `ErrUnknownContentType`, `ErrUnknownSenderType`, `ErrContentArmMismatch`, `ErrMissingGroupContext`,
+  `ErrUnexpectedGroupContext`, `ErrWireFormatMismatch`, `ErrSenderNotMember`,
+  `ErrInvalidPaddingSize`, plus the p6-private `ErrUnknownProposalOrRefType`.
+
+**Two declarations this task does not make.** `ProtocolVersion`/`ProtocolVersionMls10` are p5's
+registry enums (§6.1) — `package mls` is one package and a second declaration is a compile error.
+The ten ValSem002–011 sentinels (`ErrWrongGroupId` … `ErrNonZeroPadding`) are p8's `errors.go`
+(§9.1), wave 1, and are already available; this task consumes them and declares none of them.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -456,20 +826,16 @@ func TestSenderRoundTrip(t *testing.T) {
         {"newMemberCommit", Sender{SenderType: SenderTypeNewMemberCommit}, []byte{0x04}},
     }
     for _, c := range cases {
-        w := syntax.NewWriter()
-        if err := c.sender.MarshalMLS(w); err != nil {
+        encoded, err := syntax.Marshal(&c.sender)
+        if err != nil {
             t.Fatalf("%s: marshal: %v", c.name, err)
         }
-        if !bytes.Equal(w.Bytes(), c.encoded) {
-            t.Fatalf("%s: encoded %x, want %x", c.name, w.Bytes(), c.encoded)
+        if !bytes.Equal(encoded, c.encoded) {
+            t.Fatalf("%s: encoded %x, want %x", c.name, encoded, c.encoded)
         }
         var decoded Sender
-        r := syntax.NewReader(c.encoded)
-        if err := decoded.UnmarshalMLS(r); err != nil {
+        if err := syntax.Unmarshal(c.encoded, &decoded); err != nil {
             t.Fatalf("%s: unmarshal: %v", c.name, err)
-        }
-        if err := r.Finish(); err != nil {
-            t.Fatalf("%s: trailing bytes: %v", c.name, err)
         }
         if decoded != c.sender {
             t.Fatalf("%s: decoded %+v, want %+v", c.name, decoded, c.sender)
@@ -480,13 +846,16 @@ func TestSenderRoundTrip(t *testing.T) {
 func TestSenderRejectsReservedAndUnknownType(t *testing.T) {
     for _, encoded := range [][]byte{{0x00}, {0x05}, {0xff}} {
         var decoded Sender
-        err := decoded.UnmarshalMLS(syntax.NewReader(encoded))
+        err := syntax.Unmarshal(encoded, &decoded)
         if !errors.Is(err, ErrUnknownSenderType) {
             t.Fatalf("sender_type %x: got %v, want ErrUnknownSenderType", encoded, err)
         }
     }
 }
 ```
+
+The C1 compile assertion is the `var _ syntax.Codec = (*Sender)(nil)` line in `framing.go` below,
+not a test: a method-set drift must fail at build, before any test runs.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -496,10 +865,13 @@ Expected: FAIL — `undefined: Sender`, `undefined: SenderTypeMember`, `undefine
 - [ ] **Step 3: Write minimal implementation**
 
 ```go
-// errors_framing.go
-// typed errors for RFC 9420 §6 framing. one variable per ValSem code plus the
-// structural failures the codec can produce. kept out of errors.go so the
-// framing plan and the validation plan never edit the same file.
+// framing_errors.go
+// the STRUCTURAL errors RFC 9420 §6 framing can produce: a malformed
+// discriminant, an arm that disagrees with its content type, a group context
+// supplied where the sender type forbids it. the ten ValSem002-011 sentinels
+// are NOT here — they live once, in the validation plan's errors.go, because
+// they are the codes Gate 3 asserts and a second declaration in this package
+// is a compile error.
 package mls
 
 import "errors"
@@ -516,16 +888,9 @@ var (
     ErrSenderNotMember        = errors.New("mls: sender type must be member")
     ErrInvalidPaddingSize     = errors.New("mls: negative padding size")
 
-    ErrWrongGroupId                = errors.New("mls: ValSem002 group id mismatch")
-    ErrWrongEpoch                  = errors.New("mls: ValSem003 epoch mismatch")
-    ErrBlankSenderLeaf             = errors.New("mls: ValSem004 sender leaf is blank")
-    ErrApplicationMustBeCiphertext = errors.New("mls: ValSem005 application message must be a PrivateMessage")
-    ErrDecryptFailed               = errors.New("mls: ValSem006 message decryption failed")
-    ErrMissingMembershipTag        = errors.New("mls: ValSem007 membership tag missing")
-    ErrBadMembershipTag            = errors.New("mls: ValSem008 membership tag does not verify")
-    ErrMissingConfirmationTag      = errors.New("mls: ValSem009 confirmation tag missing")
-    ErrBadSignature                = errors.New("mls: ValSem010 signature does not verify")
-    ErrNonZeroPadding              = errors.New("mls: ValSem011 PrivateMessageContent padding is not all zero")
+    // the ProposalOrRef discriminant. no sibling plan names this, so it stays
+    // here rather than moving to the shared catalogue.
+    ErrUnknownProposalOrRefType = errors.New("mls: unknown ProposalOrRef type")
 )
 ```
 
@@ -533,7 +898,8 @@ var (
 // framing.go
 // RFC 9420 §6 message framing wire types and their codecs. no crypto lives
 // here: the signed and MACed byte strings are framing_preimage.go and the
-// sealing operations are framing_protect.go.
+// sealing operations are framing_protect.go. ProtocolVersion and
+// ProtocolVersionMls10 are the registry-enum file's, not this file's.
 package mls
 
 import (
@@ -541,11 +907,6 @@ import (
 
     "github.com/urnetwork/connect/mls/syntax"
 )
-
-// the only protocol version this implementation speaks.
-type ProtocolVersion uint16
-
-const ProtocolVersionMLS10 ProtocolVersion = 0x0001
 
 // which of the five MLSMessage arms a message carries. 16 bits per the IANA
 // MLS Wire Formats registry.
@@ -631,6 +992,8 @@ func (self *Sender) UnmarshalMLS(r *syntax.Reader) error {
     }
     return nil
 }
+
+var _ syntax.Codec = (*Sender)(nil)
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -643,9 +1006,9 @@ Expected: PASS — `TestSenderRoundTrip` and `TestSenderRejectsReservedAndUnknow
 ```bash
 cd /c/Users/ryanm/Downloads/claude_sandbox_message/connect
 git ls-files | wc -l   # record this number; compare after `git add`
-git add mls/framing.go mls/errors_framing.go mls/framing_test.go
+git add mls/framing.go mls/framing_errors.go mls/framing_test.go
 git ls-files | wc -l   # MUST be the previous number + 3
-git commit -m "feat(mls): framing enums, Sender codec and the framing error set"
+git commit -m "feat(mls): framing enums, Sender codec and the structural framing errors"
 ```
 
 ---
@@ -657,14 +1020,17 @@ git commit -m "feat(mls): framing enums, Sender codec and the framing error set"
 - Test: `connect/mls/framing_test.go`
 
 **Interfaces:**
-- Consumes: Task 1's `Sender`, `ContentType`; `(*syntax.Writer).WriteOpaque`,
-  `(*syntax.Reader).ReadOpaque`; `Proposal` and `Commit` from Tasks 12 and 13 — **implement those
-  two tasks first if the codec does not yet exist**, or stub `Proposal`/`Commit` only if Task 12/13
-  have not been merged, in which case this task is blocked, not stubbed.
+- Consumes: Task 1's `Sender`, `ContentType`; `(*syntax.Writer).WriteOpaque(bs []byte)` —
+  **no error return**, failures land in the sticky Writer and surface at `Bytes()`;
+  `(*syntax.Writer).WriteUint64(v uint64)`; `(*syntax.Reader).ReadOpaque() ([]byte, error)`,
+  `(*syntax.Reader).ReadUint64() (uint64, error)`; `syntax.Marshal`, `syntax.Unmarshal`;
+  `Proposal` and `Commit` from Tasks 12 and 13 — **implement those two tasks first if the codec does
+  not yet exist**; this task is blocked, not stubbed.
 - Produces: `FramedContent`, `(*FramedContent).MarshalMLS(w *syntax.Writer) error`,
-  `(*FramedContent).UnmarshalMLS(r *syntax.Reader) error`.
+  `(*FramedContent).UnmarshalMLS(r *syntax.Reader) error`,
+  `var _ syntax.Codec = (*FramedContent)(nil)`.
 
-> **Ordering note:** Tasks 12 and 13 (`proposal_types.go`, `commit_types.go`) are listed later
+> **Ordering note:** Tasks 12 and 13 (`proposal_wire.go`, `commit_wire.go`) are listed later
 > because they are large and self-contained, but Task 2 does not compile without them. Execute
 > 1 → 12 → 13 → 2 → 3 … if you are running strictly sequentially; the numbering is the reading
 > order, not a dependency order, and this is the only place they differ.
@@ -682,27 +1048,21 @@ func TestFramedContentRoundTripApplication(t *testing.T) {
         ContentType:       ContentTypeApplication,
         ApplicationData:   []byte("hello"),
     }
-    w := syntax.NewWriter()
-    if err := content.MarshalMLS(w); err != nil {
+    encoded, err := syntax.Marshal(&content)
+    if err != nil {
         t.Fatalf("marshal: %v", err)
     }
-    encoded := w.Bytes()
 
     var decoded FramedContent
-    r := syntax.NewReader(encoded)
-    if err := decoded.UnmarshalMLS(r); err != nil {
+    if err := syntax.Unmarshal(encoded, &decoded); err != nil {
         t.Fatalf("unmarshal: %v", err)
     }
-    if err := r.Finish(); err != nil {
-        t.Fatalf("trailing bytes: %v", err)
-    }
-
-    w2 := syntax.NewWriter()
-    if err := decoded.MarshalMLS(w2); err != nil {
+    reencoded, err := syntax.Marshal(&decoded)
+    if err != nil {
         t.Fatalf("re-marshal: %v", err)
     }
-    if !bytes.Equal(encoded, w2.Bytes()) {
-        t.Fatalf("re-encoded %x, want %x", w2.Bytes(), encoded)
+    if !bytes.Equal(encoded, reencoded) {
+        t.Fatalf("re-encoded %x, want %x", reencoded, encoded)
     }
     if !bytes.Equal(decoded.ApplicationData, []byte("hello")) {
         t.Fatalf("application data %q", decoded.ApplicationData)
@@ -720,17 +1080,13 @@ func TestFramedContentRoundTripProposal(t *testing.T) {
             Remove:       &Remove{Removed: 2},
         },
     }
-    w := syntax.NewWriter()
-    if err := content.MarshalMLS(w); err != nil {
+    encoded, err := syntax.Marshal(&content)
+    if err != nil {
         t.Fatalf("marshal: %v", err)
     }
     var decoded FramedContent
-    r := syntax.NewReader(w.Bytes())
-    if err := decoded.UnmarshalMLS(r); err != nil {
+    if err := syntax.Unmarshal(encoded, &decoded); err != nil {
         t.Fatalf("unmarshal: %v", err)
-    }
-    if err := r.Finish(); err != nil {
-        t.Fatalf("trailing bytes: %v", err)
     }
     if decoded.Proposal == nil || decoded.Proposal.Remove == nil ||
         decoded.Proposal.Remove.Removed != 2 {
@@ -746,8 +1102,9 @@ func TestFramedContentRejectsArmMismatch(t *testing.T) {
         ApplicationData: []byte("x"),
         Commit:          &Commit{},
     }
-    err := content.MarshalMLS(syntax.NewWriter())
-    if !errors.Is(err, ErrContentArmMismatch) {
+    // the refusal must survive syntax.Marshal, which joins the semantic error
+    // from MarshalMLS with the Writer's sticky error (registry O-1)
+    if _, err := syntax.Marshal(&content); !errors.Is(err, ErrContentArmMismatch) {
         t.Fatalf("got %v, want ErrContentArmMismatch", err)
     }
 }
@@ -758,8 +1115,7 @@ func TestFramedContentRejectsUnknownContentType(t *testing.T) {
         Sender:      Sender{SenderType: SenderTypeMember},
         ContentType: ContentType(9),
     }
-    err := content.MarshalMLS(syntax.NewWriter())
-    if !errors.Is(err, ErrUnknownContentType) {
+    if _, err := syntax.Marshal(&content); !errors.Is(err, ErrUnknownContentType) {
         t.Fatalf("got %v, want ErrUnknownContentType", err)
     }
 }
@@ -826,20 +1182,17 @@ func (self *FramedContent) MarshalMLS(w *syntax.Writer) error {
     if err := self.checkArms(); err != nil {
         return err
     }
-    if err := w.WriteOpaque(self.GroupId); err != nil {
-        return err
-    }
+    w.WriteOpaque(self.GroupId)
     w.WriteUint64(self.Epoch)
     if err := self.Sender.MarshalMLS(w); err != nil {
         return err
     }
-    if err := w.WriteOpaque(self.AuthenticatedData); err != nil {
-        return err
-    }
+    w.WriteOpaque(self.AuthenticatedData)
     w.WriteUint8(uint8(self.ContentType))
     switch self.ContentType {
     case ContentTypeApplication:
-        return w.WriteOpaque(self.ApplicationData)
+        w.WriteOpaque(self.ApplicationData)
+        return nil
     case ContentTypeProposal:
         return self.Proposal.MarshalMLS(w)
     case ContentTypeCommit:
@@ -893,6 +1246,8 @@ func (self *FramedContent) UnmarshalMLS(r *syntax.Reader) error {
     }
     return fmt.Errorf("%w: %d", ErrUnknownContentType, self.ContentType)
 }
+
+var _ syntax.Codec = (*FramedContent)(nil)
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -919,15 +1274,26 @@ git commit -m "feat(mls): FramedContent codec with an arm-consistency check"
 - Test: `connect/mls/framing_test.go`
 
 **Interfaces:**
-- Consumes: Task 1's `ContentType`, `ErrMissingConfirmationTag`; `syntax` writer/reader opaque
-  methods.
+- Consumes: Task 1's `ContentType`; `(*syntax.Writer).WriteOpaque(bs []byte)`,
+  `(*syntax.Reader).ReadOpaque() ([]byte, error)`, `(*syntax.Writer).Bytes() ([]byte, error)`,
+  `(*syntax.Reader).Done() error`; from p8 (wave 1) `func ValSem(code ValSemCode, detail error) error`,
+  `func CodeOf(err error) (ValSemCode, bool)`, the code `ValSem009` and
+  `var ErrMissingConfirmationTag error`.
 - Produces: `FramedContentAuthData`,
   `(*FramedContentAuthData).MarshalMLS(w *syntax.Writer, contentType ContentType) error`,
   `(*FramedContentAuthData).UnmarshalMLS(r *syntax.Reader, contentType ContentType) error`.
 
 The content type is a **parameter**, not a struct field: `FramedContentAuthData` is a `select()` on
 the enclosing `FramedContent.content_type` and carries no discriminant of its own on the wire.
-Storing a copy in the struct would let the two disagree.
+Storing a copy in the struct would let the two disagree. This is why the type is deliberately not a
+`syntax.Codec` and carries no `var _` assertion — registry §7.2 fixes exactly these two signatures,
+and it also **rejects** the `MembershipTag` and `HasConfirmationTag` fields p8 asked for: the
+membership tag lives on `PublicMessage` where RFC 9420 puts it, and tag presence is derived from
+`ContentType`.
+
+The two refusals are ValSem009, so they return `ValSem(ValSem009, ErrMissingConfirmationTag)`
+rather than the bare sentinel — `CodeOf` then finds the code and `errors.Is` still finds the
+sentinel through `(*ValidationError).Unwrap`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -944,16 +1310,20 @@ func TestFramedContentAuthDataRoundTrip(t *testing.T) {
         if err := auth.MarshalMLS(w, contentType); err != nil {
             t.Fatalf("contentType %d: marshal: %v", contentType, err)
         }
+        encoded, err := w.Bytes()
+        if err != nil {
+            t.Fatalf("contentType %d: bytes: %v", contentType, err)
+        }
         want := []byte{0x03, 0x11, 0x22, 0x33} // opaque<V> length 3 encodes as one byte 0x03
-        if !bytes.Equal(w.Bytes(), want) {
-            t.Fatalf("contentType %d: encoded %x, want %x", contentType, w.Bytes(), want)
+        if !bytes.Equal(encoded, want) {
+            t.Fatalf("contentType %d: encoded %x, want %x", contentType, encoded, want)
         }
         var decoded FramedContentAuthData
-        r := syntax.NewReader(w.Bytes())
+        r := syntax.NewReader(encoded)
         if err := decoded.UnmarshalMLS(r, contentType); err != nil {
             t.Fatalf("contentType %d: unmarshal: %v", contentType, err)
         }
-        if err := r.Finish(); err != nil {
+        if err := r.Done(); err != nil {
             t.Fatalf("contentType %d: trailing bytes: %v", contentType, err)
         }
         if decoded.ConfirmationTag != nil {
@@ -967,16 +1337,20 @@ func TestFramedContentAuthDataRoundTrip(t *testing.T) {
     if err := auth.MarshalMLS(w, ContentTypeCommit); err != nil {
         t.Fatalf("commit marshal: %v", err)
     }
+    encoded, err := w.Bytes()
+    if err != nil {
+        t.Fatalf("commit bytes: %v", err)
+    }
     want := []byte{0x03, 0x11, 0x22, 0x33, 0x02, 0x44, 0x55}
-    if !bytes.Equal(w.Bytes(), want) {
-        t.Fatalf("commit encoded %x, want %x", w.Bytes(), want)
+    if !bytes.Equal(encoded, want) {
+        t.Fatalf("commit encoded %x, want %x", encoded, want)
     }
     var decoded FramedContentAuthData
-    r := syntax.NewReader(w.Bytes())
+    r := syntax.NewReader(encoded)
     if err := decoded.UnmarshalMLS(r, ContentTypeCommit); err != nil {
         t.Fatalf("commit unmarshal: %v", err)
     }
-    if err := r.Finish(); err != nil {
+    if err := r.Done(); err != nil {
         t.Fatalf("commit trailing bytes: %v", err)
     }
     if !bytes.Equal(decoded.ConfirmationTag, tag) {
@@ -989,6 +1363,10 @@ func TestFramedContentAuthDataCommitRequiresConfirmationTag(t *testing.T) {
     err := auth.MarshalMLS(syntax.NewWriter(), ContentTypeCommit)
     if !errors.Is(err, ErrMissingConfirmationTag) {
         t.Fatalf("got %v, want ErrMissingConfirmationTag", err)
+    }
+    code, ok := CodeOf(err)
+    if !ok || code != ValSem009 {
+        t.Fatalf("code %v ok %v, want ValSem009", code, ok)
     }
 }
 ```
@@ -1012,15 +1390,14 @@ type FramedContentAuthData struct {
 }
 
 func (self *FramedContentAuthData) MarshalMLS(w *syntax.Writer, contentType ContentType) error {
-    if err := w.WriteOpaque(self.Signature); err != nil {
-        return err
-    }
+    w.WriteOpaque(self.Signature)
     switch contentType {
     case ContentTypeCommit:
         if len(self.ConfirmationTag) == 0 {
-            return ErrMissingConfirmationTag
+            return ValSem(ValSem009, ErrMissingConfirmationTag)
         }
-        return w.WriteOpaque(self.ConfirmationTag)
+        w.WriteOpaque(self.ConfirmationTag)
+        return nil
     case ContentTypeApplication, ContentTypeProposal:
         return nil
     }
@@ -1040,7 +1417,7 @@ func (self *FramedContentAuthData) UnmarshalMLS(r *syntax.Reader, contentType Co
             return err
         }
         if len(confirmationTag) == 0 {
-            return ErrMissingConfirmationTag
+            return ValSem(ValSem009, ErrMissingConfirmationTag)
         }
         self.ConfirmationTag = confirmationTag
         return nil
@@ -1068,7 +1445,7 @@ git commit -m "feat(mls): FramedContentAuthData codec, confirmation tag on commi
 
 ---
 
-### Task 4: `AuthenticatedContent` codec and the transcript-hash input
+### Task 4: `AuthenticatedContent` codec, the transcript-hash input and `ProposalRef`
 
 **Files:**
 - Modify: `connect/mls/framing.go`
@@ -1076,16 +1453,26 @@ git commit -m "feat(mls): FramedContentAuthData codec, confirmation tag on commi
 - Test: `connect/mls/framing_test.go`
 
 **Interfaces:**
-- Consumes: Tasks 1–3.
+- Consumes: Tasks 1–3; `syntax.Marshal(v syntax.Marshaler) ([]byte, error)`;
+  `func MakeProposalRef(crypto CryptoProvider, authenticatedContent []byte) []byte` (p2, wave 1);
+  `type CryptoProvider interface{ ... }` (p2).
 - Produces: `AuthenticatedContent`, `(*AuthenticatedContent).MarshalMLS(w *syntax.Writer) error`,
   `(*AuthenticatedContent).UnmarshalMLS(r *syntax.Reader) error`,
-  `(*AuthenticatedContent).ConfirmedTranscriptHashInput() ([]byte, error)`.
+  `var _ syntax.Codec = (*AuthenticatedContent)(nil)`,
+  `(*AuthenticatedContent).ConfirmedTranscriptHashInput() ([]byte, error)`,
+  `(*AuthenticatedContent).ProposalRef(crypto CryptoProvider) (ProposalRef, error)`.
 
 `ConfirmedTranscriptHashInput` is produced here rather than in `transcript.go` because it is a
-serialization of framing types (`wire_format ‖ FramedContent ‖ opaque signature<V>`) and no other
-plan's scope names it. **The transcript plan consumes it** and is responsible for
-`confirmed_transcript_hash[n] = Hash(interim_transcript_hash[n-1] ‖ ConfirmedTranscriptHashInput[n])`
-and for `InterimTranscriptHashInput`.
+serialization of framing types (`wire_format ‖ FramedContent ‖ opaque signature<V>`). **p4's
+transcript code consumes it** through
+`ConfirmedTranscriptHash(crypto, interimBefore, authContent.ConfirmedTranscriptHashInput())` —
+p4 deliberately takes `confirmedTranscriptHashInput []byte` so no framing type crosses into
+`transcript.go`, and `ConfirmedTranscriptHash`/`InterimTranscriptHash` are p4's, not this plan's.
+
+`(*AuthenticatedContent).ProposalRef` is registry §7.2's gap assigned here: p7 names it at every
+by-reference proposal site and nothing produced it. It hashes the **serialized
+`AuthenticatedContent`**, so the ref covers the wire format, the sender and the signature, and it
+delegates the label and hash to p2's `MakeProposalRef`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1106,29 +1493,24 @@ func TestAuthenticatedContentRoundTrip(t *testing.T) {
             ConfirmationTag: []byte{0xbe, 0xef},
         },
     }
-    w := syntax.NewWriter()
-    if err := authContent.MarshalMLS(w); err != nil {
+    encoded, err := syntax.Marshal(&authContent)
+    if err != nil {
         t.Fatalf("marshal: %v", err)
     }
-    encoded := w.Bytes()
     if encoded[0] != 0x00 || encoded[1] != 0x01 {
         t.Fatalf("wire format prefix %x, want 0001", encoded[0:2])
     }
 
     var decoded AuthenticatedContent
-    r := syntax.NewReader(encoded)
-    if err := decoded.UnmarshalMLS(r); err != nil {
+    if err := syntax.Unmarshal(encoded, &decoded); err != nil {
         t.Fatalf("unmarshal: %v", err)
     }
-    if err := r.Finish(); err != nil {
-        t.Fatalf("trailing bytes: %v", err)
-    }
-    w2 := syntax.NewWriter()
-    if err := decoded.MarshalMLS(w2); err != nil {
+    reencoded, err := syntax.Marshal(&decoded)
+    if err != nil {
         t.Fatalf("re-marshal: %v", err)
     }
-    if !bytes.Equal(encoded, w2.Bytes()) {
-        t.Fatalf("re-encoded %x, want %x", w2.Bytes(), encoded)
+    if !bytes.Equal(encoded, reencoded) {
+        t.Fatalf("re-encoded %x, want %x", reencoded, encoded)
     }
 }
 
@@ -1157,11 +1539,13 @@ func TestConfirmedTranscriptHashInputOmitsConfirmationTag(t *testing.T) {
     if err := authContent.Content.MarshalMLS(w); err != nil {
         t.Fatalf("content: %v", err)
     }
-    if err := w.WriteOpaque(authContent.Auth.Signature); err != nil {
-        t.Fatalf("signature: %v", err)
+    w.WriteOpaque(authContent.Auth.Signature)
+    want, err := w.Bytes()
+    if err != nil {
+        t.Fatalf("bytes: %v", err)
     }
-    if !bytes.Equal(input, w.Bytes()) {
-        t.Fatalf("input %x, want %x", input, w.Bytes())
+    if !bytes.Equal(input, want) {
+        t.Fatalf("input %x, want %x", input, want)
     }
     if bytes.Contains(input, []byte{0xbe, 0xef}) {
         t.Fatal("confirmation tag leaked into ConfirmedTranscriptHashInput")
@@ -1183,12 +1567,81 @@ func TestConfirmedTranscriptHashInputRefusesNonCommit(t *testing.T) {
         t.Fatalf("got %v, want ErrContentArmMismatch", err)
     }
 }
+
+// one crypto provider constructor for the whole package's framing tests. the
+// suite constant is the crypto plan's spelling: Sha, not SHA.
+func newTestCrypto(t *testing.T) CryptoProvider {
+    t.Helper()
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
+    if err != nil {
+        t.Fatalf("crypto provider: %v", err)
+    }
+    return crypto
+}
+
+func TestProposalRefCoversTheWholeAuthenticatedContent(t *testing.T) {
+    crypto := newTestCrypto(t)
+    authContent := AuthenticatedContent{
+        WireFormat: WireFormatPublicMessage,
+        Content: FramedContent{
+            GroupId:     []byte{0x07},
+            Epoch:       2,
+            Sender:      Sender{SenderType: SenderTypeMember, LeafIndex: 1},
+            ContentType: ContentTypeProposal,
+            Proposal:    &Proposal{ProposalType: ProposalTypeRemove, Remove: &Remove{Removed: 2}},
+        },
+        Auth: FramedContentAuthData{Signature: []byte{0xde, 0xad}},
+    }
+
+    ref, err := authContent.ProposalRef(crypto)
+    if err != nil {
+        t.Fatalf("ref: %v", err)
+    }
+    if len(ref) != crypto.HashSize() {
+        t.Fatalf("ref length %d, want %d", len(ref), crypto.HashSize())
+    }
+    encoded, err := syntax.Marshal(&authContent)
+    if err != nil {
+        t.Fatalf("marshal: %v", err)
+    }
+    if !bytes.Equal(ref, MakeProposalRef(crypto, encoded)) {
+        t.Fatal("ProposalRef is not MakeProposalRef over the serialized AuthenticatedContent")
+    }
+
+    // the signature is inside the ref, so re-signing changes it
+    resigned := authContent
+    resigned.Auth.Signature = []byte{0xde, 0xae}
+    other, err := resigned.ProposalRef(crypto)
+    if err != nil {
+        t.Fatalf("ref: %v", err)
+    }
+    if bytes.Equal(ref, other) {
+        t.Fatal("ProposalRef does not cover the signature")
+    }
+}
+
+func TestProposalRefRefusesNonProposal(t *testing.T) {
+    crypto := newTestCrypto(t)
+    authContent := AuthenticatedContent{
+        WireFormat: WireFormatPrivateMessage,
+        Content: FramedContent{
+            GroupId:         []byte{0x07},
+            Sender:          Sender{SenderType: SenderTypeMember},
+            ContentType:     ContentTypeApplication,
+            ApplicationData: []byte("x"),
+        },
+        Auth: FramedContentAuthData{Signature: []byte{0x01}},
+    }
+    if _, err := authContent.ProposalRef(crypto); !errors.Is(err, ErrContentArmMismatch) {
+        t.Fatalf("got %v, want ErrContentArmMismatch", err)
+    }
+}
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./connect/mls/... -run 'TestAuthenticatedContentRoundTrip|TestConfirmedTranscriptHashInput' -v`
-Expected: FAIL — `undefined: AuthenticatedContent`.
+Run: `go test ./connect/mls/... -run 'TestAuthenticatedContentRoundTrip|TestConfirmedTranscriptHashInput|TestProposalRef' -v`
+Expected: FAIL — `undefined: AuthenticatedContent`, `undefined: newTestCrypto`.
 
 - [ ] **Step 3: Write minimal implementation**
 
@@ -1223,13 +1676,15 @@ func (self *AuthenticatedContent) UnmarshalMLS(r *syntax.Reader) error {
     }
     return self.Auth.UnmarshalMLS(r, self.Content.ContentType)
 }
+
+var _ syntax.Codec = (*AuthenticatedContent)(nil)
 ```
 
 ```go
 // framing_preimage.go
-// the three byte strings RFC 9420 §6 authenticates. one function each, one
-// file, no crypto: an auditor reading this file sees every preimage in the
-// implementation and nothing else.
+// the byte strings RFC 9420 §6 authenticates or hashes. one function each, one
+// file, no key material: an auditor reading this file sees every preimage in
+// the implementation and nothing else.
 package mls
 
 import (
@@ -1240,8 +1695,8 @@ import (
 
 // the input to the confirmed transcript hash, RFC 9420 §8.2. carries the
 // signature but NOT the confirmation tag, which is what makes the transcript
-// hash and the confirmation tag mutually recursive rather than circular.
-// transcript.go consumes this and computes the hash chain.
+// hash and the confirmation tag mutually recursive rather than circular. p4's
+// transcript.go consumes these bytes and computes the hash chain.
 func (self *AuthenticatedContent) ConfirmedTranscriptHashInput() ([]byte, error) {
     if self.Content.ContentType != ContentTypeCommit {
         return nil, fmt.Errorf("%w: transcript hash input requires a commit", ErrContentArmMismatch)
@@ -1251,17 +1706,31 @@ func (self *AuthenticatedContent) ConfirmedTranscriptHashInput() ([]byte, error)
     if err := self.Content.MarshalMLS(w); err != nil {
         return nil, err
     }
-    if err := w.WriteOpaque(self.Auth.Signature); err != nil {
+    w.WriteOpaque(self.Auth.Signature)
+    return w.Bytes()
+}
+
+// the HashReference a Commit uses to name a by-reference proposal, RFC 9420
+// §5.2. the hash is over the SERIALIZED AuthenticatedContent, so the ref covers
+// the wire format, the sender and the signature; two members proposing the same
+// removal therefore produce different refs, which is what stops one member's
+// proposal being committed under another's name.
+func (self *AuthenticatedContent) ProposalRef(crypto CryptoProvider) (ProposalRef, error) {
+    if self.Content.ContentType != ContentTypeProposal {
+        return nil, fmt.Errorf("%w: a proposal ref requires a proposal", ErrContentArmMismatch)
+    }
+    encoded, err := syntax.Marshal(self)
+    if err != nil {
         return nil, err
     }
-    return w.Bytes(), nil
+    return ProposalRef(MakeProposalRef(crypto, encoded)), nil
 }
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./connect/mls/... -run 'TestAuthenticatedContentRoundTrip|TestConfirmedTranscriptHashInput' -v`
-Expected: PASS — three tests.
+Run: `go test ./connect/mls/... -run 'TestAuthenticatedContentRoundTrip|TestConfirmedTranscriptHashInput|TestProposalRef' -v`
+Expected: PASS — five tests.
 
 - [ ] **Step 5: Commit**
 
@@ -1270,12 +1739,12 @@ cd /c/Users/ryanm/Downloads/claude_sandbox_message/connect
 git ls-files | wc -l
 git add mls/framing.go mls/framing_preimage.go mls/framing_test.go
 git ls-files | wc -l   # MUST be previous + 1
-git commit -m "feat(mls): AuthenticatedContent codec and ConfirmedTranscriptHashInput"
+git commit -m "feat(mls): AuthenticatedContent codec, ConfirmedTranscriptHashInput and ProposalRef"
 ```
 
 ---
 
-### Task 5: `FramedContentTBS` preimage, sign and verify (ValSem010)
+### Task 5: `FramedContentTBS` preimage, sign and verify (ValSem010, ValSem009)
 
 **Files:**
 - Modify: `connect/mls/framing_preimage.go`
@@ -1283,11 +1752,14 @@ git commit -m "feat(mls): AuthenticatedContent codec and ConfirmedTranscriptHash
 - Test: `connect/mls/framing_protect_test.go`
 
 **Interfaces:**
-- Consumes: `CryptoProvider.SignWithLabel(priv SignaturePrivateKey, label string, content []byte) ([]byte, error)`,
-  `CryptoProvider.VerifyWithLabel(pub SignaturePublicKey, label string, content, sig []byte) error`,
-  `NewCryptoProvider(suite CipherSuite) (CryptoProvider, error)`,
-  `CryptoProvider.SignatureKeyPair() (SignaturePrivateKey, SignaturePublicKey, error)` — all from the
-  crypto plan (wave 1). Tasks 1–4.
+- Consumes: `SignWithLabel(priv SignaturePrivateKey, label string, content []byte) ([]byte, error)`,
+  `VerifyWithLabel(pub SignaturePublicKey, label string, content []byte, sig []byte) error`,
+  `SignatureKeyPair() (SignaturePrivateKey, SignaturePublicKey, error)` — all methods on p2's
+  `CryptoProvider`; `func NewCryptoProvider(suite CipherSuite) (CryptoProvider, error)` and
+  `const CipherSuiteX25519ChaCha20Sha256Ed25519 CipherSuite = 0x0003` (p2, wave 1);
+  `const ProtocolVersionMls10 ProtocolVersion = 0x0001` (p5, wave 2);
+  `func ValSem(code ValSemCode, detail error) error`, the codes `ValSem009`/`ValSem010` and the
+  sentinels `ErrBadSignature`, `ErrMissingConfirmationTag` (p8, wave 1). Tasks 1–4.
 - Produces:
   `FramedContentTBSBytes(wireFormat WireFormat, content *FramedContent, groupContext []byte) ([]byte, error)`,
   `SignAuthenticatedContent(crypto CryptoProvider, priv SignaturePrivateKey, wireFormat WireFormat, content *FramedContent, groupContext []byte) (*AuthenticatedContent, error)`,
@@ -1313,18 +1785,24 @@ import (
     "github.com/urnetwork/connect/mls/syntax"
 )
 
-func newTestCrypto(t *testing.T) CryptoProvider {
+// a real serialized GroupContext, built the way every caller must build one
+// (C4): syntax.Marshal over the key-schedule plan's struct. the preimage inlines
+// these bytes verbatim, with no length prefix.
+func testGroupContext(t *testing.T) []byte {
     t.Helper()
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
-    if err != nil {
-        t.Fatalf("crypto provider: %v", err)
+    groupContext := &GroupContext{
+        Version:                 ProtocolVersionMls10,
+        CipherSuite:             CipherSuiteX25519ChaCha20Sha256Ed25519,
+        GroupId:                 []byte{0x01, 0x02},
+        Epoch:                   4,
+        TreeHash:                bytes.Repeat([]byte{0xc0}, 32),
+        ConfirmedTranscriptHash: bytes.Repeat([]byte{0xee}, 32),
     }
-    return crypto
-}
-
-func testGroupContext() []byte {
-    // stands in for a serialized GroupContext; the preimage inlines it verbatim
-    return []byte{0xc0, 0xff, 0xee, 0x00, 0x11}
+    encoded, err := syntax.Marshal(groupContext)
+    if err != nil {
+        t.Fatalf("group context: %v", err)
+    }
+    return encoded
 }
 
 func testMemberContent() *FramedContent {
@@ -1348,7 +1826,7 @@ func testProposalContent() *FramedContent {
 
 func TestFramedContentTBSInlinesGroupContextWithoutLengthPrefix(t *testing.T) {
     content := testMemberContent()
-    groupContext := testGroupContext()
+    groupContext := testGroupContext(t)
 
     tbs, err := FramedContentTBSBytes(WireFormatPrivateMessage, content, groupContext)
     if err != nil {
@@ -1356,14 +1834,18 @@ func TestFramedContentTBSInlinesGroupContextWithoutLengthPrefix(t *testing.T) {
     }
 
     w := syntax.NewWriter()
-    w.WriteUint16(uint16(ProtocolVersionMLS10))
+    w.WriteUint16(uint16(ProtocolVersionMls10))
     w.WriteUint16(uint16(WireFormatPrivateMessage))
     if err := content.MarshalMLS(w); err != nil {
         t.Fatalf("content: %v", err)
     }
     w.WriteRaw(groupContext)
-    if !bytes.Equal(tbs, w.Bytes()) {
-        t.Fatalf("tbs %x, want %x", tbs, w.Bytes())
+    want, err := w.Bytes()
+    if err != nil {
+        t.Fatalf("bytes: %v", err)
+    }
+    if !bytes.Equal(tbs, want) {
+        t.Fatalf("tbs %x, want %x", tbs, want)
     }
     if !bytes.HasSuffix(tbs, groupContext) {
         t.Fatal("group context is not the trailing bytes of the preimage")
@@ -1378,10 +1860,10 @@ func TestFramedContentTBSOmitsGroupContextForExternalSender(t *testing.T) {
     if err != nil {
         t.Fatalf("tbs: %v", err)
     }
-    if bytes.Contains(tbs, testGroupContext()) {
+    if bytes.Contains(tbs, testGroupContext(t)) {
         t.Fatal("group context present for an external sender")
     }
-    _, err = FramedContentTBSBytes(WireFormatPublicMessage, content, testGroupContext())
+    _, err = FramedContentTBSBytes(WireFormatPublicMessage, content, testGroupContext(t))
     if !errors.Is(err, ErrUnexpectedGroupContext) {
         t.Fatalf("got %v, want ErrUnexpectedGroupContext", err)
     }
@@ -1400,7 +1882,7 @@ func TestSignAndVerifyAuthenticatedContent(t *testing.T) {
     if err != nil {
         t.Fatalf("key pair: %v", err)
     }
-    groupContext := testGroupContext()
+    groupContext := testGroupContext(t)
 
     authContent, err := SignAuthenticatedContent(crypto, priv, WireFormatPrivateMessage,
         testMemberContent(), groupContext)
@@ -1412,13 +1894,13 @@ func TestSignAndVerifyAuthenticatedContent(t *testing.T) {
     }
 }
 
-func TestValSem010_SignatureVerifies(t *testing.T) {
+func TestAuthenticatedContentRefusesForgedSignature(t *testing.T) {
     crypto := newTestCrypto(t)
     priv, pub, err := crypto.SignatureKeyPair()
     if err != nil {
         t.Fatalf("key pair: %v", err)
     }
-    groupContext := testGroupContext()
+    groupContext := testGroupContext(t)
     authContent, err := SignAuthenticatedContent(crypto, priv, WireFormatPrivateMessage,
         testMemberContent(), groupContext)
     if err != nil {
@@ -1454,7 +1936,7 @@ func TestValSem010_SignatureVerifies(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./connect/mls/... -run 'TestFramedContentTBS|TestSignAndVerifyAuthenticatedContent|TestValSem010' -v`
+Run: `go test ./connect/mls/... -run 'TestFramedContentTBS|TestSignAndVerifyAuthenticatedContent|TestAuthenticatedContentRefusesForgedSignature' -v`
 Expected: FAIL — `undefined: FramedContentTBSBytes`, `undefined: SignAuthenticatedContent`.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -1468,7 +1950,7 @@ Expected: FAIL — `undefined: FramedContentTBSBytes`, `undefined: SignAuthentic
 // bound to an epoch.
 func FramedContentTBSBytes(wireFormat WireFormat, content *FramedContent, groupContext []byte) ([]byte, error) {
     w := syntax.NewWriter()
-    w.WriteUint16(uint16(ProtocolVersionMLS10))
+    w.WriteUint16(uint16(ProtocolVersionMls10))
     w.WriteUint16(uint16(wireFormat))
     if err := content.MarshalMLS(w); err != nil {
         return nil, err
@@ -1486,7 +1968,7 @@ func FramedContentTBSBytes(wireFormat WireFormat, content *FramedContent, groupC
     default:
         return nil, fmt.Errorf("%w: %d", ErrUnknownSenderType, content.Sender.SenderType)
     }
-    return w.Bytes(), nil
+    return w.Bytes()
 }
 ```
 
@@ -1531,25 +2013,29 @@ func VerifyAuthenticatedContent(crypto CryptoProvider, pub SignaturePublicKey,
     authContent *AuthenticatedContent, groupContext []byte) error {
 
     if len(authContent.Auth.Signature) == 0 {
-        return ErrBadSignature
+        return ValSem(ValSem010, ErrBadSignature)
     }
     tbs, err := FramedContentTBSBytes(authContent.WireFormat, &authContent.Content, groupContext)
     if err != nil {
         return err
     }
     if err := crypto.VerifyWithLabel(pub, framedContentTBSLabel, tbs, authContent.Auth.Signature); err != nil {
-        return ErrBadSignature
+        return ValSem(ValSem010, ErrBadSignature)
     }
     if authContent.Content.ContentType == ContentTypeCommit && len(authContent.Auth.ConfirmationTag) == 0 {
-        return ErrMissingConfirmationTag
+        return ValSem(ValSem009, ErrMissingConfirmationTag)
     }
     return nil
 }
 ```
 
+`crypto.VerifyWithLabel` already returns an error rather than a bool (guardrail G7); it is
+collapsed to ValSem010 here so a caller cannot distinguish a malformed signature from a wrong key,
+and p2's own `ErrCryptoBadSignature` never escapes the crypto layer.
+
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./connect/mls/... -run 'TestFramedContentTBS|TestSignAndVerifyAuthenticatedContent|TestValSem010' -v`
+Run: `go test ./connect/mls/... -run 'TestFramedContentTBS|TestSignAndVerifyAuthenticatedContent|TestAuthenticatedContentRefusesForgedSignature' -v`
 Expected: PASS — five tests.
 
 - [ ] **Step 5: Commit**
@@ -1572,9 +2058,10 @@ git commit -m "feat(mls): FramedContentTBS preimage, sign and verify (ValSem010)
 - Test: `connect/mls/framing_protect_test.go`
 
 **Interfaces:**
-- Consumes: `CryptoProvider.Mac(key, data []byte) []byte`,
-  `CryptoProvider.MacVerify(key, data, tag []byte) bool`, `CryptoProvider.HashSize() int`
-  (crypto plan, wave 1). Tasks 1–5.
+- Consumes: `Mac(key []byte, data []byte) []byte`, `MacVerify(key []byte, data []byte, tag []byte) bool`,
+  `HashSize() int` — methods on p2's `CryptoProvider` (wave 1);
+  `func ValSem(code ValSemCode, detail error) error`, the codes `ValSem007`/`ValSem008` and the
+  sentinels `ErrMissingMembershipTag`, `ErrBadMembershipTag` (p8, wave 1). Tasks 1–5.
 - Produces:
   `AuthenticatedContentTBMBytes(authContent *AuthenticatedContent, groupContext []byte) ([]byte, error)`,
   `ComputeMembershipTag(crypto CryptoProvider, membershipKey []byte, authContent *AuthenticatedContent, groupContext []byte) ([]byte, error)`,
@@ -1593,7 +2080,7 @@ func TestAuthenticatedContentTBMIsTBSPlusAuth(t *testing.T) {
     if err != nil {
         t.Fatalf("key pair: %v", err)
     }
-    groupContext := testGroupContext()
+    groupContext := testGroupContext(t)
     content := testProposalContent()
 
     authContent, err := SignAuthenticatedContent(crypto, priv, WireFormatPublicMessage, content, groupContext)
@@ -1613,8 +2100,12 @@ func TestAuthenticatedContentTBMIsTBSPlusAuth(t *testing.T) {
     if err := authContent.Auth.MarshalMLS(w, content.ContentType); err != nil {
         t.Fatalf("auth: %v", err)
     }
-    if !bytes.Equal(tbm, w.Bytes()) {
-        t.Fatalf("tbm %x, want %x", tbm, w.Bytes())
+    want, err := w.Bytes()
+    if err != nil {
+        t.Fatalf("bytes: %v", err)
+    }
+    if !bytes.Equal(tbm, want) {
+        t.Fatalf("tbm %x, want %x", tbm, want)
     }
 }
 
@@ -1624,7 +2115,7 @@ func TestMembershipTagCoversTheConfirmationTag(t *testing.T) {
     if err != nil {
         t.Fatalf("key pair: %v", err)
     }
-    groupContext := testGroupContext()
+    groupContext := testGroupContext(t)
     membershipKey := bytes.Repeat([]byte{0x5a}, crypto.HashSize())
 
     content := testMemberContent()
@@ -1675,7 +2166,7 @@ func AuthenticatedContentTBMBytes(authContent *AuthenticatedContent, groupContex
     if err := authContent.Auth.MarshalMLS(w, authContent.Content.ContentType); err != nil {
         return nil, err
     }
-    return w.Bytes(), nil
+    return w.Bytes()
 }
 ```
 
@@ -1699,14 +2190,14 @@ func verifyMembershipTag(crypto CryptoProvider, membershipKey []byte,
     authContent *AuthenticatedContent, groupContext []byte, tag []byte) error {
 
     if len(tag) == 0 {
-        return ErrMissingMembershipTag
+        return ValSem(ValSem007, ErrMissingMembershipTag)
     }
     tbm, err := AuthenticatedContentTBMBytes(authContent, groupContext)
     if err != nil {
         return err
     }
     if !crypto.MacVerify(membershipKey, tbm, tag) {
-        return ErrBadMembershipTag
+        return ValSem(ValSem008, ErrBadMembershipTag)
     }
     return nil
 }
@@ -1737,9 +2228,11 @@ git commit -m "feat(mls): AuthenticatedContentTBM and the membership tag (ValSem
 - Test: `connect/mls/framing_protect_test.go`
 
 **Interfaces:**
-- Consumes: Tasks 1–6.
+- Consumes: Tasks 1–6; `func ValSem(code ValSemCode, detail error) error`, the code `ValSem005` and
+  the sentinel `ErrApplicationMustBeCiphertext` (p8, wave 1).
 - Produces: `PublicMessage`, `(*PublicMessage).MarshalMLS(w *syntax.Writer) error`,
   `(*PublicMessage).UnmarshalMLS(r *syntax.Reader) error`,
+  `var _ syntax.Codec = (*PublicMessage)(nil)`,
   `(*PublicMessage).AuthenticatedContent() *AuthenticatedContent`,
   `type SignatureKeyResolver func(sender Sender) (SignaturePublicKey, error)`,
   `StaticSignatureKey(pub SignaturePublicKey) SignatureKeyResolver`,
@@ -1761,7 +2254,7 @@ func TestPublicMessageSealOpenRoundTrip(t *testing.T) {
     if err != nil {
         t.Fatalf("key pair: %v", err)
     }
-    groupContext := testGroupContext()
+    groupContext := testGroupContext(t)
     membershipKey := bytes.Repeat([]byte{0x5a}, crypto.HashSize())
 
     authContent, err := SignAuthenticatedContent(crypto, priv, WireFormatPublicMessage,
@@ -1774,17 +2267,13 @@ func TestPublicMessageSealOpenRoundTrip(t *testing.T) {
         t.Fatalf("seal: %v", err)
     }
 
-    w := syntax.NewWriter()
-    if err := message.MarshalMLS(w); err != nil {
+    encoded, err := syntax.Marshal(message)
+    if err != nil {
         t.Fatalf("marshal: %v", err)
     }
     var decoded PublicMessage
-    r := syntax.NewReader(w.Bytes())
-    if err := decoded.UnmarshalMLS(r); err != nil {
+    if err := syntax.Unmarshal(encoded, &decoded); err != nil {
         t.Fatalf("unmarshal: %v", err)
-    }
-    if err := r.Finish(); err != nil {
-        t.Fatalf("trailing bytes: %v", err)
     }
 
     opened, err := OpenPublicMessage(crypto, membershipKey, &decoded, StaticSignatureKey(pub), groupContext)
@@ -1796,13 +2285,13 @@ func TestPublicMessageSealOpenRoundTrip(t *testing.T) {
     }
 }
 
-func TestValSem005_ApplicationMustBeCiphertext(t *testing.T) {
+func TestPublicMessageRefusesApplicationContent(t *testing.T) {
     crypto := newTestCrypto(t)
     priv, pub, err := crypto.SignatureKeyPair()
     if err != nil {
         t.Fatalf("key pair: %v", err)
     }
-    groupContext := testGroupContext()
+    groupContext := testGroupContext(t)
     membershipKey := bytes.Repeat([]byte{0x5a}, crypto.HashSize())
 
     authContent, err := SignAuthenticatedContent(crypto, priv, WireFormatPublicMessage,
@@ -1827,13 +2316,13 @@ func TestValSem005_ApplicationMustBeCiphertext(t *testing.T) {
     }
 }
 
-func TestValSem007_MembershipTagPresent(t *testing.T) {
+func TestPublicMessageRefusesMissingMembershipTag(t *testing.T) {
     crypto := newTestCrypto(t)
     priv, pub, err := crypto.SignatureKeyPair()
     if err != nil {
         t.Fatalf("key pair: %v", err)
     }
-    groupContext := testGroupContext()
+    groupContext := testGroupContext(t)
     membershipKey := bytes.Repeat([]byte{0x5a}, crypto.HashSize())
 
     authContent, err := SignAuthenticatedContent(crypto, priv, WireFormatPublicMessage,
@@ -1853,13 +2342,13 @@ func TestValSem007_MembershipTagPresent(t *testing.T) {
     }
 }
 
-func TestValSem008_MembershipTagVerifies(t *testing.T) {
+func TestPublicMessageRefusesForgedMembershipTag(t *testing.T) {
     crypto := newTestCrypto(t)
     priv, pub, err := crypto.SignatureKeyPair()
     if err != nil {
         t.Fatalf("key pair: %v", err)
     }
-    groupContext := testGroupContext()
+    groupContext := testGroupContext(t)
     membershipKey := bytes.Repeat([]byte{0x5a}, crypto.HashSize())
 
     authContent, err := SignAuthenticatedContent(crypto, priv, WireFormatPublicMessage,
@@ -1890,7 +2379,7 @@ func TestValSem008_MembershipTagVerifies(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./connect/mls/... -run 'TestPublicMessageSealOpen|TestValSem005|TestValSem007|TestValSem008' -v`
+Run: `go test ./connect/mls/... -run 'TestPublicMessage' -v`
 Expected: FAIL — `undefined: PublicMessage`, `undefined: SealPublicMessage`.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -1916,9 +2405,9 @@ func (self *PublicMessage) MarshalMLS(w *syntax.Writer) error {
     }
     if self.Content.Sender.SenderType == SenderTypeMember {
         if len(self.MembershipTag) == 0 {
-            return ErrMissingMembershipTag
+            return ValSem(ValSem007, ErrMissingMembershipTag)
         }
-        return w.WriteOpaque(self.MembershipTag)
+        w.WriteOpaque(self.MembershipTag)
     }
     return nil
 }
@@ -1949,6 +2438,8 @@ func (self *PublicMessage) AuthenticatedContent() *AuthenticatedContent {
         Auth:       self.Auth,
     }
 }
+
+var _ syntax.Codec = (*PublicMessage)(nil)
 ```
 
 ```go
@@ -1975,7 +2466,7 @@ func SealPublicMessage(crypto CryptoProvider, membershipKey []byte,
     authContent *AuthenticatedContent, groupContext []byte) (*PublicMessage, error) {
 
     if authContent.Content.ContentType == ContentTypeApplication {
-        return nil, ErrApplicationMustBeCiphertext
+        return nil, ValSem(ValSem005, ErrApplicationMustBeCiphertext)
     }
     if authContent.WireFormat != WireFormatPublicMessage {
         return nil, ErrWireFormatMismatch
@@ -1997,7 +2488,7 @@ func OpenPublicMessage(crypto CryptoProvider, membershipKey []byte, message *Pub
     resolve SignatureKeyResolver, groupContext []byte) (*AuthenticatedContent, error) {
 
     if message.Content.ContentType == ContentTypeApplication {
-        return nil, ErrApplicationMustBeCiphertext
+        return nil, ValSem(ValSem005, ErrApplicationMustBeCiphertext)
     }
     authContent := message.AuthenticatedContent()
     if message.Content.Sender.SenderType == SenderTypeMember {
@@ -2019,7 +2510,7 @@ func OpenPublicMessage(crypto CryptoProvider, membershipKey []byte, message *Pub
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./connect/mls/... -run 'TestPublicMessageSealOpen|TestValSem005|TestValSem007|TestValSem008' -v`
+Run: `go test ./connect/mls/... -run 'TestPublicMessage' -v`
 Expected: PASS — four tests.
 
 - [ ] **Step 5: Commit**
@@ -2042,9 +2533,11 @@ git commit -m "feat(mls): PublicMessage codec, seal and open (ValSem005, ValSem0
 - Test: `connect/mls/framing_test.go`
 
 **Interfaces:**
-- Consumes: Tasks 1–3.
+- Consumes: Tasks 1–3; `(*syntax.Writer).WriteOpaque(bs []byte)`,
+  `(*syntax.Reader).ReadOpaque() ([]byte, error)`, `(*syntax.Writer).Bytes() ([]byte, error)`.
 - Produces: `PrivateMessage`, `(*PrivateMessage).MarshalMLS(w *syntax.Writer) error`,
-  `(*PrivateMessage).UnmarshalMLS(r *syntax.Reader) error`, and the two unexported preimages
+  `(*PrivateMessage).UnmarshalMLS(r *syntax.Reader) error`,
+  `var _ syntax.Codec = (*PrivateMessage)(nil)`, and the two unexported preimages
   `privateContentAAD(groupId []byte, epoch uint64, contentType ContentType, authenticatedData []byte) ([]byte, error)`
   and `senderDataAAD(groupId []byte, epoch uint64, contentType ContentType) ([]byte, error)`.
 
@@ -2066,32 +2559,27 @@ func TestPrivateMessageRoundTrip(t *testing.T) {
         EncryptedSenderData: []byte{0xbb, 0xcc},
         Ciphertext:          []byte{0xdd, 0xee, 0xff},
     }
-    w := syntax.NewWriter()
-    if err := message.MarshalMLS(w); err != nil {
+    encoded, err := syntax.Marshal(&message)
+    if err != nil {
         t.Fatalf("marshal: %v", err)
     }
-    encoded := w.Bytes()
 
     var decoded PrivateMessage
-    r := syntax.NewReader(encoded)
-    if err := decoded.UnmarshalMLS(r); err != nil {
+    if err := syntax.Unmarshal(encoded, &decoded); err != nil {
         t.Fatalf("unmarshal: %v", err)
     }
-    if err := r.Finish(); err != nil {
-        t.Fatalf("trailing bytes: %v", err)
-    }
-    w2 := syntax.NewWriter()
-    if err := decoded.MarshalMLS(w2); err != nil {
+    reencoded, err := syntax.Marshal(&decoded)
+    if err != nil {
         t.Fatalf("re-marshal: %v", err)
     }
-    if !bytes.Equal(encoded, w2.Bytes()) {
-        t.Fatalf("re-encoded %x, want %x", w2.Bytes(), encoded)
+    if !bytes.Equal(encoded, reencoded) {
+        t.Fatalf("re-encoded %x, want %x", reencoded, encoded)
     }
 }
 
 func TestPrivateMessageRejectsReservedContentType(t *testing.T) {
     message := PrivateMessage{GroupId: []byte{0x01}, ContentType: ContentTypeReserved}
-    if err := message.MarshalMLS(syntax.NewWriter()); !errors.Is(err, ErrUnknownContentType) {
+    if _, err := syntax.Marshal(&message); !errors.Is(err, ErrUnknownContentType) {
         t.Fatalf("got %v, want ErrUnknownContentType", err)
     }
 }
@@ -2149,18 +2637,13 @@ func (self *PrivateMessage) MarshalMLS(w *syntax.Writer) error {
     default:
         return fmt.Errorf("%w: %d", ErrUnknownContentType, self.ContentType)
     }
-    if err := w.WriteOpaque(self.GroupId); err != nil {
-        return err
-    }
+    w.WriteOpaque(self.GroupId)
     w.WriteUint64(self.Epoch)
     w.WriteUint8(uint8(self.ContentType))
-    if err := w.WriteOpaque(self.AuthenticatedData); err != nil {
-        return err
-    }
-    if err := w.WriteOpaque(self.EncryptedSenderData); err != nil {
-        return err
-    }
-    return w.WriteOpaque(self.Ciphertext)
+    w.WriteOpaque(self.AuthenticatedData)
+    w.WriteOpaque(self.EncryptedSenderData)
+    w.WriteOpaque(self.Ciphertext)
+    return nil
 }
 
 func (self *PrivateMessage) UnmarshalMLS(r *syntax.Reader) error {
@@ -2203,6 +2686,8 @@ func (self *PrivateMessage) UnmarshalMLS(r *syntax.Reader) error {
     }
     return nil
 }
+
+var _ syntax.Codec = (*PrivateMessage)(nil)
 ```
 
 ```go
@@ -2213,12 +2698,10 @@ func (self *PrivateMessage) UnmarshalMLS(r *syntax.Reader) error {
 // field the content step has not reached yet.
 func senderDataAAD(groupId []byte, epoch uint64, contentType ContentType) ([]byte, error) {
     w := syntax.NewWriter()
-    if err := w.WriteOpaque(groupId); err != nil {
-        return nil, err
-    }
+    w.WriteOpaque(groupId)
     w.WriteUint64(epoch)
     w.WriteUint8(uint8(contentType))
-    return w.Bytes(), nil
+    return w.Bytes()
 }
 
 // PrivateContentAAD, RFC 9420 §6.3.1. SenderDataAAD plus authenticated_data,
@@ -2227,15 +2710,11 @@ func privateContentAAD(groupId []byte, epoch uint64, contentType ContentType,
     authenticatedData []byte) ([]byte, error) {
 
     w := syntax.NewWriter()
-    if err := w.WriteOpaque(groupId); err != nil {
-        return nil, err
-    }
+    w.WriteOpaque(groupId)
     w.WriteUint64(epoch)
     w.WriteUint8(uint8(contentType))
-    if err := w.WriteOpaque(authenticatedData); err != nil {
-        return nil, err
-    }
-    return w.Bytes(), nil
+    w.WriteOpaque(authenticatedData)
+    return w.Bytes()
 }
 ```
 
@@ -2256,7 +2735,7 @@ git commit -m "feat(mls): PrivateMessage codec and the SenderData/PrivateContent
 
 ---
 
-### Task 9: `SenderData`, the ciphertext sample, and sender-data encryption
+### Task 9: `SenderData` codec and sender-data encryption (ValSem006)
 
 **Files:**
 - Modify: `connect/mls/framing.go`
@@ -2264,19 +2743,30 @@ git commit -m "feat(mls): PrivateMessage codec and the SenderData/PrivateContent
 - Test: `connect/mls/framing_protect_test.go`
 
 **Interfaces:**
-- Consumes: `CryptoProvider.HashSize() int`, `KeySize() int`, `NonceSize() int`,
+- Consumes: `HashSize() int`, `KeySize() int`, `NonceSize() int`,
   `ExpandWithLabel(secret []byte, label string, context []byte, length int) []byte`,
-  `AeadSeal(key, nonce, aad, plaintext []byte) ([]byte, error)`,
-  `AeadOpen(key, nonce, aad, ciphertext []byte) ([]byte, error)` (crypto plan, wave 1). Tasks 1, 8.
+  `AeadSeal(key []byte, nonce []byte, aad []byte, plaintext []byte) ([]byte, error)`,
+  `AeadOpen(key []byte, nonce []byte, aad []byte, ciphertext []byte) ([]byte, error)` — methods on
+  p2's `CryptoProvider` (wave 1);
+  **`func SenderDataKeyNonce(crypto CryptoProvider, senderDataSecret []byte, ciphertext []byte) (key []byte, nonce []byte, err error)`**
+  from p4 (wave 2); `syntax.Marshal`, `syntax.Unmarshal`;
+  `func ValSem(code ValSemCode, detail error) error`, the code `ValSem006` and the sentinel
+  `ErrDecryptFailed` (p8, wave 1). Tasks 1, 8.
 - Produces: `SenderData`, `(*SenderData).MarshalMLS(w *syntax.Writer) error`,
-  `(*SenderData).UnmarshalMLS(r *syntax.Reader) error`, and the unexported
-  `senderDataKeyNonce(crypto CryptoProvider, senderDataSecret, ciphertext []byte) (key, nonce []byte)`,
-  `sealSenderData(...)`, `openSenderData(...)`.
+  `(*SenderData).UnmarshalMLS(r *syntax.Reader) error`, `var _ syntax.Codec = (*SenderData)(nil)`,
+  and the unexported `sealSenderData(...)`, `openSenderData(...)`.
 
-**The trap:** `ciphertext_sample = ciphertext[0..KDF.Nh-1]`, and when the ciphertext is **shorter**
-than `KDF.Nh` the whole ciphertext is the sample. An implementation that slices unconditionally
-panics on a short message; one that pads to `Nh` derives a different key from every peer. Both are
-tested.
+**The §6.3.2 derivation is p4's, and this task deletes its own copy.** Registry §5.5 assigns
+`SenderDataKeyNonce` to p4, exported and with an error return, because `secret-tree.json` is its
+only vector coverage and the untested duplicate was the one this plan's encrypt path called. The
+private `senderDataKeyNonce` that used to live here is gone; `sealSenderData` and `openSenderData`
+call p4's exported form.
+
+**The trap this task still owns, as a regression test against p4's implementation:**
+`ciphertext_sample = ciphertext[0..KDF.Nh-1]`, and when the ciphertext is **shorter** than `KDF.Nh`
+the whole ciphertext is the sample. An implementation that slices unconditionally panics on a short
+message; one that pads to `Nh` derives a different key from every peer. Both cases stay tested here
+even though the code under test is p4's — this plan is the caller that gets it wrong if p4 drifts.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2288,41 +2778,48 @@ func TestSenderDataRoundTrip(t *testing.T) {
         Generation: 7,
         ReuseGuard: [4]byte{0xde, 0xad, 0xbe, 0xef},
     }
-    w := syntax.NewWriter()
-    if err := senderData.MarshalMLS(w); err != nil {
+    encoded, err := syntax.Marshal(&senderData)
+    if err != nil {
         t.Fatalf("marshal: %v", err)
     }
     want := []byte{0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x07, 0xde, 0xad, 0xbe, 0xef}
-    if !bytes.Equal(w.Bytes(), want) {
-        t.Fatalf("encoded %x, want %x", w.Bytes(), want)
+    if !bytes.Equal(encoded, want) {
+        t.Fatalf("encoded %x, want %x", encoded, want)
     }
     var decoded SenderData
-    r := syntax.NewReader(w.Bytes())
-    if err := decoded.UnmarshalMLS(r); err != nil {
+    if err := syntax.Unmarshal(encoded, &decoded); err != nil {
         t.Fatalf("unmarshal: %v", err)
-    }
-    if err := r.Finish(); err != nil {
-        t.Fatalf("trailing bytes: %v", err)
     }
     if decoded != senderData {
         t.Fatalf("decoded %+v, want %+v", decoded, senderData)
     }
 }
 
+// a regression test against the key-schedule plan's SenderDataKeyNonce, not
+// against code in this plan. this is the caller that breaks if it drifts.
 func TestCiphertextSampleIsBoundedByHashSize(t *testing.T) {
     crypto := newTestCrypto(t)
     secret := bytes.Repeat([]byte{0x11}, crypto.HashSize())
 
     long := bytes.Repeat([]byte{0xab}, crypto.HashSize()+40)
-    keyLong, nonceLong := senderDataKeyNonce(crypto, secret, long)
-    keyTrunc, nonceTrunc := senderDataKeyNonce(crypto, secret, long[:crypto.HashSize()])
+    keyLong, nonceLong, err := SenderDataKeyNonce(crypto, secret, long)
+    if err != nil {
+        t.Fatalf("long ciphertext: %v", err)
+    }
+    keyTrunc, nonceTrunc, err := SenderDataKeyNonce(crypto, secret, long[:crypto.HashSize()])
+    if err != nil {
+        t.Fatalf("truncated ciphertext: %v", err)
+    }
     if !bytes.Equal(keyLong, keyTrunc) || !bytes.Equal(nonceLong, nonceTrunc) {
         t.Fatal("sample is not truncated to KDF.Nh")
     }
 
     // a ciphertext shorter than KDF.Nh must not panic and must use the whole thing
     short := []byte{0x01, 0x02, 0x03}
-    keyShort, nonceShort := senderDataKeyNonce(crypto, secret, short)
+    keyShort, nonceShort, err := SenderDataKeyNonce(crypto, secret, short)
+    if err != nil {
+        t.Fatalf("short ciphertext: %v", err)
+    }
     if len(keyShort) != crypto.KeySize() || len(nonceShort) != crypto.NonceSize() {
         t.Fatalf("short sample produced key %d nonce %d", len(keyShort), len(nonceShort))
     }
@@ -2373,7 +2870,9 @@ func TestSenderDataSealOpen(t *testing.T) {
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `go test ./connect/mls/... -run 'TestSenderData|TestCiphertextSample' -v`
-Expected: FAIL — `undefined: SenderData`, `undefined: senderDataKeyNonce`.
+Expected: FAIL — `undefined: SenderData`, `undefined: sealSenderData`. If it instead fails with
+`undefined: SenderDataKeyNonce`, the key-schedule plan has not merged §5.5 yet and this task is
+blocked, not stubbed: a second copy of the derivation is exactly what the registry deleted.
 
 - [ ] **Step 3: Write minimal implementation**
 
@@ -2413,36 +2912,32 @@ func (self *SenderData) UnmarshalMLS(r *syntax.Reader) error {
     copy(self.ReuseGuard[:], reuseGuard)
     return nil
 }
+
+var _ syntax.Codec = (*SenderData)(nil)
 ```
 
 ```go
 // framing_protect.go (append)
 
-// RFC 9420 §6.3.2. the sample is the first KDF.Nh bytes of the content
-// ciphertext, or the whole ciphertext when it is shorter than that.
-func senderDataKeyNonce(crypto CryptoProvider, senderDataSecret, ciphertext []byte) (key, nonce []byte) {
-    sample := ciphertext
-    if len(sample) > crypto.HashSize() {
-        sample = sample[:crypto.HashSize()]
-    }
-    key = crypto.ExpandWithLabel(senderDataSecret, "key", sample, crypto.KeySize())
-    nonce = crypto.ExpandWithLabel(senderDataSecret, "nonce", sample, crypto.NonceSize())
-    return key, nonce
-}
-
+// RFC 9420 §6.3.2. the key and nonce come from the key-schedule plan's
+// SenderDataKeyNonce, which is the copy secret-tree.json covers; there is no
+// second derivation in this package.
 func sealSenderData(crypto CryptoProvider, senderDataSecret []byte, senderData *SenderData,
     header *PrivateMessage, ciphertext []byte) ([]byte, error) {
 
-    w := syntax.NewWriter()
-    if err := senderData.MarshalMLS(w); err != nil {
+    plaintext, err := syntax.Marshal(senderData)
+    if err != nil {
         return nil, err
     }
     aad, err := senderDataAAD(header.GroupId, header.Epoch, header.ContentType)
     if err != nil {
         return nil, err
     }
-    key, nonce := senderDataKeyNonce(crypto, senderDataSecret, ciphertext)
-    return crypto.AeadSeal(key, nonce, aad, w.Bytes())
+    key, nonce, err := SenderDataKeyNonce(crypto, senderDataSecret, ciphertext)
+    if err != nil {
+        return nil, err
+    }
+    return crypto.AeadSeal(key, nonce, aad, plaintext)
 }
 
 func openSenderData(crypto CryptoProvider, senderDataSecret []byte, encryptedSenderData []byte,
@@ -2452,17 +2947,18 @@ func openSenderData(crypto CryptoProvider, senderDataSecret []byte, encryptedSen
     if err != nil {
         return nil, err
     }
-    key, nonce := senderDataKeyNonce(crypto, senderDataSecret, ciphertext)
-    plaintext, err := crypto.AeadOpen(key, nonce, aad, encryptedSenderData)
+    key, nonce, err := SenderDataKeyNonce(crypto, senderDataSecret, ciphertext)
     if err != nil {
-        return nil, ErrDecryptFailed
-    }
-    senderData := &SenderData{}
-    r := syntax.NewReader(plaintext)
-    if err := senderData.UnmarshalMLS(r); err != nil {
         return nil, err
     }
-    if err := r.Finish(); err != nil {
+    plaintext, err := crypto.AeadOpen(key, nonce, aad, encryptedSenderData)
+    if err != nil {
+        // p2's ErrAeadOpen never escapes: every open failure on this path is
+        // ValSem006, and distinguishing them would be a decryption oracle.
+        return nil, ValSem(ValSem006, ErrDecryptFailed)
+    }
+    senderData := &SenderData{}
+    if err := syntax.Unmarshal(plaintext, senderData); err != nil {
         return nil, err
     }
     return senderData, nil
@@ -2481,7 +2977,7 @@ cd /c/Users/ryanm/Downloads/claude_sandbox_message/connect
 git ls-files | wc -l
 git add mls/framing.go mls/framing_protect.go mls/framing_protect_test.go
 git ls-files | wc -l
-git commit -m "feat(mls): SenderData codec, ciphertext sample and sender-data encryption"
+git commit -m "feat(mls): SenderData codec and sender-data encryption over the shared key derivation"
 ```
 
 ---
@@ -2493,10 +2989,18 @@ git commit -m "feat(mls): SenderData codec, ciphertext sample and sender-data en
 - Test: `connect/mls/framing_protect_test.go`
 
 **Interfaces:**
-- Consumes: Tasks 1–3, 8.
+- Consumes: Tasks 1–3, 8; `(*syntax.Reader).Remaining() int`,
+  `(*syntax.Reader).ReadRaw(n int) ([]byte, error)` — there is no `(*Reader).Rest()`, so the
+  padding tail is consumed explicitly; `func ValSem(code ValSemCode, detail error) error`, the code
+  `ValSem011` and the sentinel `ErrNonZeroPadding` (p8, wave 1).
 - Produces: `const PaddingSizeV1 = 0`, and the unexported
   `marshalPrivateMessageContent(content *FramedContent, auth *FramedContentAuthData, paddingSize int) ([]byte, error)`,
+  `marshalPrivateMessageContentWithPadding(content *FramedContent, auth *FramedContentAuthData, padding []byte) ([]byte, error)`,
   `unmarshalPrivateMessageContent(plaintext []byte, header *PrivateMessage, sender Sender) (*FramedContent, *FramedContentAuthData, error)`.
+
+The `WithPadding` variant exists so Task 20's `sealFramedContentWithPaddingForTest` seam can emit
+the **non-zero** padding p8's ValSem011 test needs. The zero-padding entry point delegates to it, so
+there is one serializer, not two.
 
 **Padding policy.** `PaddingSizeV1 = 0`, because `connect/message` already pads `ct_body` to a size
 bucket (MASTER §8: `octet_length(ct_body) MUST equal size_bucket_bytes[b] + 16 exactly`). MLS-level
@@ -2551,7 +3055,7 @@ func TestPrivateMessageContentRoundTripWithPadding(t *testing.T) {
     }
 }
 
-func TestValSem011_PaddingIsAllZero(t *testing.T) {
+func TestPrivateMessageContentRefusesNonZeroPadding(t *testing.T) {
     content := testMemberContent()
     auth := &FramedContentAuthData{Signature: []byte{0x01, 0x02}}
     header := &PrivateMessage{
@@ -2594,7 +3098,7 @@ func TestPaddingSizeV1IsZeroBecauseTheRecordLayerPads(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./connect/mls/... -run 'TestPrivateMessageContent|TestValSem011|TestPaddingSizeV1' -v`
+Run: `go test ./connect/mls/... -run 'TestPrivateMessageContent|TestPaddingSizeV1' -v`
 Expected: FAIL — `undefined: marshalPrivateMessageContent`, `undefined: PaddingSizeV1`.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -2616,15 +3120,22 @@ func marshalPrivateMessageContent(content *FramedContent, auth *FramedContentAut
     if paddingSize < 0 {
         return nil, ErrInvalidPaddingSize
     }
+    return marshalPrivateMessageContentWithPadding(content, auth, make([]byte, paddingSize))
+}
+
+// the same serializer with caller-supplied padding bytes. only the test seams
+// in framing_group_seams.go pass anything but zeros; nothing on the production
+// path can reach a non-zero tail.
+func marshalPrivateMessageContentWithPadding(content *FramedContent,
+    auth *FramedContentAuthData, padding []byte) ([]byte, error) {
+
     if err := content.checkArms(); err != nil {
         return nil, err
     }
     w := syntax.NewWriter()
     switch content.ContentType {
     case ContentTypeApplication:
-        if err := w.WriteOpaque(content.ApplicationData); err != nil {
-            return nil, err
-        }
+        w.WriteOpaque(content.ApplicationData)
     case ContentTypeProposal:
         if err := content.Proposal.MarshalMLS(w); err != nil {
             return nil, err
@@ -2637,8 +3148,8 @@ func marshalPrivateMessageContent(content *FramedContent, auth *FramedContentAut
     if err := auth.MarshalMLS(w, content.ContentType); err != nil {
         return nil, err
     }
-    w.WriteRaw(make([]byte, paddingSize))
-    return w.Bytes(), nil
+    w.WriteRaw(padding)
+    return w.Bytes()
 }
 
 // rebuilds the FramedContent from the cleartext header plus the decrypted
@@ -2680,14 +3191,19 @@ func unmarshalPrivateMessageContent(plaintext []byte, header *PrivateMessage,
         return nil, nil, err
     }
 
-    // the padding is whatever remains; accumulate rather than early-return so
-    // the check does not leak the position of the first non-zero byte.
+    // the padding is whatever remains; ReadRaw(Remaining()) consumes it
+    // explicitly, and accumulating rather than early-returning keeps the check
+    // from leaking the position of the first non-zero byte.
+    padding, err := r.ReadRaw(r.Remaining())
+    if err != nil {
+        return nil, nil, err
+    }
     var accumulated byte
-    for _, b := range r.Rest() {
+    for _, b := range padding {
         accumulated |= b
     }
     if accumulated != 0 {
-        return nil, nil, ErrNonZeroPadding
+        return nil, nil, ValSem(ValSem011, ErrNonZeroPadding)
     }
     return content, auth, nil
 }
@@ -2697,7 +3213,7 @@ func unmarshalPrivateMessageContent(plaintext []byte, header *PrivateMessage,
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./connect/mls/... -run 'TestPrivateMessageContent|TestValSem011|TestPaddingSizeV1' -v`
+Run: `go test ./connect/mls/... -run 'TestPrivateMessageContent|TestPaddingSizeV1' -v`
 Expected: PASS — four tests.
 
 - [ ] **Step 5: Commit**
@@ -2719,9 +3235,13 @@ git commit -m "feat(mls): PrivateMessageContent and zero-padding enforcement (Va
 - Test: `connect/mls/framing_protect_test.go`
 
 **Interfaces:**
-- Consumes: from the **key schedule and secret tree plan (wave 2)**, a `*SecretTree` with the three
-  methods listed in "Interfaces consumed" above; `CryptoProvider.Random(n int) []byte`,
-  `AeadSeal`, `AeadOpen`. Tasks 1–10.
+- Consumes: from p4 (wave 2) the `*SecretTree` methods
+  `NextMessageKey(contentType ContentType, leaf LeafIndex) (key, nonce []byte, generation uint32, err error)`,
+  `MessageKey(contentType ContentType, leaf LeafIndex, generation uint32) (key, nonce []byte, err error)`,
+  `EraseMessageKey(contentType ContentType, leaf LeafIndex, generation uint32)`;
+  `Random(n int) []byte`, `AeadSeal`, `AeadOpen` on p2's `CryptoProvider`;
+  `func ValSem(code ValSemCode, detail error) error`, the code `ValSem006` and the sentinel
+  `ErrDecryptFailed` (p8, wave 1). Tasks 1–10.
 - Produces:
   ```go
   type MessageKeySource interface {
@@ -2729,11 +3249,20 @@ git commit -m "feat(mls): PrivateMessageContent and zero-padding enforcement (Va
       MessageKey(contentType ContentType, leaf LeafIndex, generation uint32) (key, nonce []byte, err error)
       EraseMessageKey(contentType ContentType, leaf LeafIndex, generation uint32)
   }
+  var _ MessageKeySource = (*SecretTree)(nil)
+
   func SealPrivateMessage(crypto CryptoProvider, keys MessageKeySource, senderDataSecret []byte,
       authContent *AuthenticatedContent, paddingSize int) (*PrivateMessage, error)
   func OpenPrivateMessage(crypto CryptoProvider, keys MessageKeySource, senderDataSecret []byte,
       message *PrivateMessage, resolve SignatureKeyResolver, groupContext []byte) (*AuthenticatedContent, error)
   ```
+  plus the unexported `applyReuseGuard` and
+  `sealPrivateMessage(crypto CryptoProvider, keys MessageKeySource, senderDataSecret []byte, authContent *AuthenticatedContent, padding []byte) (*PrivateMessage, error)`.
+
+**`var _ MessageKeySource = (*SecretTree)(nil)` is the point of this task's contract.** Registry
+§5.5 assigns the three methods to p4 and requires this assertion here, so a mismatch between the
+interface this plan declares and the implementation p4 ships fails at build rather than at the
+message-protection vector family.
 
 **The trap:** the reuse guard XORs the **first four bytes** of the ratchet nonce, and the guarded
 nonce must not be written back into the secret tree's storage. `applyReuseGuard` copies.
@@ -2804,7 +3333,7 @@ func TestPrivateMessageSealOpenRoundTrip(t *testing.T) {
     if err != nil {
         t.Fatalf("key pair: %v", err)
     }
-    groupContext := testGroupContext()
+    groupContext := testGroupContext(t)
     senderDataSecret := bytes.Repeat([]byte{0x33}, crypto.HashSize())
 
     for _, content := range []*FramedContent{testMemberContent(), testProposalContent()} {
@@ -2824,17 +3353,13 @@ func TestPrivateMessageSealOpenRoundTrip(t *testing.T) {
             t.Fatal("plaintext visible in the ciphertext")
         }
 
-        w := syntax.NewWriter()
-        if err := message.MarshalMLS(w); err != nil {
+        encoded, err := syntax.Marshal(message)
+        if err != nil {
             t.Fatalf("marshal: %v", err)
         }
         var decoded PrivateMessage
-        r := syntax.NewReader(w.Bytes())
-        if err := decoded.UnmarshalMLS(r); err != nil {
+        if err := syntax.Unmarshal(encoded, &decoded); err != nil {
             t.Fatalf("unmarshal: %v", err)
-        }
-        if err := r.Finish(); err != nil {
-            t.Fatalf("trailing bytes: %v", err)
         }
 
         opened, err := OpenPrivateMessage(crypto, newFixedKeySource(crypto), senderDataSecret,
@@ -2870,13 +3395,13 @@ func TestSealPrivateMessageRefusesNonMemberSender(t *testing.T) {
     }
 }
 
-func TestValSem006_CiphertextDecryptionMustSucceed(t *testing.T) {
+func TestPrivateMessageRefusesTamperedCiphertext(t *testing.T) {
     crypto := newTestCrypto(t)
     priv, pub, err := crypto.SignatureKeyPair()
     if err != nil {
         t.Fatalf("key pair: %v", err)
     }
-    groupContext := testGroupContext()
+    groupContext := testGroupContext(t)
     senderDataSecret := bytes.Repeat([]byte{0x33}, crypto.HashSize())
 
     authContent, err := SignAuthenticatedContent(crypto, priv, WireFormatPrivateMessage,
@@ -2924,7 +3449,7 @@ func TestValSem006_CiphertextDecryptionMustSucceed(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./connect/mls/... -run 'TestApplyReuseGuard|TestPrivateMessageSealOpen|TestSealPrivateMessageRefuses|TestValSem006' -v`
+Run: `go test ./connect/mls/... -run 'TestApplyReuseGuard|TestPrivateMessageSealOpen|TestSealPrivateMessageRefuses|TestPrivateMessageRefusesTamperedCiphertext' -v`
 Expected: FAIL — `undefined: applyReuseGuard`, `undefined: SealPrivateMessage`.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -2942,6 +3467,10 @@ type MessageKeySource interface {
     EraseMessageKey(contentType ContentType, leaf LeafIndex, generation uint32)
 }
 
+// the secret tree is the production implementation. this assertion is why the
+// interface and the implementation cannot drift apart silently.
+var _ MessageKeySource = (*SecretTree)(nil)
+
 // RFC 9420 §6.3.1. returns a copy: writing the guarded nonce back over the
 // ratchet's nonce would make the generation undecryptable by anyone else.
 func applyReuseGuard(nonce []byte, reuseGuard [4]byte) []byte {
@@ -2958,6 +3487,18 @@ func applyReuseGuard(nonce []byte, reuseGuard [4]byte) []byte {
 func SealPrivateMessage(crypto CryptoProvider, keys MessageKeySource, senderDataSecret []byte,
     authContent *AuthenticatedContent, paddingSize int) (*PrivateMessage, error) {
 
+    if paddingSize < 0 {
+        return nil, ErrInvalidPaddingSize
+    }
+    return sealPrivateMessage(crypto, keys, senderDataSecret, authContent, make([]byte, paddingSize))
+}
+
+// the same seal with caller-supplied padding bytes, so the test seams in
+// framing_group_seams.go can emit the non-zero padding ValSem011 needs without
+// a second copy of the §6.3.1 encrypt path.
+func sealPrivateMessage(crypto CryptoProvider, keys MessageKeySource, senderDataSecret []byte,
+    authContent *AuthenticatedContent, padding []byte) (*PrivateMessage, error) {
+
     if authContent.WireFormat != WireFormatPrivateMessage {
         return nil, ErrWireFormatMismatch
     }
@@ -2966,7 +3507,7 @@ func SealPrivateMessage(crypto CryptoProvider, keys MessageKeySource, senderData
         return nil, ErrSenderNotMember
     }
 
-    plaintext, err := marshalPrivateMessageContent(content, &authContent.Auth, paddingSize)
+    plaintext, err := marshalPrivateMessageContentWithPadding(content, &authContent.Auth, padding)
     if err != nil {
         return nil, err
     }
@@ -3034,7 +3575,7 @@ func OpenPrivateMessage(crypto CryptoProvider, keys MessageKeySource, senderData
     plaintext, err := crypto.AeadOpen(key, applyReuseGuard(nonce, senderData.ReuseGuard),
         aad, message.Ciphertext)
     if err != nil {
-        return nil, ErrDecryptFailed
+        return nil, ValSem(ValSem006, ErrDecryptFailed)
     }
     keys.EraseMessageKey(message.ContentType, senderData.LeafIndex, senderData.Generation)
 
@@ -3060,7 +3601,7 @@ func OpenPrivateMessage(crypto CryptoProvider, keys MessageKeySource, senderData
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./connect/mls/... -run 'TestApplyReuseGuard|TestPrivateMessageSealOpen|TestSealPrivateMessageRefuses|TestValSem006' -v`
+Run: `go test ./connect/mls/... -run 'TestApplyReuseGuard|TestPrivateMessageSealOpen|TestSealPrivateMessageRefuses|TestPrivateMessageRefusesTamperedCiphertext' -v`
 Expected: PASS — four tests.
 
 - [ ] **Step 5: Commit**
@@ -3078,35 +3619,51 @@ git commit -m "feat(mls): MessageKeySource, reuse guard and PrivateMessage seal/
 ### Task 12: `Proposal` wire types and `ProposalOrRef`
 
 **Files:**
-- Create: `connect/mls/proposal_types.go`
-- Test: `connect/mls/proposal_types_test.go`
+- Create: `connect/mls/proposal_wire.go`
+- Test: `connect/mls/proposal_wire_test.go`
 
 **Interfaces:**
-- Consumes: `KeyPackage`, `LeafNode`, `Extension`, `PreSharedKeyID` — each with
-  `MarshalMLS(w *syntax.Writer) error` and `UnmarshalMLS(r *syntax.Reader) error`, from the
-  key-package / leaf-node / extension / key-schedule plans. `LeafIndex`, `CipherSuite`. Task 1.
-- Produces: `ProposalType` and its eight constants, `Add`, `Update`, `Remove`, `PreSharedKey`,
-  `ReInit`, `ExternalInit`, `GroupContextExtensions`, `Proposal` with
-  `MarshalMLS`/`UnmarshalMLS`, `ProposalOrRefType` and its three constants, `ProposalRef`,
-  `ProposalOrRef` with `MarshalMLS`/`UnmarshalMLS`.
+- Consumes, all with `MarshalMLS(w *syntax.Writer) error` / `UnmarshalMLS(r *syntax.Reader) error`:
+  `KeyPackage`, `LeafNode`, `Extension` (p5, wave 2) and `PreSharedKeyId` (p4, wave 2). Also
+  `type ProposalType uint16` **and its eight constants** (p5 §6.1),
+  `func WriteExtensions(w *syntax.Writer, exts []Extension) error`,
+  `func ReadExtensions(r *syntax.Reader) ([]Extension, error)` (p5 §6.2),
+  `type ProtocolVersion uint16` (p5), `type CipherSuite uint16` (p2), `type LeafIndex uint32` (p3),
+  `(*syntax.Reader).Remaining() int`, `(*syntax.Reader).ReadRaw(n int) ([]byte, error)`. Task 1.
+- Produces: `Add`, `Update`, `Remove`, `PreSharedKey`, `ReInit`, `ExternalInit`,
+  `GroupContextExtensions`, `Proposal` with `MarshalMLS`/`UnmarshalMLS` and
+  `var _ syntax.Codec = (*Proposal)(nil)`, `ProposalOrRefType` and its three constants,
+  `ProposalRef`, `ProposalOrRef` with `MarshalMLS`/`UnmarshalMLS` and
+  `var _ syntax.Codec = (*ProposalOrRef)(nil)`.
+
+**This file declares neither `ProposalType` nor its constants.** They are p5's registry-enum file
+(§6.1): three plans declared them independently, and `package mls` is one package, so a second
+declaration is a compile error. p5's wave-2 `Capabilities.Proposals []ProposalType` is why they
+land there rather than here.
+
+`ProposalType` is **uint16** — the IANA MLS Proposal Types registry is 0x0000–0xFFFF and GREASE
+values for proposal types are 0x0A0A…0xEAEA. An 8-bit implementation encodes every proposal one
+byte short and fails every vector; the width test is first for that reason, and it now guards p5's
+declaration rather than this file's.
 
 **This file is codec only.** It accepts every registered proposal type, including the four the v1
 profile refuses, because the `messages` vector family requires `pre_shared_key_proposal`,
 `re_init_proposal` and `external_init_proposal` to decode and re-encode byte-exactly. Profile
-refusal is `ParseProposal` in `proposal.go` (wave 4); ValSem401–403 test that function.
+refusal is `(*Profile).CheckProposalType(t ProposalType) error` (p8 §9.3), called by p7 at the
+parse boundary; ValSem401–403 test that function.
 
-`ProposalType` is **uint16** — the IANA MLS Proposal Types registry is 0x0000–0xFFFF and GREASE
-values for proposal types are 0x0A0A…0xEAEA. An 8-bit implementation encodes every proposal one
-byte short and fails every vector; the width test is first for that reason.
-
-An unknown proposal type is preserved in `UnknownBody` as the remaining bytes and re-encoded
-verbatim, which is what makes GREASE "parsed and ignored, never generated" (Spec A §3.2) true at
-the codec layer. `ParseProposal` refuses unknown types; the codec does not lose them.
+**`UnknownType` and `UnknownBody` together are the forge's malformed arm** (registry §7.4). On
+decode of an unregistered type both `ProposalType` and `UnknownType` carry the wire value and
+`UnknownBody` holds the remaining bytes, so the object re-encodes verbatim and GREASE is "parsed
+and ignored, never generated" (Spec A §3.2) at the codec layer. On encode, a non-zero `UnknownType`
+overrides the discriminant that goes on the wire, which is how p8's forge emits a registered body
+under an unregistered type without a second encoder. This pair is also why p8's request for a
+`FramedContent.RawProposal` field was refused: it already exists here.
 
 - [ ] **Step 1: Write the failing test**
 
 ```go
-// proposal_types_test.go
+// proposal_wire_test.go
 package mls
 
 import (
@@ -3119,62 +3676,53 @@ import (
 
 func TestProposalTypeIsSixteenBitsOnTheWire(t *testing.T) {
     proposal := Proposal{ProposalType: ProposalTypeRemove, Remove: &Remove{Removed: 3}}
-    w := syntax.NewWriter()
-    if err := proposal.MarshalMLS(w); err != nil {
+    encoded, err := syntax.Marshal(&proposal)
+    if err != nil {
         t.Fatalf("marshal: %v", err)
     }
     want := []byte{0x00, 0x03, 0x00, 0x00, 0x00, 0x03}
-    if !bytes.Equal(w.Bytes(), want) {
-        t.Fatalf("encoded %x, want %x — ProposalType must be uint16", w.Bytes(), want)
+    if !bytes.Equal(encoded, want) {
+        t.Fatalf("encoded %x, want %x — ProposalType must be uint16", encoded, want)
     }
 }
 
 func TestProposalRoundTripRemove(t *testing.T) {
     proposal := Proposal{ProposalType: ProposalTypeRemove, Remove: &Remove{Removed: 7}}
-    w := syntax.NewWriter()
-    if err := proposal.MarshalMLS(w); err != nil {
+    encoded, err := syntax.Marshal(&proposal)
+    if err != nil {
         t.Fatalf("marshal: %v", err)
     }
-    encoded := w.Bytes()
 
     var decoded Proposal
-    r := syntax.NewReader(encoded)
-    if err := decoded.UnmarshalMLS(r); err != nil {
+    if err := syntax.Unmarshal(encoded, &decoded); err != nil {
         t.Fatalf("unmarshal: %v", err)
-    }
-    if err := r.Finish(); err != nil {
-        t.Fatalf("trailing bytes: %v", err)
     }
     if decoded.Remove == nil || decoded.Remove.Removed != 7 {
         t.Fatalf("decoded %+v", decoded.Remove)
     }
-    w2 := syntax.NewWriter()
-    if err := decoded.MarshalMLS(w2); err != nil {
+    reencoded, err := syntax.Marshal(&decoded)
+    if err != nil {
         t.Fatalf("re-marshal: %v", err)
     }
-    if !bytes.Equal(encoded, w2.Bytes()) {
-        t.Fatalf("re-encoded %x, want %x", w2.Bytes(), encoded)
+    if !bytes.Equal(encoded, reencoded) {
+        t.Fatalf("re-encoded %x, want %x", reencoded, encoded)
     }
 }
 
 func TestProposalCodecAcceptsProfileRefusedTypes(t *testing.T) {
-    // the codec is not the profile gate: ParseProposal refuses these, the
-    // codec must round-trip them or the `messages` vector family fails
+    // the codec is not the profile gate: (*Profile).CheckProposalType refuses
+    // these, the codec must round-trip them or the `messages` family fails
     proposal := Proposal{
         ProposalType: ProposalTypeExternalInit,
         ExternalInit: &ExternalInit{KemOutput: []byte{0x01, 0x02, 0x03}},
     }
-    w := syntax.NewWriter()
-    if err := proposal.MarshalMLS(w); err != nil {
+    encoded, err := syntax.Marshal(&proposal)
+    if err != nil {
         t.Fatalf("marshal: %v", err)
     }
     var decoded Proposal
-    r := syntax.NewReader(w.Bytes())
-    if err := decoded.UnmarshalMLS(r); err != nil {
+    if err := syntax.Unmarshal(encoded, &decoded); err != nil {
         t.Fatalf("unmarshal: %v", err)
-    }
-    if err := r.Finish(); err != nil {
-        t.Fatalf("trailing bytes: %v", err)
     }
     if decoded.ExternalInit == nil || !bytes.Equal(decoded.ExternalInit.KemOutput, []byte{0x01, 0x02, 0x03}) {
         t.Fatalf("decoded %+v", decoded.ExternalInit)
@@ -3185,25 +3733,49 @@ func TestProposalPreservesUnknownTypeVerbatim(t *testing.T) {
     // GREASE: parsed and ignored, never generated
     encoded := []byte{0x0a, 0x0a, 0xde, 0xad, 0xbe, 0xef}
     var decoded Proposal
-    r := syntax.NewReader(encoded)
-    if err := decoded.UnmarshalMLS(r); err != nil {
+    if err := syntax.Unmarshal(encoded, &decoded); err != nil {
         t.Fatalf("unmarshal: %v", err)
     }
     if decoded.ProposalType != ProposalType(0x0a0a) {
         t.Fatalf("proposal type %04x", decoded.ProposalType)
     }
-    w := syntax.NewWriter()
-    if err := decoded.MarshalMLS(w); err != nil {
+    if decoded.UnknownType != ProposalType(0x0a0a) {
+        t.Fatalf("unknown type %04x", decoded.UnknownType)
+    }
+    if !bytes.Equal(decoded.UnknownBody, []byte{0xde, 0xad, 0xbe, 0xef}) {
+        t.Fatalf("unknown body %x", decoded.UnknownBody)
+    }
+    reencoded, err := syntax.Marshal(&decoded)
+    if err != nil {
         t.Fatalf("re-marshal: %v", err)
     }
-    if !bytes.Equal(w.Bytes(), encoded) {
-        t.Fatalf("re-encoded %x, want %x", w.Bytes(), encoded)
+    if !bytes.Equal(reencoded, encoded) {
+        t.Fatalf("re-encoded %x, want %x", reencoded, encoded)
+    }
+}
+
+// the forge's malformed arm: a registered body under an unregistered
+// discriminant, which is what p8's ValSem tests need and what stops a second
+// encoder being written to produce it.
+func TestProposalUnknownTypeOverridesTheDiscriminant(t *testing.T) {
+    proposal := Proposal{
+        ProposalType: ProposalTypeRemove,
+        Remove:       &Remove{Removed: 3},
+        UnknownType:  ProposalType(0x0a0a),
+    }
+    encoded, err := syntax.Marshal(&proposal)
+    if err != nil {
+        t.Fatalf("marshal: %v", err)
+    }
+    want := []byte{0x0a, 0x0a, 0x00, 0x00, 0x00, 0x03}
+    if !bytes.Equal(encoded, want) {
+        t.Fatalf("encoded %x, want %x", encoded, want)
     }
 }
 
 func TestProposalRejectsArmMismatch(t *testing.T) {
     proposal := Proposal{ProposalType: ProposalTypeRemove}
-    if err := proposal.MarshalMLS(syntax.NewWriter()); !errors.Is(err, ErrContentArmMismatch) {
+    if _, err := syntax.Marshal(&proposal); !errors.Is(err, ErrContentArmMismatch) {
         t.Fatalf("got %v, want ErrContentArmMismatch", err)
     }
 }
@@ -3214,33 +3786,28 @@ func TestProposalOrRefRoundTrip(t *testing.T) {
             ProposalType: ProposalTypeRemove, Remove: &Remove{Removed: 1}}},
         {Type: ProposalOrRefTypeReference, Reference: ProposalRef{0xaa, 0xbb, 0xcc}},
     }
-    for i, proposalOrRef := range cases {
-        w := syntax.NewWriter()
-        if err := proposalOrRef.MarshalMLS(w); err != nil {
+    for i := range cases {
+        encoded, err := syntax.Marshal(&cases[i])
+        if err != nil {
             t.Fatalf("case %d: marshal: %v", i, err)
         }
-        encoded := w.Bytes()
         var decoded ProposalOrRef
-        r := syntax.NewReader(encoded)
-        if err := decoded.UnmarshalMLS(r); err != nil {
+        if err := syntax.Unmarshal(encoded, &decoded); err != nil {
             t.Fatalf("case %d: unmarshal: %v", i, err)
         }
-        if err := r.Finish(); err != nil {
-            t.Fatalf("case %d: trailing bytes: %v", i, err)
-        }
-        w2 := syntax.NewWriter()
-        if err := decoded.MarshalMLS(w2); err != nil {
+        reencoded, err := syntax.Marshal(&decoded)
+        if err != nil {
             t.Fatalf("case %d: re-marshal: %v", i, err)
         }
-        if !bytes.Equal(encoded, w2.Bytes()) {
-            t.Fatalf("case %d: re-encoded %x, want %x", i, w2.Bytes(), encoded)
+        if !bytes.Equal(encoded, reencoded) {
+            t.Fatalf("case %d: re-encoded %x, want %x", i, reencoded, encoded)
         }
     }
 }
 
 func TestProposalOrRefRejectsReservedType(t *testing.T) {
     var decoded ProposalOrRef
-    err := decoded.UnmarshalMLS(syntax.NewReader([]byte{0x00}))
+    err := syntax.Unmarshal([]byte{0x00}, &decoded)
     if !errors.Is(err, ErrUnknownProposalOrRefType) {
         t.Fatalf("got %v, want ErrUnknownProposalOrRefType", err)
     }
@@ -3255,31 +3822,19 @@ Expected: FAIL — `undefined: Proposal`, `undefined: ProposalTypeRemove`.
 - [ ] **Step 3: Write minimal implementation**
 
 ```go
-// proposal_types.go
+// proposal_wire.go
 // the RFC 9420 §12.1 proposal wire types and their codecs. codec only: the v1
-// profile gate that refuses psk, reinit and external_init is ParseProposal in
-// proposal.go. this file must round-trip every registered type, because the
-// `messages` vector family carries all seven.
+// profile gate that refuses psk, reinit and external_init is
+// (*Profile).CheckProposalType, called at the parse boundary by the group
+// lifecycle. this file must round-trip every registered type, because the
+// `messages` vector family carries all seven. ProposalType and its constants
+// are the registry-enum file's, not this file's.
 package mls
 
 import (
     "fmt"
 
     "github.com/urnetwork/connect/mls/syntax"
-)
-
-// 16 bits, per the IANA MLS Proposal Types registry (0x0000-0xFFFF).
-type ProposalType uint16
-
-const (
-    ProposalTypeReserved               ProposalType = 0x0000
-    ProposalTypeAdd                    ProposalType = 0x0001
-    ProposalTypeUpdate                 ProposalType = 0x0002
-    ProposalTypeRemove                 ProposalType = 0x0003
-    ProposalTypePreSharedKey           ProposalType = 0x0004
-    ProposalTypeReInit                 ProposalType = 0x0005
-    ProposalTypeExternalInit           ProposalType = 0x0006
-    ProposalTypeGroupContextExtensions ProposalType = 0x0007
 )
 
 type Add struct {
@@ -3295,7 +3850,7 @@ type Remove struct {
 }
 
 type PreSharedKey struct {
-    PSK PreSharedKeyID
+    Psk PreSharedKeyId
 }
 
 type ReInit struct {
@@ -3314,8 +3869,9 @@ type GroupContextExtensions struct {
 }
 
 // exactly one arm is populated, selected by ProposalType. an unrecognised
-// type keeps its body in UnknownBody and re-encodes verbatim, which is what
-// makes GREASE round-trip.
+// type keeps its body in UnknownBody and its discriminant in UnknownType and
+// re-encodes verbatim, which is what makes GREASE round-trip; setting
+// UnknownType alongside a populated arm is the forge's malformed-arm seam.
 type Proposal struct {
     ProposalType           ProposalType
     Add                    *Add
@@ -3325,11 +3881,19 @@ type Proposal struct {
     ReInit                 *ReInit
     ExternalInit           *ExternalInit
     GroupContextExtensions *GroupContextExtensions
+    UnknownType            ProposalType
     UnknownBody            []byte
 }
 
 func (self *Proposal) MarshalMLS(w *syntax.Writer) error {
-    w.WriteUint16(uint16(self.ProposalType))
+    // the discriminant on the wire; UnknownType wins when set, so a caller can
+    // emit a well-formed body under a GREASE or reserved type without a second
+    // encoder existing anywhere in the package.
+    proposalType := self.ProposalType
+    if self.UnknownType != ProposalTypeReserved {
+        proposalType = self.UnknownType
+    }
+    w.WriteUint16(uint16(proposalType))
     switch self.ProposalType {
     case ProposalTypeAdd:
         if self.Add == nil {
@@ -3351,27 +3915,26 @@ func (self *Proposal) MarshalMLS(w *syntax.Writer) error {
         if self.PreSharedKey == nil {
             return ErrContentArmMismatch
         }
-        return self.PreSharedKey.PSK.MarshalMLS(w)
+        return self.PreSharedKey.Psk.MarshalMLS(w)
     case ProposalTypeReInit:
         if self.ReInit == nil {
             return ErrContentArmMismatch
         }
-        if err := w.WriteOpaque(self.ReInit.GroupId); err != nil {
-            return err
-        }
+        w.WriteOpaque(self.ReInit.GroupId)
         w.WriteUint16(uint16(self.ReInit.Version))
         w.WriteUint16(uint16(self.ReInit.CipherSuite))
-        return marshalExtensions(w, self.ReInit.Extensions)
+        return WriteExtensions(w, self.ReInit.Extensions)
     case ProposalTypeExternalInit:
         if self.ExternalInit == nil {
             return ErrContentArmMismatch
         }
-        return w.WriteOpaque(self.ExternalInit.KemOutput)
+        w.WriteOpaque(self.ExternalInit.KemOutput)
+        return nil
     case ProposalTypeGroupContextExtensions:
         if self.GroupContextExtensions == nil {
             return ErrContentArmMismatch
         }
-        return marshalExtensions(w, self.GroupContextExtensions.Extensions)
+        return WriteExtensions(w, self.GroupContextExtensions.Extensions)
     }
     if self.UnknownBody == nil {
         return fmt.Errorf("%w: %04x", ErrContentArmMismatch, self.ProposalType)
@@ -3402,7 +3965,7 @@ func (self *Proposal) UnmarshalMLS(r *syntax.Reader) error {
         return nil
     case ProposalTypePreSharedKey:
         self.PreSharedKey = &PreSharedKey{}
-        return self.PreSharedKey.PSK.UnmarshalMLS(r)
+        return self.PreSharedKey.Psk.UnmarshalMLS(r)
     case ProposalTypeReInit:
         groupId, err := r.ReadOpaque()
         if err != nil {
@@ -3416,7 +3979,7 @@ func (self *Proposal) UnmarshalMLS(r *syntax.Reader) error {
         if err != nil {
             return err
         }
-        extensions, err := unmarshalExtensions(r)
+        extensions, err := ReadExtensions(r)
         if err != nil {
             return err
         }
@@ -3435,41 +3998,26 @@ func (self *Proposal) UnmarshalMLS(r *syntax.Reader) error {
         self.ExternalInit = &ExternalInit{KemOutput: kemOutput}
         return nil
     case ProposalTypeGroupContextExtensions:
-        extensions, err := unmarshalExtensions(r)
+        extensions, err := ReadExtensions(r)
         if err != nil {
             return err
         }
         self.GroupContextExtensions = &GroupContextExtensions{Extensions: extensions}
         return nil
     }
-    // unknown type: keep the remaining bytes so the object re-encodes verbatim
-    self.UnknownBody = r.Rest()
+    // unknown type: keep the discriminant and the remaining bytes so the object
+    // re-encodes verbatim. ReadRaw(Remaining()) rather than a Rest() accessor,
+    // because consuming the tail must be explicit.
+    self.UnknownType = self.ProposalType
+    body, err := r.ReadRaw(r.Remaining())
+    if err != nil {
+        return err
+    }
+    self.UnknownBody = body
     return nil
 }
 
-// Extension vectors appear in three proposal arms and in the GroupContext; one
-// helper so the length prefix has one implementation.
-func marshalExtensions(w *syntax.Writer, extensions []Extension) error {
-    return w.WriteVector(len(extensions), func(w *syntax.Writer, i int) error {
-        return extensions[i].MarshalMLS(w)
-    })
-}
-
-func unmarshalExtensions(r *syntax.Reader) ([]Extension, error) {
-    extensions := []Extension{}
-    err := r.ReadVector(func(r *syntax.Reader) error {
-        extension := Extension{}
-        if err := extension.UnmarshalMLS(r); err != nil {
-            return err
-        }
-        extensions = append(extensions, extension)
-        return nil
-    })
-    if err != nil {
-        return nil, err
-    }
-    return extensions, nil
-}
+var _ syntax.Codec = (*Proposal)(nil)
 
 // 8 bits; not an extensible registry.
 type ProposalOrRefType uint8
@@ -3502,7 +4050,8 @@ func (self *ProposalOrRef) MarshalMLS(w *syntax.Writer) error {
             return ErrContentArmMismatch
         }
         w.WriteUint8(uint8(self.Type))
-        return w.WriteOpaque(self.Reference)
+        w.WriteOpaque(self.Reference)
+        return nil
     }
     return fmt.Errorf("%w: %d", ErrUnknownProposalOrRefType, self.Type)
 }
@@ -3527,27 +4076,26 @@ func (self *ProposalOrRef) UnmarshalMLS(r *syntax.Reader) error {
     }
     return fmt.Errorf("%w: %d", ErrUnknownProposalOrRefType, self.Type)
 }
+
+var _ syntax.Codec = (*ProposalOrRef)(nil)
 ```
 
-Add to `errors_framing.go`:
-
-```go
-var ErrUnknownProposalOrRefType = errors.New("mls: unknown ProposalOrRef type")
-```
+`ErrUnknownProposalOrRefType` was declared in `framing_errors.go` in Task 1; nothing is added to
+that file here.
 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `go test ./connect/mls/... -run 'TestProposal' -v`
-Expected: PASS — seven tests.
+Expected: PASS — eight tests.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 cd /c/Users/ryanm/Downloads/claude_sandbox_message/connect
 git ls-files | wc -l
-git add mls/proposal_types.go mls/proposal_types_test.go mls/errors_framing.go
+git add mls/proposal_wire.go mls/proposal_wire_test.go
 git ls-files | wc -l   # MUST be previous + 2
-git commit -m "feat(mls): Proposal and ProposalOrRef wire codecs, uint16 proposal type"
+git commit -m "feat(mls): Proposal and ProposalOrRef wire codecs over the shared proposal enum"
 ```
 
 ---
@@ -3555,24 +4103,35 @@ git commit -m "feat(mls): Proposal and ProposalOrRef wire codecs, uint16 proposa
 ### Task 13: `Commit` wire type
 
 **Files:**
-- Create: `connect/mls/commit_types.go`
-- Test: `connect/mls/commit_types_test.go`
+- Create: `connect/mls/commit_wire.go`
+- Test: `connect/mls/commit_wire_test.go`
 
 **Interfaces:**
-- Consumes: `UpdatePath` with `MarshalMLS`/`UnmarshalMLS` (TreeKEM plan, wave 2). Task 12.
+- Consumes: `type UpdatePath struct{ ... }` with
+  `MarshalMLS(w *syntax.Writer) error` / `UnmarshalMLS(r *syntax.Reader) error` (p5 §6.7, wave 2);
+  `func WriteVector[T any](w *syntax.Writer, items []T, encodeOne func(w *syntax.Writer, item T) error) error`,
+  `func ReadVector[T any](r *syntax.Reader, decodeOne func(r *syntax.Reader) (T, error)) ([]T, error)`,
+  `(*syntax.Writer).WriteOptional(present bool, encodeOne func(w *syntax.Writer) error) error`,
+  `(*syntax.Reader).ReadOptional(decodeOne func(r *syntax.Reader) error) (present bool, err error)`,
+  `var syntax.ErrOptionalPresence error` (p1 §2.1–2.4). Task 12.
 - Produces: `Commit`, `(*Commit).MarshalMLS(w *syntax.Writer) error`,
-  `(*Commit).UnmarshalMLS(r *syntax.Reader) error`.
+  `(*Commit).UnmarshalMLS(r *syntax.Reader) error`, `var _ syntax.Codec = (*Commit)(nil)`.
 
 `path` is `optional<UpdatePath>`: a `u8` presence byte, then the value when present. A commit with
-no path encodes to a two-byte empty proposals vector plus `0x00`. `ErrOptionalPresence` covers a
-presence byte that is neither 0 nor 1 — the RFC's `optional<T>` has exactly two encodings and a
-third would be a second encoding of the same object, which is the signature-bypass primitive
-Gate 4 property 2 exists to prevent.
+no path encodes to a two-byte empty proposals vector plus `0x00`. **`ErrOptionalPresence` is p1's,
+in `package syntax`** — this plan declared a second copy and it is deleted; `WriteOptional` and
+`ReadOptional` are the codec's own presence-byte handling and returning that error is their job.
+The RFC's `optional<T>` has exactly two encodings and a third would be a second encoding of the
+same object, which is the signature-bypass primitive Gate 4 property 2 exists to prevent.
+
+The proposals vector uses p1's **free generic** `syntax.WriteVector`/`syntax.ReadVector` over a
+typed slice, not a method on the Writer: an untyped index loop loses the element type that makes
+`ReadVector` safe.
 
 - [ ] **Step 1: Write the failing test**
 
 ```go
-// commit_types_test.go
+// commit_wire_test.go
 package mls
 
 import (
@@ -3589,22 +4148,17 @@ func TestCommitRoundTripWithoutPath(t *testing.T) {
             {Type: ProposalOrRefTypeReference, Reference: ProposalRef{0x01, 0x02}},
         },
     }
-    w := syntax.NewWriter()
-    if err := commit.MarshalMLS(w); err != nil {
+    encoded, err := syntax.Marshal(&commit)
+    if err != nil {
         t.Fatalf("marshal: %v", err)
     }
-    encoded := w.Bytes()
     if encoded[len(encoded)-1] != 0x00 {
         t.Fatalf("absent path encoded as %02x, want 00", encoded[len(encoded)-1])
     }
 
     var decoded Commit
-    r := syntax.NewReader(encoded)
-    if err := decoded.UnmarshalMLS(r); err != nil {
+    if err := syntax.Unmarshal(encoded, &decoded); err != nil {
         t.Fatalf("unmarshal: %v", err)
-    }
-    if err := r.Finish(); err != nil {
-        t.Fatalf("trailing bytes: %v", err)
     }
     if decoded.Path != nil {
         t.Fatal("path decoded as present")
@@ -3612,47 +4166,51 @@ func TestCommitRoundTripWithoutPath(t *testing.T) {
     if len(decoded.Proposals) != 1 || decoded.Proposals[0].Type != ProposalOrRefTypeReference {
         t.Fatalf("proposals %+v", decoded.Proposals)
     }
-    w2 := syntax.NewWriter()
-    if err := decoded.MarshalMLS(w2); err != nil {
+    reencoded, err := syntax.Marshal(&decoded)
+    if err != nil {
         t.Fatalf("re-marshal: %v", err)
     }
-    if !bytes.Equal(encoded, w2.Bytes()) {
-        t.Fatalf("re-encoded %x, want %x", w2.Bytes(), encoded)
+    if !bytes.Equal(encoded, reencoded) {
+        t.Fatalf("re-encoded %x, want %x", reencoded, encoded)
     }
 }
 
 func TestCommitRoundTripEmptyProposals(t *testing.T) {
     commit := Commit{}
-    w := syntax.NewWriter()
-    if err := commit.MarshalMLS(w); err != nil {
+    encoded, err := syntax.Marshal(&commit)
+    if err != nil {
         t.Fatalf("marshal: %v", err)
     }
     var decoded Commit
-    r := syntax.NewReader(w.Bytes())
-    if err := decoded.UnmarshalMLS(r); err != nil {
+    if err := syntax.Unmarshal(encoded, &decoded); err != nil {
         t.Fatalf("unmarshal: %v", err)
-    }
-    if err := r.Finish(); err != nil {
-        t.Fatalf("trailing bytes: %v", err)
     }
     if len(decoded.Proposals) != 0 || decoded.Path != nil {
         t.Fatalf("decoded %+v", decoded)
+    }
+    reencoded, err := syntax.Marshal(&decoded)
+    if err != nil {
+        t.Fatalf("re-marshal: %v", err)
+    }
+    if !bytes.Equal(encoded, reencoded) {
+        t.Fatalf("re-encoded %x, want %x", reencoded, encoded)
     }
 }
 
 func TestCommitRejectsInvalidOptionalPresenceByte(t *testing.T) {
     commit := Commit{}
-    w := syntax.NewWriter()
-    if err := commit.MarshalMLS(w); err != nil {
+    valid, err := syntax.Marshal(&commit)
+    if err != nil {
         t.Fatalf("marshal: %v", err)
     }
-    encoded := append([]byte(nil), w.Bytes()...)
+    encoded := append([]byte(nil), valid...)
     encoded[len(encoded)-1] = 0x02
 
     var decoded Commit
-    err := decoded.UnmarshalMLS(syntax.NewReader(encoded))
-    if !errors.Is(err, ErrOptionalPresence) {
-        t.Fatalf("got %v, want ErrOptionalPresence", err)
+    // the sentinel is the syntax package's: optional<T> presence is the codec's
+    // concern, not framing's
+    if err := syntax.Unmarshal(encoded, &decoded); !errors.Is(err, syntax.ErrOptionalPresence) {
+        t.Fatalf("got %v, want syntax.ErrOptionalPresence", err)
     }
 }
 ```
@@ -3660,19 +4218,17 @@ func TestCommitRejectsInvalidOptionalPresenceByte(t *testing.T) {
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `go test ./connect/mls/... -run 'TestCommit' -v`
-Expected: FAIL — `undefined: Commit`, `undefined: ErrOptionalPresence`.
+Expected: FAIL — `undefined: Commit`.
 
 - [ ] **Step 3: Write minimal implementation**
 
 ```go
-// commit_types.go
+// commit_wire.go
 // the RFC 9420 §12.4 Commit wire type and its codec. codec only: proposal-list
-// validation and commit application are commit.go.
+// validation and commit application are the group lifecycle's commit.go.
 package mls
 
 import (
-    "fmt"
-
     "github.com/urnetwork/connect/mls/syntax"
 )
 
@@ -3682,53 +4238,49 @@ type Commit struct {
 }
 
 func (self *Commit) MarshalMLS(w *syntax.Writer) error {
-    err := w.WriteVector(len(self.Proposals), func(w *syntax.Writer, i int) error {
-        return self.Proposals[i].MarshalMLS(w)
-    })
+    err := syntax.WriteVector(w, self.Proposals,
+        func(w *syntax.Writer, item ProposalOrRef) error {
+            return item.MarshalMLS(w)
+        })
     if err != nil {
         return err
     }
-    if self.Path == nil {
-        w.WriteUint8(0)
-        return nil
-    }
-    w.WriteUint8(1)
-    return self.Path.MarshalMLS(w)
+    return w.WriteOptional(self.Path != nil, func(w *syntax.Writer) error {
+        return self.Path.MarshalMLS(w)
+    })
 }
 
 func (self *Commit) UnmarshalMLS(r *syntax.Reader) error {
-    *self = Commit{Proposals: []ProposalOrRef{}}
-    err := r.ReadVector(func(r *syntax.Reader) error {
+    proposals, err := syntax.ReadVector(r, func(r *syntax.Reader) (ProposalOrRef, error) {
         proposalOrRef := ProposalOrRef{}
         if err := proposalOrRef.UnmarshalMLS(r); err != nil {
-            return err
+            return ProposalOrRef{}, err
         }
-        self.Proposals = append(self.Proposals, proposalOrRef)
-        return nil
+        return proposalOrRef, nil
     })
     if err != nil {
         return err
     }
-    present, err := r.ReadUint8()
+    *self = Commit{Proposals: proposals}
+
+    path := &UpdatePath{}
+    present, err := r.ReadOptional(func(r *syntax.Reader) error {
+        return path.UnmarshalMLS(r)
+    })
     if err != nil {
         return err
     }
-    switch present {
-    case 0:
-        return nil
-    case 1:
-        self.Path = &UpdatePath{}
-        return self.Path.UnmarshalMLS(r)
+    if present {
+        self.Path = path
     }
-    return fmt.Errorf("%w: %d", ErrOptionalPresence, present)
+    return nil
 }
+
+var _ syntax.Codec = (*Commit)(nil)
 ```
 
-Add to `errors_framing.go`:
-
-```go
-var ErrOptionalPresence = errors.New("mls: optional presence byte is neither 0 nor 1")
-```
+Nothing is added to `framing_errors.go`: the presence-byte refusal is `syntax.ErrOptionalPresence`,
+returned by `ReadOptional`.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -3740,25 +4292,476 @@ Expected: PASS — three tests.
 ```bash
 cd /c/Users/ryanm/Downloads/claude_sandbox_message/connect
 git ls-files | wc -l
-git add mls/commit_types.go mls/commit_types_test.go mls/errors_framing.go
+git add mls/commit_wire.go mls/commit_wire_test.go
 git ls-files | wc -l   # MUST be previous + 2
-git commit -m "feat(mls): Commit wire codec with a strict optional<UpdatePath> presence byte"
+git commit -m "feat(mls): Commit wire codec over the shared optional and vector helpers"
 ```
 
 ---
 
-### Task 14: `MLSMessage` wrapper
+### Task 14: `GroupInfo`, `GroupSecrets` and `Welcome` codecs
+
+**Files:**
+- Create: `connect/mls/welcome_wire.go`
+- Test: `connect/mls/welcome_wire_test.go`
+
+**Interfaces:**
+- Consumes: `type GroupContext struct{ ... }` with
+  `MarshalMLS(w *syntax.Writer) error` / `UnmarshalMLS(r *syntax.Reader) error`, and
+  `type PreSharedKeyId struct{ ... }` with the same pair (p4 §5.1, §5.3, wave 2);
+  `func WriteExtensions(w *syntax.Writer, exts []Extension) error`,
+  `func ReadExtensions(r *syntax.Reader) ([]Extension, error)`, and
+  `type HpkeCiphertext struct{ KemOutput []byte; Ciphertext []byte }` with its codec
+  (p5 §6.2, §6.7, wave 2); `type CipherSuite uint16` (p2); `type LeafIndex uint32` (p3);
+  `syntax.WriteVector`, `syntax.ReadVector`, `(*syntax.Writer).WriteOptional`,
+  `(*syntax.Reader).ReadOptional` (p1). Task 1.
+- Produces: `GroupInfo`, `GroupInfoTBS`, `PathSecret`, `GroupSecrets`, `EncryptedGroupSecrets`,
+  `Welcome`, each with `MarshalMLS`/`UnmarshalMLS` (`GroupInfoTBS` encode-only), plus
+  `var _ syntax.Codec = (*GroupInfo)(nil)`, `var _ syntax.Codec = (*GroupSecrets)(nil)` and
+  `var _ syntax.Codec = (*Welcome)(nil)`.
+
+**Why these codecs are here and not in the group-lifecycle plan.** Registry §7.5 moves them:
+`MLSMessage` (Task 15, wave 3) names `*Welcome`, `*GroupInfo` and `*KeyPackage` by direct type, and
+`package mls` is one package — if those types land in wave 4, nothing in wave 3 compiles, including
+this plan's own message-protection vector gate and `ParseMLSMessage`. This is exactly the split
+already applied to `Proposal`/`Commit`, applied consistently. The **generation and processing
+logic stays in p7**: `(*GroupInfo).Sign`, `(*GroupInfo).Verify`, `BuildWelcome`, `WelcomeJoiner` and
+`JoinFromWelcome` are p7's (§8.4) and are not written here. `GroupInfoTBS` is encode-only because
+nothing ever decodes a to-be-signed structure; p7's `Sign`/`Verify` are its only callers.
+
+`Psks []PreSharedKeyId` is always empty in the v1 profile, but the codec still round-trips a
+populated vector — refusing a PSK is the profile's job, not the codec's, and the `messages` vector
+family carries `group_secrets` with the field present.
+
+- [ ] **Step 1: Write the failing test**
+
+```go
+// welcome_wire_test.go
+package mls
+
+import (
+    "bytes"
+    "testing"
+
+    "github.com/urnetwork/connect/mls/syntax"
+)
+
+func testGroupInfo() GroupInfo {
+    return GroupInfo{
+        GroupContext: GroupContext{
+            Version:                 ProtocolVersionMls10,
+            CipherSuite:             CipherSuiteX25519ChaCha20Sha256Ed25519,
+            GroupId:                 []byte{0x01, 0x02},
+            Epoch:                   4,
+            TreeHash:                bytes.Repeat([]byte{0xc0}, 32),
+            ConfirmedTranscriptHash: bytes.Repeat([]byte{0xee}, 32),
+        },
+        Extensions:      []Extension{{ExtensionType: ExtensionTypeRatchetTree, ExtensionData: []byte{0x01}}},
+        ConfirmationTag: bytes.Repeat([]byte{0x0a}, 32),
+        Signer:          1,
+        Signature:       []byte{0xde, 0xad, 0xbe, 0xef},
+    }
+}
+
+func TestGroupInfoRoundTrip(t *testing.T) {
+    groupInfo := testGroupInfo()
+    encoded, err := syntax.Marshal(&groupInfo)
+    if err != nil {
+        t.Fatalf("marshal: %v", err)
+    }
+    var decoded GroupInfo
+    if err := syntax.Unmarshal(encoded, &decoded); err != nil {
+        t.Fatalf("unmarshal: %v", err)
+    }
+    if decoded.Signer != 1 || !bytes.Equal(decoded.Signature, groupInfo.Signature) {
+        t.Fatalf("decoded %+v", decoded)
+    }
+    reencoded, err := syntax.Marshal(&decoded)
+    if err != nil {
+        t.Fatalf("re-marshal: %v", err)
+    }
+    if !bytes.Equal(encoded, reencoded) {
+        t.Fatalf("re-encoded %x, want %x", reencoded, encoded)
+    }
+}
+
+// the signed bytes are the GroupInfo minus its own signature, and nothing more:
+// a GroupInfoTBS that accidentally included the signature would be unsignable.
+func TestGroupInfoTBSIsGroupInfoWithoutTheSignature(t *testing.T) {
+    groupInfo := testGroupInfo()
+    tbs := GroupInfoTBS{
+        GroupContext:    groupInfo.GroupContext,
+        Extensions:      groupInfo.Extensions,
+        ConfirmationTag: groupInfo.ConfirmationTag,
+        Signer:          groupInfo.Signer,
+    }
+    tbsBytes, err := syntax.Marshal(&tbs)
+    if err != nil {
+        t.Fatalf("tbs: %v", err)
+    }
+    full, err := syntax.Marshal(&groupInfo)
+    if err != nil {
+        t.Fatalf("marshal: %v", err)
+    }
+    if !bytes.HasPrefix(full, tbsBytes) {
+        t.Fatal("GroupInfo does not begin with its own GroupInfoTBS")
+    }
+    if bytes.Contains(tbsBytes, groupInfo.Signature) {
+        t.Fatal("signature leaked into GroupInfoTBS")
+    }
+}
+
+func TestGroupSecretsRoundTripWithAndWithoutPathSecret(t *testing.T) {
+    cases := []GroupSecrets{
+        {JoinerSecret: bytes.Repeat([]byte{0x11}, 32)},
+        {
+            JoinerSecret: bytes.Repeat([]byte{0x11}, 32),
+            PathSecret:   &PathSecret{PathSecret: bytes.Repeat([]byte{0x22}, 32)},
+        },
+        {
+            JoinerSecret: bytes.Repeat([]byte{0x11}, 32),
+            Psks: []PreSharedKeyId{{
+                PskType:  PskTypeExternal,
+                PskId:    []byte{0x01, 0x02},
+                PskNonce: bytes.Repeat([]byte{0x33}, 32),
+            }},
+        },
+    }
+    for i := range cases {
+        encoded, err := syntax.Marshal(&cases[i])
+        if err != nil {
+            t.Fatalf("case %d: marshal: %v", i, err)
+        }
+        var decoded GroupSecrets
+        if err := syntax.Unmarshal(encoded, &decoded); err != nil {
+            t.Fatalf("case %d: unmarshal: %v", i, err)
+        }
+        if (decoded.PathSecret == nil) != (cases[i].PathSecret == nil) {
+            t.Fatalf("case %d: path secret presence flipped", i)
+        }
+        reencoded, err := syntax.Marshal(&decoded)
+        if err != nil {
+            t.Fatalf("case %d: re-marshal: %v", i, err)
+        }
+        if !bytes.Equal(encoded, reencoded) {
+            t.Fatalf("case %d: re-encoded %x, want %x", i, reencoded, encoded)
+        }
+    }
+}
+
+func TestWelcomeRoundTrip(t *testing.T) {
+    welcome := Welcome{
+        CipherSuite: CipherSuiteX25519ChaCha20Sha256Ed25519,
+        Secrets: []EncryptedGroupSecrets{{
+            NewMember: bytes.Repeat([]byte{0x44}, 32),
+            EncryptedGroupSecrets: HpkeCiphertext{
+                KemOutput:  bytes.Repeat([]byte{0x55}, 32),
+                Ciphertext: bytes.Repeat([]byte{0x66}, 48),
+            },
+        }},
+        EncryptedGroupInfo: bytes.Repeat([]byte{0x77}, 64),
+    }
+    encoded, err := syntax.Marshal(&welcome)
+    if err != nil {
+        t.Fatalf("marshal: %v", err)
+    }
+    var decoded Welcome
+    if err := syntax.Unmarshal(encoded, &decoded); err != nil {
+        t.Fatalf("unmarshal: %v", err)
+    }
+    if len(decoded.Secrets) != 1 ||
+        !bytes.Equal(decoded.Secrets[0].NewMember, welcome.Secrets[0].NewMember) {
+        t.Fatalf("decoded %+v", decoded.Secrets)
+    }
+    reencoded, err := syntax.Marshal(&decoded)
+    if err != nil {
+        t.Fatalf("re-marshal: %v", err)
+    }
+    if !bytes.Equal(encoded, reencoded) {
+        t.Fatalf("re-encoded %x, want %x", reencoded, encoded)
+    }
+}
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `go test ./connect/mls/... -run 'TestGroupInfo|TestGroupSecrets|TestWelcome' -v`
+Expected: FAIL — `undefined: GroupInfo`, `undefined: Welcome`.
+
+- [ ] **Step 3: Write minimal implementation**
+
+```go
+// welcome_wire.go
+// the RFC 9420 §12.4.3 GroupInfo and §12.4.3.1 Welcome wire types and their
+// codecs. codecs ONLY: signing a GroupInfo, building a Welcome and joining from
+// one are the group lifecycle's. they live here because MLSMessage names
+// *Welcome and *GroupInfo by direct type and package mls is one package.
+package mls
+
+import (
+    "github.com/urnetwork/connect/mls/syntax"
+)
+
+type GroupInfo struct {
+    GroupContext    GroupContext
+    Extensions      []Extension
+    ConfirmationTag []byte
+    Signer          LeafIndex
+    Signature       []byte
+}
+
+func (self *GroupInfo) MarshalMLS(w *syntax.Writer) error {
+    if err := self.GroupContext.MarshalMLS(w); err != nil {
+        return err
+    }
+    if err := WriteExtensions(w, self.Extensions); err != nil {
+        return err
+    }
+    w.WriteOpaque(self.ConfirmationTag)
+    w.WriteUint32(uint32(self.Signer))
+    w.WriteOpaque(self.Signature)
+    return nil
+}
+
+func (self *GroupInfo) UnmarshalMLS(r *syntax.Reader) error {
+    *self = GroupInfo{}
+    if err := self.GroupContext.UnmarshalMLS(r); err != nil {
+        return err
+    }
+    extensions, err := ReadExtensions(r)
+    if err != nil {
+        return err
+    }
+    self.Extensions = extensions
+    confirmationTag, err := r.ReadOpaque()
+    if err != nil {
+        return err
+    }
+    self.ConfirmationTag = confirmationTag
+    signer, err := r.ReadUint32()
+    if err != nil {
+        return err
+    }
+    self.Signer = LeafIndex(signer)
+    signature, err := r.ReadOpaque()
+    if err != nil {
+        return err
+    }
+    self.Signature = signature
+    return nil
+}
+
+var _ syntax.Codec = (*GroupInfo)(nil)
+
+// the bytes SignWithLabel signs under "GroupInfoTBS". encode-only: nothing
+// decodes a to-be-signed structure, and offering an UnmarshalMLS would invite a
+// caller to reconstruct one instead of re-serializing the object it verified.
+type GroupInfoTBS struct {
+    GroupContext    GroupContext
+    Extensions      []Extension
+    ConfirmationTag []byte
+    Signer          LeafIndex
+}
+
+func (self *GroupInfoTBS) MarshalMLS(w *syntax.Writer) error {
+    if err := self.GroupContext.MarshalMLS(w); err != nil {
+        return err
+    }
+    if err := WriteExtensions(w, self.Extensions); err != nil {
+        return err
+    }
+    w.WriteOpaque(self.ConfirmationTag)
+    w.WriteUint32(uint32(self.Signer))
+    return nil
+}
+
+var _ syntax.Marshaler = (*GroupInfoTBS)(nil)
+
+type PathSecret struct {
+    PathSecret []byte
+}
+
+func (self *PathSecret) MarshalMLS(w *syntax.Writer) error {
+    w.WriteOpaque(self.PathSecret)
+    return nil
+}
+
+func (self *PathSecret) UnmarshalMLS(r *syntax.Reader) error {
+    pathSecret, err := r.ReadOpaque()
+    if err != nil {
+        return err
+    }
+    *self = PathSecret{PathSecret: pathSecret}
+    return nil
+}
+
+var _ syntax.Codec = (*PathSecret)(nil)
+
+// the per-joiner secrets, encrypted to a joiner's init key. Psks is always
+// empty under the v1 profile, but the codec round-trips a populated vector:
+// refusing a PSK is the profile's decision, not the codec's.
+type GroupSecrets struct {
+    JoinerSecret []byte
+    PathSecret   *PathSecret
+    Psks         []PreSharedKeyId
+}
+
+func (self *GroupSecrets) MarshalMLS(w *syntax.Writer) error {
+    w.WriteOpaque(self.JoinerSecret)
+    err := w.WriteOptional(self.PathSecret != nil, func(w *syntax.Writer) error {
+        return self.PathSecret.MarshalMLS(w)
+    })
+    if err != nil {
+        return err
+    }
+    return syntax.WriteVector(w, self.Psks, func(w *syntax.Writer, item PreSharedKeyId) error {
+        return item.MarshalMLS(w)
+    })
+}
+
+func (self *GroupSecrets) UnmarshalMLS(r *syntax.Reader) error {
+    joinerSecret, err := r.ReadOpaque()
+    if err != nil {
+        return err
+    }
+    *self = GroupSecrets{JoinerSecret: joinerSecret}
+
+    pathSecret := &PathSecret{}
+    present, err := r.ReadOptional(func(r *syntax.Reader) error {
+        return pathSecret.UnmarshalMLS(r)
+    })
+    if err != nil {
+        return err
+    }
+    if present {
+        self.PathSecret = pathSecret
+    }
+
+    psks, err := syntax.ReadVector(r, func(r *syntax.Reader) (PreSharedKeyId, error) {
+        psk := PreSharedKeyId{}
+        if err := psk.UnmarshalMLS(r); err != nil {
+            return PreSharedKeyId{}, err
+        }
+        return psk, nil
+    })
+    if err != nil {
+        return err
+    }
+    self.Psks = psks
+    return nil
+}
+
+var _ syntax.Codec = (*GroupSecrets)(nil)
+
+type EncryptedGroupSecrets struct {
+    NewMember             []byte
+    EncryptedGroupSecrets HpkeCiphertext
+}
+
+func (self *EncryptedGroupSecrets) MarshalMLS(w *syntax.Writer) error {
+    w.WriteOpaque(self.NewMember)
+    return self.EncryptedGroupSecrets.MarshalMLS(w)
+}
+
+func (self *EncryptedGroupSecrets) UnmarshalMLS(r *syntax.Reader) error {
+    newMember, err := r.ReadOpaque()
+    if err != nil {
+        return err
+    }
+    *self = EncryptedGroupSecrets{NewMember: newMember}
+    return self.EncryptedGroupSecrets.UnmarshalMLS(r)
+}
+
+var _ syntax.Codec = (*EncryptedGroupSecrets)(nil)
+
+type Welcome struct {
+    CipherSuite        CipherSuite
+    Secrets            []EncryptedGroupSecrets
+    EncryptedGroupInfo []byte
+}
+
+func (self *Welcome) MarshalMLS(w *syntax.Writer) error {
+    w.WriteUint16(uint16(self.CipherSuite))
+    err := syntax.WriteVector(w, self.Secrets,
+        func(w *syntax.Writer, item EncryptedGroupSecrets) error {
+            return item.MarshalMLS(w)
+        })
+    if err != nil {
+        return err
+    }
+    w.WriteOpaque(self.EncryptedGroupInfo)
+    return nil
+}
+
+func (self *Welcome) UnmarshalMLS(r *syntax.Reader) error {
+    cipherSuite, err := r.ReadUint16()
+    if err != nil {
+        return err
+    }
+    secrets, err := syntax.ReadVector(r, func(r *syntax.Reader) (EncryptedGroupSecrets, error) {
+        encrypted := EncryptedGroupSecrets{}
+        if err := encrypted.UnmarshalMLS(r); err != nil {
+            return EncryptedGroupSecrets{}, err
+        }
+        return encrypted, nil
+    })
+    if err != nil {
+        return err
+    }
+    encryptedGroupInfo, err := r.ReadOpaque()
+    if err != nil {
+        return err
+    }
+    *self = Welcome{
+        CipherSuite:        CipherSuite(cipherSuite),
+        Secrets:            secrets,
+        EncryptedGroupInfo: encryptedGroupInfo,
+    }
+    return nil
+}
+
+var _ syntax.Codec = (*Welcome)(nil)
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `go test ./connect/mls/... -run 'TestGroupInfo|TestGroupSecrets|TestWelcome' -v`
+Expected: PASS — four tests.
+
+- [ ] **Step 5: Commit**
+
+```bash
+cd /c/Users/ryanm/Downloads/claude_sandbox_message/connect
+git ls-files | wc -l
+git add mls/welcome_wire.go mls/welcome_wire_test.go
+git ls-files | wc -l   # MUST be previous + 2
+git commit -m "feat(mls): GroupInfo, GroupSecrets and Welcome wire codecs"
+```
+
+---
+
+### Task 15: `MLSMessage` wrapper
 
 **Files:**
 - Modify: `connect/mls/framing.go`
 - Test: `connect/mls/framing_test.go`
 
 **Interfaces:**
-- Consumes: `Welcome`, `GroupInfo`, `KeyPackage`, each with `MarshalMLS`/`UnmarshalMLS`. Tasks 1–8.
+- Consumes: `Welcome` and `GroupInfo` from Task 14; `type KeyPackage struct{ ... }` with
+  `MarshalMLS(w *syntax.Writer) error` / `UnmarshalMLS(r *syntax.Reader) error` (**p5** §6.5, wave 2
+  — the registry assigns `KeyPackage` to the TreeKEM/leaf-node plan, not to the lifecycle plan, so
+  it is available in wave 2 and this wave-3 struct can name it);
+  `const ProtocolVersionMls10 ProtocolVersion = 0x0001` (p5 §6.1). Tasks 1–8, 14.
 - Produces: `MLSMessage`, `(*MLSMessage).MarshalMLS(w *syntax.Writer) error`,
   `(*MLSMessage).UnmarshalMLS(r *syntax.Reader) error`,
+  `var _ syntax.Codec = (*MLSMessage)(nil)`,
   `MarshalMLSMessage(message *MLSMessage) ([]byte, error)`,
   `ParseMLSMessage(data []byte) (*MLSMessage, error)`.
+
+`ParseMLSMessage`/`MarshalMLSMessage` are the **one sanctioned pair of byte-level free functions**
+outside the validation plan's codec table (registry C1, §7.2). `EncodeMLSMessage` and
+`(*MLSMessage).Marshal` do not exist; the validation plan's `KindMlsMessage` codec row calls this
+pair.
 
 `ParseMLSMessage` is the single entry point every byte off the wire passes through: it enforces
 full consumption (`syntax` rule 3) and the version check. `group.go`, `connect/message` and the
@@ -3774,7 +4777,7 @@ plan owns which type.
 // framing_test.go (append)
 func TestMLSMessageRoundTripPrivate(t *testing.T) {
     message := MLSMessage{
-        Version:    ProtocolVersionMLS10,
+        Version:    ProtocolVersionMls10,
         WireFormat: WireFormatPrivateMessage,
         PrivateMessage: &PrivateMessage{
             GroupId:             []byte{0x01},
@@ -3810,7 +4813,7 @@ func TestMLSMessageRoundTripPrivate(t *testing.T) {
 
 func TestParseMLSMessageRejectsTrailingBytes(t *testing.T) {
     message := MLSMessage{
-        Version:    ProtocolVersionMLS10,
+        Version:    ProtocolVersionMls10,
         WireFormat: WireFormatPrivateMessage,
         PrivateMessage: &PrivateMessage{
             GroupId: []byte{0x01}, Epoch: 1, ContentType: ContentTypeApplication,
@@ -3860,7 +4863,7 @@ type MLSMessage struct {
 }
 
 func (self *MLSMessage) MarshalMLS(w *syntax.Writer) error {
-    if self.Version != ProtocolVersionMLS10 {
+    if self.Version != ProtocolVersionMls10 {
         return fmt.Errorf("%w: %04x", ErrUnsupportedVersion, self.Version)
     }
     w.WriteUint16(uint16(self.Version))
@@ -3900,7 +4903,7 @@ func (self *MLSMessage) UnmarshalMLS(r *syntax.Reader) error {
     if err != nil {
         return err
     }
-    if ProtocolVersion(version) != ProtocolVersionMLS10 {
+    if ProtocolVersion(version) != ProtocolVersionMls10 {
         return fmt.Errorf("%w: %04x", ErrUnsupportedVersion, version)
     }
     wireFormat, err := r.ReadUint16()
@@ -3928,24 +4931,20 @@ func (self *MLSMessage) UnmarshalMLS(r *syntax.Reader) error {
     return fmt.Errorf("%w: %04x", ErrUnknownWireFormat, self.WireFormat)
 }
 
+var _ syntax.Codec = (*MLSMessage)(nil)
+
+// the one sanctioned byte-level pair outside the codec table: every byte on the
+// wire passes through these two names and the whole system calls them.
 func MarshalMLSMessage(message *MLSMessage) ([]byte, error) {
-    w := syntax.NewWriter()
-    if err := message.MarshalMLS(w); err != nil {
-        return nil, err
-    }
-    return w.Bytes(), nil
+    return syntax.Marshal(message)
 }
 
 // the single entry point for every byte that arrives from the network or the
-// store. enforces full consumption, so a message with trailing bytes is a
-// decode error rather than a silently truncated object.
+// store. syntax.Unmarshal enforces full consumption, so a message with trailing
+// bytes is a decode error rather than a silently truncated object.
 func ParseMLSMessage(data []byte) (*MLSMessage, error) {
     message := &MLSMessage{}
-    r := syntax.NewReader(data)
-    if err := message.UnmarshalMLS(r); err != nil {
-        return nil, err
-    }
-    if err := r.Finish(); err != nil {
+    if err := syntax.Unmarshal(data, message); err != nil {
         return nil, err
     }
     return message, nil
@@ -3969,27 +4968,34 @@ git commit -m "feat(mls): MLSMessage wrapper and ParseMLSMessage full-consumptio
 
 ---
 
-### Task 15: ValSem002, ValSem003, ValSem004 and the framing ValSem roster
+### Task 16: ValSem002, ValSem003, ValSem004 and the framing refusal roster
 
 **Files:**
 - Modify: `connect/mls/framing_protect.go`
 - Create: `connect/mls/validation_framing_test.go`
-- Modify: `connect/mls/framing_protect_test.go` (move the ValSem tests written in Tasks 5–11)
+- Modify: `connect/mls/framing_protect_test.go` (move the refusal tests written in Tasks 5–11)
 
 **Interfaces:**
-- Consumes: Tasks 1–14.
+- Consumes: Tasks 1–15; `func ValSem(code ValSemCode, detail error) error`, the codes
+  `ValSem002`/`ValSem003`/`ValSem004` and the sentinels `ErrWrongGroupId`, `ErrWrongEpoch`,
+  `ErrBlankSenderLeaf` (p8, wave 1); `crypto/subtle`.
 - Produces:
   `CheckFramedContentContext(content *FramedContent, groupId []byte, epoch uint64) error`,
   `CheckSenderLeaf(sender Sender, leafOccupied func(LeafIndex) bool) error`.
 
 `CheckSenderLeaf` takes a predicate rather than a tree so the framing layer stays free of tree
-types and the test needs no group. `group.go` passes `self.tree.LeafOccupied`.
+types and the test needs no group. The group lifecycle passes its ratchet tree's occupancy test.
 
-Spec A §4.3 requires one top-level `TestValSemNNN_<slug>` per code in
-`validation_framing_test.go`. Tasks 5–11 wrote `TestValSem005`…`TestValSem011` into
-`framing_protect_test.go` where they belonged next to the code under test; this task **moves** them
-into `validation_framing_test.go`, adds 002/003/004, and adds the roster test that fails when a code
-has no test function.
+**The `TestValSemNNN_<slug>` names are p8's, exclusively** (registry §9.5, Spec A §4.3). This plan's
+ten refusal tests are therefore **behaviour-named**, with the registry's own rename applied to the
+005 case: `TestPublicMessageRefusesApplicationContent`. The roster test changes shape to match —
+instead of asserting that a naming convention was followed, it asserts that **every one of the ten
+framing sentinels is named by at least one test function in the package**, which is the property
+the old test was reaching for and the one that survives p8 owning the names.
+
+Tasks 5–11 wrote those tests into `framing_protect_test.go` where they belonged next to the code
+under test; this task **moves** them into `validation_framing_test.go`, adds 002/003/004, and adds
+the roster test.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -4003,10 +5009,14 @@ import (
     "go/ast"
     "go/parser"
     "go/token"
+    "io/fs"
+    "strings"
     "testing"
+
+    "github.com/urnetwork/connect/mls/syntax"
 )
 
-func TestValSem002_GroupIdMatches(t *testing.T) {
+func TestFramedContentContextRefusesWrongGroupId(t *testing.T) {
     content := testMemberContent()
     if err := CheckFramedContentContext(content, content.GroupId, content.Epoch); err != nil {
         t.Fatalf("matching context: %v", err)
@@ -4024,7 +5034,7 @@ func TestValSem002_GroupIdMatches(t *testing.T) {
     }
 }
 
-func TestValSem003_EpochMatches(t *testing.T) {
+func TestFramedContentContextRefusesWrongEpoch(t *testing.T) {
     content := testMemberContent()
     if err := CheckFramedContentContext(content, content.GroupId, content.Epoch+1); !errors.Is(err, ErrWrongEpoch) {
         t.Fatalf("got %v, want ErrWrongEpoch", err)
@@ -4034,7 +5044,7 @@ func TestValSem003_EpochMatches(t *testing.T) {
     }
 }
 
-func TestValSem004_SenderLeafIsNotBlank(t *testing.T) {
+func TestSenderLeafRefusesBlankLeaf(t *testing.T) {
     occupied := func(leaf LeafIndex) bool { return leaf == 1 }
 
     if err := CheckSenderLeaf(Sender{SenderType: SenderTypeMember, LeafIndex: 1}, occupied); err != nil {
@@ -4050,39 +5060,51 @@ func TestValSem004_SenderLeafIsNotBlank(t *testing.T) {
     }
 }
 
-// Spec A §4.3: one top-level TestValSemNNN_<slug> per framing code. this test
-// fails when a code loses its test, which is the failure mode a coverage
+// the TestValSemNNN_<slug> names belong to the validation plan's catalogue, so
+// this roster asserts the property those names were standing in for: every one
+// of the ten framing refusals is exercised by some test in this package. it
+// fails when a refusal loses its test, which is the failure mode a coverage
 // percentage does not catch.
-func TestFramingValSemRosterIsComplete(t *testing.T) {
+func TestFramingRefusalsEachHaveATest(t *testing.T) {
     want := []string{
-        "TestValSem002_", "TestValSem003_", "TestValSem004_", "TestValSem005_",
-        "TestValSem006_", "TestValSem007_", "TestValSem008_", "TestValSem009_",
-        "TestValSem010_", "TestValSem011_",
+        "ErrWrongGroupId",                // ValSem002
+        "ErrWrongEpoch",                  // ValSem003
+        "ErrBlankSenderLeaf",             // ValSem004
+        "ErrApplicationMustBeCiphertext", // ValSem005
+        "ErrDecryptFailed",               // ValSem006
+        "ErrMissingMembershipTag",        // ValSem007
+        "ErrBadMembershipTag",            // ValSem008
+        "ErrMissingConfirmationTag",      // ValSem009
+        "ErrBadSignature",                // ValSem010
+        "ErrNonZeroPadding",              // ValSem011
     }
     fileSet := token.NewFileSet()
-    packages, err := parser.ParseDir(fileSet, ".", nil, 0)
+    packages, err := parser.ParseDir(fileSet, ".", func(info fs.FileInfo) bool {
+        return strings.HasSuffix(info.Name(), "_test.go")
+    }, 0)
     if err != nil {
         t.Fatalf("parse: %v", err)
     }
-    found := map[string]bool{}
+    named := map[string]bool{}
     for _, pkg := range packages {
         for _, file := range pkg.Files {
             for _, decl := range file.Decls {
                 funcDecl, ok := decl.(*ast.FuncDecl)
-                if !ok || funcDecl.Recv != nil {
+                if !ok || funcDecl.Recv != nil || !strings.HasPrefix(funcDecl.Name.Name, "Test") {
                     continue
                 }
-                for _, prefix := range want {
-                    if len(funcDecl.Name.Name) > len(prefix) && funcDecl.Name.Name[:len(prefix)] == prefix {
-                        found[prefix] = true
+                ast.Inspect(funcDecl, func(node ast.Node) bool {
+                    if ident, ok := node.(*ast.Ident); ok {
+                        named[ident.Name] = true
                     }
-                }
+                    return true
+                })
             }
         }
     }
-    for _, prefix := range want {
-        if !found[prefix] {
-            t.Errorf("no top-level test function named %s<slug>", prefix)
+    for _, sentinel := range want {
+        if !named[sentinel] {
+            t.Errorf("no test function names %s; the refusal has lost its test", sentinel)
         }
     }
 }
@@ -4090,9 +5112,9 @@ func TestFramingValSemRosterIsComplete(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./connect/mls/... -run 'TestValSem002|TestValSem003|TestValSem004|TestFramingValSemRoster' -v`
+Run: `go test ./connect/mls/... -run 'TestFramedContentContextRefuses|TestSenderLeafRefusesBlankLeaf|TestFramingRefusalsEachHaveATest' -v`
 Expected: FAIL — `undefined: CheckFramedContentContext`, `undefined: CheckSenderLeaf`, and the
-roster test reporting the three missing prefixes.
+roster test reporting the three sentinels no test names yet.
 
 - [ ] **Step 3: Write minimal implementation**
 
@@ -4104,22 +5126,22 @@ roster test reporting the three missing prefixes.
 // are under the G8 gate and one exception is how a gate stops being a gate.
 func CheckFramedContentContext(content *FramedContent, groupId []byte, epoch uint64) error {
     if subtle.ConstantTimeCompare(content.GroupId, groupId) != 1 {
-        return ErrWrongGroupId
+        return ValSem(ValSem002, ErrWrongGroupId)
     }
     if content.Epoch != epoch {
-        return ErrWrongEpoch
+        return ValSem(ValSem003, ErrWrongEpoch)
     }
     return nil
 }
 
 // ValSem004. takes a predicate rather than a tree so framing carries no tree
-// types; group.go passes the ratchet tree's occupancy test.
+// types; the group lifecycle passes the ratchet tree's occupancy test.
 func CheckSenderLeaf(sender Sender, leafOccupied func(LeafIndex) bool) error {
     if sender.SenderType != SenderTypeMember {
         return nil
     }
     if !leafOccupied(sender.LeafIndex) {
-        return ErrBlankSenderLeaf
+        return ValSem(ValSem004, ErrBlankSenderLeaf)
     }
     return nil
 }
@@ -4127,23 +5149,24 @@ func CheckSenderLeaf(sender Sender, leafOccupied func(LeafIndex) bool) error {
 
 `framing_protect.go` now needs `"crypto/subtle"` in its import block.
 
-- [ ] **Step 4: Move the ValSem tests written in earlier tasks**
+- [ ] **Step 4: Move the refusal tests written in earlier tasks**
 
-Cut `TestValSem005_ApplicationMustBeCiphertext`, `TestValSem006_CiphertextDecryptionMustSucceed`,
-`TestValSem007_MembershipTagPresent`, `TestValSem008_MembershipTagVerifies`,
-`TestValSem010_SignatureVerifies` and `TestValSem011_PaddingIsAllZero` from
-`framing_protect_test.go` and paste them unchanged into `validation_framing_test.go`. Add
-ValSem009, which no earlier task covered on its own:
+Cut `TestPublicMessageRefusesApplicationContent`, `TestPrivateMessageRefusesTamperedCiphertext`,
+`TestPublicMessageRefusesMissingMembershipTag`, `TestPublicMessageRefusesForgedMembershipTag`,
+`TestAuthenticatedContentRefusesForgedSignature` and
+`TestPrivateMessageContentRefusesNonZeroPadding` from `framing_protect_test.go` and paste them
+unchanged into `validation_framing_test.go`. Add the ValSem009 case, which no earlier task covered
+on its own:
 
 ```go
 // validation_framing_test.go (append)
-func TestValSem009_ConfirmationTagPresent(t *testing.T) {
+func TestCommitRefusesMissingConfirmationTag(t *testing.T) {
     crypto := newTestCrypto(t)
     priv, pub, err := crypto.SignatureKeyPair()
     if err != nil {
         t.Fatalf("key pair: %v", err)
     }
-    groupContext := testGroupContext()
+    groupContext := testGroupContext(t)
 
     content := testMemberContent()
     content.ContentType = ContentTypeCommit
@@ -4169,7 +5192,11 @@ func TestValSem009_ConfirmationTagPresent(t *testing.T) {
     if err := authContent.Auth.MarshalMLS(w, ContentTypeCommit); err != nil {
         t.Fatalf("marshal with tag: %v", err)
     }
-    truncated := append([]byte(nil), w.Bytes()...)
+    withTag, err := w.Bytes()
+    if err != nil {
+        t.Fatalf("bytes: %v", err)
+    }
+    truncated := append([]byte(nil), withTag...)
     truncated[len(authContent.Auth.Signature)+1] = 0x00 // the tag's length prefix
     truncated = truncated[:len(authContent.Auth.Signature)+2]
     var decoded FramedContentAuthData
@@ -4179,13 +5206,14 @@ func TestValSem009_ConfirmationTagPresent(t *testing.T) {
 }
 ```
 
-`validation_framing_test.go` now needs `"github.com/urnetwork/connect/mls/syntax"` in its import
-block.
+`validation_framing_test.go`'s import block, listed in Step 1, already carries
+`"github.com/urnetwork/connect/mls/syntax"`, `"io/fs"` and `"strings"` for this and for the roster
+test.
 
 - [ ] **Step 5: Run the whole framing ValSem set to verify it passes**
 
-Run: `go test ./connect/mls/... -run 'TestValSem0(0[2-9]|1[01])|TestFramingValSemRoster' -v`
-Expected: PASS — ten ValSem tests plus the roster test.
+Run: `go test ./connect/mls/... -run 'Refuses|TestFramingRefusalsEachHaveATest' -v`
+Expected: PASS — the ten framing refusal tests plus the roster test.
 
 - [ ] **Step 6: Commit**
 
@@ -4194,31 +5222,42 @@ cd /c/Users/ryanm/Downloads/claude_sandbox_message/connect
 git ls-files | wc -l
 git add mls/framing_protect.go mls/framing_protect_test.go mls/validation_framing_test.go
 git ls-files | wc -l   # MUST be previous + 1
-git commit -m "test(mls): the ten framing ValSem codes in one roster-checked file"
+git commit -m "test(mls): the ten framing refusals in one roster-checked file"
 ```
 
 ---
 
-### Task 16: The `message-protection` vector family, both directions
+### Task 17: The `message-protection` vector family, both directions
 
 **Files:**
 - Create: `connect/mls/message_protection_kat_test.go`
-- Create: `connect/mls/vectors_hex_test.go`
-- Test data: `connect/mls/testdata/vectors/message-protection.json` (vendored by the wave-1
-  validation plan at the pinned mlswg commit recorded in `connect/mls/interop/PINS.md`)
+- Test data: `connect/mls/testdata/vectors/message-protection.json` (vendored by p8 Task 6, the
+  single vendoring task, at the pinned mlswg commit recorded in `connect/mls/interop/PINS.md`)
 
 **Interfaces:**
-- Consumes: everything above; `GroupContext` **as bytes** — the harness builds the serialized
-  GroupContext itself from the vector fields, so it needs
-  `MarshalGroupContext(suite CipherSuite, groupId []byte, epoch uint64, treeHash, confirmedTranscriptHash []byte, extensions []Extension) ([]byte, error)` from the key-schedule plan (wave 2). If that
-  helper does not exist, build the bytes inline with `syntax` — the struct is
-  `version ‖ cipher_suite ‖ opaque group_id<V> ‖ epoch ‖ opaque tree_hash<V> ‖ opaque
-  confirmed_transcript_hash<V> ‖ Extension extensions<V>` and the harness is the only caller.
-  Also consumes a `SecretTree` constructor from the key-schedule plan:
-  `NewSecretTree(crypto CryptoProvider, groupSize uint32, encryptionSecret []byte) (*SecretTree, error)`.
-- Produces: `type hexBytes []byte` with `UnmarshalJSON`, shared by every vector harness in
-  `package mls`. **If the wave-1 harnesses already declare it, delete this declaration and use
-  theirs** — the compiler says `hexBytes redeclared in this block`, which is an unambiguous signal.
+- Consumes: everything above, plus
+  `type VectorFamily struct{ Number int; Name string; File string; Slice string; Verify func(t *testing.T, raw json.RawMessage); Generate func(t *testing.T) json.RawMessage }`,
+  `func RegisterVectorFamily(family VectorFamily)`,
+  `func LoadVectorFile(t *testing.T, file string) []json.RawMessage`,
+  `func MustHex(t *testing.T, s string) []byte`, `func HexOf(b []byte) string` (p8 §9.2, wave 1);
+  `type GroupContext struct{ ... }` with its codec (p4 §5.1) — the harness builds the serialized
+  GroupContext with `syntax.Marshal(gc)`, which is what C4 tells every caller to do;
+  `func NewSecretTree(crypto CryptoProvider, leafCount LeafCount, encryptionSecret []byte) (*SecretTree, error)`
+  (p4 §5.5) — the second parameter is a `LeafCount`, not a `uint32` group size;
+  `func NewCryptoProviderWithRandom(suite CipherSuite, random io.Reader) (CryptoProvider, error)`
+  is **not** used here; the generate direction takes its randomness from `crypto.Random`.
+- Produces: nothing exported. `MarshalGroupContext` is not asked for and does not exist —
+  `syntax.Marshal` over p4's struct is the one GroupContext serializer in the system.
+
+**No `hexBytes` and no `vectors_hex_test.go`.** Registry §9.2 deletes `hexBytes` (this plan),
+`ksHex`/`ksLoadVectors` (p4) and `mustHex` (p7) in favour of p8's wave-1
+`MustHex`/`HexOf`/`LoadVectorFile`. The vector structs below therefore carry `string` fields and
+decode through `MustHex`.
+
+**Registration is part of this task, not a follow-up.** `init()` calls `RegisterVectorFamily` for
+family 4, and the same commit deletes `4` from p8's `expectedPendingFamilies`. Without both,
+`TestVectorFamiliesVerify` runs one family and Gate 1 is green with fifteen of sixteen never
+executed.
 
 The vector's verification procedure, followed exactly:
 
@@ -4241,326 +5280,430 @@ generating a fresh vector and verifying it on an independent code path.
 - [ ] **Step 1: Write the failing test**
 
 ```go
-// vectors_hex_test.go
-package mls
-
-import (
-    "encoding/hex"
-    "encoding/json"
-)
-
-// a []byte that decodes from a JSON hex string, as every mlswg vector file
-// encodes binary. one declaration for the whole package.
-type hexBytes []byte
-
-func (self *hexBytes) UnmarshalJSON(data []byte) error {
-    var encoded string
-    if err := json.Unmarshal(data, &encoded); err != nil {
-        return err
-    }
-    decoded, err := hex.DecodeString(encoded)
-    if err != nil {
-        return err
-    }
-    *self = hexBytes(decoded)
-    return nil
-}
-
-func (self hexBytes) MarshalJSON() ([]byte, error) {
-    return json.Marshal(hex.EncodeToString(self))
-}
-```
-
-```go
 // message_protection_kat_test.go
 package mls
 
 import (
     "bytes"
     "encoding/json"
-    "os"
     "testing"
 
     "github.com/urnetwork/connect/mls/syntax"
 )
 
+func init() {
+    RegisterVectorFamily(VectorFamily{
+        Number:   4,
+        Name:     "message-protection",
+        File:     "message-protection.json",
+        Slice:    "A1",
+        Verify:   verifyMessageProtectionVector,
+        Generate: generateMessageProtectionVector,
+    })
+}
+
+// hex strings, decoded with the validation plan's MustHex. one hex decoder in
+// the package, not one per harness.
 type messageProtectionVector struct {
-    CipherSuite             uint16   `json:"cipher_suite"`
-    GroupId                 hexBytes `json:"group_id"`
-    Epoch                   uint64   `json:"epoch"`
-    TreeHash                hexBytes `json:"tree_hash"`
-    ConfirmedTranscriptHash hexBytes `json:"confirmed_transcript_hash"`
-    SignaturePriv           hexBytes `json:"signature_priv"`
-    SignaturePub            hexBytes `json:"signature_pub"`
-    EncryptionSecret        hexBytes `json:"encryption_secret"`
-    SenderDataSecret        hexBytes `json:"sender_data_secret"`
-    MembershipKey           hexBytes `json:"membership_key"`
-    Proposal                hexBytes `json:"proposal"`
-    ProposalPub             hexBytes `json:"proposal_pub"`
-    ProposalPriv            hexBytes `json:"proposal_priv"`
-    Commit                  hexBytes `json:"commit"`
-    CommitPub               hexBytes `json:"commit_pub"`
-    CommitPriv              hexBytes `json:"commit_priv"`
-    Application             hexBytes `json:"application"`
-    ApplicationPriv         hexBytes `json:"application_priv"`
+    CipherSuite             uint16 `json:"cipher_suite"`
+    GroupId                 string `json:"group_id"`
+    Epoch                   uint64 `json:"epoch"`
+    TreeHash                string `json:"tree_hash"`
+    ConfirmedTranscriptHash string `json:"confirmed_transcript_hash"`
+    SignaturePriv           string `json:"signature_priv"`
+    SignaturePub            string `json:"signature_pub"`
+    EncryptionSecret        string `json:"encryption_secret"`
+    SenderDataSecret        string `json:"sender_data_secret"`
+    MembershipKey           string `json:"membership_key"`
+    Proposal                string `json:"proposal"`
+    ProposalPub             string `json:"proposal_pub"`
+    ProposalPriv            string `json:"proposal_priv"`
+    Commit                  string `json:"commit"`
+    CommitPub               string `json:"commit_pub"`
+    CommitPriv              string `json:"commit_priv"`
+    Application             string `json:"application"`
+    ApplicationPriv         string `json:"application_priv"`
 }
 
-func loadMessageProtectionVectors(t *testing.T) []messageProtectionVector {
-    t.Helper()
-    data, err := os.ReadFile("testdata/vectors/message-protection.json")
-    if err != nil {
-        t.Fatalf("read vectors: %v", err)
-    }
-    vectors := []messageProtectionVector{}
-    if err := json.Unmarshal(data, &vectors); err != nil {
-        t.Fatalf("parse vectors: %v", err)
-    }
-    if len(vectors) == 0 {
-        t.Fatal("no vectors")
-    }
-    return vectors
-}
-
-// the serialized GroupContext the vector describes, built here because the
-// preimage functions take bytes.
+// the serialized GroupContext the vector describes. C4: callers build these
+// with syntax.Marshal over the key-schedule plan's struct, so the harness and
+// the production path use one serializer.
 func (self *messageProtectionVector) groupContextBytes(t *testing.T) []byte {
     t.Helper()
-    w := syntax.NewWriter()
-    w.WriteUint16(uint16(ProtocolVersionMLS10))
-    w.WriteUint16(self.CipherSuite)
-    if err := w.WriteOpaque(self.GroupId); err != nil {
-        t.Fatalf("group id: %v", err)
+    groupContext := &GroupContext{
+        Version:                 ProtocolVersionMls10,
+        CipherSuite:             CipherSuite(self.CipherSuite),
+        GroupId:                 MustHex(t, self.GroupId),
+        Epoch:                   self.Epoch,
+        TreeHash:                MustHex(t, self.TreeHash),
+        ConfirmedTranscriptHash: MustHex(t, self.ConfirmedTranscriptHash),
     }
-    w.WriteUint64(self.Epoch)
-    if err := w.WriteOpaque(self.TreeHash); err != nil {
-        t.Fatalf("tree hash: %v", err)
+    encoded, err := syntax.Marshal(groupContext)
+    if err != nil {
+        t.Fatalf("group context: %v", err)
     }
-    if err := w.WriteOpaque(self.ConfirmedTranscriptHash); err != nil {
-        t.Fatalf("confirmed transcript hash: %v", err)
-    }
-    if err := w.WriteVector(0, func(w *syntax.Writer, i int) error { return nil }); err != nil {
-        t.Fatalf("extensions: %v", err)
-    }
-    return w.Bytes()
+    return encoded
 }
 
-func TestMessageProtectionVectorsPublicVerify(t *testing.T) {
-    for i, vector := range loadMessageProtectionVectors(t) {
-        crypto, err := NewCryptoProvider(CipherSuite(vector.CipherSuite))
-        if err != nil {
-            t.Fatalf("vector %d: crypto: %v", i, err)
-        }
-        groupContext := vector.groupContextBytes(t)
-        resolve := StaticSignatureKey(SignaturePublicKey(vector.SignaturePub))
+// the whole of §4.2.1's procedure for one vector. registered as the family's
+// Verify hook, so the vector runner and the local test drive the same code.
+func verifyMessageProtectionVector(t *testing.T, raw json.RawMessage) {
+    vector := messageProtectionVector{}
+    if err := json.Unmarshal(raw, &vector); err != nil {
+        t.Fatalf("parse vector: %v", err)
+    }
+    crypto, err := NewCryptoProvider(CipherSuite(vector.CipherSuite))
+    if err != nil {
+        t.Fatalf("crypto: %v", err)
+    }
+    groupContext := vector.groupContextBytes(t)
+    membershipKey := MustHex(t, vector.MembershipKey)
+    senderDataSecret := MustHex(t, vector.SenderDataSecret)
+    encryptionSecret := MustHex(t, vector.EncryptionSecret)
+    signPriv := SignaturePrivateKey(MustHex(t, vector.SignaturePriv))
+    resolve := StaticSignatureKey(SignaturePublicKey(MustHex(t, vector.SignaturePub)))
 
-        for _, c := range []struct {
-            name string
-            pub  []byte
-            raw  []byte
-        }{
-            {"proposal", vector.ProposalPub, vector.Proposal},
-            {"commit", vector.CommitPub, vector.Commit},
-        } {
-            message, err := ParseMLSMessage(c.pub)
-            if err != nil {
-                t.Fatalf("vector %d %s: parse: %v", i, c.name, err)
-            }
-            if message.PublicMessage == nil {
-                t.Fatalf("vector %d %s: not a PublicMessage", i, c.name)
-            }
-            opened, err := OpenPublicMessage(crypto, vector.MembershipKey, message.PublicMessage,
-                resolve, groupContext)
-            if err != nil {
-                t.Fatalf("vector %d %s: open: %v", i, c.name, err)
-            }
-            w := syntax.NewWriter()
-            switch c.name {
-            case "proposal":
-                err = opened.Content.Proposal.MarshalMLS(w)
-            case "commit":
-                err = opened.Content.Commit.MarshalMLS(w)
-            }
-            if err != nil {
-                t.Fatalf("vector %d %s: re-marshal: %v", i, c.name, err)
-            }
-            if !bytes.Equal(w.Bytes(), c.raw) {
-                t.Fatalf("vector %d %s: raw %x, want %x", i, c.name, w.Bytes(), c.raw)
-            }
+    // steps 3 and 4: the pub messages verify and re-encode to the raw value
+    for _, c := range []struct {
+        name string
+        pub  []byte
+        raw  []byte
+    }{
+        {"proposal", MustHex(t, vector.ProposalPub), MustHex(t, vector.Proposal)},
+        {"commit", MustHex(t, vector.CommitPub), MustHex(t, vector.Commit)},
+    } {
+        message, err := ParseMLSMessage(c.pub)
+        if err != nil {
+            t.Fatalf("%s: parse: %v", c.name, err)
+        }
+        if message.PublicMessage == nil {
+            t.Fatalf("%s: not a PublicMessage", c.name)
+        }
+        opened, err := OpenPublicMessage(crypto, membershipKey, message.PublicMessage,
+            resolve, groupContext)
+        if err != nil {
+            t.Fatalf("%s: open: %v", c.name, err)
+        }
+        var reencoded []byte
+        switch c.name {
+        case "proposal":
+            reencoded, err = syntax.Marshal(opened.Content.Proposal)
+        case "commit":
+            reencoded, err = syntax.Marshal(opened.Content.Commit)
+        }
+        if err != nil {
+            t.Fatalf("%s: re-marshal: %v", c.name, err)
+        }
+        if !bytes.Equal(reencoded, c.raw) {
+            t.Fatalf("%s: raw %x, want %x", c.name, reencoded, c.raw)
+        }
+
+        // re-protect the raw value and re-verify it
+        resealed, err := SealPublicMessage(crypto, membershipKey, opened, groupContext)
+        if err != nil {
+            t.Fatalf("%s: reseal: %v", c.name, err)
+        }
+        if _, err := OpenPublicMessage(crypto, membershipKey, resealed, resolve, groupContext); err != nil {
+            t.Fatalf("%s: re-open: %v", c.name, err)
+        }
+    }
+
+    // step 4's exception: an application message MUST NOT protect as a PublicMessage
+    applicationContent := &FramedContent{
+        GroupId:         MustHex(t, vector.GroupId),
+        Epoch:           vector.Epoch,
+        Sender:          Sender{SenderType: SenderTypeMember, LeafIndex: 1},
+        ContentType:     ContentTypeApplication,
+        ApplicationData: MustHex(t, vector.Application),
+    }
+    applicationAuth, err := SignAuthenticatedContent(crypto, signPriv, WireFormatPublicMessage,
+        applicationContent, groupContext)
+    if err != nil {
+        t.Fatalf("application sign: %v", err)
+    }
+    if _, err := SealPublicMessage(crypto, membershipKey, applicationAuth, groupContext); !errors.Is(err, ErrApplicationMustBeCiphertext) {
+        t.Fatalf("application sealed as a PublicMessage: %v", err)
+    }
+
+    // steps 5 and 6: the priv messages unprotect, and re-protecting through an
+    // independently constructed secret tree round-trips
+    for _, encoded := range [][]byte{
+        MustHex(t, vector.ProposalPriv),
+        MustHex(t, vector.CommitPriv),
+        MustHex(t, vector.ApplicationPriv),
+    } {
+        message, err := ParseMLSMessage(encoded)
+        if err != nil {
+            t.Fatalf("parse: %v", err)
+        }
+        if message.PrivateMessage == nil {
+            t.Fatal("not a PrivateMessage")
+        }
+        // a fresh secret tree per message: the vector's messages are each at
+        // generation 0 of their own ratchet. LeafCount, not a uint32 size.
+        secretTree, err := NewSecretTree(crypto, LeafCount(2), encryptionSecret)
+        if err != nil {
+            t.Fatalf("secret tree: %v", err)
+        }
+        opened, err := OpenPrivateMessage(crypto, secretTree, senderDataSecret,
+            message.PrivateMessage, resolve, groupContext)
+        if err != nil {
+            t.Fatalf("open: %v", err)
+        }
+        if opened.Content.Sender.LeafIndex != 1 {
+            t.Fatalf("sender leaf %d, want 1", opened.Content.Sender.LeafIndex)
+        }
+
+        sealTree, err := NewSecretTree(crypto, LeafCount(2), encryptionSecret)
+        if err != nil {
+            t.Fatalf("seal tree: %v", err)
+        }
+        resealed, err := SealPrivateMessage(crypto, sealTree, senderDataSecret, opened, PaddingSizeV1)
+        if err != nil {
+            t.Fatalf("reseal: %v", err)
+        }
+        openTree, err := NewSecretTree(crypto, LeafCount(2), encryptionSecret)
+        if err != nil {
+            t.Fatalf("reopen tree: %v", err)
+        }
+        reopened, err := OpenPrivateMessage(crypto, openTree, senderDataSecret,
+            resealed, resolve, groupContext)
+        if err != nil {
+            t.Fatalf("reopen: %v", err)
+        }
+        if !bytes.Equal(reopened.Content.ApplicationData, opened.Content.ApplicationData) {
+            t.Fatal("application data diverged")
         }
     }
 }
 
-func TestMessageProtectionVectorsPublicGenerate(t *testing.T) {
-    for i, vector := range loadMessageProtectionVectors(t) {
-        crypto, err := NewCryptoProvider(CipherSuite(vector.CipherSuite))
-        if err != nil {
-            t.Fatalf("vector %d: crypto: %v", i, err)
-        }
-        groupContext := vector.groupContextBytes(t)
-        priv := SignaturePrivateKey(vector.SignaturePriv)
-        resolve := StaticSignatureKey(SignaturePublicKey(vector.SignaturePub))
+// the generate direction: build a fresh vector from freshly sampled keys and
+// secrets, in the vector file's own JSON shape. the runner feeds it straight
+// back to Verify, which is what §4.2.1 means by an independent code path.
+func generateMessageProtectionVector(t *testing.T) json.RawMessage {
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
+    if err != nil {
+        t.Fatalf("crypto: %v", err)
+    }
+    signPriv, signPub, err := crypto.SignatureKeyPair()
+    if err != nil {
+        t.Fatalf("key pair: %v", err)
+    }
+    encryptionSecret := crypto.Random(crypto.HashSize())
+    senderDataSecret := crypto.Random(crypto.HashSize())
+    membershipKey := crypto.Random(crypto.HashSize())
 
-        // proposal: protect and re-verify
-        proposal := &Proposal{}
-        r := syntax.NewReader(vector.Proposal)
-        if err := proposal.UnmarshalMLS(r); err != nil {
-            t.Fatalf("vector %d: proposal decode: %v", i, err)
-        }
-        if err := r.Finish(); err != nil {
-            t.Fatalf("vector %d: proposal trailing: %v", i, err)
-        }
-        content := &FramedContent{
-            GroupId:     vector.GroupId,
-            Epoch:       vector.Epoch,
-            Sender:      Sender{SenderType: SenderTypeMember, LeafIndex: 1},
-            ContentType: ContentTypeProposal,
-            Proposal:    proposal,
-        }
-        authContent, err := SignAuthenticatedContent(crypto, priv, WireFormatPublicMessage, content, groupContext)
-        if err != nil {
-            t.Fatalf("vector %d: sign: %v", i, err)
-        }
-        message, err := SealPublicMessage(crypto, vector.MembershipKey, authContent, groupContext)
-        if err != nil {
-            t.Fatalf("vector %d: seal: %v", i, err)
-        }
-        if _, err := OpenPublicMessage(crypto, vector.MembershipKey, message, resolve, groupContext); err != nil {
-            t.Fatalf("vector %d: re-open: %v", i, err)
-        }
+    vector := messageProtectionVector{
+        CipherSuite:             uint16(CipherSuiteX25519ChaCha20Sha256Ed25519),
+        GroupId:                 HexOf([]byte{0x01, 0x02, 0x03, 0x04}),
+        Epoch:                   3,
+        TreeHash:                HexOf(crypto.Random(crypto.HashSize())),
+        ConfirmedTranscriptHash: HexOf(crypto.Random(crypto.HashSize())),
+        SignaturePriv:           HexOf(signPriv),
+        SignaturePub:            HexOf(signPub),
+        EncryptionSecret:        HexOf(encryptionSecret),
+        SenderDataSecret:        HexOf(senderDataSecret),
+        MembershipKey:           HexOf(membershipKey),
+        Application:             HexOf([]byte("generated application payload")),
+    }
+    groupContext := vector.groupContextBytes(t)
+    groupId := MustHex(t, vector.GroupId)
+    sender := Sender{SenderType: SenderTypeMember, LeafIndex: 1}
 
-        // application: protecting as a PublicMessage MUST fail
-        applicationContent := &FramedContent{
-            GroupId:         vector.GroupId,
-            Epoch:           vector.Epoch,
-            Sender:          Sender{SenderType: SenderTypeMember, LeafIndex: 1},
-            ContentType:     ContentTypeApplication,
-            ApplicationData: vector.Application,
-        }
-        applicationAuth, err := SignAuthenticatedContent(crypto, priv, WireFormatPublicMessage,
-            applicationContent, groupContext)
+    proposal := &Proposal{ProposalType: ProposalTypeRemove, Remove: &Remove{Removed: 0}}
+    proposalBytes, err := syntax.Marshal(proposal)
+    if err != nil {
+        t.Fatalf("proposal: %v", err)
+    }
+    vector.Proposal = HexOf(proposalBytes)
+
+    commit := &Commit{}
+    commitBytes, err := syntax.Marshal(commit)
+    if err != nil {
+        t.Fatalf("commit: %v", err)
+    }
+    vector.Commit = HexOf(commitBytes)
+
+    confirmationTag := crypto.Random(crypto.HashSize())
+    contents := []*FramedContent{
+        {GroupId: groupId, Epoch: vector.Epoch, Sender: sender,
+            ContentType: ContentTypeProposal, Proposal: proposal},
+        {GroupId: groupId, Epoch: vector.Epoch, Sender: sender,
+            ContentType: ContentTypeCommit, Commit: commit},
+        {GroupId: groupId, Epoch: vector.Epoch, Sender: sender,
+            ContentType: ContentTypeApplication, ApplicationData: MustHex(t, vector.Application)},
+    }
+
+    // the two public arms
+    for i, content := range contents[:2] {
+        authContent, err := SignAuthenticatedContent(crypto, signPriv, WireFormatPublicMessage,
+            content, groupContext)
         if err != nil {
-            t.Fatalf("vector %d: application sign: %v", i, err)
+            t.Fatalf("public sign: %v", err)
         }
-        if _, err := SealPublicMessage(crypto, vector.MembershipKey, applicationAuth, groupContext); err == nil {
-            t.Fatalf("vector %d: application protected as a PublicMessage", i)
+        if content.ContentType == ContentTypeCommit {
+            authContent.Auth.ConfirmationTag = confirmationTag
         }
+        message, err := SealPublicMessage(crypto, membershipKey, authContent, groupContext)
+        if err != nil {
+            t.Fatalf("public seal: %v", err)
+        }
+        encoded, err := MarshalMLSMessage(&MLSMessage{
+            Version:       ProtocolVersionMls10,
+            WireFormat:    WireFormatPublicMessage,
+            PublicMessage: message,
+        })
+        if err != nil {
+            t.Fatalf("public marshal: %v", err)
+        }
+        if i == 0 {
+            vector.ProposalPub = HexOf(encoded)
+        } else {
+            vector.CommitPub = HexOf(encoded)
+        }
+    }
+
+    // the three private arms, each from its own generation-0 secret tree
+    for i, content := range contents {
+        authContent, err := SignAuthenticatedContent(crypto, signPriv, WireFormatPrivateMessage,
+            content, groupContext)
+        if err != nil {
+            t.Fatalf("private sign: %v", err)
+        }
+        if content.ContentType == ContentTypeCommit {
+            authContent.Auth.ConfirmationTag = confirmationTag
+        }
+        secretTree, err := NewSecretTree(crypto, LeafCount(2), encryptionSecret)
+        if err != nil {
+            t.Fatalf("secret tree: %v", err)
+        }
+        message, err := SealPrivateMessage(crypto, secretTree, senderDataSecret,
+            authContent, PaddingSizeV1)
+        if err != nil {
+            t.Fatalf("private seal: %v", err)
+        }
+        encoded, err := MarshalMLSMessage(&MLSMessage{
+            Version:        ProtocolVersionMls10,
+            WireFormat:     WireFormatPrivateMessage,
+            PrivateMessage: message,
+        })
+        if err != nil {
+            t.Fatalf("private marshal: %v", err)
+        }
+        switch i {
+        case 0:
+            vector.ProposalPriv = HexOf(encoded)
+        case 1:
+            vector.CommitPriv = HexOf(encoded)
+        case 2:
+            vector.ApplicationPriv = HexOf(encoded)
+        }
+    }
+
+    raw, err := json.Marshal(&vector)
+    if err != nil {
+        t.Fatalf("encode vector: %v", err)
+    }
+    return json.RawMessage(raw)
+}
+
+func TestMessageProtectionVectors(t *testing.T) {
+    for i, raw := range LoadVectorFile(t, "message-protection.json") {
+        t.Run(fmt.Sprintf("vector%d", i), func(t *testing.T) {
+            verifyMessageProtectionVector(t, raw)
+        })
     }
 }
 
-func TestMessageProtectionVectorsPrivateVerifyAndGenerate(t *testing.T) {
-    for i, vector := range loadMessageProtectionVectors(t) {
-        crypto, err := NewCryptoProvider(CipherSuite(vector.CipherSuite))
-        if err != nil {
-            t.Fatalf("vector %d: crypto: %v", i, err)
-        }
-        groupContext := vector.groupContextBytes(t)
-        resolve := StaticSignatureKey(SignaturePublicKey(vector.SignaturePub))
-
-        for _, priv := range [][]byte{vector.ProposalPriv, vector.CommitPriv, vector.ApplicationPriv} {
-            message, err := ParseMLSMessage(priv)
-            if err != nil {
-                t.Fatalf("vector %d: parse: %v", i, err)
-            }
-            if message.PrivateMessage == nil {
-                t.Fatalf("vector %d: not a PrivateMessage", i)
-            }
-            // a fresh secret tree per message: the vector's messages are each
-            // at generation 0 of their own ratchet
-            secretTree, err := NewSecretTree(crypto, 2, vector.EncryptionSecret)
-            if err != nil {
-                t.Fatalf("vector %d: secret tree: %v", i, err)
-            }
-            opened, err := OpenPrivateMessage(crypto, secretTree, vector.SenderDataSecret,
-                message.PrivateMessage, resolve, groupContext)
-            if err != nil {
-                t.Fatalf("vector %d: open: %v", i, err)
-            }
-            if opened.Content.Sender.LeafIndex != 1 {
-                t.Fatalf("vector %d: sender leaf %d, want 1", i, opened.Content.Sender.LeafIndex)
-            }
-
-            // generate: re-protect the same content and unprotect it again
-            sealTree, err := NewSecretTree(crypto, 2, vector.EncryptionSecret)
-            if err != nil {
-                t.Fatalf("vector %d: seal tree: %v", i, err)
-            }
-            resealed, err := SealPrivateMessage(crypto, sealTree, vector.SenderDataSecret,
-                opened, PaddingSizeV1)
-            if err != nil {
-                t.Fatalf("vector %d: reseal: %v", i, err)
-            }
-            openTree, err := NewSecretTree(crypto, 2, vector.EncryptionSecret)
-            if err != nil {
-                t.Fatalf("vector %d: reopen tree: %v", i, err)
-            }
-            reopened, err := OpenPrivateMessage(crypto, openTree, vector.SenderDataSecret,
-                resealed, resolve, groupContext)
-            if err != nil {
-                t.Fatalf("vector %d: reopen: %v", i, err)
-            }
-            if !bytes.Equal(reopened.Content.ApplicationData, opened.Content.ApplicationData) {
-                t.Fatalf("vector %d: application data diverged", i)
-            }
-        }
-    }
+// the generate direction, verified on the same path the vendored vectors take.
+func TestMessageProtectionVectorsGenerate(t *testing.T) {
+    verifyMessageProtectionVector(t, generateMessageProtectionVector(t))
 }
 ```
+
+`message_protection_kat_test.go` needs `"errors"` and `"fmt"` in its import block alongside
+`"bytes"`, `"encoding/json"`, `"testing"` and `syntax`.
+
+The generate direction is not a byte comparison against the vendored file — a `PrivateMessage`
+carries a fresh random reuse guard, so two encryptions of the same content never match. It is a
+freshly generated vector fed back through the verify path, which is what §4.2.1 asks for.
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `go test ./connect/mls/... -run 'TestMessageProtectionVectors' -v`
-Expected: FAIL — `read vectors: open testdata/vectors/message-protection.json: no such file or
-directory` before the vectors are vendored, then `undefined: NewSecretTree` once they are.
+Expected: FAIL — `undefined: verifyMessageProtectionVector`, then a `LoadVectorFile` failure on the
+missing `testdata/vectors/message-protection.json` before it fails on anything interesting.
 
-- [ ] **Step 3: Vendor the vector file and wire the secret tree**
+- [ ] **Step 3: Confirm the vendored file and deregister the pending family**
 
-Confirm `connect/mls/testdata/vectors/message-protection.json` exists at the commit recorded in
-`connect/mls/interop/PINS.md`. If the wave-1 validation plan has not vendored it yet:
+`connect/mls/testdata/vectors/message-protection.json` is vendored by the validation plan's single
+vendoring task, at the commit recorded in `connect/mls/interop/PINS.md` (not
+`connect/mls/PINS.md`, which does not exist, and not
+`connect/mls/testdata/vectors/PINS.md`, which does not either). This plan does **not** re-vendor
+it: one vendoring task, one `VECTORS.sha256`, one pin file.
 
 ```bash
-cd /c/Users/ryanm/Downloads/claude_sandbox_message/connect/mls/testdata/vectors
-curl -fsSL -o message-protection.json \
-  "https://raw.githubusercontent.com/mlswg/mls-implementations/$(grep '^mlswg_commit:' ../../interop/PINS.md | awk '{print $2}')/test-vectors/message-protection.json"
+cd /c/Users/ryanm/Downloads/claude_sandbox_message/connect/mls
+test -f testdata/vectors/message-protection.json || echo "blocked: the vendoring task has not run"
+grep -n '^mlswg=' interop/PINS.md
 ```
 
-No code changes are needed beyond what Tasks 1–14 produced; this step exists because the harness
-fails on a missing file before it fails on anything interesting.
+Then delete `4` from `expectedPendingFamilies` in the validation plan's vector registry, in this
+same commit. The `init()` registration and that deletion are one change: without the deletion the
+registry still reports family 4 as unimplemented, and with the deletion but no registration
+`TestVectorFamiliesVerify` fails naming it.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./connect/mls/... -run 'TestMessageProtectionVectors' -v`
-Expected: PASS — three tests, each iterating every vector in the file.
+Run: `go test ./connect/mls/... -run 'TestMessageProtectionVectors|TestVectorFamilies' -v`
+Expected: PASS — one subtest per vector in the file, the generate direction, and the registry's own
+family sweep now including family 4.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 cd /c/Users/ryanm/Downloads/claude_sandbox_message/connect
 git ls-files | wc -l
-git add mls/message_protection_kat_test.go mls/vectors_hex_test.go mls/testdata/vectors/message-protection.json
-git ls-files | wc -l   # MUST be previous + 3, or + 2 if the vectors were already vendored
+git add mls/message_protection_kat_test.go mls/vectors_test.go
+git ls-files | wc -l   # MUST be previous + 1
 git commit -m "test(mls): message-protection vector family, verify and generate directions"
 ```
 
 ---
 
-### Task 17: The `messages` vector family
+### Task 18: The `messages` vector family
 
 **Files:**
 - Create: `connect/mls/messages_kat_test.go`
-- Test data: `connect/mls/testdata/vectors/messages.json`
+- Test data: `connect/mls/testdata/vectors/messages.json` (vendored by p8 Task 6)
 
 **Interfaces:**
-- Consumes: `Welcome`, `GroupInfo`, `KeyPackage`, `GroupSecrets`, `Node`, `Extension` — each with
-  `MarshalMLS`/`UnmarshalMLS`. Tasks 1–14.
-- Produces: nothing exported; this is the gate.
+- Consumes: `Welcome`, `GroupInfo`, `GroupSecrets`, `Commit`, `Proposal` (Tasks 12–15);
+  `type KeyPackage struct{ ... }` and `type LeafNode struct{ ... }` with their codecs,
+  `func UnmarshalRatchetTree(data []byte) (*RatchetTree, error)`,
+  `func (self *RatchetTree) MarshalMLS(w *syntax.Writer) error`,
+  `func WriteExtensions(w *syntax.Writer, exts []Extension) error`,
+  `func ReadExtensions(r *syntax.Reader) ([]Extension, error)` (p5, wave 2);
+  `type PreSharedKeyId struct{ ... }` with its codec (p4, wave 2);
+  `func CheckRoundTrip[T any, PT interface{ *T; syntax.Codec }](bs []byte) error`,
+  `syntax.Marshal`, `syntax.Unmarshal` (p1);
+  `RegisterVectorFamily`, `VectorFamily`, `LoadVectorFile`, `MustHex` (p8, wave 1).
+- Produces: nothing exported; this is the gate. `init()` registers family 12 and the same commit
+  deletes `12` from `expectedPendingFamilies`.
 
 The procedure is one rule applied to seventeen fields: **decode with the corresponding structure,
 re-encode, and the bytes must be identical.** Objects must be syntactically valid; a MAC inside one
 may be arbitrary and is not verified.
 
+Where the field is a standalone `syntax.Codec`, the check is literally `syntax.CheckRoundTrip` —
+the same property Gate 4 asserts, on the same code path, rather than a hand-rolled comparison. The
+five fields that are a bare arm body rather than a whole wire type (`remove_proposal`,
+`re_init_proposal`, `external_init_proposal`, `group_context_extensions_proposal`, and
+`ratchet_tree`, which needs the 16 MiB limit) go through explicit reader/writer closures.
+
 The table is written as data so a field that has no decoder is a compile error naming the field,
-not a silent skip. Fields owned by other plans are marked; if one of those types is not merged yet,
-comment out **that row only** and open an issue — never the whole test.
+not a silent skip. If a type this table names has not merged yet, comment out **that row only** and
+open an issue — never the whole test; the row count assertion turns red and says which.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -4571,115 +5714,181 @@ package mls
 import (
     "bytes"
     "encoding/json"
-    "os"
+    "fmt"
     "testing"
 
     "github.com/urnetwork/connect/mls/syntax"
 )
 
-type messagesVector struct {
-    MlsWelcome                     hexBytes `json:"mls_welcome"`
-    MlsGroupInfo                   hexBytes `json:"mls_group_info"`
-    MlsKeyPackage                  hexBytes `json:"mls_key_package"`
-    RatchetTree                    hexBytes `json:"ratchet_tree"`
-    GroupSecrets                   hexBytes `json:"group_secrets"`
-    AddProposal                    hexBytes `json:"add_proposal"`
-    UpdateProposal                 hexBytes `json:"update_proposal"`
-    RemoveProposal                 hexBytes `json:"remove_proposal"`
-    PreSharedKeyProposal           hexBytes `json:"pre_shared_key_proposal"`
-    ReInitProposal                 hexBytes `json:"re_init_proposal"`
-    ExternalInitProposal           hexBytes `json:"external_init_proposal"`
-    GroupContextExtensionsProposal hexBytes `json:"group_context_extensions_proposal"`
-    Commit                         hexBytes `json:"commit"`
-    PublicMessageApplication       hexBytes `json:"public_message_application"`
-    PublicMessageProposal          hexBytes `json:"public_message_proposal"`
-    PublicMessageCommit            hexBytes `json:"public_message_commit"`
-    PrivateMessage                 hexBytes `json:"private_message"`
+func init() {
+    RegisterVectorFamily(VectorFamily{
+        Number: 12,
+        Name:   "messages",
+        File:   "messages.json",
+        Slice:  "A1",
+        Verify: verifyMessagesVector,
+        // no generate direction: the family is a corpus of foreign encodings,
+        // and re-emitting our own would test nothing the round trip does not
+    })
 }
 
-// decodes into a fresh object and re-encodes it. one function per field type,
-// so a field with no decoder does not compile.
+type messagesVector struct {
+    MlsWelcome                     string `json:"mls_welcome"`
+    MlsGroupInfo                   string `json:"mls_group_info"`
+    MlsKeyPackage                  string `json:"mls_key_package"`
+    RatchetTree                    string `json:"ratchet_tree"`
+    GroupSecrets                   string `json:"group_secrets"`
+    AddProposal                    string `json:"add_proposal"`
+    UpdateProposal                 string `json:"update_proposal"`
+    RemoveProposal                 string `json:"remove_proposal"`
+    PreSharedKeyProposal           string `json:"pre_shared_key_proposal"`
+    ReInitProposal                 string `json:"re_init_proposal"`
+    ExternalInitProposal           string `json:"external_init_proposal"`
+    GroupContextExtensionsProposal string `json:"group_context_extensions_proposal"`
+    Commit                         string `json:"commit"`
+    PublicMessageApplication       string `json:"public_message_application"`
+    PublicMessageProposal          string `json:"public_message_proposal"`
+    PublicMessageCommit            string `json:"public_message_commit"`
+    PrivateMessage                 string `json:"private_message"`
+}
+
+// one row per field. a field with no checker does not compile, and the row
+// count assertion below names the shortfall.
 type messagesCodec struct {
     name  string
-    bytes func(v *messagesVector) []byte
-    round func(data []byte) ([]byte, error)
+    field func(v *messagesVector) string
+    check func(data []byte) error
 }
 
-func roundTrip(data []byte, unmarshal func(r *syntax.Reader) error,
-    marshal func(w *syntax.Writer) error) ([]byte, error) {
+// the explicit form, for the five fields that are a bare arm body rather than a
+// standalone wire type.
+func checkReEncode(data []byte, decode func(r *syntax.Reader) error,
+    encode func(w *syntax.Writer) error) error {
 
     r := syntax.NewReader(data)
-    if err := unmarshal(r); err != nil {
-        return nil, err
+    if err := decode(r); err != nil {
+        return err
     }
-    if err := r.Finish(); err != nil {
-        return nil, err
+    if err := r.Done(); err != nil {
+        return err
     }
     w := syntax.NewWriter()
-    if err := marshal(w); err != nil {
-        return nil, err
+    if err := encode(w); err != nil {
+        return err
     }
-    return w.Bytes(), nil
+    encoded, err := w.Bytes()
+    if err != nil {
+        return err
+    }
+    if !bytes.Equal(encoded, data) {
+        return fmt.Errorf("re-encoded %x, want %x", encoded, data)
+    }
+    return nil
+}
+
+// every byte of an MLSMessage goes through the one entry point the whole system
+// names, not through a second decode path invented for the harness.
+func checkMLSMessageReEncode(data []byte) error {
+    message, err := ParseMLSMessage(data)
+    if err != nil {
+        return err
+    }
+    encoded, err := MarshalMLSMessage(message)
+    if err != nil {
+        return err
+    }
+    if !bytes.Equal(encoded, data) {
+        return fmt.Errorf("re-encoded %x, want %x", encoded, data)
+    }
+    return nil
 }
 
 func messagesCodecs() []messagesCodec {
     return []messagesCodec{
-        // owned by this plan
-        {"add_proposal", func(v *messagesVector) []byte { return v.AddProposal },
-            func(data []byte) ([]byte, error) {
-                value := Add{}
-                return roundTrip(data, value.KeyPackage.UnmarshalMLS, value.KeyPackage.MarshalMLS)
-            }},
-        {"update_proposal", func(v *messagesVector) []byte { return v.UpdateProposal },
-            func(data []byte) ([]byte, error) {
-                value := Update{}
-                return roundTrip(data, value.LeafNode.UnmarshalMLS, value.LeafNode.MarshalMLS)
-            }},
-        {"remove_proposal", func(v *messagesVector) []byte { return v.RemoveProposal },
-            func(data []byte) ([]byte, error) {
-                proposal := Proposal{ProposalType: ProposalTypeRemove, Remove: &Remove{}}
-                return roundTrip(data,
+        // produced by this plan
+        {"commit", func(v *messagesVector) string { return v.Commit },
+            syntax.CheckRoundTrip[Commit, *Commit]},
+        {"mls_welcome", func(v *messagesVector) string { return v.MlsWelcome },
+            checkMLSMessageReEncode},
+        {"mls_group_info", func(v *messagesVector) string { return v.MlsGroupInfo },
+            checkMLSMessageReEncode},
+        {"group_secrets", func(v *messagesVector) string { return v.GroupSecrets },
+            syntax.CheckRoundTrip[GroupSecrets, *GroupSecrets]},
+        {"public_message_application", func(v *messagesVector) string { return v.PublicMessageApplication },
+            checkMLSMessageReEncode},
+        {"public_message_proposal", func(v *messagesVector) string { return v.PublicMessageProposal },
+            checkMLSMessageReEncode},
+        {"public_message_commit", func(v *messagesVector) string { return v.PublicMessageCommit },
+            checkMLSMessageReEncode},
+        {"private_message", func(v *messagesVector) string { return v.PrivateMessage },
+            checkMLSMessageReEncode},
+
+        // the proposal arm bodies. the vector carries the BODY, not a framed
+        // Proposal, so the two whole-type arms decode as their own types and
+        // the rest go through explicit closures.
+        {"add_proposal", func(v *messagesVector) string { return v.AddProposal },
+            syntax.CheckRoundTrip[KeyPackage, *KeyPackage]},
+        {"update_proposal", func(v *messagesVector) string { return v.UpdateProposal },
+            syntax.CheckRoundTrip[LeafNode, *LeafNode]},
+        {"pre_shared_key_proposal", func(v *messagesVector) string { return v.PreSharedKeyProposal },
+            syntax.CheckRoundTrip[PreSharedKeyId, *PreSharedKeyId]},
+        {"remove_proposal", func(v *messagesVector) string { return v.RemoveProposal },
+            func(data []byte) error {
+                value := Remove{}
+                return checkReEncode(data,
                     func(r *syntax.Reader) error {
                         removed, err := r.ReadUint32()
                         if err != nil {
                             return err
                         }
-                        proposal.Remove.Removed = LeafIndex(removed)
+                        value.Removed = LeafIndex(removed)
                         return nil
                     },
                     func(w *syntax.Writer) error {
-                        w.WriteUint32(uint32(proposal.Remove.Removed))
+                        w.WriteUint32(uint32(value.Removed))
                         return nil
                     })
             }},
-        {"pre_shared_key_proposal", func(v *messagesVector) []byte { return v.PreSharedKeyProposal },
-            func(data []byte) ([]byte, error) {
-                value := PreSharedKey{}
-                return roundTrip(data, value.PSK.UnmarshalMLS, value.PSK.MarshalMLS)
+        {"re_init_proposal", func(v *messagesVector) string { return v.ReInitProposal },
+            func(data []byte) error {
+                value := ReInit{}
+                return checkReEncode(data,
+                    func(r *syntax.Reader) error {
+                        groupId, err := r.ReadOpaque()
+                        if err != nil {
+                            return err
+                        }
+                        version, err := r.ReadUint16()
+                        if err != nil {
+                            return err
+                        }
+                        suite, err := r.ReadUint16()
+                        if err != nil {
+                            return err
+                        }
+                        extensions, err := ReadExtensions(r)
+                        if err != nil {
+                            return err
+                        }
+                        value = ReInit{
+                            GroupId:     groupId,
+                            Version:     ProtocolVersion(version),
+                            CipherSuite: CipherSuite(suite),
+                            Extensions:  extensions,
+                        }
+                        return nil
+                    },
+                    func(w *syntax.Writer) error {
+                        w.WriteOpaque(value.GroupId)
+                        w.WriteUint16(uint16(value.Version))
+                        w.WriteUint16(uint16(value.CipherSuite))
+                        return WriteExtensions(w, value.Extensions)
+                    })
             }},
-        {"re_init_proposal", func(v *messagesVector) []byte { return v.ReInitProposal },
-            func(data []byte) ([]byte, error) {
-                proposal := Proposal{ProposalType: ProposalTypeReInit}
-                w := syntax.NewWriter()
-                w.WriteUint16(uint16(ProposalTypeReInit))
-                framed := append(w.Bytes(), data...)
-                r := syntax.NewReader(framed)
-                if err := proposal.UnmarshalMLS(r); err != nil {
-                    return nil, err
-                }
-                if err := r.Finish(); err != nil {
-                    return nil, err
-                }
-                out := syntax.NewWriter()
-                if err := proposal.MarshalMLS(out); err != nil {
-                    return nil, err
-                }
-                return out.Bytes()[2:], nil
-            }},
-        {"external_init_proposal", func(v *messagesVector) []byte { return v.ExternalInitProposal },
-            func(data []byte) ([]byte, error) {
+        {"external_init_proposal", func(v *messagesVector) string { return v.ExternalInitProposal },
+            func(data []byte) error {
                 value := ExternalInit{}
-                return roundTrip(data,
+                return checkReEncode(data,
                     func(r *syntax.Reader) error {
                         kemOutput, err := r.ReadOpaque()
                         if err != nil {
@@ -4688,127 +5897,79 @@ func messagesCodecs() []messagesCodec {
                         value.KemOutput = kemOutput
                         return nil
                     },
-                    func(w *syntax.Writer) error { return w.WriteOpaque(value.KemOutput) })
+                    func(w *syntax.Writer) error {
+                        w.WriteOpaque(value.KemOutput)
+                        return nil
+                    })
             }},
-        {"group_context_extensions_proposal", func(v *messagesVector) []byte {
+        {"group_context_extensions_proposal", func(v *messagesVector) string {
             return v.GroupContextExtensionsProposal
         },
-            func(data []byte) ([]byte, error) {
+            func(data []byte) error {
                 value := GroupContextExtensions{}
-                return roundTrip(data,
+                return checkReEncode(data,
                     func(r *syntax.Reader) error {
-                        extensions, err := unmarshalExtensions(r)
+                        extensions, err := ReadExtensions(r)
                         if err != nil {
                             return err
                         }
                         value.Extensions = extensions
                         return nil
                     },
-                    func(w *syntax.Writer) error { return marshalExtensions(w, value.Extensions) })
-            }},
-        {"commit", func(v *messagesVector) []byte { return v.Commit },
-            func(data []byte) ([]byte, error) {
-                value := Commit{}
-                return roundTrip(data, value.UnmarshalMLS, value.MarshalMLS)
-            }},
-        {"public_message_application", func(v *messagesVector) []byte { return v.PublicMessageApplication },
-            roundTripMLSMessage},
-        {"public_message_proposal", func(v *messagesVector) []byte { return v.PublicMessageProposal },
-            roundTripMLSMessage},
-        {"public_message_commit", func(v *messagesVector) []byte { return v.PublicMessageCommit },
-            roundTripMLSMessage},
-        {"private_message", func(v *messagesVector) []byte { return v.PrivateMessage },
-            roundTripMLSMessage},
-
-        // owned by other plans; decoded through their types
-        {"mls_welcome", func(v *messagesVector) []byte { return v.MlsWelcome }, roundTripMLSMessage},
-        {"mls_group_info", func(v *messagesVector) []byte { return v.MlsGroupInfo }, roundTripMLSMessage},
-        {"mls_key_package", func(v *messagesVector) []byte { return v.MlsKeyPackage }, roundTripMLSMessage},
-        {"group_secrets", func(v *messagesVector) []byte { return v.GroupSecrets },
-            func(data []byte) ([]byte, error) {
-                value := GroupSecrets{}
-                return roundTrip(data, value.UnmarshalMLS, value.MarshalMLS)
-            }},
-        {"ratchet_tree", func(v *messagesVector) []byte { return v.RatchetTree },
-            func(data []byte) ([]byte, error) {
-                nodes := []*Node{}
-                return roundTrip(data,
-                    func(r *syntax.Reader) error {
-                        return r.ReadVector(func(r *syntax.Reader) error {
-                            present, err := r.ReadUint8()
-                            if err != nil {
-                                return err
-                            }
-                            switch present {
-                            case 0:
-                                nodes = append(nodes, nil)
-                                return nil
-                            case 1:
-                                node := &Node{}
-                                if err := node.UnmarshalMLS(r); err != nil {
-                                    return err
-                                }
-                                nodes = append(nodes, node)
-                                return nil
-                            }
-                            return ErrOptionalPresence
-                        })
-                    },
                     func(w *syntax.Writer) error {
-                        return w.WriteVector(len(nodes), func(w *syntax.Writer, i int) error {
-                            if nodes[i] == nil {
-                                w.WriteUint8(0)
-                                return nil
-                            }
-                            w.WriteUint8(1)
-                            return nodes[i].MarshalMLS(w)
-                        })
+                        return WriteExtensions(w, value.Extensions)
                     })
             }},
+
+        // produced by other plans, decoded through their types
+        {"mls_key_package", func(v *messagesVector) string { return v.MlsKeyPackage },
+            checkMLSMessageReEncode},
+        {"ratchet_tree", func(v *messagesVector) string { return v.RatchetTree },
+            func(data []byte) error {
+                // the tree is the one field that must NOT use the 1 MiB default
+                // vector limit; UnmarshalRatchetTree carries the 16 MiB one
+                tree, err := UnmarshalRatchetTree(data)
+                if err != nil {
+                    return err
+                }
+                encoded, err := syntax.Marshal(tree)
+                if err != nil {
+                    return err
+                }
+                if !bytes.Equal(encoded, data) {
+                    return fmt.Errorf("re-encoded %x, want %x", encoded, data)
+                }
+                return nil
+            }},
     }
 }
 
-func roundTripMLSMessage(data []byte) ([]byte, error) {
-    message, err := ParseMLSMessage(data)
-    if err != nil {
-        return nil, err
+func verifyMessagesVector(t *testing.T, raw json.RawMessage) {
+    vector := messagesVector{}
+    if err := json.Unmarshal(raw, &vector); err != nil {
+        t.Fatalf("parse vector: %v", err)
     }
-    return MarshalMLSMessage(message)
-}
-
-func TestMessagesVectorsRoundTripByteExact(t *testing.T) {
-    data, err := os.ReadFile("testdata/vectors/messages.json")
-    if err != nil {
-        t.Fatalf("read vectors: %v", err)
-    }
-    vectors := []messagesVector{}
-    if err := json.Unmarshal(data, &vectors); err != nil {
-        t.Fatalf("parse vectors: %v", err)
-    }
-    if len(vectors) == 0 {
-        t.Fatal("no vectors")
-    }
-
     codecs := messagesCodecs()
     if len(codecs) != 17 {
         t.Fatalf("%d codecs, want 17 — every field in the vector needs one", len(codecs))
     }
-    for i := range vectors {
-        for _, codec := range codecs {
-            input := codec.bytes(&vectors[i])
-            if len(input) == 0 {
-                t.Errorf("vector %d %s: empty", i, codec.name)
-                continue
-            }
-            output, err := codec.round(input)
-            if err != nil {
-                t.Errorf("vector %d %s: %v", i, codec.name, err)
-                continue
-            }
-            if !bytes.Equal(input, output) {
-                t.Errorf("vector %d %s: re-encoded %x, want %x", i, codec.name, output, input)
-            }
+    for _, codec := range codecs {
+        encoded := codec.field(&vector)
+        if encoded == "" {
+            t.Errorf("%s: empty", codec.name)
+            continue
         }
+        if err := codec.check(MustHex(t, encoded)); err != nil {
+            t.Errorf("%s: %v", codec.name, err)
+        }
+    }
+}
+
+func TestMessagesVectorsRoundTripByteExact(t *testing.T) {
+    for i, raw := range LoadVectorFile(t, "messages.json") {
+        t.Run(fmt.Sprintf("vector%d", i), func(t *testing.T) {
+            verifyMessagesVector(t, raw)
+        })
     }
 }
 ```
@@ -4816,52 +5977,59 @@ func TestMessagesVectorsRoundTripByteExact(t *testing.T) {
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `go test ./connect/mls/... -run 'TestMessagesVectors' -v`
-Expected: FAIL — `read vectors: open testdata/vectors/messages.json: no such file or directory`,
-then compile errors naming whichever of `Welcome`, `GroupInfo`, `GroupSecrets`, `Node` are not yet
-merged.
+Expected: FAIL — a `LoadVectorFile` failure on the missing `testdata/vectors/messages.json`, then
+compile errors naming whichever of `KeyPackage`, `LeafNode`, `RatchetTree`, `PreSharedKeyId` are
+not yet merged.
 
-- [ ] **Step 3: Vendor the vector file**
+- [ ] **Step 3: Confirm the vendored file and deregister the pending family**
+
+The file is vendored by the validation plan's single vendoring task; this plan does not re-vendor
+it.
 
 ```bash
-cd /c/Users/ryanm/Downloads/claude_sandbox_message/connect/mls/testdata/vectors
-curl -fsSL -o messages.json \
-  "https://raw.githubusercontent.com/mlswg/mls-implementations/$(grep '^mlswg_commit:' ../../interop/PINS.md | awk '{print $2}')/test-vectors/messages.json"
+cd /c/Users/ryanm/Downloads/claude_sandbox_message/connect/mls
+test -f testdata/vectors/messages.json || echo "blocked: the vendoring task has not run"
 ```
+
+Delete `12` from `expectedPendingFamilies` in the vector registry, in this same commit.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./connect/mls/... -run 'TestMessagesVectors' -v`
-Expected: PASS — one test, 17 fields per vector.
+Run: `go test ./connect/mls/... -run 'TestMessagesVectors|TestVectorFamilies' -v`
+Expected: PASS — one subtest per vector, 17 fields each, and the registry sweep now including
+family 12.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 cd /c/Users/ryanm/Downloads/claude_sandbox_message/connect
 git ls-files | wc -l
-git add mls/messages_kat_test.go mls/testdata/vectors/messages.json
-git ls-files | wc -l   # MUST be previous + 2
+git add mls/messages_kat_test.go mls/vectors_test.go
+git ls-files | wc -l   # MUST be previous + 1
 git commit -m "test(mls): messages vector family, byte-exact re-encoding for all 17 fields"
 ```
 
 ---
 
-### Task 18: Fuzz targets and the constant-time comparison gate
+### Task 19: The constant-time comparison gate and the fuzz seed corpus
 
 **Files:**
-- Create: `connect/mls/framing_fuzz_test.go`
-- Test data: `connect/mls/testdata/corpus/` (seeded from the two vector files)
+- Create: `connect/mls/framing_guard_test.go`
+- Test data: `connect/mls/testdata/corpus/` (owned by the validation plan; this task contributes
+  four seeds)
 
 **Interfaces:**
-- Consumes: Tasks 1–17.
-- Produces: `FuzzMlsMessageDecode`, `FuzzMlsMessageDecodeBytes`, `FuzzProposalDecode`,
-  `FuzzProposalDecodeBytes` — four of the nine Gate 4 targets (Spec A §4.4). The other five
-  (`extension_decode`, `extension_decode_bytes`, `key_package_decode`, `key_package_decode_bytes`,
-  `welcome_decode`) belong to the extension, key-package and welcome plans.
+- Consumes: Tasks 1–18; `func LoadVectorFile(t *testing.T, file string) []json.RawMessage`,
+  `func MustHex(t *testing.T, s string) []byte` (p8, wave 1).
+- Produces: `TestFramingUsesConstantTimeComparison` and `TestWriteFramingCorpusSeeds`. **No fuzz
+  targets.**
 
-Gate 4 properties 1 and 2 run on every commit for 60 seconds per target and are asserted here.
-Property 3 — differential agreement with OpenMLS — is the nightly job owned by the wave-1
-validation and interop plan; this task only guarantees the targets exist with the names that job
-invokes.
+**All nine Gate-4 fuzz targets are p8's** (registry §9.5). `FuzzMlsMessageDecode`,
+`FuzzMlsMessageDecodeBytes`, `FuzzProposalDecode` and `FuzzProposalDecodeBytes` were declared here
+and are deleted: p8 owns the codec table and the oracle hook that property 3 needs, and its
+`TestFuzzTargetsCoverEveryKind` parses the target file with `go/ast` so a deleted target turns red.
+This plan contributes **seed corpus only**, which is the part that actually needs the vector
+knowledge that lives here.
 
 `TestFramingUsesConstantTimeComparison` replaces the `bytes.Equal` grep gate of Spec A §5.9 G8 with
 a test, so the gate cannot be defeated by a shell script that stops being run.
@@ -4869,11 +6037,11 @@ a test, so the gate cannot be defeated by a shell script that stops being run.
 - [ ] **Step 1: Write the failing test**
 
 ```go
-// framing_fuzz_test.go
+// framing_guard_test.go
 package mls
 
 import (
-    "bytes"
+    "encoding/json"
     "os"
     "path/filepath"
     "strings"
@@ -4882,123 +6050,14 @@ import (
     "github.com/urnetwork/connect/mls/syntax"
 )
 
-func seedFromCorpus(f *testing.F, names ...string) {
-    f.Helper()
-    for _, name := range names {
-        data, err := os.ReadFile(filepath.Join("testdata", "corpus", name))
-        if err != nil {
-            continue
-        }
-        f.Add(data)
-    }
-}
-
-// Gate 4 properties 1 and 2: no panic and no over-allocation on any input, and
-// canonical round-trip stability on every input that decodes. a decoder that
-// accepts two encodings of one object is a signature-bypass primitive, because
-// MLS signs serialized forms.
-func FuzzMlsMessageDecode(f *testing.F) {
-    seedFromCorpus(f, "mls_message_public.bin", "mls_message_private.bin")
-    f.Add([]byte{0x00, 0x01, 0x00, 0x02})
-    f.Fuzz(func(t *testing.T, data []byte) {
-        message, err := ParseMLSMessage(data)
-        if err != nil {
-            return
-        }
-        encoded, err := MarshalMLSMessage(message)
-        if err != nil {
-            t.Fatalf("decoded object failed to re-encode: %v", err)
-        }
-        if !bytes.Equal(encoded, data) {
-            t.Fatalf("non-canonical accept: re-encoded %x, input %x", encoded, data)
-        }
-        again, err := ParseMLSMessage(encoded)
-        if err != nil {
-            t.Fatalf("re-encoded object failed to decode: %v", err)
-        }
-        againEncoded, err := MarshalMLSMessage(again)
-        if err != nil {
-            t.Fatalf("second re-encode: %v", err)
-        }
-        if !bytes.Equal(againEncoded, encoded) {
-            t.Fatal("decode/encode is not idempotent")
-        }
-    })
-}
-
-// the structured variant. Go's fuzzer only mutates byte strings, so the
-// structured target is seeded from a generator and is otherwise identical
-// (Spec A §4.4).
-func FuzzMlsMessageDecodeBytes(f *testing.F) {
-    for _, wireFormat := range []WireFormat{WireFormatPublicMessage, WireFormatPrivateMessage} {
-        w := syntax.NewWriter()
-        w.WriteUint16(uint16(ProtocolVersionMLS10))
-        w.WriteUint16(uint16(wireFormat))
-        f.Add(w.Bytes())
-    }
-    f.Fuzz(func(t *testing.T, data []byte) {
-        message, err := ParseMLSMessage(data)
-        if err != nil {
-            return
-        }
-        encoded, err := MarshalMLSMessage(message)
-        if err != nil {
-            t.Fatalf("re-encode: %v", err)
-        }
-        if !bytes.Equal(encoded, data) {
-            t.Fatalf("non-canonical accept: %x vs %x", encoded, data)
-        }
-    })
-}
-
-func FuzzProposalDecode(f *testing.F) {
-    seedFromCorpus(f, "proposal_add.bin", "proposal_remove.bin")
-    f.Add([]byte{0x00, 0x03, 0x00, 0x00, 0x00, 0x01})
-    f.Fuzz(func(t *testing.T, data []byte) {
-        proposal := &Proposal{}
-        r := syntax.NewReader(data)
-        if err := proposal.UnmarshalMLS(r); err != nil {
-            return
-        }
-        if err := r.Finish(); err != nil {
-            return
-        }
-        w := syntax.NewWriter()
-        if err := proposal.MarshalMLS(w); err != nil {
-            t.Fatalf("re-encode: %v", err)
-        }
-        if !bytes.Equal(w.Bytes(), data) {
-            t.Fatalf("non-canonical accept: %x vs %x", w.Bytes(), data)
-        }
-    })
-}
-
-func FuzzProposalDecodeBytes(f *testing.F) {
-    f.Add([]byte{0x0a, 0x0a})
-    f.Add([]byte{0x00, 0x07, 0x00, 0x00, 0x00, 0x00})
-    f.Fuzz(func(t *testing.T, data []byte) {
-        proposalOrRef := &ProposalOrRef{}
-        r := syntax.NewReader(data)
-        if err := proposalOrRef.UnmarshalMLS(r); err != nil {
-            return
-        }
-        if err := r.Finish(); err != nil {
-            return
-        }
-        w := syntax.NewWriter()
-        if err := proposalOrRef.MarshalMLS(w); err != nil {
-            t.Fatalf("re-encode: %v", err)
-        }
-        if !bytes.Equal(w.Bytes(), data) {
-            t.Fatalf("non-canonical accept: %x vs %x", w.Bytes(), data)
-        }
-    })
-}
-
 // Spec A §5.9 G8, as a test rather than a shell grep: a grep gate stops being
 // a gate the first time someone runs the suite without the script.
 func TestFramingUsesConstantTimeComparison(t *testing.T) {
-    for _, name := range []string{"framing.go", "framing_preimage.go", "framing_protect.go"} {
+    sources := []string{
+        "framing.go", "framing_preimage.go", "framing_protect.go",
+        "framing_errors.go", "proposal_wire.go", "commit_wire.go", "welcome_wire.go",
+    }
+    for _, name := range sources {
         source, err := os.ReadFile(name)
         if err != nil {
             t.Fatalf("%s: %v", name, err)
@@ -5010,58 +6069,223 @@ func TestFramingUsesConstantTimeComparison(t *testing.T) {
         }
     }
 }
+
+// the seed-corpus contribution to the validation plan's nine Gate-4 targets.
+// this plan owns no fuzz target; it owns the knowledge of which vector fields
+// make good seeds, which is what this writes out. guarded by an env var so a
+// normal test run never touches the tracked corpus.
+func TestWriteFramingCorpusSeeds(t *testing.T) {
+    outDir := os.Getenv("URMSG_MLS_WRITE_CORPUS")
+    if outDir == "" {
+        t.Skip("set URMSG_MLS_WRITE_CORPUS=<dir> to regenerate the framing seed corpus")
+    }
+    if err := os.MkdirAll(outDir, 0o755); err != nil {
+        t.Fatalf("mkdir: %v", err)
+    }
+
+    raws := LoadVectorFile(t, "messages.json")
+    vector := messagesVector{}
+    if err := json.Unmarshal(raws[0], &vector); err != nil {
+        t.Fatalf("parse vector: %v", err)
+    }
+
+    // a Proposal seed is the arm body framed with its uint16 discriminant,
+    // because the fuzz target decodes a whole Proposal
+    framedRemove, err := syntax.Marshal(&Proposal{
+        ProposalType: ProposalTypeRemove,
+        Remove:       &Remove{Removed: 0},
+    })
+    if err != nil {
+        t.Fatalf("remove proposal: %v", err)
+    }
+
+    seeds := map[string][]byte{
+        "mls_message_public.bin":  MustHex(t, vector.PublicMessageProposal),
+        "mls_message_private.bin": MustHex(t, vector.PrivateMessage),
+        "mls_message_welcome.bin": MustHex(t, vector.MlsWelcome),
+        "proposal_remove.bin":     framedRemove,
+    }
+    for name, data := range seeds {
+        if err := os.WriteFile(filepath.Join(outDir, name), data, 0o644); err != nil {
+            t.Fatalf("%s: %v", name, err)
+        }
+    }
+}
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./connect/mls/... -run 'TestFramingUsesConstantTimeComparison' -v && go test ./connect/mls/... -run 'FuzzMlsMessageDecode' -fuzz 'FuzzMlsMessageDecode$' -fuzztime 10s`
-Expected: FAIL — the fuzz targets do not exist yet, so `-fuzz` reports
-`no fuzz test FuzzMlsMessageDecode`. Once the file is added, expect the round-trip property to fail
-on any decoder that accepts non-minimal length prefixes.
+Run: `go test ./connect/mls/... -run 'TestFramingUsesConstantTimeComparison|TestWriteFramingCorpusSeeds' -v`
+Expected: FAIL — the guard test reports a missing file until `welcome_wire.go` and the other six
+sources exist, and the seed test is skipped. It turns green once Tasks 1–18 have landed.
 
-- [ ] **Step 3: Seed the corpus**
+- [ ] **Step 3: Write the seed corpus into the validation plan's corpus directory**
 
 ```bash
 cd /c/Users/ryanm/Downloads/claude_sandbox_message/connect/mls
-mkdir -p testdata/corpus
-go run ./interop/oracle/seedgen \
-  -vectors testdata/vectors/messages.json \
-  -out testdata/corpus
+URMSG_MLS_WRITE_CORPUS=testdata/corpus \
+  go test ./... -run 'TestWriteFramingCorpusSeeds' -v
 ```
 
-If `interop/oracle/seedgen` does not exist yet (it is the wave-1 validation plan's tool), extract
-the seeds with a one-off Go test instead: add `TestWriteCorpusSeeds` to `messages_kat_test.go`
-guarded by `if os.Getenv("WRITE_CORPUS") == ""` { t.Skip(...) }, writing
-`vectors[0].PublicMessageProposal` to `testdata/corpus/mls_message_public.bin`,
-`vectors[0].PrivateMessage` to `mls_message_private.bin`, `vectors[0].AddProposal` framed with its
-uint16 type to `proposal_add.bin`, and `vectors[0].RemoveProposal` framed the same way to
-`proposal_remove.bin`. `seedFromCorpus` skips missing files, so an unseeded corpus is a weaker
-fuzz run rather than a broken one.
+`testdata/corpus/` is committed and owned by the validation plan alongside `interop/cmd/seedgen`;
+this task adds four files to it and nothing else. A missing seed weakens a fuzz run rather than
+breaking it, so this step is not a gate.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 4: Run the guard test and the package once**
 
 Run:
 ```
 go test ./connect/mls/... -run 'TestFramingUsesConstantTimeComparison' -v
-go test ./connect/mls/... -fuzz 'FuzzMlsMessageDecode$' -fuzztime 60s
-go test ./connect/mls/... -fuzz 'FuzzMlsMessageDecodeBytes$' -fuzztime 60s
-go test ./connect/mls/... -fuzz 'FuzzProposalDecode$' -fuzztime 60s
-go test ./connect/mls/... -fuzz 'FuzzProposalDecodeBytes$' -fuzztime 60s
+go test ./connect/mls/... -race -timeout 0
 ```
-Expected: PASS — the guard test green, and each fuzz run reporting `elapsed: 60s` with no new
-failing inputs written to `testdata/fuzz/`.
+Expected: PASS — the guard test green, and every test in this plan plus everything waves 1 and 2
+merged. The nine fuzz targets are run by the validation plan's own gate, not from here.
 
-- [ ] **Step 5: Run the whole package once, then commit**
-
-Run: `go test ./connect/mls/... -race -timeout 0`
-Expected: PASS — every test in this plan plus everything waves 1 and 2 merged.
+- [ ] **Step 5: Commit**
 
 ```bash
 cd /c/Users/ryanm/Downloads/claude_sandbox_message/connect
 git ls-files | wc -l
-git add mls/framing_fuzz_test.go mls/testdata/corpus
-git ls-files | wc -l   # MUST be previous + 1 + the number of corpus files
-git commit -m "test(mls): framing fuzz targets and the constant-time comparison gate"
+git add mls/framing_guard_test.go mls/testdata/corpus
+git ls-files | wc -l   # MUST be previous + 1 + the number of new corpus files
+git commit -m "test(mls): the constant-time comparison gate and the framing fuzz seed corpus"
+```
+
+---
+
+### Task 20: The two construction-bypass seams for the validation forge
+
+**Files:**
+- Create: `connect/mls/framing_group_seams.go`
+
+**Interfaces:**
+- Consumes: `type Group struct{ ... }` and `func (self *Group) GroupContext() ([]byte, error)`
+  (p7 §8.3, **wave 4**); `func (self *KeySchedule) Secrets() *EpochSecrets` with the
+  `EpochSecrets.Membership` and `EpochSecrets.SenderData` fields (p4 §5.2);
+  `type SecretTree struct{ ... }` as a `MessageKeySource` (p4 §5.5). Tasks 1–15.
+- Produces:
+  ```go
+  func (self *Group) sealFramedContentForTest(c *FramedContent, auth *FramedContentAuthData,
+      wf WireFormat, signer SignaturePrivateKey) ([]byte, error)
+  func (self *Group) sealFramedContentWithPaddingForTest(c *FramedContent, auth *FramedContentAuthData,
+      wf WireFormat, signer SignaturePrivateKey, padding []byte) ([]byte, error)
+  ```
+
+**These are this plan's, with the validation plan's exact signatures** (registry §7.3 and §12). All
+ten of that plan's ValSem002–011 tests depend on them; it flagged them as "an ask on that plan" and
+no task here took the ask, so nothing would have failed until integration. They are methods on
+`*Group` because a forged message must carry the group's real epoch keys — only the sender-chosen
+fields are overridden.
+
+**Sequencing.** `*Group` is the lifecycle plan's type and lands in wave 4, so this task executes
+after it, even though the file is owned here. That is a scheduling fact, not a dependency inversion:
+the seams are framing operations and belong beside the framing code that performs them.
+
+**The one coupling this task carries** is three unexported `Group` fields: `crypto CryptoProvider`,
+`keySchedule *KeySchedule` and `secretTree *SecretTree`. Everything reached through them —
+`(*KeySchedule).Secrets()`, `EpochSecrets.Membership`, `EpochSecrets.SenderData`, and `*SecretTree`
+satisfying `MessageKeySource` — is a registry symbol.
+
+- [ ] **Step 1: Write the failing test**
+
+This task's tests are the ten ValSem002–011 tests in the validation plan, which already exist and
+already call these two names. The failing state is therefore that plan's suite:
+
+Run: `go test ./connect/mls/... -run 'TestValSem0(0[2-9]|1[01])' -v`
+Expected: FAIL — `self.sealFramedContentForTest undefined (type *Group has no field or method
+sealFramedContentForTest)`, at every one of the ten.
+
+Do **not** add a duplicate test here: two tests over one seam is how the seam and the tests drift
+into disagreeing about which fields the caller controls.
+
+- [ ] **Step 2: Confirm the failure is the missing seam and not a missing Group**
+
+Run: `go build ./connect/mls/...`
+Expected: the package builds. If it does not, the lifecycle plan has not landed `Group` yet and this
+task is blocked, not stubbed.
+
+- [ ] **Step 3: Write minimal implementation**
+
+```go
+// framing_group_seams.go
+// construction-bypass seams for the validation plan's forge. every one of the
+// ValSem002-011 negative tests needs to put a message on the wire that a
+// correct sender would never produce - a stripped membership tag, a commit
+// without a confirmation tag, non-zero padding - while keeping the group's real
+// epoch keys, so the receiver fails for the reason under test rather than
+// because the ciphertext was nonsense. unexported: nothing outside package mls
+// can reach them, and the production Seal* entry points cannot express them.
+package mls
+
+func (self *Group) sealFramedContentForTest(c *FramedContent, auth *FramedContentAuthData,
+    wf WireFormat, signer SignaturePrivateKey) ([]byte, error) {
+
+    return self.sealFramedContentWithPaddingForTest(c, auth, wf, signer, nil)
+}
+
+func (self *Group) sealFramedContentWithPaddingForTest(c *FramedContent, auth *FramedContentAuthData,
+    wf WireFormat, signer SignaturePrivateKey, padding []byte) ([]byte, error) {
+
+    groupContext, err := self.GroupContext()
+    if err != nil {
+        return nil, err
+    }
+    // sign normally first, so the signature is over the caller's content and
+    // only the auth data is forged
+    authContent, err := SignAuthenticatedContent(self.crypto, signer, wf, c, groupContext)
+    if err != nil {
+        return nil, err
+    }
+    if auth != nil {
+        authContent.Auth = *auth
+    }
+
+    secrets := self.keySchedule.Secrets()
+    message := &MLSMessage{Version: ProtocolVersionMls10, WireFormat: wf}
+    switch wf {
+    case WireFormatPublicMessage:
+        publicMessage, err := SealPublicMessage(self.crypto, secrets.Membership,
+            authContent, groupContext)
+        if err != nil {
+            return nil, err
+        }
+        message.PublicMessage = publicMessage
+    case WireFormatPrivateMessage:
+        privateMessage, err := sealPrivateMessage(self.crypto, self.secretTree,
+            secrets.SenderData, authContent, padding)
+        if err != nil {
+            return nil, err
+        }
+        message.PrivateMessage = privateMessage
+    default:
+        return nil, ErrWireFormatMismatch
+    }
+    return MarshalMLSMessage(message)
+}
+```
+
+The seams return a whole encoded `MLSMessage`, through the same `MarshalMLSMessage` every sender
+uses, so the forge hands the receiver exactly what the network would.
+
+A forged `PublicMessage` carrying application content is still refused by `SealPublicMessage` with
+ValSem005 — that refusal is the sender-side half of the code under test, and the forge exercises the
+receiver-side half by hand-assembling the message instead. A forged commit with no confirmation tag
+is likewise refused at `FramedContentAuthData.MarshalMLS`; the validation plan's
+`CommitOptions.dropConfirmationTag` seam is the path for that case, and it is its own.
+
+- [ ] **Step 4: Run the validation plan's framing ValSem suite**
+
+Run: `go test ./connect/mls/... -run 'TestValSem0(0[2-9]|1[01])' -v`
+Expected: PASS — all ten.
+
+- [ ] **Step 5: Commit**
+
+```bash
+cd /c/Users/ryanm/Downloads/claude_sandbox_message/connect
+git ls-files | wc -l
+git add mls/framing_group_seams.go
+git ls-files | wc -l   # MUST be previous + 1
+git commit -m "feat(mls): construction-bypass framing seams for the validation forge"
 ```
 
 ---
@@ -5071,59 +6295,83 @@ git commit -m "test(mls): framing fuzz targets and the constant-time comparison 
 The task numbers are reading order. The dependency order, which is what an executor follows:
 
 ```
-1  enums, Sender, errors
+1  enums, Sender, structural errors
 12 proposal wire types      (Task 2 does not compile without Proposal)
 13 commit wire type         (Task 2 does not compile without Commit)
 2  FramedContent
 3  FramedContentAuthData
-4  AuthenticatedContent + ConfirmedTranscriptHashInput
+4  AuthenticatedContent + ConfirmedTranscriptHashInput + ProposalRef
 5  FramedContentTBS, sign, verify
 6  AuthenticatedContentTBM, membership tag
 7  PublicMessage
 8  PrivateMessage + AADs
-9  SenderData
+9  SenderData + sender-data seal/open
 10 PrivateMessageContent + padding
 11 MessageKeySource, reuse guard, seal/open
-14 MLSMessage               (needs Welcome, GroupInfo, KeyPackage from other waves)
-15 ValSem roster
-16 message-protection vectors
-17 messages vectors
-18 fuzz targets + G8 gate
+14 GroupInfo / GroupSecrets / Welcome codecs
+15 MLSMessage               (needs Welcome and GroupInfo from Task 14, KeyPackage from wave 2)
+16 framing refusal roster
+17 message-protection vectors  (family 4)
+18 messages vectors            (family 12)
+19 G8 gate + fuzz seed corpus
+20 the two *ForTest seams      (WAVE 4: needs the lifecycle plan's *Group)
 ```
 
-Tasks 1–13 depend on wave 1 only (`syntax`, `CryptoProvider`, `LeafIndex`) plus `KeyPackage`,
-`LeafNode`, `Extension`, `PreSharedKeyID`. Tasks 14, 16 and 17 additionally need wave-2 and
-wave-4 types and are the ones that will block if another plan slips.
+Tasks 1–14 depend on wave 1 (`syntax`, `CryptoProvider`, `LeafIndex`, the ValSem catalogue) and
+wave 2 (`ProtocolVersion`, `ProposalType`, `Extension`, `WriteExtensions`/`ReadExtensions`,
+`LeafNode`, `KeyPackage`, `HpkeCiphertext`, `UpdatePath`, `GroupContext`, `PreSharedKeyId`,
+`SecretTree`). Task 15 additionally needs `KeyPackage` — which the registry assigns to the TreeKEM
+plan in **wave 2**, precisely so this wave-3 struct can name it. Tasks 17–19 need the vector
+registry and the vendored files. **Task 20 is the only wave-4 task in this plan**, because `*Group`
+does not exist before then.
 
 ## What this plan deliberately does not cover
 
 | Thing | Owner |
 |---|---|
-| `confirmed_transcript_hash` / `interim_transcript_hash` chaining | the transcript plan; it consumes `(*AuthenticatedContent).ConfirmedTranscriptHashInput()` |
+| `ConfirmedTranscriptHash` / `InterimTranscriptHash` chaining | key schedule (`transcript.go`); it consumes `(*AuthenticatedContent).ConfirmedTranscriptHashInput()` as **bytes**, so no framing type crosses into `transcript.go` |
 | Computing `confirmation_tag` from `confirmation_key` | key schedule (wave 2); framing carries the tag and MACs over it, never derives it |
-| The secret tree's ratchet, generation window and skipped-key store | key schedule and secret tree (wave 2), behind `MessageKeySource` |
-| `ParseProposal` and the profile refusals ValSem401–403 | proposals plan (wave 4) |
-| ValSem101–113, ValSem200–209, ValSem240–246, ValSem300, ValSem400 | proposals, commit and tree plans |
-| RFC 9420 errata 8745 (LeafNode capability validation on Update) and 8815 (commit references an unreceived proposal) | leaf-node plan and commit plan respectively — **neither is a framing erratum** |
-| `Welcome`, `GroupInfo`, `KeyPackage`, `GroupSecrets`, `Node`, `UpdatePath`, `Extension`, `PreSharedKeyID`, `LeafNode` codecs | their own plans |
-| The five other Gate 4 fuzz targets and the nightly OpenMLS differential | validation and interop harness plan (wave 1) |
-| `group.go`'s `Protect`/`Unprotect` and `ProcessMessage` | group lifecycle (wave 4), calling this plan's `SealPrivateMessage` / `OpenPrivateMessage` |
+| `SenderDataKeyNonce`, the §6.3.2 derivation | key schedule (wave 2); this plan calls it and keeps the two short-ciphertext regression tests |
+| The secret tree's ratchet, generation window and skipped-key store, including `EraseMessageKey` | key schedule and secret tree (wave 2), behind `MessageKeySource` |
+| `ProtocolVersion`, `ProtocolVersionMls10`, `ProposalType` and its constants, `ExtensionType`, `CredentialType` | registry enums (wave 2) |
+| `WriteExtensions` / `ReadExtensions` | extension file (wave 2) |
+| `KeyPackage`, `LeafNode`, `UpdatePath`, `HpkeCiphertext`, `RatchetTree`, `Node`, `Extension` codecs | TreeKEM / leaf-node plan (wave 2) |
+| `GroupContext` and `PreSharedKeyId` codecs | key schedule (wave 2) |
+| `(*GroupInfo).Sign`, `(*GroupInfo).Verify`, `BuildWelcome`, `WelcomeJoiner`, `JoinFromWelcome` | group lifecycle (wave 4); this plan owns only the **codecs** for those types |
+| The profile refusals — `(*Profile).CheckProposalType` and the six other `Check*` — and ValSem401–403 | validation plan (`profile.go`, wave 1), called by the lifecycle plan at the parse boundary |
+| ValSem101–113, ValSem200–209, ValSem240–246, ValSem300, ValSem400 | proposal, commit and tree plans |
+| The ten ValSem002–011 **sentinels** and the `TestValSemNNN_<slug>` test names | validation plan (`errors.go`, wave 1); this plan returns `ValSem(code, sentinel)` and names its own tests for behaviour |
+| RFC 9420 errata 8745 and 8815 | group lifecycle, as `CheckErrata8745` / `CheckErrata8815` — **neither is a framing erratum** |
+| All nine Gate 4 fuzz targets and the nightly OpenMLS differential | validation and interop plan; this plan contributes seed corpus |
+| `MustHex`, `HexOf`, `LoadVectorFile`, `RegisterVectorFamily`, vendoring, `interop/PINS.md` | validation plan (wave 1) |
+| `(*Group).Protect`/`Unprotect` and `ProcessMessage` | group lifecycle (wave 4), calling this plan's `SealPrivateMessage` / `OpenPrivateMessage` |
 
-## Coordination items to raise before execution
+## Settled coordination items
 
-1. **`Proposal` and `Commit` ownership.** This plan claims their **wire codecs** because the
-   `messages` gate cannot be green without them. The wave-4 plan must claim only `proposal.go`
-   (list validation, `ParseProposal`, the profile refusals) and `commit.go` (application). If both
-   plans declare `type Proposal`, the package will not compile and the collision is immediate and
-   obvious — but it should be settled on paper first.
-2. **`hexBytes`.** One declaration per package. This plan puts it in `vectors_hex_test.go`; the
-   wave-1 vector harnesses should use it rather than redeclare it.
-3. **The `syntax` API shape.** This plan assumes an explicit `Writer`/`Reader` rather than a
-   reflection-and-struct-tag codec. MLS's `select()` variants and the unprefixed `padding` and
-   GroupContext fields are the reason. If wave 1 shipped reflection, every `MarshalMLS` body here
-   changes, and the preimage functions change most.
-4. **`NewSecretTree(crypto, groupSize, encryptionSecret)`** and the three `MessageKeySource`
-   methods on `*SecretTree`. Task 16 cannot run without them.
-5. **`MarshalGroupContext`.** Task 16 builds the GroupContext bytes inline. If the key-schedule
-   plan exports a helper, use it, and delete the inline version so there is one GroupContext
-   serializer in the system.
+Every item this plan previously raised as unsettled has been decided by the canonical interface
+registry. They are recorded here as decisions, not as questions.
+
+1. **`Proposal`, `ProposalOrRef` and `Commit` ownership** — settled in this plan's favour (§7.4).
+   This plan owns the structs and codecs; the lifecycle plan keeps `proposal.go` (list validation),
+   `commit.go` (application) and calls `(*Profile).CheckProposalType` at the parse boundary. The
+   deciding argument is the one this plan made: the `messages` family cannot be green without all
+   seven arms, and refusing a proposal type is a *profile* decision, not a *codec* one.
+2. **`Welcome`, `GroupInfo`, `GroupInfoTBS`, `PathSecret`, `GroupSecrets`, `EncryptedGroupSecrets`
+   codecs** — moved **into** this plan from the lifecycle plan (§7.5), because `MLSMessage` names
+   `*Welcome` and `*GroupInfo` by direct type and one Go package cannot compile otherwise. Task 14.
+3. **`hexBytes`** — deleted. The validation plan's wave-1 `MustHex`/`HexOf`/`LoadVectorFile` are the
+   package's only hex path (§9.2).
+4. **The `syntax` API shape** — confirmed as an explicit `Writer`/`Reader`, no reflection and no
+   struct tags (C1). Two consequences this plan absorbed: `MarshalMLS` returns an `error` (O-1, and
+   `FramedContent.MarshalMLS` returning `ErrContentArmMismatch` is one of the three cases that
+   decided it), and `Bytes()` returns `([]byte, error)` rather than a bare slice.
+5. **`NewSecretTree`** — `(crypto CryptoProvider, leafCount LeafCount, encryptionSecret []byte)`.
+   The second parameter is a `LeafCount`, not the `uint32` group size this plan assumed (C3, O-4).
+   The three `MessageKeySource` methods and `EraseMessageKey` are gaps assigned to the key-schedule
+   plan, and Task 11's `var _ MessageKeySource = (*SecretTree)(nil)` is what makes a mismatch fail
+   at build.
+6. **`MarshalGroupContext`** — not needed and not added. `syntax.Marshal` over the key-schedule
+   plan's `*GroupContext` is the one GroupContext serializer in the system, and C4 keeps every entry
+   point here taking `groupContext []byte`.
+7. **`(*AuthenticatedContent).ProposalRef` and the two `*ForTest` seams** — gaps that four other
+   plans called and nobody produced, now assigned here (§12). Tasks 4 and 20.

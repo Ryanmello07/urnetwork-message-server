@@ -9,14 +9,19 @@ codec that every other MLS package and `connect/message` encode and decode throu
 
 **Architecture:** A `Writer` that accumulates bytes with a sticky error, and a `Reader` that is a
 bounds-checked cursor over a byte slice, plus free generic functions for vectors and a top-level
-`Marshal`/`Unmarshal` pair that enforces full consumption. Every variable-length read validates its
-declared length against both the configured maximum and the bytes that remain **before** any
-allocation, and the RFC 9420 §2.1.2 varint accepts exactly one encoding per value. The package
-imports `bytes`, `encoding/binary` and `errors` and nothing else, so it can be audited and fuzzed
-with no transport, no crypto and no third-party code in the graph.
+`Marshal`/`Unmarshal` pair that enforces full consumption. The leaf writes are return-free and the
+sticky error carries their failures; `MarshalMLS` and the two higher-order encode callbacks return
+an `error`, because an MLS encoder also has semantic refusals that are not buffer errors, and
+`Marshal` joins the two. Every variable-length read validates its declared length against both the
+configured maximum and the bytes that remain **before** any allocation, and the RFC 9420 §2.1.2
+varint accepts exactly one encoding per value. The package imports `bytes`, `encoding/binary`,
+`encoding/hex`, `encoding/json`, `errors` and `testing` and nothing else — `testing` because the
+family 16 runner is exported for the wave-4 vector registry — so it can be audited and fuzzed with
+no transport, no crypto and no third-party code in the graph.
 
 **Tech Stack:** Go 1.26.5 standard library only. Go native fuzzing (`testing.F`). The mlswg
-`deserialization.json` test-vector family, vendored at a pinned commit.
+`deserialization.json` test-vector family, vendored and pinned by the validation and interop plan
+(p8 Task 6) and read from `connect/mls/testdata/vectors/`.
 
 ## Global Constraints
 
@@ -48,6 +53,48 @@ with no transport, no crypto and no third-party code in the graph.
   the count has not dropped. Always `git add <explicit paths>`, never `git add -A`.
 - Branch: `beta/message` on `Ryanmello07/connect`, cut from `origin/main`. MLS is **not** proposed
   upstream in v1, so there is no paired `-upstream` branch for this work (Spec A §2.1).
+- **`research/slice1-interface-registry.md` is normative.** Every symbol in this plan that crosses a
+  plan boundary is the registry's spelling; where this plan and that file disagreed, that file won
+  and this plan was amended. §2 is this package's block, and §2.5 records the one override against
+  it (O-1), which is adopted below.
+
+The registry's four conventions, carried here verbatim (registry §0):
+
+**C1 — one codec, one method set.** Every wire type in `package mls` implements exactly:
+
+```go
+MarshalMLS(w *syntax.Writer) error
+UnmarshalMLS(r *syntax.Reader) error
+```
+
+and nothing else. No `MarshalTo`, no `MarshalTLS`, no `Marshal() ([]byte, error)`, no
+`Parse<Type>(data []byte)` free constructor, no `tls:` struct tags, no reflection. Byte-level access
+is `syntax.Marshal(&v)` / `syntax.Unmarshal(bs, &v)`. Every wire type carries
+`var _ syntax.Codec = (*T)(nil)` in its own file so drift fails at build rather than at Gate 4.
+
+The two sanctioned exceptions, because they are a different operation rather than a second spelling
+of the same one:
+- **Extension bodies.** `Extension.ExtensionData` is opaque, so a concrete extension converts
+  bytes↔struct: `func (self *X) Encode() (Extension, error)` and
+  `func ParseXExtension(data []byte) (*X, error)`. Owned per-extension.
+- **p8's codec table.** Five decode/encode closures over `syntax.Marshal`/`Unmarshal`, built inside
+  p8 (§9.4). They export no new `Parse*`/`Encode*` names.
+
+**C2 — the syntax Writer is sticky *and* `MarshalMLS` returns an error.** See §2 override O-1.
+
+**C3 — counts are `LeafCount`, indices are `LeafIndex`/`NodeIndex`, and tree-math arithmetic that
+can be out of range returns an error.** p3's block (§4) is normative for every caller. `TreeSize`
+does not exist.
+
+**C4 — the GroupContext crosses a plan boundary as bytes.** Every p6 entry point takes
+`groupContext []byte`. Callers obtain them from `syntax.Marshal(gc)` or `(*Group).GroupContext()`.
+This is p6's deliberate decision and it is upheld: the GroupContext is inlined into
+`FramedContentTBS` with no length prefix, and taking bytes makes that impossible to get wrong.
+
+C1 and C2 are what this package exists to serve: `Marshaler` is the `MarshalMLS(w *Writer) error`
+half of C1, and `Marshal` returns `errors.Join(v.MarshalMLS(w), w.Err())` so a semantic encoder
+refusal and a buffer error both surface. C3 and C4 name no symbol this package produces or consumes;
+they are carried so every plan's constraints read the same.
 
 ---
 
@@ -64,12 +111,13 @@ with no transport, no crypto and no third-party code in the graph.
 | `connect/mls/syntax/optional.go` | `optional<T>` presence octet, both directions |
 | `connect/mls/syntax/vector.go` | `T items<V>` — byte-length-prefixed vectors of elements, both directions |
 | `connect/mls/syntax/marshal.go` | `Marshaler`/`Unmarshaler`/`Codec`, `Marshal`/`Unmarshal` and their limit variants, `CheckRoundTrip` |
+| `connect/mls/syntax/vectors.go` | `VerifyDeserializationVector` — the family 16 runner; a non-test file because p8's registry shim calls it from `package mls` |
 | `connect/mls/syntax/layering_test.go` | asserts the package's dependency graph is stdlib only |
 | `connect/mls/syntax/errors_test.go` | asserts the sentinels are distinct and survive `errors.Is` through a join |
 | `connect/mls/syntax/encode_test.go` | `Writer` integer, raw, `opaque<V>` and `LP(x)` behaviour |
 | `connect/mls/syntax/decode_test.go` | `Reader` integer, raw, `opaque<V>`, `LP(x)`, sub-reader and full-consumption behaviour |
 | `connect/mls/syntax/varint_test.go` | varint positive boundary table and the negative table the vectors omit |
-| `connect/mls/syntax/vectors_test.go` | test-vector family 16 driver, verify and generate directions |
+| `connect/mls/syntax/vectors_test.go` | drives `VerifyDeserializationVector` over every vector in the vendored family 16 file |
 | `connect/mls/syntax/optional_test.go` | presence octet 0, 1 and malformed |
 | `connect/mls/syntax/vector_test.go` | byte-length-not-element-count, zero-progress guard, misaligned elements |
 | `connect/mls/syntax/marshal_test.go` | full consumption, limit variants, `CheckRoundTrip` behaviour |
@@ -78,8 +126,7 @@ with no transport, no crypto and no third-party code in the graph.
 | `connect/mls/syntax/roundtrip_test.go` | the deterministic seeded round-trip property test |
 | `connect/mls/syntax/fuzzgen_test.go` | `testStruct`/`testItem` and the structured generator that seeds the fuzz targets |
 | `connect/mls/syntax/fuzz_test.go` | `FuzzVarint`, `FuzzOpaque`, `FuzzSyntaxStruct` and the shared corpus loader |
-| `connect/mls/testdata/vectors/deserialization.json` | vendored mlswg family 16 |
-| `connect/mls/testdata/vectors/PINS.md` | the upstream commit every vector family is pinned to |
+| `connect/mls/testdata/vectors/deserialization.json` | read, not created: p8 Task 6 is the single vendoring task for all sixteen mlswg files, and the one pin file is `connect/mls/interop/PINS.md` |
 | `connect/.github/workflows/mls-syntax.yml` | per-commit CI: vet, race test, 60 s of each of the three fuzz targets |
 
 ---
@@ -95,7 +142,9 @@ with no transport, no crypto and no third-party code in the graph.
 - Consumes: nothing. This is the first task of wave 1 and the first code on `beta/message`.
 - Produces: the Go package `github.com/urnetwork/connect/mls/syntax`, and the guarantee — enforced by
   test — that its dependency graph is stdlib only, which is what lets every later wave import it from
-  anywhere without creating a cycle.
+  anywhere without creating a cycle. **The `go.mod` edit is this task's and only this task's**
+  (registry §11): `go 1.26.3` kept, `toolchain go1.26.5` added. p2 Task 1 makes its identical step
+  conditional behind a `git diff --exit-code go.mod` guard (registry §2.5 O-3).
 
 - [ ] **Step 1: Cut the branch and write the failing test**
 
@@ -103,8 +152,11 @@ with no transport, no crypto and no third-party code in the graph.
 cd /c/Users/ryanm/Downloads/claude_sandbox_message/connect
 git fetch origin
 git checkout -b beta/message origin/main
-mkdir -p mls/syntax mls/testdata/vectors
+mkdir -p mls/syntax
 ```
+
+`mls/testdata/vectors/` is not created here: p8 Task 6 vendors the sixteen mlswg files into it and
+owns the pin at `connect/mls/interop/PINS.md`.
 
 `connect/mls/syntax/layering_test.go`:
 
@@ -172,10 +224,16 @@ package does not build).
 // Rule 4 is the load bearing one: MLS signs over serialized forms, so a decoder
 // that accepts two encodings of one object is a signature bypass primitive.
 //
-// Writer carries a sticky error and Reader returns an error per read. The asymmetry
-// is deliberate: encoding a value is a straight line of writes where a per call
-// error return is noise that gets dropped, and decoding is a branch per field where
-// every one of them matters.
+// Writer carries a sticky error, so the leaf writes — WriteUint16, WriteOpaque and
+// the rest — return nothing and one check at Bytes covers a whole encoder. Three
+// things do return an error: MarshalMLS itself, and the two higher order callbacks
+// WriteOptional and WriteVector. An MLS encoder has semantic refusals that are not
+// buffer errors — a credential type outside the v1 profile, a content arm that
+// disagrees with its discriminant — and a dropped encoder refusal produces wrong
+// signed bytes rather than a failure, so those need a channel the sticky error does
+// not give them. Marshal joins the two, so the semantic error and the buffer error
+// both surface. Reader returns an error per read, because decoding is a branch per
+// field and every one of them matters.
 package syntax
 ```
 
@@ -216,27 +274,31 @@ git add go.mod mls/syntax/doc.go mls/syntax/layering_test.go && git commit -m "f
 
 **Interfaces:**
 - Consumes: the package from Task 1.
-- Produces:
+- Produces — registry §2.1 verbatim, arrows and all, so the consuming plans are visible at the
+  declaration site:
 ```go
-const MaxVarint uint32 = 1<<30 - 1        // 1073741823
-const MaxVectorLength int = 1 << 20       // 1 MiB, every field but the ratchet tree
-const MaxRatchetTreeLength int = 1 << 24  // 16 MiB, the ratchet tree only
+const MaxVarint uint32 = 1<<30 - 1        // 1073741823                     → p8
+const MaxVectorLength int = 1 << 20       // 1 MiB, every field but the tree → p5,p6,p7,p8
+const MaxRatchetTreeLength int = 1 << 24  // 16 MiB, the ratchet tree only   → p5,p7
 
-var ErrTruncated error            // input ended before the value did
-var ErrTrailingBytes error        // a top level decode left bytes unconsumed
-var ErrVarintReserved error       // varint prefix 0b11
-var ErrVarintNotMinimal error     // a varint encoded in more octets than its value needs
-var ErrVarintOverflow error       // encode side: value above MaxVarint
-var ErrLengthExceedsInput error   // declared length larger than the bytes that remain
-var ErrLengthExceedsMax error     // declared length larger than the reader or writer limit
-var ErrOptionalPresence error     // presence octet neither 0 nor 1
-var ErrZeroLengthElement error    // a vector element decoder consumed no bytes
-var ErrNegativeLength error       // a negative length reached a read
-var ErrRoundTripNotByteExact error
-var ErrRoundTripNotStable error
+var ErrTruncated error            // input ended before the value did          → p5,p6,p8
+var ErrTrailingBytes error        // a top-level decode left bytes unconsumed  → p5,p6,p7,p8
+var ErrVarintReserved error       // varint prefix 0b11                        → p8
+var ErrVarintNotMinimal error     // more octets than the value needs          → p6,p8
+var ErrVarintOverflow error       // encode side: value above MaxVarint        → p8
+var ErrLengthExceedsInput error   // declared length exceeds bytes remaining   → p8
+var ErrLengthExceedsMax error     // declared length exceeds the reader limit  → p5,p7,p8
+var ErrOptionalPresence error     // presence octet neither 0 nor 1            → p5,p6
+var ErrZeroLengthElement error    // a vector element decoder consumed 0 bytes → p8
+var ErrNegativeLength error
+var ErrRoundTripNotByteExact error                                          // → p8
+var ErrRoundTripNotStable error                                             // → p8
 ```
   Every failure in this package returns one of these, possibly joined. Downstream plans compare with
-  `errors.Is` and never parse an error string.
+  `errors.Is` and never parse an error string. Two renames the registry settles land here rather than
+  in the consumers: `ErrNonMinimalLength` (p6) is `ErrVarintNotMinimal`, and `ErrVectorTooLong`
+  (p7, p8) is `ErrLengthExceedsMax`. `MaxVectorLength` is `int` — not `uint64` and not untyped — so
+  it passes to `UnmarshalLimit` with no conversion at the call site.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -381,22 +443,27 @@ git add mls/syntax/errors.go mls/syntax/varint.go mls/syntax/errors_test.go && g
 
 **Interfaces:**
 - Consumes: `ErrLengthExceedsMax`, `MaxVectorLength` from Task 2.
-- Produces:
+- Produces — the construction, inspection and fixed-width half of registry §2.2, verbatim:
 ```go
-type Writer struct{ ... }                       // not safe for concurrent use
-func NewWriter() *Writer                        // limit = MaxVectorLength
-func NewWriterLimit(maxVectorLength int) *Writer
-func (self *Writer) Bytes() ([]byte, error)     // bytes are undefined when the error is non nil
+type Writer struct{ ... }                        // not safe for concurrent use  → p2,p4,p5,p6,p7
+func NewWriter() *Writer                                                      // → p2,p4,p5,p6,p7
+func NewWriterLimit(maxVectorLength int) *Writer                              // → p5,p7
+func (self *Writer) Bytes() ([]byte, error)      // undefined when err non-nil  → p2,p4,p5,p6,p7
 func (self *Writer) Err() error
 func (self *Writer) Len() int
 func (self *Writer) MaxVectorLength() int
-func (self *Writer) WriteUint8(v uint8)
-func (self *Writer) WriteUint16(v uint16)
-func (self *Writer) WriteUint32(v uint32)
-func (self *Writer) WriteUint64(v uint64)
-func (self *Writer) WriteRaw(bs []byte)         // opaque x[N], no prefix
+func (self *Writer) WriteUint8(v uint8)                                       // → p4,p5,p6,p7
+func (self *Writer) WriteUint16(v uint16)                                     // → p2,p4,p5,p6,p7
+func (self *Writer) WriteUint32(v uint32)                                     // → p2,p4,p5,p6,p7
+func (self *Writer) WriteUint64(v uint64)                                     // → p4,p5,p6,p7
+func (self *Writer) WriteRaw(bs []byte)          // opaque x[N], no prefix     → p4,p5,p6,p7
 ```
-  All integers are big-endian. Every write after the first error is a no-op.
+  All integers are big-endian. Every write after the first error is a no-op, so one check at
+  `Bytes()` suffices. Tasks 5, 8, 9 and 11 add the remaining five methods of §2.2 —
+  `WriteVarint`, `WriteOpaque`, `WriteOpaqueLP` and `WriteOptional` — and the method set is closed
+  at that: `WriteBytes` (p4) is `WriteRaw`, `WriteOpaqueVec` (p5 task bodies) is `WriteOpaque`, and
+  `Bytes() []byte` (p6) does not exist, because a caller that cannot see the error will ship a
+  truncated encoding.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -617,24 +684,28 @@ git add mls/syntax/encode.go mls/syntax/encode_test.go && git commit -m "feat(ml
 
 **Interfaces:**
 - Consumes: `ErrTruncated`, `ErrTrailingBytes`, `ErrNegativeLength`, `MaxVectorLength` from Task 2.
-- Produces:
+- Produces — the cursor and fixed-width half of registry §2.3, verbatim:
 ```go
-type Reader struct{ ... }                                  // not safe for concurrent use
-func NewReader(bs []byte) *Reader                          // limit = MaxVectorLength
-func NewReaderLimit(bs []byte, maxVectorLength int) *Reader
+type Reader struct{ ... }                                    // not safe for concurrent use
+func NewReader(bs []byte) *Reader                                             // → p2,p4,p5,p6,p7,p8
+func NewReaderLimit(bs []byte, maxVectorLength int) *Reader                   // → p5,p7
 func (self *Reader) Offset() int
-func (self *Reader) Remaining() int
-func (self *Reader) Empty() bool
+func (self *Reader) Remaining() int                                           // → p6
+func (self *Reader) Empty() bool                                              // → p5,p6
 func (self *Reader) MaxVectorLength() int
-func (self *Reader) Done() error                           // ErrTrailingBytes when bytes remain
-func (self *Reader) ReadUint8() (uint8, error)
-func (self *Reader) ReadUint16() (uint16, error)
-func (self *Reader) ReadUint32() (uint32, error)
-func (self *Reader) ReadUint64() (uint64, error)
-func (self *Reader) ReadRaw(n int) ([]byte, error)         // opaque x[N]; the result is a COPY
+func (self *Reader) Done() error             // ErrTrailingBytes when bytes remain → p4,p5,p6,p7
+func (self *Reader) ReadUint8() (uint8, error)                                // → p4,p5,p6,p7
+func (self *Reader) ReadUint16() (uint16, error)                              // → p4,p5,p6,p7
+func (self *Reader) ReadUint32() (uint32, error)                              // → p4,p5,p6,p7
+func (self *Reader) ReadUint64() (uint64, error)                              // → p4,p5,p6,p7
+func (self *Reader) ReadRaw(n int) ([]byte, error)     // opaque x[N]; a COPY  → p4,p5,p6,p7
 ```
   A failed read never advances the cursor. `ReadRaw` returns a copy, never a view into the input, so
-  a decoded field cannot be mutated through the buffer it came from and cannot pin it.
+  a decoded field cannot be mutated through the buffer it came from and cannot pin it. Tasks 6, 8, 9,
+  10 and 11 add the rest of §2.3 — `ReadVarint`, `ReadOpaque`, `ReadOpaqueLP`, `ReadSub`, `ReadSubLP`
+  and `ReadOptional` — and the method set is closed at that: `Finish()` (p6) is `Done()`, and
+  `Rest()` (p6) does not exist, because a decoder that wants the tail writes
+  `r.ReadRaw(r.Remaining())`, which is explicit about consuming it.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -907,9 +978,12 @@ git add mls/syntax/decode.go mls/syntax/decode_test.go && git commit -m "feat(ml
 - Consumes: `Writer` from Task 3; `MaxVarint`, `ErrVarintOverflow` from Task 2.
 - Produces:
 ```go
-func (self *Writer) WriteVarint(v uint32)   // sets ErrVarintOverflow above MaxVarint
+func (self *Writer) WriteVarint(v uint32)                                     // → p8
 ```
-  Always emits the minimal form: 1 octet for `0..63`, 2 for `64..16383`, 4 for `16384..1073741823`.
+  Sets `ErrVarintOverflow` above `MaxVarint`. Always emits the minimal form: 1 octet for `0..63`, 2
+  for `64..16383`, 4 for `16384..1073741823`. p8's only use is
+  `syntax.NewWriter()` + `WriteVarint`; the append-style `syntax.WriteVarint(dst, v) []byte` its
+  plan named does not exist here (registry §2.5 O-2).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1027,10 +1101,12 @@ git add mls/syntax/varint.go mls/syntax/varint_test.go && git commit -m "feat(ml
 - Consumes: `Reader` from Task 4; `ErrVarintReserved`, `ErrVarintNotMinimal`, `ErrTruncated` from Task 2.
 - Produces:
 ```go
-func (self *Reader) ReadVarint() (uint32, error)
+func (self *Reader) ReadVarint() (uint32, error)                              // → p8
 ```
   Rejects prefix `0b11` with `ErrVarintReserved`, a non-minimal encoding with `ErrVarintNotMinimal`,
-  and a short input with `ErrTruncated`. A failed read does not advance the cursor.
+  and a short input with `ErrTruncated`. A failed read does not advance the cursor. It is
+  `uint32`-valued and reached as `syntax.NewReader(b).ReadVarint()`; p8's
+  `syntax.ReadVarint(b) (uint64, int, error)` does not exist here (registry §2.5 O-2).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1168,118 +1244,193 @@ git add mls/syntax/varint.go mls/syntax/varint_test.go && git commit -m "feat(ml
 
 ---
 
-### Task 7: Test-vector family 16, both directions, and its pin
+### Task 7: Test-vector family 16 — `VerifyDeserializationVector`, both directions
 
 **Files:**
-- Create: `connect/mls/testdata/vectors/deserialization.json`, `connect/mls/testdata/vectors/PINS.md`
+- Create: `connect/mls/syntax/vectors.go`
 - Test: `connect/mls/syntax/vectors_test.go`
+- Read, not created: `connect/mls/testdata/vectors/deserialization.json`
 
 **Interfaces:**
-- Consumes: `ReadVarint` from Task 6, `WriteVarint` from Task 5.
-- Produces: `connect/mls/testdata/vectors/PINS.md` — the single recorded mlswg commit that the
-  **validation and interop harness plan** must vendor its other 15 families from. Do not create a
-  second pin file.
-
-- [ ] **Step 1: Vendor the vectors and write the failing test**
-
-```bash
-cd /c/Users/ryanm/Downloads/claude_sandbox_message/connect
-curl -sS -o mls/testdata/vectors/deserialization.json \
-  https://raw.githubusercontent.com/mlswg/mls-implementations/main/test-vectors/deserialization.json
-git ls-remote https://github.com/mlswg/mls-implementations.git refs/heads/main
+- Consumes: `ReadVarint` from Task 6, `WriteVarint` from Task 5, `NewReader`/`NewWriter`/`Done` from
+  Tasks 3 and 4, and the vendored corpus file. **p8 Task 6 is the single vendoring task** for all
+  sixteen mlswg files plus `testdata/vectors/VECTORS.sha256`, and the one pin file is
+  `connect/mls/interop/PINS.md` (Spec A §4.2.4) with machine-readable `mlswg=<sha>` and
+  `openmls=<sha>` lines. This plan vendors nothing, pins nothing and asserts nothing about pins:
+  `connect/mls/PINS.md` and `connect/mls/testdata/vectors/PINS.md` do not exist. p8 Task 6 is wave 1
+  like this plan, and this task sequences after it.
+- Produces:
+```go
+func VerifyDeserializationVector(t *testing.T, raw json.RawMessage)           // → p8
 ```
+  **Family 16 is implemented once, here**, against the `Reader.ReadVarint` / `Writer.WriteVarint`
+  methods this package actually ships. p8 Task 8 is a three-line shim that registers
+  `VectorFamily{Number: 16, ..., Verify: <this>}`; its own runner, written against free functions
+  that do not exist, is deleted. The function lives in a **non-test file** because a symbol declared
+  in a `_test.go` file is visible only inside its own test binary, and that shim is in `package mls`
+  — a `_test.go` home would leave family 16 with no owner able to reach it. The signature is the
+  registry's `Verify func(t *testing.T, raw json.RawMessage)` field type exactly, so the shim is an
+  assignment rather than a wrapper.
 
-Write the returned SHA into `connect/mls/testdata/vectors/PINS.md`:
-
-```markdown
-# Pinned upstream test material
-
-| What | Upstream | Commit | Vendored at |
-|---|---|---|---|
-| mlswg test vectors | https://github.com/mlswg/mls-implementations | `<sha from git ls-remote>` | `connect/mls/testdata/vectors/` |
-
-Slice A1 vendors family 16 (`deserialization.json`) only. The remaining fifteen families are vendored
-by the validation and interop plan **from this same commit** — one pin for all sixteen, so a family
-cannot silently come from a different revision than the one the harness runs.
-
-`deserialization.json` carries well formed headers only. It does not test rejection of a reserved
-prefix or of a non minimal encoding, which is the whole of rule 1 in spec A section 5.8. Those cases
-are ours and live in `TestReadVarintRejectsEverythingButTheMinimalForm`.
-
-Bumping this commit is a pull request that must show every vendored family green.
-```
+- [ ] **Step 1: Write the failing test**
 
 `connect/mls/syntax/vectors_test.go`:
 
 ```go
-// Test vector family 16, vector deserialization, from the mlswg corpus pinned in
-// ../testdata/vectors/PINS.md. Both directions per spec A section 4.2.1: verify the
-// supplied header decodes to the supplied length, and generate the header from the
-// length with our own encoder and require the bytes back. Verification alone cannot
-// see an encoder and a decoder that are wrong in the same direction.
+// Family 16 driven over every vector in the file p8 task 6 vendors and pins. The
+// runner itself is exported from vectors.go and is what the wave 4 vector registry
+// calls; it is exercised here as well so a varint defect is red in this package's own
+// suite rather than only in a later wave.
 package syntax
 
 import (
-	"bytes"
-	"encoding/hex"
 	"encoding/json"
 	"os"
 	"testing"
 )
 
-type deserializationVector struct {
-	VlbytesHeader string `json:"vlbytes_header"`
-	Length        uint32 `json:"length"`
-}
+const deserializationVectorFile = "../testdata/vectors/deserialization.json"
 
 func TestVectorDeserialization(t *testing.T) {
-	raw, err := os.ReadFile("../testdata/vectors/deserialization.json")
+	raw, err := os.ReadFile(deserializationVectorFile)
 	if err != nil {
 		t.Fatalf("reading the vendored family 16 vectors: %v", err)
 	}
-	vectors := []deserializationVector{}
+	vectors := []json.RawMessage{}
 	if err := json.Unmarshal(raw, &vectors); err != nil {
 		t.Fatalf("parsing the vendored family 16 vectors: %v", err)
 	}
 	if len(vectors) < 14 {
 		t.Fatalf("family 16 has %d vectors, want at least the 14 in the pinned corpus", len(vectors))
 	}
-	for i, v := range vectors {
-		header, err := hex.DecodeString(v.VlbytesHeader)
-		if err != nil {
-			t.Fatalf("vector %d: header %q is not hex: %v", i, v.VlbytesHeader, err)
-		}
-		// verify direction
-		r := NewReader(header)
-		got, err := r.ReadVarint()
-		if err != nil {
-			t.Errorf("vector %d (%s): decode gave %v", i, v.VlbytesHeader, err)
-			continue
-		}
-		if got != v.Length {
-			t.Errorf("vector %d (%s): decoded %d, want %d", i, v.VlbytesHeader, got, v.Length)
-		}
-		if err := r.Done(); err != nil {
-			t.Errorf("vector %d (%s): %d octets left unconsumed", i, v.VlbytesHeader, r.Remaining())
-		}
-		// generate direction
-		w := NewWriter()
-		w.WriteVarint(v.Length)
-		out, err := w.Bytes()
-		if err != nil {
-			t.Errorf("vector %d: encoding %d gave %v", i, v.Length, err)
-			continue
-		}
-		if !bytes.Equal(out, header) {
-			t.Errorf("vector %d: encoding %d gave %x, want %s", i, v.Length, out, v.VlbytesHeader)
-		}
+	for _, vector := range vectors {
+		VerifyDeserializationVector(t, vector)
+	}
+}
+
+// the runner must reject a header that carries a different length than its vector
+// claims, or family 16 is a no op that passes against any corpus. The probe runs on
+// its own goroutine so a t.Fatalf inside the runner ends the probe rather than this
+// test.
+func TestVerifyDeserializationVectorRejectsAMismatch(t *testing.T) {
+	probe := &testing.T{}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		VerifyDeserializationVector(probe, json.RawMessage(`{"vlbytes_header":"3f","length":62}`))
+	}()
+	<-done
+	if !probe.Failed() {
+		t.Errorf("a header carrying 63 was accepted against a claimed length of 62")
+	}
+}
+
+// a non minimal header must fail the vector rather than pass it: the decoder rejects
+// it outright, and if it ever stopped doing so the generate direction would catch it
+// anyway, because our encoder emits 4040 for 64 and never the four octet form
+func TestVerifyDeserializationVectorRejectsANonCanonicalHeader(t *testing.T) {
+	probe := &testing.T{}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		VerifyDeserializationVector(probe, json.RawMessage(`{"vlbytes_header":"80000040","length":64}`))
+	}()
+	<-done
+	if !probe.Failed() {
+		t.Errorf("a non minimal header was accepted for the length it carries")
 	}
 }
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Temporarily rename the vendored file to prove the driver is real rather than vacuous:
+Run: `go test ./mls/syntax/... -run "Deserialization" -v`
+Expected: FAIL — build error `undefined: VerifyDeserializationVector`.
+
+- [ ] **Step 3: Write minimal implementation**
+
+`connect/mls/syntax/vectors.go`:
+
+```go
+// Test vector family 16, vector deserialization, from the mlswg corpus that the
+// validation and interop plan vendors and pins. Both directions per spec A section
+// 4.2.1: the supplied header must decode to the supplied length, and encoding that
+// length with our own encoder must reproduce the supplied header. Verification alone
+// cannot see an encoder and a decoder that are wrong in the same direction.
+//
+// This is the only implementation of family 16 in the system. The vector registry
+// entry in package mls is a shim that assigns this function to VectorFamily.Verify,
+// so the family runs against the ReadVarint and WriteVarint methods this package
+// ships rather than against a second copy of the length prefix.
+//
+// It is a non test file on purpose: a symbol declared in a _test.go file is visible
+// only inside its own test binary, and the shim that registers this family is in
+// package mls. The only cost is testing in this package's import graph, which is
+// still standard library and so leaves the layering gate green.
+package syntax
+
+import (
+	"bytes"
+	"encoding/hex"
+	"encoding/json"
+	"testing"
+)
+
+// one row of deserialization.json: an encoded vlbytes header and the length it
+// carries
+type deserializationVector struct {
+	VlbytesHeader string `json:"vlbytes_header"`
+	Length        uint32 `json:"length"`
+}
+
+// Verifies one family 16 vector in both directions. The corpus carries well formed
+// headers only, so it exercises acceptance; rejection of a reserved prefix and of a
+// non minimal encoding is rule 1 of spec A section 5.8 and lives in
+// TestReadVarintRejectsEverythingButTheMinimalForm.
+func VerifyDeserializationVector(t *testing.T, raw json.RawMessage) {
+	t.Helper()
+	vector := deserializationVector{}
+	if err := json.Unmarshal(raw, &vector); err != nil {
+		t.Fatalf("family 16 vector %s does not parse: %v", raw, err)
+	}
+	header, err := hex.DecodeString(vector.VlbytesHeader)
+	if err != nil {
+		t.Fatalf("family 16 header %q is not hex: %v", vector.VlbytesHeader, err)
+	}
+	// verify direction
+	r := NewReader(header)
+	got, err := r.ReadVarint()
+	if err != nil {
+		t.Errorf("header %s: decode gave %v", vector.VlbytesHeader, err)
+		return
+	}
+	if got != vector.Length {
+		t.Errorf("header %s: decoded %d, want %d", vector.VlbytesHeader, got, vector.Length)
+	}
+	if err := r.Done(); err != nil {
+		t.Errorf("header %s: %d octets left unconsumed", vector.VlbytesHeader, r.Remaining())
+	}
+	// generate direction
+	w := NewWriter()
+	w.WriteVarint(vector.Length)
+	out, err := w.Bytes()
+	if err != nil {
+		t.Errorf("encoding %d gave %v", vector.Length, err)
+		return
+	}
+	if !bytes.Equal(out, header) {
+		t.Errorf("encoding %d gave %x, want %s", vector.Length, out, vector.VlbytesHeader)
+	}
+}
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `go test ./mls/syntax/... -run "Deserialization" -v`
+Expected: PASS, with `TestSyntaxImportsStdlibOnly` still green — `testing`, `encoding/json` and
+`encoding/hex` are all standard library.
+
+Then confirm the driver is bound to the corpus rather than vacuous:
 
 ```bash
 mv mls/testdata/vectors/deserialization.json mls/testdata/vectors/deserialization.json.bak
@@ -1287,25 +1438,15 @@ go test ./mls/syntax/... -run TestVectorDeserialization -v
 mv mls/testdata/vectors/deserialization.json.bak mls/testdata/vectors/deserialization.json
 ```
 
-Expected: FAIL — `reading the vendored family 16 vectors: open ../testdata/vectors/deserialization.json: The system cannot find the file specified.`
-
-- [ ] **Step 3: Write minimal implementation**
-
-No production code changes. Tasks 5 and 6 already implement the behaviour family 16 tests; this task
-exists to bind that behaviour to the pinned upstream corpus rather than to our own reading of the RFC.
-Restore the vectors file (done in step 2) and confirm `PINS.md` records the SHA that
-`git ls-remote` returned.
-
-- [ ] **Step 4: Run test to verify it passes**
-
-Run: `go test ./mls/syntax/... -run TestVectorDeserialization -v`
-Expected: PASS
+Expected: FAIL while the file is absent — `reading the vendored family 16 vectors: open
+../testdata/vectors/deserialization.json: The system cannot find the file specified.` — then PASS
+again once it is restored.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git ls-files | wc -l
-git add mls/testdata/vectors/deserialization.json mls/testdata/vectors/PINS.md mls/syntax/vectors_test.go && git commit -m "test(mls/syntax): vendor mlswg family 16 and drive it in both directions"
+git add mls/syntax/vectors.go mls/syntax/vectors_test.go && git commit -m "test(mls/syntax): add the family 16 runner the vector registry calls"
 ```
 
 ---
@@ -1320,10 +1461,14 @@ git add mls/testdata/vectors/deserialization.json mls/testdata/vectors/PINS.md m
 - Consumes: `WriteVarint`/`ReadVarint` from Tasks 5 and 6, `takeLength` from Task 4.
 - Produces:
 ```go
-func (self *Writer) WriteOpaque(bs []byte)      // opaque x<V>; nil and empty both encode to 0x00
-func (self *Reader) ReadOpaque() ([]byte, error) // a COPY, never nil, zero length for an empty vector
+func (self *Writer) WriteOpaque(bs []byte)       // opaque x<V>; nil == empty  → p2,p4,p5,p6,p7
+func (self *Reader) ReadOpaque() ([]byte, error) // a COPY, never nil          → p2,p4,p5,p6,p7
 ```
-  Every MLS `opaque x<V>` field in every later wave goes through exactly these two.
+  Every MLS `opaque x<V>` field in every later wave goes through exactly these two. p2's four label
+  encoders — the bytes MLS signs over — are built as
+  `w := syntax.NewWriter(); w.WriteOpaque(...); bs, err := w.Bytes()`; the append-style
+  `syntax.WriteVarVec(dst, v) []byte` its plan named is a second implementation of the §2.1.2 length
+  prefix and does not exist here (registry §2.5 O-2).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1694,8 +1839,8 @@ git add mls/syntax/encode.go mls/syntax/decode.go mls/syntax/encode_test.go mls/
 - Consumes: `ReadVarint` from Task 6, `takeLength` from Task 4.
 - Produces:
 ```go
-func (self *Reader) ReadSub() (*Reader, error)   // a view over the next opaque<V> region
-func (self *Reader) ReadSubLP() (*Reader, error) // a view over the next LP(x) region
+func (self *Reader) ReadSub() (*Reader, error)         // bounded view of the next opaque<V> → p5,p6,p7
+func (self *Reader) ReadSubLP() (*Reader, error)
 ```
   The sub-reader inherits the parent's `maxVectorLength` and is capacity-clipped so it can never see
   past its region. The parent advances past the whole region regardless of how much of it the
@@ -1872,12 +2017,21 @@ git add mls/syntax/decode.go mls/syntax/decode_test.go && git commit -m "feat(ml
 - Consumes: `Writer`, `Reader`, `ErrOptionalPresence`, `ErrTruncated`.
 - Produces:
 ```go
-func (self *Writer) WriteOptional(present bool, encodeOne func(w *Writer))
-func (self *Reader) ReadOptional(decodeOne func(r *Reader) error) (present bool, err error)
+func (self *Writer) WriteOptional(present bool, encodeOne func(w *Writer) error) error  // → p5,p6
+func (self *Reader) ReadOptional(decodeOne func(r *Reader) error) (present bool, err error) // → p5,p6
 ```
   RFC 9420 §2.1.1: a presence octet, then the value when present. A presence octet other than `0` or
   `1` is `ErrOptionalPresence`. The ratchet tree's `optional<Node>` and every `optional<...>` in
   later waves goes through these.
+
+  **The encode callback returns an `error` and so does `WriteOptional`** — registry §2.5 O-2, the
+  consequence of O-1. A nested encoder must be able to propagate a semantic refusal
+  (`ErrProfileCredentialType` from a credential, `ErrContentArmMismatch` from a framed content) that
+  is not a buffer error and that the sticky error has no exported way to carry. The refusal is also
+  set on the Writer, so a caller that drops the return still fails at `Bytes()`: a dropped encoder
+  refusal produces wrong signed bytes rather than a failure, and that is the one outcome this
+  package must not allow. `errors.Join` in `Marshal` deduplicates nothing, but `errors.Is` holds
+  either way.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1898,9 +2052,12 @@ import (
 
 func TestWriteOptionalAbsentIsASingleZero(t *testing.T) {
 	w := NewWriter()
-	w.WriteOptional(false, func(w *Writer) {
+	if err := w.WriteOptional(false, func(w *Writer) error {
 		t.Errorf("the value encoder ran for an absent optional")
-	})
+		return nil
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	out, err := w.Bytes()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1912,15 +2069,39 @@ func TestWriteOptionalAbsentIsASingleZero(t *testing.T) {
 
 func TestWriteOptionalPresentCarriesItsValue(t *testing.T) {
 	w := NewWriter()
-	w.WriteOptional(true, func(w *Writer) {
+	if err := w.WriteOptional(true, func(w *Writer) error {
 		w.WriteUint16(0xbeef)
-	})
+		return nil
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	out, err := w.Bytes()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !bytes.Equal(out, []byte{0x01, 0xbe, 0xef}) {
 		t.Errorf("present optional encoded to %x, want 01beef", out)
+	}
+}
+
+// a semantic refusal from a nested encoder — the reason the callback returns an error
+// at all — must reach the caller and must also stick to the writer, so a caller that
+// drops the return cannot walk away with a truncated encoding
+func TestWriteOptionalPropagatesAndSticksAnEncoderRefusal(t *testing.T) {
+	refusal := errors.New("mls syntax: probe refusal")
+	w := NewWriter()
+	w.WriteUint8(0x01)
+	err := w.WriteOptional(true, func(w *Writer) error {
+		return refusal
+	})
+	if !errors.Is(err, refusal) {
+		t.Errorf("WriteOptional returned %v, want the callback's refusal", err)
+	}
+	if !errors.Is(w.Err(), refusal) {
+		t.Errorf("the writer's sticky error is %v, want the callback's refusal", w.Err())
+	}
+	if _, err := w.Bytes(); !errors.Is(err, refusal) {
+		t.Errorf("Bytes returned %v, want the callback's refusal", err)
 	}
 }
 
@@ -1984,18 +2165,26 @@ Expected: FAIL — build error `w.WriteOptional undefined (type *Writer has no f
 // optional<T> per rfc 9420 section 2.1.1. The presence octet is 0 or 1 and nothing
 // else: reading "any non zero means present" would give a value two encodings, and
 // the rfc says a presence octet other than 0 or 1 must be rejected as malformed.
+//
+// The encode callback returns an error because a nested MLS encoder has semantic
+// refusals that are not buffer errors. The refusal is returned and set sticky, so it
+// surfaces whether the caller checks the return or only checks Bytes.
 package syntax
 
-func (self *Writer) WriteOptional(present bool, encodeOne func(w *Writer)) {
+func (self *Writer) WriteOptional(present bool, encodeOne func(w *Writer) error) error {
 	if self.err != nil {
-		return
+		return self.err
 	}
 	if !present {
 		self.WriteUint8(0)
-		return
+		return nil
 	}
 	self.WriteUint8(1)
-	encodeOne(self)
+	if err := encodeOne(self); err != nil {
+		self.setErr(err)
+		return err
+	}
+	return nil
 }
 
 // reports whether the value was present; decodeOne runs only when it was, and the
@@ -2044,14 +2233,21 @@ git add mls/syntax/optional.go mls/syntax/optional_test.go && git commit -m "fea
   `ErrZeroLengthElement` from Task 2.
 - Produces:
 ```go
-func WriteVector[T any](w *Writer, items []T, encodeOne func(w *Writer, item T))
-func ReadVector[T any](r *Reader, decodeOne func(r *Reader) (T, error)) ([]T, error)
+func WriteVector[T any](w *Writer, items []T, encodeOne func(w *Writer, item T) error) error  // → p5,p6,p7
+func ReadVector[T any](r *Reader, decodeOne func(r *Reader) (T, error)) ([]T, error)          // → p5,p6,p7
 ```
   **The length prefix counts BYTES, not elements.** This is the single most common way to get an MLS
   codec wrong, so decoding runs `decodeOne` against a sub-reader until that sub-reader is empty rather
   than counting down an element count. `ReadVector` returns a non-nil zero-length slice for an empty
   vector; a nil slice and an empty slice encode identically. An element decoder that consumes zero
   bytes is `ErrZeroLengthElement` rather than an infinite loop.
+
+  These stay **free generics over a typed slice**. p6's method form,
+  `(*Writer).WriteVector(n int, each func(w, i) error)`, is an untyped index loop and loses the
+  element type that makes `ReadVector` safe; where the element type is genuinely heterogeneous the
+  caller uses `ReadSub()` directly. The encode callback and `WriteVector` itself return an `error`
+  for the same reason as `WriteOptional` — registry §2.5 O-2 — and an element encoder's refusal is
+  both returned and set sticky on the outer writer.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2069,8 +2265,9 @@ import (
 	"testing"
 )
 
-func writeUint16Item(w *Writer, item uint16) {
+func writeUint16Item(w *Writer, item uint16) error {
 	w.WriteUint16(item)
+	return nil
 }
 
 func readUint16Item(r *Reader) (uint16, error) {
@@ -2089,7 +2286,9 @@ func TestWriteVectorPrefixesBytesNotElements(t *testing.T) {
 	}
 	for _, c := range cases {
 		w := NewWriter()
-		WriteVector(w, c.items, writeUint16Item)
+		if err := WriteVector(w, c.items, writeUint16Item); err != nil {
+			t.Fatalf("items %v: unexpected error %v", c.items, err)
+		}
 		out, err := w.Bytes()
 		if err != nil {
 			t.Fatalf("items %v: unexpected error %v", c.items, err)
@@ -2100,10 +2299,32 @@ func TestWriteVectorPrefixesBytesNotElements(t *testing.T) {
 	}
 }
 
+// an element encoder's semantic refusal must reach the caller and stick to the outer
+// writer, for the same reason WriteOptional's does
+func TestWriteVectorPropagatesAndSticksAnElementRefusal(t *testing.T) {
+	refusal := errors.New("mls syntax: probe refusal")
+	w := NewWriter()
+	err := WriteVector(w, []uint16{1, 2, 3}, func(w *Writer, item uint16) error {
+		if item == 2 {
+			return refusal
+		}
+		w.WriteUint16(item)
+		return nil
+	})
+	if !errors.Is(err, refusal) {
+		t.Errorf("WriteVector returned %v, want the element encoder's refusal", err)
+	}
+	if _, err := w.Bytes(); !errors.Is(err, refusal) {
+		t.Errorf("Bytes returned %v, want the element encoder's refusal", err)
+	}
+}
+
 func TestWriteVectorCrossesIntoTheTwoOctetPrefix(t *testing.T) {
 	items := make([]uint16, 32)
 	w := NewWriter()
-	WriteVector(w, items, writeUint16Item)
+	if err := WriteVector(w, items, writeUint16Item); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	out, err := w.Bytes()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -2120,7 +2341,9 @@ func TestWriteVectorCrossesIntoTheTwoOctetPrefix(t *testing.T) {
 func TestReadVectorRoundTrips(t *testing.T) {
 	items := []uint16{0x1111, 0x2222, 0x3333}
 	w := NewWriter()
-	WriteVector(w, items, writeUint16Item)
+	if err := WriteVector(w, items, writeUint16Item); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	encoded, err := w.Bytes()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -2223,22 +2446,31 @@ Expected: FAIL — build error `undefined: WriteVector`.
 // count cannot exceed the declared byte length, which cannot exceed the reader's
 // limit, which cannot exceed the input. An element decoder that consumes nothing is
 // rejected rather than allowed to loop.
+//
+// These are free generics over a typed slice rather than methods over an index loop,
+// because the element type is what makes the decode side safe. The element encoder
+// returns an error so a nested MLS encoder can propagate a semantic refusal; that
+// refusal is returned and set sticky on the outer writer both.
 package syntax
 
-func WriteVector[T any](w *Writer, items []T, encodeOne func(w *Writer, item T)) {
+func WriteVector[T any](w *Writer, items []T, encodeOne func(w *Writer, item T) error) error {
 	if w.err != nil {
-		return
+		return w.err
 	}
 	scratch := NewWriterLimit(w.maxVectorLength)
 	for _, item := range items {
-		encodeOne(scratch, item)
+		if err := encodeOne(scratch, item); err != nil {
+			w.setErr(err)
+			return err
+		}
 	}
 	bs, err := scratch.Bytes()
 	if err != nil {
 		w.setErr(err)
-		return
+		return err
 	}
 	w.WriteOpaque(bs)
+	return nil
 }
 
 func ReadVector[T any](r *Reader, decodeOne func(r *Reader) (T, error)) ([]T, error) {
@@ -2284,27 +2516,44 @@ git add mls/syntax/vector.go mls/syntax/vector_test.go && git commit -m "feat(ml
 
 **Interfaces:**
 - Consumes: `Writer`, `Reader`, `Done`, the limit constants.
-- Produces — **this is the block every other plan writes its Consumes against**:
+- Produces — **this is the block every other plan writes its Consumes against**, registry §2.4
+  verbatim:
 ```go
 type Marshaler interface {
-	MarshalMLS(w *Writer)               // errors go to the Writer, not a return value
+	MarshalMLS(w *Writer) error
 }
 type Unmarshaler interface {
-	UnmarshalMLS(r *Reader) error       // leaves the reader just past the value
+	UnmarshalMLS(r *Reader) error
 }
 type Codec interface {
 	Marshaler
 	Unmarshaler
 }
 
-func Marshal(v Marshaler) ([]byte, error)
-func MarshalLimit(v Marshaler, maxVectorLength int) ([]byte, error)
-func Unmarshal(bs []byte, v Unmarshaler) error                            // enforces full consumption
-func UnmarshalLimit(bs []byte, v Unmarshaler, maxVectorLength int) error  // enforces full consumption
+func Marshal(v Marshaler) ([]byte, error)                                     // → p4,p5,p6,p7,p8
+func MarshalLimit(v Marshaler, maxVectorLength int) ([]byte, error)           // → p7
+func Unmarshal(bs []byte, v Unmarshaler) error         // enforces full consumption → p4,p5,p6,p7,p8
+func UnmarshalLimit(bs []byte, v Unmarshaler, maxVectorLength int) error      // → p5,p7
 ```
-  Every MLS structure in every later wave implements `Codec`. `Unmarshal` uses `MaxVectorLength`;
-  the ratchet-tree paths — `tree_sync.go` and any `GroupInfo`/`Welcome` decode that may carry a tree —
-  use `UnmarshalLimit(bs, v, MaxRatchetTreeLength)`.
+  Every MLS structure in every later wave implements `Codec` and carries
+  `var _ syntax.Codec = (*T)(nil)` in its own file (**C1**), so drift fails at build rather than at
+  Gate 4. `Unmarshal` uses `MaxVectorLength`; the ratchet-tree paths — `tree_sync.go`,
+  `UnmarshalRatchetTree` and any `GroupInfo`/`Welcome` decode that may carry a tree — use
+  `UnmarshalLimit(bs, v, MaxRatchetTreeLength)`.
+
+  **`MarshalMLS` returns an `error` — registry §2.5 override O-1, adopted here.** This plan
+  originally specified `MarshalMLS(w *Writer)` with no return, routing every failure into the
+  Writer's sticky error. The reason the return is right: an MLS encoder has **semantic** refusals
+  that are not buffer errors — `Credential.MarshalMLS` must refuse an x509 credential with
+  `ErrProfileCredentialType`, `FramedContent.MarshalMLS` must refuse a mismatched arm with
+  `ErrContentArmMismatch` — and this package exports no way to inject those into the sticky error,
+  so under the original signature they would have to panic or be dropped. A dropped encoder refusal
+  produces wrong signed bytes rather than a failure. `Marshal` therefore returns
+  `errors.Join(v.MarshalMLS(w), w.Err())`, so the semantic error and the buffer error both surface.
+  The sticky Writer stays: it is what keeps the leaf writes return-free, and that is 90% of the call
+  sites. `MarshalTo(w) error` (p5) and `MarshalTLS() ([]byte, error)` (p7) are this, spelled the
+  registry's way; `Marshal() ([]byte, error)` and `Parse<Type>(data)` free constructors on wire
+  types do not exist anywhere (**C1**).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2327,9 +2576,12 @@ type marshalProbe struct {
 	Body  []byte
 }
 
-func (self *marshalProbe) MarshalMLS(w *Writer) {
+var _ Codec = (*marshalProbe)(nil)
+
+func (self *marshalProbe) MarshalMLS(w *Writer) error {
 	w.WriteUint16(self.Value)
 	w.WriteOpaque(self.Body)
+	return nil
 }
 
 func (self *marshalProbe) UnmarshalMLS(r *Reader) error {
@@ -2379,6 +2631,40 @@ func TestUnmarshalPropagatesADecodeError(t *testing.T) {
 	}
 }
 
+// the whole reason MarshalMLS returns an error rather than routing everything into
+// the sticky error: an encoder refusal that is not a buffer error — a credential type
+// outside the v1 profile, a content arm that disagrees with its discriminant — must
+// reach the caller, because dropping it produces wrong signed bytes rather than a
+// failure
+type refusingProbe struct{}
+
+var _ Codec = (*refusingProbe)(nil)
+
+var errProbeRefusal = errors.New("mls syntax: probe refuses to encode")
+
+func (self *refusingProbe) MarshalMLS(w *Writer) error {
+	w.WriteUint16(0xbeef)
+	return errProbeRefusal
+}
+
+func (self *refusingProbe) UnmarshalMLS(r *Reader) error {
+	_, err := r.ReadUint16()
+	return err
+}
+
+func TestMarshalSurfacesASemanticRefusal(t *testing.T) {
+	bs, err := Marshal(&refusingProbe{})
+	if !errors.Is(err, errProbeRefusal) {
+		t.Errorf("Marshal gave %v, want the encoder's refusal", err)
+	}
+	if bs != nil {
+		t.Errorf("Marshal returned %x alongside a refusal, want nil", bs)
+	}
+	if _, err := MarshalLimit(&refusingProbe{}, MaxRatchetTreeLength); !errors.Is(err, errProbeRefusal) {
+		t.Errorf("MarshalLimit gave %v, want the encoder's refusal", err)
+	}
+}
+
 func TestMarshalLimitBoundsTheEncoder(t *testing.T) {
 	in := marshalProbe{Value: 1, Body: bytes.Repeat([]byte{0x11}, 64)}
 	if _, err := MarshalLimit(&in, 32); !errors.Is(err, ErrLengthExceedsMax) {
@@ -2418,17 +2704,22 @@ Expected: FAIL — build error `undefined: Marshal`.
 // The top level entry points every MLS structure and every record is encoded and
 // decoded through.
 //
-// MarshalMLS returns nothing: errors go to the Writer's sticky error and surface
-// once, at Marshal. UnmarshalMLS returns an error per call, because decoding is a
-// branch per field and every branch matters.
+// MarshalMLS returns an error and the Writer also carries a sticky one, and Marshal
+// joins them. The two carry different things: the sticky error is a buffer failure —
+// an over long vector, a varint out of range — and the returned error is a semantic
+// refusal, which is an encoder declining to serialize a value the profile forbids.
+// Only the leaf writes are return free. UnmarshalMLS returns an error per call,
+// because decoding is a branch per field and every branch matters.
 //
 // Unmarshal enforces full consumption. A decoder that ignores a tail accepts two
 // encodings of one object, and MLS signs over serialized forms, so that is a
 // signature bypass primitive rather than a leniency.
 package syntax
 
+import "errors"
+
 type Marshaler interface {
-	MarshalMLS(w *Writer)
+	MarshalMLS(w *Writer) error
 }
 
 type Unmarshaler interface {
@@ -2440,17 +2731,27 @@ type Codec interface {
 	Unmarshaler
 }
 
+// the join is the point: a semantic refusal from the encoder and a buffer failure
+// from the writer are different failures and either one alone must fail the encode
 func Marshal(v Marshaler) ([]byte, error) {
 	w := NewWriter()
-	v.MarshalMLS(w)
-	return w.Bytes()
+	marshalErr := v.MarshalMLS(w)
+	bs, writerErr := w.Bytes()
+	if err := errors.Join(marshalErr, writerErr); err != nil {
+		return nil, err
+	}
+	return bs, nil
 }
 
 // the ratchet tree paths pass MaxRatchetTreeLength; nothing else raises the bound
 func MarshalLimit(v Marshaler, maxVectorLength int) ([]byte, error) {
 	w := NewWriterLimit(maxVectorLength)
-	v.MarshalMLS(w)
-	return w.Bytes()
+	marshalErr := v.MarshalMLS(w)
+	bs, writerErr := w.Bytes()
+	if err := errors.Join(marshalErr, writerErr); err != nil {
+		return nil, err
+	}
+	return bs, nil
 }
 
 func Unmarshal(bs []byte, v Unmarshaler) error {
@@ -2471,7 +2772,7 @@ func UnmarshalLimit(bs []byte, v Unmarshaler, maxVectorLength int) error {
 }
 ```
 
-`marshal.go` has no imports at this step. Task 14 adds `bytes` and `errors` to it.
+`marshal.go` imports `errors` at this step, for the join. Task 14 adds `bytes` to it.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -2501,7 +2802,7 @@ git add mls/syntax/marshal.go mls/syntax/marshal_test.go && git commit -m "feat(
 func CheckRoundTrip[T any, PT interface {
 	*T
 	Codec
-}](bs []byte) error
+}](bs []byte) error                                                            // → p8
 ```
   Asserts Gate 4 property 2 (Spec A §4.4) against one input: if `bs` decodes, `encode(decode(bs))`
   must equal `bs`, and `decode(encode(decode(bs)))` must re-encode identically. Returns `nil` when
@@ -2560,7 +2861,8 @@ Expected: FAIL — build error `undefined: CheckRoundTrip`.
 
 - [ ] **Step 3: Write minimal implementation**
 
-Add the import block to the top of `connect/mls/syntax/marshal.go`, immediately below `package syntax`:
+Widen the import block at the top of `connect/mls/syntax/marshal.go` — Task 13 left it at
+`import "errors"` — so it reads:
 
 ```go
 import (
@@ -2653,51 +2955,72 @@ import (
 	"testing"
 )
 
+// the leaf writes are return free, so this adapts one into the table's row type
+// without a four line closure per row
+func kat(write func(w *Writer)) func(w *Writer) error {
+	return func(w *Writer) error {
+		write(w)
+		return nil
+	}
+}
+
 func TestEncodingKAT(t *testing.T) {
 	cases := []struct {
 		name  string
-		write func(w *Writer)
+		write func(w *Writer) error
 		want  string
 	}{
-		{"uint8", func(w *Writer) { w.WriteUint8(0x2a) }, "2a"},
-		{"uint16", func(w *Writer) { w.WriteUint16(0x0102) }, "0102"},
-		{"uint32", func(w *Writer) { w.WriteUint32(0x01020304) }, "01020304"},
-		{"uint64", func(w *Writer) { w.WriteUint64(0x0102030405060708) }, "0102030405060708"},
-		{"raw", func(w *Writer) { w.WriteRaw([]byte{0xaa, 0xbb}) }, "aabb"},
-		{"varint 0", func(w *Writer) { w.WriteVarint(0) }, "00"},
-		{"varint 63", func(w *Writer) { w.WriteVarint(63) }, "3f"},
-		{"varint 64", func(w *Writer) { w.WriteVarint(64) }, "4040"},
-		{"varint 16383", func(w *Writer) { w.WriteVarint(16383) }, "7fff"},
-		{"varint 16384", func(w *Writer) { w.WriteVarint(16384) }, "80004000"},
-		{"varint max", func(w *Writer) { w.WriteVarint(MaxVarint) }, "bfffffff"},
-		{"opaque nil", func(w *Writer) { w.WriteOpaque(nil) }, "00"},
-		{"opaque empty", func(w *Writer) { w.WriteOpaque([]byte{}) }, "00"},
-		{"opaque one byte", func(w *Writer) { w.WriteOpaque([]byte{0xaa}) }, "01aa"},
-		{"opaque three bytes", func(w *Writer) { w.WriteOpaque([]byte{0xaa, 0xbb, 0xcc}) }, "03aabbcc"},
-		{"lp nil", func(w *Writer) { w.WriteOpaqueLP(nil) }, "00000000"},
-		{"lp empty", func(w *Writer) { w.WriteOpaqueLP([]byte{}) }, "00000000"},
-		{"lp one byte", func(w *Writer) { w.WriteOpaqueLP([]byte{0xaa}) }, "00000001aa"},
-		{"optional absent", func(w *Writer) { w.WriteOptional(false, func(w *Writer) {}) }, "00"},
+		{"uint8", kat(func(w *Writer) { w.WriteUint8(0x2a) }), "2a"},
+		{"uint16", kat(func(w *Writer) { w.WriteUint16(0x0102) }), "0102"},
+		{"uint32", kat(func(w *Writer) { w.WriteUint32(0x01020304) }), "01020304"},
+		{"uint64", kat(func(w *Writer) { w.WriteUint64(0x0102030405060708) }), "0102030405060708"},
+		{"raw", kat(func(w *Writer) { w.WriteRaw([]byte{0xaa, 0xbb}) }), "aabb"},
+		{"varint 0", kat(func(w *Writer) { w.WriteVarint(0) }), "00"},
+		{"varint 63", kat(func(w *Writer) { w.WriteVarint(63) }), "3f"},
+		{"varint 64", kat(func(w *Writer) { w.WriteVarint(64) }), "4040"},
+		{"varint 16383", kat(func(w *Writer) { w.WriteVarint(16383) }), "7fff"},
+		{"varint 16384", kat(func(w *Writer) { w.WriteVarint(16384) }), "80004000"},
+		{"varint max", kat(func(w *Writer) { w.WriteVarint(MaxVarint) }), "bfffffff"},
+		{"opaque nil", kat(func(w *Writer) { w.WriteOpaque(nil) }), "00"},
+		{"opaque empty", kat(func(w *Writer) { w.WriteOpaque([]byte{}) }), "00"},
+		{"opaque one byte", kat(func(w *Writer) { w.WriteOpaque([]byte{0xaa}) }), "01aa"},
+		{"opaque three bytes", kat(func(w *Writer) { w.WriteOpaque([]byte{0xaa, 0xbb, 0xcc}) }), "03aabbcc"},
+		{"lp nil", kat(func(w *Writer) { w.WriteOpaqueLP(nil) }), "00000000"},
+		{"lp empty", kat(func(w *Writer) { w.WriteOpaqueLP([]byte{}) }), "00000000"},
+		{"lp one byte", kat(func(w *Writer) { w.WriteOpaqueLP([]byte{0xaa}) }), "00000001aa"},
+		{
+			"optional absent",
+			func(w *Writer) error {
+				return w.WriteOptional(false, func(w *Writer) error { return nil })
+			},
+			"00",
+		},
 		{
 			"optional present uint16",
-			func(w *Writer) { w.WriteOptional(true, func(w *Writer) { w.WriteUint16(0xbeef) }) },
+			func(w *Writer) error {
+				return w.WriteOptional(true, func(w *Writer) error {
+					w.WriteUint16(0xbeef)
+					return nil
+				})
+			},
 			"01beef",
 		},
 		{
 			"vector empty",
-			func(w *Writer) { WriteVector(w, []uint16{}, writeUint16Item) },
+			func(w *Writer) error { return WriteVector(w, []uint16{}, writeUint16Item) },
 			"00",
 		},
 		{
 			"vector two uint16 prefixed by four bytes not two elements",
-			func(w *Writer) { WriteVector(w, []uint16{0x0001, 0x0002}, writeUint16Item) },
+			func(w *Writer) error { return WriteVector(w, []uint16{0x0001, 0x0002}, writeUint16Item) },
 			"0400010002",
 		},
 		{
 			"nested vector of opaque",
-			func(w *Writer) {
-				WriteVector(w, [][]byte{{0xaa}, {0xbb, 0xcc}}, func(w *Writer, item []byte) {
+			func(w *Writer) error {
+				return WriteVector(w, [][]byte{{0xaa}, {0xbb, 0xcc}}, func(w *Writer, item []byte) error {
 					w.WriteOpaque(item)
+					return nil
 				})
 			},
 			"0501aa02bbcc",
@@ -2705,7 +3028,10 @@ func TestEncodingKAT(t *testing.T) {
 	}
 	for _, c := range cases {
 		w := NewWriter()
-		c.write(w)
+		if err := c.write(w); err != nil {
+			t.Errorf("%s: unexpected error %v", c.name, err)
+			continue
+		}
 		out, err := w.Bytes()
 		if err != nil {
 			t.Errorf("%s: unexpected error %v", c.name, err)
@@ -2943,9 +3269,12 @@ type testItem struct {
 	Data []byte
 }
 
-func (self *testItem) MarshalMLS(w *Writer) {
+var _ Codec = (*testItem)(nil)
+
+func (self *testItem) MarshalMLS(w *Writer) error {
 	w.WriteUint16(self.Kind)
 	w.WriteOpaque(self.Data)
+	return nil
 }
 
 func (self *testItem) UnmarshalMLS(r *Reader) error {
@@ -2974,18 +3303,24 @@ type testStruct struct {
 	Items    []testItem
 }
 
-func (self *testStruct) MarshalMLS(w *Writer) {
+var _ Codec = (*testStruct)(nil)
+
+func (self *testStruct) MarshalMLS(w *Writer) error {
 	w.WriteUint16(self.Version)
 	w.WriteUint8(self.Flags)
 	w.WriteUint64(self.Counter)
 	w.WriteRaw(self.Fixed[:])
 	w.WriteOpaque(self.Body)
 	w.WriteOpaqueLP(self.Tail)
-	w.WriteOptional(self.HasExtra, func(w *Writer) {
+	err := w.WriteOptional(self.HasExtra, func(w *Writer) error {
 		w.WriteUint32(self.Extra)
+		return nil
 	})
-	WriteVector(w, self.Items, func(w *Writer, item testItem) {
-		item.MarshalMLS(w)
+	if err != nil {
+		return err
+	}
+	return WriteVector(w, self.Items, func(w *Writer, item testItem) error {
+		return item.MarshalMLS(w)
 	})
 }
 
@@ -3179,15 +3514,17 @@ git add mls/syntax/fuzzgen_test.go mls/syntax/roundtrip_test.go && git commit -m
 
 **Files:**
 - Test: `connect/mls/syntax/fuzz_test.go`
-- Create: `connect/mls/testdata/corpus/.gitkeep`
 
 **Interfaces:**
-- Consumes: `ReadVarint`, `WriteVarint`, `ReadOpaque`, `WriteOpaque`, `CheckRoundTrip`.
+- Consumes: `ReadVarint`, `WriteVarint`, `ReadOpaque`, `WriteOpaque`, `CheckRoundTrip`, and
+  `connect/mls/testdata/corpus/` if it is present. **The committed corpus and `interop/cmd/seedgen`
+  that fills it are p8's** (registry §12, Gate 4), so this plan neither creates nor commits that
+  directory; the loader below treats its absence as a normal fresh checkout.
 - Produces: `FuzzVarint`, `FuzzOpaque`, `FuzzSyntaxStruct` — the three targets slice A1's done-when
   requires clean for 60 s each (Spec A §13). They assert Gate 4 properties 1 and 2 only; property 3,
   differential agreement with OpenMLS, belongs to the validation and interop plan and runs nightly.
-  `connect/mls/testdata/corpus/` is created here as the shared seed directory that the interop job
-  harvests wire dumps into; this package loads it if it is non-empty and does not require it.
+  The nine OpenMLS-mirroring `Fuzz*Decode` targets over `Extension`, `KeyPackage`, `MLSMessage`,
+  `Proposal` and `Welcome` are p8's and are not duplicated here.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -3215,8 +3552,9 @@ import (
 
 const sharedCorpusDir = "../testdata/corpus"
 
-// the shared corpus is harvested by the interop job and by the nightly fuzz job; it
-// is legitimately empty on a fresh checkout, so its absence is not a failure
+// the shared corpus is committed and filled by the validation and interop plan's
+// seed generator; it is legitimately absent on a fresh checkout of this wave, so its
+// absence is not a failure
 func addSharedCorpus(f *testing.F) {
 	f.Helper()
 	entries, err := os.ReadDir(sharedCorpusDir)
@@ -3334,11 +3672,6 @@ func FuzzSyntaxStruct(f *testing.F) {
 }
 ```
 
-```bash
-mkdir -p mls/testdata/corpus
-printf '' > mls/testdata/corpus/.gitkeep
-```
-
 - [ ] **Step 2: Run test to verify it fails**
 
 Temporarily relax the varint decoder — change `if v < 0x40` in the two-octet branch of
@@ -3372,7 +3705,7 @@ Expected: each PASS, reporting `elapsed: 60s` with no new interesting inputs esc
 
 ```bash
 git ls-files | wc -l
-git add mls/syntax/fuzz_test.go mls/testdata/corpus/.gitkeep && git commit -m "test(mls/syntax): add the three fuzz targets and the shared corpus loader"
+git add mls/syntax/fuzz_test.go && git commit -m "test(mls/syntax): add the three fuzz targets and the shared corpus loader"
 ```
 
 ---
@@ -3489,8 +3822,15 @@ git push -u origin beta/message
 
 ## Done when
 
-- `go test ./mls/syntax/... -count=1 -race` is green, including `TestVectorDeserialization` against
-  the pinned mlswg family 16 in both the verify and generate directions.
+- `go test ./mls/syntax/... -count=1 -race` is green, including `TestVectorDeserialization` driving
+  `VerifyDeserializationVector` over the family 16 file p8 Task 6 vendors, in both the verify and
+  generate directions.
+- The package's exported surface is registry §2 exactly — `Marshaler.MarshalMLS(w *Writer) error`,
+  the error-returning `WriteOptional` and `WriteVector`, `WriteRaw`/`WriteOpaque` rather than
+  `WriteBytes`/`WriteOpaqueVec`, `Done()` rather than `Finish()`, no `Rest()`, no append-style free
+  functions — so p2 through p8 compile against it without a shim.
+- `VerifyDeserializationVector` is exported from a non-test file, so p8 Task 8's registry shim can
+  reach it.
 - `go test ./mls/syntax -run=NONE -fuzz=<target> -fuzztime=60s` is clean for `FuzzVarint`,
   `FuzzOpaque` and `FuzzSyntaxStruct` — Spec A §13's A1 done-when.
 - `TestSyntaxImportsStdlibOnly` passes, so the package can be imported from any wave.

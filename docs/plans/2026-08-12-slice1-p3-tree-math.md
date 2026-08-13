@@ -18,7 +18,10 @@ file never sees a public key. Imports are `errors` and `math/bits` and nothing e
 
 ## Global Constraints
 
-- Go 1.26.5, pinned. `connect/go.mod` declares `go 1.26.3`; this plan does not change it.
+- Go 1.26.5, pinned. `connect/go.mod` declares `go 1.26.3`; this plan does not change it. The
+  Syntax and codec plan owns the single edit, in the form the canonical interface registry fixes
+  (override O-3): leave the `go` directive at `1.26.3` and add `toolchain go1.26.5`. Raising the
+  directive would raise the language floor for all of `connect`, which is out of this slice's scope.
 - Standard library only for crypto: `crypto/mlkem`, `crypto/ecdh`, `crypto/hkdf`, `crypto/sha3`, plus `chacha20poly1305` from the already-pinned `golang.org/x/crypto`. This plan uses none of them.
 - NO cgo, NO Rust, NO new third-party crypto dependency. `sdk` must stay gomobile-buildable.
 - OpenMLS (Rust) is a READ-ONLY differential oracle used out of process in CI. It is never in go.mod, never linked, never in a shipped artifact.
@@ -33,6 +36,39 @@ file never sees a public key. Imports are `errors` and `math/bits` and nothing e
 - Package-level functions are assumed safe for concurrent use. Every function in this file is pure and allocates only its own result, so the whole file is safe for concurrent use with no lock.
 - `connect/mls` and `connect/message` have no timing-sensitive tests and must keep it that way.
 - Max group size is 500 members and 10 device leaves per identity. Those are v1 product policy enforced in `commit.go`, **not** here. Tree math must carry no product limit.
+
+### The four slice-wide conventions
+
+Stated once in the canonical interface registry (§0) and carried verbatim by every plan.
+
+**C1 — one codec, one method set.** Every wire type in `package mls` implements exactly:
+
+```go
+MarshalMLS(w *syntax.Writer) error
+UnmarshalMLS(r *syntax.Reader) error
+```
+
+and nothing else. No `MarshalTo`, no `MarshalTLS`, no `Marshal() ([]byte, error)`, no
+`Parse<Type>(data []byte)` free constructor, no `tls:` struct tags, no reflection. Byte-level access
+is `syntax.Marshal(&v)` / `syntax.Unmarshal(bs, &v)`. Every wire type carries
+`var _ syntax.Codec = (*T)(nil)` in its own file so drift fails at build rather than at Gate 4. The
+two sanctioned exceptions are a concrete extension body's `Encode()` / `ParseXExtension(data)` pair,
+and the validation plan's five codec-table closures.
+
+**C2 — the syntax Writer is sticky *and* `MarshalMLS` returns an error.** Registry override O-1: the
+leaf writes stay return-free and the sticky error is checked once at `Bytes()`, but the encoder must
+be able to return a semantic refusal that is not a buffer error.
+
+**C3 — counts are `LeafCount`, indices are `LeafIndex`/`NodeIndex`, and tree-math arithmetic that
+can be out of range returns an error.** This plan's block (registry §4) is normative for every
+caller. `TreeSize` does not exist.
+
+**C4 — the GroupContext crosses a plan boundary as bytes.** Every framing entry point takes
+`groupContext []byte`, obtained from `syntax.Marshal(gc)` or `(*Group).GroupContext()`.
+
+C1, C2 and C4 bind nothing inside `tree_math.go`: this plan declares no wire type, imports no codec
+and touches no group context. They are carried because the registry states them for every plan. C3
+is this plan's own surface, and the four consuming plans are amended to it rather than the reverse.
 
 ## Repository and paths
 
@@ -59,8 +95,9 @@ commit on an unexpected delta. Do not skip it. If the index is gone, rebuild wit
 
 ## Why the vector family is necessary and nowhere near sufficient
 
-Measured from the vendored file (`mls_measure/mls-impl/test-vectors/tree-math.json`, mlswg commit
-`cfd450286d1bfd9cd2519b95c80f9771f94a5b1a`):
+Measured from `tree-math.json` at mlswg commit `cfd450286d1bfd9cd2519b95c80f9771f94a5b1a` — the file
+the Validation and interop harness plan vendors into `mls/testdata/vectors/` as part of its single
+sixteen-file vendoring task. This plan reads it and never writes it:
 
 | Property | Measured |
 |---|---|
@@ -101,58 +138,74 @@ The gate for this plan is therefore family 1 **plus** four things the family can
 |---|---|---|
 | `mls/tree_math.go` | Create | Every array-based ratchet-tree index computation and the two blank-node shape rules. Imports `errors` and `math/bits` only. No crypto, no node contents, no product limits. |
 | `mls/tree_math_test.go` | Create | Unit tests: RFC Figure 10 and Table 2 fixtures, the semantic common-ancestor oracle, the exhaustive invariant sweep. |
-| `mls/tree_math_vectors_test.go` | Create | The family-1 vector loader and the `TestTreeMathVectors` gate test. Self-contained: the tree-math vectors are plain integers, so this file deliberately depends on no shared vector harness. |
+| `mls/tree_math_kat_test.go` | Create | The family-1 runner: the corpus tripwire, `verifyTreeMathVector`, `generateTreeMathVectors`, the `RegisterVectorFamily` `init()` and the `TestTreeMathVectors` gate test. |
 | `mls/tree_math_fuzz_test.go` | Create | `FuzzTreeMath` — properties 1 and 2 of Gate 4 for the tree-math surface. |
-| `mls/testdata/vectors/tree-math.json` | Create | Vendored mlswg family-1 vectors, pinned by commit. |
-| `mls/testdata/vectors/PINS.md` | Create (append if it already exists) | The mlswg `mls-implementations` commit every vendored vector file came from. |
+| `mls/vectors_test.go` | Modify, one line | Delete `1` from `expectedPendingFamilies` in the same commit that registers family 1. The file itself is the Validation and interop harness plan's. |
 
-**Files this plan must NOT create**, because another wave-1 plan owns them:
+**Files this plan must NOT create**, because another plan owns them:
 
 - `mls/doc.go` or any `// Package mls ...` comment — owned by the Crypto primitives and HPKE plan,
   whose `suite.go` is the natural package header. `tree_math.go` gets a file doc comment, not a
   package doc comment.
-- `mls/errors.go` — owned by the Validation and interop harness plan, which holds one typed error per
-  ValSem code. The nine structural errors this plan defines are not ValSem codes and live in
-  `tree_math.go`.
+- `mls/errors.go` and `mls/profile.go` — owned by the Validation and interop harness plan, which
+  holds one typed error per ValSem code and the whole narrow-profile gate. The nine structural
+  errors this plan defines are not ValSem codes and live in `tree_math.go`.
+- `mls/vectors_test.go` — owned by the Validation and interop harness plan: `VectorFamily`,
+  `RegisterVectorFamily`, `LoadVectorFile`, `MustHex`, `HexOf` and `expectedPendingFamilies` are all
+  declared there. This plan calls them and deletes exactly one entry from
+  `expectedPendingFamilies`; it declares none of them and writes no second hex decoder or second
+  corpus reader.
+- `mls/testdata/vectors/tree-math.json`, any other vendored vector file, `testdata/vectors/VECTORS.sha256`,
+  and any `PINS.md` — the Validation and interop harness plan has the single vendoring task for all
+  sixteen mlswg files, and the one pin file in the slice is `mls/interop/PINS.md`. Earlier drafts of
+  this plan created `mls/testdata/vectors/PINS.md`; that file does not exist and must not be
+  recreated, because three plans writing three pin formats to three paths is how the pin greps in the
+  framing and lifecycle plans expand to an empty commit.
 - Any CI workflow file — owned by the Validation and interop harness plan. See "Definition of done"
   for the exact gate commands it must call.
 
 ---
 
-### Task 1: Branch, vendored vector family, and the vector-shape tripwire
+### Task 1: Branch, the family-1 loader, and the vector-shape tripwire
 
 **Files:**
 - Create: `mls/tree_math.go` (package clause and file doc comment only)
-- Create: `mls/testdata/vectors/tree-math.json`
-- Create: `mls/testdata/vectors/PINS.md`
-- Test: `mls/tree_math_vectors_test.go`
+- Test: `mls/tree_math_kat_test.go`
 
 **Interfaces:**
-- Consumes: nothing. This plan has no compile-time dependency on any other plan, which is why it can
-  start on day one of wave 1.
-- Produces: `mls/testdata/vectors/` as the vendored-vector directory, and `PINS.md` as the record of
-  which mlswg commit every vector file came from. The Syntax and Validation plans vendor
-  `deserialization.json` and the remaining families into the same directory and append to the same
-  `PINS.md`.
+- Consumes, from the Validation and interop harness plan (wave 1, and its vendoring task and vector
+  registry land before this task runs):
+
+```go
+func LoadVectorFile(t *testing.T, file string) []json.RawMessage
+```
+
+- Produces: no exported package API. `mls/tree_math.go` with its file doc comment, the
+  `treeMathVector` entry type, `loadTreeMathVectors` and `TestTreeMathVectorFileShape`.
+
+**Sequencing.** `tree_math.go` itself consumes nothing and could be written on day one. The runner
+cannot: `tree-math.json` and `LoadVectorFile` both belong to the Validation and interop harness
+plan, which vendors all sixteen mlswg files in one task and declares the loader, the family registry
+and `MustHex` in `mls/vectors_test.go`. Both are wave-1, phase-A items, so the only ordering this
+adds is "that plan's vendoring and registry tasks first". Nothing in this plan vendors, pins or
+re-reads the corpus by hand.
 
 - [ ] **Step 1: Write the failing test**
 
-Create `mls/tree_math_vectors_test.go`:
+Create `mls/tree_math_kat_test.go`:
 
 ```go
-// the RFC 9420 tree-math test-vector family, vendored from the mlswg
-// mls-implementations repository at the commit recorded in
-// testdata/vectors/PINS.md.
+// the RFC 9420 tree-math test-vector family, family 1 of the sixteen the
+// validation and interop harness plan vendors into testdata/vectors.
 //
-// the family is plain integers, so this file loads and decodes the vectors
-// itself rather than depending on a shared vector harness. families whose
-// fields are hex-encoded need one; this one does not, and the independence
-// keeps the tree-math gate runnable before any other mls file exists.
+// the entries are plain integers, so this file decodes them itself, but the
+// bytes come from the shared loader: one reader of the vendored corpus, one
+// place a vendoring mistake surfaces. families whose fields are hex-encoded
+// also call MustHex; this one has no hex field.
 package mls
 
 import (
 	"encoding/json"
-	"os"
 	"testing"
 )
 
@@ -169,19 +222,22 @@ type treeMathVector struct {
 	Sibling []*uint32 `json:"sibling"`
 }
 
-const treeMathVectorPath = "testdata/vectors/tree-math.json"
+// the family file, named relative to testdata/vectors exactly as
+// VectorFamily.File is.
+const treeMathVectorFile = "tree-math.json"
 
-// decodes the vendored family, failing the test rather than returning an error
-// so every caller is a one-liner.
+// decodes the vendored family through the shared loader, failing the test
+// rather than returning an error so every caller is a one-liner.
 func loadTreeMathVectors(t *testing.T) []treeMathVector {
 	t.Helper()
-	vectorBytes, err := os.ReadFile(treeMathVectorPath)
-	if err != nil {
-		t.Fatalf("read %s: %v", treeMathVectorPath, err)
-	}
-	var vectors []treeMathVector
-	if err := json.Unmarshal(vectorBytes, &vectors); err != nil {
-		t.Fatalf("decode %s: %v", treeMathVectorPath, err)
+	rawEntries := LoadVectorFile(t, treeMathVectorFile)
+	vectors := make([]treeMathVector, 0, len(rawEntries))
+	for i, rawEntry := range rawEntries {
+		var vector treeMathVector
+		if err := json.Unmarshal(rawEntry, &vector); err != nil {
+			t.Fatalf("decode %s entry %d: %v", treeMathVectorFile, i, err)
+		}
+		vectors = append(vectors, vector)
 	}
 	return vectors
 }
@@ -191,21 +247,17 @@ func loadTreeMathVectors(t *testing.T) []treeMathVector {
 // ignored, and a bump that dropped entries would shrink the gate without
 // failing anything.
 func TestTreeMathVectorFileShape(t *testing.T) {
-	vectorBytes, err := os.ReadFile(treeMathVectorPath)
-	if err != nil {
-		t.Fatalf("read %s: %v", treeMathVectorPath, err)
-	}
-
-	var rawEntries []map[string]json.RawMessage
-	if err := json.Unmarshal(vectorBytes, &rawEntries); err != nil {
-		t.Fatalf("decode %s: %v", treeMathVectorPath, err)
-	}
+	rawEntries := LoadVectorFile(t, treeMathVectorFile)
 	if len(rawEntries) != 10 {
 		t.Fatalf("entries: %d, want 10", len(rawEntries))
 	}
 
 	wantFields := []string{"n_leaves", "n_nodes", "root", "left", "right", "parent", "sibling"}
-	for i, entry := range rawEntries {
+	for i, rawEntry := range rawEntries {
+		var entry map[string]json.RawMessage
+		if err := json.Unmarshal(rawEntry, &entry); err != nil {
+			t.Fatalf("decode %s entry %d: %v", treeMathVectorFile, i, err)
+		}
 		if len(entry) != len(wantFields) {
 			t.Fatalf("entry %d: %d fields, want %d — the upstream format changed and the runner must be extended", i, len(entry), len(wantFields))
 		}
@@ -247,11 +299,29 @@ func TestTreeMathVectorFileShape(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./mls/... -run TestTreeMathVectorFileShape -v`
+This task produces a tripwire on a corpus another plan vendors, so the way to see it red is to trip
+it. Move the vendored file aside and run:
 
-Expected: FAIL with `read testdata/vectors/tree-math.json: open testdata/vectors/tree-math.json: The system cannot find the path specified.`
+```bash
+mv mls/testdata/vectors/tree-math.json mls/testdata/vectors/tree-math.json.away
+go test ./mls/... -run TestTreeMathVectorFileShape -v
+```
 
-- [ ] **Step 3: Cut the branch, vendor the file, create the stub**
+Expected: FAIL inside `LoadVectorFile`, reporting that `testdata/vectors/tree-math.json` could not
+be read. A PASS here means the runner is not reading the corpus at all, which is the one failure
+mode a vector runner must never have.
+
+Restore it before step 3:
+
+```bash
+mv mls/testdata/vectors/tree-math.json.away mls/testdata/vectors/tree-math.json
+git status --porcelain mls/testdata/vectors
+```
+
+The `git status` line must come back empty — the corpus belongs to another plan's commit and this
+plan leaves it byte-identical.
+
+- [ ] **Step 3: Cut the branch and create the stub**
 
 Run from the repo root (Git Bash):
 
@@ -259,25 +329,7 @@ Run from the repo root (Git Bash):
 git rev-parse --verify beta/message >/dev/null 2>&1 || git branch beta/message origin/main
 git checkout beta/message
 git checkout -b feat/mls-tree-math
-mkdir -p mls/testdata/vectors
-cp ../mls_measure/mls-impl/test-vectors/tree-math.json mls/testdata/vectors/tree-math.json
-```
-
-Create `mls/testdata/vectors/PINS.md` (if it already exists, append only the table row):
-
-```markdown
-# Vendored test-vector pins
-
-Every file in this directory is copied verbatim from the mlswg `mls-implementations`
-repository. Nothing here is generated or edited by hand: a divergence from upstream is a
-vendoring bug, not a local fix. Bumping a pin is a pull request that must show a green
-`vectors` job.
-
-Source: https://github.com/mlswg/mls-implementations
-
-| File | Family | Commit | Vendored |
-|---|---|---|---|
-| `tree-math.json` | 1, tree math | `cfd450286d1bfd9cd2519b95c80f9771f94a5b1a` | 2026-08-12 |
+test -f mls/testdata/vectors/tree-math.json || { echo "family 1 is not vendored yet: run the validation plan's vendoring task first"; exit 1; }
 ```
 
 Create `mls/tree_math.go`:
@@ -313,10 +365,10 @@ Expected: PASS
 
 ```bash
 before=$(git ls-files | wc -l)
-git add mls/tree_math.go mls/tree_math_vectors_test.go mls/testdata/vectors/tree-math.json mls/testdata/vectors/PINS.md
+git add mls/tree_math.go mls/tree_math_kat_test.go
 after=$(git ls-files | wc -l)
-[ $((after - before)) -eq 4 ] || { echo "git index anomaly: $before -> $after, expected +4"; exit 1; }
-git commit -m "feat(mls): vendor the RFC 9420 tree-math vector family with a corpus-shape tripwire"
+[ $((after - before)) -eq 2 ] || { echo "git index anomaly: $before -> $after, expected +2"; exit 1; }
+git commit -m "feat(mls): tree-math file skeleton and a corpus-shape tripwire on vector family 1"
 ```
 
 ---
@@ -821,7 +873,7 @@ git commit -m "feat(mls): full-tree sizing, extension and truncation arithmetic"
 
 **Files:**
 - Modify: `mls/tree_math.go`
-- Test: `mls/tree_math_vectors_test.go`
+- Test: `mls/tree_math_kat_test.go`
 
 **Interfaces:**
 - Consumes: `NodeWidth`, `log2`, `checkLeafCount`, `FullLeafCount` (Tasks 2 and 3).
@@ -829,7 +881,7 @@ git commit -m "feat(mls): full-tree sizing, extension and truncation arithmetic"
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `mls/tree_math_vectors_test.go`:
+Append to `mls/tree_math_kat_test.go`:
 
 ```go
 func TestTreeMathVectorRoot(t *testing.T) {
@@ -872,7 +924,7 @@ func TestTreeMathVectorRoot(t *testing.T) {
 }
 ```
 
-Add `"errors"` to the import block of `mls/tree_math_vectors_test.go`.
+Add `"errors"` to the import block of `mls/tree_math_kat_test.go`.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -909,7 +961,7 @@ Expected: PASS
 
 ```bash
 before=$(git ls-files | wc -l)
-git add mls/tree_math.go mls/tree_math_vectors_test.go
+git add mls/tree_math.go mls/tree_math_kat_test.go
 after=$(git ls-files | wc -l)
 [ $((after - before)) -eq 0 ] || { echo "git index anomaly: $before -> $after, expected +0"; exit 1; }
 git commit -m "feat(mls): tree root index, checked against vector family 1"
@@ -921,7 +973,7 @@ git commit -m "feat(mls): tree root index, checked against vector family 1"
 
 **Files:**
 - Modify: `mls/tree_math.go`
-- Test: `mls/tree_math_vectors_test.go`
+- Test: `mls/tree_math_kat_test.go`
 
 **Interfaces:**
 - Consumes: `NodeIndex.Level`, `ErrLeafHasNoChildren`, `ErrNodeOutOfRange` (Task 2).
@@ -931,7 +983,7 @@ git commit -m "feat(mls): tree root index, checked against vector family 1"
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `mls/tree_math_vectors_test.go`:
+Append to `mls/tree_math_kat_test.go`:
 
 ```go
 func TestTreeMathVectorChildren(t *testing.T) {
@@ -1032,7 +1084,7 @@ Expected: PASS
 
 ```bash
 before=$(git ls-files | wc -l)
-git add mls/tree_math.go mls/tree_math_vectors_test.go
+git add mls/tree_math.go mls/tree_math_kat_test.go
 after=$(git ls-files | wc -l)
 [ $((after - before)) -eq 0 ] || { echo "git index anomaly: $before -> $after, expected +0"; exit 1; }
 git commit -m "feat(mls): left and right children, checked against vector family 1"
@@ -1044,7 +1096,7 @@ git commit -m "feat(mls): left and right children, checked against vector family
 
 **Files:**
 - Modify: `mls/tree_math.go`
-- Test: `mls/tree_math_vectors_test.go`
+- Test: `mls/tree_math_kat_test.go`
 
 **Interfaces:**
 - Consumes: `Root`, `NodeWidth`, `Left`, `Right`, `NodeIndex.Level` (Tasks 2, 4, 5).
@@ -1054,7 +1106,7 @@ git commit -m "feat(mls): left and right children, checked against vector family
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `mls/tree_math_vectors_test.go`:
+Append to `mls/tree_math_kat_test.go`:
 
 ```go
 func TestTreeMathVectorParentAndSibling(t *testing.T) {
@@ -1167,7 +1219,7 @@ Expected: PASS
 
 ```bash
 before=$(git ls-files | wc -l)
-git add mls/tree_math.go mls/tree_math_vectors_test.go
+git add mls/tree_math.go mls/tree_math_kat_test.go
 after=$(git ls-files | wc -l)
 [ $((after - before)) -eq 0 ] || { echo "git index anomaly: $before -> $after, expected +0"; exit 1; }
 git commit -m "feat(mls): parent and sibling, checked against vector family 1"
@@ -1175,21 +1227,67 @@ git commit -m "feat(mls): parent and sibling, checked against vector family 1"
 
 ---
 
-### Task 7: The family-1 gate test
+### Task 7: The family-1 gate test and its registration
 
 **Files:**
-- Test: `mls/tree_math_vectors_test.go`
+- Test: `mls/tree_math_kat_test.go`
+- Modify, one line: `mls/vectors_test.go` (the Validation and interop harness plan's file)
 
 **Interfaces:**
-- Consumes: `NodeWidth`, `Root`, `Left`, `Right`, `Parent`, `Sibling` (Tasks 2, 4, 5, 6).
-- Produces: `TestTreeMathVectors` — the single named test that Spec A §4.2.1 family 1 and the CI
-  `vectors` job gate on. No new package API.
+- Consumes, from this plan: `NodeWidth`, `Root`, `Left`, `Right`, `Parent`, `Sibling`
+  (Tasks 2, 4, 5, 6).
+- Consumes, from the Validation and interop harness plan:
+
+```go
+type VectorFamily struct {
+    Number   int                                       // 1..16, the Spec A §4.2.1 row
+    Name     string
+    File     string                                    // under testdata/vectors
+    Slice    string                                    // "A1".."A4"
+    Verify   func(t *testing.T, raw json.RawMessage)   // nil == not yet implemented
+    Generate func(t *testing.T) json.RawMessage        // nil == format has no generate direction
+}
+func RegisterVectorFamily(family VectorFamily)
+func LoadVectorFile(t *testing.T, file string) []json.RawMessage
+```
+
+- Produces: `verifyTreeMathVector`, `generateTreeMathVectors`, the `init()` that registers family 1,
+  and `TestTreeMathVectors` — the named test Spec A §4.2.1 family 1 gates on. No new package API.
+
+**Why the registration is not optional.** The harness runs `TestVectorFamiliesVerify` over the
+registered families and asserts `expectedPendingFamilies` shrinks to empty. A standalone
+`TestTreeMathVectors` that never registers leaves family 1 pending forever: `TestVectorFamiliesVerify`
+skips it, `TestVectorManifestIsComplete` passes vacuously, and acceptance criterion 1 goes green in
+CI with the runner that exists never executed by the job that claims to gate on it. Registering and
+deleting the number from `expectedPendingFamilies` happen in **one commit**, so neither half can land
+without the other.
+
+**On `Verify` and `Generate` arity.** `Verify` takes one entry's raw JSON — the element shape
+`LoadVectorFile` yields — and `Generate` returns the whole family file as one `json.RawMessage`
+array, which is what the corpus on disk is. `TestTreeMathVectorGenerateThenVerify` below proves the
+pair composes inside this plan, so the family is green whichever way the harness splits the generated
+array.
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `mls/tree_math_vectors_test.go`:
+Append to `mls/tree_math_kat_test.go`:
 
 ```go
+// registers family 1 with the shared vector harness. the standalone gate test
+// below is the developer-facing entry point; this is the one the vectors CI job
+// reaches, and without it family 1 stays in expectedPendingFamilies and is
+// never run by the job that gates on it.
+func init() {
+	RegisterVectorFamily(VectorFamily{
+		Number:   1,
+		Name:     "tree-math",
+		File:     treeMathVectorFile,
+		Slice:    "A1",
+		Verify:   verifyTreeMathVector,
+		Generate: generateTreeMathVectors,
+	})
+}
+
 // checks one optional relation column against one function. a wrong error is
 // as much a failure as a wrong index, because "undefined here" is part of what
 // the vector asserts.
@@ -1209,48 +1307,126 @@ func checkTreeMathRelation(t *testing.T, nLeaves uint32, nodeIndex uint32, name 
 	}
 }
 
+// checks one decoded entry and returns how many relations it asserted, so the
+// caller can gate on the total. every relation of every node is checked; there
+// is no sampling.
+func checkTreeMathEntry(t *testing.T, v treeMathVector) int {
+	t.Helper()
+	leafCount := LeafCount(v.NLeaves)
+
+	if got := NodeWidth(leafCount); got != v.NNodes {
+		t.Fatalf("n_leaves %d: node width %d, want %d", v.NLeaves, got, v.NNodes)
+	}
+	root, err := Root(leafCount)
+	if err != nil {
+		t.Fatalf("n_leaves %d: root: %v", v.NLeaves, err)
+	}
+	if uint32(root) != v.Root {
+		t.Fatalf("n_leaves %d: root %d, want %d", v.NLeaves, root, v.Root)
+	}
+
+	checked := 0
+	for i := uint32(0); i < v.NNodes; i += 1 {
+		nodeIndex := NodeIndex(i)
+
+		gotLeft, leftErr := Left(nodeIndex)
+		checkTreeMathRelation(t, v.NLeaves, i, "left", v.Left[i], gotLeft, leftErr)
+
+		gotRight, rightErr := Right(nodeIndex)
+		checkTreeMathRelation(t, v.NLeaves, i, "right", v.Right[i], gotRight, rightErr)
+
+		gotParent, parentErr := Parent(nodeIndex, leafCount)
+		checkTreeMathRelation(t, v.NLeaves, i, "parent", v.Parent[i], gotParent, parentErr)
+
+		gotSibling, siblingErr := Sibling(nodeIndex, leafCount)
+		checkTreeMathRelation(t, v.NLeaves, i, "sibling", v.Sibling[i], gotSibling, siblingErr)
+
+		checked += 4
+	}
+	return checked
+}
+
+// the VectorFamily.Verify half of family 1: one entry of the corpus, decoded
+// and checked. an entry with no nodes is refused rather than passed, because a
+// truncated entry is the shape a bad vendoring produces.
+func verifyTreeMathVector(t *testing.T, raw json.RawMessage) {
+	t.Helper()
+	var v treeMathVector
+	if err := json.Unmarshal(raw, &v); err != nil {
+		t.Fatalf("decode tree-math entry: %v", err)
+	}
+	checked := checkTreeMathEntry(t, v)
+	if checked != int(4*v.NNodes) || checked == 0 {
+		t.Fatalf("n_leaves %d: relations checked: %d, want %d", v.NLeaves, checked, 4*v.NNodes)
+	}
+}
+
+// the VectorFamily.Generate half: the whole family recomputed from this file's
+// arithmetic, at the ten sizes upstream publishes, in the upstream field order
+// and with null for every undefined relation.
+func generateTreeMathVectors(t *testing.T) json.RawMessage {
+	t.Helper()
+
+	optional := func(x NodeIndex, err error) *uint32 {
+		if err != nil {
+			return nil
+		}
+		value := uint32(x)
+		return &value
+	}
+
+	vectors := make([]treeMathVector, 0, 10)
+	for depth := uint32(0); depth <= 9; depth += 1 {
+		leafCount := LeafCount(1) << depth
+		nodeWidth := NodeWidth(leafCount)
+		root, err := Root(leafCount)
+		if err != nil {
+			t.Fatalf("%d leaves: root: %v", leafCount, err)
+		}
+
+		v := treeMathVector{
+			NLeaves: uint32(leafCount),
+			NNodes:  nodeWidth,
+			Root:    uint32(root),
+			Left:    make([]*uint32, 0, nodeWidth),
+			Right:   make([]*uint32, 0, nodeWidth),
+			Parent:  make([]*uint32, 0, nodeWidth),
+			Sibling: make([]*uint32, 0, nodeWidth),
+		}
+		for i := uint32(0); i < nodeWidth; i += 1 {
+			nodeIndex := NodeIndex(i)
+			v.Left = append(v.Left, optional(Left(nodeIndex)))
+			v.Right = append(v.Right, optional(Right(nodeIndex)))
+			v.Parent = append(v.Parent, optional(Parent(nodeIndex, leafCount)))
+			v.Sibling = append(v.Sibling, optional(Sibling(nodeIndex, leafCount)))
+		}
+		vectors = append(vectors, v)
+	}
+
+	generated, err := json.Marshal(vectors)
+	if err != nil {
+		t.Fatalf("encode tree-math family: %v", err)
+	}
+	return json.RawMessage(generated)
+}
+
 // vector family 1. this is the gate Spec A section 4.2.1 names, and the
 // assertion count is checked so that a runner which silently iterates zero
 // entries — the failure mode a vendoring mistake produces — fails instead of
 // passing.
 func TestTreeMathVectors(t *testing.T) {
-	vectors := loadTreeMathVectors(t)
-	if len(vectors) != 10 {
-		t.Fatalf("entries: %d, want 10", len(vectors))
+	rawEntries := LoadVectorFile(t, treeMathVectorFile)
+	if len(rawEntries) != 10 {
+		t.Fatalf("entries: %d, want 10", len(rawEntries))
 	}
 
 	checked := 0
-	for _, v := range vectors {
-		leafCount := LeafCount(v.NLeaves)
-
-		if got := NodeWidth(leafCount); got != v.NNodes {
-			t.Fatalf("n_leaves %d: node width %d, want %d", v.NLeaves, got, v.NNodes)
+	for _, rawEntry := range rawEntries {
+		var v treeMathVector
+		if err := json.Unmarshal(rawEntry, &v); err != nil {
+			t.Fatalf("decode tree-math entry: %v", err)
 		}
-		root, err := Root(leafCount)
-		if err != nil {
-			t.Fatalf("n_leaves %d: root: %v", v.NLeaves, err)
-		}
-		if uint32(root) != v.Root {
-			t.Fatalf("n_leaves %d: root %d, want %d", v.NLeaves, root, v.Root)
-		}
-
-		for i := uint32(0); i < v.NNodes; i += 1 {
-			nodeIndex := NodeIndex(i)
-
-			gotLeft, leftErr := Left(nodeIndex)
-			checkTreeMathRelation(t, v.NLeaves, i, "left", v.Left[i], gotLeft, leftErr)
-
-			gotRight, rightErr := Right(nodeIndex)
-			checkTreeMathRelation(t, v.NLeaves, i, "right", v.Right[i], gotRight, rightErr)
-
-			gotParent, parentErr := Parent(nodeIndex, leafCount)
-			checkTreeMathRelation(t, v.NLeaves, i, "parent", v.Parent[i], gotParent, parentErr)
-
-			gotSibling, siblingErr := Sibling(nodeIndex, leafCount)
-			checkTreeMathRelation(t, v.NLeaves, i, "sibling", v.Sibling[i], gotSibling, siblingErr)
-
-			checked += 4
-		}
+		checked += checkTreeMathEntry(t, v)
 	}
 
 	// 2036 nodes across the ten entries, four relations each.
@@ -1258,35 +1434,112 @@ func TestTreeMathVectors(t *testing.T) {
 		t.Fatalf("relations checked: %d, want 8144", checked)
 	}
 }
+
+// the generate direction against the verify direction. the harness runs this
+// pairing across every registered family; running it here as well means a
+// generator that emits the wrong field names or drops the null encoding fails
+// in this plan rather than in the plan that owns the harness.
+func TestTreeMathVectorGenerateThenVerify(t *testing.T) {
+	var rawEntries []json.RawMessage
+	if err := json.Unmarshal(generateTreeMathVectors(t), &rawEntries); err != nil {
+		t.Fatalf("decode the generated family: %v", err)
+	}
+	if len(rawEntries) != 10 {
+		t.Fatalf("generated entries: %d, want 10", len(rawEntries))
+	}
+	for _, rawEntry := range rawEntries {
+		verifyTreeMathVector(t, rawEntry)
+	}
+
+	// and the generated family must agree with the vendored one field by field,
+	// which is the assertion that makes generating worth doing at all.
+	vendored := LoadVectorFile(t, treeMathVectorFile)
+	if len(vendored) != len(rawEntries) {
+		t.Fatalf("generated %d entries, vendored %d", len(rawEntries), len(vendored))
+	}
+	for i := range vendored {
+		var want, got treeMathVector
+		if err := json.Unmarshal(vendored[i], &want); err != nil {
+			t.Fatalf("decode vendored entry %d: %v", i, err)
+		}
+		if err := json.Unmarshal(rawEntries[i], &got); err != nil {
+			t.Fatalf("decode generated entry %d: %v", i, err)
+		}
+		if got.NLeaves != want.NLeaves || got.NNodes != want.NNodes || got.Root != want.Root {
+			t.Fatalf("entry %d: generated (%d, %d, %d), vendored (%d, %d, %d)", i,
+				got.NLeaves, got.NNodes, got.Root, want.NLeaves, want.NNodes, want.Root)
+		}
+		columns := []struct {
+			name string
+			got  []*uint32
+			want []*uint32
+		}{
+			{name: "left", got: got.Left, want: want.Left},
+			{name: "right", got: got.Right, want: want.Right},
+			{name: "parent", got: got.Parent, want: want.Parent},
+			{name: "sibling", got: got.Sibling, want: want.Sibling},
+		}
+		for _, column := range columns {
+			if len(column.got) != len(column.want) {
+				t.Fatalf("entry %d %s: %d entries, want %d", i, column.name, len(column.got), len(column.want))
+			}
+			for j := range column.want {
+				if (column.got[j] == nil) != (column.want[j] == nil) {
+					t.Fatalf("entry %d %s node %d: presence differs", i, column.name, j)
+				}
+				if column.got[j] != nil && *column.got[j] != *column.want[j] {
+					t.Fatalf("entry %d %s node %d: %d, want %d", i, column.name, j, *column.got[j], *column.want[j])
+				}
+			}
+		}
+	}
+}
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Temporarily change the constant `8144` to `8145`, then run:
-`go test ./mls/... -run TestTreeMathVectors -v`
+`go test ./mls/... -run 'TestTreeMathVectors|TestTreeMathVectorGenerateThenVerify' -v`
 
 Expected: FAIL with `relations checked: 8144, want 8145` — which proves the runner really visited
 every node of every entry rather than passing vacuously. Restore `8144` before step 3.
 
+Then, with `8144` restored, confirm the registration half is red too:
+`go test ./mls/... -run TestVectorManifestIsComplete -v`
+
+Expected: FAIL, reporting that family 1 is registered while still listed in
+`expectedPendingFamilies`. If it passes, the harness is not seeing the `init()` and the registration
+is decorative.
+
 - [ ] **Step 3: Write minimal implementation**
 
-No implementation is needed: Tasks 4 to 6 already produced every function this gate calls. Restore
-the constant to `8144` if it is still `8145`, and run `gofmt -l mls` to confirm the file is clean.
+No new tree-math implementation is needed: Tasks 4 to 6 already produced every function this gate
+calls. Two edits close the task:
+
+1. Restore the constant to `8144` if it is still `8145`.
+2. In `mls/vectors_test.go`, delete `1` from `expectedPendingFamilies` — the single line this plan
+   changes in another plan's file, and it must land in the same commit as the `init()` above. Leave
+   every other number alone; each belongs to the plan that lands its own runner.
+
+Then run `gofmt -l mls` to confirm both files are clean.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./mls/... -run TestTreeMathVectors -v`
+```
+go test ./mls/... -run 'TestTreeMathVectors|TestTreeMathVectorGenerateThenVerify' -v
+go test ./mls/... -run 'TestVectorManifestIsComplete|TestVectorFamiliesVerify|TestVectorGenerateThenVerify' -v
+```
 
-Expected: PASS
+Expected: PASS, and the harness run must name family 1 rather than skipping it.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 before=$(git ls-files | wc -l)
-git add mls/tree_math_vectors_test.go
+git add mls/tree_math_kat_test.go mls/vectors_test.go
 after=$(git ls-files | wc -l)
 [ $((after - before)) -eq 0 ] || { echo "git index anomaly: $before -> $after, expected +0"; exit 1; }
-git commit -m "test(mls): vector family 1 gate with a checked assertion count"
+git commit -m "test(mls): vector family 1 gate, registered with the shared vector harness"
 ```
 
 ---
@@ -2834,22 +3087,53 @@ Plus the layering assertion, once `connect/layering_test.go` exists (Validation 
 of `github.com/urnetwork/connect/mls` attributable to `tree_math.go` is exactly `errors` and
 `math/bits`.
 
-**Gate commands for the CI `vectors` job**, which the Validation and interop harness plan owns and
-must wire:
+**Gate commands for the CI `vectors` and `fuzz-short` jobs**, which the Validation and interop
+harness plan owns and must wire:
 
 | Gate | Command |
 |---|---|
-| Spec A §4.2.1 family 1 | `go test ./mls/... -run TestTreeMathVectors` |
+| Spec A §4.2.1 family 1, through the registry | `go test ./mls/... -run 'TestVectorFamiliesVerify\|TestVectorManifestIsComplete\|TestVectorGenerateThenVerify'` |
+| Spec A §4.2.1 family 1, directly | `go test ./mls/... -run TestTreeMathVectors` |
 | Corpus tripwire | `go test ./mls/... -run TestTreeMathVectorFileShape` |
 | Structural sweep | `go test ./mls/... -run TestTreeMathInvariants` |
 | Gate 4 properties 1–2 | `go test ./mls/... -run xxx -fuzz FuzzTreeMath -fuzztime 60s` |
+
+`FuzzTreeMath` must appear as a row in that plan's `fuzz-short` matrix. A fuzz target that no
+workflow names is a target that runs only when someone remembers to run it.
 
 ---
 
 ## Boundaries with the plans running in parallel
 
-**This plan consumes nothing.** `tree_math.go` imports `errors` and `math/bits`. It can be executed
-before, during or after the Syntax and Crypto plans with no ordering constraint.
+**The implementation file consumes nothing.** `tree_math.go` imports `errors` and `math/bits`, and
+it can be written before, during or after the Syntax and Crypto plans with no ordering constraint.
+It names no `CipherSuite`, no `CryptoProvider` and no `syntax` symbol, and it must stay that way:
+tree math is ciphersuite-independent by construction.
+
+**The test files consume exactly three symbols**, all from the Validation and interop harness plan's
+`mls/vectors_test.go`, which is wave 1 alongside this plan:
+
+```go
+type VectorFamily struct {
+    Number   int                                       // 1..16, the Spec A §4.2.1 row
+    Name     string
+    File     string                                    // under testdata/vectors
+    Slice    string                                    // "A1".."A4"
+    Verify   func(t *testing.T, raw json.RawMessage)   // nil == not yet implemented
+    Generate func(t *testing.T) json.RawMessage        // nil == format has no generate direction
+}
+func RegisterVectorFamily(family VectorFamily)
+func LoadVectorFile(t *testing.T, file string) []json.RawMessage
+```
+
+`MustHex` and `HexOf` are on that plan's list of symbols this one may call; family 1 has no
+hex-encoded field, so this plan calls neither, and it defines no local hex decoder or corpus reader
+that would become a second one.
+
+The ordering this creates is narrow and entirely inside wave 1: that plan's vendoring task
+(all sixteen mlswg files, `testdata/vectors/VECTORS.sha256`, `mls/interop/PINS.md`) and its vector
+registry task run before Task 1 of this plan. Tasks 2, 3 and 8 to 14 touch neither and can run at
+any time.
 
 **What downstream plans consume from this plan** — the complete produced surface, which is the
 contract to write a Consumes block against:
@@ -2930,20 +3214,22 @@ Semantics a consumer must not have to read the implementation to know:
 | TreeKEM (wave 2) | `tree_sync.go` owns the RFC §7.9 checks this file deliberately does not make: unmerged-leaf lists sorted and strictly increasing, each entry a non-blank leaf inside the node's subtree, and ValSem300's no-trailing-blank-nodes rule. |
 | TreeKEM (wave 2) | Tree extension and truncation call `ExtendedLeafCount` and `TruncatedLeafCount` rather than open-coding `2*n` and a bit scan. |
 | Crypto primitives and HPKE (wave 1) | Owns the `// Package mls ...` doc comment, in `suite.go` or `doc.go`. This plan adds a file doc comment only. |
-| Validation and interop harness (wave 1) | Owns `mls/errors.go` (one typed error per ValSem code) and every CI workflow file, and must wire the four gate commands above into the `vectors` and `fuzz-short` jobs. The nine structural errors here are not ValSem codes and stay in `tree_math.go`. |
-| Syntax and codec (wave 1) | Vendors its own families into `mls/testdata/vectors/` and appends a row to `mls/testdata/vectors/PINS.md` rather than replacing the file. |
+| Validation and interop harness (wave 1) | Owns `mls/errors.go` (one typed error per ValSem code), `mls/profile.go`, `mls/vectors_test.go` and every CI workflow file, and must wire the gate commands above into the `vectors` and `fuzz-short` jobs — including a `FuzzTreeMath` row in the `fuzz-short` matrix. The nine structural errors here are not ValSem codes and stay in `tree_math.go`. |
+| Validation and interop harness (wave 1) | Its vendoring task must land `mls/testdata/vectors/tree-math.json` before Task 1 of this plan runs, and its vector-registry task must land `VectorFamily`, `RegisterVectorFamily` and `LoadVectorFile` before Task 1 and `expectedPendingFamilies` before Task 7. This plan vendors nothing and writes no pin file. |
 | Group lifecycle (wave 4) | `commit.go` owns the 500-member and 10-device caps. No product limit belongs in `tree_math.go`. |
+| Key schedule, TreeKEM, framing, group lifecycle, validation | The produced surface above is normative. Every count parameter is `LeafCount`, never `LeafIndex`, `uint32` or a `TreeSize` alias; `Root`, `Left`, `Right`, `Parent`, `Sibling`, `DirectPath` and `Copath` are two-valued and the error is handled, never discarded; `Level` and `LeafIndex` are methods on `NodeIndex`, not free functions; `CommonAncestor` takes two `NodeIndex` values. A shim that folds one of these errors into `false` is how the trailing-blank case of ValSem300 gets silently accepted, so there are no shims outside TreeKEM's own file. |
 
-**Things no plan obviously owns, raised here rather than assumed:**
+**Settled elsewhere, recorded here so nobody re-opens it:**
 
-1. **The vendored-vector pin.** Spec A §4.2.4 records the pinned mlswg commit in
-   `connect/mls/interop/PINS.md`, which is the interop harness's pin, not the vector corpus's. Task 1
-   creates `mls/testdata/vectors/PINS.md` for the vector files and records commit
-   `cfd450286d1bfd9cd2519b95c80f9771f94a5b1a`. The two must be bumped together; whoever owns the
-   `peer-image-bump` job should own that pairing.
-2. **The `vectors` CI job.** Spec A §11.4 lists it as blocking on every push but no plan is named as
-   its owner. Assigned above to the Validation and interop harness plan; if that plan does not take
-   it, family 1 is green only when someone runs it by hand.
-3. **`connect/go.mod` declares `go 1.26.3` while Spec A §0.1 pins the toolchain at 1.26.5.** Nothing
-   in this plan depends on the difference, and this plan does not change the file, but the discrepancy
-   should be resolved deliberately by whoever cuts `beta/message` rather than drifting.
+1. **The vendored-vector pin.** One pin file for the whole slice, `connect/mls/interop/PINS.md`, with
+   machine-readable `mlswg=<sha>` and `openmls=<sha>` lines, written by the Validation and interop
+   harness plan's vendoring task alongside `testdata/vectors/VECTORS.sha256`. Family 1 is pinned at
+   mlswg commit `cfd450286d1bfd9cd2519b95c80f9771f94a5b1a`. Neither `connect/mls/PINS.md` nor
+   `connect/mls/testdata/vectors/PINS.md` exists; earlier drafts of this plan and of three others
+   each created one, which is why two of the pin greps in the framing and lifecycle plans expanded to
+   an empty commit.
+2. **The `vectors` CI job.** Owned by the Validation and interop harness plan. Family 1 reaches it
+   through `RegisterVectorFamily` (Task 7), not through a job-level `-run TestTreeMathVectors`
+   filter — a filter is a list somebody has to remember to extend, and the registry is not.
+3. **`connect/go.mod`.** Decided: the `go` directive stays at `1.26.3` and `toolchain go1.26.5` is
+   added, by the Syntax and codec plan and nobody else. This plan does not touch the file.

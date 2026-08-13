@@ -9,20 +9,23 @@ confirmation and membership tags, transcript hashes) and §9 (secret tree, per-s
 handshake and application keys) in pure Go, passing the `key-schedule`, `psk_secret`,
 `transcript-hashes` and `secret-tree` vector families in both directions.
 
-**Architecture:** Four self-contained files in `connect/mls` — `group_context.go`, `key_schedule.go`,
+**Architecture:** Five self-contained files in `connect/mls` — `group_context.go`, `key_schedule.go`,
 `psk.go`, `transcript.go`, `secret_tree.go` — that consume only the `CryptoProvider` interface, the
-tree-math index functions, and the `syntax` reader/writer. Nothing here touches HPKE (except
-`DeriveKeyPair` for `external_pub`), the ratchet tree, framing, or the group state machine, so the
-whole key schedule can be audited and fuzzed as arithmetic over byte slices. Secrets are consumed and
+tree-math index functions, the registry enums and `Extension`, and the `syntax` reader/writer.
+Nothing here touches HPKE (except `DeriveKeyPair` for `external_pub`), the ratchet tree, framing, or
+the group state machine, so the whole key schedule can be audited and fuzzed as arithmetic over byte
+slices. The one exception is deliberate: `SecretTree` implements the `MessageKeySource` interface p6
+declares, which means it names p6's `ContentType` — and only that. Secrets are consumed and
 zeroized on use: a secret-tree node secret is deleted once its two children exist, a ratchet secret is
 deleted once it has produced its generation's key, nonce and successor.
 
 **Tech Stack:** Go 1.26.5, `crypto/hkdf` and `crypto/sha3` via the wave-1 `CryptoProvider` only,
-`crypto/subtle` for tag comparison, `encoding/json` in tests, `testing` and `testing/fuzz`.
+`crypto/subtle` for tag comparison, `encoding/json` in tests, `testing`. The Gate-4 `Fuzz*` targets
+are p8's; this plan contributes their seed corpus.
 
 ## Global Constraints
 
-- Go 1.26.5, pinned. `connect/go.mod` says `go 1.26.3`; bump to `1.26.5` in wave 1 and do not change it here.
+- Go 1.26.5, pinned, through the toolchain line. `connect/go.mod` keeps its `go 1.26.3` directive and gains `toolchain go1.26.5`; raising the directive would raise the language floor for all of `connect`, which is out of this slice's scope. The edit is p1 Task 1's and is made exactly once — nothing here touches `go.mod`.
 - Standard library only for crypto: `crypto/mlkem`, `crypto/ecdh`, `crypto/hkdf`, `crypto/sha3`, plus `chacha20poly1305` from the already-pinned `golang.org/x/crypto`.
 - NO cgo, NO Rust, NO new third-party crypto dependency. `sdk` must stay gomobile-buildable.
 - New dependencies permitted in `connect` on `beta/message`: **none.**
@@ -39,6 +42,51 @@ deleted once it has produced its generation's key, nonce and successor.
 - Branch: `beta/message` on `Ryanmello07/urnetwork-connect`. Not proposed upstream.
 - CODESTYLE: `self` receivers, `stateLock` for guarded state, explicit struct field names, doc comment on every file/type/func, `Id` not `ID`. Tests are top-level functions, never `t.Run` subtests.
 
+### The four registry conventions (C1–C4)
+
+Verbatim from `research/slice1-interface-registry.md`, which is normative: where it and this plan
+disagree, it wins and this plan is amended.
+
+**C1 — one codec, one method set.** Every wire type in `package mls` implements exactly:
+
+```go
+MarshalMLS(w *syntax.Writer) error
+UnmarshalMLS(r *syntax.Reader) error
+```
+
+and nothing else. No `MarshalTo`, no `MarshalTLS`, no `Marshal() ([]byte, error)`, no
+`Parse<Type>(data []byte)` free constructor, no `tls:` struct tags, no reflection. Byte-level access
+is `syntax.Marshal(&v)` / `syntax.Unmarshal(bs, &v)`. Every wire type carries
+`var _ syntax.Codec = (*T)(nil)` in its own file so drift fails at build rather than at Gate 4.
+
+The two sanctioned exceptions, because they are a different operation rather than a second spelling
+of the same one:
+- **Extension bodies.** `Extension.ExtensionData` is opaque, so a concrete extension converts
+  bytes↔struct: `func (self *X) Encode() (Extension, error)` and
+  `func ParseXExtension(data []byte) (*X, error)`. Owned per-extension. **This plan owns no
+  extension body**, so it uses neither form.
+- **p8's codec table.** Five decode/encode closures over `syntax.Marshal`/`Unmarshal`, built inside
+  p8 (§9.4). They export no new `Parse*`/`Encode*` names.
+
+**C2 — the syntax Writer is sticky *and* `MarshalMLS` returns an error.** The leaf writes
+(`WriteUint8`, `WriteUint16`, `WriteUint64`, `WriteRaw`, `WriteOpaque`) return nothing and are
+no-ops after the first error; one check at `Bytes()` suffices. `MarshalMLS` returns `error` so a
+*semantic* refusal — `PreSharedKeyId.MarshalMLS` on an unknown `psktype` — can surface instead of
+being silently dropped into wrong signed bytes. `syntax.Marshal` returns
+`errors.Join(v.MarshalMLS(w), w.Err())`, so both the semantic and the buffer error reach the caller.
+
+**C3 — counts are `LeafCount`, indices are `LeafIndex`/`NodeIndex`, and tree-math arithmetic that
+can be out of range returns an error.** p3's block is normative for every caller. `TreeSize` does
+not exist, `Level` is a method on `NodeIndex` and not a free function, `NodeWidth` returns `uint32`,
+and `Root` is two-valued. **This plan gets no shims**: it calls the two-valued form and handles the
+error, because a shim that turns an error into `false` is exactly how ValSem300's trailing-blank
+case gets silently accepted.
+
+**C4 — the GroupContext crosses a plan boundary as bytes.** Every p6 entry point takes
+`groupContext []byte`, obtained from `syntax.Marshal(gc)`. This plan is on the other side of that
+line: its own entry points take `*GroupContext` and serialize internally with `syntax.Marshal`, and
+`(*KeySchedule).GroupContextBytes()` is what hands the bytes onward.
+
 ---
 
 ## File Structure
@@ -47,41 +95,61 @@ deleted once it has produced its generation's key, nonce and successor.
 |---|---|
 | `connect/mls/errors_key_schedule.go` | **Create.** Typed errors owned by this plan. A separate file from `errors.go` so the wave-1 validation plan and this plan never edit the same file during parallel waves. |
 | `connect/mls/secret_zeroize.go` | **Create.** `zeroizeSecret`, the best-effort `//go:noinline` overwrite used by every file in this plan. |
-| `connect/mls/group_context.go` | **Create.** The `GroupContext` struct, its byte-exact `Marshal`, and `ParseGroupContext`. The single definition of the epoch binding every other file hashes or expands over. |
+| `connect/mls/group_context.go` | **Create.** The `GroupContext` struct and its byte-exact `MarshalMLS`/`UnmarshalMLS` pair, plus `Clone` and the `var _ syntax.Codec` pin. The single definition of the epoch binding every other file hashes or expands over. |
 | `connect/mls/key_schedule.go` | **Create.** RFC 9420 §8 — joiner secret, welcome secret, epoch secret, the nine derived epoch secrets, exporter, external key pair, confirmation and membership tags, welcome key/nonce. |
-| `connect/mls/psk.go` | **Create.** RFC 9420 §8.4 — `PreSharedKeyId`, `PSKLabel`, `PskSecret`, and the ValSem401/402/403 checks the computation itself enforces. |
+| `connect/mls/psk.go` | **Create.** RFC 9420 §8.4 — `PreSharedKeyId`, `PSKLabel`, `PskSecret`, `EmptyPskSecret`, and the ValSem401/402/403 checks the computation itself enforces. |
 | `connect/mls/transcript.go` | **Create.** RFC 9420 §8.2 — confirmed and interim transcript hash chaining, the group-creation base case, and the joiner's seed from a GroupInfo. |
-| `connect/mls/secret_tree.go` | **Create.** RFC 9420 §9 — the secret tree, the per-leaf handshake and application ratchets, the generation window, and the sender-data key/nonce derivation. |
+| `connect/mls/secret_tree.go` | **Create.** RFC 9420 §9 — the secret tree, the per-leaf handshake and application ratchets, the generation window, the `MessageKeySource` implementation p6 declares, and the sender-data key/nonce derivation. |
 | `connect/mls/key_schedule_deps_test.go` | **Create.** Compile-time pins on every wave-1 symbol this plan consumes. Fails to build the moment a signature drifts. |
 | `connect/mls/group_context_test.go` | **Create.** GroupContext KAT, round-trip, trailing-byte rejection. |
 | `connect/mls/key_schedule_test.go` | **Create.** Key-schedule KATs against the suite-3 epoch-0 vector, tag tests, unreachability test. |
 | `connect/mls/psk_test.go` | **Create.** PSK label encoding, `PskSecret` KAT, ValSem401/402/403 negatives. |
 | `connect/mls/transcript_test.go` | **Create.** Transcript arithmetic, base case, GroupInfo seed. |
 | `connect/mls/secret_tree_test.go` | **Create.** Secret tree descent, deletion, ratchet stepping, window behaviour, forward secrecy. |
-| `connect/mls/key_schedule_vectors_test.go` | **Create.** The shared vector-loading helpers (`ksHex`, `ksLoadVectors`, `ksImplementedSuite`) plus the `key-schedule` and `psk_secret` runners and the key-schedule generator. |
-| `connect/mls/transcript_vectors_test.go` | **Create.** The `transcript-hashes` runner and its self-validating AuthenticatedContent split. |
-| `connect/mls/secret_tree_vectors_test.go` | **Create.** The `secret-tree` runner and generator. |
-| `connect/mls/key_schedule_fuzz_test.go` | **Create.** Round-trip fuzz targets for `GroupContext` and `PreSharedKeyId`, feeding the Gate 4 corpus. |
+| `connect/mls/key_schedule_kat_test.go` | **Create.** `implementedSuite`, the `key-schedule` and `psk_secret` runners, their `RegisterVectorFamily` `init()`, and the key-schedule generator. |
+| `connect/mls/transcript_kat_test.go` | **Create.** The `transcript-hashes` runner, its `RegisterVectorFamily` `init()`, and its self-validating AuthenticatedContent split. |
+| `connect/mls/secret_tree_kat_test.go` | **Create.** The `secret-tree` runner and generator plus their `RegisterVectorFamily` `init()`. |
+| `connect/mls/key_schedule_roundtrip_test.go` | **Create.** Deterministic byte-exact round-trip properties for `GroupContext` and `PreSharedKeyId`, and the seed corpus this plan contributes to p8's Gate 4 fuzz targets. |
 | `connect/mls/key_schedule_guard_test.go` | **Create.** Source-scanning guardrail test for G1 (`hkdf.Extract`), G8 (`bytes.Equal` on tags) and the banned X25519 helpers. |
-| `connect/mls/testdata/vectors/key-schedule.json` | **Create (vendor).** Pinned mlswg vector. |
-| `connect/mls/testdata/vectors/psk_secret.json` | **Create (vendor).** Pinned mlswg vector. |
-| `connect/mls/testdata/vectors/transcript-hashes.json` | **Create (vendor).** Pinned mlswg vector. |
-| `connect/mls/testdata/vectors/secret-tree.json` | **Create (vendor).** Pinned mlswg vector. |
-| `connect/mls/testdata/corpus/FuzzGroupContextRoundTrip/` | **Create.** Seed corpus. |
-| `connect/mls/testdata/corpus/FuzzPreSharedKeyIdRoundTrip/` | **Create.** Seed corpus. |
+| `connect/mls/testdata/vectors/key-schedule.json` | **Consume.** Vendored by p8 Task 6, the single vendoring task for all sixteen families. This plan reads it and never writes it. |
+| `connect/mls/testdata/vectors/psk_secret.json` | **Consume.** Vendored by p8 Task 6. |
+| `connect/mls/testdata/vectors/transcript-hashes.json` | **Consume.** Vendored by p8 Task 6. |
+| `connect/mls/testdata/vectors/secret-tree.json` | **Consume.** Vendored by p8 Task 6. |
+| `connect/mls/testdata/corpus/FuzzGroupContextRoundTrip/` | **Create.** Seed corpus only; the `Fuzz*` target itself is p8's. |
+| `connect/mls/testdata/corpus/FuzzPreSharedKeyIdRoundTrip/` | **Create.** Seed corpus only; the `Fuzz*` target itself is p8's. |
 
 ### What this plan does NOT own
 
-`crypto.go`, `suite.go`, `hpke.go`, `tree_math.go`, `syntax/`, `extension.go`, `framing.go`,
-`treekem.go`, `group.go`, `validation.go`, `errors.go`, `profile.go`, `interop/`. `commit_secret`
-comes from TreeKEM. `ConfirmedTranscriptHashInput` bytes and the membership TBM bytes come from
-framing. `GroupInfo` and `Welcome` construction come from group lifecycle.
+`crypto.go`, `suite.go`, `hpke.go`, `tree_math.go`, `syntax/`, `extension.go`, `credential.go`,
+`leaf_node.go`, `key_package.go`, `tree.go`, `treekem.go`, `framing*.go`, `group.go`,
+`validate_*.go`, `errors.go`, `profile.go`, `codec_table.go`, `interop/`. `commit_secret` comes
+from TreeKEM (p5). `ConfirmedTranscriptHashInput` bytes and the membership TBM bytes come from
+framing (p6). `GroupInfo` and `Welcome` construction come from group lifecycle (p7).
+
+Four things this plan previously declared and no longer does, because the registry assigns them
+elsewhere:
+
+- **`ErrPskNonceLength`, `ErrPskType`, `ErrDuplicatePsk`** — they are ValSem401/402/403 and belong
+  to p8's catalogue (registry §9.1). This plan **consumes** them from p8's `errors.go` and returns
+  `ValSem(ValSem401, detail)` / `ValSem(ValSem402, detail)` / `ValSem(ValSem403, detail)` with the
+  sentinel wrapped in `detail`, so `errors.Is` and `CodeOf` both hold.
+- **`ksHex` and `ksLoadVectors`** — deleted in favour of p8's `MustHex`, `HexOf` and
+  `LoadVectorFile` (registry §9.2). Three parallel hex decoders over one corpus is how two of them
+  end up disagreeing about the empty string. `ksImplementedSuite` survives, renamed
+  `implementedSuite`. This plan's own `mustHex` is deleted too — p7 declares the same name in the
+  same package, so keeping it is a redeclaration compile error, not a style question.
+- **The `Fuzz*` targets** — p8 owns all nine Gate-4 fuzz targets (registry §9.5). This plan
+  contributes seed corpus and keeps the same round-trip assertions as ordinary deterministic tests.
+- **Vendoring the four vector files** — p8 Task 6 is the single vendoring task for all sixteen
+  mlswg families plus `VECTORS.sha256` and `interop/PINS.md` (registry §9.2). This plan keeps only
+  its runners.
 
 ---
 
 ## Interface summary — what other plans consume from here
 
-Copy these into your Consumes block verbatim.
+This is registry §5, transcribed. It is normative and every code body below calls exactly these
+spellings.
 
 ```go
 package mls
@@ -96,9 +164,10 @@ type GroupContext struct {
     ConfirmedTranscriptHash []byte
     Extensions              []Extension
 }
-func (self *GroupContext) Marshal() ([]byte, error)
+func (self *GroupContext) MarshalMLS(w *syntax.Writer) error
+func (self *GroupContext) UnmarshalMLS(r *syntax.Reader) error
 func (self *GroupContext) Clone() *GroupContext
-func ParseGroupContext(data []byte) (*GroupContext, error)
+var _ syntax.Codec = (*GroupContext)(nil)
 
 // key_schedule.go
 type EpochSecrets struct {
@@ -120,7 +189,9 @@ func ZeroSecret(crypto CryptoProvider) []byte
 func DeriveJoinerSecret(crypto CryptoProvider, initSecretPrev []byte, commitSecret []byte, groupContext *GroupContext) ([]byte, error)
 func NewKeySchedule(crypto CryptoProvider, initSecretPrev []byte, commitSecret []byte, pskSecret []byte, groupContext *GroupContext) (*KeySchedule, error)
 func NewKeyScheduleFromJoiner(crypto CryptoProvider, joinerSecret []byte, pskSecret []byte, groupContext *GroupContext) (*KeySchedule, error)
+func NewKeyScheduleFromEpochSecret(crypto CryptoProvider, epochSecret []byte, groupContext *GroupContext) (*KeySchedule, error)
 func WelcomeKeyNonce(crypto CryptoProvider, welcomeSecret []byte) (key []byte, nonce []byte, err error)
+func EmptyPskSecret(crypto CryptoProvider) []byte     // == PskSecret(crypto, nil)
 
 func (self *KeySchedule) JoinerSecret() []byte
 func (self *KeySchedule) WelcomeSecret() []byte
@@ -154,13 +225,15 @@ type PreSharedKeyId struct {
     PskEpoch   uint64
     PskNonce   []byte
 }
+func (self *PreSharedKeyId) MarshalMLS(w *syntax.Writer) error
+func (self *PreSharedKeyId) UnmarshalMLS(r *syntax.Reader) error
+func (self *PreSharedKeyId) Validate(crypto CryptoProvider) error
+var _ syntax.Codec = (*PreSharedKeyId)(nil)
+
 type PreSharedKeyInput struct {
     Id     PreSharedKeyId
     Secret []byte
 }
-func (self *PreSharedKeyId) Marshal() ([]byte, error)
-func (self *PreSharedKeyId) Validate(crypto CryptoProvider) error
-func ParsePreSharedKeyId(r *syntax.Reader) (*PreSharedKeyId, error)
 func CheckNoDuplicatePsks(ids []PreSharedKeyId) error
 func PskSecret(crypto CryptoProvider, psks []PreSharedKeyInput) ([]byte, error)
 
@@ -187,23 +260,30 @@ const (
     RatchetWindowSize int    = 1024
 )
 type SecretTree struct{ /* unexported, guarded by stateLock */ }
-func NewSecretTree(crypto CryptoProvider, leafCount LeafIndex, encryptionSecret []byte) (*SecretTree, error)
-func (self *SecretTree) LeafCount() LeafIndex
+func NewSecretTree(crypto CryptoProvider, leafCount LeafCount, encryptionSecret []byte) (*SecretTree, error)
+func (self *SecretTree) LeafCount() LeafCount
+func (self *SecretTree) Zeroize()
+
+// the internal form, addressed by secret-tree.json
 func (self *SecretTree) NextSenderKey(leaf LeafIndex, kind RatchetType) (generation uint32, key []byte, nonce []byte, err error)
 func (self *SecretTree) ReceiverKey(leaf LeafIndex, kind RatchetType, generation uint32) (key []byte, nonce []byte, err error)
 func (self *SecretTree) SenderGeneration(leaf LeafIndex, kind RatchetType) (uint32, error)
-func (self *SecretTree) Zeroize()
+
+// the MessageKeySource implementation p6 declares — p6's exact signatures
+func (self *SecretTree) NextMessageKey(contentType ContentType, leaf LeafIndex) (key, nonce []byte, generation uint32, err error)
+func (self *SecretTree) MessageKey(contentType ContentType, leaf LeafIndex, generation uint32) (key, nonce []byte, err error)
+func (self *SecretTree) EraseMessageKey(contentType ContentType, leaf LeafIndex, generation uint32)
+
 func SenderDataKeyNonce(crypto CryptoProvider, senderDataSecret []byte, ciphertext []byte) (key []byte, nonce []byte, err error)
 
-// errors_key_schedule.go
+// errors_key_schedule.go — exactly registry §5.6, ten values.
+// ErrPskNonceLength, ErrPskType and ErrDuplicatePsk are NOT here: they are
+// ValSem401/402/403 and are declared once, in p8's errors.go.
 var (
     ErrSecretLength                 = errors.New("mls: secret has the wrong length")
     ErrExportLength                 = errors.New("mls: exporter length out of range")
     ErrGroupContextTrailingBytes    = errors.New("mls: group context has trailing bytes")
     ErrTranscriptHashLength         = errors.New("mls: transcript hash has the wrong length")
-    ErrPskNonceLength               = errors.New("mls: psk nonce is not KDF.Nh bytes")     // ValSem401
-    ErrPskType                      = errors.New("mls: unsupported psk type or usage")     // ValSem402
-    ErrDuplicatePsk                 = errors.New("mls: duplicate PreSharedKeyID")          // ValSem403
     ErrPskCount                     = errors.New("mls: too many psks for a uint16 count")
     ErrSecretTreeLeafOutOfRange     = errors.New("mls: leaf index outside the secret tree")
     ErrSecretTreeConsumed           = errors.New("mls: secret tree node already consumed")
@@ -213,97 +293,183 @@ var (
 )
 ```
 
+Three registry gaps land here and each has a task below: `NewKeyScheduleFromEpochSecret` (Task 6a),
+`EmptyPskSecret` (Task 15), and `NextMessageKey`/`MessageKey`/`EraseMessageKey` (Task 23a).
+
 ---
 
 ## Interface summary — what this plan consumes
 
-Every symbol below is pinned by the compile-time assertions in Task 1. If a wave-1 plan names any of
-them differently, Task 1 fails to compile, which is the intended detection mechanism.
+Every signature below is copied from the canonical interface registry, which is normative. Task 1
+pins them as compile-time assertions: if a producing plan names any of them differently, Task 1
+fails to build, which is the intended detection mechanism.
 
-**From "Crypto primitives and HPKE" (wave 1), package `mls`:**
+**From "Syntax and codec" (wave 1), package `mls/syntax` — registry §2:**
+
+```go
+const MaxVectorLength int = 1 << 20
+
+var ErrTrailingBytes error         // a top-level decode left bytes unconsumed
+var ErrLengthExceedsMax error
+
+func NewWriter() *Writer
+func (self *Writer) Bytes() ([]byte, error)      // undefined when err non-nil
+func (self *Writer) Err() error
+func (self *Writer) WriteUint8(v uint8)
+func (self *Writer) WriteUint16(v uint16)
+func (self *Writer) WriteUint32(v uint32)
+func (self *Writer) WriteUint64(v uint64)
+func (self *Writer) WriteRaw(bs []byte)          // opaque x[N], no prefix
+func (self *Writer) WriteOpaque(bs []byte)       // opaque x<V>; nil == empty
+
+func NewReader(bs []byte) *Reader
+func (self *Reader) Done() error                 // ErrTrailingBytes when bytes remain
+func (self *Reader) ReadUint8() (uint8, error)
+func (self *Reader) ReadUint16() (uint16, error)
+func (self *Reader) ReadUint32() (uint32, error)
+func (self *Reader) ReadUint64() (uint64, error)
+func (self *Reader) ReadRaw(n int) ([]byte, error)   // opaque x[N]; a COPY
+func (self *Reader) ReadOpaque() ([]byte, error)     // a COPY, never nil
+
+type Marshaler interface{ MarshalMLS(w *Writer) error }
+type Unmarshaler interface{ UnmarshalMLS(r *Reader) error }
+type Codec interface { Marshaler; Unmarshaler }
+
+func Marshal(v Marshaler) ([]byte, error)
+func Unmarshal(bs []byte, v Unmarshaler) error       // enforces full consumption
+```
+
+Every leaf write returns nothing and is a no-op after the first error (**C2**), so this plan checks
+once at `Bytes()`. `WriteBytes` — the name the first draft of this plan used — is `WriteRaw`. There
+is no `syntax.WriteVarVec`, no append-style free function, and no `Bytes() []byte` without the
+error.
+
+**From "Crypto primitives and HPKE" (wave 1), package `mls` — registry §3:**
 
 ```go
 type CipherSuite uint16
-const CipherSuiteX25519AES128SHA256Ed25519   CipherSuite = 0x0001
-const CipherSuiteX25519ChaCha20SHA256Ed25519 CipherSuite = 0x0003
-type ProtocolVersion uint16
-const ProtocolVersionMls10 ProtocolVersion = 0x0001
-func NewCryptoProvider(suite CipherSuite) (CryptoProvider, error)
-type CryptoProvider interface {   // exactly Spec A §3.3
+const (
+    CipherSuiteX25519AesGcm128Sha256Ed25519 CipherSuite = 0x0001
+    CipherSuiteX25519ChaCha20Sha256Ed25519  CipherSuite = 0x0003
+)
+type HpkePublicKey []byte
+type HpkePrivateKey []byte
+
+type CryptoProvider interface {                     // exactly Spec A §3.3
     Suite() CipherSuite
     HashSize() int
     KeySize() int
     NonceSize() int
     Hash(data []byte) []byte
-    Mac(key, data []byte) []byte
-    MacVerify(key, data, tag []byte) bool
-    Extract(salt, ikm []byte) []byte
+    Mac(key []byte, data []byte) []byte
+    MacVerify(key []byte, data []byte, tag []byte) bool
+    Extract(salt []byte, ikm []byte) []byte
     Expand(prk []byte, info []byte, length int) []byte
     ExpandWithLabel(secret []byte, label string, context []byte, length int) []byte
     DeriveSecret(secret []byte, label string) []byte
     DeriveTreeSecret(secret []byte, label string, generation uint32, length int) []byte
-    AeadSeal(key, nonce, aad, plaintext []byte) ([]byte, error)
-    AeadOpen(key, nonce, aad, ciphertext []byte) ([]byte, error)
+    AeadSeal(key []byte, nonce []byte, aad []byte, plaintext []byte) ([]byte, error)
+    AeadOpen(key []byte, nonce []byte, aad []byte, ciphertext []byte) ([]byte, error)
     SignWithLabel(priv SignaturePrivateKey, label string, content []byte) ([]byte, error)
-    VerifyWithLabel(pub SignaturePublicKey, label string, content, sig []byte) error
-    HpkeSeal(pub HpkePublicKey, info, aad, plaintext []byte) (kemOutput, ciphertext []byte, err error)
-    HpkeOpen(priv HpkePrivateKey, kemOutput, info, aad, ciphertext []byte) ([]byte, error)
+    VerifyWithLabel(pub SignaturePublicKey, label string, content []byte, sig []byte) error
+    HpkeSeal(pub HpkePublicKey, info []byte, aad []byte, plaintext []byte) (kemOutput []byte, ciphertext []byte, err error)
+    HpkeOpen(priv HpkePrivateKey, kemOutput []byte, info []byte, aad []byte, ciphertext []byte) ([]byte, error)
     DeriveKeyPair(ikm []byte) (HpkePrivateKey, HpkePublicKey, error)
     SignatureKeyPair() (SignaturePrivateKey, SignaturePublicKey, error)
     Random(n int) []byte
 }
-type HpkePrivateKey ...
-type HpkePublicKey ...
-func (self HpkePublicKey) Bytes() []byte   // needed to compare against the vector's external_pub
+
+func NewCryptoProvider(suite CipherSuite) (CryptoProvider, error)
 ```
 
-**From "Tree math" (wave 1), package `mls`:**
+**`HpkePublicKey` has no `Bytes()` method.** It is a `[]byte`, so the vector's `external_pub` is
+compared against the slice directly. The pin the first draft carried is deleted (registry §3.2).
+The spellings `CipherSuiteX25519ChaCha20SHA256Ed25519` and `CipherSuiteX25519AES128SHA256Ed25519`
+do not exist; `CODESTYLE.md` decides against the initialisms and the producer's spelling stands.
+
+**From "Tree math" (wave 1), package `mls` — registry §4, normative in full:**
 
 ```go
 type LeafIndex uint32
 type NodeIndex uint32
-func NodeWidth(leafCount LeafIndex) NodeIndex
-func Root(leafCount LeafIndex) NodeIndex
+type LeafCount uint32
+
+func (self LeafIndex) NodeIndex() NodeIndex
+func (self NodeIndex) Level() uint32
+func NodeWidth(n LeafCount) uint32
+func Root(n LeafCount) (NodeIndex, error)
 func Left(x NodeIndex) (NodeIndex, error)
 func Right(x NodeIndex) (NodeIndex, error)
-func Level(x NodeIndex) uint32
-func (self LeafIndex) NodeIndex() NodeIndex
 ```
 
-**From "Syntax and codec" (wave 1), package `mls/syntax` and package `mls`:**
+`Level(x)` as a free function does not exist; `Root` in single-value position does not exist;
+`NodeWidth` returns `uint32`, not `NodeIndex`. This plan takes **no shims** for the two-valued forms
+(**C3**).
+
+**From "Registry enums, extensions, tree, TreeKEM" (wave 2, p5), package `mls` — registry §6.1/§6.2:**
 
 ```go
-func syntax.NewWriter() *syntax.Writer
-func (self *syntax.Writer) WriteUint8(v uint8)
-func (self *syntax.Writer) WriteUint16(v uint16)
-func (self *syntax.Writer) WriteUint32(v uint32)
-func (self *syntax.Writer) WriteUint64(v uint64)
-func (self *syntax.Writer) WriteOpaque(v []byte) error   // MLS varint length prefix
-func (self *syntax.Writer) WriteBytes(v []byte)          // raw, no prefix
-func (self *syntax.Writer) Bytes() ([]byte, error)
-
-func syntax.NewReader(data []byte) *syntax.Reader
-func (self *syntax.Reader) ReadUint8() (uint8, error)
-func (self *syntax.Reader) ReadUint16() (uint16, error)
-func (self *syntax.Reader) ReadUint32() (uint32, error)
-func (self *syntax.Reader) ReadUint64() (uint64, error)
-func (self *syntax.Reader) ReadOpaque() ([]byte, error)
-func (self *syntax.Reader) Done() error                  // errors when bytes remain
+type ProtocolVersion uint16
+const ProtocolVersionMls10 ProtocolVersion = 0x0001
 
 type ExtensionType uint16
 type Extension struct {
     ExtensionType ExtensionType
     ExtensionData []byte
 }
-func MarshalExtensions(w *syntax.Writer, extensions []Extension) error
-func ParseExtensions(r *syntax.Reader) ([]Extension, error)
+func WriteExtensions(w *syntax.Writer, exts []Extension) error
+func ReadExtensions(r *syntax.Reader) ([]Extension, error)
 ```
 
-**From "Validation and interop harness" (wave 1):** the pinned mlswg checkout used to vendor the four
-vector files in Task 1, and the `connect/mls/ERRATA.md` transcription. Errata 8745 (§13.4, LeafNode
-capability validation in Update proposals and update paths) and errata 8815 (§12.2, commit proposal
-references must have been previously received) are **both validation errata and neither touches the
-key schedule** — they are tested by that plan, not this one.
+**Wave note.** p1 produces no `Extension` type at all, so this block moved out of the syntax section
+where the first draft put it. p5 is wave 2 and so is this plan: **p5 Task 3 sequences before Task 3
+here.** `MarshalExtensions`/`ParseExtensions` — the names the first draft consumed — are
+`WriteExtensions`/`ReadExtensions` (registry override O-3), renamed to match p1's
+`WriteVector`/`ReadVector` since that is what they are built on.
+
+**From "Framing and message protection" (wave 3, p6), package `mls` — registry §7.1:**
+
+```go
+type ContentType uint8
+const (
+    ContentTypeApplication ContentType = 1
+    ContentTypeProposal    ContentType = 2
+    ContentTypeCommit      ContentType = 3
+)
+```
+
+Consumed by Task 23a only, which implements the `MessageKeySource` interface p6 declares. That task
+therefore sequences after p6 Task 1; every other task here is wave 2 and depends on nothing from p6.
+
+**From "Validation and interop" (wave 1, p8), package `mls` — registry §9.1/§9.2:**
+
+```go
+type ValSemCode uint16
+func ValSem(code ValSemCode, detail error) error
+const ( ValSem401 ValSemCode = 401; ValSem402 ValSemCode = 402; ValSem403 ValSemCode = 403 )
+var ErrPskNonceLength, ErrPskType, ErrDuplicatePsk error   // the ValSem401/402/403 sentinels
+
+type VectorFamily struct {
+    Number   int
+    Name     string
+    File     string
+    Slice    string
+    Verify   func(t *testing.T, raw json.RawMessage)
+    Generate func(t *testing.T) json.RawMessage
+}
+func RegisterVectorFamily(family VectorFamily)
+func LoadVectorFile(t *testing.T, file string) []json.RawMessage
+func MustHex(t *testing.T, s string) []byte
+func HexOf(b []byte) string
+```
+
+p8 is wave 1, so all of this is available before Task 2 runs. `LoadVectorFile` also means p8 Task 6
+has already vendored the four families this plan gates; nothing here copies a vector file.
+
+Errata 8745 (§13.4, LeafNode capability validation in Update proposals and update paths) and errata
+8815 (§12.2, commit proposal references must have been previously received) are **both validation
+errata and neither touches the key schedule**. They are `CheckErrata8745`/`CheckErrata8815` in p7
+(registry §8.2), tested by p8; nothing in this plan implements or calls them.
 
 ---
 
@@ -370,65 +536,95 @@ PSK secret, ciphersuite 0x0003, the two-PSK vector (external type, `psk_nonce` 3
 
 ## Tasks
 
-### Task 1: Pin the wave-1 interfaces and vendor the four vector files
+### Task 1: Pin the consumed interfaces and confirm the four vector families are vendored
 
 **Files:**
-- Create: `connect/mls/testdata/vectors/key-schedule.json`, `psk_secret.json`, `transcript-hashes.json`, `secret-tree.json`
 - Test: `connect/mls/key_schedule_deps_test.go`
 
 **Interfaces:**
-- Consumes: everything in the "what this plan consumes" section above.
-- Produces: nothing at runtime. Produces the build-time guarantee that the consumed signatures exist.
+- Consumes: everything in the "what this plan consumes" section above, at the registry's exact
+  signatures.
+- Produces: nothing at runtime. Produces the build-time guarantee that the consumed signatures exist
+  and that no shim is silently absorbing a two-valued tree-math result.
+
+This block is rewritten from the registry before anything else in this plan runs; its entire purpose
+is to catch drift, and pinning the wrong shape catches it by failing.
 
 - [ ] **Step 1: Write the failing test**
 
 ```go
 // key_schedule_deps_test.go
-// compile-time pins on every wave-1 symbol the key schedule and secret tree consume.
-// a signature change in another wave breaks the build here rather than three tasks later.
+// compile-time pins on every cross-plan symbol the key schedule and secret tree
+// consume, at the signatures in the canonical interface registry. A signature change
+// in another plan breaks the build here rather than three tasks later.
 package mls
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/urnetwork/connect/mls/syntax"
 )
 
-// pinned free functions from the tree math and syntax plans.
+// pinned free functions from the crypto, tree-math, extension and validation plans.
 var (
 	_ func(CipherSuite) (CryptoProvider, error) = NewCryptoProvider
-	_ func(LeafIndex) NodeIndex                 = NodeWidth
-	_ func(LeafIndex) NodeIndex                 = Root
-	_ func(NodeIndex) (NodeIndex, error)        = Left
-	_ func(NodeIndex) (NodeIndex, error)        = Right
-	_ func(NodeIndex) uint32                    = Level
-	_ func(LeafIndex) NodeIndex                 = LeafIndex.NodeIndex
-	_ func(HpkePublicKey) []byte                = HpkePublicKey.Bytes
-	_ func() *syntax.Writer                     = syntax.NewWriter
-	_ func([]byte) *syntax.Reader               = syntax.NewReader
-	_ func(*syntax.Writer, []Extension) error   = MarshalExtensions
-	_ func(*syntax.Reader) ([]Extension, error) = ParseExtensions
+
+	// registry §4 — counts are LeafCount, NodeWidth is uint32-valued, Root is
+	// two-valued, and Level is a method. No shims: this plan handles the error.
+	_ func(LeafCount) uint32             = NodeWidth
+	_ func(LeafCount) (NodeIndex, error) = Root
+	_ func(NodeIndex) (NodeIndex, error) = Left
+	_ func(NodeIndex) (NodeIndex, error) = Right
+	_ func(LeafIndex) NodeIndex          = LeafIndex.NodeIndex
+	_ func(NodeIndex) uint32             = NodeIndex.Level
+
+	// registry §2 — the syntax entry points, not append-style free functions.
+	_ func() *syntax.Writer                       = syntax.NewWriter
+	_ func([]byte) *syntax.Reader                 = syntax.NewReader
+	_ func(syntax.Marshaler) ([]byte, error)      = syntax.Marshal
+	_ func([]byte, syntax.Unmarshaler) error      = syntax.Unmarshal
+
+	// registry §6.2 — produced by p5 in wave 2, not by p1.
+	_ func(*syntax.Writer, []Extension) error   = WriteExtensions
+	_ func(*syntax.Reader) ([]Extension, error) = ReadExtensions
+
+	// registry §9.1/§9.2 — p8, wave 1.
+	_ func(ValSemCode, error) error                  = ValSem
+	_ func(*testing.T, string) []byte                = MustHex
+	_ func([]byte) string                            = HexOf
+	_ func(*testing.T, string) []json.RawMessage     = LoadVectorFile
+	_ func(VectorFamily)                             = RegisterVectorFamily
+)
+
+// the two types this plan produces are syntax.Codec implementations under C1.
+// These two lines are the whole reason CheckRoundTrip has an instantiation path.
+var (
+	_ syntax.Codec = (*GroupContext)(nil)
+	_ syntax.Codec = (*PreSharedKeyId)(nil)
 )
 
 // TestConsumedCryptoProviderShape pins the CryptoProvider method set this plan calls.
 func TestConsumedCryptoProviderShape(t *testing.T) {
-	crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+	crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
 	if err != nil {
 		t.Fatalf("NewCryptoProvider: %v", err)
 	}
 	var (
-		_ func([]byte, []byte) []byte                              = crypto.Extract
-		_ func([]byte, []byte, int) []byte                         = crypto.Expand
-		_ func([]byte, string, []byte, int) []byte                 = crypto.ExpandWithLabel
-		_ func([]byte, string) []byte                              = crypto.DeriveSecret
-		_ func([]byte, string, uint32, int) []byte                 = crypto.DeriveTreeSecret
-		_ func([]byte) []byte                                      = crypto.Hash
-		_ func([]byte, []byte) []byte                              = crypto.Mac
-		_ func([]byte, []byte, []byte) bool                        = crypto.MacVerify
-		_ func() int                                               = crypto.HashSize
-		_ func() int                                               = crypto.KeySize
-		_ func() int                                               = crypto.NonceSize
-		_ func([]byte) (HpkePrivateKey, HpkePublicKey, error)      = crypto.DeriveKeyPair
+		_ func([]byte, []byte) []byte                         = crypto.Extract
+		_ func([]byte, []byte, int) []byte                    = crypto.Expand
+		_ func([]byte, string, []byte, int) []byte            = crypto.ExpandWithLabel
+		_ func([]byte, string) []byte                         = crypto.DeriveSecret
+		_ func([]byte, string, uint32, int) []byte            = crypto.DeriveTreeSecret
+		_ func([]byte) []byte                                 = crypto.Hash
+		_ func([]byte, []byte) []byte                         = crypto.Mac
+		_ func([]byte, []byte, []byte) bool                   = crypto.MacVerify
+		_ func() int                                          = crypto.HashSize
+		_ func() int                                          = crypto.KeySize
+		_ func() int                                          = crypto.NonceSize
+		_ func(int) []byte                                    = crypto.Random
+		_ func([]byte) (HpkePrivateKey, HpkePublicKey, error) = crypto.DeriveKeyPair
 	)
 	if crypto.HashSize() != 32 {
 		t.Fatalf("HashSize = %d, want 32", crypto.HashSize())
@@ -441,22 +637,35 @@ func TestConsumedCryptoProviderShape(t *testing.T) {
 	}
 }
 
-// TestConsumedSyntaxWriterShape pins the syntax reader and writer surface.
+// TestConsumedHpkePublicKeyIsASlice pins that HpkePublicKey carries no Bytes method
+// and is compared against the vector's external_pub as a slice. The Bytes() pin the
+// first draft of this plan carried does not exist and never did.
+func TestConsumedHpkePublicKeyIsASlice(t *testing.T) {
+	var pub HpkePublicKey = []byte{0x01, 0x02}
+	if len(pub) != 2 {
+		t.Fatalf("len(HpkePublicKey) = %d, want 2", len(pub))
+	}
+	if !bytes.Equal(pub, []byte{0x01, 0x02}) {
+		t.Fatal("HpkePublicKey does not compare as a byte slice")
+	}
+}
+
+// TestConsumedSyntaxWriterShape pins the syntax reader and writer surface. Every leaf
+// write returns nothing (C2): the sticky error is collected once, at Bytes().
 func TestConsumedSyntaxWriterShape(t *testing.T) {
 	w := syntax.NewWriter()
 	var (
-		_ func(uint8)          = w.WriteUint8
-		_ func(uint16)         = w.WriteUint16
-		_ func(uint32)         = w.WriteUint32
-		_ func(uint64)         = w.WriteUint64
-		_ func([]byte) error   = w.WriteOpaque
-		_ func([]byte)         = w.WriteBytes
+		_ func(uint8)            = w.WriteUint8
+		_ func(uint16)           = w.WriteUint16
+		_ func(uint32)           = w.WriteUint32
+		_ func(uint64)           = w.WriteUint64
+		_ func([]byte)           = w.WriteOpaque
+		_ func([]byte)           = w.WriteRaw
 		_ func() ([]byte, error) = w.Bytes
+		_ func() error           = w.Err
 	)
 	w.WriteUint16(0x0001)
-	if err := w.WriteOpaque([]byte{0x02, 0x03}); err != nil {
-		t.Fatalf("WriteOpaque: %v", err)
-	}
+	w.WriteOpaque([]byte{0x02, 0x03})
 	b, err := w.Bytes()
 	if err != nil {
 		t.Fatalf("Bytes: %v", err)
@@ -466,12 +675,13 @@ func TestConsumedSyntaxWriterShape(t *testing.T) {
 	}
 	r := syntax.NewReader(b)
 	var (
-		_ func() (uint8, error)  = r.ReadUint8
-		_ func() (uint16, error) = r.ReadUint16
-		_ func() (uint32, error) = r.ReadUint32
-		_ func() (uint64, error) = r.ReadUint64
-		_ func() ([]byte, error) = r.ReadOpaque
-		_ func() error           = r.Done
+		_ func() (uint8, error)     = r.ReadUint8
+		_ func() (uint16, error)    = r.ReadUint16
+		_ func() (uint32, error)    = r.ReadUint32
+		_ func() (uint64, error)    = r.ReadUint64
+		_ func() ([]byte, error)    = r.ReadOpaque
+		_ func(int) ([]byte, error) = r.ReadRaw
+		_ func() error              = r.Done
 	)
 	if _, err := r.ReadUint16(); err != nil {
 		t.Fatalf("ReadUint16: %v", err)
@@ -484,7 +694,9 @@ func TestConsumedSyntaxWriterShape(t *testing.T) {
 	}
 }
 
-// TestVectorFilesPresent asserts the four vector families this plan gates are vendored.
+// TestVectorFilesPresent asserts the four vector families this plan gates were
+// vendored by p8 Task 6, which is the single vendoring task for all sixteen families.
+// This plan reads them and never writes them.
 func TestVectorFilesPresent(t *testing.T) {
 	for _, name := range []string{
 		"key-schedule.json",
@@ -494,7 +706,7 @@ func TestVectorFilesPresent(t *testing.T) {
 	} {
 		info, err := os.Stat(filepath.Join("testdata", "vectors", name))
 		if err != nil {
-			t.Fatalf("vector %s: %v", name, err)
+			t.Fatalf("vector %s: %v — p8 Task 6 vendors these; it has not landed", name, err)
 		}
 		if info.Size() == 0 {
 			t.Fatalf("vector %s is empty", name)
@@ -503,44 +715,41 @@ func TestVectorFilesPresent(t *testing.T) {
 }
 ```
 
-Add `"os"` and `"path/filepath"` to the import block.
+Add `"bytes"` and `"encoding/json"` to the import block.
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `go test ./connect/mls/... -run 'TestConsumed|TestVectorFilesPresent' -v`
-Expected: FAIL with `no such file or directory: testdata/vectors/key-schedule.json` (or a compile
-error naming the first wave-1 symbol that does not yet exist — in that case the wave-1 plan for that
-symbol is not merged yet and this task blocks on it).
+Expected: FAIL to compile with `undefined: GroupContext` and `undefined: PreSharedKeyId` — this file
+pins the two codecs this plan has not written yet. If instead it names a *consumed* symbol
+(`WriteExtensions`, `Root`, `MustHex`, …), the producing plan is not merged and this task blocks on
+it; if it names one at the *wrong signature*, the registry decides and the producer is amended, not
+this file.
 
-- [ ] **Step 3: Vendor the vectors**
+- [ ] **Step 3: Confirm the vectors are in place**
 
 ```bash
-MLSWG=../mls_measure/mls-impl
-mkdir -p connect/mls/testdata/vectors
-for f in key-schedule.json psk_secret.json transcript-hashes.json secret-tree.json; do
-  cp "$MLSWG/test-vectors/$f" "connect/mls/testdata/vectors/$f"
-done
-git -C "$MLSWG" rev-parse HEAD > /tmp/mlswg-pin.txt
-cat /tmp/mlswg-pin.txt
+ls -l connect/mls/testdata/vectors/{key-schedule,psk_secret,transcript-hashes,secret-tree}.json
+grep -E '^(mlswg|openmls)=' connect/mls/interop/PINS.md
 ```
 
-If the validation plan has already vendored all sixteen families, this copies identical bytes over
-identical files and `git status` shows nothing. That is the intended outcome, not a conflict.
+All four files are vendored by p8 Task 6 and pinned in `connect/mls/interop/PINS.md`. If they are
+missing, the fix is to land p8 Task 6 — do not copy them in from a local mlswg checkout here, or the
+corpus has two provenances and `VECTORS.sha256` stops meaning anything.
 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `go test ./connect/mls/... -run 'TestConsumed|TestVectorFilesPresent' -v`
-Expected: PASS
+Expected: PASS once Tasks 3 and 13 have landed the two codecs. Until then, comment nothing out —
+land this file together with Task 3 if the two-codec pin is inconvenient to carry red.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git ls-files | wc -l
-git add connect/mls/key_schedule_deps_test.go connect/mls/testdata/vectors
+git add connect/mls/key_schedule_deps_test.go
 git ls-files | wc -l
-git commit -m "test(mls): pin consumed wave-1 interfaces and vendor key-schedule vector families
-
-mlswg/mls-implementations pinned at $(cat /tmp/mlswg-pin.txt)"
+git commit -m "test(mls): pin the consumed cross-plan interfaces at their registry signatures"
 ```
 
 ---
@@ -552,9 +761,10 @@ mlswg/mls-implementations pinned at $(cat /tmp/mlswg-pin.txt)"
 - Test: `connect/mls/key_schedule_test.go`
 
 **Interfaces:**
-- Consumes: nothing.
-- Produces: `zeroizeSecret(b []byte)` (unexported), and the fourteen error values listed in the
-  interface summary.
+- Consumes: `syntax.ErrTrailingBytes` (registry §2.1). Nothing else.
+- Produces: `zeroizeSecret(b []byte)` (unexported), and the **ten** error values of registry §5.6.
+  `ErrPskNonceLength`, `ErrPskType` and `ErrDuplicatePsk` are **not** produced here — they are
+  ValSem401/402/403 and are declared once, in p8's `errors.go`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -564,9 +774,10 @@ mlswg/mls-implementations pinned at $(cat /tmp/mlswg-pin.txt)"
 package mls
 
 import (
-	"encoding/hex"
 	"errors"
 	"testing"
+
+	"github.com/urnetwork/connect/mls/syntax"
 )
 
 // TestZeroizeSecretOverwrites asserts the helper clears the caller's backing array.
@@ -594,15 +805,15 @@ func TestKeyScheduleErrorsAreDistinct(t *testing.T) {
 		ErrExportLength,
 		ErrGroupContextTrailingBytes,
 		ErrTranscriptHashLength,
-		ErrPskNonceLength,
-		ErrPskType,
-		ErrDuplicatePsk,
 		ErrPskCount,
 		ErrSecretTreeLeafOutOfRange,
 		ErrSecretTreeConsumed,
 		ErrRatchetGenerationConsumed,
 		ErrRatchetGenerationTooFarAhead,
 		ErrRatchetExhausted,
+	}
+	if len(all) != 10 {
+		t.Fatalf("this plan owns %d errors, want the 10 of registry section 5.6", len(all))
 	}
 	for i := range all {
 		for j := range all {
@@ -616,20 +827,37 @@ func TestKeyScheduleErrorsAreDistinct(t *testing.T) {
 	}
 }
 
-// mustHex decodes a KAT constant transcribed from the pinned mlswg vectors.
-func mustHex(t *testing.T, s string) []byte {
-	t.Helper()
-	b, err := hex.DecodeString(s)
-	if err != nil {
-		t.Fatalf("bad hex %q: %v", s, err)
+// TestGroupContextTrailingBytesWrapsTheSyntaxError asserts the group-context trailing
+// byte condition is reachable through the syntax package's own sentinel, so a caller
+// that only knows syntax.ErrTrailingBytes still matches it. The two names exist
+// because syntax.Unmarshal is what enforces full consumption while this value is what
+// names the condition for the group context specifically.
+func TestGroupContextTrailingBytesWrapsTheSyntaxError(t *testing.T) {
+	if !errors.Is(ErrGroupContextTrailingBytes, syntax.ErrTrailingBytes) {
+		t.Fatal("ErrGroupContextTrailingBytes does not wrap syntax.ErrTrailingBytes")
 	}
-	return b
+}
+
+// TestPskSentinelsBelongToTheValidationPlan asserts the three ValSem401/402/403
+// sentinels resolve to p8's declarations and are not redeclared here. Two declarations
+// of one name in package mls is a compile error; two declarations that compiled would
+// mean an errors.Is check in the commit path silently stopped matching.
+func TestPskSentinelsBelongToTheValidationPlan(t *testing.T) {
+	for i, sentinel := range []error{ErrPskNonceLength, ErrPskType, ErrDuplicatePsk} {
+		if sentinel == nil {
+			t.Fatalf("sentinel %d is nil; p8 errors.go declares these", i)
+		}
+	}
+	err := ValSem(ValSem401, ErrPskNonceLength)
+	if !errors.Is(err, ErrPskNonceLength) {
+		t.Fatal("ValSem does not preserve its detail under errors.Is")
+	}
 }
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./connect/mls/... -run 'TestZeroizeSecret|TestKeyScheduleErrorsAreDistinct' -v`
+Run: `go test ./connect/mls/... -run 'TestZeroizeSecret|TestKeyScheduleErrors|TestGroupContextTrailingBytes|TestPskSentinels' -v`
 Expected: FAIL to compile with `undefined: zeroizeSecret` and `undefined: ErrSecretLength`.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -659,9 +887,19 @@ func zeroizeSecret(secret []byte) {
 // typed errors raised by the key schedule, the psk secret, the transcript hashes
 // and the secret tree. kept out of errors.go so the validation plan and this plan
 // do not edit one file during parallel waves.
+//
+// The three PSK errors this plan once declared are absent on purpose: ValSem401,
+// ValSem402 and ValSem403 live in p8's errors.go, which is the single declaration
+// site for every ValSem sentinel. This file must never grow one of them back —
+// package mls is one package and the second declaration is a compile error.
 package mls
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+
+	"github.com/urnetwork/connect/mls/syntax"
+)
 
 var (
 	// ErrSecretLength is returned when a secret supplied to the key schedule is
@@ -673,22 +911,16 @@ var (
 	// which HKDF-Expand cannot produce.
 	ErrExportLength = errors.New("mls: exporter length out of range")
 
-	// ErrGroupContextTrailingBytes is returned when a serialized GroupContext has
-	// bytes after the extensions vector. MLS signs over serialized forms, so a
+	// ErrGroupContextTrailingBytes names the condition where a serialized
+	// GroupContext has bytes after the extensions vector. syntax.Unmarshal is what
+	// enforces full consumption, so this wraps its sentinel: a caller matching
+	// either name matches the same failure. MLS signs over serialized forms, so a
 	// decoder that tolerated trailing bytes would accept two encodings of one object.
-	ErrGroupContextTrailingBytes = errors.New("mls: group context has trailing bytes")
+	ErrGroupContextTrailingBytes = fmt.Errorf(
+		"mls: group context has trailing bytes: %w", syntax.ErrTrailingBytes)
 
 	// ErrTranscriptHashLength is returned when a transcript hash is not KDF.Nh bytes.
 	ErrTranscriptHashLength = errors.New("mls: transcript hash has the wrong length")
-
-	// ErrPskNonceLength is RFC 9420 ValSem401.
-	ErrPskNonceLength = errors.New("mls: psk nonce is not KDF.Nh bytes")
-
-	// ErrPskType is RFC 9420 ValSem402.
-	ErrPskType = errors.New("mls: unsupported psk type or usage")
-
-	// ErrDuplicatePsk is RFC 9420 ValSem403, untested in OpenMLS (openmls#1335).
-	ErrDuplicatePsk = errors.New("mls: duplicate PreSharedKeyID")
 
 	// ErrPskCount is returned when a psk list cannot be indexed by the uint16
 	// index and count fields of PSKLabel.
@@ -716,7 +948,7 @@ var (
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./connect/mls/... -run 'TestZeroizeSecret|TestKeyScheduleErrorsAreDistinct' -v`
+Run: `go test ./connect/mls/... -run 'TestZeroizeSecret|TestKeyScheduleErrors|TestGroupContextTrailingBytes|TestPskSentinels' -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -730,16 +962,19 @@ git commit -m "feat(mls): typed key schedule errors and best-effort secret zeroi
 
 ---
 
-### Task 3: GroupContext and byte-exact Marshal
+### Task 3: GroupContext and its byte-exact MarshalMLS
 
 **Files:**
 - Create: `connect/mls/group_context.go`
 - Test: `connect/mls/group_context_test.go`
 
 **Interfaces:**
-- Consumes: `syntax.NewWriter`, `(*syntax.Writer).WriteUint16/WriteUint64/WriteOpaque/Bytes`,
-  `MarshalExtensions(*syntax.Writer, []Extension) error`, `ProtocolVersion`, `ProtocolVersionMls10`,
-  `CipherSuite`, `Extension`.
+- Consumes: `syntax.NewWriter`, `(*syntax.Writer).WriteUint16(v uint16)`,
+  `(*syntax.Writer).WriteUint64(v uint64)`, `(*syntax.Writer).WriteOpaque(bs []byte)`,
+  `syntax.Marshal(v syntax.Marshaler) ([]byte, error)`,
+  `WriteExtensions(w *syntax.Writer, exts []Extension) error`, `ProtocolVersion`,
+  `ProtocolVersionMls10`, `CipherSuite`, `Extension`. **`WriteExtensions` is p5's and p5 is wave 2:
+  p5 Task 3 sequences before this task.**
 - Produces:
   ```go
   type GroupContext struct {
@@ -751,9 +986,16 @@ git commit -m "feat(mls): typed key schedule errors and best-effort secret zeroi
       ConfirmedTranscriptHash []byte
       Extensions              []Extension
   }
-  func (self *GroupContext) Marshal() ([]byte, error)
+  func (self *GroupContext) MarshalMLS(w *syntax.Writer) error
   func (self *GroupContext) Clone() *GroupContext
+  var _ syntax.Codec = (*GroupContext)(nil)
   ```
+
+  Under **C1** there is no `(*GroupContext).Marshal() ([]byte, error)` and no
+  `ParseGroupContext(data)`; byte-level access is `syntax.Marshal(gc)` / `syntax.Unmarshal(bs, gc)`.
+  That is what lets `GroupContext` satisfy `syntax.Codec` and therefore be a `CheckRoundTrip`
+  target. `UnmarshalMLS` lands in Task 4, and the `var _ syntax.Codec` line only compiles once both
+  halves exist — write it in Task 4 or carry Task 3 and Task 4 in one commit.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -765,6 +1007,8 @@ package mls
 import (
 	"bytes"
 	"testing"
+
+	"github.com/urnetwork/connect/mls/syntax"
 )
 
 // ksVectorGroupContext is the 112-byte epoch-0 GroupContext of the ciphersuite
@@ -784,11 +1028,11 @@ func ksVectorEpoch0GroupContext(t *testing.T) *GroupContext {
 	t.Helper()
 	return &GroupContext{
 		Version:                 ProtocolVersionMls10,
-		CipherSuite:             CipherSuiteX25519ChaCha20SHA256Ed25519,
-		GroupId:                 mustHex(t, ksVectorGroupId),
+		CipherSuite:             CipherSuiteX25519ChaCha20Sha256Ed25519,
+		GroupId:                 MustHex(t, ksVectorGroupId),
 		Epoch:                   0,
-		TreeHash:                mustHex(t, ksVectorTreeHash),
-		ConfirmedTranscriptHash: mustHex(t, ksVectorCth),
+		TreeHash:                MustHex(t, ksVectorTreeHash),
+		ConfirmedTranscriptHash: MustHex(t, ksVectorCth),
 		Extensions:              nil,
 	}
 }
@@ -797,28 +1041,50 @@ func ksVectorEpoch0GroupContext(t *testing.T) *GroupContext {
 // the vector's own group_context bytes. A reordered field or a missing length
 // prefix changes every epoch secret, so this is the cheapest place to catch it.
 func TestGroupContextMarshalKAT(t *testing.T) {
-	encoded, err := ksVectorEpoch0GroupContext(t).Marshal()
+	encoded, err := syntax.Marshal(ksVectorEpoch0GroupContext(t))
 	if err != nil {
-		t.Fatalf("Marshal: %v", err)
+		t.Fatalf("syntax.Marshal: %v", err)
 	}
-	want := mustHex(t, ksVectorGroupContext)
+	want := MustHex(t, ksVectorGroupContext)
 	if len(encoded) != 112 {
 		t.Fatalf("encoded %d bytes, want 112", len(encoded))
 	}
 	if !bytes.Equal(encoded, want) {
-		t.Fatalf("Marshal =\n %x\nwant\n %x", encoded, want)
+		t.Fatalf("syntax.Marshal =\n %x\nwant\n %x", encoded, want)
 	}
 }
 
 // TestGroupContextMarshalEmptyExtensions asserts an empty extension vector encodes
 // as the single byte 0x00 and not as an omitted field.
 func TestGroupContextMarshalEmptyExtensions(t *testing.T) {
-	encoded, err := ksVectorEpoch0GroupContext(t).Marshal()
+	encoded, err := syntax.Marshal(ksVectorEpoch0GroupContext(t))
 	if err != nil {
-		t.Fatalf("Marshal: %v", err)
+		t.Fatalf("syntax.Marshal: %v", err)
 	}
 	if encoded[len(encoded)-1] != 0x00 {
 		t.Fatalf("last byte = %#x, want 0x00", encoded[len(encoded)-1])
+	}
+}
+
+// TestGroupContextWriteIntoASharedWriter asserts MarshalMLS appends into a writer the
+// caller already owns and adds no framing of its own. GroupInfo and every p6 preimage
+// inline the group context this way, so a stray length prefix here would be invisible
+// to a byte-level test and fatal to every signature.
+func TestGroupContextWriteIntoASharedWriter(t *testing.T) {
+	w := syntax.NewWriter()
+	w.WriteUint8(0xff)
+	if err := ksVectorEpoch0GroupContext(t).MarshalMLS(w); err != nil {
+		t.Fatalf("MarshalMLS: %v", err)
+	}
+	encoded, err := w.Bytes()
+	if err != nil {
+		t.Fatalf("Bytes: %v", err)
+	}
+	if encoded[0] != 0xff {
+		t.Fatalf("the caller's leading byte was overwritten: %#x", encoded[0])
+	}
+	if !bytes.Equal(encoded[1:], MustHex(t, ksVectorGroupContext)) {
+		t.Fatalf("inline encoding =\n %x\nwant\n %x", encoded[1:], MustHex(t, ksVectorGroupContext))
 	}
 }
 
@@ -873,25 +1139,19 @@ type GroupContext struct {
 	Extensions              []Extension
 }
 
-// Marshal encodes the context in the RFC 9420 section 8.1 field order.
-func (self *GroupContext) Marshal() ([]byte, error) {
-	w := syntax.NewWriter()
+// MarshalMLS encodes the context in the RFC 9420 section 8.1 field order, inline,
+// into a writer the caller owns. The leaf writes return nothing and are no-ops after
+// the first error (C2); the buffer error is collected by syntax.Marshal at Bytes().
+// The error return exists for semantic refusals, and WriteExtensions is the only call
+// here that can raise one.
+func (self *GroupContext) MarshalMLS(w *syntax.Writer) error {
 	w.WriteUint16(uint16(self.Version))
 	w.WriteUint16(uint16(self.CipherSuite))
-	if err := w.WriteOpaque(self.GroupId); err != nil {
-		return nil, err
-	}
+	w.WriteOpaque(self.GroupId)
 	w.WriteUint64(self.Epoch)
-	if err := w.WriteOpaque(self.TreeHash); err != nil {
-		return nil, err
-	}
-	if err := w.WriteOpaque(self.ConfirmedTranscriptHash); err != nil {
-		return nil, err
-	}
-	if err := MarshalExtensions(w, self.Extensions); err != nil {
-		return nil, err
-	}
-	return w.Bytes()
+	w.WriteOpaque(self.TreeHash)
+	w.WriteOpaque(self.ConfirmedTranscriptHash)
+	return WriteExtensions(w, self.Extensions)
 }
 
 // Clone returns a deep copy, so a retained past epoch cannot alias the live one.
@@ -928,40 +1188,51 @@ Expected: PASS
 git ls-files | wc -l
 git add connect/mls/group_context.go connect/mls/group_context_test.go
 git ls-files | wc -l
-git commit -m "feat(mls): GroupContext with byte-exact marshalling pinned to the vector"
+git commit -m "feat(mls): GroupContext MarshalMLS pinned byte-exact to the vector"
 ```
 
 ---
 
-### Task 4: ParseGroupContext, round-trip and trailing-byte rejection
+### Task 4: GroupContext.UnmarshalMLS, round-trip and trailing-byte rejection
 
 **Files:**
 - Modify: `connect/mls/group_context.go`
 - Test: `connect/mls/group_context_test.go`
 
 **Interfaces:**
-- Consumes: `syntax.NewReader`, `(*syntax.Reader).ReadUint16/ReadUint64/ReadOpaque/Done`,
-  `ParseExtensions(*syntax.Reader) ([]Extension, error)`.
-- Produces: `func ParseGroupContext(data []byte) (*GroupContext, error)`
+- Consumes: `syntax.NewReader`, `(*syntax.Reader).ReadUint16() (uint16, error)`,
+  `(*syntax.Reader).ReadUint64() (uint64, error)`, `(*syntax.Reader).ReadOpaque() ([]byte, error)`,
+  `syntax.Unmarshal(bs []byte, v syntax.Unmarshaler) error`,
+  `ReadExtensions(r *syntax.Reader) ([]Extension, error)`, `syntax.ErrTrailingBytes`.
+- Produces:
+  ```go
+  func (self *GroupContext) UnmarshalMLS(r *syntax.Reader) error
+  var _ syntax.Codec = (*GroupContext)(nil)
+  ```
+
+  `UnmarshalMLS` consumes exactly its own fields and no more, because p6 and p7 decode a
+  GroupContext inline out of a `GroupInfo`. Full consumption of a standalone encoding is
+  `syntax.Unmarshal`'s job and it returns `syntax.ErrTrailingBytes`, which
+  `ErrGroupContextTrailingBytes` wraps.
 
 - [ ] **Step 1: Write the failing test**
 
 ```go
 // append to group_context_test.go
 
-// TestParseGroupContextRoundTrip asserts decode(encode(x)) == x and that the
-// re-encoding is byte-identical. MLS signs over serialized forms, so a decoder
-// that accepts two encodings of one object is a signature-bypass primitive.
-func TestParseGroupContextRoundTrip(t *testing.T) {
-	want := mustHex(t, ksVectorGroupContext)
-	parsed, err := ParseGroupContext(want)
-	if err != nil {
-		t.Fatalf("ParseGroupContext: %v", err)
+// TestGroupContextRoundTrip asserts decode(encode(x)) == x and that the re-encoding
+// is byte-identical. MLS signs over serialized forms, so a decoder that accepts two
+// encodings of one object is a signature-bypass primitive.
+func TestGroupContextRoundTrip(t *testing.T) {
+	want := MustHex(t, ksVectorGroupContext)
+	parsed := &GroupContext{}
+	if err := syntax.Unmarshal(want, parsed); err != nil {
+		t.Fatalf("syntax.Unmarshal: %v", err)
 	}
 	if parsed.Version != ProtocolVersionMls10 {
 		t.Fatalf("Version = %#x, want %#x", parsed.Version, ProtocolVersionMls10)
 	}
-	if parsed.CipherSuite != CipherSuiteX25519ChaCha20SHA256Ed25519 {
+	if parsed.CipherSuite != CipherSuiteX25519ChaCha20Sha256Ed25519 {
 		t.Fatalf("CipherSuite = %#x, want 0x0003", parsed.CipherSuite)
 	}
 	if parsed.Epoch != 0 {
@@ -970,32 +1241,59 @@ func TestParseGroupContextRoundTrip(t *testing.T) {
 	if len(parsed.Extensions) != 0 {
 		t.Fatalf("Extensions = %d, want 0", len(parsed.Extensions))
 	}
-	reencoded, err := parsed.Marshal()
+	reencoded, err := syntax.Marshal(parsed)
 	if err != nil {
-		t.Fatalf("Marshal: %v", err)
+		t.Fatalf("syntax.Marshal: %v", err)
 	}
 	if !bytes.Equal(reencoded, want) {
 		t.Fatalf("round trip =\n %x\nwant\n %x", reencoded, want)
 	}
 }
 
-// TestParseGroupContextRejectsTrailingBytes asserts a full-consumption failure.
-func TestParseGroupContextRejectsTrailingBytes(t *testing.T) {
-	data := append(mustHex(t, ksVectorGroupContext), 0x00)
-	_, err := ParseGroupContext(data)
-	if !errors.Is(err, ErrGroupContextTrailingBytes) {
-		t.Fatalf("err = %v, want ErrGroupContextTrailingBytes", err)
+// TestGroupContextRejectsTrailingBytes asserts a full-consumption failure. The error
+// matches both syntax.ErrTrailingBytes and this plan's ErrGroupContextTrailingBytes,
+// which wraps it, so neither caller has to know which layer refused.
+func TestGroupContextRejectsTrailingBytes(t *testing.T) {
+	data := append(MustHex(t, ksVectorGroupContext), 0x00)
+	err := syntax.Unmarshal(data, &GroupContext{})
+	if !errors.Is(err, syntax.ErrTrailingBytes) {
+		t.Fatalf("err = %v, want syntax.ErrTrailingBytes", err)
+	}
+	if !errors.Is(ErrGroupContextTrailingBytes, syntax.ErrTrailingBytes) {
+		t.Fatal("ErrGroupContextTrailingBytes no longer names the same condition")
 	}
 }
 
-// TestParseGroupContextRejectsTruncation asserts every prefix of a valid context
-// is refused rather than yielding a partly-populated struct.
-func TestParseGroupContextRejectsTruncation(t *testing.T) {
-	full := mustHex(t, ksVectorGroupContext)
+// TestGroupContextRejectsTruncation asserts every prefix of a valid context is
+// refused rather than yielding a partly-populated struct.
+func TestGroupContextRejectsTruncation(t *testing.T) {
+	full := MustHex(t, ksVectorGroupContext)
 	for n := 0; n < len(full); n++ {
-		if _, err := ParseGroupContext(full[:n]); err == nil {
+		if err := syntax.Unmarshal(full[:n], &GroupContext{}); err == nil {
 			t.Fatalf("prefix of %d bytes parsed, want an error", n)
 		}
+	}
+}
+
+// TestGroupContextUnmarshalLeavesTheTailAlone asserts UnmarshalMLS consumes exactly
+// its own fields, which is what lets p6 and p7 decode a group context inline out of a
+// GroupInfo. A decoder that ate the tail would take the confirmation tag with it.
+func TestGroupContextUnmarshalLeavesTheTailAlone(t *testing.T) {
+	data := append(MustHex(t, ksVectorGroupContext), 0xde, 0xad)
+	r := syntax.NewReader(data)
+	parsed := &GroupContext{}
+	if err := parsed.UnmarshalMLS(r); err != nil {
+		t.Fatalf("UnmarshalMLS: %v", err)
+	}
+	tail, err := r.ReadRaw(2)
+	if err != nil {
+		t.Fatalf("ReadRaw: %v", err)
+	}
+	if !bytes.Equal(tail, []byte{0xde, 0xad}) {
+		t.Fatalf("tail = %x, want dead", tail)
+	}
+	if err := r.Done(); err != nil {
+		t.Fatalf("Done: %v", err)
 	}
 }
 ```
@@ -1004,8 +1302,8 @@ Add `"errors"` to the `group_context_test.go` import block.
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./connect/mls/... -run TestParseGroupContext -v`
-Expected: FAIL to compile with `undefined: ParseGroupContext`.
+Run: `go test ./connect/mls/... -run TestGroupContext -v`
+Expected: FAIL to compile with `*GroupContext does not implement syntax.Unmarshaler`.
 
 - [ ] **Step 3: Write minimal implementation**
 
@@ -1014,55 +1312,56 @@ Expected: FAIL to compile with `undefined: ParseGroupContext`.
 
 import "fmt"   // add to the existing import block
 
-// ParseGroupContext decodes a serialized GroupContext and refuses trailing bytes.
-func ParseGroupContext(data []byte) (*GroupContext, error) {
-	r := syntax.NewReader(data)
+// UnmarshalMLS decodes the context from a reader, consuming exactly its own fields
+// and no more: GroupInfo carries a GroupContext inline, so eating the tail here would
+// eat the confirmation tag. Full consumption of a standalone encoding is enforced by
+// syntax.Unmarshal, whose ErrTrailingBytes is what ErrGroupContextTrailingBytes wraps.
+func (self *GroupContext) UnmarshalMLS(r *syntax.Reader) error {
 	version, err := r.ReadUint16()
 	if err != nil {
-		return nil, fmt.Errorf("mls: group context version: %w", err)
+		return fmt.Errorf("mls: group context version: %w", err)
 	}
 	suite, err := r.ReadUint16()
 	if err != nil {
-		return nil, fmt.Errorf("mls: group context cipher suite: %w", err)
+		return fmt.Errorf("mls: group context cipher suite: %w", err)
 	}
 	groupId, err := r.ReadOpaque()
 	if err != nil {
-		return nil, fmt.Errorf("mls: group context group id: %w", err)
+		return fmt.Errorf("mls: group context group id: %w", err)
 	}
 	epoch, err := r.ReadUint64()
 	if err != nil {
-		return nil, fmt.Errorf("mls: group context epoch: %w", err)
+		return fmt.Errorf("mls: group context epoch: %w", err)
 	}
 	treeHash, err := r.ReadOpaque()
 	if err != nil {
-		return nil, fmt.Errorf("mls: group context tree hash: %w", err)
+		return fmt.Errorf("mls: group context tree hash: %w", err)
 	}
 	confirmedTranscriptHash, err := r.ReadOpaque()
 	if err != nil {
-		return nil, fmt.Errorf("mls: group context confirmed transcript hash: %w", err)
+		return fmt.Errorf("mls: group context confirmed transcript hash: %w", err)
 	}
-	extensions, err := ParseExtensions(r)
+	extensions, err := ReadExtensions(r)
 	if err != nil {
-		return nil, fmt.Errorf("mls: group context extensions: %w", err)
+		return fmt.Errorf("mls: group context extensions: %w", err)
 	}
-	if err := r.Done(); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrGroupContextTrailingBytes, err)
-	}
-	return &GroupContext{
-		Version:                 ProtocolVersion(version),
-		CipherSuite:             CipherSuite(suite),
-		GroupId:                 groupId,
-		Epoch:                   epoch,
-		TreeHash:                treeHash,
-		ConfirmedTranscriptHash: confirmedTranscriptHash,
-		Extensions:              extensions,
-	}, nil
+	self.Version = ProtocolVersion(version)
+	self.CipherSuite = CipherSuite(suite)
+	self.GroupId = groupId
+	self.Epoch = epoch
+	self.TreeHash = treeHash
+	self.ConfirmedTranscriptHash = confirmedTranscriptHash
+	self.Extensions = extensions
+	return nil
 }
+
+// the C1 pin: drift between this type and the one codec convention fails at build.
+var _ syntax.Codec = (*GroupContext)(nil)
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./connect/mls/... -run TestParseGroupContext -v`
+Run: `go test ./connect/mls/... -run TestGroupContext -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -1071,7 +1370,7 @@ Expected: PASS
 git ls-files | wc -l
 git add connect/mls/group_context.go connect/mls/group_context_test.go
 git ls-files | wc -l
-git commit -m "feat(mls): ParseGroupContext with full consumption and round-trip stability"
+git commit -m "feat(mls): GroupContext UnmarshalMLS with full consumption and round-trip stability"
 ```
 
 ---
@@ -1083,8 +1382,9 @@ git commit -m "feat(mls): ParseGroupContext with full consumption and round-trip
 - Test: `connect/mls/key_schedule_test.go`
 
 **Interfaces:**
-- Consumes: `CryptoProvider.Extract(salt, ikm)`, `CryptoProvider.ExpandWithLabel`,
-  `CryptoProvider.HashSize`, `(*GroupContext).Marshal`.
+- Consumes: `CryptoProvider.Extract(salt []byte, ikm []byte) []byte`,
+  `CryptoProvider.ExpandWithLabel(secret []byte, label string, context []byte, length int) []byte`,
+  `CryptoProvider.HashSize() int`, `syntax.Marshal(v syntax.Marshaler) ([]byte, error)`.
 - Produces:
   ```go
   func ZeroSecret(crypto CryptoProvider) []byte
@@ -1105,7 +1405,7 @@ const (
 // ksTestCrypto returns the ciphersuite 0x0003 provider the KATs are pinned against.
 func ksTestCrypto(t *testing.T) CryptoProvider {
 	t.Helper()
-	crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+	crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
 	if err != nil {
 		t.Fatalf("NewCryptoProvider: %v", err)
 	}
@@ -1138,14 +1438,14 @@ func TestDeriveJoinerSecretKAT(t *testing.T) {
 	crypto := ksTestCrypto(t)
 	joiner, err := DeriveJoinerSecret(
 		crypto,
-		mustHex(t, ksVectorInitialInitSecret),
-		mustHex(t, ksVectorCommitSecret),
+		MustHex(t, ksVectorInitialInitSecret),
+		MustHex(t, ksVectorCommitSecret),
 		ksVectorEpoch0GroupContext(t),
 	)
 	if err != nil {
 		t.Fatalf("DeriveJoinerSecret: %v", err)
 	}
-	want := mustHex(t, ksVectorJoinerSecret)
+	want := MustHex(t, ksVectorJoinerSecret)
 	if !bytes.Equal(joiner, want) {
 		t.Fatalf("joiner_secret = %x, want %x", joiner, want)
 	}
@@ -1155,8 +1455,8 @@ func TestDeriveJoinerSecretKAT(t *testing.T) {
 // coincidentally produce the same value, so the KAT above is a real order test.
 func TestDeriveJoinerSecretExtractOrderIsNotSymmetric(t *testing.T) {
 	crypto := ksTestCrypto(t)
-	initSecret := mustHex(t, ksVectorInitialInitSecret)
-	commitSecret := mustHex(t, ksVectorCommitSecret)
+	initSecret := MustHex(t, ksVectorInitialInitSecret)
+	commitSecret := MustHex(t, ksVectorCommitSecret)
 	forward := crypto.Extract(initSecret, commitSecret)
 	swapped := crypto.Extract(commitSecret, initSecret)
 	if bytes.Equal(forward, swapped) {
@@ -1169,7 +1469,7 @@ func TestDeriveJoinerSecretExtractOrderIsNotSymmetric(t *testing.T) {
 func TestDeriveJoinerSecretRejectsShortSecrets(t *testing.T) {
 	crypto := ksTestCrypto(t)
 	groupContext := ksVectorEpoch0GroupContext(t)
-	good := mustHex(t, ksVectorInitialInitSecret)
+	good := MustHex(t, ksVectorInitialInitSecret)
 	if _, err := DeriveJoinerSecret(crypto, good[:31], good, groupContext); !errors.Is(err, ErrSecretLength) {
 		t.Fatalf("short init secret err = %v, want ErrSecretLength", err)
 	}
@@ -1179,7 +1479,8 @@ func TestDeriveJoinerSecretRejectsShortSecrets(t *testing.T) {
 }
 ```
 
-Add `"bytes"` to the `key_schedule_test.go` import block.
+Add `"bytes"` to the `key_schedule_test.go` import block. `"github.com/urnetwork/connect/mls/syntax"`
+is already there from Task 2.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -1195,6 +1496,8 @@ package mls
 
 import (
 	"fmt"
+
+	"github.com/urnetwork/connect/mls/syntax"
 )
 
 // PastEpochWindow bounds how many past epochs of state, and therefore how many
@@ -1233,7 +1536,7 @@ func DeriveJoinerSecret(
 	if len(commitSecret) != nh {
 		return nil, fmt.Errorf("%w: commit secret is %d bytes, want %d", ErrSecretLength, len(commitSecret), nh)
 	}
-	encodedGroupContext, err := groupContext.Marshal()
+	encodedGroupContext, err := syntax.Marshal(groupContext)
 	if err != nil {
 		return nil, err
 	}
@@ -1268,8 +1571,11 @@ git commit -m "feat(mls): joiner secret derivation with the Extract argument ord
 - Test: `connect/mls/key_schedule_test.go`
 
 **Interfaces:**
-- Consumes: `CryptoProvider.Extract`, `CryptoProvider.DeriveSecret`, `CryptoProvider.ExpandWithLabel`,
-  `DeriveJoinerSecret` (Task 5), `ZeroSecret` (Task 5).
+- Consumes: `CryptoProvider.Extract(salt []byte, ikm []byte) []byte`,
+  `CryptoProvider.DeriveSecret(secret []byte, label string) []byte`,
+  `CryptoProvider.ExpandWithLabel(secret []byte, label string, context []byte, length int) []byte`,
+  `syntax.Marshal(v syntax.Marshaler) ([]byte, error)`, `DeriveJoinerSecret` (Task 5),
+  `ZeroSecret` (Task 5).
 - Produces:
   ```go
   type EpochSecrets struct {
@@ -1317,9 +1623,9 @@ func ksVectorEpoch0Schedule(t *testing.T) *KeySchedule {
 	t.Helper()
 	schedule, err := NewKeySchedule(
 		ksTestCrypto(t),
-		mustHex(t, ksVectorInitialInitSecret),
-		mustHex(t, ksVectorCommitSecret),
-		mustHex(t, ksVectorPskSecret),
+		MustHex(t, ksVectorInitialInitSecret),
+		MustHex(t, ksVectorCommitSecret),
+		MustHex(t, ksVectorPskSecret),
 		ksVectorEpoch0GroupContext(t),
 	)
 	if err != nil {
@@ -1332,10 +1638,10 @@ func ksVectorEpoch0Schedule(t *testing.T) *KeySchedule {
 // A wrong DeriveSecret label produces a plausible 32-byte value that only a KAT sees.
 func TestNewKeyScheduleKAT(t *testing.T) {
 	schedule := ksVectorEpoch0Schedule(t)
-	if !bytes.Equal(schedule.JoinerSecret(), mustHex(t, ksVectorJoinerSecret)) {
+	if !bytes.Equal(schedule.JoinerSecret(), MustHex(t, ksVectorJoinerSecret)) {
 		t.Fatalf("joiner_secret = %x", schedule.JoinerSecret())
 	}
-	if !bytes.Equal(schedule.WelcomeSecret(), mustHex(t, ksVectorWelcomeSecret)) {
+	if !bytes.Equal(schedule.WelcomeSecret(), MustHex(t, ksVectorWelcomeSecret)) {
 		t.Fatalf("welcome_secret = %x", schedule.WelcomeSecret())
 	}
 	secrets := schedule.Secrets()
@@ -1354,7 +1660,7 @@ func TestNewKeyScheduleKAT(t *testing.T) {
 		{"epoch_authenticator", secrets.EpochAuthenticator, ksVectorEpochAuthenticator},
 		{"init_secret", secrets.InitSecret, ksVectorInitSecret},
 	} {
-		if !bytes.Equal(check.got, mustHex(t, check.want)) {
+		if !bytes.Equal(check.got, MustHex(t, check.want)) {
 			t.Fatalf("%s = %x, want %s", check.name, check.got, check.want)
 		}
 	}
@@ -1364,7 +1670,7 @@ func TestNewKeyScheduleKAT(t *testing.T) {
 // same bytes the caller would sign over.
 func TestKeyScheduleGroupContextBytesMatchMarshal(t *testing.T) {
 	schedule := ksVectorEpoch0Schedule(t)
-	if !bytes.Equal(schedule.GroupContextBytes(), mustHex(t, ksVectorGroupContext)) {
+	if !bytes.Equal(schedule.GroupContextBytes(), MustHex(t, ksVectorGroupContext)) {
 		t.Fatalf("GroupContextBytes = %x", schedule.GroupContextBytes())
 	}
 }
@@ -1394,9 +1700,9 @@ func TestKeyScheduleSecretsDoNotAlias(t *testing.T) {
 func TestNewKeyScheduleRejectsShortPskSecret(t *testing.T) {
 	_, err := NewKeySchedule(
 		ksTestCrypto(t),
-		mustHex(t, ksVectorInitialInitSecret),
-		mustHex(t, ksVectorCommitSecret),
-		mustHex(t, ksVectorPskSecret)[:31],
+		MustHex(t, ksVectorInitialInitSecret),
+		MustHex(t, ksVectorCommitSecret),
+		MustHex(t, ksVectorPskSecret)[:31],
 		ksVectorEpoch0GroupContext(t),
 	)
 	if !errors.Is(err, ErrSecretLength) {
@@ -1473,7 +1779,7 @@ func NewKeyScheduleFromJoiner(
 	if len(pskSecret) != nh {
 		return nil, fmt.Errorf("%w: psk secret is %d bytes, want %d", ErrSecretLength, len(pskSecret), nh)
 	}
-	encodedGroupContext, err := groupContext.Marshal()
+	encodedGroupContext, err := syntax.Marshal(groupContext)
 	if err != nil {
 		return nil, err
 	}
@@ -1541,6 +1847,205 @@ git commit -m "feat(mls): epoch key schedule with all nine derived secrets pinne
 
 ---
 
+### Task 6a: NewKeyScheduleFromEpochSecret — the group-creation entry point
+
+**Files:**
+- Modify: `connect/mls/key_schedule.go`
+- Test: `connect/mls/key_schedule_test.go`
+
+**Interfaces:**
+- Consumes: `CryptoProvider.DeriveSecret`, `CryptoProvider.HashSize`,
+  `syntax.Marshal(v syntax.Marshaler) ([]byte, error)`.
+- Produces:
+  ```go
+  func NewKeyScheduleFromEpochSecret(crypto CryptoProvider, epochSecret []byte, groupContext *GroupContext) (*KeySchedule, error)
+  ```
+
+  This is a registry gap, not a rename. RFC 9420 §11 group creation samples a fresh `epoch_secret`
+  of size `KDF.Nh`; Tasks 5 and 6 offer entry points only from `init_secret + commit_secret` and
+  from `joiner_secret`, so p7's `NewGroup` had nothing to call and the entry point of the whole
+  slice could not be written. `joiner_secret` and `welcome_secret` are **undefined** on this path:
+  the accessors keep the `[]byte`-returning signatures the registry fixes and return nil, and the
+  test below pins that so a caller cannot mistake nil for a derived secret it may seal a Welcome
+  with. A group created this way adds its first member by committing, which produces a real
+  `joiner_secret` through Task 5.
+
+- [ ] **Step 1: Write the failing test**
+
+```go
+// append to key_schedule_test.go
+
+// TestNewKeyScheduleFromEpochSecretDerivesTheSameNineSecrets asserts the creation
+// path reaches the same nine secrets as the commit path, given the epoch_secret the
+// commit path computed. Anything else would mean a group's creator and its first
+// joiner are in different epochs from the first message.
+func TestNewKeyScheduleFromEpochSecretDerivesTheSameNineSecrets(t *testing.T) {
+	crypto := ksTestCrypto(t)
+	groupContext := ksVectorEpoch0GroupContext(t)
+	fromCommit := ksVectorEpoch0Schedule(t)
+
+	// the epoch_secret the commit path derived, recomputed here from the vector's
+	// own inputs, because the type deliberately never exports it (G6).
+	encodedGroupContext, err := syntax.Marshal(groupContext)
+	if err != nil {
+		t.Fatalf("syntax.Marshal: %v", err)
+	}
+	joiner := MustHex(t, ksVectorJoinerSecret)
+	member := crypto.Extract(joiner, MustHex(t, ksVectorPskSecret))
+	epochSecret := crypto.ExpandWithLabel(member, "epoch", encodedGroupContext, crypto.HashSize())
+
+	fromEpoch, err := NewKeyScheduleFromEpochSecret(crypto, epochSecret, groupContext)
+	if err != nil {
+		t.Fatalf("NewKeyScheduleFromEpochSecret: %v", err)
+	}
+	a, b := fromCommit.Secrets(), fromEpoch.Secrets()
+	for _, check := range []struct {
+		name string
+		a    []byte
+		b    []byte
+	}{
+		{"sender_data", a.SenderData, b.SenderData},
+		{"encryption", a.Encryption, b.Encryption},
+		{"exporter", a.Exporter, b.Exporter},
+		{"external", a.External, b.External},
+		{"confirmation", a.Confirmation, b.Confirmation},
+		{"membership", a.Membership, b.Membership},
+		{"resumption_psk", a.ResumptionPsk, b.ResumptionPsk},
+		{"epoch_authenticator", a.EpochAuthenticator, b.EpochAuthenticator},
+		{"init", a.InitSecret, b.InitSecret},
+	} {
+		if !bytes.Equal(check.a, check.b) {
+			t.Fatalf("%s differs: %x vs %x", check.name, check.a, check.b)
+		}
+	}
+}
+
+// TestNewKeyScheduleFromEpochSecretHasNoJoinerOrWelcomeSecret asserts the two secrets
+// that are undefined on this path read as nil. A group created from a sampled
+// epoch_secret was never joined, so sealing a Welcome with what these return would
+// seal it under a 32-byte run of zeros or a nil key, depending on the AEAD.
+func TestNewKeyScheduleFromEpochSecretHasNoJoinerOrWelcomeSecret(t *testing.T) {
+	crypto := ksTestCrypto(t)
+	schedule, err := NewKeyScheduleFromEpochSecret(
+		crypto, crypto.Random(crypto.HashSize()), ksVectorEpoch0GroupContext(t))
+	if err != nil {
+		t.Fatalf("NewKeyScheduleFromEpochSecret: %v", err)
+	}
+	if schedule.JoinerSecret() != nil {
+		t.Fatalf("JoinerSecret = %x, want nil on the creation path", schedule.JoinerSecret())
+	}
+	if schedule.WelcomeSecret() != nil {
+		t.Fatalf("WelcomeSecret = %x, want nil on the creation path", schedule.WelcomeSecret())
+	}
+	if _, _, err := WelcomeKeyNonce(crypto, schedule.WelcomeSecret()); !errors.Is(err, ErrSecretLength) {
+		t.Fatalf("WelcomeKeyNonce(nil) err = %v, want ErrSecretLength", err)
+	}
+}
+
+// TestNewKeyScheduleFromEpochSecretRejectsShortSecret asserts a wrong-length sample is
+// fatal rather than a silently valid group nobody else can join.
+func TestNewKeyScheduleFromEpochSecretRejectsShortSecret(t *testing.T) {
+	crypto := ksTestCrypto(t)
+	_, err := NewKeyScheduleFromEpochSecret(
+		crypto, crypto.Random(crypto.HashSize())[:31], ksVectorEpoch0GroupContext(t))
+	if !errors.Is(err, ErrSecretLength) {
+		t.Fatalf("err = %v, want ErrSecretLength", err)
+	}
+}
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `go test ./connect/mls/... -run TestNewKeyScheduleFromEpochSecret -v`
+Expected: FAIL to compile with `undefined: NewKeyScheduleFromEpochSecret`.
+
+- [ ] **Step 3: Write minimal implementation**
+
+Factor the nine derivations out of `NewKeyScheduleFromJoiner` so both entry points expand the same
+epoch secret with the same labels, then add the new constructor:
+
+```go
+// replace the tail of NewKeyScheduleFromJoiner in key_schedule.go with:
+
+	memberSecret := crypto.Extract(joinerSecret, pskSecret)
+	welcomeSecret := crypto.DeriveSecret(memberSecret, "welcome")
+	epochSecret := crypto.ExpandWithLabel(memberSecret, "epoch", encodedGroupContext, nh)
+	zeroizeSecret(memberSecret)
+	return newKeyScheduleFromParts(crypto, encodedGroupContext, joinerSecret, welcomeSecret, epochSecret), nil
+}
+
+// newKeyScheduleFromParts expands one epoch_secret into the nine derived secrets.
+// Both exported constructors route through here so a label can only ever be wrong in
+// one place. joinerSecret and welcomeSecret are nil on the group-creation path.
+func newKeyScheduleFromParts(
+	crypto CryptoProvider,
+	encodedGroupContext []byte,
+	joinerSecret []byte,
+	welcomeSecret []byte,
+	epochSecret []byte,
+) *KeySchedule {
+	return &KeySchedule{
+		crypto:            crypto,
+		groupContextBytes: encodedGroupContext,
+		joinerSecret:      joinerSecret,
+		welcomeSecret:     welcomeSecret,
+		epochSecret:       epochSecret,
+		secrets: EpochSecrets{
+			SenderData:         crypto.DeriveSecret(epochSecret, "sender data"),
+			Encryption:         crypto.DeriveSecret(epochSecret, "encryption"),
+			Exporter:           crypto.DeriveSecret(epochSecret, "exporter"),
+			External:           crypto.DeriveSecret(epochSecret, "external"),
+			Confirmation:       crypto.DeriveSecret(epochSecret, "confirm"),
+			Membership:         crypto.DeriveSecret(epochSecret, "membership"),
+			ResumptionPsk:      crypto.DeriveSecret(epochSecret, "resumption"),
+			EpochAuthenticator: crypto.DeriveSecret(epochSecret, "authentication"),
+			InitSecret:         crypto.DeriveSecret(epochSecret, "init"),
+		},
+	}
+}
+
+// NewKeyScheduleFromEpochSecret builds the schedule of a group being created, from
+// the fresh epoch_secret of KDF.Nh bytes RFC 9420 section 11 says to sample. This is
+// the only entry point NewGroup can use: there is no previous init_secret to advance
+// from and no joiner_secret to be handed.
+//
+// joiner_secret and welcome_secret are undefined here and the accessors return nil.
+// The creator obtains real ones by committing the first Add, which runs the section 8
+// derivation in NewKeySchedule.
+func NewKeyScheduleFromEpochSecret(
+	crypto CryptoProvider,
+	epochSecret []byte,
+	groupContext *GroupContext,
+) (*KeySchedule, error) {
+	nh := crypto.HashSize()
+	if len(epochSecret) != nh {
+		return nil, fmt.Errorf("%w: epoch secret is %d bytes, want %d", ErrSecretLength, len(epochSecret), nh)
+	}
+	encodedGroupContext, err := syntax.Marshal(groupContext)
+	if err != nil {
+		return nil, err
+	}
+	return newKeyScheduleFromParts(
+		crypto, encodedGroupContext, nil, nil, append([]byte(nil), epochSecret...)), nil
+}
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `go test ./connect/mls/... -run 'TestNewKeySchedule|TestKeySchedule' -v`
+Expected: PASS, including every Task 6 test — the refactor must not move a single byte.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git ls-files | wc -l
+git add connect/mls/key_schedule.go connect/mls/key_schedule_test.go
+git ls-files | wc -l
+git commit -m "feat(mls): NewKeyScheduleFromEpochSecret, the group-creation entry point"
+```
+
+---
+
 ### Task 7: The joiner path produces the same epoch
 
 **Files:**
@@ -1563,12 +2068,12 @@ git commit -m "feat(mls): epoch key schedule with all nine derived secrets pinne
 func TestKeyScheduleJoinerPathAgreesWithCommitterPath(t *testing.T) {
 	crypto := ksTestCrypto(t)
 	groupContext := ksVectorEpoch0GroupContext(t)
-	pskSecret := mustHex(t, ksVectorPskSecret)
+	pskSecret := MustHex(t, ksVectorPskSecret)
 
 	committer, err := NewKeySchedule(
 		crypto,
-		mustHex(t, ksVectorInitialInitSecret),
-		mustHex(t, ksVectorCommitSecret),
+		MustHex(t, ksVectorInitialInitSecret),
+		MustHex(t, ksVectorCommitSecret),
 		pskSecret,
 		groupContext,
 	)
@@ -1610,16 +2115,16 @@ func TestKeyScheduleJoinerPathAgreesWithCommitterPath(t *testing.T) {
 // tree hash or epoch cannot go unnoticed.
 func TestKeyScheduleJoinerPathIsBoundToTheGroupContext(t *testing.T) {
 	crypto := ksTestCrypto(t)
-	pskSecret := mustHex(t, ksVectorPskSecret)
+	pskSecret := MustHex(t, ksVectorPskSecret)
 	good := ksVectorEpoch0GroupContext(t)
 	bad := good.Clone()
 	bad.Epoch = 1
 
-	right, err := NewKeyScheduleFromJoiner(crypto, mustHex(t, ksVectorJoinerSecret), pskSecret, good)
+	right, err := NewKeyScheduleFromJoiner(crypto, MustHex(t, ksVectorJoinerSecret), pskSecret, good)
 	if err != nil {
 		t.Fatalf("NewKeyScheduleFromJoiner: %v", err)
 	}
-	wrong, err := NewKeyScheduleFromJoiner(crypto, mustHex(t, ksVectorJoinerSecret), pskSecret, bad)
+	wrong, err := NewKeyScheduleFromJoiner(crypto, MustHex(t, ksVectorJoinerSecret), pskSecret, bad)
 	if err != nil {
 		t.Fatalf("NewKeyScheduleFromJoiner: %v", err)
 	}
@@ -1690,13 +2195,13 @@ const (
 func TestKeyScheduleExportKAT(t *testing.T) {
 	exported, err := ksVectorEpoch0Schedule(t).Export(
 		ksVectorExporterLabel,
-		mustHex(t, ksVectorExporterContext),
+		MustHex(t, ksVectorExporterContext),
 		32,
 	)
 	if err != nil {
 		t.Fatalf("Export: %v", err)
 	}
-	want := mustHex(t, ksVectorExporterSecretOut)
+	want := MustHex(t, ksVectorExporterSecretOut)
 	if !bytes.Equal(exported, want) {
 		t.Fatalf("Export = %x, want %x", exported, want)
 	}
@@ -1706,11 +2211,11 @@ func TestKeyScheduleExportKAT(t *testing.T) {
 // as hex produces a different answer, which is what makes the KAT above meaningful.
 func TestKeyScheduleExportLabelIsNotHexDecoded(t *testing.T) {
 	schedule := ksVectorEpoch0Schedule(t)
-	asString, err := schedule.Export(ksVectorExporterLabel, mustHex(t, ksVectorExporterContext), 32)
+	asString, err := schedule.Export(ksVectorExporterLabel, MustHex(t, ksVectorExporterContext), 32)
 	if err != nil {
 		t.Fatalf("Export: %v", err)
 	}
-	asHex, err := schedule.Export(string(mustHex(t, ksVectorExporterLabel)), mustHex(t, ksVectorExporterContext), 32)
+	asHex, err := schedule.Export(string(MustHex(t, ksVectorExporterLabel)), MustHex(t, ksVectorExporterContext), 32)
 	if err != nil {
 		t.Fatalf("Export: %v", err)
 	}
@@ -1802,13 +2307,14 @@ git commit -m "feat(mls): MLS-Exporter with the exported label and hashed contex
 
 **Interfaces:**
 - Consumes: `CryptoProvider.DeriveKeyPair(ikm []byte) (HpkePrivateKey, HpkePublicKey, error)`,
-  `(HpkePublicKey).Bytes() []byte`.
+  `type HpkePublicKey []byte`. **`HpkePublicKey` has no `Bytes()` method** (registry §3.2): it is a
+  byte slice, so `external_pub` is compared against it directly with `bytes.Equal`.
 - Produces: `func (self *KeySchedule) ExternalKeyPair() (HpkePrivateKey, HpkePublicKey, error)`
 
-  **Boundary note for the Group lifecycle plan:** v1 refuses external commits, so `external_pub` MUST
-  NOT be published in a `GroupInfo` extension. This function exists so `key-schedule.json` passes and
-  so V2 is a policy change rather than a key-schedule change. `TestExternalPubIsNotAdvertised` in the
-  lifecycle plan is the counterpart assertion.
+  **Boundary note for p7:** v1 refuses external commits, so `external_pub` MUST NOT be published in
+  a `GroupInfo` extension. This function exists so `key-schedule.json` passes and so V2 is a policy
+  change rather than a key-schedule change. `TestExternalPubIsNotAdvertised` in p7 is the
+  counterpart assertion.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1825,9 +2331,9 @@ func TestKeyScheduleExternalKeyPairKAT(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExternalKeyPair: %v", err)
 	}
-	want := mustHex(t, ksVectorExternalPub)
-	if !bytes.Equal(pub.Bytes(), want) {
-		t.Fatalf("external_pub = %x, want %x", pub.Bytes(), want)
+	want := MustHex(t, ksVectorExternalPub)
+	if !bytes.Equal(pub, want) {
+		t.Fatalf("external_pub = %x, want %x", pub, want)
 	}
 }
 
@@ -1843,7 +2349,7 @@ func TestKeyScheduleExternalKeyPairIsDeterministic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExternalKeyPair: %v", err)
 	}
-	if !bytes.Equal(first.Bytes(), second.Bytes()) {
+	if !bytes.Equal(first, second) {
 		t.Fatal("ExternalKeyPair is not deterministic")
 	}
 }
@@ -1902,10 +2408,11 @@ git commit -m "feat(mls): external key pair derivation for key-schedule vector c
   func (self *KeySchedule) VerifyMembershipTag(authenticatedContentTbm []byte, tag []byte) bool
   ```
 
-  The Framing plan builds `authenticatedContentTbm` (the `AuthenticatedContentTBM` serialization of
-  RFC 9420 section 6.1) and passes the bytes; this plan never sees framing types. The Commit plan
-  calls `VerifyConfirmationTag` for ValSem205 and `VerifyMembershipTag` for ValSem008, and MUST
-  `return` on false rather than logging (guardrail G7).
+  p6 builds `authenticatedContentTbm` with
+  `AuthenticatedContentTBMBytes(authContent, groupContext)` (registry §7.3) and passes the bytes;
+  this plan never sees framing types. p7 calls `VerifyConfirmationTag` for ValSem205 and
+  `VerifyMembershipTag` for ValSem008, and MUST `return` on false rather than logging
+  (guardrail G7).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1918,8 +2425,8 @@ git commit -m "feat(mls): external key pair derivation for key-schedule vector c
 func TestConfirmationTagKAT(t *testing.T) {
 	crypto := ksTestCrypto(t)
 	schedule := ksVectorEpoch0Schedule(t)
-	confirmedTranscriptHash := mustHex(t, ksVectorCth)
-	want := crypto.Mac(mustHex(t, ksVectorConfirmationKey), confirmedTranscriptHash)
+	confirmedTranscriptHash := MustHex(t, ksVectorCth)
+	want := crypto.Mac(MustHex(t, ksVectorConfirmationKey), confirmedTranscriptHash)
 	got := schedule.ConfirmationTag(confirmedTranscriptHash)
 	if !bytes.Equal(got, want) {
 		t.Fatalf("ConfirmationTag = %x, want %x", got, want)
@@ -1933,7 +2440,7 @@ func TestConfirmationTagKAT(t *testing.T) {
 // flipped bit in the transcript hash or in the tag is refused.
 func TestVerifyConfirmationTagAcceptsAndRejects(t *testing.T) {
 	schedule := ksVectorEpoch0Schedule(t)
-	confirmedTranscriptHash := mustHex(t, ksVectorCth)
+	confirmedTranscriptHash := MustHex(t, ksVectorCth)
 	tag := schedule.ConfirmationTag(confirmedTranscriptHash)
 	if !schedule.VerifyConfirmationTag(confirmedTranscriptHash, tag) {
 		t.Fatal("a freshly computed tag did not verify")
@@ -1964,7 +2471,7 @@ func TestMembershipTagUsesTheMembershipKey(t *testing.T) {
 	crypto := ksTestCrypto(t)
 	schedule := ksVectorEpoch0Schedule(t)
 	tbm := []byte("AuthenticatedContentTBM placeholder bytes")
-	want := crypto.Mac(mustHex(t, ksVectorMembershipKey), tbm)
+	want := crypto.Mac(MustHex(t, ksVectorMembershipKey), tbm)
 	got := schedule.MembershipTag(tbm)
 	if !bytes.Equal(got, want) {
 		t.Fatalf("MembershipTag = %x, want %x", got, want)
@@ -2043,9 +2550,11 @@ git commit -m "feat(mls): confirmation and membership tags with constant-time ve
   func WelcomeKeyNonce(crypto CryptoProvider, welcomeSecret []byte) (key []byte, nonce []byte, err error)
   ```
 
-  The Group lifecycle plan uses this to seal and open `Welcome.encrypted_group_info`. The end-to-end
-  check is the `welcome.json` vector family, which lives in that plan; what is pinned here is the
-  derivation shape and the output lengths.
+  p7's `BuildWelcome` and `JoinFromWelcome` (registry §8.4) use this to seal and open
+  `Welcome.EncryptedGroupInfo`. The end-to-end check is the `welcome.json` vector family, which
+  lives in p7; what is pinned here is the derivation shape and the output lengths. The error return
+  is load-bearing on the group-creation path, where `(*KeySchedule).WelcomeSecret()` is nil
+  (Task 6a).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2056,7 +2565,7 @@ git commit -m "feat(mls): confirmation and membership tags with constant-time ve
 // welcome_secret with an empty context, at the suite's AEAD key and nonce sizes.
 func TestWelcomeKeyNonceShape(t *testing.T) {
 	crypto := ksTestCrypto(t)
-	welcomeSecret := mustHex(t, ksVectorWelcomeSecret)
+	welcomeSecret := MustHex(t, ksVectorWelcomeSecret)
 	key, nonce, err := WelcomeKeyNonce(crypto, welcomeSecret)
 	if err != nil {
 		t.Fatalf("WelcomeKeyNonce: %v", err)
@@ -2080,7 +2589,7 @@ func TestWelcomeKeyNonceShape(t *testing.T) {
 // TestWelcomeKeyNonceDiffersFromEachOther asserts the key and the nonce are not the
 // same expansion truncated differently, which would be an AEAD key/nonce collision.
 func TestWelcomeKeyNonceDiffersFromEachOther(t *testing.T) {
-	key, nonce, err := WelcomeKeyNonce(ksTestCrypto(t), mustHex(t, ksVectorWelcomeSecret))
+	key, nonce, err := WelcomeKeyNonce(ksTestCrypto(t), MustHex(t, ksVectorWelcomeSecret))
 	if err != nil {
 		t.Fatalf("WelcomeKeyNonce: %v", err)
 	}
@@ -2091,7 +2600,7 @@ func TestWelcomeKeyNonceDiffersFromEachOther(t *testing.T) {
 
 // TestWelcomeKeyNonceRejectsShortSecret asserts a wrong-length welcome_secret is fatal.
 func TestWelcomeKeyNonceRejectsShortSecret(t *testing.T) {
-	_, _, err := WelcomeKeyNonce(ksTestCrypto(t), mustHex(t, ksVectorWelcomeSecret)[:16])
+	_, _, err := WelcomeKeyNonce(ksTestCrypto(t), MustHex(t, ksVectorWelcomeSecret)[:16])
 	if !errors.Is(err, ErrSecretLength) {
 		t.Fatalf("err = %v, want ErrSecretLength", err)
 	}
@@ -2273,15 +2782,17 @@ git commit -m "feat(mls): key schedule zeroization and a reflection guard on epo
 
 ---
 
-### Task 13: PreSharedKeyId, its encoding, and ValSem401/402
+### Task 13: PreSharedKeyId, its codec, and ValSem401/402
 
 **Files:**
 - Create: `connect/mls/psk.go`
 - Test: `connect/mls/psk_test.go`
 
 **Interfaces:**
-- Consumes: `syntax.NewWriter`, `syntax.NewReader`, the writer and reader methods pinned in Task 1,
-  `CryptoProvider.HashSize`.
+- Consumes: `syntax.NewWriter`, `syntax.NewReader`, `syntax.Marshal`, `syntax.Unmarshal`, the writer
+  and reader methods pinned in Task 1, `CryptoProvider.HashSize() int`,
+  `ValSem(code ValSemCode, detail error) error` with `ValSem401` and `ValSem402`, and p8's
+  `ErrPskNonceLength` / `ErrPskType` sentinels.
 - Produces:
   ```go
   type PskType uint8
@@ -2303,14 +2814,26 @@ git commit -m "feat(mls): key schedule zeroization and a reflection guard on epo
       PskEpoch   uint64
       PskNonce   []byte
   }
-  func (self *PreSharedKeyId) Marshal() ([]byte, error)
-  func ParsePreSharedKeyId(r *syntax.Reader) (*PreSharedKeyId, error)
+  func (self *PreSharedKeyId) MarshalMLS(w *syntax.Writer) error
+  func (self *PreSharedKeyId) UnmarshalMLS(r *syntax.Reader) error
   func (self *PreSharedKeyId) Validate(crypto CryptoProvider) error
+  var _ syntax.Codec = (*PreSharedKeyId)(nil)
   ```
 
-  **Boundary note for the Proposal and Validation plans:** `proposal.go` refuses the `psk` proposal
-  type at parse with `ErrProfilePSK` before any `PreSharedKeyId` is constructed, so those plans need
-  only the type name for their commented-out V2 assertions. They must not redefine this type.
+  Under **C1** there is no `(*PreSharedKeyId).Marshal()` and no `ParsePreSharedKeyId(r)`. The name is
+  `PreSharedKeyId`, not `PreSharedKeyID`, per `CODESTYLE.md` — p6 and p8 consume this type and adopt
+  the same spelling. `MarshalMLS` writes inline, which is exactly what PSKLabel needs, so the private
+  `marshalTo` helper the first draft carried is deleted: it was a second spelling of the same method.
+
+  **Refusals are ValSem codes, not local sentinels.** ValSem401 (nonce length) and ValSem402 (type
+  and usage) are p8's catalogue entries; this plan returns `ValSem(ValSem401, detail)` with the
+  sentinel wrapped in `detail`, so `errors.Is(err, ErrPskNonceLength)` and `CodeOf(err)` both hold
+  and Gate 3 can assert the code.
+
+  **Boundary note for the framing and lifecycle plans:** p7 refuses the `psk` proposal type through
+  `(*Profile).CheckProposalType` before any `PreSharedKeyId` reaches the key schedule, so p6 needs
+  only the codec (it embeds one in `PreSharedKey` and in `GroupSecrets.Psks`) and p7 needs only
+  `Validate`. Neither redefines the type.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2330,7 +2853,7 @@ import (
 // pskTestCrypto returns the ciphersuite 0x0003 provider the psk KATs are pinned against.
 func pskTestCrypto(t *testing.T) CryptoProvider {
 	t.Helper()
-	crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+	crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
 	if err != nil {
 		t.Fatalf("NewCryptoProvider: %v", err)
 	}
@@ -2344,9 +2867,9 @@ func TestPreSharedKeyIdMarshalExternal(t *testing.T) {
 		PskId:    []byte{0xaa, 0xbb},
 		PskNonce: []byte{0x01, 0x02, 0x03},
 	}
-	encoded, err := id.Marshal()
+	encoded, err := syntax.Marshal(id)
 	if err != nil {
-		t.Fatalf("Marshal: %v", err)
+		t.Fatalf("syntax.Marshal: %v", err)
 	}
 	want := []byte{
 		0x01, // psktype = external
@@ -2354,7 +2877,7 @@ func TestPreSharedKeyIdMarshalExternal(t *testing.T) {
 		0x03, 0x01, 0x02, 0x03, // psk_nonce<V>
 	}
 	if !bytes.Equal(encoded, want) {
-		t.Fatalf("Marshal = %x, want %x", encoded, want)
+		t.Fatalf("syntax.Marshal = %x, want %x", encoded, want)
 	}
 }
 
@@ -2368,9 +2891,9 @@ func TestPreSharedKeyIdMarshalResumption(t *testing.T) {
 		PskEpoch:   7,
 		PskNonce:   []byte{0x09},
 	}
-	encoded, err := id.Marshal()
+	encoded, err := syntax.Marshal(id)
 	if err != nil {
-		t.Fatalf("Marshal: %v", err)
+		t.Fatalf("syntax.Marshal: %v", err)
 	}
 	want := []byte{
 		0x02,             // psktype = resumption
@@ -2380,7 +2903,7 @@ func TestPreSharedKeyIdMarshalResumption(t *testing.T) {
 		0x01, 0x09, // psk_nonce<V>
 	}
 	if !bytes.Equal(encoded, want) {
-		t.Fatalf("Marshal = %x, want %x", encoded, want)
+		t.Fatalf("syntax.Marshal = %x, want %x", encoded, want)
 	}
 }
 
@@ -2392,21 +2915,17 @@ func TestPreSharedKeyIdRoundTrip(t *testing.T) {
 		{PskType: PskTypeExternal, PskId: []byte{1, 2, 3}, PskNonce: []byte{4, 5}},
 		{PskType: PskTypeResumption, Usage: ResumptionPskUsageBranch, PskGroupId: []byte{6}, PskEpoch: 1 << 40, PskNonce: []byte{7}},
 	} {
-		encoded, err := id.Marshal()
+		encoded, err := syntax.Marshal(id)
 		if err != nil {
-			t.Fatalf("Marshal: %v", err)
+			t.Fatalf("syntax.Marshal: %v", err)
 		}
-		r := syntax.NewReader(encoded)
-		parsed, err := ParsePreSharedKeyId(r)
+		parsed := &PreSharedKeyId{}
+		if err := syntax.Unmarshal(encoded, parsed); err != nil {
+			t.Fatalf("syntax.Unmarshal: %v", err)
+		}
+		reencoded, err := syntax.Marshal(parsed)
 		if err != nil {
-			t.Fatalf("ParsePreSharedKeyId: %v", err)
-		}
-		if err := r.Done(); err != nil {
-			t.Fatalf("trailing bytes after PreSharedKeyID: %v", err)
-		}
-		reencoded, err := parsed.Marshal()
-		if err != nil {
-			t.Fatalf("Marshal: %v", err)
+			t.Fatalf("syntax.Marshal: %v", err)
 		}
 		if !bytes.Equal(encoded, reencoded) {
 			t.Fatalf("round trip = %x, want %x", reencoded, encoded)
@@ -2414,10 +2933,41 @@ func TestPreSharedKeyIdRoundTrip(t *testing.T) {
 	}
 }
 
-// TestPreSharedKeyIdParseRejectsUnknownType asserts an unknown psktype byte is refused
-// rather than parsed as an empty external id.
-func TestPreSharedKeyIdParseRejectsUnknownType(t *testing.T) {
-	_, err := ParsePreSharedKeyId(syntax.NewReader([]byte{0x07, 0x00}))
+// TestPreSharedKeyIdUnmarshalLeavesTheTailAlone asserts UnmarshalMLS consumes exactly
+// one id, which is what PSKLabel and GroupSecrets.psks<V> both depend on.
+func TestPreSharedKeyIdUnmarshalLeavesTheTailAlone(t *testing.T) {
+	encoded, err := syntax.Marshal(&PreSharedKeyId{
+		PskType: PskTypeExternal, PskId: []byte{1, 2, 3}, PskNonce: []byte{4, 5}})
+	if err != nil {
+		t.Fatalf("syntax.Marshal: %v", err)
+	}
+	r := syntax.NewReader(append(encoded, 0xde, 0xad))
+	if err := (&PreSharedKeyId{}).UnmarshalMLS(r); err != nil {
+		t.Fatalf("UnmarshalMLS: %v", err)
+	}
+	tail, err := r.ReadRaw(2)
+	if err != nil {
+		t.Fatalf("ReadRaw: %v", err)
+	}
+	if !bytes.Equal(tail, []byte{0xde, 0xad}) {
+		t.Fatalf("tail = %x, want dead", tail)
+	}
+}
+
+// TestPreSharedKeyIdUnmarshalRejectsUnknownType asserts an unknown psktype byte is
+// refused as ValSem402 rather than parsed as an empty external id.
+func TestPreSharedKeyIdUnmarshalRejectsUnknownType(t *testing.T) {
+	err := syntax.Unmarshal([]byte{0x07, 0x00}, &PreSharedKeyId{})
+	if !errors.Is(err, ErrPskType) {
+		t.Fatalf("err = %v, want ErrPskType", err)
+	}
+}
+
+// TestPreSharedKeyIdMarshalRefusesUnknownType asserts the encoder refuses the same arm
+// it cannot decode. This is the semantic refusal MarshalMLS returns an error for (C2):
+// dropping it would emit a one-byte id that hashes into psk_input as if it were whole.
+func TestPreSharedKeyIdMarshalRefusesUnknownType(t *testing.T) {
+	_, err := syntax.Marshal(&PreSharedKeyId{PskType: PskType(9), PskNonce: make([]byte, 32)})
 	if !errors.Is(err, ErrPskType) {
 		t.Fatalf("err = %v, want ErrPskType", err)
 	}
@@ -2427,6 +2977,9 @@ func TestPreSharedKeyIdParseRejectsUnknownType(t *testing.T) {
 func TestPreSharedKeyIdValidateNonceLength(t *testing.T) {
 	crypto := pskTestCrypto(t)
 	id := &PreSharedKeyId{PskType: PskTypeExternal, PskId: []byte{1}, PskNonce: make([]byte, 31)}
+	// the error is ValSem(ValSem401, ...), so it matches the sentinel through Unwrap.
+	// Asserting the code itself is p8's TestValSem401_* — CodeOf is p8-internal and
+	// this plan does not reach for it.
 	if err := id.Validate(crypto); !errors.Is(err, ErrPskNonceLength) {
 		t.Fatalf("err = %v, want ErrPskNonceLength", err)
 	}
@@ -2517,88 +3070,86 @@ type PreSharedKeyId struct {
 	PskNonce   []byte
 }
 
-// marshalTo writes the id into an existing writer, so PSKLabel can prefix it.
-func (self *PreSharedKeyId) marshalTo(w *syntax.Writer) error {
+// MarshalMLS writes the id inline into a writer the caller owns, which is exactly
+// what PSKLabel and GroupSecrets.psks<V> need. The leaf writes return nothing (C2);
+// the error return carries the one semantic refusal this encoder has, an arm it
+// cannot represent. Dropping that refusal would emit a truncated id that still hashes
+// into psk_input as though it were whole.
+func (self *PreSharedKeyId) MarshalMLS(w *syntax.Writer) error {
 	w.WriteUint8(uint8(self.PskType))
 	switch self.PskType {
 	case PskTypeExternal:
-		if err := w.WriteOpaque(self.PskId); err != nil {
-			return err
-		}
+		w.WriteOpaque(self.PskId)
 	case PskTypeResumption:
 		w.WriteUint8(uint8(self.Usage))
-		if err := w.WriteOpaque(self.PskGroupId); err != nil {
-			return err
-		}
+		w.WriteOpaque(self.PskGroupId)
 		w.WriteUint64(self.PskEpoch)
 	default:
-		return fmt.Errorf("%w: psktype %d", ErrPskType, self.PskType)
+		return ValSem(ValSem402, fmt.Errorf("%w: psktype %d", ErrPskType, self.PskType))
 	}
-	return w.WriteOpaque(self.PskNonce)
+	w.WriteOpaque(self.PskNonce)
+	return nil
 }
 
-// Marshal encodes the id on its own.
-func (self *PreSharedKeyId) Marshal() ([]byte, error) {
-	w := syntax.NewWriter()
-	if err := self.marshalTo(w); err != nil {
-		return nil, err
-	}
-	return w.Bytes()
-}
-
-// ParsePreSharedKeyId decodes one id from a reader without consuming what follows.
-func ParsePreSharedKeyId(r *syntax.Reader) (*PreSharedKeyId, error) {
+// UnmarshalMLS decodes exactly one id and leaves the rest of the reader alone.
+func (self *PreSharedKeyId) UnmarshalMLS(r *syntax.Reader) error {
 	pskType, err := r.ReadUint8()
 	if err != nil {
-		return nil, fmt.Errorf("mls: psk type: %w", err)
+		return fmt.Errorf("mls: psk type: %w", err)
 	}
-	self := &PreSharedKeyId{PskType: PskType(pskType)}
+	self.PskType = PskType(pskType)
 	switch self.PskType {
 	case PskTypeExternal:
 		if self.PskId, err = r.ReadOpaque(); err != nil {
-			return nil, fmt.Errorf("mls: psk id: %w", err)
+			return fmt.Errorf("mls: psk id: %w", err)
 		}
 	case PskTypeResumption:
 		usage, err := r.ReadUint8()
 		if err != nil {
-			return nil, fmt.Errorf("mls: psk usage: %w", err)
+			return fmt.Errorf("mls: psk usage: %w", err)
 		}
 		self.Usage = ResumptionPskUsage(usage)
 		if self.PskGroupId, err = r.ReadOpaque(); err != nil {
-			return nil, fmt.Errorf("mls: psk group id: %w", err)
+			return fmt.Errorf("mls: psk group id: %w", err)
 		}
 		if self.PskEpoch, err = r.ReadUint64(); err != nil {
-			return nil, fmt.Errorf("mls: psk epoch: %w", err)
+			return fmt.Errorf("mls: psk epoch: %w", err)
 		}
 	default:
-		return nil, fmt.Errorf("%w: psktype %d", ErrPskType, self.PskType)
+		return ValSem(ValSem402, fmt.Errorf("%w: psktype %d", ErrPskType, self.PskType))
 	}
 	if self.PskNonce, err = r.ReadOpaque(); err != nil {
-		return nil, fmt.Errorf("mls: psk nonce: %w", err)
+		return fmt.Errorf("mls: psk nonce: %w", err)
 	}
-	return self, nil
+	return nil
 }
 
-// Validate is ValSem401 (nonce length) and ValSem402 (type and usage).
+// the C1 pin: drift between this type and the one codec convention fails at build.
+var _ syntax.Codec = (*PreSharedKeyId)(nil)
+
+// Validate is ValSem401 (nonce length) and ValSem402 (type and usage). Both codes and
+// both sentinels belong to the validation plan's catalogue; this returns them through
+// ValSem so Gate 3 can assert the code and a caller can still match the sentinel.
 func (self *PreSharedKeyId) Validate(crypto CryptoProvider) error {
 	if len(self.PskNonce) != crypto.HashSize() {
-		return fmt.Errorf("%w: %d bytes, want %d", ErrPskNonceLength, len(self.PskNonce), crypto.HashSize())
+		return ValSem(ValSem401, fmt.Errorf("%w: %d bytes, want %d",
+			ErrPskNonceLength, len(self.PskNonce), crypto.HashSize()))
 	}
 	switch self.PskType {
 	case PskTypeExternal:
 		return nil
 	case PskTypeResumption:
 		if self.Usage != ResumptionPskUsageApplication {
-			return fmt.Errorf("%w: resumption usage %d", ErrPskType, self.Usage)
+			return ValSem(ValSem402, fmt.Errorf("%w: resumption usage %d", ErrPskType, self.Usage))
 		}
 		return nil
 	}
-	return fmt.Errorf("%w: psktype %d", ErrPskType, self.PskType)
+	return ValSem(ValSem402, fmt.Errorf("%w: psktype %d", ErrPskType, self.PskType))
 }
 ```
 
-The `crypto/subtle`, `math` imports are used by Task 14 and Task 15; add them when those tasks land
-rather than leaving an unused import now.
+The `crypto/subtle` and `math` imports are used by Task 14 and Task 15; add them when those tasks
+land rather than leaving an unused import now.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -2611,7 +3162,7 @@ Expected: PASS
 git ls-files | wc -l
 git add connect/mls/psk.go connect/mls/psk_test.go
 git ls-files | wc -l
-git commit -m "feat(mls): PreSharedKeyID encoding and the ValSem401/402 checks"
+git commit -m "feat(mls): PreSharedKeyId codec and the ValSem401/402 checks"
 ```
 
 ---
@@ -2623,11 +3174,16 @@ git commit -m "feat(mls): PreSharedKeyID encoding and the ValSem401/402 checks"
 - Test: `connect/mls/psk_test.go`
 
 **Interfaces:**
-- Consumes: `(*PreSharedKeyId).Marshal` (Task 13), `crypto/subtle.ConstantTimeCompare`.
+- Consumes: `syntax.Marshal(v syntax.Marshaler) ([]byte, error)` over `(*PreSharedKeyId).MarshalMLS`
+  (Task 13), `ValSem(ValSem403, detail)` and p8's `ErrDuplicatePsk`, `crypto/subtle.ConstantTimeCompare`.
 - Produces: `func CheckNoDuplicatePsks(ids []PreSharedKeyId) error`
 
   ValSem403 is untested in OpenMLS (openmls#1335), so differential agreement proves nothing here and
   the RFC text is the only authority.
+
+  The four tests below are **behaviour-named, not `TestValSem403_*`**: p8 owns every
+  `TestValSemNNN_<slug>` name exclusively (registry §9.5, Spec A §4.3), so its Gate 3 negative for
+  this code and these unit tests cannot collide.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2647,26 +3203,26 @@ func pskTestId(idByte byte, nonceByte byte) PreSharedKeyId {
 	}
 }
 
-// TestValSem403_NoDuplicatePreSharedKeyIds asserts an exactly repeated id is refused.
-func TestValSem403_NoDuplicatePreSharedKeyIds(t *testing.T) {
+// TestCheckNoDuplicatePsksRefusesARepeatedId asserts an exactly repeated id is refused.
+func TestCheckNoDuplicatePsksRefusesARepeatedId(t *testing.T) {
 	ids := []PreSharedKeyId{pskTestId(1, 0xa1), pskTestId(2, 0xa2), pskTestId(1, 0xa1)}
 	if err := CheckNoDuplicatePsks(ids); !errors.Is(err, ErrDuplicatePsk) {
 		t.Fatalf("err = %v, want ErrDuplicatePsk", err)
 	}
 }
 
-// TestValSem403_DistinctIdsAreAccepted asserts the check does not over-reject. Two ids
+// TestCheckNoDuplicatePsksAcceptsDistinctIds asserts the check does not over-reject. Two ids
 // that share a psk_id but carry different nonces are different PreSharedKeyIDs by the
 // RFC's own definition, and refusing them would be a V2 interop break.
-func TestValSem403_DistinctIdsAreAccepted(t *testing.T) {
+func TestCheckNoDuplicatePsksAcceptsDistinctIds(t *testing.T) {
 	ids := []PreSharedKeyId{pskTestId(1, 0xa1), pskTestId(1, 0xa2), pskTestId(2, 0xa1)}
 	if err := CheckNoDuplicatePsks(ids); err != nil {
 		t.Fatalf("distinct ids were refused: %v", err)
 	}
 }
 
-// TestValSem403_EmptyAndSingleton asserts the degenerate cases are accepted.
-func TestValSem403_EmptyAndSingleton(t *testing.T) {
+// TestCheckNoDuplicatePsksAcceptsEmptyAndSingleton asserts the degenerate cases are accepted.
+func TestCheckNoDuplicatePsksAcceptsEmptyAndSingleton(t *testing.T) {
 	if err := CheckNoDuplicatePsks(nil); err != nil {
 		t.Fatalf("empty list refused: %v", err)
 	}
@@ -2675,9 +3231,9 @@ func TestValSem403_EmptyAndSingleton(t *testing.T) {
 	}
 }
 
-// TestValSem403_ResumptionDuplicatesAcrossEpochs asserts the epoch field participates,
+// TestCheckNoDuplicatePsksBindsTheEpochField asserts the epoch field participates,
 // so the same group id at two epochs is not a duplicate.
-func TestValSem403_ResumptionDuplicatesAcrossEpochs(t *testing.T) {
+func TestCheckNoDuplicatePsksBindsTheEpochField(t *testing.T) {
 	nonce := make([]byte, 32)
 	first := PreSharedKeyId{PskType: PskTypeResumption, Usage: ResumptionPskUsageApplication, PskGroupId: []byte{9}, PskEpoch: 1, PskNonce: nonce}
 	second := first
@@ -2693,7 +3249,7 @@ func TestValSem403_ResumptionDuplicatesAcrossEpochs(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./connect/mls/... -run TestValSem403 -v`
+Run: `go test ./connect/mls/... -run TestCheckNoDuplicatePsks -v`
 Expected: FAIL to compile with `undefined: CheckNoDuplicatePsks`.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -2711,13 +3267,13 @@ Expected: FAIL to compile with `undefined: CheckNoDuplicatePsks`.
 func CheckNoDuplicatePsks(ids []PreSharedKeyId) error {
 	encoded := make([][]byte, 0, len(ids))
 	for i := range ids {
-		b, err := ids[i].Marshal()
+		b, err := syntax.Marshal(&ids[i])
 		if err != nil {
 			return err
 		}
 		for j, previous := range encoded {
 			if len(previous) == len(b) && subtle.ConstantTimeCompare(previous, b) == 1 {
-				return fmt.Errorf("%w: entries %d and %d", ErrDuplicatePsk, j, i)
+				return ValSem(ValSem403, fmt.Errorf("%w: entries %d and %d", ErrDuplicatePsk, j, i))
 			}
 		}
 		encoded = append(encoded, b)
@@ -2730,7 +3286,7 @@ Add `"crypto/subtle"` to the `psk.go` import block.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./connect/mls/... -run TestValSem403 -v`
+Run: `go test ./connect/mls/... -run TestCheckNoDuplicatePsks -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -2744,15 +3300,18 @@ git commit -m "feat(mls): ValSem403 duplicate PreSharedKeyID check, untested ups
 
 ---
 
-### Task 15: PSKLabel and PskSecret
+### Task 15: PSKLabel, PskSecret and EmptyPskSecret
 
 **Files:**
 - Modify: `connect/mls/psk.go`
 - Test: `connect/mls/psk_test.go`
 
 **Interfaces:**
-- Consumes: `CryptoProvider.Extract`, `CryptoProvider.ExpandWithLabel`, `CryptoProvider.HashSize`,
-  `ZeroSecret` (Task 5), `(*PreSharedKeyId).Validate` (Task 13), `CheckNoDuplicatePsks` (Task 14).
+- Consumes: `CryptoProvider.Extract(salt []byte, ikm []byte) []byte`,
+  `CryptoProvider.ExpandWithLabel`, `CryptoProvider.HashSize`, `syntax.NewWriter`,
+  `(*syntax.Writer).WriteUint16(v uint16)`, `(*syntax.Writer).Bytes() ([]byte, error)`,
+  `(*PreSharedKeyId).MarshalMLS` (Task 13), `ZeroSecret` (Task 5),
+  `(*PreSharedKeyId).Validate` (Task 13), `CheckNoDuplicatePsks` (Task 14).
 - Produces:
   ```go
   type PreSharedKeyInput struct {
@@ -2760,7 +3319,13 @@ git commit -m "feat(mls): ValSem403 duplicate PreSharedKeyID check, untested ups
       Secret []byte
   }
   func PskSecret(crypto CryptoProvider, psks []PreSharedKeyInput) ([]byte, error)
+  func EmptyPskSecret(crypto CryptoProvider) []byte     // == PskSecret(crypto, nil)
   ```
+
+  `EmptyPskSecret` is a registry gap p7 calls: every v1 epoch has no PSKs, so `NewGroup`,
+  `Commit` and `JoinFromWelcome` all need the empty case and none of them wants to handle an error
+  that cannot occur. It is the total form of `PskSecret(crypto, nil)` and the test below pins the
+  two against each other so they can never drift.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2785,19 +3350,19 @@ func TestPskSecretKAT(t *testing.T) {
 	crypto := pskTestCrypto(t)
 	psks := []PreSharedKeyInput{
 		{
-			Id:     PreSharedKeyId{PskType: PskTypeExternal, PskId: mustHex(t, pskVectorId0), PskNonce: mustHex(t, pskVectorNonce0)},
-			Secret: mustHex(t, pskVectorSecret0),
+			Id:     PreSharedKeyId{PskType: PskTypeExternal, PskId: MustHex(t, pskVectorId0), PskNonce: MustHex(t, pskVectorNonce0)},
+			Secret: MustHex(t, pskVectorSecret0),
 		},
 		{
-			Id:     PreSharedKeyId{PskType: PskTypeExternal, PskId: mustHex(t, pskVectorId1), PskNonce: mustHex(t, pskVectorNonce1)},
-			Secret: mustHex(t, pskVectorSecret1),
+			Id:     PreSharedKeyId{PskType: PskTypeExternal, PskId: MustHex(t, pskVectorId1), PskNonce: MustHex(t, pskVectorNonce1)},
+			Secret: MustHex(t, pskVectorSecret1),
 		},
 	}
 	got, err := PskSecret(crypto, psks)
 	if err != nil {
 		t.Fatalf("PskSecret: %v", err)
 	}
-	want := mustHex(t, pskVectorSecret)
+	want := MustHex(t, pskVectorSecret)
 	if !bytes.Equal(got, want) {
 		t.Fatalf("psk_secret = %x, want %x", got, want)
 	}
@@ -2816,17 +3381,40 @@ func TestPskSecretEmptyIsZero(t *testing.T) {
 	}
 }
 
+// TestEmptyPskSecretMatchesPskSecretOfNil pins the convenience form against the
+// general one. The lifecycle plan calls EmptyPskSecret at every epoch boundary, so a
+// divergence between the two would be a group whose members disagree from epoch 0 and
+// whose only symptom is that nothing decrypts.
+func TestEmptyPskSecretMatchesPskSecretOfNil(t *testing.T) {
+	crypto := pskTestCrypto(t)
+	general, err := PskSecret(crypto, nil)
+	if err != nil {
+		t.Fatalf("PskSecret: %v", err)
+	}
+	empty := EmptyPskSecret(crypto)
+	if !bytes.Equal(empty, general) {
+		t.Fatalf("EmptyPskSecret = %x, PskSecret(nil) = %x", empty, general)
+	}
+	if len(empty) != crypto.HashSize() {
+		t.Fatalf("len = %d, want %d", len(empty), crypto.HashSize())
+	}
+	empty[0] = 1
+	if EmptyPskSecret(crypto)[0] != 0 {
+		t.Fatal("EmptyPskSecret returns a shared slice")
+	}
+}
+
 // TestPskSecretOrderMatters asserts the index and count fields bind position, so a
 // reordered list is a different psk_secret and a reordering attack is detectable.
 func TestPskSecretOrderMatters(t *testing.T) {
 	crypto := pskTestCrypto(t)
 	first := PreSharedKeyInput{
-		Id:     PreSharedKeyId{PskType: PskTypeExternal, PskId: mustHex(t, pskVectorId0), PskNonce: mustHex(t, pskVectorNonce0)},
-		Secret: mustHex(t, pskVectorSecret0),
+		Id:     PreSharedKeyId{PskType: PskTypeExternal, PskId: MustHex(t, pskVectorId0), PskNonce: MustHex(t, pskVectorNonce0)},
+		Secret: MustHex(t, pskVectorSecret0),
 	}
 	second := PreSharedKeyInput{
-		Id:     PreSharedKeyId{PskType: PskTypeExternal, PskId: mustHex(t, pskVectorId1), PskNonce: mustHex(t, pskVectorNonce1)},
-		Secret: mustHex(t, pskVectorSecret1),
+		Id:     PreSharedKeyId{PskType: PskTypeExternal, PskId: MustHex(t, pskVectorId1), PskNonce: MustHex(t, pskVectorNonce1)},
+		Secret: MustHex(t, pskVectorSecret1),
 	}
 	forward, err := PskSecret(crypto, []PreSharedKeyInput{first, second})
 	if err != nil {
@@ -2847,8 +3435,8 @@ func TestPskSecretOrderMatters(t *testing.T) {
 func TestPskSecretRejectsInvalidEntries(t *testing.T) {
 	crypto := pskTestCrypto(t)
 	base := PreSharedKeyInput{
-		Id:     PreSharedKeyId{PskType: PskTypeExternal, PskId: mustHex(t, pskVectorId0), PskNonce: mustHex(t, pskVectorNonce0)},
-		Secret: mustHex(t, pskVectorSecret0),
+		Id:     PreSharedKeyId{PskType: PskTypeExternal, PskId: MustHex(t, pskVectorId0), PskNonce: MustHex(t, pskVectorNonce0)},
+		Secret: MustHex(t, pskVectorSecret0),
 	}
 
 	shortNonce := base
@@ -2891,9 +3479,11 @@ type PreSharedKeyInput struct {
 }
 
 // marshalPskLabel encodes PSKLabel { PreSharedKeyID id; uint16 index; uint16 count; }.
+// The id is written inline through its own MarshalMLS, with no length prefix of its
+// own — which is why that method takes a writer rather than returning bytes.
 func marshalPskLabel(id *PreSharedKeyId, index uint16, count uint16) ([]byte, error) {
 	w := syntax.NewWriter()
-	if err := id.marshalTo(w); err != nil {
+	if err := id.MarshalMLS(w); err != nil {
 		return nil, err
 	}
 	w.WriteUint16(index)
@@ -2945,13 +3535,21 @@ func PskSecret(crypto CryptoProvider, psks []PreSharedKeyInput) ([]byte, error) 
 	}
 	return pskSecret, nil
 }
+
+// EmptyPskSecret is psk_secret for an epoch with no PSKs: KDF.Nh zero bytes. It is
+// PskSecret(crypto, nil) with the impossible error removed, because every v1 epoch
+// takes this path and a caller that has to handle an error that cannot occur will
+// eventually handle it wrongly.
+func EmptyPskSecret(crypto CryptoProvider) []byte {
+	return ZeroSecret(crypto)
+}
 ```
 
 Add `"math"` to the `psk.go` import block.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./connect/mls/... -run TestPskSecret -v`
+Run: `go test ./connect/mls/... -run 'TestPskSecret|TestEmptyPskSecret' -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -2965,140 +3563,145 @@ git commit -m "feat(mls): psk_secret recurrence with PSKLabel index and count bi
 
 ---
 
-### Task 16: The vector-loading helpers and the psk_secret runner
+### Task 16: The suite filter, the psk_secret runner, and family registration
 
 **Files:**
-- Create: `connect/mls/key_schedule_vectors_test.go`
+- Create: `connect/mls/key_schedule_kat_test.go`
 
 **Interfaces:**
-- Consumes: `PskSecret` (Task 15), `NewCryptoProvider`, the vendored `testdata/vectors/psk_secret.json`.
-- Produces (test-only, used by Tasks 17, 19, 20, 25):
+- Consumes: `PskSecret` (Task 15), `NewCryptoProvider`, and p8's vector surface —
+  `LoadVectorFile(t *testing.T, file string) []json.RawMessage`,
+  `MustHex(t *testing.T, s string) []byte`, `HexOf(b []byte) string`,
+  `RegisterVectorFamily(family VectorFamily)` — over the `testdata/vectors/psk_secret.json` that
+  p8 Task 6 vendored.
+- Produces (test-only, used by Tasks 17, 18, 20, 25):
   ```go
-  type ksHex []byte
-  func (self *ksHex) UnmarshalJSON(data []byte) error
-  func (self ksHex) MarshalJSON() ([]byte, error)
-  func ksLoadVectors(t *testing.T, family string, out any)
-  func ksImplementedSuite(suite uint16) (CipherSuite, bool)
+  func implementedSuite(suite uint16) (CipherSuite, bool)
   ```
 
-  These are prefixed `ks` so they cannot collide with equivalents the Validation and interop plan
-  defines in the same package during parallel waves. Collapsing them into one shared helper is a
-  follow-up after both waves land, not a blocker for either.
+  `ksHex` and `ksLoadVectors` are **deleted**: p8 owns `MustHex`, `HexOf` and `LoadVectorFile`, they
+  land in wave 1, and three parallel hex decoders over one corpus is how two of them end up
+  disagreeing about the empty string (registry §9.2). Every hex field in every vector struct below is
+  therefore a `string`, decoded with `MustHex` and re-encoded with `HexOf`. `ksImplementedSuite`
+  survives under its registry name, `implementedSuite`.
+
+  **Family registration is not optional.** Each of the four runners registers its family from an
+  `init()` in its own `*_kat_test.go` and deletes its number from p8's `expectedPendingFamilies` in
+  the same commit. Without that, `TestVectorFamiliesVerify` runs one family and Gate 1 is green with
+  fifteen of sixteen never executed. This task registers family 6.
 
 - [ ] **Step 1: Write the failing test**
 
 ```go
-// key_schedule_vectors_test.go
+// key_schedule_kat_test.go
 // runners for the mlswg key-schedule and psk_secret vector families.
 package mls
 
 import (
 	"bytes"
-	"encoding/hex"
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"testing"
 )
 
-// ksHex decodes the hex strings the mlswg vector files use for binary fields.
-type ksHex []byte
-
-func (self *ksHex) UnmarshalJSON(data []byte) error {
-	var s string
-	if err := json.Unmarshal(data, &s); err != nil {
-		return err
-	}
-	b, err := hex.DecodeString(s)
-	if err != nil {
-		return err
-	}
-	*self = b
-	return nil
-}
-
-func (self ksHex) MarshalJSON() ([]byte, error) {
-	return json.Marshal(hex.EncodeToString(self))
-}
-
-// ksLoadVectors reads one vendored vector family.
-func ksLoadVectors(t *testing.T, family string, out any) {
-	t.Helper()
-	data, err := os.ReadFile(filepath.Join("testdata", "vectors", family))
-	if err != nil {
-		t.Fatalf("read %s: %v", family, err)
-	}
-	if err := json.Unmarshal(data, out); err != nil {
-		t.Fatalf("parse %s: %v", family, err)
-	}
-}
-
-// ksImplementedSuite maps a vector's cipher_suite to a provider we implement.
+// implementedSuite maps a vector's cipher_suite to a provider we implement.
 // The vector files cover suites 1 through 7; v1 implements 0x0001 and 0x0003, so the
 // other five are skipped. Every runner counts what it ran and what it skipped, so a
 // registry regression that made both suites unavailable fails instead of passing
 // vacuously with zero cases.
-func ksImplementedSuite(suite uint16) (CipherSuite, bool) {
+func implementedSuite(suite uint16) (CipherSuite, bool) {
 	switch CipherSuite(suite) {
-	case CipherSuiteX25519AES128SHA256Ed25519:
-		return CipherSuiteX25519AES128SHA256Ed25519, true
-	case CipherSuiteX25519ChaCha20SHA256Ed25519:
-		return CipherSuiteX25519ChaCha20SHA256Ed25519, true
+	case CipherSuiteX25519AesGcm128Sha256Ed25519:
+		return CipherSuiteX25519AesGcm128Sha256Ed25519, true
+	case CipherSuiteX25519ChaCha20Sha256Ed25519:
+		return CipherSuiteX25519ChaCha20Sha256Ed25519, true
 	}
 	return 0, false
 }
 
-// pskSecretVector is one entry of psk_secret.json.
+// pskSecretVector is one entry of psk_secret.json. Binary fields are hex strings in
+// the file and stay strings here; MustHex is the single decoder.
 type pskSecretVector struct {
 	CipherSuite uint16 `json:"cipher_suite"`
 	Psks        []struct {
-		PskId    ksHex `json:"psk_id"`
-		Psk      ksHex `json:"psk"`
-		PskNonce ksHex `json:"psk_nonce"`
+		PskId    string `json:"psk_id"`
+		Psk      string `json:"psk"`
+		PskNonce string `json:"psk_nonce"`
 	} `json:"psks"`
-	PskSecret ksHex `json:"psk_secret"`
+	PskSecret string `json:"psk_secret"`
+}
+
+func init() {
+	RegisterVectorFamily(VectorFamily{
+		Number:   6,
+		Name:     "psk_secret",
+		File:     "psk_secret.json",
+		Slice:    "A2",
+		Verify:   verifyPskSecretVector,
+		Generate: nil, // the mlswg format for this family has no generate direction
+	})
+}
+
+// verifyPskSecretVector checks one entry of psk_secret.json. A vector at a suite v1
+// does not implement is a silent no-op here; the accounting in TestVectorPskSecret is
+// what makes sure that is not every vector.
+func verifyPskSecretVector(t *testing.T, raw json.RawMessage) {
+	t.Helper()
+	var vector pskSecretVector
+	if err := json.Unmarshal(raw, &vector); err != nil {
+		t.Fatalf("parse psk_secret entry: %v", err)
+	}
+	suite, ok := implementedSuite(vector.CipherSuite)
+	if !ok {
+		return
+	}
+	crypto, err := NewCryptoProvider(suite)
+	if err != nil {
+		t.Fatalf("NewCryptoProvider(%#x): %v", suite, err)
+	}
+	psks := make([]PreSharedKeyInput, 0, len(vector.Psks))
+	for _, entry := range vector.Psks {
+		psks = append(psks, PreSharedKeyInput{
+			Id: PreSharedKeyId{
+				PskType:  PskTypeExternal,
+				PskId:    MustHex(t, entry.PskId),
+				PskNonce: MustHex(t, entry.PskNonce),
+			},
+			Secret: MustHex(t, entry.Psk),
+		})
+	}
+	got, err := PskSecret(crypto, psks)
+	if err != nil {
+		t.Fatalf("%d psks: PskSecret: %v", len(psks), err)
+	}
+	if want := MustHex(t, vector.PskSecret); !bytes.Equal(got, want) {
+		t.Fatalf("%d psks: psk_secret = %s, want %s", len(psks), HexOf(got), vector.PskSecret)
+	}
 }
 
 // TestVectorPskSecret is vector family 6. Retained even though PSK proposals are
 // profile-refused: psk_secret is computed on every epoch as the empty case, and the
 // non-empty cases are the only check on the PSKLabel encoding.
 func TestVectorPskSecret(t *testing.T) {
-	var vectors []pskSecretVector
-	ksLoadVectors(t, "psk_secret.json", &vectors)
-	if len(vectors) == 0 {
+	entries := LoadVectorFile(t, "psk_secret.json")
+	if len(entries) == 0 {
 		t.Fatal("psk_secret.json is empty")
 	}
 
 	ran, skipped := 0, 0
 	suitesSeen := map[CipherSuite]int{}
-	for i, vector := range vectors {
-		suite, ok := ksImplementedSuite(vector.CipherSuite)
+	for i, raw := range entries {
+		var header struct {
+			CipherSuite uint16 `json:"cipher_suite"`
+		}
+		if err := json.Unmarshal(raw, &header); err != nil {
+			t.Fatalf("vector %d: %v", i, err)
+		}
+		suite, ok := implementedSuite(header.CipherSuite)
 		if !ok {
 			skipped++
 			continue
 		}
-		crypto, err := NewCryptoProvider(suite)
-		if err != nil {
-			t.Fatalf("vector %d: NewCryptoProvider(%#x): %v", i, suite, err)
-		}
-		psks := make([]PreSharedKeyInput, 0, len(vector.Psks))
-		for _, entry := range vector.Psks {
-			psks = append(psks, PreSharedKeyInput{
-				Id: PreSharedKeyId{
-					PskType:  PskTypeExternal,
-					PskId:    entry.PskId,
-					PskNonce: entry.PskNonce,
-				},
-				Secret: entry.Psk,
-			})
-		}
-		got, err := PskSecret(crypto, psks)
-		if err != nil {
-			t.Fatalf("vector %d (%d psks): PskSecret: %v", i, len(psks), err)
-		}
-		if !bytes.Equal(got, vector.PskSecret) {
-			t.Fatalf("vector %d (%d psks): psk_secret = %x, want %x", i, len(psks), got, []byte(vector.PskSecret))
-		}
+		verifyPskSecretVector(t, raw)
 		ran++
 		suitesSeen[suite]++
 	}
@@ -3106,10 +3709,10 @@ func TestVectorPskSecret(t *testing.T) {
 	if ran == 0 {
 		t.Fatalf("ran no psk_secret vectors (%d skipped)", skipped)
 	}
-	if suitesSeen[CipherSuiteX25519AES128SHA256Ed25519] == 0 {
+	if suitesSeen[CipherSuiteX25519AesGcm128Sha256Ed25519] == 0 {
 		t.Fatal("no psk_secret vector ran at ciphersuite 0x0001")
 	}
-	if suitesSeen[CipherSuiteX25519ChaCha20SHA256Ed25519] == 0 {
+	if suitesSeen[CipherSuiteX25519ChaCha20Sha256Ed25519] == 0 {
 		t.Fatal("no psk_secret vector ran at ciphersuite 0x0003")
 	}
 	t.Logf("psk_secret: ran %d, skipped %d unimplemented suites", ran, skipped)
@@ -3131,16 +3734,20 @@ reversed; correct `PskSecret` in `psk.go` so the zero string is the salt.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./connect/mls/... -run TestVectorPskSecret -v`
-Expected: PASS, with a log line reporting 22 vectors run and 55 skipped.
+Run: `go test ./connect/mls/... -run 'TestVectorPskSecret|TestVectorFamilies' -v`
+Expected: PASS, with a log line reporting 22 vectors run and 55 skipped, and family 6 no longer
+listed as pending by p8's registry test.
 
 - [ ] **Step 5: Commit**
 
+Delete `6` from p8's `expectedPendingFamilies` in the same commit, or the registry test stays green
+while claiming this family is unimplemented.
+
 ```bash
 git ls-files | wc -l
-git add connect/mls/key_schedule_vectors_test.go
+git add connect/mls/key_schedule_kat_test.go connect/mls/vectors_test.go
 git ls-files | wc -l
-git commit -m "test(mls): psk_secret vector family with per-suite coverage accounting"
+git commit -m "test(mls): psk_secret vector family, registered, with per-suite coverage accounting"
 ```
 
 ---
@@ -3148,158 +3755,197 @@ git commit -m "test(mls): psk_secret vector family with per-suite coverage accou
 ### Task 17: The key-schedule vector runner
 
 **Files:**
-- Modify: `connect/mls/key_schedule_vectors_test.go`
+- Modify: `connect/mls/key_schedule_kat_test.go`
 
 **Interfaces:**
 - Consumes: `NewKeySchedule`, `(*KeySchedule).Export`, `(*KeySchedule).ExternalKeyPair`,
-  `(*GroupContext).Marshal`, `ksLoadVectors`, `ksImplementedSuite` (Task 16).
-- Produces: nothing. Closes gate `key-schedule`.
+  `syntax.Marshal(v syntax.Marshaler) ([]byte, error)`, `LoadVectorFile`, `MustHex`, `HexOf`,
+  `RegisterVectorFamily`, `implementedSuite` (Task 16).
+- Produces: nothing at runtime. Registers family 5 and closes gate `key-schedule`.
 
 - [ ] **Step 1: Write the failing test**
 
 ```go
-// append to key_schedule_vectors_test.go
+// append to key_schedule_kat_test.go
 
 // keyScheduleVector is one entry of key-schedule.json.
 type keyScheduleVector struct {
-	CipherSuite       uint16              `json:"cipher_suite"`
-	GroupId           ksHex               `json:"group_id"`
-	InitialInitSecret ksHex               `json:"initial_init_secret"`
-	Epochs            []keyScheduleEpoch  `json:"epochs"`
+	CipherSuite       uint16             `json:"cipher_suite"`
+	GroupId           string             `json:"group_id"`
+	InitialInitSecret string             `json:"initial_init_secret"`
+	Epochs            []keyScheduleEpoch `json:"epochs"`
 }
 
 // keyScheduleEpoch is one epoch of a key-schedule vector.
 type keyScheduleEpoch struct {
-	TreeHash                ksHex `json:"tree_hash"`
-	CommitSecret            ksHex `json:"commit_secret"`
-	PskSecret               ksHex `json:"psk_secret"`
-	ConfirmedTranscriptHash ksHex `json:"confirmed_transcript_hash"`
-	GroupContext            ksHex `json:"group_context"`
-	JoinerSecret            ksHex `json:"joiner_secret"`
-	WelcomeSecret           ksHex `json:"welcome_secret"`
-	InitSecret              ksHex `json:"init_secret"`
-	SenderDataSecret        ksHex `json:"sender_data_secret"`
-	EncryptionSecret        ksHex `json:"encryption_secret"`
-	ExporterSecret          ksHex `json:"exporter_secret"`
-	EpochAuthenticator      ksHex `json:"epoch_authenticator"`
-	ExternalSecret          ksHex `json:"external_secret"`
-	ConfirmationKey         ksHex `json:"confirmation_key"`
-	MembershipKey           ksHex `json:"membership_key"`
-	ResumptionPsk           ksHex `json:"resumption_psk"`
-	ExternalPub             ksHex `json:"external_pub"`
+	TreeHash                string `json:"tree_hash"`
+	CommitSecret            string `json:"commit_secret"`
+	PskSecret               string `json:"psk_secret"`
+	ConfirmedTranscriptHash string `json:"confirmed_transcript_hash"`
+	GroupContext            string `json:"group_context"`
+	JoinerSecret            string `json:"joiner_secret"`
+	WelcomeSecret           string `json:"welcome_secret"`
+	InitSecret              string `json:"init_secret"`
+	SenderDataSecret        string `json:"sender_data_secret"`
+	EncryptionSecret        string `json:"encryption_secret"`
+	ExporterSecret          string `json:"exporter_secret"`
+	EpochAuthenticator      string `json:"epoch_authenticator"`
+	ExternalSecret          string `json:"external_secret"`
+	ConfirmationKey         string `json:"confirmation_key"`
+	MembershipKey           string `json:"membership_key"`
+	ResumptionPsk           string `json:"resumption_psk"`
+	ExternalPub             string `json:"external_pub"`
 	Exporter                struct {
+		// label is a string in the mlswg format while every sibling field is hex.
+		// It is NOT hex-decoded; see Task 8.
 		Label   string `json:"label"`
-		Context ksHex  `json:"context"`
+		Context string `json:"context"`
 		Length  int    `json:"length"`
-		Secret  ksHex  `json:"secret"`
+		Secret  string `json:"secret"`
 	} `json:"exporter"`
 }
 
-// TestVectorKeySchedule is vector family 5. The chain is carried forward with OUR
-// init_secret rather than re-seeded from the vector at each epoch, so a divergence
-// surfaces at the epoch that caused it instead of being masked by the next reseed.
+func init() {
+	RegisterVectorFamily(VectorFamily{
+		Number:   5,
+		Name:     "key-schedule",
+		File:     "key-schedule.json",
+		Slice:    "A2",
+		Verify:   verifyKeyScheduleVector,
+		Generate: generateKeyScheduleVector,
+	})
+}
+
+// verifyKeyScheduleVector checks one entry of key-schedule.json. The chain is carried
+// forward with OUR init_secret rather than re-seeded from the vector at each epoch, so
+// a divergence surfaces at the epoch that caused it instead of being masked by the
+// next reseed.
+func verifyKeyScheduleVector(t *testing.T, raw json.RawMessage) {
+	t.Helper()
+	var vector keyScheduleVector
+	if err := json.Unmarshal(raw, &vector); err != nil {
+		t.Fatalf("parse key-schedule entry: %v", err)
+	}
+	suite, ok := implementedSuite(vector.CipherSuite)
+	if !ok {
+		return
+	}
+	crypto, err := NewCryptoProvider(suite)
+	if err != nil {
+		t.Fatalf("NewCryptoProvider(%#x): %v", suite, err)
+	}
+
+	initSecret := MustHex(t, vector.InitialInitSecret)
+	for n, epoch := range vector.Epochs {
+		groupContext := &GroupContext{
+			Version:                 ProtocolVersionMls10,
+			CipherSuite:             suite,
+			GroupId:                 MustHex(t, vector.GroupId),
+			Epoch:                   uint64(n),
+			TreeHash:                MustHex(t, epoch.TreeHash),
+			ConfirmedTranscriptHash: MustHex(t, epoch.ConfirmedTranscriptHash),
+			Extensions:              nil,
+		}
+		encoded, err := syntax.Marshal(groupContext)
+		if err != nil {
+			t.Fatalf("epoch %d: syntax.Marshal: %v", n, err)
+		}
+		if !bytes.Equal(encoded, MustHex(t, epoch.GroupContext)) {
+			t.Fatalf("epoch %d: group_context = %s, want %s", n, HexOf(encoded), epoch.GroupContext)
+		}
+
+		schedule, err := NewKeySchedule(
+			crypto, initSecret, MustHex(t, epoch.CommitSecret), MustHex(t, epoch.PskSecret), groupContext)
+		if err != nil {
+			t.Fatalf("epoch %d: NewKeySchedule: %v", n, err)
+		}
+		secrets := schedule.Secrets()
+		for _, check := range []struct {
+			name string
+			got  []byte
+			want string
+		}{
+			{"joiner_secret", schedule.JoinerSecret(), epoch.JoinerSecret},
+			{"welcome_secret", schedule.WelcomeSecret(), epoch.WelcomeSecret},
+			{"sender_data_secret", secrets.SenderData, epoch.SenderDataSecret},
+			{"encryption_secret", secrets.Encryption, epoch.EncryptionSecret},
+			{"exporter_secret", secrets.Exporter, epoch.ExporterSecret},
+			{"external_secret", secrets.External, epoch.ExternalSecret},
+			{"confirmation_key", secrets.Confirmation, epoch.ConfirmationKey},
+			{"membership_key", secrets.Membership, epoch.MembershipKey},
+			{"resumption_psk", secrets.ResumptionPsk, epoch.ResumptionPsk},
+			{"epoch_authenticator", secrets.EpochAuthenticator, epoch.EpochAuthenticator},
+			{"init_secret", secrets.InitSecret, epoch.InitSecret},
+		} {
+			if !bytes.Equal(check.got, MustHex(t, check.want)) {
+				t.Fatalf("epoch %d: %s = %s, want %s", n, check.name, HexOf(check.got), check.want)
+			}
+		}
+
+		// HpkePublicKey is a []byte, so external_pub compares directly.
+		_, externalPub, err := schedule.ExternalKeyPair()
+		if err != nil {
+			t.Fatalf("epoch %d: ExternalKeyPair: %v", n, err)
+		}
+		if !bytes.Equal(externalPub, MustHex(t, epoch.ExternalPub)) {
+			t.Fatalf("epoch %d: external_pub = %s, want %s", n, HexOf(externalPub), epoch.ExternalPub)
+		}
+
+		exported, err := schedule.Export(
+			epoch.Exporter.Label, MustHex(t, epoch.Exporter.Context), epoch.Exporter.Length)
+		if err != nil {
+			t.Fatalf("epoch %d: Export: %v", n, err)
+		}
+		if !bytes.Equal(exported, MustHex(t, epoch.Exporter.Secret)) {
+			t.Fatalf("epoch %d: exporter = %s, want %s", n, HexOf(exported), epoch.Exporter.Secret)
+		}
+
+		// carry our own init_secret forward, not the vector's
+		initSecret = append([]byte(nil), secrets.InitSecret...)
+	}
+}
+
+// TestVectorKeySchedule is vector family 5.
 func TestVectorKeySchedule(t *testing.T) {
-	var vectors []keyScheduleVector
-	ksLoadVectors(t, "key-schedule.json", &vectors)
-	if len(vectors) == 0 {
+	entries := LoadVectorFile(t, "key-schedule.json")
+	if len(entries) == 0 {
 		t.Fatal("key-schedule.json is empty")
 	}
 
 	ran, skipped, epochs := 0, 0, 0
 	suitesSeen := map[CipherSuite]int{}
-	for i, vector := range vectors {
-		suite, ok := ksImplementedSuite(vector.CipherSuite)
+	for i, raw := range entries {
+		var vector keyScheduleVector
+		if err := json.Unmarshal(raw, &vector); err != nil {
+			t.Fatalf("vector %d: %v", i, err)
+		}
+		suite, ok := implementedSuite(vector.CipherSuite)
 		if !ok {
 			skipped++
 			continue
 		}
-		crypto, err := NewCryptoProvider(suite)
-		if err != nil {
-			t.Fatalf("vector %d: NewCryptoProvider(%#x): %v", i, suite, err)
-		}
-
-		initSecret := []byte(vector.InitialInitSecret)
-		for n, epoch := range vector.Epochs {
-			groupContext := &GroupContext{
-				Version:                 ProtocolVersionMls10,
-				CipherSuite:             suite,
-				GroupId:                 vector.GroupId,
-				Epoch:                   uint64(n),
-				TreeHash:                epoch.TreeHash,
-				ConfirmedTranscriptHash: epoch.ConfirmedTranscriptHash,
-				Extensions:              nil,
-			}
-			encoded, err := groupContext.Marshal()
-			if err != nil {
-				t.Fatalf("vector %d epoch %d: Marshal: %v", i, n, err)
-			}
-			if !bytes.Equal(encoded, epoch.GroupContext) {
-				t.Fatalf("vector %d epoch %d: group_context = %x, want %x", i, n, encoded, []byte(epoch.GroupContext))
-			}
-
-			schedule, err := NewKeySchedule(crypto, initSecret, epoch.CommitSecret, epoch.PskSecret, groupContext)
-			if err != nil {
-				t.Fatalf("vector %d epoch %d: NewKeySchedule: %v", i, n, err)
-			}
-			secrets := schedule.Secrets()
-			for _, check := range []struct {
-				name string
-				got  []byte
-				want []byte
-			}{
-				{"joiner_secret", schedule.JoinerSecret(), epoch.JoinerSecret},
-				{"welcome_secret", schedule.WelcomeSecret(), epoch.WelcomeSecret},
-				{"sender_data_secret", secrets.SenderData, epoch.SenderDataSecret},
-				{"encryption_secret", secrets.Encryption, epoch.EncryptionSecret},
-				{"exporter_secret", secrets.Exporter, epoch.ExporterSecret},
-				{"external_secret", secrets.External, epoch.ExternalSecret},
-				{"confirmation_key", secrets.Confirmation, epoch.ConfirmationKey},
-				{"membership_key", secrets.Membership, epoch.MembershipKey},
-				{"resumption_psk", secrets.ResumptionPsk, epoch.ResumptionPsk},
-				{"epoch_authenticator", secrets.EpochAuthenticator, epoch.EpochAuthenticator},
-				{"init_secret", secrets.InitSecret, epoch.InitSecret},
-			} {
-				if !bytes.Equal(check.got, check.want) {
-					t.Fatalf("vector %d epoch %d: %s = %x, want %x", i, n, check.name, check.got, check.want)
-				}
-			}
-
-			_, externalPub, err := schedule.ExternalKeyPair()
-			if err != nil {
-				t.Fatalf("vector %d epoch %d: ExternalKeyPair: %v", i, n, err)
-			}
-			if !bytes.Equal(externalPub.Bytes(), epoch.ExternalPub) {
-				t.Fatalf("vector %d epoch %d: external_pub = %x, want %x", i, n, externalPub.Bytes(), []byte(epoch.ExternalPub))
-			}
-
-			exported, err := schedule.Export(epoch.Exporter.Label, epoch.Exporter.Context, epoch.Exporter.Length)
-			if err != nil {
-				t.Fatalf("vector %d epoch %d: Export: %v", i, n, err)
-			}
-			if !bytes.Equal(exported, epoch.Exporter.Secret) {
-				t.Fatalf("vector %d epoch %d: exporter = %x, want %x", i, n, exported, []byte(epoch.Exporter.Secret))
-			}
-
-			// carry our own init_secret forward, not the vector's
-			initSecret = append([]byte(nil), secrets.InitSecret...)
-			epochs++
-		}
+		verifyKeyScheduleVector(t, raw)
 		ran++
+		epochs += len(vector.Epochs)
 		suitesSeen[suite]++
 	}
 
 	if ran == 0 {
 		t.Fatalf("ran no key-schedule vectors (%d skipped)", skipped)
 	}
-	if suitesSeen[CipherSuiteX25519AES128SHA256Ed25519] == 0 {
+	if suitesSeen[CipherSuiteX25519AesGcm128Sha256Ed25519] == 0 {
 		t.Fatal("no key-schedule vector ran at ciphersuite 0x0001")
 	}
-	if suitesSeen[CipherSuiteX25519ChaCha20SHA256Ed25519] == 0 {
+	if suitesSeen[CipherSuiteX25519ChaCha20Sha256Ed25519] == 0 {
 		t.Fatal("no key-schedule vector ran at ciphersuite 0x0003")
 	}
 	t.Logf("key-schedule: ran %d vectors covering %d epochs, skipped %d unimplemented suites", ran, epochs, skipped)
 }
 ```
+
+Add `"github.com/urnetwork/connect/mls/syntax"` to the `key_schedule_kat_test.go` import block.
+`generateKeyScheduleVector` lands in Task 18; write the two tasks as one commit, or register
+`Generate: nil` here and change it there.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -3315,16 +3961,18 @@ is the unit-level version of the same assertion.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./connect/mls/... -run TestVectorKeySchedule -v`
+Run: `go test ./connect/mls/... -run 'TestVectorKeySchedule|TestVectorFamilies' -v`
 Expected: PASS, with a log line reporting 2 vectors covering 10 epochs and 5 skipped suites.
 
 - [ ] **Step 5: Commit**
 
+Delete `5` from p8's `expectedPendingFamilies` in the same commit.
+
 ```bash
 git ls-files | wc -l
-git add connect/mls/key_schedule_vectors_test.go
+git add connect/mls/key_schedule_kat_test.go connect/mls/vectors_test.go
 git ls-files | wc -l
-git commit -m "test(mls): key-schedule vector family, chained on our own init_secret"
+git commit -m "test(mls): key-schedule vector family, registered, chained on our own init_secret"
 ```
 
 ---
@@ -3332,12 +3980,14 @@ git commit -m "test(mls): key-schedule vector family, chained on our own init_se
 ### Task 18: The generate direction, verified through an independent KDFLabel encoder
 
 **Files:**
-- Modify: `connect/mls/key_schedule_vectors_test.go`
+- Modify: `connect/mls/key_schedule_kat_test.go`
 
 **Interfaces:**
-- Consumes: `CryptoProvider.Expand`, `CryptoProvider.Extract`, `CryptoProvider.Random`,
-  `NewKeySchedule`.
-- Produces: nothing. Satisfies Spec A section 4.2.1's "both directions" requirement for family 5.
+- Consumes: `CryptoProvider.Expand(prk []byte, info []byte, length int) []byte`,
+  `CryptoProvider.Extract(salt []byte, ikm []byte) []byte`, `CryptoProvider.Random(n int) []byte`,
+  `syntax.Marshal`, `HexOf`, `MustHex`, `NewKeySchedule`.
+- Produces: `func generateKeyScheduleVector(t *testing.T) json.RawMessage`, the `Generate` half of
+  the family 5 registration. Satisfies Spec A section 4.2.1's "both directions" requirement.
 
   The independent path is a second KDFLabel encoder written in the test file with
   `encoding/binary` and a hand-written MLS varint, so a bug where `ExpandWithLabel` and the vector
@@ -3347,7 +3997,7 @@ git commit -m "test(mls): key-schedule vector family, chained on our own init_se
 - [ ] **Step 1: Write the failing test**
 
 ```go
-// append to key_schedule_vectors_test.go
+// append to key_schedule_kat_test.go
 
 // ksIndependentVarint writes the MLS variable-length prefix by hand. Deliberately
 // not the syntax package: this is the second implementation.
@@ -3385,95 +4035,128 @@ func ksIndependentDeriveSecret(t *testing.T, crypto CryptoProvider, secret []byt
 	return ksIndependentExpandWithLabel(t, crypto, secret, label, nil, crypto.HashSize())
 }
 
-// TestVectorKeyScheduleGenerate is the generate direction of family 5: build a fresh
-// epoch from random inputs, serialize it in the mlswg format, read it back, and verify
-// it through a second KDFLabel encoder. If our ExpandWithLabel encodes the label
-// wrongly, the two paths disagree here even though the vendored vector passes.
-func TestVectorKeyScheduleGenerate(t *testing.T) {
+// generateKeyScheduleVector is the Generate half of family 5: build fresh epochs from
+// random inputs at both implemented suites and emit them in the mlswg format. It is
+// registered on the family so p8's generate pass and this test drive one code path.
+func generateKeyScheduleVector(t *testing.T) json.RawMessage {
+	t.Helper()
+	vectors := []keyScheduleVector{}
 	for _, suite := range []CipherSuite{
-		CipherSuiteX25519AES128SHA256Ed25519,
-		CipherSuiteX25519ChaCha20SHA256Ed25519,
+		CipherSuiteX25519AesGcm128Sha256Ed25519,
+		CipherSuiteX25519ChaCha20Sha256Ed25519,
 	} {
 		crypto, err := NewCryptoProvider(suite)
 		if err != nil {
 			t.Fatalf("NewCryptoProvider(%#x): %v", suite, err)
 		}
 		nh := crypto.HashSize()
+		groupId := crypto.Random(16)
+		initSecret := crypto.Random(nh)
 		vector := keyScheduleVector{
 			CipherSuite:       uint16(suite),
-			GroupId:           crypto.Random(16),
-			InitialInitSecret: crypto.Random(nh),
+			GroupId:           HexOf(groupId),
+			InitialInitSecret: HexOf(initSecret),
 		}
-		initSecret := []byte(vector.InitialInitSecret)
 		for n := 0; n < 3; n++ {
-			epoch := keyScheduleEpoch{
-				TreeHash:                crypto.Random(nh),
-				CommitSecret:            crypto.Random(nh),
-				PskSecret:               crypto.Random(nh),
-				ConfirmedTranscriptHash: crypto.Random(nh),
-			}
+			treeHash := crypto.Random(nh)
+			commitSecret := crypto.Random(nh)
+			pskSecret := crypto.Random(nh)
+			confirmedTranscriptHash := crypto.Random(nh)
 			groupContext := &GroupContext{
 				Version:                 ProtocolVersionMls10,
 				CipherSuite:             suite,
-				GroupId:                 vector.GroupId,
+				GroupId:                 groupId,
 				Epoch:                   uint64(n),
-				TreeHash:                epoch.TreeHash,
-				ConfirmedTranscriptHash: epoch.ConfirmedTranscriptHash,
+				TreeHash:                treeHash,
+				ConfirmedTranscriptHash: confirmedTranscriptHash,
 			}
-			encoded, err := groupContext.Marshal()
+			encoded, err := syntax.Marshal(groupContext)
 			if err != nil {
-				t.Fatalf("Marshal: %v", err)
+				t.Fatalf("syntax.Marshal: %v", err)
 			}
-			schedule, err := NewKeySchedule(crypto, initSecret, epoch.CommitSecret, epoch.PskSecret, groupContext)
+			schedule, err := NewKeySchedule(crypto, initSecret, commitSecret, pskSecret, groupContext)
 			if err != nil {
 				t.Fatalf("NewKeySchedule: %v", err)
 			}
 			secrets := schedule.Secrets()
-			epoch.GroupContext = encoded
-			epoch.JoinerSecret = schedule.JoinerSecret()
-			epoch.WelcomeSecret = schedule.WelcomeSecret()
-			epoch.SenderDataSecret = secrets.SenderData
-			epoch.EncryptionSecret = secrets.Encryption
-			epoch.ExporterSecret = secrets.Exporter
-			epoch.ExternalSecret = secrets.External
-			epoch.ConfirmationKey = secrets.Confirmation
-			epoch.MembershipKey = secrets.Membership
-			epoch.ResumptionPsk = secrets.ResumptionPsk
-			epoch.EpochAuthenticator = secrets.EpochAuthenticator
-			epoch.InitSecret = secrets.InitSecret
+			epoch := keyScheduleEpoch{
+				TreeHash:                HexOf(treeHash),
+				CommitSecret:            HexOf(commitSecret),
+				PskSecret:               HexOf(pskSecret),
+				ConfirmedTranscriptHash: HexOf(confirmedTranscriptHash),
+				GroupContext:            HexOf(encoded),
+				JoinerSecret:            HexOf(schedule.JoinerSecret()),
+				WelcomeSecret:           HexOf(schedule.WelcomeSecret()),
+				SenderDataSecret:        HexOf(secrets.SenderData),
+				EncryptionSecret:        HexOf(secrets.Encryption),
+				ExporterSecret:          HexOf(secrets.Exporter),
+				ExternalSecret:          HexOf(secrets.External),
+				ConfirmationKey:         HexOf(secrets.Confirmation),
+				MembershipKey:           HexOf(secrets.Membership),
+				ResumptionPsk:           HexOf(secrets.ResumptionPsk),
+				EpochAuthenticator:      HexOf(secrets.EpochAuthenticator),
+				InitSecret:              HexOf(secrets.InitSecret),
+			}
 			vector.Epochs = append(vector.Epochs, epoch)
 			initSecret = append([]byte(nil), secrets.InitSecret...)
 		}
+		vectors = append(vectors, vector)
+	}
+	serialized, err := json.Marshal(vectors)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	return json.RawMessage(serialized)
+}
 
-		serialized, err := json.Marshal([]keyScheduleVector{vector})
+// TestVectorKeyScheduleGenerate is the generate direction of family 5: build a fresh
+// epoch from random inputs, serialize it in the mlswg format, read it back, and verify
+// it through a second KDFLabel encoder. If our ExpandWithLabel encodes the label
+// wrongly, the two paths disagree here even though the vendored vector passes.
+func TestVectorKeyScheduleGenerate(t *testing.T) {
+	serialized := generateKeyScheduleVector(t)
+	var readBack []keyScheduleVector
+	if err := json.Unmarshal(serialized, &readBack); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if len(readBack) != 2 {
+		t.Fatalf("generated %d suites, want 2", len(readBack))
+	}
+
+	for _, vector := range readBack {
+		suite, ok := implementedSuite(vector.CipherSuite)
+		if !ok {
+			t.Fatalf("generated a vector at unimplemented suite %#x", vector.CipherSuite)
+		}
+		crypto, err := NewCryptoProvider(suite)
 		if err != nil {
-			t.Fatalf("json.Marshal: %v", err)
+			t.Fatalf("NewCryptoProvider(%#x): %v", suite, err)
 		}
-		var readBack []keyScheduleVector
-		if err := json.Unmarshal(serialized, &readBack); err != nil {
-			t.Fatalf("json.Unmarshal: %v", err)
-		}
-		if len(readBack) != 1 || len(readBack[0].Epochs) != 3 {
-			t.Fatalf("round trip lost epochs: %d", len(readBack))
+		nh := crypto.HashSize()
+		if len(vector.Epochs) != 3 {
+			t.Fatalf("suite %#x: round trip lost epochs: %d", suite, len(vector.Epochs))
 		}
 
 		// verify through the independent encoder
-		independentInit := []byte(readBack[0].InitialInitSecret)
-		for n, epoch := range readBack[0].Epochs {
-			prk := crypto.Extract(independentInit, epoch.CommitSecret)
-			joiner := ksIndependentExpandWithLabel(t, crypto, prk, "joiner", epoch.GroupContext, nh)
-			if !bytes.Equal(joiner, epoch.JoinerSecret) {
-				t.Fatalf("suite %#x epoch %d: independent joiner_secret = %x, want %x", suite, n, joiner, []byte(epoch.JoinerSecret))
+		independentInit := MustHex(t, vector.InitialInitSecret)
+		for n, epoch := range vector.Epochs {
+			groupContext := MustHex(t, epoch.GroupContext)
+			prk := crypto.Extract(independentInit, MustHex(t, epoch.CommitSecret))
+			joiner := ksIndependentExpandWithLabel(t, crypto, prk, "joiner", groupContext, nh)
+			if !bytes.Equal(joiner, MustHex(t, epoch.JoinerSecret)) {
+				t.Fatalf("suite %#x epoch %d: independent joiner_secret = %s, want %s",
+					suite, n, HexOf(joiner), epoch.JoinerSecret)
 			}
-			member := crypto.Extract(joiner, epoch.PskSecret)
+			member := crypto.Extract(joiner, MustHex(t, epoch.PskSecret))
 			welcome := ksIndependentDeriveSecret(t, crypto, member, "welcome")
-			if !bytes.Equal(welcome, epoch.WelcomeSecret) {
-				t.Fatalf("suite %#x epoch %d: independent welcome_secret = %x, want %x", suite, n, welcome, []byte(epoch.WelcomeSecret))
+			if !bytes.Equal(welcome, MustHex(t, epoch.WelcomeSecret)) {
+				t.Fatalf("suite %#x epoch %d: independent welcome_secret = %s, want %s",
+					suite, n, HexOf(welcome), epoch.WelcomeSecret)
 			}
-			epochSecret := ksIndependentExpandWithLabel(t, crypto, member, "epoch", epoch.GroupContext, nh)
+			epochSecret := ksIndependentExpandWithLabel(t, crypto, member, "epoch", groupContext, nh)
 			for _, check := range []struct {
 				label string
-				want  []byte
+				want  string
 			}{
 				{"sender data", epoch.SenderDataSecret},
 				{"encryption", epoch.EncryptionSecret},
@@ -3486,25 +4169,27 @@ func TestVectorKeyScheduleGenerate(t *testing.T) {
 				{"init", epoch.InitSecret},
 			} {
 				got := ksIndependentDeriveSecret(t, crypto, epochSecret, check.label)
-				if !bytes.Equal(got, check.want) {
-					t.Fatalf("suite %#x epoch %d: independent %q = %x, want %x", suite, n, check.label, got, check.want)
+				if !bytes.Equal(got, MustHex(t, check.want)) {
+					t.Fatalf("suite %#x epoch %d: independent %q = %s, want %s",
+						suite, n, check.label, HexOf(got), check.want)
 				}
 			}
-			independentInit = append([]byte(nil), epoch.InitSecret...)
+			independentInit = MustHex(t, epoch.InitSecret)
 		}
+	}
 
-		if out := os.Getenv("URMESSAGE_MLS_VECTOR_OUT"); out != "" {
-			path := filepath.Join(out, fmt.Sprintf("key-schedule-generated-%04x.json", uint16(suite)))
-			if err := os.WriteFile(path, serialized, 0o644); err != nil {
-				t.Fatalf("write %s: %v", path, err)
-			}
-			t.Logf("wrote %s for the OpenMLS cross-check job", path)
+	if out := os.Getenv("URMESSAGE_MLS_VECTOR_OUT"); out != "" {
+		path := filepath.Join(out, "key-schedule-generated.json")
+		if err := os.WriteFile(path, serialized, 0o644); err != nil {
+			t.Fatalf("write %s: %v", path, err)
 		}
+		t.Logf("wrote %s for the OpenMLS cross-check job", path)
 	}
 }
 ```
 
-Add `"encoding/binary"` and `"fmt"` to the `key_schedule_vectors_test.go` import block.
+Add `"encoding/binary"`, `"os"` and `"path/filepath"` to the `key_schedule_kat_test.go` import
+block.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -3527,7 +4212,7 @@ Expected: PASS
 
 ```bash
 git ls-files | wc -l
-git add connect/mls/key_schedule_vectors_test.go
+git add connect/mls/key_schedule_kat_test.go
 git ls-files | wc -l
 git commit -m "test(mls): key-schedule generate direction with a second KDFLabel encoder"
 ```
@@ -3541,8 +4226,9 @@ git commit -m "test(mls): key-schedule generate direction with a second KDFLabel
 - Test: `connect/mls/transcript_test.go`
 
 **Interfaces:**
-- Consumes: `CryptoProvider.Hash`, `CryptoProvider.HashSize`, `syntax.NewWriter`,
-  `(*syntax.Writer).WriteOpaque`, `(*syntax.Writer).Bytes`.
+- Consumes: `CryptoProvider.Hash(data []byte) []byte`, `CryptoProvider.HashSize() int`,
+  `syntax.NewWriter() *syntax.Writer`, `(*syntax.Writer).WriteOpaque(bs []byte)` — which returns
+  nothing under **C2** — and `(*syntax.Writer).Bytes() ([]byte, error)`.
 - Produces:
   ```go
   type TranscriptHashes struct {
@@ -3557,11 +4243,15 @@ git commit -m "test(mls): key-schedule generate direction with a second KDFLabel
   func InterimTranscriptHash(crypto CryptoProvider, confirmedAfter []byte, confirmationTag []byte) ([]byte, error)
   ```
 
-  **Boundary note for the Framing plan:** `confirmedTranscriptHashInput` is the serialized
+  **Boundary note for p6 and p7.** `confirmedTranscriptHashInput` is the serialized
   `ConfirmedTranscriptHashInput { WireFormat wire_format; FramedContent content; opaque signature<V>; }`.
-  This package deliberately takes it as bytes so no framing type crosses the boundary and the
-  transcript arithmetic can be audited on its own. Framing produces those bytes; group lifecycle
-  passes the confirmation tag it computed from `KeySchedule.ConfirmationTag`.
+  These functions take it as bytes deliberately, so no framing type crosses into `transcript.go` and
+  the transcript arithmetic can be audited on its own. p7 bridges with
+  `ConfirmedTranscriptHash(crypto, interimBefore, authContent.ConfirmedTranscriptHashInput())` —
+  p6's accessor, registry §7.2 — and passes the confirmation tag it computed from
+  `(*KeySchedule).ConfirmationTag`. These four functions are **this plan's, not p6's**: p7's draft
+  attributed them to the framing plan and passed an `*AuthenticatedContent`; the registry puts them
+  here, at the byte-taking signatures above.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -3579,7 +4269,7 @@ import (
 // trTestCrypto returns the ciphersuite 0x0003 provider.
 func trTestCrypto(t *testing.T) CryptoProvider {
 	t.Helper()
-	crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+	crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
 	if err != nil {
 		t.Fatalf("NewCryptoProvider: %v", err)
 	}
@@ -3783,9 +4473,7 @@ func ConfirmedTranscriptHash(crypto CryptoProvider, interimBefore []byte, confir
 // MAC is an opaque<V>. The length prefix is not optional.
 func InterimTranscriptHash(crypto CryptoProvider, confirmedAfter []byte, confirmationTag []byte) ([]byte, error) {
 	w := syntax.NewWriter()
-	if err := w.WriteOpaque(confirmationTag); err != nil {
-		return nil, err
-	}
+	w.WriteOpaque(confirmationTag)
 	input, err := w.Bytes()
 	if err != nil {
 		return nil, err
@@ -3850,12 +4538,13 @@ git commit -m "feat(mls): confirmed and interim transcript hash chaining"
 ### Task 20: The transcript-hashes vector runner
 
 **Files:**
-- Create: `connect/mls/transcript_vectors_test.go`
+- Create: `connect/mls/transcript_kat_test.go`
 
 **Interfaces:**
-- Consumes: `ConfirmedTranscriptHash`, `InterimTranscriptHash` (Task 19), `ksHex`, `ksLoadVectors`,
-  `ksImplementedSuite` (Task 16), `CryptoProvider.MacVerify`.
-- Produces: nothing. Closes gate `transcript-hashes`.
+- Consumes: `ConfirmedTranscriptHash`, `InterimTranscriptHash` (Task 19), `LoadVectorFile`,
+  `MustHex`, `HexOf`, `RegisterVectorFamily`, `implementedSuite` (Task 16),
+  `CryptoProvider.MacVerify(key []byte, data []byte, tag []byte) bool`.
+- Produces: nothing at runtime. Registers family 7 and closes gate `transcript-hashes`.
 
   The vector supplies a serialized `AuthenticatedContent`. For a commit that is
   `wire_format || FramedContent || signature || confirmation_tag`, so
@@ -3863,29 +4552,42 @@ git commit -m "feat(mls): confirmed and interim transcript hash chaining"
   `opaque<V>` MAC. The split is taken at `len(ac) - (1 + KDF.Nh)` and then **checked**: the recovered
   tag must verify as `MAC(confirmation_key, confirmed_transcript_hash_after)`, which is the vector's
   own stated verification step. A wrong split fails that MAC, so the split is self-validating rather
-  than assumed. When the Framing plan lands `ParseAuthenticatedContent`, this helper is replaced by a
-  call to it and the MAC check stays.
+  than assumed. When p6 lands `(*AuthenticatedContent).UnmarshalMLS`, this helper is replaced by
+  `syntax.Unmarshal(raw, &authContent)` plus `authContent.ConfirmedTranscriptHashInput()` — both
+  registry §7.2 — and the MAC check stays.
 
 - [ ] **Step 1: Write the failing test**
 
 ```go
-// transcript_vectors_test.go
+// transcript_kat_test.go
 // runner for the mlswg transcript-hashes vector family.
 package mls
 
 import (
 	"bytes"
+	"encoding/json"
 	"testing"
 )
 
 // transcriptHashVector is one entry of transcript-hashes.json.
 type transcriptHashVector struct {
 	CipherSuite                  uint16 `json:"cipher_suite"`
-	ConfirmationKey              ksHex  `json:"confirmation_key"`
-	AuthenticatedContent         ksHex  `json:"authenticated_content"`
-	InterimTranscriptHashBefore  ksHex  `json:"interim_transcript_hash_before"`
-	ConfirmedTranscriptHashAfter ksHex  `json:"confirmed_transcript_hash_after"`
-	InterimTranscriptHashAfter   ksHex  `json:"interim_transcript_hash_after"`
+	ConfirmationKey              string `json:"confirmation_key"`
+	AuthenticatedContent         string `json:"authenticated_content"`
+	InterimTranscriptHashBefore  string `json:"interim_transcript_hash_before"`
+	ConfirmedTranscriptHashAfter string `json:"confirmed_transcript_hash_after"`
+	InterimTranscriptHashAfter   string `json:"interim_transcript_hash_after"`
+}
+
+func init() {
+	RegisterVectorFamily(VectorFamily{
+		Number:   7,
+		Name:     "transcript-hashes",
+		File:     "transcript-hashes.json",
+		Slice:    "A2",
+		Verify:   verifyTranscriptHashVector,
+		Generate: nil, // this family has no generate direction in the mlswg format
+	})
 }
 
 // trSplitCommitAuthenticatedContent splits a serialized AuthenticatedContent carrying
@@ -3913,61 +4615,86 @@ func trSplitCommitAuthenticatedContent(t *testing.T, crypto CryptoProvider, auth
 	return authenticatedContent[:split], authenticatedContent[split+1:]
 }
 
+// verifyTranscriptHashVector checks one entry of transcript-hashes.json, both through
+// the two free functions and through the stateful API the group actually uses.
+func verifyTranscriptHashVector(t *testing.T, raw json.RawMessage) {
+	t.Helper()
+	var vector transcriptHashVector
+	if err := json.Unmarshal(raw, &vector); err != nil {
+		t.Fatalf("parse transcript-hashes entry: %v", err)
+	}
+	suite, ok := implementedSuite(vector.CipherSuite)
+	if !ok {
+		return
+	}
+	crypto, err := NewCryptoProvider(suite)
+	if err != nil {
+		t.Fatalf("NewCryptoProvider(%#x): %v", suite, err)
+	}
+
+	confirmationKey := MustHex(t, vector.ConfirmationKey)
+	interimBefore := MustHex(t, vector.InterimTranscriptHashBefore)
+	confirmedAfter := MustHex(t, vector.ConfirmedTranscriptHashAfter)
+	interimAfter := MustHex(t, vector.InterimTranscriptHashAfter)
+
+	confirmedInput, confirmationTag := trSplitCommitAuthenticatedContent(
+		t, crypto, MustHex(t, vector.AuthenticatedContent))
+
+	// the vector's own verification step, and the check that makes the split honest
+	if !crypto.MacVerify(confirmationKey, confirmedAfter, confirmationTag) {
+		t.Fatal("the recovered confirmation tag does not verify against confirmed_transcript_hash_after")
+	}
+
+	confirmed := ConfirmedTranscriptHash(crypto, interimBefore, confirmedInput)
+	if !bytes.Equal(confirmed, confirmedAfter) {
+		t.Fatalf("confirmed_transcript_hash_after = %s, want %s", HexOf(confirmed), vector.ConfirmedTranscriptHashAfter)
+	}
+	interim, err := InterimTranscriptHash(crypto, confirmed, confirmationTag)
+	if err != nil {
+		t.Fatalf("InterimTranscriptHash: %v", err)
+	}
+	if !bytes.Equal(interim, interimAfter) {
+		t.Fatalf("interim_transcript_hash_after = %s, want %s", HexOf(interim), vector.InterimTranscriptHashAfter)
+	}
+
+	// the same result through the stateful API the group uses
+	hashes := &TranscriptHashes{
+		Confirmed: nil,
+		Interim:   interimBefore,
+	}
+	if err := hashes.Update(crypto, confirmedInput, confirmationTag); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if !bytes.Equal(hashes.Confirmed, confirmedAfter) {
+		t.Fatal("Update produced a different confirmed hash")
+	}
+	if !bytes.Equal(hashes.Interim, interimAfter) {
+		t.Fatal("Update produced a different interim hash")
+	}
+}
+
 // TestVectorTranscriptHashes is vector family 7.
 func TestVectorTranscriptHashes(t *testing.T) {
-	var vectors []transcriptHashVector
-	ksLoadVectors(t, "transcript-hashes.json", &vectors)
-	if len(vectors) == 0 {
+	entries := LoadVectorFile(t, "transcript-hashes.json")
+	if len(entries) == 0 {
 		t.Fatal("transcript-hashes.json is empty")
 	}
 
 	ran, skipped := 0, 0
 	suitesSeen := map[CipherSuite]int{}
-	for i, vector := range vectors {
-		suite, ok := ksImplementedSuite(vector.CipherSuite)
+	for i, raw := range entries {
+		var header struct {
+			CipherSuite uint16 `json:"cipher_suite"`
+		}
+		if err := json.Unmarshal(raw, &header); err != nil {
+			t.Fatalf("vector %d: %v", i, err)
+		}
+		suite, ok := implementedSuite(header.CipherSuite)
 		if !ok {
 			skipped++
 			continue
 		}
-		crypto, err := NewCryptoProvider(suite)
-		if err != nil {
-			t.Fatalf("vector %d: NewCryptoProvider(%#x): %v", i, suite, err)
-		}
-
-		confirmedInput, confirmationTag := trSplitCommitAuthenticatedContent(t, crypto, vector.AuthenticatedContent)
-
-		// the vector's own verification step, and the check that makes the split honest
-		if !crypto.MacVerify(vector.ConfirmationKey, vector.ConfirmedTranscriptHashAfter, confirmationTag) {
-			t.Fatalf("vector %d: the recovered confirmation tag does not verify against confirmed_transcript_hash_after", i)
-		}
-
-		confirmed := ConfirmedTranscriptHash(crypto, vector.InterimTranscriptHashBefore, confirmedInput)
-		if !bytes.Equal(confirmed, vector.ConfirmedTranscriptHashAfter) {
-			t.Fatalf("vector %d: confirmed_transcript_hash_after = %x, want %x", i, confirmed, []byte(vector.ConfirmedTranscriptHashAfter))
-		}
-		interim, err := InterimTranscriptHash(crypto, confirmed, confirmationTag)
-		if err != nil {
-			t.Fatalf("vector %d: InterimTranscriptHash: %v", i, err)
-		}
-		if !bytes.Equal(interim, vector.InterimTranscriptHashAfter) {
-			t.Fatalf("vector %d: interim_transcript_hash_after = %x, want %x", i, interim, []byte(vector.InterimTranscriptHashAfter))
-		}
-
-		// the same result through the stateful API the group uses
-		hashes := &TranscriptHashes{
-			Confirmed: nil,
-			Interim:   vector.InterimTranscriptHashBefore,
-		}
-		if err := hashes.Update(crypto, confirmedInput, confirmationTag); err != nil {
-			t.Fatalf("vector %d: Update: %v", i, err)
-		}
-		if !bytes.Equal(hashes.Confirmed, vector.ConfirmedTranscriptHashAfter) {
-			t.Fatalf("vector %d: Update produced a different confirmed hash", i)
-		}
-		if !bytes.Equal(hashes.Interim, vector.InterimTranscriptHashAfter) {
-			t.Fatalf("vector %d: Update produced a different interim hash", i)
-		}
-
+		verifyTranscriptHashVector(t, raw)
 		ran++
 		suitesSeen[suite]++
 	}
@@ -3975,10 +4702,10 @@ func TestVectorTranscriptHashes(t *testing.T) {
 	if ran == 0 {
 		t.Fatalf("ran no transcript-hashes vectors (%d skipped)", skipped)
 	}
-	if suitesSeen[CipherSuiteX25519AES128SHA256Ed25519] == 0 {
+	if suitesSeen[CipherSuiteX25519AesGcm128Sha256Ed25519] == 0 {
 		t.Fatal("no transcript-hashes vector ran at ciphersuite 0x0001")
 	}
-	if suitesSeen[CipherSuiteX25519ChaCha20SHA256Ed25519] == 0 {
+	if suitesSeen[CipherSuiteX25519ChaCha20Sha256Ed25519] == 0 {
 		t.Fatal("no transcript-hashes vector ran at ciphersuite 0x0003")
 	}
 	t.Logf("transcript-hashes: ran %d, skipped %d unimplemented suites", ran, skipped)
@@ -3990,7 +4717,7 @@ func TestVectorTranscriptHashes(t *testing.T) {
 Run: `go test ./connect/mls/... -run TestVectorTranscriptHashes -v`
 Expected: FAIL to compile before Step 1 is saved. After saving: PASS. A failure at "the recovered
 confirmation tag does not verify" means the split assumption is wrong for this vector — do not adjust
-the offset by trial and error; wait for `ParseAuthenticatedContent` from the Framing plan and use it.
+the offset by trial and error; wait for `(*AuthenticatedContent).UnmarshalMLS` from p6 and use it.
 
 - [ ] **Step 3: Write minimal implementation**
 
@@ -3999,16 +4726,18 @@ passed means `ConfirmedTranscriptHash` inserted a separator between the two inpu
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./connect/mls/... -run TestVectorTranscriptHashes -v`
+Run: `go test ./connect/mls/... -run 'TestVectorTranscriptHashes|TestVectorFamilies' -v`
 Expected: PASS, with a log line reporting 2 run and 5 skipped.
 
 - [ ] **Step 5: Commit**
 
+Delete `7` from p8's `expectedPendingFamilies` in the same commit.
+
 ```bash
 git ls-files | wc -l
-git add connect/mls/transcript_vectors_test.go
+git add connect/mls/transcript_kat_test.go connect/mls/vectors_test.go
 git ls-files | wc -l
-git commit -m "test(mls): transcript-hashes vector family with a self-validating content split"
+git commit -m "test(mls): transcript-hashes vector family, registered, with a self-validating split"
 ```
 
 ---
@@ -4020,17 +4749,30 @@ git commit -m "test(mls): transcript-hashes vector family with a self-validating
 - Test: `connect/mls/secret_tree_test.go`
 
 **Interfaces:**
-- Consumes: `Root(LeafIndex) NodeIndex`, `Left(NodeIndex) (NodeIndex, error)`,
-  `Right(NodeIndex) (NodeIndex, error)`, `Level(NodeIndex) uint32`, `NodeWidth(LeafIndex) NodeIndex`,
-  `LeafIndex.NodeIndex()`, `CryptoProvider.ExpandWithLabel`, `CryptoProvider.HashSize`,
-  `zeroizeSecret` (Task 2).
+- Consumes, at registry §4's exact shapes — **counts are `LeafCount`, `NodeWidth` is `uint32`-valued,
+  `Root` is two-valued, and `Level` is a method** (**C3**):
+  ```go
+  type LeafCount uint32
+  func Root(n LeafCount) (NodeIndex, error)
+  func Left(x NodeIndex) (NodeIndex, error)
+  func Right(x NodeIndex) (NodeIndex, error)
+  func NodeWidth(n LeafCount) uint32
+  func (self NodeIndex) Level() uint32
+  func (self LeafIndex) NodeIndex() NodeIndex
+  ```
+  plus `CryptoProvider.ExpandWithLabel`, `CryptoProvider.HashSize`, `zeroizeSecret` (Task 2).
 - Produces:
   ```go
   type SecretTree struct{ /* unexported, guarded by stateLock */ }
-  func NewSecretTree(crypto CryptoProvider, leafCount LeafIndex, encryptionSecret []byte) (*SecretTree, error)
-  func (self *SecretTree) LeafCount() LeafIndex
+  func NewSecretTree(crypto CryptoProvider, leafCount LeafCount, encryptionSecret []byte) (*SecretTree, error)
+  func (self *SecretTree) LeafCount() LeafCount
   ```
   plus the unexported `takeLeafSecret` this task's tests reach through the exported surface of Task 22.
+
+  The constructor takes `LeafCount`, not `LeafIndex` (registry override O-4): an index is not a
+  count, and the two were the same underlying `uint32` in the first draft only because tree math had
+  not landed yet. `Root` returning an error is handled, never shimmed away — a shim that turns the
+  error into a zero node is how a zero-leaf tree gets built and every leaf reads as consumed.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -4048,7 +4790,7 @@ import (
 // stTestCrypto returns the ciphersuite 0x0003 provider the secret tree KATs use.
 func stTestCrypto(t *testing.T) CryptoProvider {
 	t.Helper()
-	crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+	crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
 	if err != nil {
 		t.Fatalf("NewCryptoProvider: %v", err)
 	}
@@ -4061,7 +4803,7 @@ const stVectorEncryptionSecret = "59227ed552e4a6db0779d43aea694fd1b2c2540e605a09
 // count are refused, so a tree can never exist in a shape no leaf can be reached in.
 func TestNewSecretTreeRejectsBadInput(t *testing.T) {
 	crypto := stTestCrypto(t)
-	good := mustHex(t, stVectorEncryptionSecret)
+	good := MustHex(t, stVectorEncryptionSecret)
 	if _, err := NewSecretTree(crypto, 8, good[:31]); !errors.Is(err, ErrSecretLength) {
 		t.Fatalf("short encryption secret err = %v, want ErrSecretLength", err)
 	}
@@ -4070,14 +4812,16 @@ func TestNewSecretTreeRejectsBadInput(t *testing.T) {
 	}
 }
 
-// TestSecretTreeLeafCount asserts the accessor reports what was built.
+// TestSecretTreeLeafCount asserts the accessor reports what was built, at the count
+// type tree math defines. A LeafIndex here would compile and be wrong.
 func TestSecretTreeLeafCount(t *testing.T) {
-	tree, err := NewSecretTree(stTestCrypto(t), 8, mustHex(t, stVectorEncryptionSecret))
+	tree, err := NewSecretTree(stTestCrypto(t), LeafCount(8), MustHex(t, stVectorEncryptionSecret))
 	if err != nil {
 		t.Fatalf("NewSecretTree: %v", err)
 	}
-	if tree.LeafCount() != 8 {
-		t.Fatalf("LeafCount = %d, want 8", tree.LeafCount())
+	var got LeafCount = tree.LeafCount()
+	if got != LeafCount(8) {
+		t.Fatalf("LeafCount = %d, want 8", got)
 	}
 }
 
@@ -4086,7 +4830,7 @@ func TestSecretTreeLeafCount(t *testing.T) {
 // intervening "tree"/"left" derivation.
 func TestSecretTreeSingleLeafRootIsTheLeaf(t *testing.T) {
 	crypto := stTestCrypto(t)
-	encryptionSecret := mustHex(t, stVectorEncryptionSecret)
+	encryptionSecret := MustHex(t, stVectorEncryptionSecret)
 	tree, err := NewSecretTree(crypto, 1, encryptionSecret)
 	if err != nil {
 		t.Fatalf("NewSecretTree: %v", err)
@@ -4106,7 +4850,7 @@ func TestSecretTreeSingleLeafRootIsTheLeaf(t *testing.T) {
 // subtree secret was retained.
 func TestSecretTreeDescentDerivesBothChildren(t *testing.T) {
 	crypto := stTestCrypto(t)
-	encryptionSecret := mustHex(t, stVectorEncryptionSecret)
+	encryptionSecret := MustHex(t, stVectorEncryptionSecret)
 	tree, err := NewSecretTree(crypto, 8, encryptionSecret)
 	if err != nil {
 		t.Fatalf("NewSecretTree: %v", err)
@@ -4134,7 +4878,7 @@ func TestSecretTreeDescentDerivesBothChildren(t *testing.T) {
 // Retaining it would keep a secret alive that has already produced both ratchet roots,
 // which is exactly the forward secrecy RFC 9420 section 9 is for.
 func TestSecretTreeLeafSecretIsTakenOnce(t *testing.T) {
-	tree, err := NewSecretTree(stTestCrypto(t), 8, mustHex(t, stVectorEncryptionSecret))
+	tree, err := NewSecretTree(stTestCrypto(t), 8, MustHex(t, stVectorEncryptionSecret))
 	if err != nil {
 		t.Fatalf("NewSecretTree: %v", err)
 	}
@@ -4149,7 +4893,7 @@ func TestSecretTreeLeafSecretIsTakenOnce(t *testing.T) {
 // TestSecretTreeRejectsOutOfRangeLeaf asserts a leaf beyond the tree is a typed error
 // and not an index panic on a message from a peer.
 func TestSecretTreeRejectsOutOfRangeLeaf(t *testing.T) {
-	tree, err := NewSecretTree(stTestCrypto(t), 8, mustHex(t, stVectorEncryptionSecret))
+	tree, err := NewSecretTree(stTestCrypto(t), 8, MustHex(t, stVectorEncryptionSecret))
 	if err != nil {
 		t.Fatalf("NewSecretTree: %v", err)
 	}
@@ -4189,8 +4933,8 @@ import (
 type SecretTree struct {
 	stateLock sync.Mutex
 	crypto    CryptoProvider
-	leafCount LeafIndex
-	width     NodeIndex
+	leafCount LeafCount
+	width     uint32
 	root      NodeIndex
 	nodes     map[NodeIndex][]byte
 	ratchets  map[ratchetKey]*ratchet
@@ -4202,8 +4946,11 @@ type ratchetKey struct {
 	kind RatchetType
 }
 
-// NewSecretTree seeds the tree with encryption_secret at the root.
-func NewSecretTree(crypto CryptoProvider, leafCount LeafIndex, encryptionSecret []byte) (*SecretTree, error) {
+// NewSecretTree seeds the tree with encryption_secret at the root. leafCount is a
+// LeafCount, not a LeafIndex: the two are both uint32 underneath, and passing an
+// index where a count belongs is the off-by-one that makes the last member of the
+// group unreachable.
+func NewSecretTree(crypto CryptoProvider, leafCount LeafCount, encryptionSecret []byte) (*SecretTree, error) {
 	if leafCount == 0 {
 		return nil, fmt.Errorf("%w: leaf count is zero", ErrSecretTreeLeafOutOfRange)
 	}
@@ -4211,7 +4958,12 @@ func NewSecretTree(crypto CryptoProvider, leafCount LeafIndex, encryptionSecret 
 		return nil, fmt.Errorf("%w: encryption secret is %d bytes, want %d",
 			ErrSecretLength, len(encryptionSecret), crypto.HashSize())
 	}
-	root := Root(leafCount)
+	// Root is two-valued and the error is handled here rather than shimmed away:
+	// a shim returning node 0 would build a tree whose descent never terminates.
+	root, err := Root(leafCount)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrSecretTreeLeafOutOfRange, err)
+	}
 	self := &SecretTree{
 		crypto:    crypto,
 		leafCount: leafCount,
@@ -4224,7 +4976,7 @@ func NewSecretTree(crypto CryptoProvider, leafCount LeafIndex, encryptionSecret 
 }
 
 // LeafCount is the number of leaves the tree was built for.
-func (self *SecretTree) LeafCount() LeafIndex {
+func (self *SecretTree) LeafCount() LeafCount {
 	return self.leafCount
 }
 
@@ -4232,16 +4984,17 @@ func (self *SecretTree) LeafCount() LeafIndex {
 // The array representation is in-order, so a target index below the current node is
 // in the left subtree. That is the whole descent rule and it needs no parent lookups.
 func (self *SecretTree) pathToLeaf(leaf LeafIndex) ([]NodeIndex, error) {
-	if leaf >= self.leafCount {
+	if LeafCount(leaf) >= self.leafCount {
 		return nil, fmt.Errorf("%w: leaf %d of %d", ErrSecretTreeLeafOutOfRange, leaf, self.leafCount)
 	}
 	target := leaf.NodeIndex()
-	if target >= self.width {
+	if uint32(target) >= self.width {
 		return nil, fmt.Errorf("%w: node %d of width %d", ErrSecretTreeLeafOutOfRange, target, self.width)
 	}
 	path := []NodeIndex{self.root}
 	current := self.root
-	for Level(current) > 0 {
+	// Level is a method on NodeIndex, not a free function.
+	for current.Level() > 0 {
 		var next NodeIndex
 		var err error
 		if target < current {
@@ -4290,10 +5043,10 @@ func (self *SecretTree) takeLeafSecret(leaf LeafIndex) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		if left < self.width {
+		if uint32(left) < self.width {
 			self.nodes[left] = self.crypto.ExpandWithLabel(parentSecret, "tree", []byte("left"), nh)
 		}
-		if right < self.width {
+		if uint32(right) < self.width {
 			self.nodes[right] = self.crypto.ExpandWithLabel(parentSecret, "tree", []byte("right"), nh)
 		}
 		zeroizeSecret(parentSecret)
@@ -4354,7 +5107,7 @@ git commit -m "feat(mls): secret tree descent that erases each parent as it expa
 // handshake and application messages would reuse an AEAD key and nonce pair.
 func TestRatchetRootsUseDistinctLabels(t *testing.T) {
 	crypto := stTestCrypto(t)
-	encryptionSecret := mustHex(t, stVectorEncryptionSecret)
+	encryptionSecret := MustHex(t, stVectorEncryptionSecret)
 	tree, err := NewSecretTree(crypto, 1, encryptionSecret)
 	if err != nil {
 		t.Fatalf("NewSecretTree: %v", err)
@@ -4382,7 +5135,7 @@ func TestRatchetRootsUseDistinctLabels(t *testing.T) {
 // RFC 9420 section 9.1 and asserts the ratchet advances by exactly one generation.
 func TestRatchetStepDerivesKeyNonceAndSuccessor(t *testing.T) {
 	crypto := stTestCrypto(t)
-	tree, err := NewSecretTree(crypto, 1, mustHex(t, stVectorEncryptionSecret))
+	tree, err := NewSecretTree(crypto, 1, MustHex(t, stVectorEncryptionSecret))
 	if err != nil {
 		t.Fatalf("NewSecretTree: %v", err)
 	}
@@ -4420,7 +5173,7 @@ func TestRatchetStepDerivesKeyNonceAndSuccessor(t *testing.T) {
 // DeriveTreeSecret context and not 0, so a copy-paste of the previous call is caught.
 func TestRatchetStepBindsTheGeneration(t *testing.T) {
 	crypto := stTestCrypto(t)
-	tree, err := NewSecretTree(crypto, 1, mustHex(t, stVectorEncryptionSecret))
+	tree, err := NewSecretTree(crypto, 1, MustHex(t, stVectorEncryptionSecret))
 	if err != nil {
 		t.Fatalf("NewSecretTree: %v", err)
 	}
@@ -4448,7 +5201,7 @@ func TestRatchetStepBindsTheGeneration(t *testing.T) {
 // TestRatchetKeysAreNeverRepeated asserts the first two hundred generations produce
 // two hundred distinct key and nonce pairs, which is the AEAD safety property.
 func TestRatchetKeysAreNeverRepeated(t *testing.T) {
-	tree, err := NewSecretTree(stTestCrypto(t), 1, mustHex(t, stVectorEncryptionSecret))
+	tree, err := NewSecretTree(stTestCrypto(t), 1, MustHex(t, stVectorEncryptionSecret))
 	if err != nil {
 		t.Fatalf("NewSecretTree: %v", err)
 	}
@@ -4608,8 +5361,10 @@ git commit -m "feat(mls): handshake and application ratchets with per-generation
   func (self *SecretTree) Zeroize()
   ```
 
-  **Boundary note for the Framing plan:** `NextSenderKey` is the encrypt path for our own leaf;
-  `ReceiverKey` is the decrypt path for every other leaf. `ErrRatchetGenerationTooFarAhead` and
+  **Boundary note.** `NextSenderKey` is the encrypt path for our own leaf; `ReceiverKey` is the
+  decrypt path for every other leaf. These two are the internal, vector-tested form that
+  `secret-tree.json` addresses; the `ContentType`-keyed surface p6 actually calls wraps them in
+  Task 23a. `ErrRatchetGenerationTooFarAhead` and
   `ErrRatchetGenerationConsumed` are surfaced to the product as a visible gap, never swallowed —
   the equivalent of `connect/message`'s `Kind == "gap"` (Spec A section 5.5). They are not ValSem006:
   ValSem006 is the AEAD failing, this is the key never having existed.
@@ -4622,7 +5377,7 @@ git commit -m "feat(mls): handshake and application ratchets with per-generation
 // TestNextSenderKeyAdvances asserts the sender path hands out consecutive generations
 // and never repeats one.
 func TestNextSenderKeyAdvances(t *testing.T) {
-	tree, err := NewSecretTree(stTestCrypto(t), 8, mustHex(t, stVectorEncryptionSecret))
+	tree, err := NewSecretTree(stTestCrypto(t), 8, MustHex(t, stVectorEncryptionSecret))
 	if err != nil {
 		t.Fatalf("NewSecretTree: %v", err)
 	}
@@ -4652,7 +5407,7 @@ func TestNextSenderKeyAdvances(t *testing.T) {
 // order delivery a delay rather than three lost messages.
 func TestReceiverKeyOutOfOrderUsesTheWindow(t *testing.T) {
 	crypto := stTestCrypto(t)
-	encryptionSecret := mustHex(t, stVectorEncryptionSecret)
+	encryptionSecret := MustHex(t, stVectorEncryptionSecret)
 
 	sender, err := NewSecretTree(crypto, 8, encryptionSecret)
 	if err != nil {
@@ -4692,7 +5447,7 @@ func TestReceiverKeyOutOfOrderUsesTheWindow(t *testing.T) {
 // TestReceiverKeyIsSingleUse asserts a generation cannot be fetched twice, so a
 // replayed message cannot be decrypted a second time from the window.
 func TestReceiverKeyIsSingleUse(t *testing.T) {
-	tree, err := NewSecretTree(stTestCrypto(t), 8, mustHex(t, stVectorEncryptionSecret))
+	tree, err := NewSecretTree(stTestCrypto(t), 8, MustHex(t, stVectorEncryptionSecret))
 	if err != nil {
 		t.Fatalf("NewSecretTree: %v", err)
 	}
@@ -4708,7 +5463,7 @@ func TestReceiverKeyIsSingleUse(t *testing.T) {
 // an unbounded KDF loop. Without this bound a single 32-bit field is a denial of
 // service that costs the sender nothing.
 func TestReceiverKeyRefusesUnboundedSkip(t *testing.T) {
-	tree, err := NewSecretTree(stTestCrypto(t), 8, mustHex(t, stVectorEncryptionSecret))
+	tree, err := NewSecretTree(stTestCrypto(t), 8, MustHex(t, stVectorEncryptionSecret))
 	if err != nil {
 		t.Fatalf("NewSecretTree: %v", err)
 	}
@@ -4732,7 +5487,7 @@ func TestReceiverKeyRefusesUnboundedSkip(t *testing.T) {
 // TestReceiverKeyWindowIsBounded asserts the retained skipped keys are capped, so one
 // silent sender cannot grow a receiver's memory without limit.
 func TestReceiverKeyWindowIsBounded(t *testing.T) {
-	tree, err := NewSecretTree(stTestCrypto(t), 8, mustHex(t, stVectorEncryptionSecret))
+	tree, err := NewSecretTree(stTestCrypto(t), 8, MustHex(t, stVectorEncryptionSecret))
 	if err != nil {
 		t.Fatalf("NewSecretTree: %v", err)
 	}
@@ -4755,7 +5510,7 @@ func TestReceiverKeyWindowIsBounded(t *testing.T) {
 // TestSecretTreeZeroize asserts every retained node secret and ratchet secret is
 // cleared when the epoch is dropped.
 func TestSecretTreeZeroize(t *testing.T) {
-	tree, err := NewSecretTree(stTestCrypto(t), 8, mustHex(t, stVectorEncryptionSecret))
+	tree, err := NewSecretTree(stTestCrypto(t), 8, MustHex(t, stVectorEncryptionSecret))
 	if err != nil {
 		t.Fatalf("NewSecretTree: %v", err)
 	}
@@ -4921,6 +5676,333 @@ git commit -m "feat(mls): sender and receiver key paths with a bounded generatio
 
 ---
 
+### Task 23a: The MessageKeySource implementation the framing plan declares
+
+**Files:**
+- Modify: `connect/mls/secret_tree.go`
+- Test: `connect/mls/secret_tree_test.go`
+
+**Interfaces:**
+- Consumes, from p6 (registry §7.1):
+  ```go
+  type ContentType uint8
+  const (
+      ContentTypeApplication ContentType = 1
+      ContentTypeProposal    ContentType = 2
+      ContentTypeCommit      ContentType = 3
+  )
+  ```
+  plus `ratchetFor` and `(*ratchet).step` (Task 22) and `(*ratchet).keyFor` (Task 23).
+- Produces, at p6's exact signatures (registry §5.5):
+  ```go
+  func (self *SecretTree) NextMessageKey(contentType ContentType, leaf LeafIndex) (key, nonce []byte, generation uint32, err error)
+  func (self *SecretTree) MessageKey(contentType ContentType, leaf LeafIndex, generation uint32) (key, nonce []byte, err error)
+  func (self *SecretTree) EraseMessageKey(contentType ContentType, leaf LeafIndex, generation uint32)
+  ```
+
+  **This plan implements the interface p6 declares.** p6 is the only consumer of the message-key
+  surface and its shape is the right one for the framing path: it is keyed on `ContentType`, which
+  is what the `PrivateMessage` header actually carries, so no caller has to remember the
+  `ContentType → RatchetType` mapping. `NextSenderKey`/`ReceiverKey` stay as the internal,
+  vector-tested form that `secret-tree.json` addresses; these three are the wrapper p6 calls.
+  p6 Task 11 carries `var _ MessageKeySource = (*SecretTree)(nil)`, so a mismatch fails at build
+  rather than at the message-protection vector family — this plan does not declare that interface
+  or that assertion, because both are p6's.
+
+  **`EraseMessageKey` had no producer anywhere**, and it is the forward-secrecy erase p6's ValSem006
+  reuse guard is built on. It is implemented here against the skipped-key window this plan already
+  owns. It follows that `MessageKey` must *not* consume: p6 calls `MessageKey`, opens the AEAD, and
+  erases on success. A `MessageKey` that consumed would make `EraseMessageKey` a no-op and would
+  burn a key on every forged ciphertext, turning one bad packet into a permanently lost message.
+  `ReceiverKey` keeps its single-use semantics because it has no erase counterpart.
+
+  **Ordering.** `ContentType` is p6's and p6 is wave 3, so this task alone sequences after p6 Task 1.
+  Every other task in this plan is wave 2 and depends on nothing from p6.
+
+- [ ] **Step 1: Write the failing test**
+
+```go
+// append to secret_tree_test.go
+
+// TestNextMessageKeyMapsContentTypeToRatchet asserts application content reaches the
+// application ratchet and both handshake content types reach the handshake ratchet.
+// Getting this mapping wrong would encrypt a commit under an application key that a
+// receiver looks up in the other ratchet, and the failure would read as a bad tag.
+func TestNextMessageKeyMapsContentTypeToRatchet(t *testing.T) {
+	crypto := stTestCrypto(t)
+	encryptionSecret := MustHex(t, stVectorEncryptionSecret)
+
+	viaContentType, err := NewSecretTree(crypto, LeafCount(8), encryptionSecret)
+	if err != nil {
+		t.Fatalf("NewSecretTree: %v", err)
+	}
+	viaRatchetType, err := NewSecretTree(crypto, LeafCount(8), encryptionSecret)
+	if err != nil {
+		t.Fatalf("NewSecretTree: %v", err)
+	}
+
+	for _, check := range []struct {
+		contentType ContentType
+		kind        RatchetType
+		leaf        LeafIndex
+	}{
+		{ContentTypeApplication, RatchetApplication, 0},
+		{ContentTypeProposal, RatchetHandshake, 1},
+		{ContentTypeCommit, RatchetHandshake, 2},
+	} {
+		gotKey, gotNonce, gotGeneration, err := viaContentType.NextMessageKey(check.contentType, check.leaf)
+		if err != nil {
+			t.Fatalf("NextMessageKey(%d): %v", check.contentType, err)
+		}
+		wantGeneration, wantKey, wantNonce, err := viaRatchetType.NextSenderKey(check.leaf, check.kind)
+		if err != nil {
+			t.Fatalf("NextSenderKey: %v", err)
+		}
+		if gotGeneration != wantGeneration {
+			t.Fatalf("content type %d: generation = %d, want %d", check.contentType, gotGeneration, wantGeneration)
+		}
+		if !bytes.Equal(gotKey, wantKey) || !bytes.Equal(gotNonce, wantNonce) {
+			t.Fatalf("content type %d does not map to ratchet type %d", check.contentType, check.kind)
+		}
+	}
+}
+
+// TestNextMessageKeyRejectsUnknownContentType asserts the reserved content type is a
+// typed error and not generation 0 of the handshake ratchet.
+func TestNextMessageKeyRejectsUnknownContentType(t *testing.T) {
+	tree, err := NewSecretTree(stTestCrypto(t), LeafCount(8), MustHex(t, stVectorEncryptionSecret))
+	if err != nil {
+		t.Fatalf("NewSecretTree: %v", err)
+	}
+	if _, _, _, err := tree.NextMessageKey(ContentType(0), 0); err == nil {
+		t.Fatal("content type 0 produced a key")
+	}
+	if _, _, err := tree.MessageKey(ContentType(9), 0, 0); err == nil {
+		t.Fatal("content type 9 produced a key")
+	}
+}
+
+// TestMessageKeyDoesNotConsumeUntilErased asserts a lookup can be repeated until the
+// caller erases it. p6 opens the AEAD between the two calls, so a MessageKey that
+// consumed would lose a real message every time a forged one arrived first.
+func TestMessageKeyDoesNotConsumeUntilErased(t *testing.T) {
+	crypto := stTestCrypto(t)
+	tree, err := NewSecretTree(crypto, LeafCount(8), MustHex(t, stVectorEncryptionSecret))
+	if err != nil {
+		t.Fatalf("NewSecretTree: %v", err)
+	}
+	first, firstNonce, err := tree.MessageKey(ContentTypeApplication, 3, 2)
+	if err != nil {
+		t.Fatalf("MessageKey: %v", err)
+	}
+	second, secondNonce, err := tree.MessageKey(ContentTypeApplication, 3, 2)
+	if err != nil {
+		t.Fatalf("second MessageKey: %v", err)
+	}
+	if !bytes.Equal(first, second) || !bytes.Equal(firstNonce, secondNonce) {
+		t.Fatal("two lookups of one generation disagreed")
+	}
+
+	tree.EraseMessageKey(ContentTypeApplication, 3, 2)
+	if _, _, err := tree.MessageKey(ContentTypeApplication, 3, 2); !errors.Is(err, ErrRatchetGenerationConsumed) {
+		t.Fatalf("err after erase = %v, want ErrRatchetGenerationConsumed", err)
+	}
+}
+
+// TestEraseMessageKeyZeroizesTheEntry asserts the erase actually clears the bytes
+// rather than only dropping the map entry, which is the whole point of it existing.
+func TestEraseMessageKeyZeroizesTheEntry(t *testing.T) {
+	tree, err := NewSecretTree(stTestCrypto(t), LeafCount(8), MustHex(t, stVectorEncryptionSecret))
+	if err != nil {
+		t.Fatalf("NewSecretTree: %v", err)
+	}
+	key, nonce, err := tree.MessageKey(ContentTypeCommit, 4, 1)
+	if err != nil {
+		t.Fatalf("MessageKey: %v", err)
+	}
+	tree.EraseMessageKey(ContentTypeCommit, 4, 1)
+	for i, b := range key {
+		if b != 0 {
+			t.Fatalf("key byte %d = %d after erase, want 0", i, b)
+		}
+	}
+	for i, b := range nonce {
+		if b != 0 {
+			t.Fatalf("nonce byte %d = %d after erase, want 0", i, b)
+		}
+	}
+}
+
+// TestEraseMessageKeyIsTotal asserts erasing something that was never derived, or a
+// content type that does not exist, is a no-op. p6 calls this on every open path
+// including the failing ones, so it must never panic and must never build a ratchet.
+func TestEraseMessageKeyIsTotal(t *testing.T) {
+	tree, err := NewSecretTree(stTestCrypto(t), LeafCount(8), MustHex(t, stVectorEncryptionSecret))
+	if err != nil {
+		t.Fatalf("NewSecretTree: %v", err)
+	}
+	tree.EraseMessageKey(ContentTypeApplication, 5, 7)
+	tree.EraseMessageKey(ContentType(0), 5, 7)
+	tree.EraseMessageKey(ContentTypeApplication, 1<<20, 0)
+	if len(tree.ratchets) != 0 {
+		t.Fatalf("erase built %d ratchets; it must not touch the tree", len(tree.ratchets))
+	}
+}
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `go test ./connect/mls/... -run 'TestNextMessageKey|TestMessageKey|TestEraseMessageKey' -v`
+Expected: FAIL to compile with `tree.NextMessageKey undefined`. If it instead fails with
+`undefined: ContentTypeApplication`, p6 Task 1 has not landed and this task blocks on it.
+
+- [ ] **Step 3: Write minimal implementation**
+
+Split the retention out of `keyFor` so a lookup and a consumption are separate operations, then add
+the three wrappers:
+
+```go
+// replace keyFor in secret_tree.go with the pair:
+
+// peekFor returns the keys for one generation, ratcheting forward and retaining every
+// generation it passes — including the target. It does not consume: the caller decides
+// whether to erase. Called with stateLock held.
+func (self *ratchet) peekFor(generation uint32) (*generationKeys, error) {
+	if keys, ok := self.window[generation]; ok {
+		return keys, nil
+	}
+	if generation < self.head {
+		return nil, fmt.Errorf("%w: generation %d, head %d", ErrRatchetGenerationConsumed, generation, self.head)
+	}
+	if generation-self.head > MaxGenerationSkip {
+		return nil, fmt.Errorf("%w: generation %d, head %d, bound %d",
+			ErrRatchetGenerationTooFarAhead, generation, self.head, MaxGenerationSkip)
+	}
+	for {
+		stepped, keys, err := self.step()
+		if err != nil {
+			return nil, err
+		}
+		self.window[stepped] = keys
+		self.prune()
+		if stepped == generation {
+			return keys, nil
+		}
+	}
+}
+
+// keyFor is peekFor plus consumption: a generation already returned is gone. This is
+// what ReceiverKey uses, because it has no erase counterpart. Called with stateLock held.
+func (self *ratchet) keyFor(generation uint32) (*generationKeys, error) {
+	keys, err := self.peekFor(generation)
+	if err != nil {
+		return nil, err
+	}
+	delete(self.window, generation)
+	return keys, nil
+}
+
+// eraseKey zeroizes and drops one retained generation. Total: erasing a generation
+// that was never derived is a no-op. Called with stateLock held.
+func (self *ratchet) eraseKey(generation uint32) {
+	keys, ok := self.window[generation]
+	if !ok {
+		return
+	}
+	zeroizeSecret(keys.key)
+	zeroizeSecret(keys.nonce)
+	delete(self.window, generation)
+}
+```
+
+```go
+// append to secret_tree.go
+
+// ratchetTypeOf maps the wire ContentType a PrivateMessage carries to the ratchet it
+// draws from. RFC 9420 section 9.1: application content uses the application ratchet,
+// proposals and commits share the handshake ratchet.
+func ratchetTypeOf(contentType ContentType) (RatchetType, error) {
+	switch contentType {
+	case ContentTypeApplication:
+		return RatchetApplication, nil
+	case ContentTypeProposal, ContentTypeCommit:
+		return RatchetHandshake, nil
+	}
+	return 0, fmt.Errorf("mls: no ratchet for content type %d", contentType)
+}
+
+// NextMessageKey is the MessageKeySource encrypt path: the next generation's key and
+// nonce for our own leaf, keyed on the ContentType the header carries.
+func (self *SecretTree) NextMessageKey(contentType ContentType, leaf LeafIndex) (key, nonce []byte, generation uint32, err error) {
+	kind, err := ratchetTypeOf(contentType)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	generation, key, nonce, err = self.NextSenderKey(leaf, kind)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	return key, nonce, generation, nil
+}
+
+// MessageKey is the MessageKeySource decrypt path. It does NOT consume the generation:
+// the caller opens the AEAD and then calls EraseMessageKey, so a forged ciphertext
+// cannot destroy the key the real message needs.
+func (self *SecretTree) MessageKey(contentType ContentType, leaf LeafIndex, generation uint32) (key, nonce []byte, err error) {
+	kind, err := ratchetTypeOf(contentType)
+	if err != nil {
+		return nil, nil, err
+	}
+	self.stateLock.Lock()
+	defer self.stateLock.Unlock()
+	r, err := self.ratchetFor(leaf, kind)
+	if err != nil {
+		return nil, nil, err
+	}
+	keys, err := r.peekFor(generation)
+	if err != nil {
+		return nil, nil, err
+	}
+	return keys.key, keys.nonce, nil
+}
+
+// EraseMessageKey is the forward-secrecy erase the framing plan's replay guard is
+// built on: once a message at this generation has been opened, its key stops existing.
+// Total by design — it is called on paths that never derived a key, so an unknown
+// content type, an out-of-range leaf and an unseen generation are all no-ops, and none
+// of them builds a ratchet.
+func (self *SecretTree) EraseMessageKey(contentType ContentType, leaf LeafIndex, generation uint32) {
+	kind, err := ratchetTypeOf(contentType)
+	if err != nil {
+		return
+	}
+	self.stateLock.Lock()
+	defer self.stateLock.Unlock()
+	r, ok := self.ratchets[ratchetKey{leaf: leaf, kind: kind}]
+	if !ok {
+		return
+	}
+	r.eraseKey(generation)
+}
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `go test ./connect/mls/... -run 'TestNextMessageKey|TestMessageKey|TestEraseMessageKey|TestReceiverKey|TestNextSenderKey' -v`
+Expected: PASS, including every Task 23 test — `ReceiverKey` must still be single use after the
+`keyFor` refactor, and `TestReceiverKeyIsSingleUse` is what proves it.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git ls-files | wc -l
+git add connect/mls/secret_tree.go connect/mls/secret_tree_test.go
+git ls-files | wc -l
+git commit -m "feat(mls): MessageKeySource on SecretTree, with the erase the reuse guard needs"
+```
+
+---
+
 ### Task 24: SenderDataKeyNonce
 
 **Files:**
@@ -4935,9 +6017,14 @@ git commit -m "feat(mls): sender and receiver key paths with a bounded generatio
   func SenderDataKeyNonce(crypto CryptoProvider, senderDataSecret []byte, ciphertext []byte) (key []byte, nonce []byte, err error)
   ```
 
-  The Framing plan calls this to seal and open `PrivateMessage.encrypted_sender_data`. It lives here
-  rather than in `framing.go` because `secret-tree.json` checks it and because it is a key-schedule
-  derivation, not a message structure.
+  p6's `sealSenderData`/`openSenderData` call this to protect
+  `PrivateMessage.EncryptedSenderData`. **It is implemented once, here** (registry §5.5): p6's
+  unexported `senderDataKeyNonce` — same derivation, no error return, no vector coverage — is
+  deleted, because two implementations of one §6.3.2 derivation with only one of them vector-tested,
+  and the untested one being the one the encrypt path calls, is precisely how the
+  `ciphertext_sample` short-ciphertext trap both plans separately documented gets got wrong. p6
+  keeps its two short-ciphertext tests as regression tests against this implementation, which is
+  what `TestSenderDataKeyNonceSamplesFirstNhBytes` below covers from this side.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -4956,16 +6043,16 @@ const (
 func TestSenderDataKeyNonceKAT(t *testing.T) {
 	key, nonce, err := SenderDataKeyNonce(
 		stTestCrypto(t),
-		mustHex(t, stVectorSenderDataSecret),
-		mustHex(t, stVectorSenderDataCt),
+		MustHex(t, stVectorSenderDataSecret),
+		MustHex(t, stVectorSenderDataCt),
 	)
 	if err != nil {
 		t.Fatalf("SenderDataKeyNonce: %v", err)
 	}
-	if !bytes.Equal(key, mustHex(t, stVectorSenderDataKey)) {
+	if !bytes.Equal(key, MustHex(t, stVectorSenderDataKey)) {
 		t.Fatalf("sender_data_key = %x", key)
 	}
-	if !bytes.Equal(nonce, mustHex(t, stVectorSenderDataNonce)) {
+	if !bytes.Equal(nonce, MustHex(t, stVectorSenderDataNonce)) {
 		t.Fatalf("sender_data_nonce = %x", nonce)
 	}
 }
@@ -4974,8 +6061,8 @@ func TestSenderDataKeyNonceKAT(t *testing.T) {
 // ciphertext enter the derivation, so appending to a long ciphertext changes nothing.
 func TestSenderDataKeyNonceSamplesFirstNhBytes(t *testing.T) {
 	crypto := stTestCrypto(t)
-	secret := mustHex(t, stVectorSenderDataSecret)
-	full := mustHex(t, stVectorSenderDataCt)
+	secret := MustHex(t, stVectorSenderDataSecret)
+	full := MustHex(t, stVectorSenderDataCt)
 	key, _, err := SenderDataKeyNonce(crypto, secret, full)
 	if err != nil {
 		t.Fatalf("SenderDataKeyNonce: %v", err)
@@ -4998,7 +6085,7 @@ func TestSenderDataKeyNonceSamplesFirstNhBytes(t *testing.T) {
 
 // TestSenderDataKeyNonceRejectsShortSecret asserts a wrong-length secret is fatal.
 func TestSenderDataKeyNonceRejectsShortSecret(t *testing.T) {
-	_, _, err := SenderDataKeyNonce(stTestCrypto(t), mustHex(t, stVectorSenderDataSecret)[:16], []byte{1})
+	_, _, err := SenderDataKeyNonce(stTestCrypto(t), MustHex(t, stVectorSenderDataSecret)[:16], []byte{1})
 	if !errors.Is(err, ErrSecretLength) {
 		t.Fatalf("err = %v, want ErrSecretLength", err)
 	}
@@ -5059,17 +6146,18 @@ git commit -m "feat(mls): sender data key and nonce derivation from the cipherte
 ### Task 25: The secret-tree vector runner and its generate direction
 
 **Files:**
-- Create: `connect/mls/secret_tree_vectors_test.go`
+- Create: `connect/mls/secret_tree_kat_test.go`
 
 **Interfaces:**
-- Consumes: `NewSecretTree`, `ReceiverKey`, `SenderDataKeyNonce` (Tasks 21–24), `ksHex`,
-  `ksLoadVectors`, `ksImplementedSuite` (Task 16).
-- Produces: nothing. Closes gate `secret-tree`.
+- Consumes: `NewSecretTree`, `(*SecretTree).ReceiverKey`, `(*SecretTree).NextSenderKey`,
+  `SenderDataKeyNonce` (Tasks 21–24), `LoadVectorFile`, `MustHex`, `HexOf`,
+  `RegisterVectorFamily`, `implementedSuite` (Task 16).
+- Produces: nothing at runtime. Registers family 3 and closes gate `secret-tree`.
 
 - [ ] **Step 1: Write the failing test**
 
 ```go
-// secret_tree_vectors_test.go
+// secret_tree_kat_test.go
 // runner for the mlswg secret-tree vector family.
 package mls
 
@@ -5083,145 +6171,182 @@ import (
 type secretTreeVector struct {
 	CipherSuite uint16 `json:"cipher_suite"`
 	SenderData  struct {
-		SenderDataSecret ksHex `json:"sender_data_secret"`
-		Ciphertext       ksHex `json:"ciphertext"`
-		Key              ksHex `json:"key"`
-		Nonce            ksHex `json:"nonce"`
+		SenderDataSecret string `json:"sender_data_secret"`
+		Ciphertext       string `json:"ciphertext"`
+		Key              string `json:"key"`
+		Nonce            string `json:"nonce"`
 	} `json:"sender_data"`
-	EncryptionSecret ksHex                    `json:"encryption_secret"`
+	EncryptionSecret string                   `json:"encryption_secret"`
 	Leaves           [][]secretTreeGeneration `json:"leaves"`
 }
 
 // secretTreeGeneration is one generation of one leaf.
 type secretTreeGeneration struct {
-	Generation      uint32 `json:"generation"`
-	HandshakeKey    ksHex  `json:"handshake_key"`
-	HandshakeNonce  ksHex  `json:"handshake_nonce"`
-	ApplicationKey  ksHex  `json:"application_key"`
-	ApplicationNonce ksHex `json:"application_nonce"`
+	Generation       uint32 `json:"generation"`
+	HandshakeKey     string `json:"handshake_key"`
+	HandshakeNonce   string `json:"handshake_nonce"`
+	ApplicationKey   string `json:"application_key"`
+	ApplicationNonce string `json:"application_nonce"`
 }
 
-// TestVectorSecretTree is vector family 3. The generations in each leaf are 0 and 15,
-// so the receiver path's forward skip is exercised as well as the base case.
+func init() {
+	RegisterVectorFamily(VectorFamily{
+		Number:   3,
+		Name:     "secret-tree",
+		File:     "secret-tree.json",
+		Slice:    "A2",
+		Verify:   verifySecretTreeVector,
+		Generate: generateSecretTreeVector,
+	})
+}
+
+// verifySecretTreeVector checks one entry of secret-tree.json. The generations in each
+// leaf are 0 and 15, so the receiver path's forward skip is exercised as well as the
+// base case.
+func verifySecretTreeVector(t *testing.T, raw json.RawMessage) {
+	t.Helper()
+	var vector secretTreeVector
+	if err := json.Unmarshal(raw, &vector); err != nil {
+		t.Fatalf("parse secret-tree entry: %v", err)
+	}
+	suite, ok := implementedSuite(vector.CipherSuite)
+	if !ok {
+		return
+	}
+	crypto, err := NewCryptoProvider(suite)
+	if err != nil {
+		t.Fatalf("NewCryptoProvider(%#x): %v", suite, err)
+	}
+
+	key, nonce, err := SenderDataKeyNonce(
+		crypto, MustHex(t, vector.SenderData.SenderDataSecret), MustHex(t, vector.SenderData.Ciphertext))
+	if err != nil {
+		t.Fatalf("SenderDataKeyNonce: %v", err)
+	}
+	if !bytes.Equal(key, MustHex(t, vector.SenderData.Key)) {
+		t.Fatalf("sender_data key = %s, want %s", HexOf(key), vector.SenderData.Key)
+	}
+	if !bytes.Equal(nonce, MustHex(t, vector.SenderData.Nonce)) {
+		t.Fatalf("sender_data nonce = %s, want %s", HexOf(nonce), vector.SenderData.Nonce)
+	}
+
+	encryptionSecret := MustHex(t, vector.EncryptionSecret)
+	leafCount := LeafCount(len(vector.Leaves))
+	// each ratchet type gets its own tree, because ReceiverKey consumes a generation
+	// and the vector asks for the same generations of both types
+	handshakeTree, err := NewSecretTree(crypto, leafCount, encryptionSecret)
+	if err != nil {
+		t.Fatalf("NewSecretTree: %v", err)
+	}
+	applicationTree, err := NewSecretTree(crypto, leafCount, encryptionSecret)
+	if err != nil {
+		t.Fatalf("NewSecretTree: %v", err)
+	}
+
+	for leaf, generations := range vector.Leaves {
+		for _, want := range generations {
+			gotKey, gotNonce, err := handshakeTree.ReceiverKey(LeafIndex(leaf), RatchetHandshake, want.Generation)
+			if err != nil {
+				t.Fatalf("leaf %d generation %d: handshake: %v", leaf, want.Generation, err)
+			}
+			if !bytes.Equal(gotKey, MustHex(t, want.HandshakeKey)) {
+				t.Fatalf("leaf %d generation %d: handshake_key = %s, want %s",
+					leaf, want.Generation, HexOf(gotKey), want.HandshakeKey)
+			}
+			if !bytes.Equal(gotNonce, MustHex(t, want.HandshakeNonce)) {
+				t.Fatalf("leaf %d generation %d: handshake_nonce = %s, want %s",
+					leaf, want.Generation, HexOf(gotNonce), want.HandshakeNonce)
+			}
+
+			gotKey, gotNonce, err = applicationTree.ReceiverKey(LeafIndex(leaf), RatchetApplication, want.Generation)
+			if err != nil {
+				t.Fatalf("leaf %d generation %d: application: %v", leaf, want.Generation, err)
+			}
+			if !bytes.Equal(gotKey, MustHex(t, want.ApplicationKey)) {
+				t.Fatalf("leaf %d generation %d: application_key = %s, want %s",
+					leaf, want.Generation, HexOf(gotKey), want.ApplicationKey)
+			}
+			if !bytes.Equal(gotNonce, MustHex(t, want.ApplicationNonce)) {
+				t.Fatalf("leaf %d generation %d: application_nonce = %s, want %s",
+					leaf, want.Generation, HexOf(gotNonce), want.ApplicationNonce)
+			}
+		}
+	}
+}
+
+// TestVectorSecretTree is vector family 3.
 func TestVectorSecretTree(t *testing.T) {
-	var vectors []secretTreeVector
-	ksLoadVectors(t, "secret-tree.json", &vectors)
-	if len(vectors) == 0 {
+	entries := LoadVectorFile(t, "secret-tree.json")
+	if len(entries) == 0 {
 		t.Fatal("secret-tree.json is empty")
 	}
 
 	ran, skipped, leaves := 0, 0, 0
 	suitesSeen := map[CipherSuite]int{}
-	for i, vector := range vectors {
-		suite, ok := ksImplementedSuite(vector.CipherSuite)
+	for i, raw := range entries {
+		var vector secretTreeVector
+		if err := json.Unmarshal(raw, &vector); err != nil {
+			t.Fatalf("vector %d: %v", i, err)
+		}
+		suite, ok := implementedSuite(vector.CipherSuite)
 		if !ok {
 			skipped++
 			continue
 		}
-		crypto, err := NewCryptoProvider(suite)
-		if err != nil {
-			t.Fatalf("vector %d: NewCryptoProvider(%#x): %v", i, suite, err)
-		}
-
-		key, nonce, err := SenderDataKeyNonce(crypto, vector.SenderData.SenderDataSecret, vector.SenderData.Ciphertext)
-		if err != nil {
-			t.Fatalf("vector %d: SenderDataKeyNonce: %v", i, err)
-		}
-		if !bytes.Equal(key, vector.SenderData.Key) {
-			t.Fatalf("vector %d: sender_data key = %x, want %x", i, key, []byte(vector.SenderData.Key))
-		}
-		if !bytes.Equal(nonce, vector.SenderData.Nonce) {
-			t.Fatalf("vector %d: sender_data nonce = %x, want %x", i, nonce, []byte(vector.SenderData.Nonce))
-		}
-
-		leafCount := LeafIndex(len(vector.Leaves))
-		// each ratchet type gets its own tree, because ReceiverKey consumes a
-		// generation and the vector asks for the same generations of both types
-		handshakeTree, err := NewSecretTree(crypto, leafCount, vector.EncryptionSecret)
-		if err != nil {
-			t.Fatalf("vector %d: NewSecretTree: %v", i, err)
-		}
-		applicationTree, err := NewSecretTree(crypto, leafCount, vector.EncryptionSecret)
-		if err != nil {
-			t.Fatalf("vector %d: NewSecretTree: %v", i, err)
-		}
-
-		for leaf, generations := range vector.Leaves {
-			for _, want := range generations {
-				gotKey, gotNonce, err := handshakeTree.ReceiverKey(LeafIndex(leaf), RatchetHandshake, want.Generation)
-				if err != nil {
-					t.Fatalf("vector %d leaf %d generation %d: handshake: %v", i, leaf, want.Generation, err)
-				}
-				if !bytes.Equal(gotKey, want.HandshakeKey) {
-					t.Fatalf("vector %d leaf %d generation %d: handshake_key = %x, want %x",
-						i, leaf, want.Generation, gotKey, []byte(want.HandshakeKey))
-				}
-				if !bytes.Equal(gotNonce, want.HandshakeNonce) {
-					t.Fatalf("vector %d leaf %d generation %d: handshake_nonce = %x, want %x",
-						i, leaf, want.Generation, gotNonce, []byte(want.HandshakeNonce))
-				}
-
-				gotKey, gotNonce, err = applicationTree.ReceiverKey(LeafIndex(leaf), RatchetApplication, want.Generation)
-				if err != nil {
-					t.Fatalf("vector %d leaf %d generation %d: application: %v", i, leaf, want.Generation, err)
-				}
-				if !bytes.Equal(gotKey, want.ApplicationKey) {
-					t.Fatalf("vector %d leaf %d generation %d: application_key = %x, want %x",
-						i, leaf, want.Generation, gotKey, []byte(want.ApplicationKey))
-				}
-				if !bytes.Equal(gotNonce, want.ApplicationNonce) {
-					t.Fatalf("vector %d leaf %d generation %d: application_nonce = %x, want %x",
-						i, leaf, want.Generation, gotNonce, []byte(want.ApplicationNonce))
-				}
-			}
-			leaves++
-		}
+		verifySecretTreeVector(t, raw)
 		ran++
+		leaves += len(vector.Leaves)
 		suitesSeen[suite]++
 	}
 
 	if ran == 0 {
 		t.Fatalf("ran no secret-tree vectors (%d skipped)", skipped)
 	}
-	if suitesSeen[CipherSuiteX25519AES128SHA256Ed25519] == 0 {
+	if suitesSeen[CipherSuiteX25519AesGcm128Sha256Ed25519] == 0 {
 		t.Fatal("no secret-tree vector ran at ciphersuite 0x0001")
 	}
-	if suitesSeen[CipherSuiteX25519ChaCha20SHA256Ed25519] == 0 {
+	if suitesSeen[CipherSuiteX25519ChaCha20Sha256Ed25519] == 0 {
 		t.Fatal("no secret-tree vector ran at ciphersuite 0x0003")
 	}
 	t.Logf("secret-tree: ran %d vectors covering %d leaves, skipped %d unimplemented suites", ran, leaves, skipped)
 }
 
-// TestVectorSecretTreeGenerate is the generate direction of family 3: build a fresh
-// vector from a random encryption secret and verify it with a second secret tree, so
-// an asymmetry between how a key is produced and how it is looked up cannot hide.
-func TestVectorSecretTreeGenerate(t *testing.T) {
+// generateSecretTreeVector is the Generate half of family 3: build fresh vectors from
+// a random encryption secret at both implemented suites.
+func generateSecretTreeVector(t *testing.T) json.RawMessage {
+	t.Helper()
+	vectors := []secretTreeVector{}
 	for _, suite := range []CipherSuite{
-		CipherSuiteX25519AES128SHA256Ed25519,
-		CipherSuiteX25519ChaCha20SHA256Ed25519,
+		CipherSuiteX25519AesGcm128Sha256Ed25519,
+		CipherSuiteX25519ChaCha20Sha256Ed25519,
 	} {
 		crypto, err := NewCryptoProvider(suite)
 		if err != nil {
 			t.Fatalf("NewCryptoProvider(%#x): %v", suite, err)
 		}
 		encryptionSecret := crypto.Random(crypto.HashSize())
-		const leafCount = LeafIndex(8)
+		const leafCount = LeafCount(8)
 
 		producer, err := NewSecretTree(crypto, leafCount, encryptionSecret)
 		if err != nil {
 			t.Fatalf("NewSecretTree: %v", err)
 		}
-		vector := secretTreeVector{CipherSuite: uint16(suite), EncryptionSecret: encryptionSecret}
-		vector.SenderData.SenderDataSecret = crypto.Random(crypto.HashSize())
-		vector.SenderData.Ciphertext = crypto.Random(64)
-		senderKey, senderNonce, err := SenderDataKeyNonce(crypto, vector.SenderData.SenderDataSecret, vector.SenderData.Ciphertext)
+		vector := secretTreeVector{
+			CipherSuite:      uint16(suite),
+			EncryptionSecret: HexOf(encryptionSecret),
+		}
+		senderDataSecret := crypto.Random(crypto.HashSize())
+		senderDataCiphertext := crypto.Random(64)
+		senderKey, senderNonce, err := SenderDataKeyNonce(crypto, senderDataSecret, senderDataCiphertext)
 		if err != nil {
 			t.Fatalf("SenderDataKeyNonce: %v", err)
 		}
-		vector.SenderData.Key = senderKey
-		vector.SenderData.Nonce = senderNonce
+		vector.SenderData.SenderDataSecret = HexOf(senderDataSecret)
+		vector.SenderData.Ciphertext = HexOf(senderDataCiphertext)
+		vector.SenderData.Key = HexOf(senderKey)
+		vector.SenderData.Nonce = HexOf(senderNonce)
 
-		for leaf := LeafIndex(0); leaf < leafCount; leaf++ {
+		for leaf := LeafIndex(0); LeafCount(leaf) < leafCount; leaf++ {
 			var generations []secretTreeGeneration
 			for want := uint32(0); want < 3; want++ {
 				generation, handshakeKey, handshakeNonce, err := producer.NextSenderKey(leaf, RatchetHandshake)
@@ -5237,35 +6362,55 @@ func TestVectorSecretTreeGenerate(t *testing.T) {
 				}
 				generations = append(generations, secretTreeGeneration{
 					Generation:       generation,
-					HandshakeKey:     handshakeKey,
-					HandshakeNonce:   handshakeNonce,
-					ApplicationKey:   applicationKey,
-					ApplicationNonce: applicationNonce,
+					HandshakeKey:     HexOf(handshakeKey),
+					HandshakeNonce:   HexOf(handshakeNonce),
+					ApplicationKey:   HexOf(applicationKey),
+					ApplicationNonce: HexOf(applicationNonce),
 				})
 			}
 			vector.Leaves = append(vector.Leaves, generations)
 		}
+		vectors = append(vectors, vector)
+	}
+	serialized, err := json.Marshal(vectors)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	return json.RawMessage(serialized)
+}
 
-		serialized, err := json.Marshal([]secretTreeVector{vector})
+// TestVectorSecretTreeGenerate verifies the generated vector with a second secret
+// tree, so an asymmetry between how a key is produced and how it is looked up cannot
+// hide.
+func TestVectorSecretTreeGenerate(t *testing.T) {
+	var readBack []secretTreeVector
+	if err := json.Unmarshal(generateSecretTreeVector(t), &readBack); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if len(readBack) != 2 {
+		t.Fatalf("generated %d suites, want 2", len(readBack))
+	}
+	for _, vector := range readBack {
+		suite, ok := implementedSuite(vector.CipherSuite)
+		if !ok {
+			t.Fatalf("generated a vector at unimplemented suite %#x", vector.CipherSuite)
+		}
+		crypto, err := NewCryptoProvider(suite)
 		if err != nil {
-			t.Fatalf("json.Marshal: %v", err)
+			t.Fatalf("NewCryptoProvider(%#x): %v", suite, err)
 		}
-		var readBack []secretTreeVector
-		if err := json.Unmarshal(serialized, &readBack); err != nil {
-			t.Fatalf("json.Unmarshal: %v", err)
-		}
-
-		verifier, err := NewSecretTree(crypto, leafCount, readBack[0].EncryptionSecret)
+		verifier, err := NewSecretTree(crypto, LeafCount(len(vector.Leaves)), MustHex(t, vector.EncryptionSecret))
 		if err != nil {
 			t.Fatalf("NewSecretTree: %v", err)
 		}
-		for leaf, generations := range readBack[0].Leaves {
+		for leaf, generations := range vector.Leaves {
 			for _, want := range generations {
 				gotKey, gotNonce, err := verifier.ReceiverKey(LeafIndex(leaf), RatchetHandshake, want.Generation)
 				if err != nil {
 					t.Fatalf("suite %#x leaf %d generation %d: %v", suite, leaf, want.Generation, err)
 				}
-				if !bytes.Equal(gotKey, want.HandshakeKey) || !bytes.Equal(gotNonce, want.HandshakeNonce) {
+				if !bytes.Equal(gotKey, MustHex(t, want.HandshakeKey)) ||
+					!bytes.Equal(gotNonce, MustHex(t, want.HandshakeNonce)) {
 					t.Fatalf("suite %#x leaf %d generation %d: receiver path disagrees with the sender path",
 						suite, leaf, want.Generation)
 				}
@@ -5288,39 +6433,52 @@ No production change expected.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./connect/mls/... -run TestVectorSecretTree -v`
+Run: `go test ./connect/mls/... -run 'TestVectorSecretTree|TestVectorFamilies' -v`
 Expected: PASS, with a log line reporting 6 vectors covering 82 leaves and 15 skipped.
 
 - [ ] **Step 5: Commit**
 
+Delete `3` from p8's `expectedPendingFamilies` in the same commit. That is the last of this plan's
+four; families 3, 5, 6 and 7 are then all registered and executing.
+
 ```bash
 git ls-files | wc -l
-git add connect/mls/secret_tree_vectors_test.go
+git add connect/mls/secret_tree_kat_test.go connect/mls/vectors_test.go
 git ls-files | wc -l
-git commit -m "test(mls): secret-tree vector family, verify and generate directions"
+git commit -m "test(mls): secret-tree vector family, registered, verify and generate directions"
 ```
 
 ---
 
-### Task 26: Round-trip fuzz targets for the two structures this plan encodes
+### Task 26: Round-trip properties and the seed corpus for the two structures this plan encodes
 
 **Files:**
-- Create: `connect/mls/key_schedule_fuzz_test.go`
+- Create: `connect/mls/key_schedule_roundtrip_test.go`
 - Create: `connect/mls/testdata/corpus/FuzzGroupContextRoundTrip/seed001`
 - Create: `connect/mls/testdata/corpus/FuzzPreSharedKeyIdRoundTrip/seed001`
 
 **Interfaces:**
-- Consumes: `ParseGroupContext`, `(*GroupContext).Marshal` (Tasks 3–4), `ParsePreSharedKeyId`,
-  `(*PreSharedKeyId).Marshal` (Task 13).
-- Produces: nothing. Feeds Gate 4 properties 1 and 2 for the two structures this plan owns.
+- Consumes: `syntax.Marshal`, `syntax.Unmarshal`, `(*GroupContext).MarshalMLS`/`UnmarshalMLS`
+  (Tasks 3–4), `(*PreSharedKeyId).MarshalMLS`/`UnmarshalMLS` (Task 13).
+- Produces: the seed corpus for two of p8's nine Gate-4 fuzz targets, and the deterministic form of
+  the same two properties.
+
+  **p8 owns all nine Gate-4 fuzz targets** (registry §9.5), including
+  `FuzzGroupContextRoundTrip` and `FuzzPreSharedKeyIdRoundTrip` over the codec table, and it owns
+  the committed `testdata/corpus/` tree. Declaring a `Fuzz*` function here would be a second
+  declaration of a name p8 already has in `package mls`. What this plan contributes is the part only
+  it can: seeds that are known-good encodings of both structures, and a deterministic table test
+  asserting the same two properties on every commit rather than only when the fuzzer runs.
 
 - [ ] **Step 1: Write the failing test**
 
 ```go
-// key_schedule_fuzz_test.go
-// Gate 4 properties 1 and 2 for the structures the key schedule owns: no panic, no
-// unbounded allocation, and round-trip stability. MLS signs over serialized forms, so
-// a decoder that accepts two encodings of one object is a signature-bypass primitive.
+// key_schedule_roundtrip_test.go
+// Gate 4 properties 1 and 2, deterministically, for the two structures the key
+// schedule owns: no panic on adversarial input, and byte-exact round-trip stability.
+// MLS signs over serialized forms, so a decoder that accepts two encodings of one
+// object is a signature-bypass primitive. The randomized form of these properties is
+// p8's FuzzGroupContextRoundTrip and FuzzPreSharedKeyIdRoundTrip; this file seeds them.
 package mls
 
 import (
@@ -5330,115 +6488,170 @@ import (
 	"github.com/urnetwork/connect/mls/syntax"
 )
 
-// FuzzGroupContextRoundTrip asserts encode(decode(x)) == x for every accepted input.
-func FuzzGroupContextRoundTrip(f *testing.F) {
-	f.Add([]byte{})
-	f.Add([]byte{0x00})
-	seed, err := (&GroupContext{
-		Version:                 ProtocolVersionMls10,
-		CipherSuite:             CipherSuiteX25519ChaCha20SHA256Ed25519,
-		GroupId:                 []byte("group"),
-		Epoch:                   3,
-		TreeHash:                make([]byte, 32),
-		ConfirmedTranscriptHash: make([]byte, 32),
-	}).Marshal()
-	if err != nil {
-		f.Fatalf("Marshal: %v", err)
+// ksRoundTripSeeds are the encodings this plan contributes to p8's fuzz corpus. Every
+// entry is emitted by our own encoder, so a change to either codec that these do not
+// survive is caught here before the fuzzer ever runs.
+func ksRoundTripSeeds(t *testing.T) (groupContexts [][]byte, pskIds [][]byte) {
+	t.Helper()
+	for _, gc := range []*GroupContext{
+		{
+			Version:                 ProtocolVersionMls10,
+			CipherSuite:             CipherSuiteX25519ChaCha20Sha256Ed25519,
+			GroupId:                 []byte("group"),
+			Epoch:                   3,
+			TreeHash:                make([]byte, 32),
+			ConfirmedTranscriptHash: make([]byte, 32),
+		},
+		{
+			Version:                 ProtocolVersionMls10,
+			CipherSuite:             CipherSuiteX25519AesGcm128Sha256Ed25519,
+			GroupId:                 nil,
+			Epoch:                   0,
+			TreeHash:                make([]byte, 32),
+			ConfirmedTranscriptHash: make([]byte, 32),
+			Extensions: []Extension{
+				{ExtensionType: ExtensionType(0xF001), ExtensionData: []byte{1, 2, 3}},
+			},
+		},
+	} {
+		encoded, err := syntax.Marshal(gc)
+		if err != nil {
+			t.Fatalf("syntax.Marshal(GroupContext): %v", err)
+		}
+		groupContexts = append(groupContexts, encoded)
 	}
-	f.Add(seed)
-
-	f.Fuzz(func(t *testing.T, data []byte) {
-		parsed, err := ParseGroupContext(data)
+	for _, id := range []*PreSharedKeyId{
+		{PskType: PskTypeExternal, PskId: []byte("id"), PskNonce: make([]byte, 32)},
+		{PskType: PskTypeExternal, PskId: nil, PskNonce: nil},
+		{
+			PskType:    PskTypeResumption,
+			Usage:      ResumptionPskUsageApplication,
+			PskGroupId: []byte("g"),
+			PskEpoch:   1 << 40,
+			PskNonce:   make([]byte, 32),
+		},
+	} {
+		encoded, err := syntax.Marshal(id)
 		if err != nil {
-			return
+			t.Fatalf("syntax.Marshal(PreSharedKeyId): %v", err)
 		}
-		reencoded, err := parsed.Marshal()
-		if err != nil {
-			t.Fatalf("a parsed group context failed to re-encode: %v", err)
-		}
-		if !bytes.Equal(reencoded, data) {
-			t.Fatalf("round trip changed the bytes:\n got %x\nwant %x", reencoded, data)
-		}
-		again, err := ParseGroupContext(reencoded)
-		if err != nil {
-			t.Fatalf("re-encoded group context failed to parse: %v", err)
-		}
-		if again.Epoch != parsed.Epoch || !bytes.Equal(again.GroupId, parsed.GroupId) {
-			t.Fatal("decode(encode(decode(x))) differs from decode(x)")
-		}
-	})
+		pskIds = append(pskIds, encoded)
+	}
+	return groupContexts, pskIds
 }
 
-// FuzzPreSharedKeyIdRoundTrip asserts the same for PreSharedKeyID, whose bytes are
-// hashed into psk_input and therefore into every epoch secret when PSKs are in use.
-func FuzzPreSharedKeyIdRoundTrip(f *testing.F) {
-	f.Add([]byte{})
-	f.Add([]byte{0x01, 0x00, 0x00})
-	seed, err := (&PreSharedKeyId{
-		PskType:  PskTypeExternal,
-		PskId:    []byte("id"),
-		PskNonce: make([]byte, 32),
-	}).Marshal()
-	if err != nil {
-		f.Fatalf("Marshal: %v", err)
-	}
-	f.Add(seed)
-
-	f.Fuzz(func(t *testing.T, data []byte) {
-		r := syntax.NewReader(data)
-		parsed, err := ParsePreSharedKeyId(r)
-		if err != nil {
-			return
+// TestGroupContextRoundTripIsByteExact asserts encode(decode(x)) == x for every seed,
+// and that decoding the re-encoding is stable.
+func TestGroupContextRoundTripIsByteExact(t *testing.T) {
+	groupContexts, _ := ksRoundTripSeeds(t)
+	for i, data := range groupContexts {
+		parsed := &GroupContext{}
+		if err := syntax.Unmarshal(data, parsed); err != nil {
+			t.Fatalf("seed %d: syntax.Unmarshal: %v", i, err)
 		}
-		if err := r.Done(); err != nil {
-			return
-		}
-		reencoded, err := parsed.Marshal()
+		reencoded, err := syntax.Marshal(parsed)
 		if err != nil {
-			t.Fatalf("a parsed PreSharedKeyID failed to re-encode: %v", err)
+			t.Fatalf("seed %d: a parsed group context failed to re-encode: %v", i, err)
 		}
 		if !bytes.Equal(reencoded, data) {
-			t.Fatalf("round trip changed the bytes:\n got %x\nwant %x", reencoded, data)
+			t.Fatalf("seed %d: round trip changed the bytes:\n got %x\nwant %x", i, reencoded, data)
 		}
-	})
+		again := &GroupContext{}
+		if err := syntax.Unmarshal(reencoded, again); err != nil {
+			t.Fatalf("seed %d: re-encoded group context failed to parse: %v", i, err)
+		}
+		if again.Epoch != parsed.Epoch || !bytes.Equal(again.GroupId, parsed.GroupId) {
+			t.Fatalf("seed %d: decode(encode(decode(x))) differs from decode(x)", i)
+		}
+	}
+}
+
+// TestPreSharedKeyIdRoundTripIsByteExact asserts the same for PreSharedKeyId, whose
+// bytes are hashed into psk_input and therefore into every epoch secret when PSKs are
+// in use.
+func TestPreSharedKeyIdRoundTripIsByteExact(t *testing.T) {
+	_, pskIds := ksRoundTripSeeds(t)
+	for i, data := range pskIds {
+		parsed := &PreSharedKeyId{}
+		if err := syntax.Unmarshal(data, parsed); err != nil {
+			t.Fatalf("seed %d: syntax.Unmarshal: %v", i, err)
+		}
+		reencoded, err := syntax.Marshal(parsed)
+		if err != nil {
+			t.Fatalf("seed %d: a parsed PreSharedKeyId failed to re-encode: %v", i, err)
+		}
+		if !bytes.Equal(reencoded, data) {
+			t.Fatalf("seed %d: round trip changed the bytes:\n got %x\nwant %x", i, reencoded, data)
+		}
+	}
+}
+
+// TestCodecsRefuseTruncatedAndExtendedInput asserts every prefix and every one-byte
+// extension of a valid encoding is refused rather than panicking or yielding a
+// partly-populated struct. This is Gate 4 property 1 over a bounded input set, on
+// every run, without waiting for the fuzzer.
+func TestCodecsRefuseTruncatedAndExtendedInput(t *testing.T) {
+	groupContexts, pskIds := ksRoundTripSeeds(t)
+	for i, data := range groupContexts {
+		for n := 0; n < len(data); n++ {
+			if err := syntax.Unmarshal(data[:n], &GroupContext{}); err == nil {
+				t.Fatalf("group context seed %d: prefix of %d bytes parsed", i, n)
+			}
+		}
+		if err := syntax.Unmarshal(append(append([]byte(nil), data...), 0x00), &GroupContext{}); err == nil {
+			t.Fatalf("group context seed %d: a trailing byte was accepted", i)
+		}
+	}
+	for i, data := range pskIds {
+		for n := 0; n < len(data); n++ {
+			if err := syntax.Unmarshal(data[:n], &PreSharedKeyId{}); err == nil {
+				t.Fatalf("psk id seed %d: prefix of %d bytes parsed", i, n)
+			}
+		}
+		if err := syntax.Unmarshal(append(append([]byte(nil), data...), 0x00), &PreSharedKeyId{}); err == nil {
+			t.Fatalf("psk id seed %d: a trailing byte was accepted", i)
+		}
+	}
 }
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./connect/mls/... -run 'FuzzGroupContextRoundTrip|FuzzPreSharedKeyIdRoundTrip' -v`
-Expected: FAIL to compile before Step 1 is saved. After saving, the seed corpus alone should pass;
-run the fuzzer for real in Step 4.
+Run: `go test ./connect/mls/... -run 'TestGroupContextRoundTripIsByteExact|TestPreSharedKeyIdRoundTripIsByteExact|TestCodecsRefuse' -v`
+Expected: FAIL to compile before Step 1 is saved. After saving it passes if Tasks 3, 4 and 13 are
+correct; a byte-exactness failure is a bug in the codec, never in the test — a non-canonical
+encoding that survives a round trip is the defect.
 
-- [ ] **Step 3: Write minimal implementation**
-
-Write the seed corpus files:
+- [ ] **Step 3: Write the seed corpus for p8's targets**
 
 ```bash
 mkdir -p connect/mls/testdata/corpus/FuzzGroupContextRoundTrip
 mkdir -p connect/mls/testdata/corpus/FuzzPreSharedKeyIdRoundTrip
-printf 'go test fuzz v1\n[]byte("\\x00\\x01\\x00\\x03\\x05group\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x03\\x00\\x00\\x00")\n' \
+printf 'go test fuzz v1\n[]byte("\\x00\\x01\\x00\\x03\\x05group\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x03\\x20\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x20\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00")\n' \
   > connect/mls/testdata/corpus/FuzzGroupContextRoundTrip/seed001
-printf 'go test fuzz v1\n[]byte("\\x01\\x02id\\x00")\n' \
+printf 'go test fuzz v1\n[]byte("\\x01\\x02id\\x20\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00")\n' \
   > connect/mls/testdata/corpus/FuzzPreSharedKeyIdRoundTrip/seed001
 ```
 
-If either fuzz target reports a round-trip failure, the fix belongs in `Marshal` or in the parser,
-never in the test: a non-canonical encoding that survives a round trip is the bug.
+Both seeds are the first entry of `ksRoundTripSeeds` written out by hand, so if the codec changes,
+`TestGroupContextRoundTripIsByteExact` goes red in the same commit that would otherwise leave a
+stale seed behind. The corpus directory itself belongs to p8's Gate-4 task; this plan only adds
+files under the two target names.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./connect/mls/... -run FuzzGroupContextRoundTrip -fuzz FuzzGroupContextRoundTrip -fuzztime 60s`
-Then: `go test ./connect/mls/... -run FuzzPreSharedKeyIdRoundTrip -fuzz FuzzPreSharedKeyIdRoundTrip -fuzztime 60s`
-Expected: PASS, no new corpus entries in `testdata/corpus` reported as failures.
+Run: `go test ./connect/mls/... -run 'TestGroupContextRoundTripIsByteExact|TestPreSharedKeyIdRoundTripIsByteExact|TestCodecsRefuse' -count=1 -v`
+Then, once p8's Gate-4 targets exist, confirm the seeds are picked up and survive:
+`go test ./connect/mls/... -run FuzzGroupContextRoundTrip -fuzz FuzzGroupContextRoundTrip -fuzztime 60s`
+Expected: PASS, no new corpus entries reported as failures.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git ls-files | wc -l
-git add connect/mls/key_schedule_fuzz_test.go connect/mls/testdata/corpus
+git add connect/mls/key_schedule_roundtrip_test.go connect/mls/testdata/corpus
 git ls-files | wc -l
-git commit -m "test(mls): round-trip fuzz targets for GroupContext and PreSharedKeyID"
+git commit -m "test(mls): byte-exact round-trip properties and Gate 4 seed corpus for the two codecs"
 ```
 
 ---
@@ -5450,7 +6663,10 @@ git commit -m "test(mls): round-trip fuzz targets for GroupContext and PreShared
 
 **Interfaces:**
 - Consumes: nothing beyond the standard library.
-- Produces: nothing. Enforces G1, G3, G7 and G8 for the files this plan owns.
+- Produces: nothing. Enforces G1, G3, G7 and G8 for the files this plan owns, and turns the six
+  registry corrections that are invisible to the type checker — a redeclared ValSem sentinel, a
+  resurrected `Parse*`/`Marshal()` wrapper, `WriteBytes`, `MarshalExtensions` — into a red test on
+  the machine where the mistake is made rather than a merge conflict two waves later.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -5491,6 +6707,15 @@ func TestKeyScheduleGuardrails(t *testing.T) {
 		{"GenerateSharedSecret", "banned: sdk.GenerateSharedSecret length-checks only"},
 		{"bytes.Equal", "G8: every tag comparison goes through CryptoProvider.MacVerify"},
 		{"math/rand", "banned: key material never comes from math/rand"},
+		{"ErrPskNonceLength =", "ValSem401 is declared once, in the validation plan's errors.go"},
+		{"ErrPskType =", "ValSem402 is declared once, in the validation plan's errors.go"},
+		{"ErrDuplicatePsk =", "ValSem403 is declared once, in the validation plan's errors.go"},
+		{"func ParseGroupContext", "C1: byte-level decode is syntax.Unmarshal, not a free constructor"},
+		{"func ParsePreSharedKeyId", "C1: byte-level decode is syntax.Unmarshal, not a free constructor"},
+		{") Marshal()", "C1: byte-level encode is syntax.Marshal, not a per-type wrapper"},
+		{"w.WriteBytes", "the raw, unprefixed write is WriteRaw; WriteBytes does not exist"},
+		{"MarshalExtensions", "the extension vector codec is WriteExtensions/ReadExtensions"},
+		{"ParseExtensions", "the extension vector codec is WriteExtensions/ReadExtensions"},
 	}
 	for _, name := range ksGuardedFiles {
 		source, err := os.ReadFile(name)
@@ -5511,12 +6736,12 @@ func TestKeyScheduleGuardrails(t *testing.T) {
 // fuzzable without the transport, so an import of connect here is a layering break.
 func TestKeyScheduleImportsAreNarrow(t *testing.T) {
 	allowed := map[string]bool{
-		"\"crypto/subtle\"":                          true,
-		"\"errors\"":                                 true,
-		"\"fmt\"":                                    true,
-		"\"math\"":                                   true,
-		"\"runtime\"":                                true,
-		"\"sync\"":                                   true,
+		"\"crypto/subtle\"":                           true,
+		"\"errors\"":                                  true,
+		"\"fmt\"":                                     true,
+		"\"math\"":                                    true,
+		"\"runtime\"":                                 true,
+		"\"sync\"":                                    true,
 		"\"github.com/urnetwork/connect/mls/syntax\"": true,
 	}
 	for _, name := range ksGuardedFiles {
@@ -5628,33 +6853,45 @@ Closes the key-schedule, psk_secret, transcript-hashes and secret-tree vector ga
 
 | Spec A gate | What this plan closes | What it does not |
 |---|---|---|
+| Gate 1, family registration | Families 3, 5, 6 and 7 registered with `RegisterVectorFamily` and struck from `expectedPendingFamilies` (Tasks 16, 17, 20, 25) | The other twelve families |
 | Gate 2, family 3 `secret-tree` | Task 25, verify and generate | — |
 | Gate 2, family 5 `key-schedule` | Tasks 17 and 18, verify and generate | — |
 | Gate 2, family 6 `psk_secret` | Task 16 | — |
-| Gate 2, family 7 `transcript-hashes` | Task 20 | The AuthenticatedContent parse is a self-validating byte split until the Framing plan lands `ParseAuthenticatedContent` |
-| Gate 2, family 8 `welcome` | The `welcome_secret` to key/nonce derivation (Task 11) | The end-to-end Welcome decrypt, which is the Group lifecycle plan |
-| Gate 3, ValSem401/402/403 | The RFC-level checks and their negative tests (Tasks 13–15) | The v1 `ErrProfilePSK` parse refusal, which is the Proposal and Validation plans |
-| Gate 3, ValSem400 | `PastEpochWindow = 32` and its test (Task 12) | `TestValSem400_PastEpochBound` over the StateStore, which is the Group lifecycle plan |
+| Gate 2, family 7 `transcript-hashes` | Task 20 | The AuthenticatedContent parse is a self-validating byte split until p6 lands `AuthenticatedContent.UnmarshalMLS` |
+| Gate 2, family 8 `welcome` | The `welcome_secret` to key/nonce derivation (Task 11) | The end-to-end Welcome decrypt, which is p7 |
+| Gate 3, ValSem401/402/403 | The RFC-level checks, returned as `ValSem(ValSem401\|402\|403, detail)`, and their negative tests (Tasks 13–15) | The three sentinels themselves and the `TestValSemNNN_*` names, which are p8's; the v1 `ErrProfilePsk` parse refusal, which is p8's `Profile` called by p7 |
+| Gate 3, ValSem400 | `PastEpochWindow = 32` and its test (Task 12) | `TestValSem400_PastEpochBound` over the StateStore, which is p7 and p8 |
 | Gate 3, ValSem205 / ValSem008 | `VerifyConfirmationTag` / `VerifyMembershipTag` (Task 10) | The commit and framing call sites |
-| Gate 3, errata 8745 and 8815 | nothing — both are validation errata (§13.4 and §12.2) | Validation and interop harness plan |
-| Gate 4, properties 1 and 2 | `GroupContext` and `PreSharedKeyID` round-trip fuzz (Task 26) | The seven other fuzz targets, which are the Syntax and Validation plans |
+| Gate 3, errata 8745 and 8815 | nothing — both are validation errata (§13.4 and §12.2), implemented as `CheckErrata8745`/`CheckErrata8815` in p7 | p7 and p8 |
+| Gate 4, properties 1 and 2 | The deterministic round-trip properties and the seed corpus for `FuzzGroupContextRoundTrip` and `FuzzPreSharedKeyIdRoundTrip` (Task 26) | All nine `Fuzz*` targets themselves, which are p8's |
+| p6's `MessageKeySource` | `NextMessageKey`, `MessageKey`, `EraseMessageKey` on `*SecretTree` (Task 23a) | The interface declaration and `var _ MessageKeySource = (*SecretTree)(nil)`, which are p6 Task 11 |
 | Guardrails G1, G6, G7, G8 | Tasks 12 and 27 | G2, G3, G5, G9, G10, G11, which belong to `connect/message` |
 
 ## Risks carried by this plan
 
-1. **The consumed `syntax` API shape is an assumption.** Task 1 turns a mismatch into a compile error
-   on the first run rather than a silent divergence, but if the Syntax plan chose a reflection-driven
-   `Marshal(any)` instead of a reader and writer, Tasks 3, 4, 13, 15 and 19 need their encoding steps
-   rewritten. The arithmetic and every KAT stay valid.
-2. **`Extension` and `ProtocolVersion` ownership.** This plan consumes both and defines neither. If no
-   wave-1 plan defines them, `group_context.go` does not compile and the first plan to notice should
-   add them to `connect/mls/extension.go` rather than duplicating them locally.
-3. **`HpkePublicKey.Bytes()`** is required by Task 9 only. If the crypto plan models `HpkePublicKey`
-   as a bare `[]byte`, it still needs that one-line method for Task 1 to compile.
+1. **`Extension`, `ExtensionType`, `ProtocolVersion` and `WriteExtensions`/`ReadExtensions` are p5's,
+   and p5 is wave 2 — the same wave as this plan.** `group_context.go` cannot compile until p5
+   Task 3 lands, so **p5 Task 3 sequences before Task 3 here**, and that is the one hard ordering
+   constraint inside wave 2. Nothing in this plan may work around it by declaring `Extension`
+   locally: `package mls` is one package and the second declaration is a compile error.
+2. **`ContentType` is p6's and p6 is wave 3.** Task 23a is the only task here that consumes it, so
+   it is the only task that cannot run in wave 2. Everything else — including the whole secret tree
+   and all four vector families — completes without it. If wave 3 slips, Task 23a slips alone and
+   the four gates this plan owns still close.
+3. **The three PSK sentinels now come from p8.** `ErrPskNonceLength`, `ErrPskType` and
+   `ErrDuplicatePsk` are ValSem401/402/403 in p8's `errors.go`, which is wave 1 and lands before
+   anything here. If p8's names drift, Task 13 fails to compile — which is the intended detection —
+   and the fix is in p8, not a local redeclaration. Task 27's source scan bans the redeclaration
+   explicitly, because a redeclaration is the tempting fix at 2am.
 4. **The transcript vector's content split** is correct for KDF.Nh below 64 and is checked by a MAC,
-   so it cannot silently produce a wrong answer — but it will need replacing with the real parser
-   when the Framing plan lands, and Task 20 says so in the code comment.
+   so it cannot silently produce a wrong answer — but it will need replacing with
+   `AuthenticatedContent.UnmarshalMLS` when p6 lands, and Task 20 says so in the code comment.
 5. **`MaxGenerationSkip = 1024`** is a judgement call, not an RFC value. A sender that emits more than
    1024 messages in one epoch while a receiver is offline produces a visible gap for that receiver.
    Spec A section 5.5 makes the same trade for records and section 14 open item 7 already carries a
    memory-budget review; this constant belongs in that review.
+6. **`MessageKey` is non-consuming and `EraseMessageKey` is what consumes.** That split is forced by
+   p6 declaring an erase at all, but it means a caller that looks a key up and never erases it
+   leaves it in the window until `RatchetWindowSize` evicts it. p6 Task 11's
+   `var _ MessageKeySource = (*SecretTree)(nil)` catches a signature mismatch; nothing catches a
+   missing erase call except p6's own ValSem006 reuse test, and that test is the reason to keep it.

@@ -4,10 +4,10 @@
 > (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use
 > checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Implement RFC 9420 group creation, the four v1 proposal types, Commit generation and
-processing, Welcome generation and joining, the epoch advance, and the two URmessage extensions
-(`urmessage_group_policy` 0xF001, `urmessage_leaf_keys` 0xF002) plus `urmessage_owner_successor`
-(0xF003), in pure Go at `connect/mls/`.
+**Goal:** Implement RFC 9420 group creation, the v1 proposal profile, Commit generation and
+processing, Welcome generation and joining, the epoch advance, and the two URmessage group-context
+extensions (`urmessage_group_policy` 0xF001 and `urmessage_owner_successor` 0xF003) plus the
+`urmessage_leaf_keys` (0xF002) accessor, in pure Go at `connect/mls/`.
 
 **Architecture:** `mls.Group` is the single stateful exported type and the only place epoch state is
 mutated; every mutation goes through a staged-then-merged path so a rejected commit never corrupts
@@ -38,150 +38,363 @@ dependency.
 - Max group size: **500 members, hard.** Refused at construction, rejected on receipt.
 - Max devices per identity in one group: **10 leaves, hard.** Same enforcement on both sides.
 - **Only an OWNER may remove an ADMIN or the OWNER.** Enforced at construction and on receipt.
-- `PastEpochWindow = 32`. `StateStore.DeleteGroupStateBefore` is called on every merged commit with `epoch - PastEpochWindow`.
+- `PastEpochWindow = 32`, **declared once by the key schedule plan** (`key_schedule.go`) and only referenced here. `StateStore.DeleteGroupStateBefore` is called on every merged commit with `epoch - PastEpochWindow`.
 - Succession floor: `FloorMs >= 7776000000` (90 days). Quorum: `max(2, ceil(2 * admins / 3))`.
 - `mls.Group` is NOT safe for concurrent use; `stateLock` exists to make misuse fail loudly, and the caller (`connect/message`) still serializes.
 - GREASE values are **parsed and ignored, never generated**.
 - `EpochSecretName` is a closed enum exposing exactly `sender_data_secret` and `encryption_secret`. `epoch_secret`, `confirmation_key`, `membership_key`, `init_secret` and `resumption_psk` are unreachable through the public API.
 - `connect/mls` follows `connect/CODESTYLE.md`: `self` receivers, `stateLock` for guarded state, explicit struct field names, doc comment on every file/type/func.
 
+**C1 — one codec, one method set.** Every wire type in `package mls` implements exactly:
+
+```go
+MarshalMLS(w *syntax.Writer) error
+UnmarshalMLS(r *syntax.Reader) error
+```
+
+and nothing else. No `MarshalTo`, no `MarshalTLS`, no `Marshal() ([]byte, error)`, no
+`Parse<Type>(data []byte)` free constructor, no `tls:` struct tags, no reflection. Byte-level access
+is `syntax.Marshal(&v)` / `syntax.Unmarshal(bs, &v)`. Every wire type carries
+`var _ syntax.Codec = (*T)(nil)` in its own file so drift fails at build rather than at Gate 4.
+The two sanctioned exceptions are concrete extension bodies — `func (self *X) Encode() (Extension, error)`
+plus `func ParseXExtension(data []byte) (*X, error)`, because `Extension.ExtensionData` is opaque —
+and the validation plan's five codec-table closures.
+
+**C2 — the syntax Writer is sticky *and* `MarshalMLS` returns an error.** Leaf writes
+(`WriteUint16`, `WriteOpaque`, …) return nothing and set a sticky error checked once at `Bytes()`;
+`MarshalMLS` and the higher-order encode callbacks (`syntax.WriteVector`, `(*Writer).WriteOptional`)
+return `error` so a *semantic* refusal — `ErrProfileCredentialType`, `ErrContentArmMismatch` — can be
+propagated instead of silently dropped into wrong signed bytes.
+
+**C3 — counts are `LeafCount`, indices are `LeafIndex`/`NodeIndex`, and tree-math arithmetic that
+can be out of range returns an error.** The tree math plan's block is normative for every caller in
+this plan. `TreeSize` does not exist, `Root`/`DirectPath`/`Copath` are two-valued, and this plan gets
+**no shims**: it calls the two-valued form and handles the error, because a shim that turns an error
+into `false` is exactly how ValSem300's trailing-blank case gets silently accepted.
+
+**C4 — the GroupContext crosses a plan boundary as bytes.** Every framing entry point takes
+`groupContext []byte`. This plan obtains them from `syntax.Marshal(gc)` or `(*Group).GroupContext()`.
+The GroupContext is inlined into `FramedContentTBS` with no length prefix, and taking bytes makes
+that impossible to get wrong.
+
 ---
 
 ## Interfaces consumed from other plans
 
-Every symbol below is used by this plan and produced elsewhere. If a signature here disagrees with
-the producing plan, that plan wins and the call sites in this plan are adjusted — the names and
-shapes are recorded so the mismatch is visible at review rather than at compile time.
+Every symbol below is used by this plan and produced elsewhere. **These are the canonical interface
+registry's signatures, verbatim.** Where the registry overrode an API this plan originally invented,
+the override is adopted here without argument and every code body below calls it.
 
 **From the Syntax and codec plan (wave 1), package `github.com/urnetwork/connect/mls/syntax`:**
 
 ```go
-func Marshal(value any) ([]byte, error)
-func Unmarshal(data []byte, value any) (int, error)   // returns bytes consumed
-type Marshaler interface{ MarshalTLS() ([]byte, error) }
-type Unmarshaler interface{ UnmarshalTLS(data []byte) (int, error) }
-const MaxVectorLength uint64
+const MaxVectorLength int = 1 << 20
+const MaxRatchetTreeLength int = 1 << 24
 var ErrTrailingBytes error
-// struct tags: `tls:"head=varint"` for <V> vectors, `tls:"optional"` for optional<T> on a
-// pointer field (nil -> 0x00, non-nil -> 0x01 || T), `tls:"omit"` to skip a field.
+var ErrLengthExceedsMax error
+
+type Writer struct{ ... }
+func NewWriter() *Writer
+func NewWriterLimit(maxVectorLength int) *Writer
+func (self *Writer) Bytes() ([]byte, error)
+func (self *Writer) WriteUint8(v uint8)
+func (self *Writer) WriteUint16(v uint16)
+func (self *Writer) WriteUint32(v uint32)
+func (self *Writer) WriteUint64(v uint64)
+func (self *Writer) WriteRaw(bs []byte)                 // opaque x[N], no prefix
+func (self *Writer) WriteOpaque(bs []byte)              // opaque x<V>; nil == empty
+func (self *Writer) WriteOptional(present bool, encodeOne func(w *Writer) error) error
+
+type Reader struct{ ... }
+func NewReader(bs []byte) *Reader
+func NewReaderLimit(bs []byte, maxVectorLength int) *Reader
+func (self *Reader) Done() error                        // ErrTrailingBytes when bytes remain
+func (self *Reader) ReadUint8() (uint8, error)
+func (self *Reader) ReadUint16() (uint16, error)
+func (self *Reader) ReadUint32() (uint32, error)
+func (self *Reader) ReadUint64() (uint64, error)
+func (self *Reader) ReadRaw(n int) ([]byte, error)      // opaque x[N]; a COPY
+func (self *Reader) ReadOpaque() ([]byte, error)        // a COPY, never nil
+func (self *Reader) ReadSub() (*Reader, error)          // bounded view of the next opaque<V>
+
+func WriteVector[T any](w *Writer, items []T, encodeOne func(w *Writer, item T) error) error
+func ReadVector[T any](r *Reader, decodeOne func(r *Reader) (T, error)) ([]T, error)
+
+type Marshaler interface{ MarshalMLS(w *Writer) error }
+type Unmarshaler interface{ UnmarshalMLS(r *Reader) error }
+type Codec interface{ Marshaler; Unmarshaler }
+
+func Marshal(v Marshaler) ([]byte, error)
+func MarshalLimit(v Marshaler, maxVectorLength int) ([]byte, error)
+func Unmarshal(bs []byte, v Unmarshaler) error          // enforces full consumption
+func UnmarshalLimit(bs []byte, v Unmarshaler, maxVectorLength int) error
 ```
+
+`syntax.Unmarshal` returns **only** an `error` and already enforces full consumption, so every
+"trailing bytes" check this plan used to write by hand is deleted.
 
 **From the Crypto primitives and HPKE plan (wave 1), package `mls`:**
 
 ```go
 type CipherSuite uint16
-const CipherSuiteX25519ChaCha20SHA256Ed25519 CipherSuite = 0x0003
+const CipherSuiteX25519AesGcm128Sha256Ed25519 CipherSuite = 0x0001
+const CipherSuiteX25519ChaCha20Sha256Ed25519  CipherSuite = 0x0003
+type SuiteParams struct{ ... }
+func Suites() []CipherSuite
+func LookupSuite(suite CipherSuite) (*SuiteParams, error)
+
+type HpkePublicKey []byte
+type HpkePrivateKey []byte
+type SignaturePublicKey []byte
+type SignaturePrivateKey []byte
+
 type CryptoProvider interface{ /* Spec A §3.3, verbatim */ }
 func NewCryptoProvider(suite CipherSuite) (CryptoProvider, error)
-type SignaturePrivateKey []byte
-type SignaturePublicKey []byte
-type HpkePrivateKey []byte
-type HpkePublicKey []byte
-type HPKECiphertext struct {
-    KemOutput  []byte `tls:"head=varint"`
-    Ciphertext []byte `tls:"head=varint"`
-}
-func EncryptWithLabel(crypto CryptoProvider, pub HpkePublicKey, label string, context, plaintext []byte) (*HPKECiphertext, error)
-func DecryptWithLabel(crypto CryptoProvider, priv HpkePrivateKey, label string, context []byte, ct *HPKECiphertext) ([]byte, error)
-func RefHash(crypto CryptoProvider, label string, value []byte) []byte
-type ProtocolVersion uint16
-const ProtocolVersionMls10 ProtocolVersion = 0x0001
+
+func MakeKeyPackageRef(crypto CryptoProvider, keyPackage []byte) []byte
+func MakeProposalRef(crypto CryptoProvider, authenticatedContent []byte) []byte
+func EncryptWithLabel(crypto CryptoProvider, pub HpkePublicKey, label string, context []byte, plaintext []byte) (kemOutput []byte, ciphertext []byte, err error)
+func DecryptWithLabel(crypto CryptoProvider, priv HpkePrivateKey, label string, context []byte, kemOutput []byte, ciphertext []byte) ([]byte, error)
+
+var ErrAeadOpen error
 ```
+
+`EncryptWithLabel`/`DecryptWithLabel` are the **flat byte-slice** pair. The `*HpkeCiphertext`-shaped
+convenience this plan wants is `SealWithLabel`/`OpenWithLabel`, in the TreeKEM plan, next to the type
+it returns.
 
 **From the Tree math plan (wave 1), package `mls`:**
 
 ```go
 type LeafIndex uint32
 type NodeIndex uint32
-type TreeSize uint32
+type LeafCount uint32
+const MaxLeafCount LeafCount = 1 << 31
+
 func (self LeafIndex) NodeIndex() NodeIndex
-func CommonAncestor(x, y LeafIndex) NodeIndex
-func DirectPath(x NodeIndex, size TreeSize) []NodeIndex
-func (self TreeSize) Root() NodeIndex
+func (self NodeIndex) Level() uint32
+func NodeWidth(n LeafCount) uint32
+
+func Root(n LeafCount) (NodeIndex, error)
+func DirectPath(x NodeIndex, n LeafCount) ([]NodeIndex, error)
+func CommonAncestor(x NodeIndex, y NodeIndex) NodeIndex
 ```
 
-**From the TreeKEM plan (wave 2), package `mls`** (the ratchet tree, leaf nodes and key packages):
+`TreeSize`, `(TreeSize).Root()`, single-valued `Root`/`DirectPath` and
+`CommonAncestor(x, y LeafIndex)` are all deleted from this plan (**C3**).
+
+**From the TreeKEM plan (wave 2), package `mls`** — registry enums, extensions, credentials, leaf
+nodes, **KeyPackage**, the ratchet tree and TreeKEM:
 
 ```go
+type ProtocolVersion uint16
+const ProtocolVersionMls10 ProtocolVersion = 0x0001
+type CredentialType uint16
+const CredentialTypeBasic CredentialType = 0x0001
+type ProposalType uint16
+const (
+    ProposalTypeAdd                    ProposalType = 0x0001
+    ProposalTypeUpdate                 ProposalType = 0x0002
+    ProposalTypeRemove                 ProposalType = 0x0003
+    ProposalTypePreSharedKey           ProposalType = 0x0004
+    ProposalTypeReInit                 ProposalType = 0x0005
+    ProposalTypeExternalInit           ProposalType = 0x0006
+    ProposalTypeGroupContextExtensions ProposalType = 0x0007
+)
 type ExtensionType uint16
+const (
+    ExtensionTypeRatchetTree             ExtensionType = 0x0002
+    ExtensionTypeRequiredCapabilities    ExtensionType = 0x0003
+    ExtensionTypeExternalSenders         ExtensionType = 0x0004
+    ExtensionTypeUrmessageGroupPolicy    ExtensionType = 0xF001
+    ExtensionTypeUrmessageLeafKeys       ExtensionType = 0xF002
+    ExtensionTypeUrmessageOwnerSuccessor ExtensionType = 0xF003
+)
+
 type Extension struct {
-    ExtensionType ExtensionType `tls:"head=varint"`   // wire: uint16 then opaque<V>
-    ExtensionData []byte        `tls:"head=varint"`
+    ExtensionType ExtensionType
+    ExtensionData []byte
 }
-type Credential struct{ CredentialType CredentialType; Identity []byte }
-type Capabilities struct{ Versions []ProtocolVersion; CipherSuites []CipherSuite; Extensions []ExtensionType; Proposals []ProposalType; Credentials []CredentialType }
+func (self *Extension) MarshalMLS(w *syntax.Writer) error
+func (self *Extension) UnmarshalMLS(r *syntax.Reader) error
+func WriteExtensions(w *syntax.Writer, exts []Extension) error
+func ReadExtensions(r *syntax.Reader) ([]Extension, error)
+func FindExtension(exts []Extension, t ExtensionType) ([]byte, bool)
+
+type Capabilities struct {
+    Versions     []ProtocolVersion
+    CipherSuites []CipherSuite
+    Extensions   []ExtensionType
+    Proposals    []ProposalType
+    Credentials  []CredentialType
+}
+func (self *Capabilities) Supports(rc *RequiredCapabilities) error
+type RequiredCapabilities struct {
+    ExtensionTypes  []ExtensionType
+    ProposalTypes   []ProposalType
+    CredentialTypes []CredentialType
+}
+type Credential struct {
+    CredentialType CredentialType
+    Identity       []byte
+}
+func BasicCredential(identity []byte) Credential
+
 type LeafNodeSource uint8
 const (
     LeafNodeSourceKeyPackage LeafNodeSource = 1
     LeafNodeSourceUpdate     LeafNodeSource = 2
     LeafNodeSourceCommit     LeafNodeSource = 3
 )
+type Lifetime struct{ NotBefore uint64; NotAfter uint64 }
 type LeafNode struct {
     EncryptionKey  HpkePublicKey
     SignatureKey   SignaturePublicKey
     Credential     Credential
     Capabilities   Capabilities
     LeafNodeSource LeafNodeSource
-    Lifetime       *Lifetime
+    Lifetime       Lifetime
     ParentHash     []byte
-    Extensions     []Extension `tls:"head=varint"`
-    Signature      []byte      `tls:"head=varint"`
+    Extensions     []Extension
+    Signature      []byte
 }
-func (self *LeafNode) Validate(crypto CryptoProvider, groupId []byte, leaf LeafIndex, source LeafNodeSource, exts []Extension, now time.Time) error
-func NewLeafNode(crypto CryptoProvider, signer SignaturePrivateKey, cred Credential, encKey HpkePublicKey, caps Capabilities, exts []Extension) (*LeafNode, error)
+func (self *LeafNode) MarshalMLS(w *syntax.Writer) error
+func (self *LeafNode) UnmarshalMLS(r *syntax.Reader) error
+func (self *LeafNode) Clone() *LeafNode
+func NewLeafNode(crypto CryptoProvider, signer SignaturePrivateKey, cred Credential,
+    encKey HpkePublicKey, caps Capabilities, exts []Extension) (*LeafNode, error)
+func (self *LeafNode) Sign(crypto CryptoProvider, signer SignaturePrivateKey, groupId []byte, leafIndex LeafIndex) error
+func (self *LeafNode) VerifySignature(crypto CryptoProvider, groupId []byte, leafIndex LeafIndex) error
+type LeafValidationContext struct {
+    Crypto          CryptoProvider
+    Suite           CipherSuite
+    GroupId         []byte
+    LeafIndex       LeafIndex
+    ExpectedSource  LeafNodeSource
+    RequiredCaps    *RequiredCapabilities
+    GroupExtensions []Extension
+    NowMs           uint64        // 0 skips the lifetime check
+    ClockSkewMs     uint64
+}
+func (self *LeafNode) Validate(ctx *LeafValidationContext) error
+
 type KeyPackage struct {
     Version     ProtocolVersion
     CipherSuite CipherSuite
     InitKey     HpkePublicKey
     LeafNode    LeafNode
-    Extensions  []Extension `tls:"head=varint"`
-    Signature   []byte      `tls:"head=varint"`
+    Extensions  []Extension
+    Signature   []byte
 }
-func (self *KeyPackage) Ref(crypto CryptoProvider) ([]byte, error)   // MakeKeyPackageRef
+func (self *KeyPackage) MarshalMLS(w *syntax.Writer) error
+func (self *KeyPackage) UnmarshalMLS(r *syntax.Reader) error
+func NewKeyPackage(crypto CryptoProvider, suite CipherSuite, cred Credential,
+    caps Capabilities, exts []Extension) (kp *KeyPackage, initPriv HpkePrivateKey,
+    encPriv HpkePrivateKey, err error)
+func (self *KeyPackage) Ref(crypto CryptoProvider) ([]byte, error)
 func (self *KeyPackage) Validate(crypto CryptoProvider, suite CipherSuite, now time.Time) error
-type RequiredCapabilities struct {
-    ExtensionTypes  []ExtensionType `tls:"head=varint"`
-    ProposalTypes   []ProposalType  `tls:"head=varint"`
-    CredentialTypes []CredentialType `tls:"head=varint"`
-}
-func (self *Capabilities) Supports(rc *RequiredCapabilities) error
 
 type RatchetTree struct{ /* opaque */ }
-func NewRatchetTree(crypto CryptoProvider) *RatchetTree
+func NewRatchetTree() *RatchetTree
+func (self *RatchetTree) MarshalMLS(w *syntax.Writer) error
+func (self *RatchetTree) UnmarshalMLS(r *syntax.Reader) error
+func UnmarshalRatchetTree(data []byte) (*RatchetTree, error)
+func (self *RatchetTree) LeafWidth() LeafCount
+func (self *RatchetTree) NodeWidth() uint32
+func (self *RatchetTree) Leaf(i LeafIndex) *LeafNode          // nil when blank
 func (self *RatchetTree) Clone() *RatchetTree
-func (self *RatchetTree) AddLeaf(leaf *LeafNode) (LeafIndex, error)
-func (self *RatchetTree) UpdateLeaf(index LeafIndex, leaf *LeafNode) error
-func (self *RatchetTree) RemoveLeaf(index LeafIndex) error
-func (self *RatchetTree) LeafNode(index LeafIndex) (*LeafNode, bool)
-func (self *RatchetTree) Size() TreeSize
+func (self *RatchetTree) Members() []LeafIndex
+func (self *RatchetTree) MemberCount() uint32
 func (self *RatchetTree) NonBlankLeaves() []LeafIndex
-func (self *RatchetTree) RootHash() ([]byte, error)
-func (self *RatchetTree) Encode() ([]byte, error)                       // optional<Node> nodes<V>
-func ParseRatchetTree(crypto CryptoProvider, data []byte) (*RatchetTree, error)
-func (self *RatchetTree) Validate(groupId []byte, exts []Extension, now time.Time) error
 func (self *RatchetTree) FindLeafBySignatureKey(key SignaturePublicKey) (LeafIndex, bool)
 func (self *RatchetTree) EncryptionKeyInUse(key HpkePublicKey) bool
-func (self *RatchetTree) HasTrailingBlankNodes() bool                    // ValSem300
+func (self *RatchetTree) HasTrailingBlankNodes() bool
+func (self *RatchetTree) AddLeaf(leaf *LeafNode) (LeafIndex, error)
+func (self *RatchetTree) UpdateLeaf(i LeafIndex, leaf *LeafNode) error
+func (self *RatchetTree) RemoveLeaf(i LeafIndex) error
+func (self *RatchetTree) FilteredDirectPath(i LeafIndex) ([]NodeIndex, error)
+func (self *RatchetTree) TreeHash(crypto CryptoProvider) ([]byte, error)
+type TreeValidationContext struct {
+    Crypto          CryptoProvider
+    Suite           CipherSuite
+    GroupId         []byte
+    RequiredCaps    *RequiredCapabilities
+    GroupExtensions []Extension
+    NowMs           uint64
+    ClockSkewMs     uint64
+}
+func (self *RatchetTree) Validate(ctx *TreeValidationContext) error
+func (self *RatchetTree) ValidateAgainstContext(ctx *TreeValidationContext, gc *GroupContext) error
 
+type HpkeCiphertext struct{ KemOutput []byte; Ciphertext []byte }
 type UpdatePathNode struct {
-    EncryptionKey HpkePublicKey
-    EncryptedPathSecret []HPKECiphertext `tls:"head=varint"`
+    EncryptionKey       HpkePublicKey
+    EncryptedPathSecret []HpkeCiphertext
 }
 type UpdatePath struct {
     LeafNode LeafNode
-    Nodes    []UpdatePathNode `tls:"head=varint"`
+    Nodes    []UpdatePathNode
 }
-type PathSecrets struct{ /* opaque */ }
-func (self *PathSecrets) SecretAt(node NodeIndex) ([]byte, bool)
-func (self *PathSecrets) CommitSecret() []byte
-func (self *RatchetTree) CreateUpdatePath(from LeafIndex, signer SignaturePrivateKey,
-    groupContext []byte, exclude []LeafIndex) (*UpdatePath, *PathSecrets, HpkePrivateKey, error)
-func (self *RatchetTree) ApplyUpdatePath(from LeafIndex, path *UpdatePath, own LeafIndex,
-    ownPriv HpkePrivateKey, groupContext []byte, exclude []LeafIndex) (commitSecret []byte, err error)
-func (self *RatchetTree) MergeUpdatePathPublic(from LeafIndex, path *UpdatePath) error
-func PathSecretToNodeKeyPair(crypto CryptoProvider, pathSecret []byte) (HpkePrivateKey, HpkePublicKey, error)
-func DerivePathSecretNext(crypto CryptoProvider, pathSecret []byte) []byte
+func (self *UpdatePath) MarshalMLS(w *syntax.Writer) error
+func (self *UpdatePath) UnmarshalMLS(r *syntax.Reader) error
+
+type TreeKEMPrivate struct {
+    LeafIndex      LeafIndex
+    EncryptionPriv HpkePrivateKey
+    PathSecrets    map[NodeIndex][]byte
+}
+func NewTreeKEMPrivate(i LeafIndex, encryptionPriv HpkePrivateKey) *TreeKEMPrivate
+func (self *TreeKEMPrivate) Clone() *TreeKEMPrivate
+func (self *TreeKEMPrivate) NodePrivateKey(crypto CryptoProvider, x NodeIndex) (HpkePrivateKey, bool, error)
+func (self *TreeKEMPrivate) Consistent(crypto CryptoProvider, tree *RatchetTree) error
+func DerivePathSecrets(crypto CryptoProvider, initial []byte, count int) [][]byte
+func DeriveNodeKeyPair(crypto CryptoProvider, pathSecret []byte) (HpkePrivateKey, HpkePublicKey, error)
+
+type UpdatePathPlan struct {
+    Path         []NodeIndex
+    PathSecrets  [][]byte
+    PublicKeys   []HpkePublicKey
+    LeafNode     *LeafNode
+    CommitSecret []byte
+    Private      *TreeKEMPrivate
+}
+func (self *RatchetTree) CreateUpdatePathSecrets(crypto CryptoProvider, sender LeafIndex,
+    signer SignaturePrivateKey, groupId []byte) (*UpdatePathPlan, error)
+func (self *RatchetTree) EncryptUpdatePath(crypto CryptoProvider, plan *UpdatePathPlan,
+    sender LeafIndex, groupContext []byte, exclude []LeafIndex) (*UpdatePath, error)
+func (self *RatchetTree) MergeUpdatePath(crypto CryptoProvider, sender LeafIndex, path *UpdatePath) error
+type PathDecryptResult struct {
+    CommitSecret []byte
+    Private      *TreeKEMPrivate
+}
+func (self *RatchetTree) DecryptUpdatePath(crypto CryptoProvider, sender LeafIndex,
+    path *UpdatePath, groupContext []byte, priv *TreeKEMPrivate,
+    exclude []LeafIndex) (*PathDecryptResult, error)
+func CheckUpdatePathKeyUniqueness(tree *RatchetTree, path *UpdatePath) error
+
+func SealWithLabel(crypto CryptoProvider, pub HpkePublicKey, label string,
+    context []byte, plaintext []byte) (*HpkeCiphertext, error)
+func OpenWithLabel(crypto CryptoProvider, priv HpkePrivateKey, label string,
+    context []byte, ct *HpkeCiphertext) ([]byte, error)
+
+const AlgIdXwing uint16 = 0x0014
+const XwingPublicKeyLen = 1216
+type LeafKeysExtension struct {
+    AlgId          uint16
+    DeviceXwingPub []byte
+}
+func (self *LeafKeysExtension) Encode() (Extension, error)
+func ParseLeafKeysExtension(data []byte) (*LeafKeysExtension, error)
 ```
+
+**The TreeKEM ordering contract is normative** and Task 13 is structured around it, because the HPKE
+context is the *new* epoch's GroupContext and its `tree_hash` covers the path's own public keys:
+
+1. `CreateUpdatePathSecrets` — mutates the tree, returns the plan
+2. `TreeHash` — now reflects the applied path; the caller builds the new `GroupContext`
+3. `EncryptUpdatePath` — encrypts under that serialized GroupContext
+
+Receiving side: `MergeUpdatePath` → `TreeHash` → build GroupContext → `DecryptUpdatePath`.
 
 **From the Key schedule and secret tree plan (wave 2), package `mls`:**
 
@@ -189,35 +402,72 @@ func DerivePathSecretNext(crypto CryptoProvider, pathSecret []byte) []byte
 type GroupContext struct {
     Version                 ProtocolVersion
     CipherSuite             CipherSuite
-    GroupId                 []byte      `tls:"head=varint"`
+    GroupId                 []byte
     Epoch                   uint64
-    TreeHash                []byte      `tls:"head=varint"`
-    ConfirmedTranscriptHash []byte      `tls:"head=varint"`
-    Extensions              []Extension `tls:"head=varint"`
+    TreeHash                []byte
+    ConfirmedTranscriptHash []byte
+    Extensions              []Extension
 }
-func (self *GroupContext) Marshal() ([]byte, error)
+func (self *GroupContext) MarshalMLS(w *syntax.Writer) error
+func (self *GroupContext) UnmarshalMLS(r *syntax.Reader) error
+func (self *GroupContext) Clone() *GroupContext
+
 type EpochSecrets struct {
-    JoinerSecret       []byte
-    WelcomeSecret      []byte
-    SenderDataSecret   []byte
-    EncryptionSecret   []byte
-    ExporterSecret     []byte
-    ExternalSecret     []byte
-    ConfirmationKey    []byte
-    MembershipKey      []byte
+    SenderData         []byte
+    Encryption         []byte
+    Exporter           []byte
+    External           []byte
+    Confirmation       []byte
+    Membership         []byte
     ResumptionPsk      []byte
     EpochAuthenticator []byte
     InitSecret         []byte
 }
-func DeriveEpochSecrets(crypto CryptoProvider, initSecretPrev, commitSecret, pskSecret, groupContext []byte) (*EpochSecrets, error)
-func DeriveEpochSecretsFromJoiner(crypto CryptoProvider, joinerSecret, pskSecret, groupContext []byte) (*EpochSecrets, error)
-func DeriveEpochSecretsFromEpochSecret(crypto CryptoProvider, epochSecret []byte) (*EpochSecrets, error)
-func WelcomeKeyNonce(crypto CryptoProvider, welcomeSecret []byte) (key, nonce []byte)
+type KeySchedule struct{ /* unexported */ }
+const PastEpochWindow uint64 = 32
+
+func ZeroSecret(crypto CryptoProvider) []byte
+func NewKeySchedule(crypto CryptoProvider, initSecretPrev []byte, commitSecret []byte, pskSecret []byte, groupContext *GroupContext) (*KeySchedule, error)
+func NewKeyScheduleFromJoiner(crypto CryptoProvider, joinerSecret []byte, pskSecret []byte, groupContext *GroupContext) (*KeySchedule, error)
+func NewKeyScheduleFromEpochSecret(crypto CryptoProvider, epochSecret []byte, groupContext *GroupContext) (*KeySchedule, error)
+func WelcomeKeyNonce(crypto CryptoProvider, welcomeSecret []byte) (key []byte, nonce []byte, err error)
 func EmptyPskSecret(crypto CryptoProvider) []byte
-func (self *EpochSecrets) Export(crypto CryptoProvider, label string, context []byte, length int) ([]byte, error)
-type SecretTree struct{ /* opaque */ }
-func NewSecretTree(crypto CryptoProvider, size TreeSize, encryptionSecret []byte) *SecretTree
+
+func (self *KeySchedule) JoinerSecret() []byte
+func (self *KeySchedule) WelcomeSecret() []byte
+func (self *KeySchedule) Secrets() *EpochSecrets
+func (self *KeySchedule) GroupContextBytes() []byte
+func (self *KeySchedule) Export(label string, context []byte, length int) ([]byte, error)
+func (self *KeySchedule) ConfirmationTag(confirmedTranscriptHash []byte) []byte
+func (self *KeySchedule) VerifyConfirmationTag(confirmedTranscriptHash []byte, tag []byte) bool
+func (self *KeySchedule) MembershipTag(authenticatedContentTbm []byte) []byte
+func (self *KeySchedule) Zeroize()
+
+type TranscriptHashes struct {
+    Confirmed []byte
+    Interim   []byte
+}
+func InitialTranscriptHashes() *TranscriptHashes
+func (self *TranscriptHashes) Clone() *TranscriptHashes
+func (self *TranscriptHashes) Update(crypto CryptoProvider, confirmedTranscriptHashInput []byte, confirmationTag []byte) error
+func (self *TranscriptHashes) SetFromGroupInfo(crypto CryptoProvider, confirmedTranscriptHash []byte, confirmationTag []byte) error
+func ConfirmedTranscriptHash(crypto CryptoProvider, interimBefore []byte, confirmedTranscriptHashInput []byte) []byte
+func InterimTranscriptHash(crypto CryptoProvider, confirmedAfter []byte, confirmationTag []byte) ([]byte, error)
+
+type SecretTree struct{ /* unexported, guarded by stateLock */ }
+func NewSecretTree(crypto CryptoProvider, leafCount LeafCount, encryptionSecret []byte) (*SecretTree, error)
+func (self *SecretTree) LeafCount() LeafCount
+func (self *SecretTree) Zeroize()
+
+type PreSharedKeyId struct{ ... }
+func (self *PreSharedKeyId) Validate(crypto CryptoProvider) error
 ```
+
+`DeriveEpochSecrets*`, `(*EpochSecrets).Export`, an `EpochSecrets` with eleven differently-named
+fields, and a `WelcomeKeyNonce` without an error return are all deleted from this plan.
+`ConfirmedTranscriptHash`/`InterimTranscriptHash` belong to the key schedule plan, not to framing,
+and they take `confirmedTranscriptHashInput []byte` — this plan bridges with
+`authContent.ConfirmedTranscriptHashInput()`.
 
 **From the Framing and message protection plan (wave 3), package `mls`:**
 
@@ -238,61 +488,190 @@ const (
 )
 type SenderType uint8
 const (
-    SenderTypeMember SenderType = 1
-    SenderTypeExternal SenderType = 2
+    SenderTypeMember            SenderType = 1
+    SenderTypeExternal          SenderType = 2
     SenderTypeNewMemberProposal SenderType = 3
-    SenderTypeNewMemberCommit SenderType = 4
+    SenderTypeNewMemberCommit   SenderType = 4
 )
-type Sender struct{ SenderType SenderType; LeafIndex LeafIndex; SenderIndex uint32 }
+type Sender struct {
+    SenderType  SenderType
+    LeafIndex   LeafIndex
+    SenderIndex uint32
+}
 type FramedContent struct {
-    GroupId           []byte `tls:"head=varint"`
+    GroupId           []byte
     Epoch             uint64
     Sender            Sender
-    AuthenticatedData []byte `tls:"head=varint"`
+    AuthenticatedData []byte
     ContentType       ContentType
-    ApplicationData   []byte    // ContentTypeApplication
-    Proposal          *Proposal // ContentTypeProposal
-    Commit            *Commit   // ContentTypeCommit
+    ApplicationData   []byte
+    Proposal          *Proposal
+    Commit            *Commit
 }
-type FramedContentAuthData struct{ Signature []byte; ConfirmationTag []byte }
+type FramedContentAuthData struct {
+    Signature       []byte
+    ConfirmationTag []byte
+}
 type AuthenticatedContent struct {
     WireFormat WireFormat
     Content    FramedContent
     Auth       FramedContentAuthData
 }
-func SignFramedContent(crypto CryptoProvider, priv SignaturePrivateKey, wireFormat WireFormat,
-    content *FramedContent, groupContext *GroupContext) (*AuthenticatedContent, error)
-func (self *AuthenticatedContent) VerifySignature(crypto CryptoProvider, pub SignaturePublicKey,
-    groupContext *GroupContext) error
+func (self *AuthenticatedContent) ConfirmedTranscriptHashInput() ([]byte, error)
 func (self *AuthenticatedContent) ProposalRef(crypto CryptoProvider) (ProposalRef, error)
-type ProposalRef []byte
-type PrivateMessage struct{ /* opaque */ }
-type PublicMessage struct{ /* opaque */ }
-func ProtectPrivate(crypto CryptoProvider, secretTree *SecretTree, senderDataSecret []byte,
-    groupContext *GroupContext, content *AuthenticatedContent, padding int) (*PrivateMessage, error)
-func UnprotectPrivate(crypto CryptoProvider, secretTree *SecretTree, senderDataSecret []byte,
-    groupContext *GroupContext, message *PrivateMessage) (*AuthenticatedContent, error)
+type PublicMessage struct{ Content FramedContent; Auth FramedContentAuthData; MembershipTag []byte }
+func (self *PublicMessage) AuthenticatedContent() *AuthenticatedContent
+type PrivateMessage struct {
+    GroupId             []byte
+    Epoch               uint64
+    ContentType         ContentType
+    AuthenticatedData   []byte
+    EncryptedSenderData []byte
+    Ciphertext          []byte
+}
 type MLSMessage struct {
     Version        ProtocolVersion
     WireFormat     WireFormat
     PublicMessage  *PublicMessage
     PrivateMessage *PrivateMessage
-    Welcome        *Welcome    // produced by Task 14 of THIS plan
-    GroupInfo      *GroupInfo  // produced by Task 13 of THIS plan
+    Welcome        *Welcome
+    GroupInfo      *GroupInfo
     KeyPackage     *KeyPackage
 }
+func MarshalMLSMessage(message *MLSMessage) ([]byte, error)
 func ParseMLSMessage(data []byte) (*MLSMessage, error)
-func (self *MLSMessage) Marshal() ([]byte, error)
-func ConfirmedTranscriptHash(crypto CryptoProvider, interimPrev []byte, content *AuthenticatedContent) ([]byte, error)
-func InterimTranscriptHash(crypto CryptoProvider, confirmed, confirmationTag []byte) ([]byte, error)
+
+func FramedContentTBSBytes(wireFormat WireFormat, content *FramedContent, groupContext []byte) ([]byte, error)
+func AuthenticatedContentTBMBytes(authContent *AuthenticatedContent, groupContext []byte) ([]byte, error)
+type MessageKeySource interface {
+    NextMessageKey(contentType ContentType, leaf LeafIndex) (key, nonce []byte, generation uint32, err error)
+    MessageKey(contentType ContentType, leaf LeafIndex, generation uint32) (key, nonce []byte, err error)
+    EraseMessageKey(contentType ContentType, leaf LeafIndex, generation uint32)
+}
+type SignatureKeyResolver func(sender Sender) (SignaturePublicKey, error)
+func StaticSignatureKey(pub SignaturePublicKey) SignatureKeyResolver
+const PaddingSizeV1 = 0
+
+func SignAuthenticatedContent(crypto CryptoProvider, priv SignaturePrivateKey,
+    wireFormat WireFormat, content *FramedContent, groupContext []byte) (*AuthenticatedContent, error)
+func VerifyAuthenticatedContent(crypto CryptoProvider, pub SignaturePublicKey,
+    authContent *AuthenticatedContent, groupContext []byte) error
+func ComputeMembershipTag(crypto CryptoProvider, membershipKey []byte,
+    authContent *AuthenticatedContent, groupContext []byte) ([]byte, error)
+func SealPublicMessage(crypto CryptoProvider, membershipKey []byte,
+    authContent *AuthenticatedContent, groupContext []byte) (*PublicMessage, error)
+func OpenPublicMessage(crypto CryptoProvider, membershipKey []byte, message *PublicMessage,
+    resolve SignatureKeyResolver, groupContext []byte) (*AuthenticatedContent, error)
+func SealPrivateMessage(crypto CryptoProvider, keys MessageKeySource, senderDataSecret []byte,
+    authContent *AuthenticatedContent, paddingSize int) (*PrivateMessage, error)
+func OpenPrivateMessage(crypto CryptoProvider, keys MessageKeySource, senderDataSecret []byte,
+    message *PrivateMessage, resolve SignatureKeyResolver, groupContext []byte) (*AuthenticatedContent, error)
+func CheckFramedContentContext(content *FramedContent, groupId []byte, epoch uint64) error
+func CheckSenderLeaf(sender Sender, leafOccupied func(LeafIndex) bool) error
+
+// the proposal / commit wire structs — the framing plan owns these, not this plan
+type Add struct{ KeyPackage KeyPackage }
+type Update struct{ LeafNode LeafNode }
+type Remove struct{ Removed LeafIndex }
+type PreSharedKey struct{ Psk PreSharedKeyId }
+type ReInit struct{ GroupId []byte; Version ProtocolVersion; CipherSuite CipherSuite; Extensions []Extension }
+type ExternalInit struct{ KemOutput []byte }
+type GroupContextExtensions struct{ Extensions []Extension }
+type Proposal struct {
+    ProposalType           ProposalType
+    Add                    *Add
+    Update                 *Update
+    Remove                 *Remove
+    PreSharedKey           *PreSharedKey
+    ReInit                 *ReInit
+    ExternalInit           *ExternalInit
+    GroupContextExtensions *GroupContextExtensions
+    UnknownType            ProposalType
+    UnknownBody            []byte
+}
+func (self *Proposal) MarshalMLS(w *syntax.Writer) error
+func (self *Proposal) UnmarshalMLS(r *syntax.Reader) error
+type ProposalOrRefType uint8
+const (
+    ProposalOrRefTypeReserved  ProposalOrRefType = 0
+    ProposalOrRefTypeProposal  ProposalOrRefType = 1
+    ProposalOrRefTypeReference ProposalOrRefType = 2
+)
+type ProposalRef []byte
+type ProposalOrRef struct {
+    Type      ProposalOrRefType
+    Proposal  *Proposal
+    Reference ProposalRef
+}
+type Commit struct {
+    Proposals []ProposalOrRef
+    Path      *UpdatePath
+}
+func (self *Commit) MarshalMLS(w *syntax.Writer) error
+func (self *Commit) UnmarshalMLS(r *syntax.Reader) error
+
+// the Welcome / GroupInfo wire structs and codecs — also the framing plan's
+type GroupInfo struct {
+    GroupContext    GroupContext
+    Extensions      []Extension
+    ConfirmationTag []byte
+    Signer          LeafIndex
+    Signature       []byte
+}
+func (self *GroupInfo) MarshalMLS(w *syntax.Writer) error
+func (self *GroupInfo) UnmarshalMLS(r *syntax.Reader) error
+type GroupInfoTBS struct {
+    GroupContext    GroupContext
+    Extensions      []Extension
+    ConfirmationTag []byte
+    Signer          LeafIndex
+}
+func (self *GroupInfoTBS) MarshalMLS(w *syntax.Writer) error
+type PathSecret struct{ PathSecret []byte }
+type GroupSecrets struct {
+    JoinerSecret []byte
+    PathSecret   *PathSecret
+    Psks         []PreSharedKeyId
+}
+func (self *GroupSecrets) MarshalMLS(w *syntax.Writer) error
+func (self *GroupSecrets) UnmarshalMLS(r *syntax.Reader) error
+type EncryptedGroupSecrets struct {
+    NewMember             []byte
+    EncryptedGroupSecrets HpkeCiphertext
+}
+type Welcome struct {
+    CipherSuite        CipherSuite
+    Secrets            []EncryptedGroupSecrets
+    EncryptedGroupInfo []byte
+}
+func (self *Welcome) MarshalMLS(w *syntax.Writer) error
+func (self *Welcome) UnmarshalMLS(r *syntax.Reader) error
+
+var ErrUnknownWireFormat, ErrUnsupportedVersion, ErrWireFormatMismatch, ErrSenderNotMember error
 ```
+
+**Ownership moves this plan adopts.** `Proposal`, `ProposalOrRef` and `Commit` (structs *and*
+codecs), and `GroupInfo`, `GroupInfoTBS`, `PathSecret`, `GroupSecrets`, `EncryptedGroupSecrets` and
+`Welcome` (structs *and* codecs), all belong to the framing plan. This plan **declares none of
+them** — it keeps the *logic*: the proposal cache, the ValSem checks, `CommitPathRequired`,
+`StagedCommit`, `(*GroupInfo).Sign`, `(*GroupInfo).Verify`, `BuildWelcome`, `WelcomeJoiner`,
+`JoinFromWelcome` and the whole `Group` state machine. `KeyPackage` and `LeafKeysExtension` belong to
+the TreeKEM plan; this plan keeps only `LeafKeysOf` and the `StateStore` key-package persistence.
+The v1 refusal of psk / reinit / external_init is a **profile** decision, not a codec decision, and
+is made by calling `(*Profile).CheckProposalType` at this plan's parse boundary.
 
 **From the Validation and interop harness plan (wave 1), package `mls`:**
 
 ```go
-// errors.go — one typed error per ValSem code. This plan references, and does not define:
-var ErrWrongGroupId, ErrWrongEpoch, ErrBlankSenderLeaf, ErrApplicationMustBeCiphertext error
-var ErrDecryptFailed, ErrMissingConfirmationTag, ErrBadSignature error
+type ValSemCode uint16
+func ValSem(code ValSemCode, detail error) error
+
+// framing, ValSem002-011
+var ErrWrongGroupId, ErrWrongEpoch, ErrBlankSenderLeaf error
+var ErrApplicationMustBeCiphertext, ErrDecryptFailed error
+var ErrMissingConfirmationTag, ErrBadSignature, ErrNonZeroPadding error
+
+// proposals and commits, ValSem101-113 / 200-209 / 300
 var ErrDuplicateSignatureKey, ErrDuplicateInitKey, ErrDuplicateEncryptionKey error
 var ErrInitEqualsEncryptionKey, ErrSuiteMismatch, ErrMissingRequiredCapability error
 var ErrDuplicateRemove, ErrRemoveNonMember, ErrSelfUpdateInCommit error
@@ -300,19 +679,49 @@ var ErrUpdateSenderNotMember, ErrUnsupportedProposalType error
 var ErrSelfRemoveInCommit, ErrMissingPath, ErrPathLength, ErrPathDecrypt error
 var ErrPathKeyMismatch, ErrBadConfirmationTag, ErrMultipleGCE error
 var ErrUnsupportedGroupExtension, ErrTrailingBlankNodes error
-var ErrProfileExternalCommit, ErrProfileExternalSender, ErrProfilePSK error
-var ErrProfileReInit, ErrProfileBranch, ErrProfileCredentialType, ErrProfileCiphersuite error
 
-// profile.go — the v1 profile gate
-type Profile struct{ /* opaque */ }
+// past-epoch window and PSK, ValSem400-403
+var ErrPastEpochRetained, ErrPskNonceLength, ErrPskType, ErrDuplicatePsk error
+
+// the v1 narrow profile
+var ErrProfileExternalCommit, ErrProfileExternalSender, ErrProfilePsk error
+var ErrProfileReInit, ErrProfileBranch error
+var ErrProfileCredentialType, ErrProfileCiphersuite error
+
+// profile.go — the v1 profile gate, owned by the validation plan
+type Profile struct {
+    AllowPublicMessage bool
+    /* unexported allow-sets */
+}
 func DefaultProfile() *Profile
 func (self *Profile) CheckVersion(v ProtocolVersion) error
+func (self *Profile) CheckCiphersuiteForCreate(s CipherSuite) error
 func (self *Profile) CheckProposalType(t ProposalType) error
+func (self *Profile) CheckCredentialType(t CredentialType) error
 func (self *Profile) CheckGroupExtension(t ExtensionType) error
 func (self *Profile) CheckLeafExtension(t ExtensionType) error
-func (self *Profile) CheckCiphersuiteForCreate(s CipherSuite) error
 func (self *Profile) CheckWireFormat(w WireFormat) error
+
+// the vector registry — one registration per family this plan owns
+type VectorFamily struct {
+    Number   int
+    Name     string
+    File     string
+    Slice    string
+    Verify   func(t *testing.T, raw json.RawMessage)
+    Generate func(t *testing.T) json.RawMessage
+}
+func RegisterVectorFamily(family VectorFamily)
+func LoadVectorFile(t *testing.T, file string) []json.RawMessage
+func MustHex(t *testing.T, s string) []byte
+func HexOf(b []byte) string
 ```
+
+`ErrProfilePSK` is spelled `ErrProfilePsk`; `ErrVectorTooLong` is `syntax.ErrLengthExceedsMax`; this
+plan's private `mustHex` is deleted in favour of `MustHex`, and every vector task calls
+`RegisterVectorFamily` from an `init()` in its own `*_kat_test.go` and deletes its number from the
+validation plan's `expectedPendingFamilies` in the same commit. This plan owns vector families
+**8 (welcome), 9 (tree-operations), 13, 14 and 15 (passive-client)**.
 
 ---
 
@@ -320,26 +729,25 @@ func (self *Profile) CheckWireFormat(w WireFormat) error
 
 | File | Single responsibility |
 |---|---|
-| `connect/mls/errors_lifecycle.go` | **Create.** The typed errors this plan owns that are not ValSem codes: group size, device count, removal authority, succession, welcome and epoch errors. `errors.go` (ValSem codes) belongs to the Validation plan. |
-| `connect/mls/leaf_keys.go` | **Create.** `urmessage_leaf_keys` (0xF002): the X-Wing device key carried in the LeafNode. Encode, parse, extract from a leaf. |
+| `connect/mls/errors_lifecycle.go` | **Create.** The typed errors this plan owns that are not ValSem codes: group size, device count, removal authority, succession, welcome and epoch errors, plus `MaxGroupMembers` and `MaxDeviceLeavesPerIdentity`. `errors.go` (ValSem codes and the five `ErrProfile*` refusals) belongs to the Validation plan; `PastEpochWindow` belongs to the Key schedule plan. |
+| `connect/mls/leaf_keys.go` | **Create.** `LeafKeysOf(leaf)` only. `LeafKeysExtension`, `AlgIdXwing` and `XwingPublicKeyLen` belong to the TreeKEM plan, because `LeafNode.Validate` range-checks the extension. |
 | `connect/mls/group_policy.go` | **Create.** `urmessage_group_policy` (0xF001): roles, retention policy, disappearing buckets, server id. Canonical ordering and role lookup. |
-| `connect/mls/owner_successor.go` | **Create.** `urmessage_owner_successor` (0xF003): the nomination struct, its codec, and the floor constant. |
-| `connect/mls/proposal.go` | **Create.** `ProposalType`, `Add`, `Update`, `Remove`, `GroupContextExtensions`, the `Proposal` variant codec, and the v1 parse gate that refuses psk/reinit/external_init. |
-| `connect/mls/proposal_list.go` | **Create.** `ProposalOrRef`, the proposal cache keyed by `ProposalRef`, resolution of a commit's `ProposalOrRef` vector into a bucketed `ProposalList`. |
+| `connect/mls/owner_successor.go` | **Create.** `urmessage_owner_successor` (0xF003): the nomination struct, its `MarshalMLS`/`UnmarshalMLS` pair, and the floor constant. |
+| `connect/mls/proposal_list.go` | **Create.** The v1 profile gate at this plan's parse boundary, the proposal cache keyed by `ProposalRef`, and resolution of a commit's `ProposalOrRef` vector into a bucketed `ProposalList`. The `Proposal`, `ProposalOrRef` and `Commit` structs and codecs belong to the Framing plan. |
 | `connect/mls/validate_proposals.go` | **Create.** One named func per ValSem code 101–113, plus `ValidateProposalList`. |
 | `connect/mls/apply_proposals.go` | **Create.** RFC 9420 §12.3 application order onto a cloned tree and group context. |
-| `connect/mls/commit.go` | **Create.** The `Commit` struct and codec, the path-required rule, commit construction (§12.4.1), commit processing (§12.4.2), `StagedCommit`, and the URmessage commit gates (size, device count, removal authority, succession). |
-| `connect/mls/validate_commit.go` | **Create.** One named func per ValSem code 200–209 and 300. |
-| `connect/mls/welcome.go` | **Create.** `GroupInfo`, `GroupInfoTBS`, `PathSecret`, `GroupSecrets`, `EncryptedGroupSecrets`, `Welcome`; generation and processing. |
+| `connect/mls/commit.go` | **Create.** `CommitPathRequired`, `CommitOptions`, `CommitResult`, `StagedCommit`, commit construction (§12.4.1), and the URmessage commit gates (size, device count, removal authority, succession). |
+| `connect/mls/validate_commit.go` | **Create.** One named func per ValSem code 200–209 and 300, plus `CheckErrata8745` and `CheckErrata8815`. |
+| `connect/mls/welcome.go` | **Create.** `(*GroupInfo).Sign`, `(*GroupInfo).Verify`, `WelcomeJoiner`, `BuildWelcome`. The `GroupInfo`/`Welcome`/`GroupSecrets` wire structs and codecs belong to the Framing plan. |
 | `connect/mls/succession.go` | **Create.** The countersignature preimage, the quorum arithmetic, and the five §11 promotion conditions. |
-| `connect/mls/group.go` | **Create.** `Group`, `GroupConfig`, `StateStore`, `Member`, `Processed`, `CommitResult`, `JoinKeyMaterial`, `EpochSecretName`; `NewGroup`, `JoinFromWelcome`, `Propose*`, `Commit`, `ProcessMessage`, `ApplyCommit`, `MergePendingCommit`, `ClearPendingCommit`, `Protect`, `Unprotect`, epoch persistence and the past-epoch window. |
+| `connect/mls/group.go` | **Create.** `Group`, `GroupConfig`, `StateStore`, `Member`, `Processed`, `JoinKeyMaterial`, `EpochSecretName`; `NewGroup`, `LoadGroup`, `JoinFromWelcome`, `Propose*`, `Commit`, `ProcessMessage`, `ApplyCommit`, `MergePendingCommit`, `ClearPendingCommit`, `OwnLeafNodeCopy`, `Protect`, `Unprotect`, epoch persistence and the past-epoch window. |
 | `connect/mls/lifecycle_fixtures_test.go` | **Create.** Shared deterministic test fixtures: crypto provider, credentials, leaf nodes, key packages, N-member groups. |
-| `connect/mls/leaf_keys_test.go` `group_policy_test.go` `owner_successor_test.go` `proposal_test.go` `proposal_list_test.go` `validate_proposals_test.go` `apply_proposals_test.go` `commit_test.go` `validate_commit_test.go` `welcome_test.go` `succession_test.go` `group_test.go` | **Create.** One test file per source file. |
-| `connect/mls/welcome_vectors_test.go` | **Create.** The `welcome.json` vector family, verify and generate directions. |
-| `connect/mls/passive_client_vectors_test.go` | **Create.** Vector families 13, 14 and 15 (`passive-client-welcome.json`, `passive-client-handling-commit.json`, `passive-client-random.json`). |
+| `connect/mls/leaf_keys_test.go` `group_policy_test.go` `owner_successor_test.go` `proposal_list_test.go` `validate_proposals_test.go` `apply_proposals_test.go` `commit_test.go` `validate_commit_test.go` `welcome_test.go` `succession_test.go` `group_test.go` | **Create.** One test file per source file. |
+| `connect/mls/welcome_kat_test.go` | **Create.** Vector family 8 (`welcome.json`), verify and generate directions, registered through `RegisterVectorFamily`. |
+| `connect/mls/tree_operations_kat_test.go` | **Create.** Vector family 9 (`tree-operations.json`), moved here from the TreeKEM plan because it is the only family that needs the wave-4 `Proposal` arms. |
+| `connect/mls/passive_client_kat_test.go` | **Create.** Vector families 13, 14 and 15 (`passive-client-welcome.json`, `passive-client-handling-commit.json`, `passive-client-random.json`). |
 | `connect/mls/group_roundtrip_test.go` | **Create.** The gate: multi-member add/update/remove/GCE cycles, join at epoch N, concurrent-commit loser re-derivation, profile refusals end to end. |
-| `connect/mls/testdata/vectors/welcome.json` | **Create.** Vendored from `mlswg/mls-implementations` at the commit pinned in `connect/mls/interop/PINS.md`. |
-| `connect/mls/testdata/vectors/passive-client-*.json` | **Create.** Same provenance. |
+| `connect/mls/testdata/vectors/welcome.json` `tree-operations.json` `passive-client-*.json` | **Consume.** Vendored by the Validation plan's single vendoring task at the commit pinned in `connect/mls/interop/PINS.md`; this plan adds runners only. |
 
 ---
 
@@ -350,38 +758,27 @@ func (self *Profile) CheckWireFormat(w WireFormat) error
 - Test: `connect/mls/lifecycle_fixtures_test.go`
 
 **Interfaces:**
-- Consumes: `mls.CryptoProvider`, `mls.NewCryptoProvider(suite CipherSuite) (CryptoProvider, error)`, `mls.CipherSuiteX25519ChaCha20SHA256Ed25519`, `mls.Credential`, `mls.Capabilities`, `mls.LeafNode`, `mls.NewLeafNode`, `mls.KeyPackage`, `mls.HpkePrivateKey`, `mls.SignaturePrivateKey` — all from the Crypto/HPKE and TreeKEM plans.
+- Consumes: `CryptoProvider`, `NewCryptoProvider(suite CipherSuite) (CryptoProvider, error)`, `CipherSuiteX25519ChaCha20Sha256Ed25519`, `Suites() []CipherSuite`, `SignaturePrivateKey`, `SignaturePublicKey`, `HpkePrivateKey`, `HpkePublicKey` (Crypto/HPKE plan); `Credential`, `BasicCredential(identity []byte) Credential`, `Capabilities`, `Extension`, `ExtensionType`, `ProtocolVersion`, `ProtocolVersionMls10`, `CredentialType`, `CredentialTypeBasic`, `ProposalType`, `LeafNode`, `NewLeafNode`, `LeafKeysExtension`, `AlgIdXwing`, `XwingPublicKeyLen`, `KeyPackage`, `NewKeyPackage` (TreeKEM plan); `PastEpochWindow` (Key schedule plan).
 - Produces:
 ```go
-var ErrGroupSizeExceeded error
-var ErrDeviceLimitExceeded error
-var ErrAdminRemovedByNonOwner error
-var ErrSuccessionDisabled error
-var ErrSuccessionNotNominee error
-var ErrSuccessionQuorum error
-var ErrSuccessionFloor error
-var ErrSuccessionFloorTooShort error
-var ErrNoGroupPolicy error
-var ErrMalformedExtension error
-var ErrDuplicateRoleEntry error
-var ErrRolesNotCanonical error
-var ErrNoOwner error
-var ErrMultipleOwners error
-var ErrWelcomeNoMatchingKeyPackage error
-var ErrWelcomeGroupInfoDecrypt error
-var ErrWelcomeGroupInfoSignature error
-var ErrWelcomeTreeHashMismatch error
-var ErrWelcomeLeafNotFound error
-var ErrWelcomeSuiteMismatch error
-var ErrGroupIdInUse error
-var ErrPendingCommitExists error
-var ErrNoPendingCommit error
-var ErrEpochStale error
-var ErrRemovedFromGroup error
+var ErrGroupSizeExceeded, ErrDeviceLimitExceeded, ErrAdminRemovedByNonOwner error
+var ErrSuccessionDisabled, ErrSuccessionNotNominee, ErrSuccessionQuorum error
+var ErrSuccessionFloor, ErrSuccessionFloorTooShort error
+var ErrNoGroupPolicy, ErrMalformedExtension error
+var ErrDuplicateRoleEntry, ErrRolesNotCanonical, ErrNoOwner, ErrMultipleOwners error
+var ErrWelcomeNoMatchingKeyPackage, ErrWelcomeGroupInfoDecrypt error
+var ErrWelcomeGroupInfoSignature, ErrWelcomeTreeHashMismatch error
+var ErrWelcomeLeafNotFound, ErrWelcomeSuiteMismatch error
+var ErrGroupIdInUse, ErrPendingCommitExists, ErrNoPendingCommit error
+var ErrEpochStale, ErrRemovedFromGroup error
 const MaxGroupMembers = 500
 const MaxDeviceLeavesPerIdentity = 10
-const PastEpochWindow uint64 = 32
 ```
+
+`PastEpochWindow` is **not** declared here — the key schedule plan declares it once and this plan
+references it. Declaring it in both files is a redeclaration compile error in `package mls`.
+`XwingPublicKeyLen` is likewise the TreeKEM plan's, and there is no temporary copy in this file.
+
 - Test fixtures produced for every later task in this plan:
 ```go
 func testCrypto(t *testing.T) CryptoProvider
@@ -393,6 +790,8 @@ type testMember struct {
     SigPub      SignaturePublicKey
     XwingPub    []byte
 }
+func testCapabilities() Capabilities
+func testLeafKeys(t *testing.T, m *testMember) Extension
 func testLeafNode(t *testing.T, crypto CryptoProvider, m *testMember) (*LeafNode, HpkePrivateKey)
 func testKeyPackage(t *testing.T, crypto CryptoProvider, m *testMember) (*KeyPackage, HpkePrivateKey, HpkePrivateKey)
 ```
@@ -423,7 +822,7 @@ type testMember struct {
 // testCrypto returns the v1 ciphersuite provider.
 func testCrypto(t *testing.T) CryptoProvider {
 	t.Helper()
-	crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+	crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
 	if err != nil {
 		t.Fatalf("NewCryptoProvider: %v", err)
 	}
@@ -438,7 +837,7 @@ func testIdentity(t *testing.T, crypto CryptoProvider, name string) *testMember 
 	if err != nil {
 		t.Fatalf("SignatureKeyPair: %v", err)
 	}
-	xwing := make([]byte, XwingPublicKeySize)
+	xwing := make([]byte, XwingPublicKeyLen)
 	if _, err := rand.Read(xwing); err != nil {
 		t.Fatalf("rand: %v", err)
 	}
@@ -449,6 +848,71 @@ func testIdentity(t *testing.T, crypto CryptoProvider, name string) *testMember 
 		SigPub:      sigPub,
 		XwingPub:    xwing,
 	}
+}
+
+// testCapabilities is what every v1 leaf in these fixtures advertises. It is the
+// same set v1Capabilities builds in group.go, kept here so fixtures do not
+// depend on a GroupConfig.
+func testCapabilities() Capabilities {
+	return Capabilities{
+		Versions:     []ProtocolVersion{ProtocolVersionMls10},
+		CipherSuites: Suites(),
+		Extensions: []ExtensionType{
+			ExtensionTypeUrmessageGroupPolicy,
+			ExtensionTypeUrmessageLeafKeys,
+			ExtensionTypeUrmessageOwnerSuccessor,
+		},
+		Proposals:   []ProposalType{},
+		Credentials: []CredentialType{CredentialTypeBasic},
+	}
+}
+
+// testLeafKeys builds the urmessage_leaf_keys extension every fixture leaf
+// carries, through the TreeKEM plan's Encode.
+func testLeafKeys(t *testing.T, m *testMember) Extension {
+	t.Helper()
+	ext, err := (&LeafKeysExtension{AlgId: AlgIdXwing, DeviceXwingPub: m.XwingPub}).Encode()
+	if err != nil {
+		t.Fatalf("LeafKeysExtension.Encode: %v", err)
+	}
+	return ext
+}
+
+// testLeafNode mints one leaf and returns the encryption private key that goes
+// with it.
+func testLeafNode(t *testing.T, crypto CryptoProvider, m *testMember) (*LeafNode, HpkePrivateKey) {
+	t.Helper()
+	encPriv, encPub, err := crypto.DeriveKeyPair(crypto.Random(crypto.HashSize()))
+	if err != nil {
+		t.Fatalf("DeriveKeyPair: %v", err)
+	}
+	leaf, err := NewLeafNode(crypto, m.SigPriv, BasicCredential(m.IdentityPub), encPub,
+		testCapabilities(), []Extension{testLeafKeys(t, m)})
+	if err != nil {
+		t.Fatalf("NewLeafNode: %v", err)
+	}
+	return leaf, encPriv
+}
+
+// testKeyPackage mints a key package plus its init and encryption private keys,
+// through the TreeKEM plan's constructor rather than by hand.
+func testKeyPackage(t *testing.T, crypto CryptoProvider, m *testMember) (*KeyPackage, HpkePrivateKey, HpkePrivateKey) {
+	t.Helper()
+	kp, initPriv, encPriv, err := NewKeyPackage(crypto, CipherSuiteX25519ChaCha20Sha256Ed25519,
+		BasicCredential(m.IdentityPub), testCapabilities(), []Extension{testLeafKeys(t, m)})
+	if err != nil {
+		t.Fatalf("NewKeyPackage: %v", err)
+	}
+	// NewKeyPackage takes no signer, so rebind the leaf to this member's
+	// identity key pair and re-sign it. A key_package leaf's LeafNodeTBS
+	// excludes group_id and leaf_index, which is why those two arguments are
+	// nil and 0. Every later assertion and JoinKeyMaterial.SignPrivate depend
+	// on leaf.SignatureKey being the member's own key.
+	kp.LeafNode.SignatureKey = m.SigPub
+	if err := kp.LeafNode.Sign(crypto, m.SigPriv, nil, 0); err != nil {
+		t.Fatalf("LeafNode.Sign: %v", err)
+	}
+	return kp, initPriv, encPriv
 }
 
 func TestLifecycleErrorsAreDistinct(t *testing.T) {
@@ -486,16 +950,13 @@ func TestLifecycleConstants(t *testing.T) {
 	if MaxDeviceLeavesPerIdentity != 10 {
 		t.Fatalf("MaxDeviceLeavesPerIdentity = %d, want 10", MaxDeviceLeavesPerIdentity)
 	}
-	if PastEpochWindow != 32 {
-		t.Fatalf("PastEpochWindow = %d, want 32", PastEpochWindow)
-	}
 }
 
 func TestFixtureIdentityIsUsable(t *testing.T) {
 	crypto := testCrypto(t)
 	alice := testIdentity(t, crypto, "alice")
-	if len(alice.XwingPub) != XwingPublicKeySize {
-		t.Fatalf("XwingPub length = %d, want %d", len(alice.XwingPub), XwingPublicKeySize)
+	if len(alice.XwingPub) != XwingPublicKeyLen {
+		t.Fatalf("XwingPub length = %d, want %d", len(alice.XwingPub), XwingPublicKeyLen)
 	}
 	sig, err := crypto.SignWithLabel(alice.SigPriv, "FixtureProbe", []byte("hello"))
 	if err != nil {
@@ -508,12 +969,27 @@ func TestFixtureIdentityIsUsable(t *testing.T) {
 		t.Fatal("IdentityPub is empty")
 	}
 }
+
+func TestFixtureKeyPackageIsBoundToItsMember(t *testing.T) {
+	crypto := testCrypto(t)
+	bob := testIdentity(t, crypto, "bob")
+	kp, initPriv, encPriv := testKeyPackage(t, crypto, bob)
+	if !bytes.Equal(kp.LeafNode.SignatureKey, bob.SigPub) {
+		t.Fatal("the fixture key package leaf is not bound to the member's signature key")
+	}
+	if len(initPriv) == 0 || len(encPriv) == 0 {
+		t.Fatal("NewKeyPackage returned an empty private key")
+	}
+	if err := kp.LeafNode.VerifySignature(crypto, nil, 0); err != nil {
+		t.Fatalf("rebound leaf signature does not verify: %v", err)
+	}
+}
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./connect/mls/... -run 'TestLifecycleErrorsAreDistinct|TestLifecycleConstants|TestFixtureIdentityIsUsable' -v`
-Expected: FAIL to build with `undefined: ErrGroupSizeExceeded`, `undefined: MaxGroupMembers`, `undefined: XwingPublicKeySize`.
+Run: `go test ./connect/mls/... -run 'TestLifecycleErrorsAreDistinct|TestLifecycleConstants|TestFixture' -v`
+Expected: FAIL to build with `undefined: ErrGroupSizeExceeded`, `undefined: MaxGroupMembers`.
 
 - [ ] **Step 3: Write minimal implementation**
 
@@ -534,10 +1010,9 @@ const (
 	MaxDeviceLeavesPerIdentity = 10
 )
 
-// PastEpochWindow is how many past epochs of group state are retained.
+// PastEpochWindow is declared once, in key_schedule.go, and referenced here.
 // Spec A §4.3: DeleteGroupStateBefore(epoch - PastEpochWindow) runs on every
 // merged commit, which is also what makes MASTER §8.1's ephemeral guarantee real.
-const PastEpochWindow uint64 = 32
 
 var (
 	// membership policy
@@ -577,19 +1052,13 @@ var (
 )
 ```
 
-`XwingPublicKeySize` is defined in Task 2, so land these two files in the same commit. Add to
-`connect/mls/leaf_keys.go` in Task 2; for this task, add the constant temporarily at the bottom of
-`errors_lifecycle.go` and move it in Task 2:
-
-```go
-// XwingPublicKeySize is pk_M (1184) || pk_X (32). MASTER §7, Spec A §5.4.
-// Moved to leaf_keys.go in Task 2.
-const XwingPublicKeySize = 1216
-```
+`XwingPublicKeyLen`, `AlgIdXwing` and `LeafKeysExtension` are the TreeKEM plan's (wave 2) and are
+already available when this plan runs in wave 4. There is no temporary copy in this file: a second
+declaration of any of them in `package mls` is a compile error, not a merge inconvenience.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./connect/mls/... -run 'TestLifecycleErrorsAreDistinct|TestLifecycleConstants|TestFixtureIdentityIsUsable' -v`
+Run: `go test ./connect/mls/... -run 'TestLifecycleErrorsAreDistinct|TestLifecycleConstants|TestFixture' -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -601,26 +1070,22 @@ git commit -m "feat(mls): group lifecycle error set and shared test fixtures"
 
 ---
 
-### Task 2: The `urmessage_leaf_keys` extension (0xF002)
+### Task 2: `LeafKeysOf` — reading `urmessage_leaf_keys` (0xF002) off a leaf
 
 **Files:**
 - Create: `connect/mls/leaf_keys.go`
 - Test: `connect/mls/leaf_keys_test.go`
 
+**Ownership.** `LeafKeysExtension`, its `Encode`/`ParseLeafKeysExtension` pair, `AlgIdXwing`,
+`XwingPublicKeyLen` and `ExtensionTypeUrmessageLeafKeys` all belong to the TreeKEM plan: the leaf
+node carries the extension and `LeafNode.Validate` range-checks it, so the type has to land in the
+same wave as `LeafNode`. This task is reduced to the accessor, which is the only piece the group
+lifecycle needs.
+
 **Interfaces:**
-- Consumes: `syntax.Marshal`, `syntax.Unmarshal` (Syntax plan); `mls.Extension`, `mls.ExtensionType`, `mls.LeafNode` (TreeKEM plan); `ErrMalformedExtension` (Task 1).
+- Consumes: `Extension`, `ExtensionType`, `ExtensionTypeUrmessageLeafKeys`, `LeafNode`, `LeafKeysExtension`, `ParseLeafKeysExtension(data []byte) (*LeafKeysExtension, error)`, `AlgIdXwing`, `XwingPublicKeyLen`, `FindExtension(exts []Extension, t ExtensionType) ([]byte, bool)` (TreeKEM plan); `ErrMalformedExtension` (Task 1).
 - Produces:
 ```go
-const ExtensionTypeUrmessageLeafKeys ExtensionType = 0xF002
-const XwingPublicKeySize = 1216
-const AlgIdXwing uint16 = 0x0014
-
-type LeafKeysExtension struct {
-    AlgId          uint16
-    DeviceXwingPub []byte `tls:"head=varint"`
-}
-func (self *LeafKeysExtension) Encode() (Extension, error)
-func ParseLeafKeysExtension(data []byte) (*LeafKeysExtension, error)
 func LeafKeysOf(leaf *LeafNode) (*LeafKeysExtension, error)
 ```
 
@@ -633,190 +1098,108 @@ package mls
 
 import (
 	"bytes"
+	"errors"
 	"testing"
 )
 
-func TestLeafKeysExtensionRoundTrip(t *testing.T) {
+func TestLeafKeysOfReadsTheMembersWrapKey(t *testing.T) {
 	crypto := testCrypto(t)
 	alice := testIdentity(t, crypto, "alice")
+	leaf, _ := testLeafNode(t, crypto, alice)
 
-	ext := &LeafKeysExtension{AlgId: AlgIdXwing, DeviceXwingPub: alice.XwingPub}
-	encoded, err := ext.Encode()
+	keys, err := LeafKeysOf(leaf)
 	if err != nil {
-		t.Fatalf("Encode: %v", err)
+		t.Fatalf("LeafKeysOf: %v", err)
 	}
-	if encoded.ExtensionType != ExtensionTypeUrmessageLeafKeys {
-		t.Fatalf("ExtensionType = %#x, want %#x", encoded.ExtensionType, ExtensionTypeUrmessageLeafKeys)
+	if keys.AlgId != AlgIdXwing {
+		t.Fatalf("AlgId = %#04x, want %#04x", keys.AlgId, AlgIdXwing)
 	}
-	// u16 alg_id then a varint-headed vector of 1216 bytes: 2 + 2 + 1216.
-	if len(encoded.ExtensionData) != 2+2+XwingPublicKeySize {
-		t.Fatalf("ExtensionData length = %d, want %d", len(encoded.ExtensionData), 2+2+XwingPublicKeySize)
+	if !bytes.Equal(keys.DeviceXwingPub, alice.XwingPub) {
+		t.Fatal("LeafKeysOf returned a different X-Wing key than the leaf carries")
 	}
-
-	parsed, err := ParseLeafKeysExtension(encoded.ExtensionData)
-	if err != nil {
-		t.Fatalf("ParseLeafKeysExtension: %v", err)
-	}
-	if parsed.AlgId != AlgIdXwing {
-		t.Fatalf("AlgId = %#x, want %#x", parsed.AlgId, AlgIdXwing)
-	}
-	if !bytes.Equal(parsed.DeviceXwingPub, alice.XwingPub) {
-		t.Fatal("DeviceXwingPub did not survive the round trip")
-	}
-
-	// re-encoding must be byte identical: mls signs over serialized forms
-	reencoded, err := parsed.Encode()
-	if err != nil {
-		t.Fatalf("re-Encode: %v", err)
-	}
-	if !bytes.Equal(reencoded.ExtensionData, encoded.ExtensionData) {
-		t.Fatal("re-encode is not byte identical")
-	}
-}
-
-func TestLeafKeysExtensionRejectsWrongLength(t *testing.T) {
-	ext := &LeafKeysExtension{AlgId: AlgIdXwing, DeviceXwingPub: make([]byte, 32)}
-	if _, err := ext.Encode(); err == nil {
-		t.Fatal("Encode accepted a 32 byte X-Wing key")
-	}
-}
-
-func TestLeafKeysExtensionRejectsUnknownAlg(t *testing.T) {
-	crypto := testCrypto(t)
-	alice := testIdentity(t, crypto, "alice")
-	ext := &LeafKeysExtension{AlgId: 0x0012, DeviceXwingPub: alice.XwingPub}
-	if _, err := ext.Encode(); err == nil {
-		t.Fatal("Encode accepted alg_id 0x0012, which is reserved and not implemented in v1")
-	}
-}
-
-func TestLeafKeysExtensionRejectsTrailingBytes(t *testing.T) {
-	crypto := testCrypto(t)
-	alice := testIdentity(t, crypto, "alice")
-	ext := &LeafKeysExtension{AlgId: AlgIdXwing, DeviceXwingPub: alice.XwingPub}
-	encoded, err := ext.Encode()
-	if err != nil {
-		t.Fatalf("Encode: %v", err)
-	}
-	if _, err := ParseLeafKeysExtension(append(encoded.ExtensionData, 0x00)); err == nil {
-		t.Fatal("ParseLeafKeysExtension accepted trailing bytes")
+	if len(keys.DeviceXwingPub) != XwingPublicKeyLen {
+		t.Fatalf("DeviceXwingPub length = %d, want %d", len(keys.DeviceXwingPub), XwingPublicKeyLen)
 	}
 }
 
 func TestLeafKeysOfMissingExtension(t *testing.T) {
 	leaf := &LeafNode{}
+	if _, err := LeafKeysOf(leaf); !errors.Is(err, ErrMalformedExtension) {
+		t.Fatalf("LeafKeysOf error = %v, want ErrMalformedExtension for a leaf with no 0xF002", err)
+	}
+}
+
+func TestLeafKeysOfNilLeaf(t *testing.T) {
+	if _, err := LeafKeysOf(nil); !errors.Is(err, ErrMalformedExtension) {
+		t.Fatalf("LeafKeysOf(nil) error = %v, want ErrMalformedExtension", err)
+	}
+}
+
+func TestLeafKeysOfPropagatesAMalformedBody(t *testing.T) {
+	crypto := testCrypto(t)
+	alice := testIdentity(t, crypto, "alice")
+	leaf, _ := testLeafNode(t, crypto, alice)
+	for i := range leaf.Extensions {
+		if leaf.Extensions[i].ExtensionType == ExtensionTypeUrmessageLeafKeys {
+			leaf.Extensions[i].ExtensionData = []byte{0x00}
+		}
+	}
 	if _, err := LeafKeysOf(leaf); err == nil {
-		t.Fatal("LeafKeysOf accepted a leaf with no urmessage_leaf_keys extension")
+		t.Fatal("LeafKeysOf accepted a truncated urmessage_leaf_keys body")
 	}
 }
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./connect/mls/... -run TestLeafKeys -v`
-Expected: FAIL to build with `undefined: LeafKeysExtension`, `undefined: AlgIdXwing`, `undefined: ExtensionTypeUrmessageLeafKeys`, `undefined: ParseLeafKeysExtension`.
+Run: `go test ./connect/mls/... -run TestLeafKeysOf -v`
+Expected: FAIL to build with `undefined: LeafKeysOf`.
 
 - [ ] **Step 3: Write minimal implementation**
 
 `connect/mls/leaf_keys.go`:
 
 ```go
-// The urmessage_leaf_keys leaf-node extension, MASTER §5.3 and Spec A §3.4.
-// It rides in the LeafNode so it is covered by the leaf signature and the tree
-// hash, is validated by RFC 9420 §7.3, and is removed by Remove with the rest
-// of the leaf. A member with no X-Wing key cannot receive the epoch wrap, which
-// is why 0xF002 is in required_capabilities.
+// Reading the urmessage_leaf_keys leaf-node extension off a leaf, MASTER §5.3
+// and Spec A §3.4. The extension type, its struct and its codec belong to the
+// leaf-node file family, because LeafNode.Validate range-checks the X-Wing key
+// length; this file is only the group lifecycle's accessor. A member with no
+// X-Wing key cannot receive the epoch wrap, which is why 0xF002 is in
+// required_capabilities.
 package mls
 
-import (
-	"fmt"
+import "fmt"
 
-	"github.com/urnetwork/connect/mls/syntax"
-)
-
-// ExtensionTypeUrmessageLeafKeys is the leaf-node extension type for the device
-// wrap key.
-const ExtensionTypeUrmessageLeafKeys ExtensionType = 0xF002
-
-// XwingPublicKeySize is pk_M (1184) || pk_X (32). MASTER §7, Spec A §5.4.
-const XwingPublicKeySize = 1216
-
-// AlgIdXwing is X-Wing (X25519 + ML-KEM-768), the v1 wrap KEM. MASTER §7.1.
-// 0x0012 and 0x0013 are reserved and deliberately not accepted here.
-const AlgIdXwing uint16 = 0x0014
-
-// LeafKeysExtension is the device wrap key published in a leaf.
-type LeafKeysExtension struct {
-	AlgId          uint16
-	DeviceXwingPub []byte `tls:"head=varint"`
-}
-
-// Encode serializes to an Extension, refusing any algorithm or length v1 does
-// not implement. A wrong-length key would produce a leaf that every committer
-// accepts and no committer can encapsulate to.
-func (self *LeafKeysExtension) Encode() (Extension, error) {
-	if self.AlgId != AlgIdXwing {
-		return Extension{}, fmt.Errorf("%w: leaf keys alg_id %#04x is not X-Wing", ErrMalformedExtension, self.AlgId)
-	}
-	if len(self.DeviceXwingPub) != XwingPublicKeySize {
-		return Extension{}, fmt.Errorf("%w: leaf keys public key is %d bytes, want %d",
-			ErrMalformedExtension, len(self.DeviceXwingPub), XwingPublicKeySize)
-	}
-	data, err := syntax.Marshal(self)
-	if err != nil {
-		return Extension{}, err
-	}
-	return Extension{ExtensionType: ExtensionTypeUrmessageLeafKeys, ExtensionData: data}, nil
-}
-
-// ParseLeafKeysExtension decodes an extension body and applies the same gate as
-// Encode, so a leaf that arrives from the wire cannot carry a key this build
-// cannot use.
-func ParseLeafKeysExtension(data []byte) (*LeafKeysExtension, error) {
-	var ext LeafKeysExtension
-	read, err := syntax.Unmarshal(data, &ext)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrMalformedExtension, err)
-	}
-	if read != len(data) {
-		return nil, fmt.Errorf("%w: %d trailing bytes after leaf keys", ErrMalformedExtension, len(data)-read)
-	}
-	if ext.AlgId != AlgIdXwing {
-		return nil, fmt.Errorf("%w: leaf keys alg_id %#04x is not X-Wing", ErrMalformedExtension, ext.AlgId)
-	}
-	if len(ext.DeviceXwingPub) != XwingPublicKeySize {
-		return nil, fmt.Errorf("%w: leaf keys public key is %d bytes, want %d",
-			ErrMalformedExtension, len(ext.DeviceXwingPub), XwingPublicKeySize)
-	}
-	return &ext, nil
-}
-
-// LeafKeysOf extracts the extension from a leaf node.
+// LeafKeysOf extracts and parses the urmessage_leaf_keys extension from a leaf
+// node. Absence is an error rather than a nil result: every v1 leaf must carry
+// one, and a caller that treats "no wrap key" as a normal case is a caller that
+// silently drops a member out of the epoch wrap.
 func LeafKeysOf(leaf *LeafNode) (*LeafKeysExtension, error) {
 	if leaf == nil {
 		return nil, fmt.Errorf("%w: nil leaf", ErrMalformedExtension)
 	}
-	for _, ext := range leaf.Extensions {
-		if ext.ExtensionType == ExtensionTypeUrmessageLeafKeys {
-			return ParseLeafKeysExtension(ext.ExtensionData)
-		}
+	data, ok := FindExtension(leaf.Extensions, ExtensionTypeUrmessageLeafKeys)
+	if !ok {
+		return nil, fmt.Errorf("%w: leaf carries no urmessage_leaf_keys extension", ErrMalformedExtension)
 	}
-	return nil, fmt.Errorf("%w: leaf carries no urmessage_leaf_keys extension", ErrMalformedExtension)
+	keys, err := ParseLeafKeysExtension(data)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrMalformedExtension, err)
+	}
+	return keys, nil
 }
 ```
 
-Delete the temporary `XwingPublicKeySize` from `errors_lifecycle.go` in the same commit.
-
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./connect/mls/... -run TestLeafKeys -v`
+Run: `go test ./connect/mls/... -run TestLeafKeysOf -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add connect/mls/leaf_keys.go connect/mls/leaf_keys_test.go connect/mls/errors_lifecycle.go && \
-git commit -m "feat(mls): urmessage_leaf_keys leaf extension carrying the device X-Wing key"
+git add connect/mls/leaf_keys.go connect/mls/leaf_keys_test.go && \
+git commit -m "feat(mls): LeafKeysOf accessor for the urmessage_leaf_keys device key"
 ```
 
 ---
@@ -828,11 +1211,9 @@ git commit -m "feat(mls): urmessage_leaf_keys leaf extension carrying the device
 - Test: `connect/mls/group_policy_test.go`
 
 **Interfaces:**
-- Consumes: `syntax.Marshal`, `syntax.Unmarshal`; `mls.Extension`, `mls.ExtensionType`; `ErrMalformedExtension`, `ErrDuplicateRoleEntry`, `ErrRolesNotCanonical`, `ErrNoOwner`, `ErrMultipleOwners`, `ErrNoGroupPolicy` (Task 1).
+- Consumes: `syntax.Writer`, `syntax.Reader`, `syntax.NewWriter`, `(*Writer).Bytes`, `(*Writer).WriteUint8`, `(*Writer).WriteUint64`, `(*Writer).WriteOpaque`, `(*Reader).ReadUint8`, `(*Reader).ReadUint64`, `(*Reader).ReadOpaque`, `syntax.WriteVector`, `syntax.ReadVector`, `syntax.Marshal`, `syntax.Unmarshal` (Syntax plan); `Extension`, `ExtensionType`, `ExtensionTypeUrmessageGroupPolicy`, `FindExtension` (TreeKEM plan); `ErrMalformedExtension`, `ErrDuplicateRoleEntry`, `ErrRolesNotCanonical`, `ErrNoOwner`, `ErrMultipleOwners`, `ErrNoGroupPolicy` (Task 1).
 - Produces:
 ```go
-const ExtensionTypeUrmessageGroupPolicy ExtensionType = 0xF001
-
 type Role uint8
 const (
     RoleObserver Role = 0
@@ -844,7 +1225,7 @@ func (self Role) String() string
 func ParseRole(name string) (Role, error)
 
 type RoleEntry struct {
-    MemberId []byte `tls:"head=varint"`   // the member's Ed25519 identity public key
+    MemberId []byte      // the member's Ed25519 identity public key
     Role     Role
 }
 type RetentionPolicy struct {
@@ -852,11 +1233,13 @@ type RetentionPolicy struct {
     MediaMs   uint64
 }
 type GroupPolicyExtension struct {
-    Roles               []RoleEntry `tls:"head=varint"`
+    Roles               []RoleEntry
     RetentionPolicy     RetentionPolicy
-    DisappearingBuckets []uint8 `tls:"head=varint"`
-    ServerId            []byte  `tls:"head=varint"`
+    DisappearingBuckets []uint8
+    ServerId            []byte
 }
+func (self *GroupPolicyExtension) MarshalMLS(w *syntax.Writer) error
+func (self *GroupPolicyExtension) UnmarshalMLS(r *syntax.Reader) error
 func (self *GroupPolicyExtension) Canonicalize() error
 func (self *GroupPolicyExtension) Validate() error
 func (self *GroupPolicyExtension) Encode() (Extension, error)
@@ -869,6 +1252,11 @@ func (self *GroupPolicyExtension) OwnerId() ([]byte, bool)
 func (self *GroupPolicyExtension) Clone() *GroupPolicyExtension
 func GroupPolicyOf(exts []Extension) (*GroupPolicyExtension, error)
 ```
+
+`ExtensionTypeUrmessageGroupPolicy` (0xF001) is declared once, with the other registry enums, in the
+TreeKEM plan's extension file. `Encode`/`ParseGroupPolicyExtension` are the sanctioned per-extension
+bytes↔struct pair under **C1** — they exist because `Extension.ExtensionData` is opaque, and they
+are built on top of the `MarshalMLS`/`UnmarshalMLS` pair rather than replacing it.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1095,9 +1483,8 @@ import (
 	"github.com/urnetwork/connect/mls/syntax"
 )
 
-// ExtensionTypeUrmessageGroupPolicy is the group-context extension type for the
-// role set and retention policy.
-const ExtensionTypeUrmessageGroupPolicy ExtensionType = 0xF001
+// ExtensionTypeUrmessageGroupPolicy (0xF001) is declared once with the other
+// registry enums, in extension.go.
 
 // Role is a member's authority in a group. MASTER §11.
 type Role uint8
@@ -1147,7 +1534,7 @@ func ParseRole(name string) (Role, error) {
 // Ed25519 identity public key, which is the BasicCredential subject, so it is
 // stable across that member's device leaves.
 type RoleEntry struct {
-	MemberId []byte `tls:"head=varint"`
+	MemberId []byte
 	Role     Role
 }
 
@@ -1161,10 +1548,90 @@ type RetentionPolicy struct {
 
 // GroupPolicyExtension is the group-context policy.
 type GroupPolicyExtension struct {
-	Roles               []RoleEntry `tls:"head=varint"`
+	Roles               []RoleEntry
 	RetentionPolicy     RetentionPolicy
-	DisappearingBuckets []uint8 `tls:"head=varint"`
-	ServerId            []byte  `tls:"head=varint"`
+	DisappearingBuckets []uint8
+	ServerId            []byte
+}
+
+var _ syntax.Codec = (*GroupPolicyExtension)(nil)
+
+// MarshalMLS writes roles<V>, the retention pair, disappearing_buckets<V> and
+// server_id<V>. An undefined role byte is refused here rather than dropped,
+// because the extension is inside the transcript hash: a silently-coerced role
+// byte is a fork the sender cannot see.
+func (self *GroupPolicyExtension) MarshalMLS(w *syntax.Writer) error {
+	err := syntax.WriteVector(w, self.Roles, func(w *syntax.Writer, entry RoleEntry) error {
+		if !entry.Role.valid() {
+			return fmt.Errorf("%w: role byte %d is not defined", ErrMalformedExtension, entry.Role)
+		}
+		w.WriteOpaque(entry.MemberId)
+		w.WriteUint8(uint8(entry.Role))
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	w.WriteUint64(self.RetentionPolicy.DurableMs)
+	w.WriteUint64(self.RetentionPolicy.MediaMs)
+	err = syntax.WriteVector(w, self.DisappearingBuckets, func(w *syntax.Writer, bucket uint8) error {
+		w.WriteUint8(bucket)
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	w.WriteOpaque(self.ServerId)
+	return nil
+}
+
+// UnmarshalMLS reads the wire form. It applies the same role-byte gate as the
+// encoder, so a hostile peer cannot introduce a role this build will render as
+// "unknown" and treat as an observer.
+func (self *GroupPolicyExtension) UnmarshalMLS(r *syntax.Reader) error {
+	roles, err := syntax.ReadVector(r, func(r *syntax.Reader) (RoleEntry, error) {
+		memberId, err := r.ReadOpaque()
+		if err != nil {
+			return RoleEntry{}, err
+		}
+		roleByte, err := r.ReadUint8()
+		if err != nil {
+			return RoleEntry{}, err
+		}
+		role := Role(roleByte)
+		if !role.valid() {
+			return RoleEntry{}, fmt.Errorf("%w: role byte %d is not defined", ErrMalformedExtension, roleByte)
+		}
+		return RoleEntry{MemberId: memberId, Role: role}, nil
+	})
+	if err != nil {
+		return err
+	}
+	durableMs, err := r.ReadUint64()
+	if err != nil {
+		return err
+	}
+	mediaMs, err := r.ReadUint64()
+	if err != nil {
+		return err
+	}
+	buckets, err := syntax.ReadVector(r, func(r *syntax.Reader) (uint8, error) {
+		return r.ReadUint8()
+	})
+	if err != nil {
+		return err
+	}
+	serverId, err := r.ReadOpaque()
+	if err != nil {
+		return err
+	}
+	*self = GroupPolicyExtension{
+		Roles:               roles,
+		RetentionPolicy:     RetentionPolicy{DurableMs: durableMs, MediaMs: mediaMs},
+		DisappearingBuckets: buckets,
+		ServerId:            serverId,
+	}
+	return nil
 }
 
 // Canonicalize sorts the role entries by member id and refuses duplicates.
@@ -1237,15 +1704,12 @@ func (self *GroupPolicyExtension) Encode() (Extension, error) {
 // ParseGroupPolicyExtension decodes and validates an extension body. Order and
 // duplicate checks run on parse rather than only on construction, because the
 // whole value of a canonical encoding is that a receiver rejects a
-// non-canonical one instead of silently re-sorting it.
+// non-canonical one instead of silently re-sorting it. syntax.Unmarshal already
+// enforces full consumption, so there is no separate trailing-bytes check here.
 func ParseGroupPolicyExtension(data []byte) (*GroupPolicyExtension, error) {
 	var policy GroupPolicyExtension
-	read, err := syntax.Unmarshal(data, &policy)
-	if err != nil {
+	if err := syntax.Unmarshal(data, &policy); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrMalformedExtension, err)
-	}
-	if read != len(data) {
-		return nil, fmt.Errorf("%w: %d trailing bytes after group policy", ErrMalformedExtension, len(data)-read)
 	}
 	if err := policy.Validate(); err != nil {
 		return nil, err
@@ -1327,12 +1791,11 @@ func (self *GroupPolicyExtension) Clone() *GroupPolicyExtension {
 
 // GroupPolicyOf finds and parses the policy in a group context extension list.
 func GroupPolicyOf(exts []Extension) (*GroupPolicyExtension, error) {
-	for _, ext := range exts {
-		if ext.ExtensionType == ExtensionTypeUrmessageGroupPolicy {
-			return ParseGroupPolicyExtension(ext.ExtensionData)
-		}
+	data, ok := FindExtension(exts, ExtensionTypeUrmessageGroupPolicy)
+	if !ok {
+		return nil, ErrNoGroupPolicy
 	}
-	return nil, ErrNoGroupPolicy
+	return ParseGroupPolicyExtension(data)
 }
 ```
 
@@ -1357,10 +1820,9 @@ git commit -m "feat(mls): urmessage_group_policy group-context extension with ca
 - Test: `connect/mls/owner_successor_test.go`
 
 **Interfaces:**
-- Consumes: `syntax.Marshal`, `syntax.Unmarshal`; `mls.Extension`, `mls.ExtensionType`; `ErrMalformedExtension`, `ErrSuccessionFloorTooShort` (Task 1).
+- Consumes: `syntax.Writer`, `syntax.Reader`, `syntax.NewWriter`, `(*Writer).Bytes`, `(*Writer).WriteUint8`, `(*Writer).WriteUint32`, `(*Writer).WriteUint64`, `(*Writer).WriteOpaque`, `(*Writer).WriteRaw`, `(*Reader).ReadUint8`, `(*Reader).ReadUint64`, `(*Reader).ReadOpaque`, `syntax.Marshal`, `syntax.Unmarshal` (Syntax plan); `Extension`, `ExtensionType`, `ExtensionTypeUrmessageOwnerSuccessor`, `FindExtension` (TreeKEM plan); `ErrMalformedExtension`, `ErrSuccessionFloorTooShort` (Task 1).
 - Produces:
 ```go
-const ExtensionTypeUrmessageOwnerSuccessor ExtensionType = 0xF003
 const SuccessionFloorMinMs uint64 = 7776000000   // 90 days
 
 type OwnerSuccessorExtension struct {
@@ -1369,15 +1831,19 @@ type OwnerSuccessorExtension struct {
     NominatedAtMs     uint64
     FloorMs           uint64
 }
-func (self *OwnerSuccessorExtension) MarshalTLS() ([]byte, error)
-func (self *OwnerSuccessorExtension) UnmarshalTLS(data []byte) (int, error)
+func (self *OwnerSuccessorExtension) MarshalMLS(w *syntax.Writer) error
+func (self *OwnerSuccessorExtension) UnmarshalMLS(r *syntax.Reader) error
 func (self *OwnerSuccessorExtension) Validate() error
 func (self *OwnerSuccessorExtension) Encode() (Extension, error)
 func ParseOwnerSuccessorExtension(data []byte) (*OwnerSuccessorExtension, error)
 func OwnerSuccessorOf(exts []Extension) (*OwnerSuccessorExtension, bool, error)
-func successionPreimage(groupId []byte, epoch uint64, successorMemberId []byte, nominatedAtMs uint64) []byte
-func appendLengthPrefixed(out []byte, value []byte) []byte
+func successionPreimage(groupId []byte, epoch uint64, successorMemberId []byte, nominatedAtMs uint64) ([]byte, error)
 ```
+
+`ExtensionTypeUrmessageOwnerSuccessor` (0xF003) is declared once with the other registry enums.
+`appendLengthPrefixed` is **deleted**: it was a fourth private length-prefix implementation in a
+slice whose whole thesis is one codec with one fuzz corpus. `successionPreimage` builds its bytes
+through a `syntax.Writer` and therefore returns an error.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1478,7 +1944,10 @@ func TestOwnerSuccessorOfAbsentIsNotAnError(t *testing.T) {
 }
 
 func TestSuccessionPreimageIsStable(t *testing.T) {
-	got := successionPreimage([]byte("gid"), 7, []byte("sid"), 42)
+	got, err := successionPreimage([]byte("gid"), 7, []byte("sid"), 42)
+	if err != nil {
+		t.Fatalf("successionPreimage: %v", err)
+	}
 	want := []byte("URmessage/v1/succession")
 	want = append(want, 0, 0, 0, 3, 'g', 'i', 'd')
 	want = append(want, 0, 0, 0, 0, 0, 0, 0, 7)
@@ -1507,15 +1976,13 @@ Expected: FAIL to build with `undefined: OwnerSuccessorExtension`, `undefined: S
 package mls
 
 import (
-	"encoding/binary"
 	"fmt"
 
 	"github.com/urnetwork/connect/mls/syntax"
 )
 
-// ExtensionTypeUrmessageOwnerSuccessor is the group-context extension type for
-// the successor nomination.
-const ExtensionTypeUrmessageOwnerSuccessor ExtensionType = 0xF003
+// ExtensionTypeUrmessageOwnerSuccessor (0xF003) is declared once with the other
+// registry enums, in extension.go.
 
 // SuccessionFloorMinMs is ninety days. A nomination carrying a shorter floor is
 // invalid, so a group cannot shorten its own succession delay after the fact.
@@ -1529,44 +1996,51 @@ type OwnerSuccessorExtension struct {
 	FloorMs           uint64
 }
 
-// successorBody is the wire shape. Enabled is a u8 with only 0 and 1 legal,
+var _ syntax.Codec = (*OwnerSuccessorExtension)(nil)
+
+// MarshalMLS writes the wire form. Enabled is a u8 with only 0 and 1 legal,
 // because a Go bool has no defined presentation-language encoding and two
 // encodings of true would be a signature-bypass primitive.
-type successorBody struct {
-	Enabled           uint8
-	SuccessorMemberId []byte `tls:"head=varint"`
-	NominatedAtMs     uint64
-	FloorMs           uint64
-}
-
-// MarshalTLS writes the wire form.
-func (self *OwnerSuccessorExtension) MarshalTLS() ([]byte, error) {
-	body := successorBody{
-		SuccessorMemberId: self.SuccessorMemberId,
-		NominatedAtMs:     self.NominatedAtMs,
-		FloorMs:           self.FloorMs,
-	}
+func (self *OwnerSuccessorExtension) MarshalMLS(w *syntax.Writer) error {
 	if self.Enabled {
-		body.Enabled = 1
+		w.WriteUint8(1)
+	} else {
+		w.WriteUint8(0)
 	}
-	return syntax.Marshal(&body)
+	w.WriteOpaque(self.SuccessorMemberId)
+	w.WriteUint64(self.NominatedAtMs)
+	w.WriteUint64(self.FloorMs)
+	return nil
 }
 
-// UnmarshalTLS reads the wire form and refuses any boolean byte but 0 and 1.
-func (self *OwnerSuccessorExtension) UnmarshalTLS(data []byte) (int, error) {
-	var body successorBody
-	read, err := syntax.Unmarshal(data, &body)
+// UnmarshalMLS reads the wire form and refuses any boolean byte but 0 and 1.
+func (self *OwnerSuccessorExtension) UnmarshalMLS(r *syntax.Reader) error {
+	enabled, err := r.ReadUint8()
 	if err != nil {
-		return 0, err
+		return err
 	}
-	if body.Enabled > 1 {
-		return 0, fmt.Errorf("%w: succession enabled byte is %#02x", ErrMalformedExtension, body.Enabled)
+	if enabled > 1 {
+		return fmt.Errorf("%w: succession enabled byte is %#02x", ErrMalformedExtension, enabled)
 	}
-	self.Enabled = body.Enabled == 1
-	self.SuccessorMemberId = body.SuccessorMemberId
-	self.NominatedAtMs = body.NominatedAtMs
-	self.FloorMs = body.FloorMs
-	return read, nil
+	successorMemberId, err := r.ReadOpaque()
+	if err != nil {
+		return err
+	}
+	nominatedAtMs, err := r.ReadUint64()
+	if err != nil {
+		return err
+	}
+	floorMs, err := r.ReadUint64()
+	if err != nil {
+		return err
+	}
+	*self = OwnerSuccessorExtension{
+		Enabled:           enabled == 1,
+		SuccessorMemberId: successorMemberId,
+		NominatedAtMs:     nominatedAtMs,
+		FloorMs:           floorMs,
+	}
+	return nil
 }
 
 // Validate applies the two rules that are conditions on the extension itself.
@@ -1588,7 +2062,7 @@ func (self *OwnerSuccessorExtension) Encode() (Extension, error) {
 	if err := self.Validate(); err != nil {
 		return Extension{}, err
 	}
-	data, err := self.MarshalTLS()
+	data, err := syntax.Marshal(self)
 	if err != nil {
 		return Extension{}, err
 	}
@@ -1598,12 +2072,8 @@ func (self *OwnerSuccessorExtension) Encode() (Extension, error) {
 // ParseOwnerSuccessorExtension decodes and validates an extension body.
 func ParseOwnerSuccessorExtension(data []byte) (*OwnerSuccessorExtension, error) {
 	var ext OwnerSuccessorExtension
-	read, err := ext.UnmarshalTLS(data)
-	if err != nil {
+	if err := syntax.Unmarshal(data, &ext); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrMalformedExtension, err)
-	}
-	if read != len(data) {
-		return nil, fmt.Errorf("%w: %d trailing bytes after owner successor", ErrMalformedExtension, len(data)-read)
 	}
 	if err := ext.Validate(); err != nil {
 		return nil, err
@@ -1614,16 +2084,15 @@ func ParseOwnerSuccessorExtension(data []byte) (*OwnerSuccessorExtension, error)
 // OwnerSuccessorOf finds the nomination in a group context extension list.
 // Absence is not an error: a group with no nomination is the normal case.
 func OwnerSuccessorOf(exts []Extension) (*OwnerSuccessorExtension, bool, error) {
-	for _, ext := range exts {
-		if ext.ExtensionType == ExtensionTypeUrmessageOwnerSuccessor {
-			parsed, err := ParseOwnerSuccessorExtension(ext.ExtensionData)
-			if err != nil {
-				return nil, false, err
-			}
-			return parsed, true, nil
-		}
+	data, ok := FindExtension(exts, ExtensionTypeUrmessageOwnerSuccessor)
+	if !ok {
+		return nil, false, nil
 	}
-	return nil, false, nil
+	parsed, err := ParseOwnerSuccessorExtension(data)
+	if err != nil {
+		return nil, false, err
+	}
+	return parsed, true, nil
 }
 
 // successionPreimage is the bytes an admin countersigns. MASTER §11 and
@@ -1631,22 +2100,25 @@ func OwnerSuccessorOf(exts []Extension) (*OwnerSuccessorExtension, bool, error) 
 //
 //	"URmessage/v1/succession" || LP(group_id) || u64(epoch)
 //	  || LP(successor_member_id) || u64(nominated_at_ms)
-func successionPreimage(groupId []byte, epoch uint64, successorMemberId []byte, nominatedAtMs uint64) []byte {
-	out := make([]byte, 0, 32+len(groupId)+len(successorMemberId))
-	out = append(out, []byte("URmessage/v1/succession")...)
-	out = appendLengthPrefixed(out, groupId)
-	out = binary.BigEndian.AppendUint64(out, epoch)
-	out = appendLengthPrefixed(out, successorMemberId)
-	out = binary.BigEndian.AppendUint64(out, nominatedAtMs)
-	return out
-}
+//
+// LP(x) is MASTER's notation — a 32-bit big-endian length then x — and is not
+// the presentation language's varint header. It is written through the syntax
+// Writer rather than through a private append helper: a fourth length-prefix
+// implementation in this package is exactly what the one-codec rule exists to
+// prevent, and the sticky Writer surfaces an overlong value as an error instead
+// of a truncated uint32.
+func successionPreimage(groupId []byte, epoch uint64, successorMemberId []byte,
+	nominatedAtMs uint64) ([]byte, error) {
 
-// appendLengthPrefixed writes LP(x): a 32-bit big-endian length then x. This is
-// MASTER's notation, not the presentation language's varint header, and it is
-// used only in URmessage's own preimages.
-func appendLengthPrefixed(out []byte, value []byte) []byte {
-	out = binary.BigEndian.AppendUint32(out, uint32(len(value)))
-	return append(out, value...)
+	w := syntax.NewWriter()
+	w.WriteRaw([]byte("URmessage/v1/succession"))
+	w.WriteUint32(uint32(len(groupId)))
+	w.WriteRaw(groupId)
+	w.WriteUint64(epoch)
+	w.WriteUint32(uint32(len(successorMemberId)))
+	w.WriteRaw(successorMemberId)
+	w.WriteUint64(nominatedAtMs)
+	return w.Bytes()
 }
 ```
 
@@ -1664,167 +2136,110 @@ git commit -m "feat(mls): urmessage_owner_successor group-context extension"
 
 ---
 
-### Task 5: Proposal types, the variant codec, and the v1 parse gate
+### Task 5: The v1 profile gate at this plan's parse boundary
 
 **Files:**
-- Create: `connect/mls/proposal.go`
-- Test: `connect/mls/proposal_test.go`
+- Create: `connect/mls/proposal_list.go`
+- Test: `connect/mls/proposal_list_test.go`
+
+**Ownership.** `ProposalType` and its eight constants are registry enums and belong to the TreeKEM
+plan. `Add`, `Update`, `Remove`, `PreSharedKey`, `ReInit`, `ExternalInit`,
+`GroupContextExtensions`, `Proposal`, `ProposalOrRef`, `ProposalRef` and `Commit` — structs **and**
+codecs — belong to the Framing plan, whose `messages` vector family cannot be green without decoding
+all seven arms. Refusing a proposal type is a **profile** decision, not a codec decision, and fusing
+the two makes the codec untestable against the corpus. So the v1 refusal lives here, as a gate this
+plan applies at every point where a `Proposal` enters its state: the cache, resolution, and
+ValSem113.
 
 **Interfaces:**
-- Consumes: `syntax.Marshal`, `syntax.Unmarshal` (Syntax plan); `mls.KeyPackage`, `mls.LeafNode`, `mls.Extension`, `mls.LeafIndex` (TreeKEM / Tree math plans); `ErrProfilePSK`, `ErrProfileReInit`, `ErrProfileExternalCommit`, `ErrUnsupportedProposalType` (Validation plan).
+- Consumes: `ProposalType` and its constants, `Proposal`, `Add`, `Update`, `Remove`, `GroupContextExtensions` (Framing / TreeKEM plans); `Profile`, `DefaultProfile()`, `(*Profile).CheckProposalType(t ProposalType) error`, `ErrProfilePsk`, `ErrProfileReInit`, `ErrProfileExternalCommit`, `ErrUnsupportedProposalType` (Validation plan).
 - Produces:
 ```go
-type ProposalType uint16
-const (
-    ProposalTypeAdd                    ProposalType = 0x0001
-    ProposalTypeUpdate                 ProposalType = 0x0002
-    ProposalTypeRemove                 ProposalType = 0x0003
-    ProposalTypePSK                    ProposalType = 0x0004
-    ProposalTypeReInit                 ProposalType = 0x0005
-    ProposalTypeExternalInit           ProposalType = 0x0006
-    ProposalTypeGroupContextExtensions ProposalType = 0x0007
-)
-func (self ProposalType) PathRequired() bool
-func (self ProposalType) String() string
-
-type Add struct{ KeyPackage KeyPackage }
-type Update struct{ LeafNode LeafNode }
-type Remove struct{ Removed LeafIndex }
-type GroupContextExtensions struct {
-    Extensions []Extension `tls:"head=varint"`
-}
-
-type Proposal struct {
-    ProposalType           ProposalType
-    Add                    *Add
-    Update                 *Update
-    Remove                 *Remove
-    GroupContextExtensions *GroupContextExtensions
-}
-func (self *Proposal) MarshalTLS() ([]byte, error)
-func (self *Proposal) UnmarshalTLS(data []byte) (int, error)
-func (self *Proposal) Type() ProposalType
+func checkProposalProfile(profile *Profile, proposal *Proposal) error
+func proposalTypePathRequired(proposalType ProposalType) bool
+func proposalTypeName(proposalType ProposalType) string
 ```
 
-**Design note.** RFC 9420 defines seven proposal types; v1 implements four. The three that are not
-implemented are refused at **parse**, which is the difference between a message that is dropped and a
-message whose unimplemented arm is silently skipped. `psk`, `reinit` and `external_init` therefore
-have no Go struct at all in this package — there is nothing to accidentally populate.
+**Design note.** RFC 9420 defines seven proposal types; v1 implements four. The codec decodes all
+seven plus a GREASE arm, because the `messages` family requires it. The three v1 does not implement
+are refused the moment they cross into this plan — at `ProposalCache.Store`, at
+`ProposalCache.Resolve`, and again at ValSem113 — which is the difference between a message that is
+dropped and a message whose unimplemented arm is silently skipped. Everything this plan produces is
+unexported: the exported refusal surface is `(*Profile).CheckProposalType`, owned once by the
+validation plan, and this gate only names which of its errors applies.
 
 - [ ] **Step 1: Write the failing test**
 
-`connect/mls/proposal_test.go`:
+`connect/mls/proposal_list_test.go`:
 
 ```go
 package mls
 
 import (
-	"bytes"
 	"errors"
 	"testing"
+
+	"github.com/urnetwork/connect/mls/syntax"
 )
 
-func TestProposalRemoveRoundTrip(t *testing.T) {
-	proposal := &Proposal{ProposalType: ProposalTypeRemove, Remove: &Remove{Removed: LeafIndex(3)}}
-	encoded, err := proposal.MarshalTLS()
-	if err != nil {
-		t.Fatalf("MarshalTLS: %v", err)
-	}
-	// u16 type then u32 removed
-	want := []byte{0x00, 0x03, 0x00, 0x00, 0x00, 0x03}
-	if !bytes.Equal(encoded, want) {
-		t.Fatalf("encoded = %x, want %x", encoded, want)
-	}
-	var parsed Proposal
-	read, err := parsed.UnmarshalTLS(encoded)
-	if err != nil {
-		t.Fatalf("UnmarshalTLS: %v", err)
-	}
-	if read != len(encoded) {
-		t.Fatalf("read = %d, want %d", read, len(encoded))
-	}
-	if parsed.Type() != ProposalTypeRemove || parsed.Remove == nil || parsed.Remove.Removed != 3 {
-		t.Fatalf("parsed = %+v", parsed)
+func TestProfileGateRefusesPsk(t *testing.T) {
+	proposal := &Proposal{ProposalType: ProposalTypePreSharedKey, PreSharedKey: &PreSharedKey{}}
+	if err := checkProposalProfile(DefaultProfile(), proposal); !errors.Is(err, ErrProfilePsk) {
+		t.Fatalf("checkProposalProfile error = %v, want ErrProfilePsk", err)
 	}
 }
 
-func TestProposalGroupContextExtensionsRoundTrip(t *testing.T) {
+func TestProfileGateRefusesReInit(t *testing.T) {
+	proposal := &Proposal{ProposalType: ProposalTypeReInit, ReInit: &ReInit{}}
+	if err := checkProposalProfile(DefaultProfile(), proposal); !errors.Is(err, ErrProfileReInit) {
+		t.Fatalf("checkProposalProfile error = %v, want ErrProfileReInit", err)
+	}
+}
+
+func TestProfileGateRefusesExternalInit(t *testing.T) {
+	proposal := &Proposal{ProposalType: ProposalTypeExternalInit, ExternalInit: &ExternalInit{}}
+	if err := checkProposalProfile(DefaultProfile(), proposal); !errors.Is(err, ErrProfileExternalCommit) {
+		t.Fatalf("checkProposalProfile error = %v, want ErrProfileExternalCommit", err)
+	}
+}
+
+func TestProfileGateRefusesGreaseType(t *testing.T) {
+	// The codec decodes a GREASE proposal into the UnknownType/UnknownBody arm
+	// so the messages vector family can round-trip it. This plan still refuses
+	// it: a GREASE proposal in a commit is ValSem113.
+	proposal := &Proposal{ProposalType: ProposalType(0x0A0A), UnknownType: ProposalType(0x0A0A)}
+	if err := checkProposalProfile(DefaultProfile(), proposal); !errors.Is(err, ErrUnsupportedProposalType) {
+		t.Fatalf("checkProposalProfile error = %v, want ErrUnsupportedProposalType", err)
+	}
+}
+
+func TestProfileGateAcceptsTheFourV1Types(t *testing.T) {
 	crypto := testCrypto(t)
-	owner := testIdentity(t, crypto, "owner")
-	policy := &GroupPolicyExtension{Roles: []RoleEntry{{MemberId: owner.IdentityPub, Role: RoleOwner}}}
-	if err := policy.Canonicalize(); err != nil {
-		t.Fatalf("Canonicalize: %v", err)
-	}
-	ext, err := policy.Encode()
-	if err != nil {
-		t.Fatalf("Encode: %v", err)
-	}
-	proposal := &Proposal{
-		ProposalType:           ProposalTypeGroupContextExtensions,
-		GroupContextExtensions: &GroupContextExtensions{Extensions: []Extension{ext}},
-	}
-	encoded, err := proposal.MarshalTLS()
-	if err != nil {
-		t.Fatalf("MarshalTLS: %v", err)
-	}
-	var parsed Proposal
-	if _, err := parsed.UnmarshalTLS(encoded); err != nil {
-		t.Fatalf("UnmarshalTLS: %v", err)
-	}
-	reencoded, err := parsed.MarshalTLS()
-	if err != nil {
-		t.Fatalf("re-MarshalTLS: %v", err)
-	}
-	if !bytes.Equal(reencoded, encoded) {
-		t.Fatal("re-encode is not byte identical")
+	bob := testIdentity(t, crypto, "bob")
+	kp, _, _ := testKeyPackage(t, crypto, bob)
+	leaf, _ := testLeafNode(t, crypto, bob)
+	for _, proposal := range []*Proposal{
+		{ProposalType: ProposalTypeAdd, Add: &Add{KeyPackage: *kp}},
+		{ProposalType: ProposalTypeUpdate, Update: &Update{LeafNode: *leaf}},
+		{ProposalType: ProposalTypeRemove, Remove: &Remove{Removed: LeafIndex(1)}},
+		{ProposalType: ProposalTypeGroupContextExtensions, GroupContextExtensions: &GroupContextExtensions{}},
+	} {
+		if err := checkProposalProfile(DefaultProfile(), proposal); err != nil {
+			t.Fatalf("checkProposalProfile(%s) = %v, want nil", proposalTypeName(proposal.ProposalType), err)
+		}
 	}
 }
 
-func TestProposalRefusesPskAtParse(t *testing.T) {
-	// u16 proposal_type = 4, then whatever body follows: the gate fires on the
-	// type byte before any body is read.
-	var parsed Proposal
-	_, err := parsed.UnmarshalTLS([]byte{0x00, 0x04, 0x00})
-	if !errors.Is(err, ErrProfilePSK) {
-		t.Fatalf("UnmarshalTLS error = %v, want ErrProfilePSK", err)
+func TestProfileGateRefusesAMismatchedArm(t *testing.T) {
+	// The codec is permissive by design; this plan is not. A proposal whose
+	// discriminant and populated arm disagree never enters the cache.
+	proposal := &Proposal{ProposalType: ProposalTypeAdd, Remove: &Remove{Removed: 1}}
+	if err := checkProposalProfile(DefaultProfile(), proposal); err == nil {
+		t.Fatal("checkProposalProfile accepted a proposal whose type and populated arm disagree")
 	}
 }
 
-func TestProposalRefusesReInitAtParse(t *testing.T) {
-	var parsed Proposal
-	_, err := parsed.UnmarshalTLS([]byte{0x00, 0x05, 0x00})
-	if !errors.Is(err, ErrProfileReInit) {
-		t.Fatalf("UnmarshalTLS error = %v, want ErrProfileReInit", err)
-	}
-}
-
-func TestProposalRefusesExternalInitAtParse(t *testing.T) {
-	var parsed Proposal
-	_, err := parsed.UnmarshalTLS([]byte{0x00, 0x06, 0x00})
-	if !errors.Is(err, ErrProfileExternalCommit) {
-		t.Fatalf("UnmarshalTLS error = %v, want ErrProfileExternalCommit", err)
-	}
-}
-
-func TestProposalRefusesUnknownType(t *testing.T) {
-	var parsed Proposal
-	_, err := parsed.UnmarshalTLS([]byte{0x00, 0x63, 0x00})
-	if !errors.Is(err, ErrUnsupportedProposalType) {
-		t.Fatalf("UnmarshalTLS error = %v, want ErrUnsupportedProposalType", err)
-	}
-}
-
-func TestProposalRefusesGreaseType(t *testing.T) {
-	// GREASE proposal types are parsed-and-ignored at the extension level but a
-	// GREASE proposal in a commit is an unsupported proposal type: ValSem113.
-	var parsed Proposal
-	_, err := parsed.UnmarshalTLS([]byte{0x0A, 0x0A, 0x00})
-	if !errors.Is(err, ErrUnsupportedProposalType) {
-		t.Fatalf("UnmarshalTLS error = %v, want ErrUnsupportedProposalType", err)
-	}
-}
-
-func TestProposalTypePathRequired(t *testing.T) {
+func TestProposalTypePathRequiredSet(t *testing.T) {
 	// RFC 9420 §12.4: the path-required set is update, remove, external_init,
 	// group_context_extensions. add, psk and reinit do not require a path.
 	for _, tc := range []struct {
@@ -1834,82 +2249,149 @@ func TestProposalTypePathRequired(t *testing.T) {
 		{ProposalTypeAdd, false},
 		{ProposalTypeUpdate, true},
 		{ProposalTypeRemove, true},
-		{ProposalTypePSK, false},
+		{ProposalTypePreSharedKey, false},
 		{ProposalTypeReInit, false},
 		{ProposalTypeExternalInit, true},
 		{ProposalTypeGroupContextExtensions, true},
 	} {
-		if tc.proposalType.PathRequired() != tc.required {
-			t.Fatalf("%v.PathRequired() = %v, want %v",
-				tc.proposalType, tc.proposalType.PathRequired(), tc.required)
+		if proposalTypePathRequired(tc.proposalType) != tc.required {
+			t.Fatalf("proposalTypePathRequired(%s) = %v, want %v",
+				proposalTypeName(tc.proposalType), proposalTypePathRequired(tc.proposalType), tc.required)
 		}
 	}
 }
 
-func TestProposalMarshalRefusesMismatchedArm(t *testing.T) {
-	proposal := &Proposal{ProposalType: ProposalTypeAdd, Remove: &Remove{Removed: 1}}
-	if _, err := proposal.MarshalTLS(); err == nil {
-		t.Fatal("MarshalTLS accepted a proposal whose type and populated arm disagree")
-	}
-}
-
-func TestProposalRejectsTrailingBytes(t *testing.T) {
-	proposal := &Proposal{ProposalType: ProposalTypeRemove, Remove: &Remove{Removed: 1}}
-	encoded, err := proposal.MarshalTLS()
+func TestProposalCodecIsTheFramingPlans(t *testing.T) {
+	// This plan declares no Proposal codec. It uses the one the framing plan
+	// ships, through the single byte-level entry points, and the round trip is
+	// asserted here because every cached ProposalRef is over these bytes.
+	proposal := &Proposal{ProposalType: ProposalTypeRemove, Remove: &Remove{Removed: LeafIndex(3)}}
+	encoded, err := syntax.Marshal(proposal)
 	if err != nil {
-		t.Fatalf("MarshalTLS: %v", err)
+		t.Fatalf("syntax.Marshal: %v", err)
 	}
 	var parsed Proposal
-	read, err := parsed.UnmarshalTLS(append(encoded, 0xFF))
-	if err != nil {
-		t.Fatalf("UnmarshalTLS: %v", err)
+	if err := syntax.Unmarshal(encoded, &parsed); err != nil {
+		t.Fatalf("syntax.Unmarshal: %v", err)
 	}
-	if read != len(encoded) {
-		t.Fatalf("read = %d, want %d: the variant must consume exactly its own bytes", read, len(encoded))
+	if parsed.ProposalType != ProposalTypeRemove || parsed.Remove == nil || parsed.Remove.Removed != 3 {
+		t.Fatalf("parsed = %+v", parsed)
+	}
+	if err := syntax.Unmarshal(append(encoded, 0xFF), &parsed); !errors.Is(err, syntax.ErrTrailingBytes) {
+		t.Fatalf("syntax.Unmarshal with a trailing byte = %v, want ErrTrailingBytes", err)
 	}
 }
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./connect/mls/... -run TestProposal -v`
-Expected: FAIL to build with `undefined: Proposal`, `undefined: ProposalTypeRemove`, `undefined: Remove`.
+Run: `go test ./connect/mls/... -run 'TestProfileGate|TestProposalType|TestProposalCodec' -v`
+Expected: FAIL to build with `undefined: checkProposalProfile`, `undefined: proposalTypePathRequired`, `undefined: proposalTypeName`.
 
 - [ ] **Step 3: Write minimal implementation**
 
-`connect/mls/proposal.go`:
+`connect/mls/proposal_list.go` (this file grows in Task 6 with the cache; this task lands the gate
+only):
 
 ```go
-// RFC 9420 §12.1 proposals, narrowed to the v1 profile: add, update, remove and
-// group_context_extensions. psk, reinit and external_init are refused at parse
-// and have no struct in this package, so there is nothing to populate by
-// accident. Spec A §3.1 and §3.2.
+// The v1 profile gate for proposals, plus the two small type predicates the
+// commit path needs. Spec A §3.1 and §3.2.
+//
+// RFC 9420 defines seven proposal types and the codec in proposal_wire.go
+// decodes all of them plus a GREASE arm, because the messages vector family
+// cannot be green otherwise. Refusing three of them is a PROFILE decision, and
+// fusing a profile decision into a codec makes the codec untestable against the
+// corpus. So the refusal lives here, at the boundary where a Proposal enters
+// this plan's state, and it delegates to the one exported refusal surface:
+// (*Profile).CheckProposalType.
 package mls
 
-import (
-	"fmt"
+import "fmt"
 
-	"github.com/urnetwork/connect/mls/syntax"
-)
+// checkProposalProfile refuses any proposal this build will not process, and
+// refuses a proposal whose discriminant and populated arm disagree. The arm
+// check is here rather than in the codec for the same reason as the type check:
+// the codec must be able to decode a hostile message so the fuzzer and the
+// vector corpus can see it, and this plan must never act on one.
+func checkProposalProfile(profile *Profile, proposal *Proposal) error {
+	if proposal == nil {
+		return fmt.Errorf("%w: nil proposal", ErrUnsupportedProposalType)
+	}
+	if profile == nil {
+		profile = DefaultProfile()
+	}
+	if err := profile.CheckProposalType(proposal.ProposalType); err != nil {
+		return err
+	}
+	switch proposal.ProposalType {
+	case ProposalTypeAdd:
+		if proposal.Add == nil {
+			return fmt.Errorf("%w: add proposal with no add arm", ErrUnsupportedProposalType)
+		}
+	case ProposalTypeUpdate:
+		if proposal.Update == nil {
+			return fmt.Errorf("%w: update proposal with no update arm", ErrUnsupportedProposalType)
+		}
+	case ProposalTypeRemove:
+		if proposal.Remove == nil {
+			return fmt.Errorf("%w: remove proposal with no remove arm", ErrUnsupportedProposalType)
+		}
+	case ProposalTypeGroupContextExtensions:
+		if proposal.GroupContextExtensions == nil {
+			return fmt.Errorf("%w: group_context_extensions proposal with no extensions arm",
+				ErrUnsupportedProposalType)
+		}
+	default:
+		// CheckProposalType already refused everything else; this is the
+		// belt-and-braces branch that keeps the switch total.
+		return fmt.Errorf("%w: %s", ErrUnsupportedProposalType, proposalTypeName(proposal.ProposalType))
+	}
+	if err := checkNoExtraArms(proposal); err != nil {
+		return err
+	}
+	return nil
+}
 
-// ProposalType is the "MLS Proposal Types" registry value.
-type ProposalType uint16
+// checkNoExtraArms refuses a proposal with more than one arm populated. A
+// second arm is never read by this plan, so accepting one would let a peer put
+// bytes inside a ProposalRef preimage that no receiver ever evaluates.
+func checkNoExtraArms(proposal *Proposal) error {
+	populated := 0
+	if proposal.Add != nil {
+		populated += 1
+	}
+	if proposal.Update != nil {
+		populated += 1
+	}
+	if proposal.Remove != nil {
+		populated += 1
+	}
+	if proposal.PreSharedKey != nil {
+		populated += 1
+	}
+	if proposal.ReInit != nil {
+		populated += 1
+	}
+	if proposal.ExternalInit != nil {
+		populated += 1
+	}
+	if proposal.GroupContextExtensions != nil {
+		populated += 1
+	}
+	if len(proposal.UnknownBody) > 0 {
+		populated += 1
+	}
+	if populated != 1 {
+		return fmt.Errorf("%w: proposal has %d populated arms, want exactly 1",
+			ErrUnsupportedProposalType, populated)
+	}
+	return nil
+}
 
-const (
-	ProposalTypeAdd                    ProposalType = 0x0001
-	ProposalTypeUpdate                 ProposalType = 0x0002
-	ProposalTypeRemove                 ProposalType = 0x0003
-	ProposalTypePSK                    ProposalType = 0x0004
-	ProposalTypeReInit                 ProposalType = 0x0005
-	ProposalTypeExternalInit           ProposalType = 0x0006
-	ProposalTypeGroupContextExtensions ProposalType = 0x0007
-)
-
-// PathRequired reports whether a commit covering this proposal type must carry
-// an UpdatePath. RFC 9420 §12.4 pathRequiredTypes = [update, remove,
-// external_init, group_context_extensions].
-func (self ProposalType) PathRequired() bool {
-	switch self {
+// proposalTypePathRequired transcribes the RFC 9420 §12.4 pathRequiredTypes
+// set: [update, remove, external_init, group_context_extensions].
+func proposalTypePathRequired(proposalType ProposalType) bool {
+	switch proposalType {
 	case ProposalTypeUpdate, ProposalTypeRemove,
 		ProposalTypeExternalInit, ProposalTypeGroupContextExtensions:
 		return true
@@ -1917,16 +2399,18 @@ func (self ProposalType) PathRequired() bool {
 	return false
 }
 
-// String names the type for error messages.
-func (self ProposalType) String() string {
-	switch self {
+// proposalTypeName names a type for error messages. It is deliberately not a
+// String method on ProposalType: the registry enum belongs to extension.go and
+// this plan does not extend it.
+func proposalTypeName(proposalType ProposalType) string {
+	switch proposalType {
 	case ProposalTypeAdd:
 		return "add"
 	case ProposalTypeUpdate:
 		return "update"
 	case ProposalTypeRemove:
 		return "remove"
-	case ProposalTypePSK:
+	case ProposalTypePreSharedKey:
 		return "psk"
 	case ProposalTypeReInit:
 		return "reinit"
@@ -1935,180 +2419,34 @@ func (self ProposalType) String() string {
 	case ProposalTypeGroupContextExtensions:
 		return "group_context_extensions"
 	}
-	return fmt.Sprintf("proposal_type(%#04x)", uint16(self))
-}
-
-// Add requests that the client holding a KeyPackage join the group.
-type Add struct {
-	KeyPackage KeyPackage
-}
-
-// Update replaces the sender's own leaf.
-type Update struct {
-	LeafNode LeafNode
-}
-
-// Remove blanks the leaf at Removed.
-type Remove struct {
-	Removed LeafIndex
-}
-
-// GroupContextExtensions replaces the group context extension list wholesale.
-// RFC 9420 §12.1.7: this is a replacement, not a merge.
-type GroupContextExtensions struct {
-	Extensions []Extension `tls:"head=varint"`
-}
-
-// Proposal is the tagged union of §12.1. Exactly one arm is populated and it
-// must agree with ProposalType.
-type Proposal struct {
-	ProposalType           ProposalType
-	Add                    *Add
-	Update                 *Update
-	Remove                 *Remove
-	GroupContextExtensions *GroupContextExtensions
-}
-
-// Type returns the discriminant.
-func (self *Proposal) Type() ProposalType {
-	return self.ProposalType
-}
-
-// MarshalTLS writes u16(proposal_type) followed by the selected arm.
-func (self *Proposal) MarshalTLS() ([]byte, error) {
-	var body []byte
-	var err error
-	switch self.ProposalType {
-	case ProposalTypeAdd:
-		if self.Add == nil || self.Update != nil || self.Remove != nil || self.GroupContextExtensions != nil {
-			return nil, fmt.Errorf("mls: proposal type add with the wrong arm populated")
-		}
-		body, err = syntax.Marshal(self.Add)
-	case ProposalTypeUpdate:
-		if self.Update == nil || self.Add != nil || self.Remove != nil || self.GroupContextExtensions != nil {
-			return nil, fmt.Errorf("mls: proposal type update with the wrong arm populated")
-		}
-		body, err = syntax.Marshal(self.Update)
-	case ProposalTypeRemove:
-		if self.Remove == nil || self.Add != nil || self.Update != nil || self.GroupContextExtensions != nil {
-			return nil, fmt.Errorf("mls: proposal type remove with the wrong arm populated")
-		}
-		body, err = syntax.Marshal(self.Remove)
-	case ProposalTypeGroupContextExtensions:
-		if self.GroupContextExtensions == nil || self.Add != nil || self.Update != nil || self.Remove != nil {
-			return nil, fmt.Errorf("mls: proposal type group_context_extensions with the wrong arm populated")
-		}
-		body, err = syntax.Marshal(self.GroupContextExtensions)
-	default:
-		return nil, profileErrorForProposalType(self.ProposalType)
-	}
-	if err != nil {
-		return nil, err
-	}
-	out := make([]byte, 0, 2+len(body))
-	out = append(out, byte(uint16(self.ProposalType)>>8), byte(uint16(self.ProposalType)))
-	return append(out, body...), nil
-}
-
-// UnmarshalTLS reads the discriminant, applies the v1 profile gate, then reads
-// exactly the selected arm and returns the bytes consumed.
-func (self *Proposal) UnmarshalTLS(data []byte) (int, error) {
-	if len(data) < 2 {
-		return 0, fmt.Errorf("mls: proposal is shorter than its type field")
-	}
-	proposalType := ProposalType(uint16(data[0])<<8 | uint16(data[1]))
-	rest := data[2:]
-
-	switch proposalType {
-	case ProposalTypeAdd:
-		var add Add
-		read, err := syntax.Unmarshal(rest, &add)
-		if err != nil {
-			return 0, err
-		}
-		*self = Proposal{ProposalType: proposalType, Add: &add}
-		return 2 + read, nil
-	case ProposalTypeUpdate:
-		var update Update
-		read, err := syntax.Unmarshal(rest, &update)
-		if err != nil {
-			return 0, err
-		}
-		*self = Proposal{ProposalType: proposalType, Update: &update}
-		return 2 + read, nil
-	case ProposalTypeRemove:
-		var remove Remove
-		read, err := syntax.Unmarshal(rest, &remove)
-		if err != nil {
-			return 0, err
-		}
-		*self = Proposal{ProposalType: proposalType, Remove: &remove}
-		return 2 + read, nil
-	case ProposalTypeGroupContextExtensions:
-		var gce GroupContextExtensions
-		read, err := syntax.Unmarshal(rest, &gce)
-		if err != nil {
-			return 0, err
-		}
-		*self = Proposal{ProposalType: proposalType, GroupContextExtensions: &gce}
-		return 2 + read, nil
-	}
-	return 0, profileErrorForProposalType(proposalType)
-}
-
-// profileErrorForProposalType names the specific profile decision that refused
-// a type, so a future accidental implementation turns a test red rather than
-// green. Spec A §3.2.
-func profileErrorForProposalType(proposalType ProposalType) error {
-	switch proposalType {
-	case ProposalTypePSK:
-		return fmt.Errorf("%w: psk proposals are not implemented in v1", ErrProfilePSK)
-	case ProposalTypeReInit:
-		return fmt.Errorf("%w: reinit proposals are not implemented in v1", ErrProfileReInit)
-	case ProposalTypeExternalInit:
-		return fmt.Errorf("%w: external_init proposals are not implemented in v1", ErrProfileExternalCommit)
-	}
-	return fmt.Errorf("%w: %v", ErrUnsupportedProposalType, proposalType)
+	return fmt.Sprintf("proposal_type(%#04x)", uint16(proposalType))
 }
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./connect/mls/... -run TestProposal -v`
+Run: `go test ./connect/mls/... -run 'TestProfileGate|TestProposalType|TestProposalCodec' -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add connect/mls/proposal.go connect/mls/proposal_test.go && \
-git commit -m "feat(mls): proposal variant codec with the v1 profile parse gate"
+git add connect/mls/proposal_list.go connect/mls/proposal_list_test.go && \
+git commit -m "feat(mls): the v1 proposal profile gate at the group lifecycle boundary"
 ```
 
 ---
 
-### Task 6: `ProposalOrRef`, the proposal cache, and resolution
+### Task 6: The proposal cache and resolution
 
 **Files:**
-- Create: `connect/mls/proposal_list.go`
+- Modify: `connect/mls/proposal_list.go`
 - Test: `connect/mls/proposal_list_test.go`
 
 **Interfaces:**
-- Consumes: `syntax.Marshal`, `syntax.Unmarshal`; `mls.CryptoProvider`; `mls.AuthenticatedContent`, `mls.ProposalRef`, `(*AuthenticatedContent).ProposalRef(crypto)`, `mls.Sender`, `mls.SenderTypeMember`, `mls.ContentTypeProposal` (Framing plan); `ErrUpdateSenderNotMember` (Validation plan).
+- Consumes: `CryptoProvider` (Crypto/HPKE plan); `LeafIndex` (Tree math plan); `Extension` (TreeKEM plan); `AuthenticatedContent`, `(*AuthenticatedContent).ProposalRef(crypto CryptoProvider) (ProposalRef, error)`, `ProposalRef`, `ProposalOrRef`, `ProposalOrRefType`, `ProposalOrRefTypeProposal`, `ProposalOrRefTypeReference`, `Proposal`, `Sender`, `SenderTypeMember`, `ContentTypeProposal` (Framing plan); `ErrUpdateSenderNotMember` (Validation plan); `checkProposalProfile`, `proposalTypePathRequired` (Task 5).
 - Produces:
 ```go
-type ProposalOrRefType uint8
-const (
-    ProposalOrRefTypeProposal  ProposalOrRefType = 1
-    ProposalOrRefTypeReference ProposalOrRefType = 2
-)
-type ProposalOrRef struct {
-    Type      ProposalOrRefType
-    Proposal  *Proposal
-    Reference ProposalRef
-}
-func (self *ProposalOrRef) MarshalTLS() ([]byte, error)
-func (self *ProposalOrRef) UnmarshalTLS(data []byte) (int, error)
-
 type CachedProposal struct {
     Ref      ProposalRef
     Proposal Proposal
@@ -2136,19 +2474,16 @@ func (self *ProposalCache) Clear()
 func (self *ProposalCache) Pending() []ProposalOrRef
 ```
 
+`ProposalOrRef`, `ProposalOrRefType` and its constants, `ProposalRef` and the `ProposalOrRef` codec
+are the Framing plan's. This task declares none of them; it consumes the type and produces the
+cache. `(*AuthenticatedContent).ProposalRef` is likewise the Framing plan's, built on
+`MakeProposalRef`, so there is exactly one definition of what a `ProposalRef` is over.
+
 - [ ] **Step 1: Write the failing test**
 
-`connect/mls/proposal_list_test.go`:
+Append to `connect/mls/proposal_list_test.go`:
 
 ```go
-package mls
-
-import (
-	"bytes"
-	"errors"
-	"testing"
-)
-
 // testProposalContent wraps a proposal in the AuthenticatedContent shape the
 // cache stores, without going through a full group.
 func testProposalContent(t *testing.T, crypto CryptoProvider, sender LeafIndex, proposal *Proposal) *AuthenticatedContent {
@@ -2163,54 +2498,6 @@ func testProposalContent(t *testing.T, crypto CryptoProvider, sender LeafIndex, 
 			Proposal:    proposal,
 		},
 		Auth: FramedContentAuthData{Signature: []byte("sig")},
-	}
-}
-
-func TestProposalOrRefRoundTrip(t *testing.T) {
-	byValue := &ProposalOrRef{
-		Type:     ProposalOrRefTypeProposal,
-		Proposal: &Proposal{ProposalType: ProposalTypeRemove, Remove: &Remove{Removed: 2}},
-	}
-	encoded, err := byValue.MarshalTLS()
-	if err != nil {
-		t.Fatalf("MarshalTLS: %v", err)
-	}
-	if encoded[0] != 0x01 {
-		t.Fatalf("discriminant = %#x, want 0x01", encoded[0])
-	}
-	var parsed ProposalOrRef
-	read, err := parsed.UnmarshalTLS(encoded)
-	if err != nil {
-		t.Fatalf("UnmarshalTLS: %v", err)
-	}
-	if read != len(encoded) || parsed.Proposal == nil || parsed.Proposal.Remove.Removed != 2 {
-		t.Fatalf("parsed = %+v read = %d", parsed, read)
-	}
-
-	byRef := &ProposalOrRef{Type: ProposalOrRefTypeReference, Reference: ProposalRef(bytes.Repeat([]byte{7}, 32))}
-	encodedRef, err := byRef.MarshalTLS()
-	if err != nil {
-		t.Fatalf("MarshalTLS ref: %v", err)
-	}
-	if encodedRef[0] != 0x02 {
-		t.Fatalf("discriminant = %#x, want 0x02", encodedRef[0])
-	}
-	var parsedRef ProposalOrRef
-	if _, err := parsedRef.UnmarshalTLS(encodedRef); err != nil {
-		t.Fatalf("UnmarshalTLS ref: %v", err)
-	}
-	if !bytes.Equal(parsedRef.Reference, byRef.Reference) {
-		t.Fatal("reference did not survive the round trip")
-	}
-}
-
-func TestProposalOrRefRejectsUnknownDiscriminant(t *testing.T) {
-	var parsed ProposalOrRef
-	if _, err := parsed.UnmarshalTLS([]byte{0x00, 0x00}); err == nil {
-		t.Fatal("UnmarshalTLS accepted discriminant 0, which is reserved")
-	}
-	if _, err := parsed.UnmarshalTLS([]byte{0x03, 0x00}); err == nil {
-		t.Fatal("UnmarshalTLS accepted discriminant 3")
 	}
 }
 
@@ -2320,97 +2607,24 @@ func TestProposalCacheRefusesNonMemberUpdate(t *testing.T) {
 }
 ```
 
+Add `"bytes"` to the file's import block; the rest of the imports are already there from Task 5.
+
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./connect/mls/... -run 'TestProposalOrRef|TestProposalCache|TestProposalListPath' -v`
-Expected: FAIL to build with `undefined: ProposalOrRef`, `undefined: NewProposalCache`, `undefined: ProposalList`.
+Run: `go test ./connect/mls/... -run 'TestProposalCache|TestProposalListPath' -v`
+Expected: FAIL to build with `undefined: NewProposalCache`, `undefined: ProposalList`.
 
 - [ ] **Step 3: Write minimal implementation**
 
-`connect/mls/proposal_list.go`:
+Append to `connect/mls/proposal_list.go`:
 
 ```go
-// ProposalOrRef and the per-epoch proposal cache. A commit names its proposals
-// either by value or by reference; both land in one ProposalList so validation
-// and application have exactly one path. RFC 9420 §12.4.
-package mls
-
-import (
-	"encoding/hex"
-	"fmt"
-
-	"github.com/urnetwork/connect/mls/syntax"
-)
-
-// ProposalOrRefType is the ProposalOrRef discriminant. 0 is reserved.
-type ProposalOrRefType uint8
-
-const (
-	ProposalOrRefTypeProposal  ProposalOrRefType = 1
-	ProposalOrRefTypeReference ProposalOrRefType = 2
-)
-
-// ProposalOrRef names one proposal covered by a commit.
-type ProposalOrRef struct {
-	Type      ProposalOrRefType
-	Proposal  *Proposal
-	Reference ProposalRef
-}
-
-// MarshalTLS writes u8(type) then the selected arm.
-func (self *ProposalOrRef) MarshalTLS() ([]byte, error) {
-	switch self.Type {
-	case ProposalOrRefTypeProposal:
-		if self.Proposal == nil {
-			return nil, fmt.Errorf("mls: proposal_or_ref type proposal with no proposal")
-		}
-		body, err := self.Proposal.MarshalTLS()
-		if err != nil {
-			return nil, err
-		}
-		return append([]byte{byte(ProposalOrRefTypeProposal)}, body...), nil
-	case ProposalOrRefTypeReference:
-		if len(self.Reference) == 0 {
-			return nil, fmt.Errorf("mls: proposal_or_ref type reference with no reference")
-		}
-		body, err := syntax.Marshal(&struct {
-			Reference []byte `tls:"head=varint"`
-		}{Reference: self.Reference})
-		if err != nil {
-			return nil, err
-		}
-		return append([]byte{byte(ProposalOrRefTypeReference)}, body...), nil
-	}
-	return nil, fmt.Errorf("mls: proposal_or_ref type %d is not defined", self.Type)
-}
-
-// UnmarshalTLS reads the discriminant then exactly the selected arm.
-func (self *ProposalOrRef) UnmarshalTLS(data []byte) (int, error) {
-	if len(data) < 1 {
-		return 0, fmt.Errorf("mls: proposal_or_ref is empty")
-	}
-	switch ProposalOrRefType(data[0]) {
-	case ProposalOrRefTypeProposal:
-		var proposal Proposal
-		read, err := proposal.UnmarshalTLS(data[1:])
-		if err != nil {
-			return 0, err
-		}
-		*self = ProposalOrRef{Type: ProposalOrRefTypeProposal, Proposal: &proposal}
-		return 1 + read, nil
-	case ProposalOrRefTypeReference:
-		var wrapper struct {
-			Reference []byte `tls:"head=varint"`
-		}
-		read, err := syntax.Unmarshal(data[1:], &wrapper)
-		if err != nil {
-			return 0, err
-		}
-		*self = ProposalOrRef{Type: ProposalOrRefTypeReference, Reference: ProposalRef(wrapper.Reference)}
-		return 1 + read, nil
-	}
-	return 0, fmt.Errorf("mls: proposal_or_ref type %d is not defined", data[0])
-}
+// The per-epoch proposal cache. A commit names its proposals either by value or
+// by reference; both land in one ProposalList so validation and application
+// have exactly one path. RFC 9420 §12.4.
+//
+// ProposalOrRef and its codec are the framing plan's; this file only consumes
+// the type. The import block gains "encoding/hex" for the map key.
 
 // CachedProposal is a proposal plus the provenance validation needs: who sent
 // it, and whether the commit carried it inline.
@@ -2444,7 +2658,7 @@ func (self *ProposalList) PathRequired() bool {
 		return true
 	}
 	for _, cached := range self.All {
-		if cached.Proposal.Type().PathRequired() {
+		if proposalTypePathRequired(cached.Proposal.ProposalType) {
 			return true
 		}
 	}
@@ -2490,13 +2704,18 @@ func NewProposalCache() *ProposalCache {
 
 // Store caches a proposal received this epoch and returns its reference.
 // ValSem112 is checked here rather than at commit time: a standalone Update
-// whose sender is not a member is never a legal cache entry.
+// whose sender is not a member is never a legal cache entry. The v1 profile
+// gate runs here too, which is this plan's parse boundary — the codec decoded
+// all seven arms, and this is where the three v1 does not implement stop.
 func (self *ProposalCache) Store(crypto CryptoProvider, content *AuthenticatedContent) (ProposalRef, error) {
 	if content.Content.ContentType != ContentTypeProposal || content.Content.Proposal == nil {
 		return nil, fmt.Errorf("mls: cache entry is not a proposal")
 	}
 	if content.Content.Sender.SenderType != SenderTypeMember {
 		return nil, fmt.Errorf("%w: sender type %d", ErrUpdateSenderNotMember, content.Content.Sender.SenderType)
+	}
+	if err := checkProposalProfile(DefaultProfile(), content.Content.Proposal); err != nil {
+		return nil, err
 	}
 	ref, err := content.ProposalRef(crypto)
 	if err != nil {
@@ -2545,8 +2764,11 @@ func (self *ProposalCache) Resolve(crypto CryptoProvider, committer LeafIndex,
 		default:
 			return nil, fmt.Errorf("mls: proposal_or_ref type %d is not defined", entry.Type)
 		}
+		if err := checkProposalProfile(DefaultProfile(), &cached.Proposal); err != nil {
+			return nil, err
+		}
 		list.All = append(list.All, cached)
-		switch cached.Proposal.Type() {
+		switch cached.Proposal.ProposalType {
 		case ProposalTypeAdd:
 			list.Adds = append(list.Adds, cached)
 		case ProposalTypeUpdate:
@@ -2556,7 +2778,8 @@ func (self *ProposalCache) Resolve(crypto CryptoProvider, committer LeafIndex,
 		case ProposalTypeGroupContextExtensions:
 			list.GCE = append(list.GCE, cached)
 		default:
-			return nil, profileErrorForProposalType(cached.Proposal.Type())
+			return nil, fmt.Errorf("%w: %s", ErrUnsupportedProposalType,
+				proposalTypeName(cached.Proposal.ProposalType))
 		}
 	}
 	return list, nil
@@ -2583,7 +2806,7 @@ func (self *ProposalCache) Clear() {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./connect/mls/... -run 'TestProposalOrRef|TestProposalCache|TestProposalListPath' -v`
+Run: `go test ./connect/mls/... -run 'TestProposalCache|TestProposalListPath' -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -2602,7 +2825,7 @@ git commit -m "feat(mls): proposal cache and by-value/by-reference resolution"
 - Test: `connect/mls/validate_proposals_test.go`
 
 **Interfaces:**
-- Consumes: `mls.CryptoProvider`, `mls.RatchetTree`, `mls.GroupContext`, `mls.KeyPackage.Validate`, `mls.LeafNode.Validate`, `mls.RequiredCapabilities`, `(*Capabilities).Supports` (TreeKEM plan); the ValSem error values (Validation plan); `ProposalList`, `CachedProposal` (Task 6).
+- Consumes: `CryptoProvider` (Crypto/HPKE plan); `LeafIndex` (Tree math plan); `RatchetTree`, `(*RatchetTree).Leaf(i LeafIndex) *LeafNode`, `(*RatchetTree).NonBlankLeaves`, `RequiredCapabilities`, `(*Capabilities).Supports(rc *RequiredCapabilities) error`, `(*KeyPackage).Validate(crypto CryptoProvider, suite CipherSuite, now time.Time) error`, `Extension`, `ExtensionTypeRequiredCapabilities`, `FindExtension` (TreeKEM plan); `GroupContext` (Key schedule plan); `syntax.Unmarshal` (Syntax plan); the ValSem error values (Validation plan); `ProposalList`, `CachedProposal`, `checkProposalProfile` (Tasks 5, 6).
 - Produces:
 ```go
 type ProposalValidationInput struct {
@@ -2654,7 +2877,7 @@ import (
 // members that own them.
 func testTreeWith(t *testing.T, crypto CryptoProvider, names ...string) (*RatchetTree, []*testMember) {
 	t.Helper()
-	tree := NewRatchetTree(crypto)
+	tree := NewRatchetTree()
 	members := make([]*testMember, 0, len(names))
 	for _, name := range names {
 		member := testIdentity(t, crypto, name)
@@ -2673,7 +2896,7 @@ func testValidationInput(t *testing.T, crypto CryptoProvider, tree *RatchetTree,
 	return &ProposalValidationInput{
 		Crypto:    crypto,
 		Tree:      tree,
-		Context:   &GroupContext{Version: ProtocolVersionMls10, CipherSuite: CipherSuiteX25519ChaCha20SHA256Ed25519, GroupId: []byte("group"), Epoch: 1},
+		Context:   &GroupContext{Version: ProtocolVersionMls10, CipherSuite: CipherSuiteX25519ChaCha20Sha256Ed25519, GroupId: []byte("group"), Epoch: 1},
 		Committer: committer,
 		List:      list,
 		Now:       time.Now(),
@@ -2755,17 +2978,20 @@ func TestValSem111CommitterOwnUpdate(t *testing.T) {
 	}
 }
 
-func TestValSem113UnsupportedProposalTypeIsUnreachableAfterParse(t *testing.T) {
-	// The parse gate refuses psk/reinit/external_init and every unknown type, so
-	// ValSem113 can only fire on a list built in-process. Both paths are
-	// asserted: the parse gate, and the check itself.
+func TestValSem113UnsupportedProposalTypeIsRefused(t *testing.T) {
+	// The cache's profile gate refuses psk/reinit/external_init and every
+	// unknown type, so ValSem113 fires only on a list assembled in process.
+	// Both paths are asserted: the gate in Task 5, and the check itself here.
 	crypto := testCrypto(t)
 	tree, _ := testTreeWith(t, crypto, "alice")
-	cached := CachedProposal{Proposal: Proposal{ProposalType: ProposalTypePSK}}
+	cached := CachedProposal{Proposal: Proposal{
+		ProposalType: ProposalTypePreSharedKey,
+		PreSharedKey: &PreSharedKey{},
+	}}
 	list := &ProposalList{All: []CachedProposal{cached}}
 	in := testValidationInput(t, crypto, tree, LeafIndex(0), list)
-	if err := ValSem113ProposalTypeSupported(in); !errors.Is(err, ErrProfilePSK) {
-		t.Fatalf("ValSem113 error = %v, want ErrProfilePSK", err)
+	if err := ValSem113ProposalTypeSupported(in); !errors.Is(err, ErrProfilePsk) {
+		t.Fatalf("ValSem113 error = %v, want ErrProfilePsk", err)
 	}
 }
 
@@ -2802,6 +3028,8 @@ import (
 	"bytes"
 	"fmt"
 	"time"
+
+	"github.com/urnetwork/connect/mls/syntax"
 )
 
 // ProposalValidationInput is the pre-commit state a proposal list is judged
@@ -2866,7 +3094,10 @@ func ValSem101UniqueSignatureKey(in *ProposalValidationInput) error {
 		if removed[leafIndex] {
 			continue
 		}
-		leaf, _ := in.Tree.LeafNode(leafIndex)
+		leaf := in.Tree.Leaf(leafIndex)
+		if leaf == nil {
+			continue
+		}
 		seen[string(leaf.SignatureKey)] = true
 	}
 	for _, cached := range in.List.Adds {
@@ -2901,7 +3132,10 @@ func ValSem103UniqueEncryptionKey(in *ProposalValidationInput) error {
 		if removed[leafIndex] {
 			continue
 		}
-		leaf, _ := in.Tree.LeafNode(leafIndex)
+		leaf := in.Tree.Leaf(leafIndex)
+		if leaf == nil {
+			continue
+		}
 		seen[string(leaf.EncryptionKey)] = true
 	}
 	for _, cached := range in.List.Adds {
@@ -2979,7 +3213,7 @@ func ValSem107UniqueRemove(in *ProposalValidationInput) error {
 func ValSem108RemoveExists(in *ProposalValidationInput) error {
 	for _, cached := range in.List.Removes {
 		leafIndex := cached.Proposal.Remove.Removed
-		if _, ok := in.Tree.LeafNode(leafIndex); !ok {
+		if in.Tree.Leaf(leafIndex) == nil {
 			return fmt.Errorf("%w: leaf %d is blank or out of range", ErrRemoveNonMember, leafIndex)
 		}
 	}
@@ -3016,7 +3250,10 @@ func ValSem110UpdateUniqueEncryptionKey(in *ProposalValidationInput) error {
 		if removed[leafIndex] || updated[leafIndex] {
 			continue
 		}
-		leaf, _ := in.Tree.LeafNode(leafIndex)
+		leaf := in.Tree.Leaf(leafIndex)
+		if leaf == nil {
+			continue
+		}
 		seen[string(leaf.EncryptionKey)] = true
 	}
 	for _, cached := range in.List.Adds {
@@ -3048,7 +3285,7 @@ func ValSem111NoCommitterUpdate(in *ProposalValidationInput) error {
 // built in process.
 func ValSem112UpdateSenderIsMember(in *ProposalValidationInput) error {
 	for _, cached := range in.List.Updates {
-		if _, ok := in.Tree.LeafNode(cached.Sender); !ok {
+		if in.Tree.Leaf(cached.Sender) == nil {
 			return fmt.Errorf("%w: update sender leaf %d is blank", ErrUpdateSenderNotMember, cached.Sender)
 		}
 	}
@@ -3056,14 +3293,14 @@ func ValSem112UpdateSenderIsMember(in *ProposalValidationInput) error {
 }
 
 // ValSem113ProposalTypeSupported: every proposal type in the list is one this
-// group can process. In v1 the parse gate already refuses the other four, so
-// this fires only on a list assembled in process.
+// group can process. The cache's profile gate already refuses the other three
+// plus GREASE, so this fires only on a list assembled in process — and it goes
+// through the same gate, so there is exactly one table of what v1 accepts.
 func ValSem113ProposalTypeSupported(in *ProposalValidationInput) error {
-	for _, cached := range in.List.All {
-		switch cached.Proposal.Type() {
-		case ProposalTypeAdd, ProposalTypeUpdate, ProposalTypeRemove, ProposalTypeGroupContextExtensions:
-		default:
-			return profileErrorForProposalType(cached.Proposal.Type())
+	profile := DefaultProfile()
+	for i := range in.List.All {
+		if err := checkProposalProfile(profile, &in.List.All[i].Proposal); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -3098,33 +3335,25 @@ func removedLeaves(list *ProposalList) map[LeafIndex]bool {
 	return out
 }
 
-// requiredCapabilitiesOf finds the required_capabilities extension.
+// requiredCapabilitiesOf finds and decodes the required_capabilities extension.
+// FindExtension and syntax.Unmarshal are the only two calls: there is one
+// extension lookup and one decoder in this package, and this file adds neither.
 func requiredCapabilitiesOf(exts []Extension) (*RequiredCapabilities, bool) {
-	for _, ext := range exts {
-		if ext.ExtensionType == ExtensionTypeRequiredCapabilities {
-			var required RequiredCapabilities
-			if _, err := syntaxUnmarshalRequiredCapabilities(ext.ExtensionData, &required); err != nil {
-				return nil, false
-			}
-			return &required, true
-		}
+	data, ok := FindExtension(exts, ExtensionTypeRequiredCapabilities)
+	if !ok {
+		return nil, false
 	}
-	return nil, false
+	var required RequiredCapabilities
+	if err := syntax.Unmarshal(data, &required); err != nil {
+		return nil, false
+	}
+	return &required, true
 }
 ```
 
-Add the two small helpers this file needs, in the same file:
-
-```go
-// syntaxUnmarshalRequiredCapabilities exists so the import of syntax stays in
-// one place per file, per CODESTYLE.
-func syntaxUnmarshalRequiredCapabilities(data []byte, out *RequiredCapabilities) (int, error) {
-	return syntax.Unmarshal(data, out)
-}
-```
-
-`ExtensionTypeRequiredCapabilities` (0x0003) is defined by the TreeKEM plan alongside the other
-RFC extension types; if it is not yet present, add it there rather than here.
+The file's import block is `bytes`, `fmt`, `time` and
+`github.com/urnetwork/connect/mls/syntax`. `ExtensionTypeRequiredCapabilities` (0x0003) is declared
+once with the other registry enums in the TreeKEM plan's extension file.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -3147,7 +3376,7 @@ git commit -m "feat(mls): proposal list validation, ValSem101 through ValSem113"
 - Test: `connect/mls/apply_proposals_test.go`
 
 **Interfaces:**
-- Consumes: `(*RatchetTree).Clone/AddLeaf/UpdateLeaf/RemoveLeaf/LeafNode/NonBlankLeaves`, `mls.GroupContext` (TreeKEM / Key schedule plans); `ProposalList` (Task 6); `ValidateProposalList` (Task 7).
+- Consumes: `CryptoProvider` (Crypto/HPKE plan); `LeafIndex` (Tree math plan); `(*RatchetTree).Clone() *RatchetTree`, `(*RatchetTree).AddLeaf(leaf *LeafNode) (LeafIndex, error)`, `(*RatchetTree).UpdateLeaf(i LeafIndex, leaf *LeafNode) error`, `(*RatchetTree).RemoveLeaf(i LeafIndex) error`, `(*RatchetTree).Leaf(i LeafIndex) *LeafNode`, `(*RatchetTree).TreeHash(crypto CryptoProvider) ([]byte, error)`, `Extension` (TreeKEM plan); `GroupContext` (Key schedule plan); `ProposalList` (Task 6).
 - Produces:
 ```go
 type ApplyResult struct {
@@ -3196,7 +3425,7 @@ func TestApplyProposalsAddOrderDeterminesPlacement(t *testing.T) {
 		Adds:    []CachedProposal{addDave, addErin},
 		All:     []CachedProposal{removeBob, addDave, addErin},
 	}
-	ctx := &GroupContext{Version: ProtocolVersionMls10, CipherSuite: CipherSuiteX25519ChaCha20SHA256Ed25519, GroupId: []byte("group"), Epoch: 1}
+	ctx := &GroupContext{Version: ProtocolVersionMls10, CipherSuite: CipherSuiteX25519ChaCha20Sha256Ed25519, GroupId: []byte("group"), Epoch: 1}
 	result, err := ApplyProposals(crypto, tree, ctx, LeafIndex(0), list)
 	if err != nil {
 		t.Fatalf("ApplyProposals: %v", err)
@@ -3210,8 +3439,8 @@ func TestApplyProposalsAddOrderDeterminesPlacement(t *testing.T) {
 	if result.AddedLeaves[1] != 3 {
 		t.Fatalf("second add landed at leaf %d, want 3", result.AddedLeaves[1])
 	}
-	dave1, ok := result.Tree.LeafNode(result.AddedLeaves[0])
-	if !ok || !bytes.Equal(dave1.SignatureKey, dave.SigPub) {
+	dave1 := result.Tree.Leaf(result.AddedLeaves[0])
+	if dave1 == nil || !bytes.Equal(dave1.SignatureKey, dave.SigPub) {
 		t.Fatal("the first add in list order did not land in the leftmost blank leaf")
 	}
 }
@@ -3219,19 +3448,19 @@ func TestApplyProposalsAddOrderDeterminesPlacement(t *testing.T) {
 func TestApplyProposalsDoesNotMutateTheInputTree(t *testing.T) {
 	crypto := testCrypto(t)
 	tree, _ := testTreeWith(t, crypto, "alice", "bob")
-	before, err := tree.RootHash()
+	before, err := tree.TreeHash(crypto)
 	if err != nil {
-		t.Fatalf("RootHash: %v", err)
+		t.Fatalf("TreeHash: %v", err)
 	}
 	cached := CachedProposal{Proposal: Proposal{ProposalType: ProposalTypeRemove, Remove: &Remove{Removed: 1}}, ByValue: true}
 	list := &ProposalList{Removes: []CachedProposal{cached}, All: []CachedProposal{cached}}
-	ctx := &GroupContext{Version: ProtocolVersionMls10, CipherSuite: CipherSuiteX25519ChaCha20SHA256Ed25519, GroupId: []byte("group")}
+	ctx := &GroupContext{Version: ProtocolVersionMls10, CipherSuite: CipherSuiteX25519ChaCha20Sha256Ed25519, GroupId: []byte("group")}
 	if _, err := ApplyProposals(crypto, tree, ctx, LeafIndex(0), list); err != nil {
 		t.Fatalf("ApplyProposals: %v", err)
 	}
-	after, err := tree.RootHash()
+	after, err := tree.TreeHash(crypto)
 	if err != nil {
-		t.Fatalf("RootHash: %v", err)
+		t.Fatalf("TreeHash: %v", err)
 	}
 	if !bytes.Equal(before, after) {
 		t.Fatal("ApplyProposals mutated the caller's tree; a rejected commit would corrupt live state")
@@ -3257,7 +3486,7 @@ func TestApplyProposalsGceReplacesWholesale(t *testing.T) {
 	}
 	list := &ProposalList{GCE: []CachedProposal{cached}, All: []CachedProposal{cached}}
 	ctx := &GroupContext{
-		Version: ProtocolVersionMls10, CipherSuite: CipherSuiteX25519ChaCha20SHA256Ed25519,
+		Version: ProtocolVersionMls10, CipherSuite: CipherSuiteX25519ChaCha20Sha256Ed25519,
 		GroupId:    []byte("group"),
 		Extensions: []Extension{{ExtensionType: ExtensionType(0x00FF), ExtensionData: []byte{1}}},
 	}
@@ -3275,7 +3504,7 @@ func TestApplyProposalsReportsSelfRemoval(t *testing.T) {
 	tree, _ := testTreeWith(t, crypto, "alice", "bob")
 	cached := CachedProposal{Proposal: Proposal{ProposalType: ProposalTypeRemove, Remove: &Remove{Removed: 1}}, ByValue: true}
 	list := &ProposalList{Removes: []CachedProposal{cached}, All: []CachedProposal{cached}}
-	ctx := &GroupContext{Version: ProtocolVersionMls10, CipherSuite: CipherSuiteX25519ChaCha20SHA256Ed25519, GroupId: []byte("group")}
+	ctx := &GroupContext{Version: ProtocolVersionMls10, CipherSuite: CipherSuiteX25519ChaCha20Sha256Ed25519, GroupId: []byte("group")}
 	result, err := ApplyProposals(crypto, tree, ctx, LeafIndex(1), list)
 	if err != nil {
 		t.Fatalf("ApplyProposals: %v", err)
@@ -3380,22 +3609,21 @@ git commit -m "feat(mls): apply a proposal list in RFC 9420 section 12.3 order"
 
 ---
 
-### Task 9: The `Commit` struct, its codec, and the path-required rule
+### Task 9: The path-required rule
 
 **Files:**
 - Create: `connect/mls/commit.go`
 - Test: `connect/mls/commit_test.go`
 
+**Ownership.** The `Commit` struct and its codec belong to the Framing plan, alongside `Proposal` and
+`ProposalOrRef` — the framing plan's `MLSMessage` names them by direct type in wave 3, and one Go
+package cannot compile if they land in wave 4. This task keeps the rule that decides whether a
+commit must carry a path, which is a lifecycle decision and not a codec one.
+
 **Interfaces:**
-- Consumes: `syntax.Marshal`, `syntax.Unmarshal`; `mls.UpdatePath` (TreeKEM plan); `ProposalOrRef`, `ProposalList` (Task 6); `ErrMissingPath` (Validation plan).
+- Consumes: `Commit`, `ProposalOrRef`, `UpdatePath` (Framing / TreeKEM plans); `syntax.Marshal`, `syntax.Unmarshal` (Syntax plan); `ProposalList`, `proposalTypePathRequired` (Tasks 5, 6).
 - Produces:
 ```go
-type Commit struct {
-    Proposals []ProposalOrRef
-    Path      *UpdatePath
-}
-func (self *Commit) MarshalTLS() ([]byte, error)
-func (self *Commit) UnmarshalTLS(data []byte) (int, error)
 func CommitPathRequired(list *ProposalList) bool
 ```
 
@@ -3408,55 +3636,11 @@ package mls
 
 import (
 	"bytes"
+	"errors"
 	"testing"
+
+	"github.com/urnetwork/connect/mls/syntax"
 )
-
-func TestCommitRoundTripWithoutPath(t *testing.T) {
-	commit := &Commit{Proposals: []ProposalOrRef{{
-		Type:     ProposalOrRefTypeProposal,
-		Proposal: &Proposal{ProposalType: ProposalTypeRemove, Remove: &Remove{Removed: 2}},
-	}}}
-	encoded, err := commit.MarshalTLS()
-	if err != nil {
-		t.Fatalf("MarshalTLS: %v", err)
-	}
-	if encoded[len(encoded)-1] != 0x00 {
-		t.Fatalf("absent path must encode as the 0x00 optional presence byte, got %#x", encoded[len(encoded)-1])
-	}
-	var parsed Commit
-	read, err := parsed.UnmarshalTLS(encoded)
-	if err != nil {
-		t.Fatalf("UnmarshalTLS: %v", err)
-	}
-	if read != len(encoded) {
-		t.Fatalf("read = %d, want %d", read, len(encoded))
-	}
-	if parsed.Path != nil {
-		t.Fatal("Path must be nil when the presence byte is 0")
-	}
-	reencoded, err := parsed.MarshalTLS()
-	if err != nil {
-		t.Fatalf("re-MarshalTLS: %v", err)
-	}
-	if !bytes.Equal(reencoded, encoded) {
-		t.Fatal("re-encode is not byte identical")
-	}
-}
-
-func TestCommitRejectsTwoEncodingsOfAbsentPath(t *testing.T) {
-	commit := &Commit{}
-	encoded, err := commit.MarshalTLS()
-	if err != nil {
-		t.Fatalf("MarshalTLS: %v", err)
-	}
-	// 0x02 is not a legal optional presence byte
-	mutated := append([]byte(nil), encoded...)
-	mutated[len(mutated)-1] = 0x02
-	var parsed Commit
-	if _, err := parsed.UnmarshalTLS(mutated); err == nil {
-		t.Fatal("UnmarshalTLS accepted presence byte 0x02")
-	}
-}
 
 func TestCommitPathRequiredRules(t *testing.T) {
 	empty := &ProposalList{}
@@ -3486,113 +3670,75 @@ func TestCommitPathRequiredRules(t *testing.T) {
 		t.Fatal("group_context_extensions is in the RFC 9420 §12.4 pathRequiredTypes list")
 	}
 }
+
+func TestCommitCodecIsTheFramingPlans(t *testing.T) {
+	// This plan declares no Commit codec. The commit bytes are load bearing for
+	// the confirmed transcript hash, so the round trip is asserted here through
+	// the single byte-level entry points.
+	commit := &Commit{Proposals: []ProposalOrRef{{
+		Type:     ProposalOrRefTypeProposal,
+		Proposal: &Proposal{ProposalType: ProposalTypeRemove, Remove: &Remove{Removed: 2}},
+	}}}
+	encoded, err := syntax.Marshal(commit)
+	if err != nil {
+		t.Fatalf("syntax.Marshal: %v", err)
+	}
+	if encoded[len(encoded)-1] != 0x00 {
+		t.Fatalf("absent path must encode as the 0x00 optional presence byte, got %#x", encoded[len(encoded)-1])
+	}
+	var parsed Commit
+	if err := syntax.Unmarshal(encoded, &parsed); err != nil {
+		t.Fatalf("syntax.Unmarshal: %v", err)
+	}
+	if parsed.Path != nil {
+		t.Fatal("Path must be nil when the presence byte is 0")
+	}
+	reencoded, err := syntax.Marshal(&parsed)
+	if err != nil {
+		t.Fatalf("re-marshal: %v", err)
+	}
+	if !bytes.Equal(reencoded, encoded) {
+		t.Fatal("re-encode is not byte identical")
+	}
+
+	// 0x02 is not a legal optional presence byte: two encodings of "absent"
+	// would be a signature-bypass primitive.
+	mutated := append([]byte(nil), encoded...)
+	mutated[len(mutated)-1] = 0x02
+	if err := syntax.Unmarshal(mutated, &parsed); err == nil {
+		t.Fatal("syntax.Unmarshal accepted presence byte 0x02")
+	}
+	if err := syntax.Unmarshal(append(encoded, 0xFF), &parsed); !errors.Is(err, syntax.ErrTrailingBytes) {
+		t.Fatalf("syntax.Unmarshal with a trailing byte = %v, want ErrTrailingBytes", err)
+	}
+}
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./connect/mls/... -run TestCommit -v`
-Expected: FAIL to build with `undefined: Commit`, `undefined: CommitPathRequired`.
+Run: `go test ./connect/mls/... -run 'TestCommitPathRequired|TestCommitCodec' -v`
+Expected: FAIL to build with `undefined: CommitPathRequired`.
 
 - [ ] **Step 3: Write minimal implementation**
 
-`connect/mls/commit.go` (this file grows in Tasks 13, 18, 20 and 21; this task lands the codec and
-the path rule only):
+`connect/mls/commit.go` (this file grows in Tasks 13, 20 and 21; this task lands the path rule
+only):
 
 ```go
-// RFC 9420 §12.4 Commit. The path field is optional<UpdatePath>, and the rule
-// for when it MUST be populated is transcribed from the §12.4 pseudocode rather
-// than restated in prose.
+// RFC 9420 §12.4 commit construction and the URmessage commit gates. The Commit
+// wire struct and its codec live in commit_wire.go with the rest of the framing
+// types; what lives here is the rule for when a path is required, the
+// committer's discretionary options, and the staged-then-merged epoch advance.
 package mls
-
-import (
-	"fmt"
-
-	"github.com/urnetwork/connect/mls/syntax"
-)
-
-// Commit initiates a new epoch from a collection of proposals.
-type Commit struct {
-	Proposals []ProposalOrRef
-	Path      *UpdatePath
-}
-
-// MarshalTLS writes the ProposalOrRef vector then optional<UpdatePath>.
-// ProposalOrRef has a custom codec, so the vector is written by hand rather
-// than through a struct tag.
-func (self *Commit) MarshalTLS() ([]byte, error) {
-	body := []byte{}
-	for i := range self.Proposals {
-		entry, err := self.Proposals[i].MarshalTLS()
-		if err != nil {
-			return nil, err
-		}
-		body = append(body, entry...)
-	}
-	out, err := syntax.Marshal(&struct {
-		Proposals []byte `tls:"head=varint"`
-	}{Proposals: body})
-	if err != nil {
-		return nil, err
-	}
-	if self.Path == nil {
-		return append(out, 0x00), nil
-	}
-	path, err := syntax.Marshal(self.Path)
-	if err != nil {
-		return nil, err
-	}
-	return append(append(out, 0x01), path...), nil
-}
-
-// UnmarshalTLS reads the vector and the optional path, refusing any presence
-// byte but 0 and 1: two encodings of "absent" would be a signature-bypass
-// primitive.
-func (self *Commit) UnmarshalTLS(data []byte) (int, error) {
-	var wrapper struct {
-		Proposals []byte `tls:"head=varint"`
-	}
-	read, err := syntax.Unmarshal(data, &wrapper)
-	if err != nil {
-		return 0, err
-	}
-	proposals := []ProposalOrRef{}
-	rest := wrapper.Proposals
-	for len(rest) > 0 {
-		var entry ProposalOrRef
-		consumed, err := entry.UnmarshalTLS(rest)
-		if err != nil {
-			return 0, err
-		}
-		proposals = append(proposals, entry)
-		rest = rest[consumed:]
-	}
-
-	if read >= len(data) {
-		return 0, fmt.Errorf("mls: commit is missing the path presence byte")
-	}
-	presence := data[read]
-	read += 1
-	switch presence {
-	case 0x00:
-		*self = Commit{Proposals: proposals}
-		return read, nil
-	case 0x01:
-		var path UpdatePath
-		consumed, err := syntax.Unmarshal(data[read:], &path)
-		if err != nil {
-			return 0, err
-		}
-		*self = Commit{Proposals: proposals, Path: &path}
-		return read + consumed, nil
-	}
-	return 0, fmt.Errorf("mls: commit path presence byte is %#02x", presence)
-}
 
 // CommitPathRequired transcribes the RFC 9420 §12.4 pseudocode:
 //
 //	pathRequired = len(commit.proposals) == 0 ||
 //	               any proposal type in [update, remove, external_init,
 //	                                     group_context_extensions]
+//
+// It delegates to ProposalList.PathRequired so the sender side and the receiver
+// side cannot drift: ValSem201 calls this, and so does Commit.
 func CommitPathRequired(list *ProposalList) bool {
 	return list.PathRequired()
 }
@@ -3600,26 +3746,26 @@ func CommitPathRequired(list *ProposalList) bool {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./connect/mls/... -run TestCommit -v`
+Run: `go test ./connect/mls/... -run 'TestCommitPathRequired|TestCommitCodec' -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add connect/mls/commit.go connect/mls/commit_test.go && \
-git commit -m "feat(mls): commit codec and the RFC 9420 path-required rule"
+git commit -m "feat(mls): the RFC 9420 commit path-required rule"
 ```
 
 ---
 
-### Task 10: Commit validation, ValSem200–209 and ValSem300
+### Task 10: Commit validation, ValSem200–209, ValSem300 and the two errata
 
 **Files:**
 - Create: `connect/mls/validate_commit.go`
 - Test: `connect/mls/validate_commit_test.go`
 
 **Interfaces:**
-- Consumes: `mls.CryptoProvider`, `(*RatchetTree).EncryptionKeyInUse`, `(*RatchetTree).HasTrailingBlankNodes`, `mls.UpdatePath`, `DirectPath`, `(*LeafNode).Validate` (Tree math / TreeKEM plans); the ValSem error values (Validation plan); `ProposalList`, `ApplyResult`, `Commit` (Tasks 6, 8, 9).
+- Consumes: `CryptoProvider` (Crypto/HPKE plan); `LeafIndex`, `NodeIndex` (Tree math plan); `(*RatchetTree).Leaf`, `(*RatchetTree).NonBlankLeaves`, `(*RatchetTree).EncryptionKeyInUse(key HpkePublicKey) bool`, `(*RatchetTree).HasTrailingBlankNodes() bool`, `(*RatchetTree).FilteredDirectPath(i LeafIndex) ([]NodeIndex, error)`, `(*RatchetTree).DecryptUpdatePath`, `UpdatePath`, `CheckUpdatePathKeyUniqueness(tree *RatchetTree, path *UpdatePath) error`, `TreeKEMPrivate`, `LeafValidationContext`, `(*LeafNode).Validate(ctx *LeafValidationContext) error`, `RequiredCapabilities`, `(*Capabilities).Supports` (TreeKEM plan); `GroupContext` (Key schedule plan); `Commit`, `ProposalOrRef`, `ProposalOrRefTypeReference`, `ProposalRef` (Framing plan); `Profile`, `DefaultProfile`, `(*Profile).CheckGroupExtension`, the ValSem error values (Validation plan); `ProposalList`, `ApplyResult`, `CommitPathRequired`, `ProposalCache` (Tasks 6, 8, 9).
 - Produces:
 ```go
 type CommitValidationInput struct {
@@ -3642,18 +3788,31 @@ func ValidateCommit(in *CommitValidationInput) error
 func ValSem200NoSelfRemove(in *CommitValidationInput) error
 func ValSem201PathPresentWhenRequired(in *CommitValidationInput) error
 func ValSem202PathLength(in *CommitValidationInput) error
-func ValSem204PathLeafKeyIsNew(in *CommitValidationInput) error
+func ValSem203PathDecrypt(in *CommitValidationInput) error
+func ValSem204PathKeyMismatch(in *CommitValidationInput) error
 func ValSem205ConfirmationTag(in *CommitValidationInput) error
 func ValSem206PathLeafEncryptionKeyUnique(in *CommitValidationInput) error
 func ValSem207PathEncryptionKeysUnique(in *CommitValidationInput) error
 func ValSem208SingleGroupContextExtensions(in *CommitValidationInput) error
 func ValSem209GroupExtensionsSupported(in *CommitValidationInput) error
 func ValSem300NoTrailingBlankNodes(tree *RatchetTree) error
+
+// errata, named in acceptance criterion 3 — implemented here, not "by whichever
+// plan lands second"
+func CheckErrata8745(path *UpdatePath, context *GroupContext) error
+func CheckErrata8815(commit *Commit, pending *ProposalCache) error
 ```
 
-ValSem203 (`ErrPathDecrypt`) is raised by `(*RatchetTree).ApplyUpdatePath` in the TreeKEM plan, which
-is the only place the path secrets are decrypted; this file does not duplicate it. The commit
-processing path in Task 18 wraps that error so the negative test still sees `ErrPathDecrypt`.
+**The 200-series has no hole.** `ValSem203PathDecrypt` is restored: the TreeKEM plan's
+`DecryptUpdatePath` is where the secret is actually opened, but the negative test needs a named
+target on this plan's surface, and commit processing needs one place that turns a decrypt failure
+into `ErrPathDecrypt` rather than into whatever the TreeKEM layer returned. `ValSem204` is
+`ValSem204PathKeyMismatch`, matching its sentinel.
+
+**The two errata are this plan's**, not "whichever plan lands second": errata 8745 (the update path's
+leaf node must be bound to the new epoch's group context) and 8815 (a commit must not reference a
+proposal it also carries by value) are both conditions on a commit, and both are called from commit
+processing in Task 18.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -3666,6 +3825,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/urnetwork/connect/mls/syntax"
 )
 
 func testCommitInput(t *testing.T, crypto CryptoProvider, tree *RatchetTree,
@@ -3675,7 +3836,7 @@ func testCommitInput(t *testing.T, crypto CryptoProvider, tree *RatchetTree,
 		Crypto:    crypto,
 		PreTree:   tree,
 		PostTree:  tree.Clone(),
-		Context:   &GroupContext{Version: ProtocolVersionMls10, CipherSuite: CipherSuiteX25519ChaCha20SHA256Ed25519, GroupId: []byte("group"), Epoch: 1},
+		Context:   &GroupContext{Version: ProtocolVersionMls10, CipherSuite: CipherSuiteX25519ChaCha20Sha256Ed25519, GroupId: []byte("group"), Epoch: 1},
 		Committer: LeafIndex(0),
 		Own:       LeafIndex(0),
 		List:      list,
@@ -3779,20 +3940,98 @@ func TestValSem300TrailingBlankNodes(t *testing.T) {
 	}
 	// RemoveLeaf truncates, so a tree that still reports trailing blanks is a
 	// tree that was decoded from the wire rather than built here.
-	decoded, err := tree.Encode()
+	encoded, err := syntax.MarshalLimit(tree, syntax.MaxRatchetTreeLength)
 	if err != nil {
-		t.Fatalf("Encode: %v", err)
+		t.Fatalf("MarshalLimit: %v", err)
 	}
-	padded := append(decoded, 0x00)
-	if _, err := ParseRatchetTree(crypto, padded); err == nil {
-		t.Fatal("ParseRatchetTree accepted a tree with a trailing blank node")
+	padded := append(append([]byte(nil), encoded...), 0x00)
+	if _, err := UnmarshalRatchetTree(padded); err == nil {
+		t.Fatal("UnmarshalRatchetTree accepted a tree with a trailing blank node")
+	}
+}
+
+func TestValSem203PathEncryptsToNobody(t *testing.T) {
+	// A path node with an empty ciphertext vector addresses nobody, so no
+	// receiver can derive the commit secret: ValSem203's structural half.
+	crypto := testCrypto(t)
+	tree, members := testTreeWith(t, crypto, "alice", "bob")
+	leaf, _ := testLeafNode(t, crypto, members[0])
+	path := &UpdatePath{LeafNode: *leaf, Nodes: []UpdatePathNode{{
+		EncryptionKey:       leaf.EncryptionKey,
+		EncryptedPathSecret: nil,
+	}}}
+	in := testCommitInput(t, crypto, tree, &ProposalList{}, &Commit{Path: path})
+	in.Committer = LeafIndex(1)
+	in.Own = LeafIndex(0)
+	if err := ValSem203PathDecrypt(in); !errors.Is(err, ErrPathDecrypt) {
+		t.Fatalf("ValSem203 error = %v, want ErrPathDecrypt", err)
+	}
+}
+
+func TestValSem204PathLeafReusesTheCommittersKey(t *testing.T) {
+	crypto := testCrypto(t)
+	tree, _ := testTreeWith(t, crypto, "alice", "bob")
+	current := tree.Leaf(LeafIndex(0))
+	if current == nil {
+		t.Fatal("leaf 0 is blank")
+	}
+	reused := current.Clone()
+	reused.LeafNodeSource = LeafNodeSourceCommit
+	in := testCommitInput(t, crypto, tree, &ProposalList{}, &Commit{Path: &UpdatePath{LeafNode: *reused}})
+	if err := ValSem204PathKeyMismatch(in); !errors.Is(err, ErrPathKeyMismatch) {
+		t.Fatalf("ValSem204 error = %v, want ErrPathKeyMismatch", err)
+	}
+}
+
+func TestErrata8815RefusesAProposalNamedTwice(t *testing.T) {
+	// A commit that carries a proposal by value AND references the same
+	// proposal would apply it twice. Errata 8815.
+	crypto := testCrypto(t)
+	cache := NewProposalCache()
+	content := testProposalContent(t, crypto, LeafIndex(1),
+		&Proposal{ProposalType: ProposalTypeRemove, Remove: &Remove{Removed: 4}})
+	ref, err := cache.Store(crypto, content)
+	if err != nil {
+		t.Fatalf("Store: %v", err)
+	}
+	commit := &Commit{Proposals: []ProposalOrRef{
+		{Type: ProposalOrRefTypeReference, Reference: ref},
+		{Type: ProposalOrRefTypeReference, Reference: ref},
+	}}
+	if err := CheckErrata8815(commit, cache); err == nil {
+		t.Fatal("CheckErrata8815 accepted a commit naming one proposal twice")
+	}
+	single := &Commit{Proposals: []ProposalOrRef{{Type: ProposalOrRefTypeReference, Reference: ref}}}
+	if err := CheckErrata8815(single, cache); err != nil {
+		t.Fatalf("CheckErrata8815 rejected a well-formed commit: %v", err)
+	}
+}
+
+func TestErrata8745BindsThePathLeafToTheNewContext(t *testing.T) {
+	crypto := testCrypto(t)
+	_, members := testTreeWith(t, crypto, "alice")
+	leaf, _ := testLeafNode(t, crypto, members[0])
+	ctx := &GroupContext{
+		Version: ProtocolVersionMls10, CipherSuite: CipherSuiteX25519ChaCha20Sha256Ed25519,
+		GroupId: []byte("group"), Epoch: 2,
+	}
+	// leaf_node_source is still key_package, so the path leaf was not built for
+	// this commit: errata 8745.
+	if err := CheckErrata8745(&UpdatePath{LeafNode: *leaf}, ctx); err == nil {
+		t.Fatal("CheckErrata8745 accepted a path leaf whose source is not commit")
+	}
+	bound := leaf.Clone()
+	bound.LeafNodeSource = LeafNodeSourceCommit
+	bound.ParentHash = []byte("parent-hash")
+	if err := CheckErrata8745(&UpdatePath{LeafNode: *bound}, ctx); err != nil {
+		t.Fatalf("CheckErrata8745 rejected a correctly bound path leaf: %v", err)
 	}
 }
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./connect/mls/... -run 'TestValSem2|TestValSem300' -v`
+Run: `go test ./connect/mls/... -run 'TestValSem2|TestValSem300|TestErrata' -v`
 Expected: FAIL to build with `undefined: CommitValidationInput`, `undefined: ValSem200NoSelfRemove`.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -3800,16 +4039,25 @@ Expected: FAIL to build with `undefined: CommitValidationInput`, `undefined: Val
 `connect/mls/validate_commit.go`:
 
 ```go
-// RFC 9420 §12.4 commit validation, one named function per ValSem code.
-// ValSem203 lives in the TreeKEM path decryption, which is the only place path
-// secrets are opened; commit processing wraps that error unchanged.
+// RFC 9420 §12.4 commit validation, one named function per ValSem code, plus
+// the two errata acceptance criterion 3 names. The path secrets are opened by
+// the TreeKEM layer; ValSem203 is the one place that failure is turned into
+// ErrPathDecrypt, so the negative test has a named target and commit processing
+// has one funnel.
 package mls
 
 import (
 	"bytes"
 	"fmt"
 	"time"
+
+	"github.com/urnetwork/connect/mls/syntax"
 )
+
+// leafClockSkewMs is the tolerance LeafValidationContext applies to a
+// key_package leaf's lifetime. One constant, used by every call site in this
+// plan, so two call sites cannot disagree about how generous the group is.
+const leafClockSkewMs uint64 = 3600000
 
 // CommitValidationInput is everything a commit is judged against. PreTree is
 // the epoch's tree; PostTree is the tree after the proposals were applied and
@@ -3832,14 +4080,15 @@ type CommitValidationInput struct {
 }
 
 // ValidateCommit runs the structural checks in code order. ValSem205 is run by
-// the caller after the new key schedule exists, because the confirmation key is
-// not derivable until then.
+// the caller, because the confirmation key is not derivable until the new key
+// schedule exists.
 func ValidateCommit(in *CommitValidationInput) error {
 	checks := []func(*CommitValidationInput) error{
 		ValSem200NoSelfRemove,
 		ValSem201PathPresentWhenRequired,
 		ValSem202PathLength,
-		ValSem204PathLeafKeyIsNew,
+		ValSem203PathDecrypt,
+		ValSem204PathKeyMismatch,
 		ValSem206PathLeafEncryptionKeyUnique,
 		ValSem207PathEncryptionKeysUnique,
 		ValSem208SingleGroupContextExtensions,
@@ -3878,23 +4127,67 @@ func ValSem202PathLength(in *CommitValidationInput) error {
 	if in.Commit.Path == nil {
 		return nil
 	}
-	want := len(in.PostTree.FilteredDirectPath(in.Committer))
-	if len(in.Commit.Path.Nodes) != want {
+	filtered, err := in.PostTree.FilteredDirectPath(in.Committer)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrPathLength, err)
+	}
+	if len(in.Commit.Path.Nodes) != len(filtered) {
 		return fmt.Errorf("%w: path has %d nodes, the filtered direct path has %d",
-			ErrPathLength, len(in.Commit.Path.Nodes), want)
+			ErrPathLength, len(in.Commit.Path.Nodes), len(filtered))
 	}
 	return nil
 }
 
-// ValSem204PathLeafKeyIsNew: the path's leaf node carries an encryption key
-// different from the committer's current one, so a commit cannot claim post
-// compromise security it did not provide.
-func ValSem204PathLeafKeyIsNew(in *CommitValidationInput) error {
+// ValSem203PathDecrypt: the path carries a secret this receiver can open.
+//
+// CommitValidationInput deliberately holds no private key material — it is the
+// input every ValSem check shares, and putting a private key in it would put
+// one in every negative test's fixture. So this check is the STRUCTURAL half:
+// every path node addresses a non-empty ciphertext vector, and the receiver's
+// own leaf is under one of the path's copath children, so a secret exists for
+// it. The cryptographic half runs at the single DecryptUpdatePath call site in
+// commit processing and wraps its failure in the SAME sentinel, so
+// errors.Is(err, ErrPathDecrypt) holds for both and ValSem203 has one code.
+func ValSem203PathDecrypt(in *CommitValidationInput) error {
 	if in.Commit.Path == nil {
 		return nil
 	}
-	current, ok := in.PreTree.LeafNode(in.Committer)
-	if !ok {
+	for i, node := range in.Commit.Path.Nodes {
+		if len(node.EncryptedPathSecret) == 0 {
+			return fmt.Errorf("%w: update path node %d encrypts to nobody", ErrPathDecrypt, i)
+		}
+	}
+	if in.Own == in.Committer {
+		return nil
+	}
+	ownPath, err := in.PostTree.FilteredDirectPath(in.Own)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrPathDecrypt, err)
+	}
+	committerPath, err := in.PostTree.FilteredDirectPath(in.Committer)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrPathDecrypt, err)
+	}
+	for _, x := range committerPath {
+		for _, y := range ownPath {
+			if x == y {
+				return nil
+			}
+		}
+	}
+	return fmt.Errorf("%w: leaf %d shares no node with the committer's filtered direct path",
+		ErrPathDecrypt, in.Own)
+}
+
+// ValSem204PathKeyMismatch: the path's leaf node carries an encryption key
+// different from the committer's current one, so a commit cannot claim post
+// compromise security it did not provide, and it validates as a commit leaf.
+func ValSem204PathKeyMismatch(in *CommitValidationInput) error {
+	if in.Commit.Path == nil {
+		return nil
+	}
+	current := in.PreTree.Leaf(in.Committer)
+	if current == nil {
 		return fmt.Errorf("%w: committer leaf %d is blank", ErrBlankSenderLeaf, in.Committer)
 	}
 	if bytes.Equal(current.EncryptionKey, in.Commit.Path.LeafNode.EncryptionKey) {
@@ -3904,8 +4197,18 @@ func ValSem204PathLeafKeyIsNew(in *CommitValidationInput) error {
 		return fmt.Errorf("%w: path leaf_node_source is %d, want commit",
 			ErrPathKeyMismatch, in.Commit.Path.LeafNode.LeafNodeSource)
 	}
-	return in.Commit.Path.LeafNode.Validate(in.Crypto, in.Context.GroupId, in.Committer,
-		LeafNodeSourceCommit, in.Extensions, in.Now)
+	requiredCaps, _ := requiredCapabilitiesOf(in.Extensions)
+	return in.Commit.Path.LeafNode.Validate(&LeafValidationContext{
+		Crypto:          in.Crypto,
+		Suite:           in.Context.CipherSuite,
+		GroupId:         in.Context.GroupId,
+		LeafIndex:       in.Committer,
+		ExpectedSource:  LeafNodeSourceCommit,
+		RequiredCaps:    requiredCaps,
+		GroupExtensions: in.Extensions,
+		NowMs:           uint64(in.Now.UnixMilli()),
+		ClockSkewMs:     leafClockSkewMs,
+	})
 }
 
 // ValSem205ConfirmationTag: the confirmation tag equals
@@ -3931,7 +4234,10 @@ func ValSem206PathLeafEncryptionKeyUnique(in *CommitValidationInput) error {
 		if leafIndex == in.Committer {
 			continue
 		}
-		leaf, _ := in.PostTree.LeafNode(leafIndex)
+		leaf := in.PostTree.Leaf(leafIndex)
+		if leaf == nil {
+			continue
+		}
 		if bytes.Equal(leaf.EncryptionKey, key) {
 			return fmt.Errorf("%w: path leaf key is already in the tree at leaf %d",
 				ErrDuplicateEncryptionKey, leafIndex)
@@ -3941,22 +4247,15 @@ func ValSem206PathLeafEncryptionKeyUnique(in *CommitValidationInput) error {
 }
 
 // ValSem207PathEncryptionKeysUnique: no public key in the UpdatePath appears in
-// any node of the post-proposal tree, and no key repeats within the path.
+// any node of the post-proposal tree, and no key repeats within the path. The
+// walk itself is CheckUpdatePathKeyUniqueness in the TreeKEM plan, because it
+// reads the private node array; this function is the ValSem-named funnel.
 func ValSem207PathEncryptionKeysUnique(in *CommitValidationInput) error {
 	if in.Commit.Path == nil {
 		return nil
 	}
-	seen := map[string]bool{string(in.Commit.Path.LeafNode.EncryptionKey): true}
-	for i, node := range in.Commit.Path.Nodes {
-		key := string(node.EncryptionKey)
-		if seen[key] {
-			return fmt.Errorf("%w: update path node %d repeats a key", ErrDuplicateEncryptionKey, i)
-		}
-		seen[key] = true
-		if in.PostTree.EncryptionKeyInUse(node.EncryptionKey) {
-			return fmt.Errorf("%w: update path node %d reuses a key already in the tree",
-				ErrDuplicateEncryptionKey, i)
-		}
+	if err := CheckUpdatePathKeyUniqueness(in.PostTree, in.Commit.Path); err != nil {
+		return fmt.Errorf("%w: %v", ErrDuplicateEncryptionKey, err)
 	}
 	return nil
 }
@@ -3989,7 +4288,10 @@ func ValSem209GroupExtensionsSupported(in *CommitValidationInput) error {
 		return nil
 	}
 	for _, leafIndex := range in.PostTree.NonBlankLeaves() {
-		leaf, _ := in.PostTree.LeafNode(leafIndex)
+		leaf := in.PostTree.Leaf(leafIndex)
+		if leaf == nil {
+			continue
+		}
 		if err := leaf.Capabilities.Supports(required); err != nil {
 			return fmt.Errorf("%w: leaf %d does not support the proposed required capabilities: %v",
 				ErrUnsupportedGroupExtension, leafIndex, err)
@@ -4006,15 +4308,82 @@ func ValSem300NoTrailingBlankNodes(tree *RatchetTree) error {
 	}
 	return nil
 }
-```
 
-`(*RatchetTree).FilteredDirectPath(LeafIndex) []NodeIndex` is consumed from the TreeKEM plan; if it
-is unexported there, export it rather than reimplementing the filter here — two filtered-direct-path
-implementations is exactly the divergence ValSem202 exists to catch.
+// CheckErrata8745: RFC 9420 errata 8745. The leaf node in an UpdatePath is a
+// commit leaf — leaf_node_source == commit, with a parent_hash — and is
+// therefore bound to the epoch the commit opens. A path carrying a key_package
+// or update leaf would be a leaf whose signature covers no group context, so a
+// captured leaf from another group would verify here.
+func CheckErrata8745(path *UpdatePath, context *GroupContext) error {
+	if path == nil {
+		return nil
+	}
+	if path.LeafNode.LeafNodeSource != LeafNodeSourceCommit {
+		return fmt.Errorf("%w: update path leaf_node_source is %d, want commit (errata 8745)",
+			ErrPathKeyMismatch, path.LeafNode.LeafNodeSource)
+	}
+	if len(path.LeafNode.ParentHash) == 0 {
+		return fmt.Errorf("%w: update path leaf carries no parent_hash (errata 8745)",
+			ErrPathKeyMismatch)
+	}
+	if context == nil {
+		return fmt.Errorf("%w: no group context to bind the update path leaf to (errata 8745)",
+			ErrPathKeyMismatch)
+	}
+	return nil
+}
+
+// CheckErrata8815: RFC 9420 errata 8815. A commit must not name the same
+// proposal twice, whether by two references or by a reference plus the same
+// proposal inline. Applying one proposal twice is a different post-commit tree
+// on the two sides, which is a fork the confirmation tag catches only after the
+// epoch has already been derived.
+func CheckErrata8815(commit *Commit, pending *ProposalCache) error {
+	if commit == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	for i := range commit.Proposals {
+		entry := commit.Proposals[i]
+		var key string
+		switch entry.Type {
+		case ProposalOrRefTypeReference:
+			key = string(entry.Reference)
+		case ProposalOrRefTypeProposal:
+			encoded, err := syntax.Marshal(entry.Proposal)
+			if err != nil {
+				return err
+			}
+			key = string(encoded)
+		default:
+			return fmt.Errorf("mls: proposal_or_ref type %d is not defined (errata 8815)", entry.Type)
+		}
+		if seen[key] {
+			return fmt.Errorf("%w: commit names one proposal twice (errata 8815)", ErrDuplicateRemove)
+		}
+		seen[key] = true
+	}
+	// A by-value proposal that is also cached under its own reference is the
+	// second half of the erratum: both forms name the same proposal.
+	if pending != nil {
+		for i := range commit.Proposals {
+			entry := commit.Proposals[i]
+			if entry.Type != ProposalOrRefTypeReference {
+				continue
+			}
+			if _, ok := pending.Get(entry.Reference); !ok {
+				return fmt.Errorf("mls: proposal reference %x is not cached for this epoch (errata 8815)",
+					entry.Reference)
+			}
+		}
+	}
+	return nil
+}
+```
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./connect/mls/... -run 'TestValSem2|TestValSem300' -v`
+Run: `go test ./connect/mls/... -run 'TestValSem2|TestValSem300|TestErrata' -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -4033,7 +4402,7 @@ git commit -m "feat(mls): commit validation, ValSem200 through ValSem209 and Val
 - Test: `connect/mls/group_test.go`
 
 **Interfaces:**
-- Consumes: `mls.CryptoProvider`, `mls.NewRatchetTree`, `(*RatchetTree).AddLeaf/RootHash`, `mls.NewLeafNode`, `mls.Credential`, `mls.Capabilities`, `mls.GroupContext`, `DeriveEpochSecretsFromEpochSecret`, `NewSecretTree`, `InterimTranscriptHash`, `DefaultProfile`, `(*Profile).CheckCiphersuiteForCreate` — from the Crypto/HPKE, TreeKEM, Key schedule, Framing and Validation plans.
+- Consumes: `CryptoProvider`, `Suites()`, `CipherSuiteX25519AesGcm128Sha256Ed25519`, `CipherSuiteX25519ChaCha20Sha256Ed25519`, `SignaturePrivateKey`, `HpkePrivateKey` (Crypto/HPKE plan); `LeafIndex`, `LeafCount` (Tree math plan); `NewRatchetTree() *RatchetTree`, `(*RatchetTree).AddLeaf`, `(*RatchetTree).Leaf`, `(*RatchetTree).LeafWidth() LeafCount`, `(*RatchetTree).NonBlankLeaves`, `(*RatchetTree).TreeHash(crypto CryptoProvider) ([]byte, error)`, `NewLeafNode`, `(*LeafNode).Clone`, `Credential`, `BasicCredential`, `Capabilities`, `RequiredCapabilities`, `Extension`, `ExtensionTypeRequiredCapabilities`, `LeafKeysExtension`, `ProtocolVersionMls10`, `CredentialTypeBasic` (TreeKEM plan); `GroupContext`, `NewKeyScheduleFromEpochSecret(crypto CryptoProvider, epochSecret []byte, groupContext *GroupContext) (*KeySchedule, error)`, `(*KeySchedule).Secrets() *EpochSecrets`, `(*KeySchedule).ConfirmationTag`, `(*KeySchedule).Export`, `(*KeySchedule).Zeroize`, `EpochSecrets`, `InitialTranscriptHashes()`, `(*TranscriptHashes).SetFromGroupInfo`, `NewSecretTree(crypto CryptoProvider, leafCount LeafCount, encryptionSecret []byte) (*SecretTree, error)`, `(*SecretTree).Zeroize`, `EmptyPskSecret` (Key schedule plan); `syntax.Marshal`, `syntax.MarshalLimit`, `syntax.Unmarshal`, `syntax.MaxRatchetTreeLength` (Syntax plan); `Profile`, `DefaultProfile()`, `(*Profile).CheckCiphersuiteForCreate`, `(*Profile).CheckGroupExtension` (Validation plan).
 - Produces (this is the contract `connect/message` consumes through its `GroupEngine` adapter):
 ```go
 type StateStore interface {
@@ -4075,10 +4444,12 @@ const (
 type Group struct{ /* stateLock-guarded, not safe for concurrent use */ }
 
 func NewGroup(cfg *GroupConfig, signer SignaturePrivateKey, cred Credential) (*Group, error)
+func LoadGroup(cfg *GroupConfig, epoch uint64, signer SignaturePrivateKey) (*Group, error)
 
 func (self *Group) GroupId() []byte
 func (self *Group) Epoch() uint64
 func (self *Group) OwnLeafIndex() LeafIndex
+func (self *Group) OwnLeafNodeCopy() *LeafNode
 func (self *Group) Members() []Member
 func (self *Group) MemberAt(leafIndex LeafIndex) (Member, bool)
 func (self *Group) EpochAuthenticator() []byte
@@ -4089,6 +4460,10 @@ func (self *Group) GroupContext() ([]byte, error)
 func (self *Group) GroupPolicy() (*GroupPolicyExtension, error)
 func (self *Group) Close() error
 ```
+
+`LoadGroup` is declared here and implemented in Task 19 with the persistence blob.
+`OwnLeafNodeCopy` returns a `Clone`, never the live leaf: the validation plan's forge mutates what
+it is handed, and handing it the tree's own leaf would corrupt live state from a test.
 
 **Creation is the RFC's four steps, not a shortcut.** RFC 9420 §11: a one-member tree, epoch 0, an
 empty confirmed transcript hash, a fresh random `epoch_secret` of size `KDF.Nh`, then the
@@ -4106,7 +4481,10 @@ package mls
 import (
 	"bytes"
 	"errors"
+	"strconv"
 	"testing"
+
+	"github.com/urnetwork/connect/mls/syntax"
 )
 
 // testStore is an in-memory StateStore for the lifecycle tests.
@@ -4121,8 +4499,12 @@ func newTestStore() *testStore {
 	return &testStore{states: map[string][]byte{}, privs: map[string][]byte{}, packages: map[string][3][]byte{}}
 }
 
+// stateKey formats the epoch in decimal. string(rune(epoch)) would collapse
+// every epoch in 0xD800-0xDFFF and everything above 0x10FFFF onto U+FFFD, and
+// this fixture backs the past-epoch-window assertions, where a silent collision
+// reads as a correct deletion.
 func stateKey(groupId []byte, epoch uint64) string {
-	return string(groupId) + "/" + string(rune(epoch))
+	return string(groupId) + "/" + strconv.FormatUint(epoch, 10)
 }
 
 func (self *testStore) PutGroupState(groupId []byte, epoch uint64, state []byte) error {
@@ -4187,7 +4569,7 @@ func testGroupConfig(t *testing.T, crypto CryptoProvider, owner *testMember, gro
 		t.Fatalf("Encode policy: %v", err)
 	}
 	return &GroupConfig{
-		Suite:      CipherSuiteX25519ChaCha20SHA256Ed25519,
+		Suite:      CipherSuiteX25519ChaCha20Sha256Ed25519,
 		GroupId:    []byte(groupId),
 		Extensions: []Extension{policyExt},
 		RequiredCaps: RequiredCapabilities{
@@ -4203,7 +4585,7 @@ func testGroupConfig(t *testing.T, crypto CryptoProvider, owner *testMember, gro
 func testNewGroup(t *testing.T, crypto CryptoProvider, owner *testMember, groupId string) *Group {
 	t.Helper()
 	cfg := testGroupConfig(t, crypto, owner, groupId)
-	group, err := NewGroup(cfg, owner.SigPriv, Credential{CredentialType: CredentialTypeBasic, Identity: owner.IdentityPub})
+	group, err := NewGroup(cfg, owner.SigPriv, BasicCredential(owner.IdentityPub))
 	if err != nil {
 		t.Fatalf("NewGroup: %v", err)
 	}
@@ -4254,7 +4636,7 @@ func TestNewGroupConfirmedTranscriptHashIsEmptyAtEpochZero(t *testing.T) {
 		t.Fatalf("GroupContext: %v", err)
 	}
 	var ctx GroupContext
-	if _, err := syntaxUnmarshalGroupContext(encoded, &ctx); err != nil {
+	if err := syntax.Unmarshal(encoded, &ctx); err != nil {
 		t.Fatalf("unmarshal group context: %v", err)
 	}
 	if len(ctx.ConfirmedTranscriptHash) != 0 {
@@ -4290,8 +4672,9 @@ func TestNewGroupRefusesNonV1Ciphersuite(t *testing.T) {
 	crypto := testCrypto(t)
 	owner := testIdentity(t, crypto, "owner")
 	cfg := testGroupConfig(t, crypto, owner, "group-1")
-	cfg.Suite = CipherSuite(0x0001) // registered and implemented, refused by policy
-	_, err := NewGroup(cfg, owner.SigPriv, Credential{CredentialType: CredentialTypeBasic, Identity: owner.IdentityPub})
+	// registered and implemented, refused at group creation by policy
+	cfg.Suite = CipherSuiteX25519AesGcm128Sha256Ed25519
+	_, err := NewGroup(cfg, owner.SigPriv, BasicCredential(owner.IdentityPub))
 	if !errors.Is(err, ErrProfileCiphersuite) {
 		t.Fatalf("NewGroup error = %v, want ErrProfileCiphersuite", err)
 	}
@@ -4302,7 +4685,7 @@ func TestNewGroupRefusesGroupWithoutPolicy(t *testing.T) {
 	owner := testIdentity(t, crypto, "owner")
 	cfg := testGroupConfig(t, crypto, owner, "group-1")
 	cfg.Extensions = nil
-	_, err := NewGroup(cfg, owner.SigPriv, Credential{CredentialType: CredentialTypeBasic, Identity: owner.IdentityPub})
+	_, err := NewGroup(cfg, owner.SigPriv, BasicCredential(owner.IdentityPub))
 	if !errors.Is(err, ErrNoGroupPolicy) {
 		t.Fatalf("NewGroup error = %v, want ErrNoGroupPolicy", err)
 	}
@@ -4335,7 +4718,7 @@ func TestGroupStateIsPersistedAtCreation(t *testing.T) {
 	owner := testIdentity(t, crypto, "owner")
 	cfg := testGroupConfig(t, crypto, owner, "group-1")
 	store := cfg.Store.(*testStore)
-	group, err := NewGroup(cfg, owner.SigPriv, Credential{CredentialType: CredentialTypeBasic, Identity: owner.IdentityPub})
+	group, err := NewGroup(cfg, owner.SigPriv, BasicCredential(owner.IdentityPub))
 	if err != nil {
 		t.Fatalf("NewGroup: %v", err)
 	}
@@ -4363,6 +4746,7 @@ Expected: FAIL to build with `undefined: NewGroup`, `undefined: GroupConfig`, `u
 package mls
 
 import (
+	"bytes"
 	"fmt"
 	"sync"
 	"time"
@@ -4419,6 +4803,16 @@ const (
 	EpochSecretEncryption
 )
 
+// restoreKind discriminates what the persisted state carries so LoadGroup can
+// rebuild the key schedule. Epoch 0 has no joiner secret, and every later epoch
+// does; there is no third case.
+type restoreKind uint8
+
+const (
+	restoreFromEpochSecret restoreKind = 1
+	restoreFromJoiner      restoreKind = 2
+)
+
 // Group is one MLS group at one epoch, plus the staging area for a commit that
 // has not been merged.
 type Group struct {
@@ -4429,14 +4823,21 @@ type Group struct {
 	signer SignaturePrivateKey
 	cred   Credential
 
-	ownLeaf     LeafIndex
-	ownEncPriv  HpkePrivateKey
-	tree        *RatchetTree
-	context     *GroupContext
-	secrets     *EpochSecrets
-	secretTree  *SecretTree
-	interimHash []byte
-	proposals   *ProposalCache
+	ownLeaf    LeafIndex
+	ownPriv    *TreeKEMPrivate
+	tree       *RatchetTree
+	context    *GroupContext
+	schedule   *KeySchedule
+	secretTree *SecretTree
+	transcript *TranscriptHashes
+	proposals  *ProposalCache
+
+	// what LoadGroup needs to rebuild the key schedule for this epoch
+	restoreKind   restoreKind
+	restoreSecret []byte
+
+	successionClaim   *SuccessionClaim
+	lastOwnerRecordMs uint64
 
 	pending *StagedCommit
 	closed  bool
@@ -4470,23 +4871,24 @@ func NewGroup(cfg *GroupConfig, signer SignaturePrivateKey, cred Credential) (*G
 	if err != nil {
 		return nil, err
 	}
-	leaf, err := NewLeafNode(crypto, signer, cred, encPub, v1Capabilities(cfg), []Extension{leafKeysExt})
+	leaf, err := NewLeafNode(crypto, signer, cred, encPub, v1Capabilities(), []Extension{leafKeysExt})
 	if err != nil {
 		return nil, err
 	}
 
 	// step 1: a one-member tree, epoch 0, empty confirmed transcript hash
-	tree := NewRatchetTree(crypto)
+	tree := NewRatchetTree()
 	ownLeaf, err := tree.AddLeaf(leaf)
 	if err != nil {
 		return nil, err
 	}
-	treeHash, err := tree.RootHash()
+	treeHash, err := tree.TreeHash(crypto)
 	if err != nil {
 		return nil, err
 	}
 	extensions := append([]Extension(nil), cfg.Extensions...)
-	if len(cfg.RequiredCaps.ExtensionTypes) > 0 || len(cfg.RequiredCaps.CredentialTypes) > 0 {
+	if len(cfg.RequiredCaps.ExtensionTypes) > 0 || len(cfg.RequiredCaps.CredentialTypes) > 0 ||
+		len(cfg.RequiredCaps.ProposalTypes) > 0 {
 		requiredExt, err := encodeRequiredCapabilities(&cfg.RequiredCaps)
 		if err != nil {
 			return nil, err
@@ -4503,33 +4905,44 @@ func NewGroup(cfg *GroupConfig, signer SignaturePrivateKey, cred Credential) (*G
 		Extensions:              extensions,
 	}
 
-	// step 2: a fresh random epoch secret of size KDF.Nh, and the secrets under it
-	secrets, err := DeriveEpochSecretsFromEpochSecret(crypto, crypto.Random(crypto.HashSize()))
+	// step 2: a fresh random epoch secret of size KDF.Nh, and the key schedule
+	// under it. The RFC notes that a shortcut here removes choices "by which,
+	// for example, bad randomness could be introduced"; the epoch secret is
+	// kept so LoadGroup can rebuild this schedule byte for byte.
+	epochSecret := crypto.Random(crypto.HashSize())
+	schedule, err := NewKeyScheduleFromEpochSecret(crypto, epochSecret, context)
 	if err != nil {
 		return nil, err
 	}
 
 	// step 3: the confirmation tag over the empty confirmed transcript hash,
 	// then the interim transcript hash from it
-	confirmationTag := crypto.Mac(secrets.ConfirmationKey, context.ConfirmedTranscriptHash)
-	interimHash, err := InterimTranscriptHash(crypto, context.ConfirmedTranscriptHash, confirmationTag)
+	confirmationTag := schedule.ConfirmationTag(context.ConfirmedTranscriptHash)
+	transcript := InitialTranscriptHashes()
+	if err := transcript.SetFromGroupInfo(crypto, context.ConfirmedTranscriptHash, confirmationTag); err != nil {
+		return nil, err
+	}
+
+	secretTree, err := NewSecretTree(crypto, tree.LeafWidth(), schedule.Secrets().Encryption)
 	if err != nil {
 		return nil, err
 	}
 
 	group := &Group{
-		cfg:         cfg,
-		crypto:      crypto,
-		signer:      signer,
-		cred:        cred,
-		ownLeaf:     ownLeaf,
-		ownEncPriv:  encPriv,
-		tree:        tree,
-		context:     context,
-		secrets:     secrets,
-		secretTree:  NewSecretTree(crypto, tree.Size(), secrets.EncryptionSecret),
-		interimHash: interimHash,
-		proposals:   NewProposalCache(),
+		cfg:           cfg,
+		crypto:        crypto,
+		signer:        signer,
+		cred:          cred,
+		ownLeaf:       ownLeaf,
+		ownPriv:       NewTreeKEMPrivate(ownLeaf, encPriv),
+		tree:          tree,
+		context:       context,
+		schedule:      schedule,
+		secretTree:    secretTree,
+		transcript:    transcript,
+		proposals:     NewProposalCache(),
+		restoreKind:   restoreFromEpochSecret,
+		restoreSecret: epochSecret,
 	}
 	if err := group.persist(); err != nil {
 		return nil, err
@@ -4537,13 +4950,13 @@ func NewGroup(cfg *GroupConfig, signer SignaturePrivateKey, cred Credential) (*G
 	return group, nil
 }
 
-// v1Capabilities is what every v1 leaf advertises: one version, the two
-// registered suites, the four implemented proposal types, the extensions the
-// group requires, and basic credentials only.
-func v1Capabilities(cfg *GroupConfig) Capabilities {
+// v1Capabilities is what every v1 leaf advertises: one version, every
+// registered suite, no optional proposal types, the three URmessage extensions,
+// and basic credentials only.
+func v1Capabilities() Capabilities {
 	return Capabilities{
 		Versions:     []ProtocolVersion{ProtocolVersionMls10},
-		CipherSuites: []CipherSuite{CipherSuiteX25519ChaCha20SHA256Ed25519, CipherSuite(0x0001)},
+		CipherSuites: Suites(),
 		Extensions: []ExtensionType{
 			ExtensionTypeUrmessageGroupPolicy,
 			ExtensionTypeUrmessageLeafKeys,
@@ -4575,6 +4988,19 @@ func (self *Group) OwnLeafIndex() LeafIndex {
 	return self.ownLeaf
 }
 
+// OwnLeafNodeCopy returns a deep copy of this device's leaf. It is a Clone and
+// never the live leaf: a caller that mutates what it is handed would corrupt
+// the tree the current epoch's tree hash was taken over.
+func (self *Group) OwnLeafNodeCopy() *LeafNode {
+	self.stateLock.Lock()
+	defer self.stateLock.Unlock()
+	leaf := self.tree.Leaf(self.ownLeaf)
+	if leaf == nil {
+		return nil
+	}
+	return leaf.Clone()
+}
+
 // Members returns a snapshot of the membership with roles resolved from the
 // group policy extension.
 func (self *Group) Members() []Member {
@@ -4587,7 +5013,10 @@ func (self *Group) membersLocked() []Member {
 	policy, err := GroupPolicyOf(self.context.Extensions)
 	out := []Member{}
 	for _, leafIndex := range self.tree.NonBlankLeaves() {
-		leaf, _ := self.tree.LeafNode(leafIndex)
+		leaf := self.tree.Leaf(leafIndex)
+		if leaf == nil {
+			continue
+		}
 		member := Member{
 			LeafIndex:    leafIndex,
 			IdentityPub:  append([]byte(nil), leaf.Credential.Identity...),
@@ -4621,45 +5050,50 @@ func (self *Group) MemberAt(leafIndex LeafIndex) (Member, bool) {
 func (self *Group) EpochAuthenticator() []byte {
 	self.stateLock.Lock()
 	defer self.stateLock.Unlock()
-	return append([]byte(nil), self.secrets.EpochAuthenticator...)
+	return append([]byte(nil), self.schedule.Secrets().EpochAuthenticator...)
 }
 
 // Export is the RFC 9420 §8.5 exporter. MASTER §7 derives mls_secret from it.
 func (self *Group) Export(label string, context []byte, length int) ([]byte, error) {
 	self.stateLock.Lock()
 	defer self.stateLock.Unlock()
-	return self.secrets.Export(self.crypto, label, context, length)
+	return self.schedule.Export(label, context, length)
 }
 
 // EpochSecret exposes exactly the two secrets MASTER §8.2 needs.
 func (self *Group) EpochSecret(name EpochSecretName) ([]byte, error) {
 	self.stateLock.Lock()
 	defer self.stateLock.Unlock()
+	secrets := self.schedule.Secrets()
 	switch name {
 	case EpochSecretSenderData:
-		return append([]byte(nil), self.secrets.SenderDataSecret...), nil
+		return append([]byte(nil), secrets.SenderData...), nil
 	case EpochSecretEncryption:
-		return append([]byte(nil), self.secrets.EncryptionSecret...), nil
+		return append([]byte(nil), secrets.Encryption...), nil
 	}
 	return nil, fmt.Errorf("mls: epoch secret name %d is not in the closed enum", name)
 }
 
 // RatchetTree returns the encoded public tree, for out-of-band Welcome delivery
-// and for MASTER §8.2's per-epoch snapshot record.
+// and for MASTER §8.2's per-epoch snapshot record. The tree is the one field
+// that is not bounded by the 1 MiB default, so it is written under
+// MaxRatchetTreeLength — the same limit UnmarshalRatchetTree reads it back at.
 func (self *Group) RatchetTree() ([]byte, error) {
 	self.stateLock.Lock()
 	defer self.stateLock.Unlock()
 	if err := ValSem300NoTrailingBlankNodes(self.tree); err != nil {
 		return nil, err
 	}
-	return self.tree.Encode()
+	return syntax.MarshalLimit(self.tree, syntax.MaxRatchetTreeLength)
 }
 
-// GroupContext returns the serialized GroupContext for the current epoch.
+// GroupContext returns the serialized GroupContext for the current epoch. Every
+// framing entry point takes these bytes rather than the struct, because the
+// group context is inlined into FramedContentTBS with no length prefix.
 func (self *Group) GroupContext() ([]byte, error) {
 	self.stateLock.Lock()
 	defer self.stateLock.Unlock()
-	return self.context.Marshal()
+	return syntax.Marshal(self.context)
 }
 
 // GroupPolicy returns the parsed urmessage_group_policy extension.
@@ -4670,13 +5104,20 @@ func (self *Group) GroupPolicy() (*GroupPolicyExtension, error) {
 }
 
 // Close releases the group. Epoch state stays in the store; secrets in memory
-// are dropped.
+// are zeroized and dropped.
 func (self *Group) Close() error {
 	self.stateLock.Lock()
 	defer self.stateLock.Unlock()
 	self.closed = true
-	self.secrets = nil
+	if self.schedule != nil {
+		self.schedule.Zeroize()
+	}
+	if self.secretTree != nil {
+		self.secretTree.Zeroize()
+	}
+	self.schedule = nil
 	self.secretTree = nil
+	self.restoreSecret = nil
 	self.pending = nil
 	return nil
 }
@@ -4685,12 +5126,16 @@ func (self *Group) Close() error {
 func (self *Group) treeHashForTest() ([]byte, error) {
 	self.stateLock.Lock()
 	defer self.stateLock.Unlock()
-	return self.tree.RootHash()
+	return self.tree.TreeHash(self.crypto)
 }
 
-// syntaxUnmarshalGroupContext keeps the syntax import local to this file.
-func syntaxUnmarshalGroupContext(data []byte, out *GroupContext) (int, error) {
-	return syntax.Unmarshal(data, out)
+// profileLocked returns the group's profile, defaulting when the config left it
+// nil. One accessor, so no call site invents a second default.
+func (self *Group) profileLocked() *Profile {
+	if self.cfg.Profile != nil {
+		return self.cfg.Profile
+	}
+	return DefaultProfile()
 }
 
 // encodeRequiredCapabilities serializes the required_capabilities extension.
@@ -4717,18 +5162,18 @@ func (self *Group) persist() error {
 // write happened; Task 19 replaces it with the full blob and its round-trip
 // test.
 func (self *Group) marshalState() ([]byte, error) {
-	tree, err := self.tree.Encode()
+	tree, err := syntax.MarshalLimit(self.tree, syntax.MaxRatchetTreeLength)
 	if err != nil {
 		return nil, err
 	}
-	context, err := self.context.Marshal()
+	context, err := syntax.Marshal(self.context)
 	if err != nil {
 		return nil, err
 	}
-	return syntax.Marshal(&struct {
-		Context []byte `tls:"head=varint"`
-		Tree    []byte `tls:"head=varint"`
-	}{Context: context, Tree: tree})
+	w := syntax.NewWriter()
+	w.WriteOpaque(context)
+	w.WriteOpaque(tree)
+	return w.Bytes()
 }
 
 // nowFunc is overridden in tests that need to move the clock for lifetime and
@@ -4757,7 +5202,7 @@ git commit -m "feat(mls): group creation following RFC 9420 section 11"
 - Test: `connect/mls/group_test.go`
 
 **Interfaces:**
-- Consumes: `SignFramedContent`, `ProtectPrivate`, `(*MLSMessage).Marshal`, `ParseMLSMessage` (Framing plan); `(*ProposalCache).Store` (Task 6).
+- Consumes: `SignAuthenticatedContent(crypto CryptoProvider, priv SignaturePrivateKey, wireFormat WireFormat, content *FramedContent, groupContext []byte) (*AuthenticatedContent, error)`, `SealPrivateMessage(crypto CryptoProvider, keys MessageKeySource, senderDataSecret []byte, authContent *AuthenticatedContent, paddingSize int) (*PrivateMessage, error)`, `PaddingSizeV1`, `MarshalMLSMessage(message *MLSMessage) ([]byte, error)`, `ParseMLSMessage`, `MLSMessage`, `FramedContent`, `Sender`, `SenderTypeMember`, `ContentTypeProposal`, `WireFormatPrivateMessage`, `Proposal`, `Add`, `Update`, `Remove`, `GroupContextExtensions` (Framing plan); `NewLeafNode`, `(*LeafNode).Sign(crypto CryptoProvider, signer SignaturePrivateKey, groupId []byte, leafIndex LeafIndex) error`, `Lifetime`, `LeafNodeSourceUpdate`, `KeyPackage`, `(*KeyPackage).Validate` (TreeKEM plan); `syntax.Unmarshal`, `syntax.Marshal` (Syntax plan); `(*ProposalCache).Store`, `checkProposalProfile` (Tasks 5, 6).
 - Produces:
 ```go
 func (self *Group) ProposeAdd(keyPackage []byte) (proposalMessage []byte, err error)
@@ -4782,7 +5227,7 @@ func TestProposeAddProducesACacheableProposal(t *testing.T) {
 
 	bob := testIdentity(t, crypto, "bob")
 	kp, _, _ := testKeyPackage(t, crypto, bob)
-	encoded, err := syntaxMarshalKeyPackage(kp)
+	encoded, err := syntax.Marshal(kp)
 	if err != nil {
 		t.Fatalf("marshal key package: %v", err)
 	}
@@ -4815,7 +5260,10 @@ func TestProposeUpdateUsesAFreshEncryptionKey(t *testing.T) {
 	group := testNewGroup(t, crypto, owner, "group-1")
 	defer group.Close()
 
-	before, _ := group.tree.LeafNode(group.OwnLeafIndex())
+	before := group.OwnLeafNodeCopy()
+	if before == nil {
+		t.Fatal("OwnLeafNodeCopy returned nil")
+	}
 	if _, err := group.ProposeUpdate(); err != nil {
 		t.Fatalf("ProposeUpdate: %v", err)
 	}
@@ -4869,12 +5317,8 @@ Append to `connect/mls/group.go`:
 // caller learns immediately that it fetched an expired or wrong-suite package.
 func (self *Group) ProposeAdd(keyPackage []byte) ([]byte, error) {
 	var kp KeyPackage
-	read, err := syntax.Unmarshal(keyPackage, &kp)
-	if err != nil {
+	if err := syntax.Unmarshal(keyPackage, &kp); err != nil {
 		return nil, err
-	}
-	if read != len(keyPackage) {
-		return nil, fmt.Errorf("mls: %d trailing bytes after key package", len(keyPackage)-read)
 	}
 	if err := kp.Validate(self.crypto, self.cfg.Suite, nowFunc()); err != nil {
 		return nil, err
@@ -4891,7 +5335,7 @@ func (self *Group) ProposeAdd(keyPackage []byte) ([]byte, error) {
 func (self *Group) ProposeRemove(leaf LeafIndex) ([]byte, error) {
 	self.stateLock.Lock()
 	own := self.ownLeaf
-	_, present := self.tree.LeafNode(leaf)
+	present := self.tree.Leaf(leaf) != nil
 	self.stateLock.Unlock()
 	if leaf == own {
 		return nil, fmt.Errorf("%w: use the group's leave flow instead", ErrSelfRemoveInCommit)
@@ -4904,13 +5348,20 @@ func (self *Group) ProposeRemove(leaf LeafIndex) ([]byte, error) {
 
 // ProposeUpdate proposes replacing our own leaf with one holding a fresh
 // encryption key.
+//
+// An update leaf's LeafNodeTBS includes the group id and the leaf index, which
+// a key_package leaf's does not, so the leaf is re-signed through
+// (*LeafNode).Sign after the source is changed. NewLeafNode builds a
+// key_package leaf; changing the source without re-signing would leave a
+// signature over the wrong TBS.
 func (self *Group) ProposeUpdate() ([]byte, error) {
 	self.stateLock.Lock()
 	crypto := self.crypto
 	leafKeys := self.cfg.LeafKeys
 	signer := self.signer
 	cred := self.cred
-	cfg := self.cfg
+	groupId := append([]byte(nil), self.context.GroupId...)
+	ownLeaf := self.ownLeaf
 	self.stateLock.Unlock()
 
 	encPriv, encPub, err := crypto.DeriveKeyPair(crypto.Random(crypto.HashSize()))
@@ -4921,13 +5372,13 @@ func (self *Group) ProposeUpdate() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	leaf, err := NewLeafNode(crypto, signer, cred, encPub, v1Capabilities(cfg), []Extension{leafKeysExt})
+	leaf, err := NewLeafNode(crypto, signer, cred, encPub, v1Capabilities(), []Extension{leafKeysExt})
 	if err != nil {
 		return nil, err
 	}
 	leaf.LeafNodeSource = LeafNodeSourceUpdate
-	leaf.Lifetime = nil
-	if err := reSignLeafNode(crypto, signer, leaf, self.GroupId(), self.OwnLeafIndex()); err != nil {
+	leaf.Lifetime = Lifetime{}
+	if err := leaf.Sign(crypto, signer, groupId, ownLeaf); err != nil {
 		return nil, err
 	}
 	if err := self.cfg.Store.PutPrivateKey(encPub, encPriv); err != nil {
@@ -4940,10 +5391,9 @@ func (self *Group) ProposeUpdate() ([]byte, error) {
 // list wholesale. Every extension is checked against the v1 profile before the
 // proposal is built, so a policy violation never reaches the wire.
 func (self *Group) ProposeGroupContextExtensions(exts []Extension) ([]byte, error) {
-	profile := self.cfg.Profile
-	if profile == nil {
-		profile = DefaultProfile()
-	}
+	self.stateLock.Lock()
+	profile := self.profileLocked()
+	self.stateLock.Unlock()
 	for _, ext := range exts {
 		if err := profile.CheckGroupExtension(ext.ExtensionType); err != nil {
 			return nil, err
@@ -4958,14 +5408,24 @@ func (self *Group) ProposeGroupContextExtensions(exts []Extension) ([]byte, erro
 	})
 }
 
-// proposeLocked frames, signs, protects and caches one proposal.
+// proposeLocked frames, signs, protects and caches one proposal. The group
+// context crosses into the framing layer as BYTES: it is inlined into
+// FramedContentTBS with no length prefix, and handing over the serialized form
+// makes that impossible to get wrong.
 func (self *Group) proposeLocked(proposal *Proposal) ([]byte, error) {
 	self.stateLock.Lock()
 	defer self.stateLock.Unlock()
 	if self.closed {
 		return nil, fmt.Errorf("mls: group is closed")
 	}
+	if err := checkProposalProfile(self.profileLocked(), proposal); err != nil {
+		return nil, err
+	}
 
+	groupContext, err := syntax.Marshal(self.context)
+	if err != nil {
+		return nil, err
+	}
 	content := &FramedContent{
 		GroupId:     append([]byte(nil), self.context.GroupId...),
 		Epoch:       self.context.Epoch,
@@ -4973,25 +5433,24 @@ func (self *Group) proposeLocked(proposal *Proposal) ([]byte, error) {
 		ContentType: ContentTypeProposal,
 		Proposal:    proposal,
 	}
-	authenticated, err := SignFramedContent(self.crypto, self.signer,
-		WireFormatPrivateMessage, content, self.context)
+	authenticated, err := SignAuthenticatedContent(self.crypto, self.signer,
+		WireFormatPrivateMessage, content, groupContext)
 	if err != nil {
 		return nil, err
 	}
 	if _, err := self.proposals.Store(self.crypto, authenticated); err != nil {
 		return nil, err
 	}
-	private, err := ProtectPrivate(self.crypto, self.secretTree, self.secrets.SenderDataSecret,
-		self.context, authenticated, 0)
+	private, err := SealPrivateMessage(self.crypto, self.secretTree,
+		self.schedule.Secrets().SenderData, authenticated, PaddingSizeV1)
 	if err != nil {
 		return nil, err
 	}
-	message := &MLSMessage{
+	return MarshalMLSMessage(&MLSMessage{
 		Version:        ProtocolVersionMls10,
 		WireFormat:     WireFormatPrivateMessage,
 		PrivateMessage: private,
-	}
-	return message.Marshal()
+	})
 }
 
 // pendingProposalsForTest exposes the cache to tests in this package.
@@ -5007,17 +5466,11 @@ func (self *Group) pendingProposalsForTest() []CachedProposal {
 	}
 	return out
 }
-
-// syntaxMarshalKeyPackage keeps the syntax import local, and is what tests use
-// to hand a key package to ProposeAdd.
-func syntaxMarshalKeyPackage(kp *KeyPackage) ([]byte, error) {
-	return syntax.Marshal(kp)
-}
 ```
 
-`reSignLeafNode(crypto, signer, leaf, groupId, leafIndex) error` is consumed from the TreeKEM plan:
-an Update leaf signs over `LeafNodeTBS` including the group id and leaf index, which a KeyPackage
-leaf does not. If that plan exposes it under another name, use theirs.
+`*SecretTree` is passed where the framing layer declares a `MessageKeySource`; the key schedule plan
+implements that interface on `*SecretTree` and carries the
+`var _ MessageKeySource = (*SecretTree)(nil)` assertion, so a drift there fails at build.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -5040,12 +5493,19 @@ git commit -m "feat(mls): proposal generation on Group for add, update, remove a
 - Test: `connect/mls/commit_test.go`
 
 **Interfaces:**
-- Consumes: `(*RatchetTree).CreateUpdatePath`, `PathSecrets.CommitSecret` (TreeKEM plan); `DeriveEpochSecrets`, `EmptyPskSecret` (Key schedule plan); `ConfirmedTranscriptHash`, `InterimTranscriptHash`, `SignFramedContent`, `ProtectPrivate` (Framing plan); `ApplyProposals` (Task 8); `ValidateProposalList` (Task 7); `ValidateCommit` (Task 10).
+- Consumes: `(*RatchetTree).CreateUpdatePathSecrets(crypto CryptoProvider, sender LeafIndex, signer SignaturePrivateKey, groupId []byte) (*UpdatePathPlan, error)`, `(*RatchetTree).EncryptUpdatePath(crypto CryptoProvider, plan *UpdatePathPlan, sender LeafIndex, groupContext []byte, exclude []LeafIndex) (*UpdatePath, error)`, `(*RatchetTree).TreeHash`, `(*RatchetTree).LeafWidth`, `UpdatePathPlan`, `TreeKEMPrivate` (TreeKEM plan); `NewKeySchedule(crypto CryptoProvider, initSecretPrev []byte, commitSecret []byte, pskSecret []byte, groupContext *GroupContext) (*KeySchedule, error)`, `ZeroSecret`, `EmptyPskSecret`, `(*KeySchedule).Secrets`, `(*KeySchedule).ConfirmationTag`, `(*KeySchedule).JoinerSecret`, `(*KeySchedule).WelcomeSecret`, `ConfirmedTranscriptHash(crypto CryptoProvider, interimBefore []byte, confirmedTranscriptHashInput []byte) []byte`, `(*TranscriptHashes).Clone`, `(*TranscriptHashes).Update`, `NewSecretTree` (Key schedule plan); `SignAuthenticatedContent`, `SealPrivateMessage`, `MarshalMLSMessage`, `(*AuthenticatedContent).ConfirmedTranscriptHashInput() ([]byte, error)`, `Commit`, `ProposalOrRef`, `ProposalRef` (Framing plan); `syntax.Marshal`, `syntax.MarshalLimit`, `syntax.MaxRatchetTreeLength` (Syntax plan); `ApplyProposals` (Task 8); `ValidateProposalList` (Task 7); `ValidateCommit`, `CheckErrata8745`, `CheckErrata8815` (Task 10).
 - Produces:
 ```go
 type CommitOptions struct {
-    Force         bool          // build a path even when the proposal list does not require one
-    ExtraProposals []Proposal   // by-value proposals, appended after the by-reference ones
+    Force          bool          // build a path even when the list does not require one
+    ExtraProposals []Proposal    // by-value, appended after the by-reference ones
+
+    // test seams, unexported — the validation plan's tests are in package mls.
+    // They are fields of CommitOptions, NOT of Commit: adding a test flag to
+    // the Commit wire struct would change what syntax.Marshal(commit) emits.
+    skipValidation                         bool
+    dropConfirmationTag                    bool
+    confirmationTagOverPreCommitTranscript bool
 }
 type CommitResult struct {
     Commit      []byte   // MLSMessage(PrivateMessage) carrying the Commit
@@ -5063,11 +5523,19 @@ func (self *StagedCommit) GroupContextExtensions() []Extension
 func (self *StagedCommit) EpochAuthenticator() []byte
 
 func (self *Group) Commit(byReference [][]byte, byValue []Proposal, opts *CommitOptions) (*CommitResult, error)
+func (self *Group) ClearPendingCommit()
 ```
 
 `byReference` is a slice of serialized `ProposalRef` values, so `connect/message` can name proposals
 it saw on the wire without holding `mls` types. Passing nil means "every valid proposal cached this
-epoch", which is the RFC 9420 §12.4 SHOULD.
+epoch", which is the RFC 9420 §12.4 SHOULD. `opts.ExtraProposals` is appended after `byValue` and
+carries the same by-value semantics; both are attributed to the committer.
+
+**The path is built in three ordered steps, not one call.** The HPKE context an update path is
+encrypted under is the *new* epoch's GroupContext, and that context's `tree_hash` covers the path's
+own public keys. So: `CreateUpdatePathSecrets` mutates the tree and returns the plan, `TreeHash` is
+taken afterwards and the new GroupContext built from it, and only then does `EncryptUpdatePath` run.
+A single-call `CreateUpdatePath` cannot express that ordering, which is why it does not exist.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -5082,7 +5550,7 @@ func TestCommitAddAdvancesTheEpochAndProducesAWelcome(t *testing.T) {
 
 	bob := testIdentity(t, crypto, "bob")
 	kp, _, _ := testKeyPackage(t, crypto, bob)
-	encoded, err := syntaxMarshalKeyPackage(kp)
+	encoded, err := syntax.Marshal(kp)
 	if err != nil {
 		t.Fatalf("marshal key package: %v", err)
 	}
@@ -5226,12 +5694,23 @@ Expected: FAIL to build with `undefined: (*Group).Commit`, `undefined: CommitOpt
 Append to `connect/mls/commit.go`:
 
 ```go
-// CommitOptions are the committer's discretionary choices. Nothing here can
-// make an invalid commit valid.
+// CommitOptions are the committer's discretionary choices. Nothing an exported
+// field here can do makes an invalid commit valid.
 type CommitOptions struct {
 	// Force populates the path even when the proposal list does not require
 	// one, which buys post compromise security for the committer.
 	Force bool
+
+	// ExtraProposals are by-value proposals appended after the by-reference
+	// ones, attributed to the committer like every other by-value proposal.
+	ExtraProposals []Proposal
+
+	// Test seams. They are unexported, so only tests in package mls can set
+	// them, and they live here rather than on Commit because a flag on the wire
+	// struct would change what syntax.Marshal(commit) emits.
+	skipValidation                         bool
+	dropConfirmationTag                    bool
+	confirmationTagOverPreCommitTranscript bool
 }
 
 // CommitResult is what a committer sends.
@@ -5247,24 +5726,26 @@ type CommitResult struct {
 // delivery service accepts it, and a receiver stages an inbound one so a policy
 // decision can happen before the epoch advances.
 type StagedCommit struct {
-	committer     LeafIndex
-	epoch         uint64
-	context       *GroupContext
-	tree          *RatchetTree
-	secrets       *EpochSecrets
-	secretTree    *SecretTree
-	ownEncPriv    HpkePrivateKey
-	interimHash   []byte
-	list          *ProposalList
-	added         []LeafIndex
-	removed       []LeafIndex
-	updated       []LeafIndex
-	selfRemoved   bool
-	hasPath       bool
-	welcomeSecret []byte
-	joinerSecret  []byte
-	confirmTag    []byte
-	pathSecrets   *PathSecrets
+	committer   LeafIndex
+	epoch       uint64
+	context     *GroupContext
+	tree        *RatchetTree
+	schedule    *KeySchedule
+	secretTree  *SecretTree
+	ownPriv     *TreeKEMPrivate
+	transcript  *TranscriptHashes
+	list        *ProposalList
+	added       []LeafIndex
+	removed     []LeafIndex
+	updated     []LeafIndex
+	selfRemoved bool
+	hasPath     bool
+	confirmTag  []byte
+	plan        *UpdatePathPlan
+
+	// what LoadGroup needs to rebuild this epoch's key schedule
+	restoreKind   restoreKind
+	restoreSecret []byte
 }
 
 // Epoch is the epoch this commit opens.
@@ -5290,7 +5771,7 @@ func (self *StagedCommit) GroupContextExtensions() []Extension { return self.con
 
 // EpochAuthenticator is the new epoch's fork-detection value.
 func (self *StagedCommit) EpochAuthenticator() []byte {
-	return append([]byte(nil), self.secrets.EpochAuthenticator...)
+	return append([]byte(nil), self.schedule.Secrets().EpochAuthenticator...)
 }
 
 // hasPathForTest exposes the path decision to tests in this package.
@@ -5327,8 +5808,9 @@ func (self *Group) Commit(byReference [][]byte, byValue []Proposal, opts *Commit
 			refs = append(refs, ProposalOrRef{Type: ProposalOrRefTypeReference, Reference: ProposalRef(ref)})
 		}
 	}
-	for i := range byValue {
-		proposal := byValue[i]
+	inline := append(append([]Proposal(nil), byValue...), opts.ExtraProposals...)
+	for i := range inline {
+		proposal := inline[i]
 		refs = append(refs, ProposalOrRef{Type: ProposalOrRefTypeProposal, Proposal: &proposal})
 	}
 	list, err := self.proposals.Resolve(self.crypto, self.ownLeaf, refs)
@@ -5341,64 +5823,78 @@ func (self *Group) Commit(byReference [][]byte, byValue []Proposal, opts *Commit
 	if err != nil {
 		return nil, err
 	}
-	validationInput := &ProposalValidationInput{
-		Crypto:     self.crypto,
-		Tree:       self.tree,
-		Context:    self.context,
-		Extensions: applied.Extensions,
-		Committer:  self.ownLeaf,
-		List:       list,
-		Now:        nowFunc(),
-	}
-	if err := ValidateProposalList(validationInput); err != nil {
-		return nil, err
-	}
-	if err := self.checkMembershipCapsLocked(applied); err != nil {
-		return nil, err
-	}
-	if err := self.checkRemovalAuthorityLocked(list, self.ownLeaf); err != nil {
-		return nil, err
-	}
-	if err := self.checkSuccessionLocked(list, applied, self.ownLeaf); err != nil {
-		return nil, err
+	if !opts.skipValidation {
+		validationInput := &ProposalValidationInput{
+			Crypto:     self.crypto,
+			Tree:       self.tree,
+			Context:    self.context,
+			Extensions: applied.Extensions,
+			Committer:  self.ownLeaf,
+			List:       list,
+			Now:        nowFunc(),
+		}
+		if err := ValidateProposalList(validationInput); err != nil {
+			return nil, err
+		}
+		if err := self.checkMembershipCapsLocked(applied); err != nil {
+			return nil, err
+		}
+		if err := self.checkRemovalAuthorityLocked(list, self.ownLeaf); err != nil {
+			return nil, err
+		}
+		if err := self.checkSuccessionLocked(list, applied, self.ownLeaf); err != nil {
+			return nil, err
+		}
 	}
 
-	// step 3: decide on the path and build it against the provisional context
+	// step 3: decide on the path and build it in the three ordered steps. The
+	// HPKE context is the NEW epoch's group context and its tree_hash covers
+	// the path's own public keys, so the secrets are created (which applies the
+	// public keys to the tree), THEN the tree hash is taken, THEN the path is
+	// encrypted under the serialized provisional context. The provisional
+	// context carries the previous epoch's confirmed_transcript_hash, because
+	// the new one is a function of this very commit.
 	commit := &Commit{Proposals: refs}
-	commitSecret := make([]byte, self.crypto.HashSize())
-	var pathSecrets *PathSecrets
-	var newEncPriv HpkePrivateKey
+	commitSecret := ZeroSecret(self.crypto)
+	var plan *UpdatePathPlan
 	hasPath := CommitPathRequired(list) || opts.Force
 	if hasPath {
+		plan, err = applied.Tree.CreateUpdatePathSecrets(self.crypto, self.ownLeaf,
+			self.signer, self.context.GroupId)
+		if err != nil {
+			return nil, err
+		}
+		pathTreeHash, err := applied.Tree.TreeHash(self.crypto)
+		if err != nil {
+			return nil, err
+		}
 		provisional := &GroupContext{
 			Version:                 self.context.Version,
 			CipherSuite:             self.context.CipherSuite,
-			GroupId:                 self.context.GroupId,
+			GroupId:                 append([]byte(nil), self.context.GroupId...),
 			Epoch:                   self.context.Epoch + 1,
+			TreeHash:                pathTreeHash,
 			ConfirmedTranscriptHash: self.context.ConfirmedTranscriptHash,
 			Extensions:              applied.Extensions,
 		}
-		treeHash, err := applied.Tree.RootHash()
+		provisionalBytes, err := syntax.Marshal(provisional)
 		if err != nil {
 			return nil, err
 		}
-		provisional.TreeHash = treeHash
-		provisionalBytes, err := provisional.Marshal()
-		if err != nil {
-			return nil, err
-		}
-		path, secrets, encPriv, err := applied.Tree.CreateUpdatePath(
-			self.ownLeaf, self.signer, provisionalBytes, applied.AddedLeaves)
+		path, err := applied.Tree.EncryptUpdatePath(self.crypto, plan, self.ownLeaf,
+			provisionalBytes, applied.AddedLeaves)
 		if err != nil {
 			return nil, err
 		}
 		commit.Path = path
-		commitSecret = secrets.CommitSecret()
-		pathSecrets = secrets
-		newEncPriv = encPriv
+		commitSecret = plan.CommitSecret
 	}
 
-	// step 4: frame and sign the commit against the OLD group context
+	// step 4: frame and sign the commit against the OLD group context, as bytes
+	oldContextBytes, err := syntax.Marshal(self.context)
+	if err != nil {
+		return nil, err
+	}
 	content := &FramedContent{
 		GroupId:     append([]byte(nil), self.context.GroupId...),
 		Epoch:       self.context.Epoch,
@@ -5406,18 +5902,19 @@ func (self *Group) Commit(byReference [][]byte, byValue []Proposal, opts *Commit
 		ContentType: ContentTypeCommit,
 		Commit:      commit,
 	}
-	authenticated, err := SignFramedContent(self.crypto, self.signer,
-		WireFormatPrivateMessage, content, self.context)
+	authenticated, err := SignAuthenticatedContent(self.crypto, self.signer,
+		WireFormatPrivateMessage, content, oldContextBytes)
 	if err != nil {
 		return nil, err
 	}
 
 	// step 5: the new transcript hashes, group context and key schedule
-	confirmedHash, err := ConfirmedTranscriptHash(self.crypto, self.interimHash, authenticated)
+	confirmedInput, err := authenticated.ConfirmedTranscriptHashInput()
 	if err != nil {
 		return nil, err
 	}
-	treeHash, err := applied.Tree.RootHash()
+	confirmedHash := ConfirmedTranscriptHash(self.crypto, self.transcript.Interim, confirmedInput)
+	treeHash, err := applied.Tree.TreeHash(self.crypto)
 	if err != nil {
 		return nil, err
 	}
@@ -5430,86 +5927,102 @@ func (self *Group) Commit(byReference [][]byte, byValue []Proposal, opts *Commit
 		ConfirmedTranscriptHash: confirmedHash,
 		Extensions:              applied.Extensions,
 	}
-	newContextBytes, err := newContext.Marshal()
-	if err != nil {
-		return nil, err
-	}
-	secrets, err := DeriveEpochSecrets(self.crypto, self.secrets.InitSecret, commitSecret,
-		EmptyPskSecret(self.crypto), newContextBytes)
+	schedule, err := NewKeySchedule(self.crypto, self.schedule.Secrets().InitSecret, commitSecret,
+		EmptyPskSecret(self.crypto), newContext)
 	if err != nil {
 		return nil, err
 	}
 
 	// step 6: the confirmation tag, then the interim hash from it
-	confirmationTag := self.crypto.Mac(secrets.ConfirmationKey, confirmedHash)
+	tagOver := confirmedHash
+	if opts.confirmationTagOverPreCommitTranscript {
+		tagOver = self.transcript.Confirmed
+	}
+	confirmationTag := schedule.ConfirmationTag(tagOver)
 	authenticated.Auth.ConfirmationTag = confirmationTag
-	interimHash, err := InterimTranscriptHash(self.crypto, confirmedHash, confirmationTag)
-	if err != nil {
+	if opts.dropConfirmationTag {
+		authenticated.Auth.ConfirmationTag = nil
+	}
+	transcript := self.transcript.Clone()
+	if err := transcript.Update(self.crypto, confirmedInput, confirmationTag); err != nil {
 		return nil, err
 	}
 
 	// step 7: structural commit validation, against the state a receiver sees
-	commitInput := &CommitValidationInput{
-		Crypto:          self.crypto,
-		PreTree:         self.tree,
-		PostTree:        applied.Tree,
-		Context:         self.context,
-		Extensions:      applied.Extensions,
-		Committer:       self.ownLeaf,
-		Own:             self.ownLeaf,
-		List:            list,
-		Commit:          commit,
-		ConfirmationKey: secrets.ConfirmationKey,
-		ConfirmedHash:   confirmedHash,
-		ConfirmationTag: confirmationTag,
-		Now:             nowFunc(),
-	}
-	if err := ValidateCommit(commitInput); err != nil {
-		return nil, err
+	if !opts.skipValidation {
+		commitInput := &CommitValidationInput{
+			Crypto:          self.crypto,
+			PreTree:         self.tree,
+			PostTree:        applied.Tree,
+			Context:         newContext,
+			Extensions:      applied.Extensions,
+			Committer:       self.ownLeaf,
+			Own:             self.ownLeaf,
+			List:            list,
+			Commit:          commit,
+			ConfirmationKey: schedule.Secrets().Confirmation,
+			ConfirmedHash:   confirmedHash,
+			ConfirmationTag: confirmationTag,
+			Now:             nowFunc(),
+		}
+		if err := ValidateCommit(commitInput); err != nil {
+			return nil, err
+		}
+		if err := CheckErrata8745(commit.Path, newContext); err != nil {
+			return nil, err
+		}
+		if err := CheckErrata8815(commit, self.proposals); err != nil {
+			return nil, err
+		}
 	}
 
 	// step 8: protect the commit under the OLD epoch's keys
-	private, err := ProtectPrivate(self.crypto, self.secretTree, self.secrets.SenderDataSecret,
-		self.context, authenticated, 0)
+	private, err := SealPrivateMessage(self.crypto, self.secretTree,
+		self.schedule.Secrets().SenderData, authenticated, PaddingSizeV1)
 	if err != nil {
 		return nil, err
 	}
-	commitMessage, err := (&MLSMessage{
+	commitMessage, err := MarshalMLSMessage(&MLSMessage{
 		Version:        ProtocolVersionMls10,
 		WireFormat:     WireFormatPrivateMessage,
 		PrivateMessage: private,
-	}).Marshal()
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	if newEncPriv == nil {
-		newEncPriv = self.ownEncPriv
+	ownPriv := self.ownPriv
+	if plan != nil && plan.Private != nil {
+		ownPriv = plan.Private
+	}
+	secretTree, err := NewSecretTree(self.crypto, applied.Tree.LeafWidth(), schedule.Secrets().Encryption)
+	if err != nil {
+		return nil, err
 	}
 	staged := &StagedCommit{
 		committer:     self.ownLeaf,
 		epoch:         newContext.Epoch,
 		context:       newContext,
 		tree:          applied.Tree,
-		secrets:       secrets,
-		secretTree:    NewSecretTree(self.crypto, applied.Tree.Size(), secrets.EncryptionSecret),
-		ownEncPriv:    newEncPriv,
-		interimHash:   interimHash,
+		schedule:      schedule,
+		secretTree:    secretTree,
+		ownPriv:       ownPriv,
+		transcript:    transcript,
 		list:          list,
 		added:         applied.AddedLeaves,
 		removed:       applied.RemovedLeaves,
 		updated:       applied.UpdatedLeaves,
 		selfRemoved:   applied.SelfRemoved,
 		hasPath:       hasPath,
-		welcomeSecret: secrets.WelcomeSecret,
-		joinerSecret:  secrets.JoinerSecret,
 		confirmTag:    confirmationTag,
-		pathSecrets:   pathSecrets,
+		plan:          plan,
+		restoreKind:   restoreFromJoiner,
+		restoreSecret: schedule.JoinerSecret(),
 	}
 	self.pending = staged
 
 	result := &CommitResult{Commit: commitMessage}
-	if result.RatchetTree, err = applied.Tree.Encode(); err != nil {
+	if result.RatchetTree, err = syntax.MarshalLimit(applied.Tree, syntax.MaxRatchetTreeLength); err != nil {
 		return nil, err
 	}
 	if len(applied.AddedLeaves) > 0 {
@@ -5574,10 +6087,12 @@ func (self *Group) MergePendingCommit() error {
 	staged := self.pending
 	self.tree = staged.tree
 	self.context = staged.context
-	self.secrets = staged.secrets
+	self.schedule = staged.schedule
 	self.secretTree = staged.secretTree
-	self.ownEncPriv = staged.ownEncPriv
-	self.interimHash = staged.interimHash
+	self.ownPriv = staged.ownPriv
+	self.transcript = staged.transcript
+	self.restoreKind = staged.restoreKind
+	self.restoreSecret = staged.restoreSecret
 	self.proposals.Clear()
 	self.pending = nil
 	return nil
@@ -5600,35 +6115,28 @@ git commit -m "feat(mls): commit generation following RFC 9420 section 12.4.1"
 
 ---
 
-### Task 14: `GroupInfo` and `GroupInfoTBS`
+### Task 14: Signing and verifying a `GroupInfo`
 
 **Files:**
 - Create: `connect/mls/welcome.go`
 - Test: `connect/mls/welcome_test.go`
 
+**Ownership.** `GroupInfo`, `GroupInfoTBS`, `PathSecret`, `GroupSecrets`, `EncryptedGroupSecrets`
+and `Welcome` — structs and codecs — belong to the Framing plan: its wave-3 `MLSMessage` names
+`*Welcome` and `*GroupInfo` by direct type, and one Go package cannot compile if those types land in
+wave 4. The generation and processing logic stays here.
+
 **Interfaces:**
-- Consumes: `syntax.Marshal`, `syntax.Unmarshal`; `mls.GroupContext`, `mls.CryptoProvider.SignWithLabel/VerifyWithLabel`; `mls.RatchetTree` (TreeKEM plan).
+- Consumes: `GroupInfo`, `GroupInfoTBS` (Framing plan); `syntax.Marshal`, `syntax.Unmarshal` (Syntax plan); `GroupContext` (Key schedule plan); `CryptoProvider.SignWithLabel/VerifyWithLabel` (Crypto/HPKE plan); `RatchetTree`, `(*RatchetTree).Leaf` (TreeKEM plan); `ErrWelcomeGroupInfoSignature`, `ErrBlankSenderLeaf` (Tasks 1 and the Validation plan).
 - Produces:
 ```go
-type GroupInfo struct {
-    GroupContext    GroupContext
-    Extensions      []Extension `tls:"head=varint"`
-    ConfirmationTag []byte      `tls:"head=varint"`
-    Signer          LeafIndex
-    Signature       []byte      `tls:"head=varint"`
-}
-type GroupInfoTBS struct {
-    GroupContext    GroupContext
-    Extensions      []Extension `tls:"head=varint"`
-    ConfirmationTag []byte      `tls:"head=varint"`
-    Signer          LeafIndex
-}
 func (self *GroupInfo) Sign(crypto CryptoProvider, priv SignaturePrivateKey) error
 func (self *GroupInfo) Verify(crypto CryptoProvider, tree *RatchetTree) error
 ```
 
 The signature label is `"GroupInfoTBS"`, and the signature covers every field above `signature`.
-RFC 9420 §12.4.3.
+RFC 9420 §12.4.3. `GroupInfoTBS` is built from the `GroupInfo` and serialized with
+`syntax.Marshal`; there is no second encoder.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -5641,18 +6149,20 @@ import (
 	"bytes"
 	"errors"
 	"testing"
+
+	"github.com/urnetwork/connect/mls/syntax"
 )
 
 func testGroupInfo(t *testing.T, crypto CryptoProvider, tree *RatchetTree, signer LeafIndex) *GroupInfo {
 	t.Helper()
-	treeHash, err := tree.RootHash()
+	treeHash, err := tree.TreeHash(crypto)
 	if err != nil {
-		t.Fatalf("RootHash: %v", err)
+		t.Fatalf("TreeHash: %v", err)
 	}
 	return &GroupInfo{
 		GroupContext: GroupContext{
 			Version:                 ProtocolVersionMls10,
-			CipherSuite:             CipherSuiteX25519ChaCha20SHA256Ed25519,
+			CipherSuite:             CipherSuiteX25519ChaCha20Sha256Ed25519,
 			GroupId:                 []byte("group-1"),
 			Epoch:                   1,
 			TreeHash:                treeHash,
@@ -5723,15 +6233,15 @@ func TestGroupInfoRoundTrip(t *testing.T) {
 	if err := info.Sign(crypto, members[0].SigPriv); err != nil {
 		t.Fatalf("Sign: %v", err)
 	}
-	encoded, err := syntaxMarshalGroupInfo(info)
+	encoded, err := syntax.Marshal(info)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
 	var parsed GroupInfo
-	if _, err := syntaxUnmarshalGroupInfo(encoded, &parsed); err != nil {
+	if err := syntax.Unmarshal(encoded, &parsed); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	reencoded, err := syntaxMarshalGroupInfo(&parsed)
+	reencoded, err := syntax.Marshal(&parsed)
 	if err != nil {
 		t.Fatalf("re-marshal: %v", err)
 	}
@@ -5747,7 +6257,7 @@ func TestGroupInfoRoundTrip(t *testing.T) {
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `go test ./connect/mls/... -run TestGroupInfo -v`
-Expected: FAIL to build with `undefined: GroupInfo`, `undefined: syntaxMarshalGroupInfo`.
+Expected: FAIL to build with `undefined: (*GroupInfo).Sign`, `undefined: (*GroupInfo).Verify`.
 
 - [ ] **Step 3: Write minimal implementation**
 
@@ -5755,9 +6265,11 @@ Expected: FAIL to build with `undefined: GroupInfo`, `undefined: syntaxMarshalGr
 
 ```go
 // RFC 9420 §12.4.3, the GroupInfo a committer signs and the Welcome that
-// carries it. Nothing here is URmessage specific: the group-context extensions
-// that are ours ride inside GroupInfo.group_context and are covered by this
-// signature and by the transcript hash.
+// carries it. The wire structs and their codecs live in welcome_wire.go with
+// the rest of the framing types; what lives here is signing, verification,
+// generation and joining. Nothing here is URmessage specific: the
+// group-context extensions that are ours ride inside GroupInfo.group_context
+// and are covered by this signature and by the transcript hash.
 package mls
 
 import (
@@ -5766,36 +6278,22 @@ import (
 	"github.com/urnetwork/connect/mls/syntax"
 )
 
-// GroupInfo is the joiner's view of the new epoch.
-type GroupInfo struct {
-	GroupContext    GroupContext
-	Extensions      []Extension `tls:"head=varint"`
-	ConfirmationTag []byte      `tls:"head=varint"`
-	Signer          LeafIndex
-	Signature       []byte `tls:"head=varint"`
-}
-
-// GroupInfoTBS is every field of GroupInfo above the signature.
-type GroupInfoTBS struct {
-	GroupContext    GroupContext
-	Extensions      []Extension `tls:"head=varint"`
-	ConfirmationTag []byte      `tls:"head=varint"`
-	Signer          LeafIndex
-}
-
-// tbs returns the signature input.
-func (self *GroupInfo) tbs() *GroupInfoTBS {
+// groupInfoTbs returns the signature input: every field of GroupInfo above the
+// signature. It builds the framing plan's GroupInfoTBS rather than a second
+// struct, so there is exactly one definition of what a GroupInfo signature
+// covers.
+func groupInfoTbs(info *GroupInfo) *GroupInfoTBS {
 	return &GroupInfoTBS{
-		GroupContext:    self.GroupContext,
-		Extensions:      self.Extensions,
-		ConfirmationTag: self.ConfirmationTag,
-		Signer:          self.Signer,
+		GroupContext:    info.GroupContext,
+		Extensions:      info.Extensions,
+		ConfirmationTag: info.ConfirmationTag,
+		Signer:          info.Signer,
 	}
 }
 
 // Sign signs with the label "GroupInfoTBS".
 func (self *GroupInfo) Sign(crypto CryptoProvider, priv SignaturePrivateKey) error {
-	content, err := syntax.Marshal(self.tbs())
+	content, err := syntax.Marshal(groupInfoTbs(self))
 	if err != nil {
 		return err
 	}
@@ -5811,11 +6309,11 @@ func (self *GroupInfo) Sign(crypto CryptoProvider, priv SignaturePrivateKey) err
 // leaf is refused: RFC 9420 §12.4.3.1 requires the public key be taken from a
 // non-blank leaf of the ratchet tree.
 func (self *GroupInfo) Verify(crypto CryptoProvider, tree *RatchetTree) error {
-	leaf, ok := tree.LeafNode(self.Signer)
-	if !ok {
+	leaf := tree.Leaf(self.Signer)
+	if leaf == nil {
 		return fmt.Errorf("%w: signer leaf %d is blank", ErrBlankSenderLeaf, self.Signer)
 	}
-	content, err := syntax.Marshal(self.tbs())
+	content, err := syntax.Marshal(groupInfoTbs(self))
 	if err != nil {
 		return err
 	}
@@ -5823,16 +6321,6 @@ func (self *GroupInfo) Verify(crypto CryptoProvider, tree *RatchetTree) error {
 		return fmt.Errorf("%w: %v", ErrWelcomeGroupInfoSignature, err)
 	}
 	return nil
-}
-
-// syntaxMarshalGroupInfo and syntaxUnmarshalGroupInfo keep the syntax import
-// local to this file.
-func syntaxMarshalGroupInfo(info *GroupInfo) ([]byte, error) {
-	return syntax.Marshal(info)
-}
-
-func syntaxUnmarshalGroupInfo(data []byte, out *GroupInfo) (int, error) {
-	return syntax.Unmarshal(data, out)
 }
 ```
 
@@ -5857,40 +6345,26 @@ git commit -m "feat(mls): GroupInfo and GroupInfoTBS signing and verification"
 - Test: `connect/mls/welcome_test.go`
 
 **Interfaces:**
-- Consumes: `EncryptWithLabel`, `HPKECiphertext` (Crypto/HPKE plan); `WelcomeKeyNonce`, `EmptyPskSecret` (Key schedule plan); `CommonAncestor` (Tree math plan); `(*PathSecrets).SecretAt` (TreeKEM plan); `(*KeyPackage).Ref` (TreeKEM plan); `StagedCommit` (Task 13).
+- Consumes: `SealWithLabel(crypto CryptoProvider, pub HpkePublicKey, label string, context []byte, plaintext []byte) (*HpkeCiphertext, error)`, `HpkeCiphertext`, `(*KeyPackage).Ref(crypto CryptoProvider) ([]byte, error)`, `UpdatePathPlan` (TreeKEM plan); `WelcomeKeyNonce(crypto CryptoProvider, welcomeSecret []byte) (key []byte, nonce []byte, err error)`, `(*KeySchedule).JoinerSecret`, `(*KeySchedule).WelcomeSecret` (Key schedule plan); `CommonAncestor(x NodeIndex, y NodeIndex) NodeIndex`, `(LeafIndex).NodeIndex()`, `DirectPath(x NodeIndex, n LeafCount) ([]NodeIndex, error)` (Tree math plan); `Welcome`, `EncryptedGroupSecrets`, `GroupSecrets`, `PathSecret`, `PreSharedKeyId`, `MLSMessage`, `MarshalMLSMessage`, `WireFormatWelcome` (Framing plan); `syntax.Marshal` (Syntax plan); `StagedCommit` (Task 13).
 - Produces:
 ```go
-type PathSecret struct {
-    PathSecret []byte `tls:"head=varint"`
-}
-type GroupSecrets struct {
-    JoinerSecret []byte      `tls:"head=varint"`
-    PathSecret   *PathSecret `tls:"optional"`
-    Psks         []byte      `tls:"head=varint"`   // always zero-length in v1
-}
-type EncryptedGroupSecrets struct {
-    NewMember             []byte `tls:"head=varint"`   // KeyPackageRef
-    EncryptedGroupSecrets HPKECiphertext
-}
-type Welcome struct {
-    CipherSuite         CipherSuite
-    Secrets             []EncryptedGroupSecrets `tls:"head=varint"`
-    EncryptedGroupInfo  []byte                  `tls:"head=varint"`
-}
-func BuildWelcome(crypto CryptoProvider, suite CipherSuite, info *GroupInfo, joinerSecret []byte,
-    welcomeSecret []byte, joiners []WelcomeJoiner) (*Welcome, error)
-
 type WelcomeJoiner struct {
     KeyPackage KeyPackage
     LeafIndex  LeafIndex
     PathSecret []byte   // nil when the commit carried no path
 }
+func BuildWelcome(crypto CryptoProvider, suite CipherSuite, info *GroupInfo, joinerSecret []byte,
+    welcomeSecret []byte, joiners []WelcomeJoiner) (*Welcome, error)
 ```
 
+`Welcome`, `EncryptedGroupSecrets`, `GroupSecrets` and `PathSecret` are the Framing plan's. Note
+`GroupSecrets.Psks` is `[]PreSharedKeyId`, not an opaque vector: v1 always sends it empty, and the
+typed field is what makes "empty" checkable rather than "zero bytes that happen to decode".
+
 **The two things that are easy to get wrong, both transcribed from RFC 9420 §12.4.3.1:** the group
-secrets are encrypted with `EncryptWithLabel(init_key, "Welcome", encrypted_group_info,
-group_secrets)` — the **context is the encrypted group info**, not the group context — and the group
-info is AEAD-sealed under `welcome_key`/`welcome_nonce` with **empty AAD**.
+secrets are encrypted with `SealWithLabel(init_key, "Welcome", encrypted_group_info, group_secrets)`
+— the **context is the encrypted group info**, not the group context — and the group info is
+AEAD-sealed under `welcome_key`/`welcome_nonce` with **empty AAD**.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -5909,7 +6383,7 @@ func TestBuildWelcomeSealsGroupInfoUnderTheWelcomeKey(t *testing.T) {
 
 	bob := testIdentity(t, crypto, "bob")
 	kp, initPriv, _ := testKeyPackage(t, crypto, bob)
-	welcome, err := BuildWelcome(crypto, CipherSuiteX25519ChaCha20SHA256Ed25519, info,
+	welcome, err := BuildWelcome(crypto, CipherSuiteX25519ChaCha20Sha256Ed25519, info,
 		joinerSecret, welcomeSecret, []WelcomeJoiner{{KeyPackage: *kp, LeafIndex: LeafIndex(1)}})
 	if err != nil {
 		t.Fatalf("BuildWelcome: %v", err)
@@ -5926,13 +6400,16 @@ func TestBuildWelcomeSealsGroupInfoUnderTheWelcomeKey(t *testing.T) {
 	}
 
 	// the group info opens under welcome_key/welcome_nonce with empty AAD
-	key, nonce := WelcomeKeyNonce(crypto, welcomeSecret)
+	key, nonce, err := WelcomeKeyNonce(crypto, welcomeSecret)
+	if err != nil {
+		t.Fatalf("WelcomeKeyNonce: %v", err)
+	}
 	plaintext, err := crypto.AeadOpen(key, nonce, nil, welcome.EncryptedGroupInfo)
 	if err != nil {
 		t.Fatalf("AeadOpen with empty AAD: %v", err)
 	}
 	var decoded GroupInfo
-	if _, err := syntaxUnmarshalGroupInfo(plaintext, &decoded); err != nil {
+	if err := syntax.Unmarshal(plaintext, &decoded); err != nil {
 		t.Fatalf("unmarshal group info: %v", err)
 	}
 	if decoded.GroupContext.Epoch != info.GroupContext.Epoch {
@@ -5941,13 +6418,13 @@ func TestBuildWelcomeSealsGroupInfoUnderTheWelcomeKey(t *testing.T) {
 
 	// the group secrets open under the joiner's init key with the encrypted
 	// group info as the HPKE context
-	opened, err := DecryptWithLabel(crypto, initPriv, "Welcome",
+	opened, err := OpenWithLabel(crypto, initPriv, "Welcome",
 		welcome.EncryptedGroupInfo, &welcome.Secrets[0].EncryptedGroupSecrets)
 	if err != nil {
-		t.Fatalf("DecryptWithLabel: %v", err)
+		t.Fatalf("OpenWithLabel: %v", err)
 	}
 	var secrets GroupSecrets
-	if _, err := syntaxUnmarshalGroupSecrets(opened, &secrets); err != nil {
+	if err := syntax.Unmarshal(opened, &secrets); err != nil {
 		t.Fatalf("unmarshal group secrets: %v", err)
 	}
 	if !bytes.Equal(secrets.JoinerSecret, joinerSecret) {
@@ -5971,19 +6448,19 @@ func TestBuildWelcomeCarriesThePathSecretWhenThereIsOne(t *testing.T) {
 	bob := testIdentity(t, crypto, "bob")
 	kp, initPriv, _ := testKeyPackage(t, crypto, bob)
 	pathSecret := bytes.Repeat([]byte{9}, crypto.HashSize())
-	welcome, err := BuildWelcome(crypto, CipherSuiteX25519ChaCha20SHA256Ed25519, info,
+	welcome, err := BuildWelcome(crypto, CipherSuiteX25519ChaCha20Sha256Ed25519, info,
 		bytes.Repeat([]byte{1}, crypto.HashSize()), bytes.Repeat([]byte{2}, crypto.HashSize()),
 		[]WelcomeJoiner{{KeyPackage: *kp, LeafIndex: LeafIndex(1), PathSecret: pathSecret}})
 	if err != nil {
 		t.Fatalf("BuildWelcome: %v", err)
 	}
-	opened, err := DecryptWithLabel(crypto, initPriv, "Welcome",
+	opened, err := OpenWithLabel(crypto, initPriv, "Welcome",
 		welcome.EncryptedGroupInfo, &welcome.Secrets[0].EncryptedGroupSecrets)
 	if err != nil {
-		t.Fatalf("DecryptWithLabel: %v", err)
+		t.Fatalf("OpenWithLabel: %v", err)
 	}
 	var secrets GroupSecrets
-	if _, err := syntaxUnmarshalGroupSecrets(opened, &secrets); err != nil {
+	if err := syntax.Unmarshal(opened, &secrets); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if secrets.PathSecret == nil || !bytes.Equal(secrets.PathSecret.PathSecret, pathSecret) {
@@ -6003,7 +6480,7 @@ func TestBuildWelcomeCoversEveryJoiner(t *testing.T) {
 		kp, _, _ := testKeyPackage(t, crypto, testIdentity(t, crypto, name))
 		joiners = append(joiners, WelcomeJoiner{KeyPackage: *kp, LeafIndex: LeafIndex(len(joiners) + 1)})
 	}
-	welcome, err := BuildWelcome(crypto, CipherSuiteX25519ChaCha20SHA256Ed25519, info,
+	welcome, err := BuildWelcome(crypto, CipherSuiteX25519ChaCha20Sha256Ed25519, info,
 		bytes.Repeat([]byte{1}, crypto.HashSize()), bytes.Repeat([]byte{2}, crypto.HashSize()), joiners)
 	if err != nil {
 		t.Fatalf("BuildWelcome: %v", err)
@@ -6026,34 +6503,6 @@ Expected: FAIL to build with `undefined: BuildWelcome`, `undefined: WelcomeJoine
 Append to `connect/mls/welcome.go`:
 
 ```go
-// PathSecret is the optional path secret a joiner receives.
-type PathSecret struct {
-	PathSecret []byte `tls:"head=varint"`
-}
-
-// GroupSecrets is what one joiner receives under HPKE. Psks is always
-// zero-length in v1: PSK proposals are profile-refused, so there is never a PSK
-// to name.
-type GroupSecrets struct {
-	JoinerSecret []byte      `tls:"head=varint"`
-	PathSecret   *PathSecret `tls:"optional"`
-	Psks         []byte      `tls:"head=varint"`
-}
-
-// EncryptedGroupSecrets is one joiner's sealed GroupSecrets, keyed by the
-// KeyPackageRef of the key package that will open it.
-type EncryptedGroupSecrets struct {
-	NewMember             []byte `tls:"head=varint"`
-	EncryptedGroupSecrets HPKECiphertext
-}
-
-// Welcome bootstraps every member added by one commit.
-type Welcome struct {
-	CipherSuite        CipherSuite
-	Secrets            []EncryptedGroupSecrets `tls:"head=varint"`
-	EncryptedGroupInfo []byte                  `tls:"head=varint"`
-}
-
 // WelcomeJoiner is one new member and the path secret, if any, for the lowest
 // node the joiner and the committer share.
 type WelcomeJoiner struct {
@@ -6067,9 +6516,13 @@ type WelcomeJoiner struct {
 //
 // Two details are transcribed from RFC 9420 §12.4.3.1 rather than reconstructed:
 // the group info is sealed with EMPTY AAD, and the group secrets are encrypted
-// with the ENCRYPTED GROUP INFO as the EncryptWithLabel context. Using the
-// group context there instead compiles, interoperates with nothing, and fails
-// only at the far end.
+// with the ENCRYPTED GROUP INFO as the SealWithLabel context. Using the group
+// context there instead compiles, interoperates with nothing, and fails only at
+// the far end.
+//
+// GroupSecrets.Psks is an empty []PreSharedKeyId, never nil-with-a-meaning: PSK
+// proposals are profile-refused, so there is never a PSK to name, and the
+// joiner asserts the vector is empty rather than ignoring it.
 func BuildWelcome(crypto CryptoProvider, suite CipherSuite, info *GroupInfo,
 	joinerSecret []byte, welcomeSecret []byte, joiners []WelcomeJoiner) (*Welcome, error) {
 
@@ -6077,7 +6530,10 @@ func BuildWelcome(crypto CryptoProvider, suite CipherSuite, info *GroupInfo,
 	if err != nil {
 		return nil, err
 	}
-	key, nonce := WelcomeKeyNonce(crypto, welcomeSecret)
+	key, nonce, err := WelcomeKeyNonce(crypto, welcomeSecret)
+	if err != nil {
+		return nil, err
+	}
 	encryptedInfo, err := crypto.AeadSeal(key, nonce, nil, encodedInfo)
 	if err != nil {
 		return nil, err
@@ -6086,7 +6542,7 @@ func BuildWelcome(crypto CryptoProvider, suite CipherSuite, info *GroupInfo,
 	welcome := &Welcome{CipherSuite: suite, EncryptedGroupInfo: encryptedInfo}
 	for i := range joiners {
 		joiner := joiners[i]
-		secrets := &GroupSecrets{JoinerSecret: joinerSecret, Psks: []byte{}}
+		secrets := &GroupSecrets{JoinerSecret: joinerSecret, Psks: []PreSharedKeyId{}}
 		if joiner.PathSecret != nil {
 			secrets.PathSecret = &PathSecret{PathSecret: joiner.PathSecret}
 		}
@@ -6094,7 +6550,7 @@ func BuildWelcome(crypto CryptoProvider, suite CipherSuite, info *GroupInfo,
 		if err != nil {
 			return nil, err
 		}
-		ciphertext, err := EncryptWithLabel(crypto, joiner.KeyPackage.InitKey, "Welcome",
+		ciphertext, err := SealWithLabel(crypto, joiner.KeyPackage.InitKey, "Welcome",
 			encryptedInfo, plaintext)
 		if err != nil {
 			return nil, err
@@ -6109,11 +6565,6 @@ func BuildWelcome(crypto CryptoProvider, suite CipherSuite, info *GroupInfo,
 		})
 	}
 	return welcome, nil
-}
-
-// syntaxUnmarshalGroupSecrets keeps the syntax import local to this file.
-func syntaxUnmarshalGroupSecrets(data []byte, out *GroupSecrets) (int, error) {
-	return syntax.Unmarshal(data, out)
 }
 ```
 
@@ -6138,25 +6589,35 @@ func (self *Group) buildWelcomeLocked(staged *StagedCommit) ([]byte, error) {
 	for i, leafIndex := range staged.added {
 		keyPackage := staged.list.Adds[i].Proposal.Add.KeyPackage
 		joiner := WelcomeJoiner{KeyPackage: keyPackage, LeafIndex: leafIndex}
-		if staged.pathSecrets != nil {
-			ancestor := CommonAncestor(leafIndex, self.ownLeaf)
-			if secret, ok := staged.pathSecrets.SecretAt(ancestor); ok {
-				joiner.PathSecret = secret
-			}
+		if staged.plan != nil {
+			ancestor := CommonAncestor(leafIndex.NodeIndex(), self.ownLeaf.NodeIndex())
+			joiner.PathSecret = pathSecretAt(staged.plan, ancestor)
 		}
 		joiners = append(joiners, joiner)
 	}
 
 	welcome, err := BuildWelcome(self.crypto, self.cfg.Suite, info,
-		staged.joinerSecret, staged.welcomeSecret, joiners)
+		staged.schedule.JoinerSecret(), staged.schedule.WelcomeSecret(), joiners)
 	if err != nil {
 		return nil, err
 	}
-	return (&MLSMessage{
+	return MarshalMLSMessage(&MLSMessage{
 		Version:    ProtocolVersionMls10,
 		WireFormat: WireFormatWelcome,
 		Welcome:    welcome,
-	}).Marshal()
+	})
+}
+
+// pathSecretAt finds the plan's secret for one node. UpdatePathPlan.Path and
+// UpdatePathPlan.PathSecrets are parallel, so this is an index lookup rather
+// than a second map of the same data.
+func pathSecretAt(plan *UpdatePathPlan, node NodeIndex) []byte {
+	for i, x := range plan.Path {
+		if x == node && i < len(plan.PathSecrets) {
+			return plan.PathSecrets[i]
+		}
+	}
+	return nil
 }
 ```
 
@@ -6181,14 +6642,14 @@ git commit -m "feat(mls): welcome generation, one group info seal and one HPKE s
 - Test: `connect/mls/welcome_test.go`
 
 **Interfaces:**
-- Consumes: `DecryptWithLabel` (Crypto/HPKE plan); `ParseRatchetTree`, `(*RatchetTree).Validate/RootHash/FindLeaf`, `PathSecretToNodeKeyPair`, `DerivePathSecretNext` (TreeKEM plan); `DeriveEpochSecretsFromJoiner`, `WelcomeKeyNonce`, `EmptyPskSecret` (Key schedule plan); `CommonAncestor`, `DirectPath` (Tree math plan); `InterimTranscriptHash` (Framing plan).
+- Consumes: `OpenWithLabel`, `UnmarshalRatchetTree(data []byte) (*RatchetTree, error)`, `(*RatchetTree).Validate(ctx *TreeValidationContext) error`, `(*RatchetTree).ValidateAgainstContext`, `(*RatchetTree).TreeHash`, `(*RatchetTree).LeafWidth`, `(*RatchetTree).Leaf`, `(*RatchetTree).FindLeafBySignatureKey(key SignaturePublicKey) (LeafIndex, bool)`, `TreeValidationContext`, `NewTreeKEMPrivate`, `(*TreeKEMPrivate).Consistent(crypto CryptoProvider, tree *RatchetTree) error`, `DerivePathSecrets(crypto CryptoProvider, initial []byte, count int) [][]byte` (TreeKEM plan); `NewKeyScheduleFromJoiner`, `(*KeySchedule).Secrets`, `(*KeySchedule).VerifyConfirmationTag`, `WelcomeKeyNonce`, `EmptyPskSecret`, `InitialTranscriptHashes`, `(*TranscriptHashes).SetFromGroupInfo`, `NewSecretTree` (Key schedule plan); `CommonAncestor(x NodeIndex, y NodeIndex) NodeIndex`, `DirectPath(x NodeIndex, n LeafCount) ([]NodeIndex, error)`, `(LeafIndex).NodeIndex()` (Tree math plan); `ParseMLSMessage`, `Welcome`, `EncryptedGroupSecrets`, `GroupSecrets`, `GroupInfo`, `WireFormatWelcome` (Framing plan); `syntax.Unmarshal` (Syntax plan); `ErrProfilePsk`, `ErrBadConfirmationTag`, `(*Profile).CheckCiphersuiteForCreate`, `(*Profile).CheckGroupExtension` (Validation plan).
 - Produces:
 ```go
 type JoinKeyMaterial struct {
-    KeyPackage    KeyPackage
-    InitPrivate   HpkePrivateKey
+    KeyPackage     KeyPackage
+    InitPrivate    HpkePrivateKey
     EncryptPrivate HpkePrivateKey
-    SignPrivate   SignaturePrivateKey
+    SignPrivate    SignaturePrivateKey
 }
 func JoinFromWelcome(cfg *GroupConfig, welcome []byte, ratchetTree []byte,
     keys *JoinKeyMaterial) (*Group, error)
@@ -6207,7 +6668,7 @@ func TestJoinFromWelcomeAgreesOnTheEpochAuthenticator(t *testing.T) {
 
 	bob := testIdentity(t, crypto, "bob")
 	kp, initPriv, encPriv := testKeyPackage(t, crypto, bob)
-	encoded, err := syntaxMarshalKeyPackage(kp)
+	encoded, err := syntax.Marshal(kp)
 	if err != nil {
 		t.Fatalf("marshal key package: %v", err)
 	}
@@ -6268,7 +6729,7 @@ func TestJoinFromWelcomeRejectsAWrongTree(t *testing.T) {
 	defer group.Close()
 	bob := testIdentity(t, crypto, "bob")
 	kp, initPriv, encPriv := testKeyPackage(t, crypto, bob)
-	encoded, _ := syntaxMarshalKeyPackage(kp)
+	encoded, _ := syntax.Marshal(kp)
 	if _, err := group.ProposeAdd(encoded); err != nil {
 		t.Fatalf("ProposeAdd: %v", err)
 	}
@@ -6279,9 +6740,9 @@ func TestJoinFromWelcomeRejectsAWrongTree(t *testing.T) {
 
 	// a tree from a different group: the tree hash cannot match the group info
 	other, _ := testTreeWith(t, crypto, "mallory", "trudy")
-	otherTree, err := other.Encode()
+	otherTree, err := syntax.MarshalLimit(other, syntax.MaxRatchetTreeLength)
 	if err != nil {
-		t.Fatalf("Encode: %v", err)
+		t.Fatalf("MarshalLimit: %v", err)
 	}
 	joinerCfg := testGroupConfig(t, crypto, bob, "group-1")
 	_, err = JoinFromWelcome(joinerCfg, result.Welcome, otherTree, &JoinKeyMaterial{
@@ -6299,7 +6760,7 @@ func TestJoinFromWelcomeRejectsAWelcomeForSomebodyElse(t *testing.T) {
 	defer group.Close()
 	bob := testIdentity(t, crypto, "bob")
 	kp, _, _ := testKeyPackage(t, crypto, bob)
-	encoded, _ := syntaxMarshalKeyPackage(kp)
+	encoded, _ := syntax.Marshal(kp)
 	if _, err := group.ProposeAdd(encoded); err != nil {
 		t.Fatalf("ProposeAdd: %v", err)
 	}
@@ -6326,7 +6787,7 @@ func TestJoinFromWelcomeRejectsATamperedConfirmationTag(t *testing.T) {
 	defer group.Close()
 	bob := testIdentity(t, crypto, "bob")
 	kp, initPriv, encPriv := testKeyPackage(t, crypto, bob)
-	encoded, _ := syntaxMarshalKeyPackage(kp)
+	encoded, _ := syntax.Marshal(kp)
 	if _, err := group.ProposeAdd(encoded); err != nil {
 		t.Fatalf("ProposeAdd: %v", err)
 	}
@@ -6401,7 +6862,7 @@ func JoinFromWelcome(cfg *GroupConfig, welcome []byte, ratchetTree []byte,
 	}
 	var entry *EncryptedGroupSecrets
 	for i := range parsed.Secrets {
-		if bytesEqual(parsed.Secrets[i].NewMember, ref) {
+		if bytes.Equal(parsed.Secrets[i].NewMember, ref) {
 			entry = &parsed.Secrets[i]
 			break
 		}
@@ -6411,48 +6872,65 @@ func JoinFromWelcome(cfg *GroupConfig, welcome []byte, ratchetTree []byte,
 	}
 
 	// step 2: open the group secrets, with the encrypted group info as context
-	plaintext, err := DecryptWithLabel(crypto, keys.InitPrivate, "Welcome",
+	plaintext, err := OpenWithLabel(crypto, keys.InitPrivate, "Welcome",
 		parsed.EncryptedGroupInfo, &entry.EncryptedGroupSecrets)
 	if err != nil {
 		return nil, err
 	}
 	var secrets GroupSecrets
-	if _, err := syntaxUnmarshalGroupSecrets(plaintext, &secrets); err != nil {
+	if err := syntax.Unmarshal(plaintext, &secrets); err != nil {
 		return nil, err
 	}
 	if len(secrets.Psks) != 0 {
-		return nil, fmt.Errorf("%w: welcome names a pre-shared key", ErrProfilePSK)
+		return nil, fmt.Errorf("%w: welcome names a pre-shared key", ErrProfilePsk)
 	}
 
-	// step 3: open the group info under welcome_key/welcome_nonce, empty AAD
+	// step 3: open the group info under welcome_key/welcome_nonce, empty AAD.
+	// welcome_secret is DeriveSecret(Extract(joiner_secret, psk_secret),
+	// "welcome"), and this is the one derivation a joiner must do through the
+	// CryptoProvider directly: NewKeyScheduleFromJoiner needs the group context,
+	// and the group context is inside the thing this key opens.
 	welcomeSecret := crypto.DeriveSecret(
 		crypto.Extract(secrets.JoinerSecret, EmptyPskSecret(crypto)), "welcome")
-	key, nonce := WelcomeKeyNonce(crypto, welcomeSecret)
+	key, nonce, err := WelcomeKeyNonce(crypto, welcomeSecret)
+	if err != nil {
+		return nil, err
+	}
 	infoBytes, err := crypto.AeadOpen(key, nonce, nil, parsed.EncryptedGroupInfo)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrWelcomeGroupInfoDecrypt, err)
 	}
 	var info GroupInfo
-	if _, err := syntaxUnmarshalGroupInfo(infoBytes, &info); err != nil {
+	if err := syntax.Unmarshal(infoBytes, &info); err != nil {
 		return nil, err
 	}
 
 	// step 4: the tree, its hash, and its validity
-	tree, err := ParseRatchetTree(crypto, ratchetTree)
+	tree, err := UnmarshalRatchetTree(ratchetTree)
 	if err != nil {
 		return nil, err
 	}
-	treeHash, err := tree.RootHash()
+	treeHash, err := tree.TreeHash(crypto)
 	if err != nil {
 		return nil, err
 	}
-	if !bytesEqual(treeHash, info.GroupContext.TreeHash) {
+	if !bytes.Equal(treeHash, info.GroupContext.TreeHash) {
 		return nil, ErrWelcomeTreeHashMismatch
 	}
 	if err := info.Verify(crypto, tree); err != nil {
 		return nil, err
 	}
-	if err := tree.Validate(info.GroupContext.GroupId, info.GroupContext.Extensions, nowFunc()); err != nil {
+	requiredCaps, _ := requiredCapabilitiesOf(info.GroupContext.Extensions)
+	treeCtx := &TreeValidationContext{
+		Crypto:          crypto,
+		Suite:           info.GroupContext.CipherSuite,
+		GroupId:         info.GroupContext.GroupId,
+		RequiredCaps:    requiredCaps,
+		GroupExtensions: info.GroupContext.Extensions,
+		NowMs:           uint64(nowFunc().UnixMilli()),
+		ClockSkewMs:     leafClockSkewMs,
+	}
+	if err := tree.ValidateAgainstContext(treeCtx, &info.GroupContext); err != nil {
 		return nil, err
 	}
 	for _, ext := range info.GroupContext.Extensions {
@@ -6464,41 +6942,46 @@ func JoinFromWelcome(cfg *GroupConfig, welcome []byte, ratchetTree []byte,
 		return nil, err
 	}
 
-	// step 5: find our own leaf
-	ownLeaf, ok := tree.FindLeaf(&keys.KeyPackage.LeafNode)
+	// step 5: find our own leaf, by the signature key our key package published
+	ownLeaf, ok := tree.FindLeafBySignatureKey(keys.KeyPackage.LeafNode.SignatureKey)
 	if !ok {
 		return nil, ErrWelcomeLeafNotFound
 	}
 
 	// step 6: the key schedule for the epoch we are joining
-	contextBytes, err := info.GroupContext.Marshal()
+	schedule, err := NewKeyScheduleFromJoiner(crypto, secrets.JoinerSecret,
+		EmptyPskSecret(crypto), &info.GroupContext)
 	if err != nil {
 		return nil, err
 	}
-	epochSecrets, err := DeriveEpochSecretsFromJoiner(crypto, secrets.JoinerSecret,
-		EmptyPskSecret(crypto), contextBytes)
-	if err != nil {
-		return nil, err
-	}
-	if !crypto.MacVerify(epochSecrets.ConfirmationKey,
-		info.GroupContext.ConfirmedTranscriptHash, info.ConfirmationTag) {
+	if !schedule.VerifyConfirmationTag(info.GroupContext.ConfirmedTranscriptHash, info.ConfirmationTag) {
 		return nil, ErrBadConfirmationTag
 	}
-	interimHash, err := InterimTranscriptHash(crypto,
-		info.GroupContext.ConfirmedTranscriptHash, info.ConfirmationTag)
-	if err != nil {
+	transcript := InitialTranscriptHashes()
+	if err := transcript.SetFromGroupInfo(crypto,
+		info.GroupContext.ConfirmedTranscriptHash, info.ConfirmationTag); err != nil {
 		return nil, err
 	}
 
-	// step 7: install the private keys we hold, and the path secrets we derived
-	if err := tree.SetLeafPrivate(ownLeaf, keys.EncryptPrivate); err != nil {
-		return nil, err
-	}
+	// step 7: install the private keys we hold, and the path secrets we derive
+	// from the one the Welcome carried. Consistent re-derives each node's key
+	// pair and requires the derived public key to equal the public key already
+	// in the node — RFC 9420 §12.4.3.1: "The private key MUST be the private
+	// key that corresponds to the public key in the node."
+	ownPriv := NewTreeKEMPrivate(ownLeaf, keys.EncryptPrivate)
 	if secrets.PathSecret != nil {
-		ancestor := CommonAncestor(ownLeaf, info.Signer)
-		if err := tree.InstallPathSecret(ownLeaf, ancestor, secrets.PathSecret.PathSecret); err != nil {
+		if err := installJoinerPathSecrets(crypto, tree, ownPriv, ownLeaf, info.Signer,
+			secrets.PathSecret.PathSecret); err != nil {
 			return nil, err
 		}
+	}
+	if err := ownPriv.Consistent(crypto, tree); err != nil {
+		return nil, err
+	}
+
+	secretTree, err := NewSecretTree(crypto, tree.LeafWidth(), schedule.Secrets().Encryption)
+	if err != nil {
+		return nil, err
 	}
 
 	joinCfg := *cfg
@@ -6506,18 +6989,20 @@ func JoinFromWelcome(cfg *GroupConfig, welcome []byte, ratchetTree []byte,
 	joinCfg.GroupId = append([]byte(nil), info.GroupContext.GroupId...)
 	joinCfg.Extensions = info.GroupContext.Extensions
 	group := &Group{
-		cfg:         &joinCfg,
-		crypto:      crypto,
-		signer:      keys.SignPrivate,
-		cred:        keys.KeyPackage.LeafNode.Credential,
-		ownLeaf:     ownLeaf,
-		ownEncPriv:  keys.EncryptPrivate,
-		tree:        tree,
-		context:     &info.GroupContext,
-		secrets:     epochSecrets,
-		secretTree:  NewSecretTree(crypto, tree.Size(), epochSecrets.EncryptionSecret),
-		interimHash: interimHash,
-		proposals:   NewProposalCache(),
+		cfg:           &joinCfg,
+		crypto:        crypto,
+		signer:        keys.SignPrivate,
+		cred:          keys.KeyPackage.LeafNode.Credential,
+		ownLeaf:       ownLeaf,
+		ownPriv:       ownPriv,
+		tree:          tree,
+		context:       &info.GroupContext,
+		schedule:      schedule,
+		secretTree:    secretTree,
+		transcript:    transcript,
+		proposals:     NewProposalCache(),
+		restoreKind:   restoreFromJoiner,
+		restoreSecret: secrets.JoinerSecret,
 	}
 	if err := group.persist(); err != nil {
 		return nil, err
@@ -6525,28 +7010,36 @@ func JoinFromWelcome(cfg *GroupConfig, welcome []byte, ratchetTree []byte,
 	return group, nil
 }
 
-// bytesEqual is a length-then-content compare kept local so the file does not
-// import bytes for one call.
-func bytesEqual(a, b []byte) bool {
-	if len(a) != len(b) {
-		return false
+// installJoinerPathSecrets walks the joiner's direct path from the node it
+// shares with the committer up to the root, deriving one secret per step. The
+// Welcome carries the secret for the shared ancestor only; every node above it
+// is one DeriveSecret away, which is what DerivePathSecrets returns as a chain.
+func installJoinerPathSecrets(crypto CryptoProvider, tree *RatchetTree, priv *TreeKEMPrivate,
+	own LeafIndex, signer LeafIndex, pathSecret []byte) error {
+
+	ancestor := CommonAncestor(own.NodeIndex(), signer.NodeIndex())
+	directPath, err := DirectPath(own.NodeIndex(), tree.LeafWidth())
+	if err != nil {
+		return err
 	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
+	start := -1
+	for i, x := range directPath {
+		if x == ancestor {
+			start = i
+			break
 		}
 	}
-	return true
+	if start < 0 {
+		return fmt.Errorf("%w: node %d is not on leaf %d's direct path",
+			ErrWelcomeLeafNotFound, ancestor, own)
+	}
+	chain := DerivePathSecrets(crypto, pathSecret, len(directPath)-start)
+	for i, secret := range chain {
+		priv.PathSecrets[directPath[start+i]] = secret
+	}
+	return nil
 }
 ```
-
-`(*RatchetTree).SetLeafPrivate(LeafIndex, HpkePrivateKey) error`,
-`(*RatchetTree).InstallPathSecret(own LeafIndex, from NodeIndex, secret []byte) error` and
-`(*RatchetTree).FindLeaf(*LeafNode) (LeafIndex, bool)` are consumed from the TreeKEM plan.
-`InstallPathSecret` walks from `from` to the root deriving each node's key pair and MUST verify that
-the derived public key equals the public key already in the node, returning `ErrPathKeyMismatch`
-otherwise — RFC 9420 §12.4.3.1: "The private key MUST be the private key that corresponds to the
-public key in the node."
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -6562,15 +7055,20 @@ git commit -m "feat(mls): join a group from a Welcome and an out-of-band ratchet
 
 ---
 
-### Task 17: The `welcome` vector family — the gate
+### Task 17: Vector family 8, `welcome` — the gate
 
 **Files:**
-- Create: `connect/mls/welcome_vectors_test.go`
-- Create: `connect/mls/testdata/vectors/welcome.json`
+- Create: `connect/mls/welcome_kat_test.go`
+- Consume: `connect/mls/testdata/vectors/welcome.json` (vendored by the Validation plan's single vendoring task)
 
 **Interfaces:**
-- Consumes: `ParseMLSMessage`; `(*KeyPackage).Ref`; `DecryptWithLabel`; `WelcomeKeyNonce`; `EmptyPskSecret`; everything Tasks 14–16 produce.
-- Produces: no new exported API. This task is the acceptance gate for this plan.
+- Consumes: `RegisterVectorFamily(family VectorFamily)`, `VectorFamily`, `LoadVectorFile(t *testing.T, file string) []json.RawMessage`, `MustHex(t *testing.T, s string) []byte`, `HexOf(b []byte) string` (Validation plan); `ParseMLSMessage`, `GroupInfo`, `GroupInfoTBS`, `GroupSecrets`, `EncryptedGroupSecrets` (Framing plan); `(*KeyPackage).Ref`, `OpenWithLabel` (TreeKEM plan); `WelcomeKeyNonce`, `EmptyPskSecret` (Key schedule plan); `syntax.Unmarshal` (Syntax plan); everything Tasks 14–16 produce.
+- Produces: no new exported API. This task is one of the two acceptance gates for this plan.
+
+**Registration is part of the task, not a follow-up.** The runner is registered from an `init()` in
+this file and family 8 is deleted from the Validation plan's `expectedPendingFamilies` in the same
+commit. Without that, `TestVectorFamiliesVerify` runs one family and Gate 1 is green with fifteen of
+sixteen never executed.
 
 **Vector format** (`mlswg/mls-implementations/test-vectors/welcome.json`, verified against the pinned
 checkout): an array of objects with `cipher_suite` (uint16), `init_priv`, `signer_pub`,
@@ -6585,16 +7083,17 @@ checkout): an array of objects with `cipher_suite` (uint16), `init_priv`, `signe
 
 - [ ] **Step 1: Write the failing test**
 
-`connect/mls/welcome_vectors_test.go`:
+`connect/mls/welcome_kat_test.go`:
 
 ```go
 package mls
 
 import (
-	"encoding/hex"
+	"bytes"
 	"encoding/json"
-	"os"
 	"testing"
+
+	"github.com/urnetwork/connect/mls/syntax"
 )
 
 type welcomeVector struct {
@@ -6605,109 +7104,105 @@ type welcomeVector struct {
 	Welcome     string `json:"welcome"`
 }
 
-func mustHex(t *testing.T, value string) []byte {
+func init() {
+	RegisterVectorFamily(VectorFamily{
+		Number:   8,
+		Name:     "welcome",
+		File:     "welcome.json",
+		Slice:    "A1",
+		Verify:   verifyWelcomeVector,
+		Generate: generateWelcomeVector,
+	})
+}
+
+// verifyWelcomeVector is the test-vectors.md procedure verbatim: find the
+// secrets entry for the key package, decrypt the group secrets with init_priv,
+// decrypt the group info, and verify its signature with signer_pub.
+func verifyWelcomeVector(t *testing.T, raw json.RawMessage) {
 	t.Helper()
-	out, err := hex.DecodeString(value)
+	var vector welcomeVector
+	if err := json.Unmarshal(raw, &vector); err != nil {
+		t.Fatalf("parse welcome vector: %v", err)
+	}
+	suite := CipherSuite(vector.CipherSuite)
+	crypto, err := NewCryptoProvider(suite)
 	if err != nil {
-		t.Fatalf("hex decode: %v", err)
+		// a suite this build does not implement is skipped, not failed:
+		// v1 registers 0x0001 and 0x0003 only.
+		t.Skipf("ciphersuite %#04x is not implemented", vector.CipherSuite)
 	}
-	return out
-}
 
-func TestWelcomeVectors(t *testing.T) {
-	raw, err := os.ReadFile("testdata/vectors/welcome.json")
+	kpMessage, err := ParseMLSMessage(MustHex(t, vector.KeyPackage))
 	if err != nil {
-		t.Fatalf("read welcome.json: %v", err)
+		t.Fatalf("parse key package: %v", err)
 	}
-	var vectors []welcomeVector
-	if err := json.Unmarshal(raw, &vectors); err != nil {
-		t.Fatalf("parse welcome.json: %v", err)
+	if kpMessage.KeyPackage == nil {
+		t.Fatal("message is not a key package")
 	}
-	if len(vectors) == 0 {
-		t.Fatal("welcome.json is empty")
+	welcomeMessage, err := ParseMLSMessage(MustHex(t, vector.Welcome))
+	if err != nil {
+		t.Fatalf("parse welcome: %v", err)
 	}
+	if welcomeMessage.Welcome == nil {
+		t.Fatal("message is not a welcome")
+	}
+	welcome := welcomeMessage.Welcome
 
-	ran := 0
-	for i, vector := range vectors {
-		suite := CipherSuite(vector.CipherSuite)
-		crypto, err := NewCryptoProvider(suite)
-		if err != nil {
-			// a suite this build does not implement is skipped, not failed:
-			// v1 registers 0x0003 and 0x0001 only.
-			continue
-		}
-		ran += 1
-
-		kpMessage, err := ParseMLSMessage(mustHex(t, vector.KeyPackage))
-		if err != nil {
-			t.Fatalf("vector %d: parse key package: %v", i, err)
-		}
-		if kpMessage.KeyPackage == nil {
-			t.Fatalf("vector %d: message is not a key package", i)
-		}
-		welcomeMessage, err := ParseMLSMessage(mustHex(t, vector.Welcome))
-		if err != nil {
-			t.Fatalf("vector %d: parse welcome: %v", i, err)
-		}
-		if welcomeMessage.Welcome == nil {
-			t.Fatalf("vector %d: message is not a welcome", i)
-		}
-		welcome := welcomeMessage.Welcome
-
-		ref, err := kpMessage.KeyPackage.Ref(crypto)
-		if err != nil {
-			t.Fatalf("vector %d: key package ref: %v", i, err)
-		}
-		var entry *EncryptedGroupSecrets
-		for j := range welcome.Secrets {
-			if bytesEqual(welcome.Secrets[j].NewMember, ref) {
-				entry = &welcome.Secrets[j]
-				break
-			}
-		}
-		if entry == nil {
-			t.Fatalf("vector %d: no secrets entry matches the key package ref", i)
-		}
-
-		plaintext, err := DecryptWithLabel(crypto, HpkePrivateKey(mustHex(t, vector.InitPriv)),
-			"Welcome", welcome.EncryptedGroupInfo, &entry.EncryptedGroupSecrets)
-		if err != nil {
-			t.Fatalf("vector %d: decrypt group secrets: %v", i, err)
-		}
-		var secrets GroupSecrets
-		if _, err := syntaxUnmarshalGroupSecrets(plaintext, &secrets); err != nil {
-			t.Fatalf("vector %d: parse group secrets: %v", i, err)
-		}
-
-		welcomeSecret := crypto.DeriveSecret(
-			crypto.Extract(secrets.JoinerSecret, EmptyPskSecret(crypto)), "welcome")
-		key, nonce := WelcomeKeyNonce(crypto, welcomeSecret)
-		infoBytes, err := crypto.AeadOpen(key, nonce, nil, welcome.EncryptedGroupInfo)
-		if err != nil {
-			t.Fatalf("vector %d: decrypt group info: %v", i, err)
-		}
-		var info GroupInfo
-		if _, err := syntaxUnmarshalGroupInfo(infoBytes, &info); err != nil {
-			t.Fatalf("vector %d: parse group info: %v", i, err)
-		}
-
-		content, err := syntaxMarshalGroupInfoTBS(info.tbs())
-		if err != nil {
-			t.Fatalf("vector %d: marshal group info tbs: %v", i, err)
-		}
-		if err := crypto.VerifyWithLabel(SignaturePublicKey(mustHex(t, vector.SignerPub)),
-			"GroupInfoTBS", content, info.Signature); err != nil {
-			t.Fatalf("vector %d: group info signature: %v", i, err)
+	ref, err := kpMessage.KeyPackage.Ref(crypto)
+	if err != nil {
+		t.Fatalf("key package ref: %v", err)
+	}
+	var entry *EncryptedGroupSecrets
+	for j := range welcome.Secrets {
+		if bytes.Equal(welcome.Secrets[j].NewMember, ref) {
+			entry = &welcome.Secrets[j]
+			break
 		}
 	}
-	if ran == 0 {
-		t.Fatal("no welcome vector matched an implemented ciphersuite")
+	if entry == nil {
+		t.Fatalf("no secrets entry matches key package ref %s", HexOf(ref))
+	}
+
+	plaintext, err := OpenWithLabel(crypto, HpkePrivateKey(MustHex(t, vector.InitPriv)),
+		"Welcome", welcome.EncryptedGroupInfo, &entry.EncryptedGroupSecrets)
+	if err != nil {
+		t.Fatalf("decrypt group secrets: %v", err)
+	}
+	var secrets GroupSecrets
+	if err := syntax.Unmarshal(plaintext, &secrets); err != nil {
+		t.Fatalf("parse group secrets: %v", err)
+	}
+
+	welcomeSecret := crypto.DeriveSecret(
+		crypto.Extract(secrets.JoinerSecret, EmptyPskSecret(crypto)), "welcome")
+	key, nonce, err := WelcomeKeyNonce(crypto, welcomeSecret)
+	if err != nil {
+		t.Fatalf("WelcomeKeyNonce: %v", err)
+	}
+	infoBytes, err := crypto.AeadOpen(key, nonce, nil, welcome.EncryptedGroupInfo)
+	if err != nil {
+		t.Fatalf("decrypt group info: %v", err)
+	}
+	var info GroupInfo
+	if err := syntax.Unmarshal(infoBytes, &info); err != nil {
+		t.Fatalf("parse group info: %v", err)
+	}
+
+	content, err := syntax.Marshal(groupInfoTbs(&info))
+	if err != nil {
+		t.Fatalf("marshal group info tbs: %v", err)
+	}
+	if err := crypto.VerifyWithLabel(SignaturePublicKey(MustHex(t, vector.SignerPub)),
+		"GroupInfoTBS", content, info.Signature); err != nil {
+		t.Fatalf("group info signature: %v", err)
 	}
 }
 
-func TestWelcomeVectorsGenerateDirection(t *testing.T) {
-	// Generation catches the class of bug where encoder and decoder are wrong in
-	// the same direction, which verification alone cannot see. Spec A §4.2.1.
+// generateWelcomeVector produces one vector from this implementation. Generation
+// catches the class of bug where encoder and decoder are wrong in the same
+// direction, which verification alone cannot see. Spec A §4.2.1.
+func generateWelcomeVector(t *testing.T) json.RawMessage {
+	t.Helper()
 	crypto := testCrypto(t)
 	owner := testIdentity(t, crypto, "owner")
 	group := testNewGroup(t, crypto, owner, "group-vector")
@@ -6715,7 +7210,7 @@ func TestWelcomeVectorsGenerateDirection(t *testing.T) {
 
 	bob := testIdentity(t, crypto, "bob")
 	kp, initPriv, _ := testKeyPackage(t, crypto, bob)
-	encoded, err := syntaxMarshalKeyPackage(kp)
+	encoded, err := syntax.Marshal(kp)
 	if err != nil {
 		t.Fatalf("marshal key package: %v", err)
 	}
@@ -6726,34 +7221,48 @@ func TestWelcomeVectorsGenerateDirection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
+	kpMessage, err := MarshalMLSMessage(&MLSMessage{
+		Version:    ProtocolVersionMls10,
+		WireFormat: WireFormatKeyPackage,
+		KeyPackage: kp,
+	})
+	if err != nil {
+		t.Fatalf("marshal key package message: %v", err)
+	}
+	ownerLeaf := group.OwnLeafNodeCopy()
+	if ownerLeaf == nil {
+		t.Fatal("OwnLeafNodeCopy returned nil")
+	}
+	out, err := json.Marshal(welcomeVector{
+		CipherSuite: uint16(CipherSuiteX25519ChaCha20Sha256Ed25519),
+		InitPriv:    HexOf(initPriv),
+		SignerPub:   HexOf(ownerLeaf.SignatureKey),
+		KeyPackage:  HexOf(kpMessage),
+		Welcome:     HexOf(result.Welcome),
+	})
+	if err != nil {
+		t.Fatalf("marshal welcome vector: %v", err)
+	}
+	return out
+}
 
-	// verify our own welcome through the vector path, not through JoinFromWelcome
-	welcomeMessage, err := ParseMLSMessage(result.Welcome)
-	if err != nil {
-		t.Fatalf("ParseMLSMessage: %v", err)
+// TestWelcomeVectorsRoundTripOurOwn runs the verify procedure against a vector
+// this build generated, so the two directions are exercised against each other
+// even when the vendored corpus carries no implemented ciphersuite.
+func TestWelcomeVectorsRoundTripOurOwn(t *testing.T) {
+	verifyWelcomeVector(t, generateWelcomeVector(t))
+}
+
+// TestWelcomeVectorsFromCorpus runs every vendored vector through the same
+// verifier the registry calls.
+func TestWelcomeVectorsFromCorpus(t *testing.T) {
+	vectors := LoadVectorFile(t, "welcome.json")
+	if len(vectors) == 0 {
+		t.Fatal("welcome.json is empty")
 	}
-	welcome := welcomeMessage.Welcome
-	ref, err := kp.Ref(crypto)
-	if err != nil {
-		t.Fatalf("Ref: %v", err)
-	}
-	if !bytesEqual(welcome.Secrets[0].NewMember, ref) {
-		t.Fatal("our own welcome is not keyed by the joiner's KeyPackageRef")
-	}
-	plaintext, err := DecryptWithLabel(crypto, initPriv, "Welcome",
-		welcome.EncryptedGroupInfo, &welcome.Secrets[0].EncryptedGroupSecrets)
-	if err != nil {
-		t.Fatalf("DecryptWithLabel: %v", err)
-	}
-	var secrets GroupSecrets
-	if _, err := syntaxUnmarshalGroupSecrets(plaintext, &secrets); err != nil {
-		t.Fatalf("parse group secrets: %v", err)
-	}
-	welcomeSecret := crypto.DeriveSecret(
-		crypto.Extract(secrets.JoinerSecret, EmptyPskSecret(crypto)), "welcome")
-	key, nonce := WelcomeKeyNonce(crypto, welcomeSecret)
-	if _, err := crypto.AeadOpen(key, nonce, nil, welcome.EncryptedGroupInfo); err != nil {
-		t.Fatalf("our own group info did not open under the derived welcome key: %v", err)
+	for i := range vectors {
+		raw := vectors[i]
+		t.Run("", func(t *testing.T) { verifyWelcomeVector(t, raw) })
 	}
 }
 ```
@@ -6761,39 +7270,195 @@ func TestWelcomeVectorsGenerateDirection(t *testing.T) {
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `go test ./connect/mls/... -run TestWelcomeVectors -v`
-Expected: FAIL with `read welcome.json: open testdata/vectors/welcome.json: no such file or
-directory`, then after vendoring, FAIL to build with `undefined: syntaxMarshalGroupInfoTBS`.
+Expected: FAIL to build with `undefined: verifyWelcomeVector`, then once the file exists, FAIL in
+`LoadVectorFile` because `testdata/vectors/welcome.json` has not been vendored yet.
 
 - [ ] **Step 3: Write minimal implementation**
 
-Vendor the vector file at the pinned mlswg commit and record it:
+No new production code. The vector file is vendored by the Validation plan's single vendoring task,
+which fetches all sixteen mlswg files plus `testdata/vectors/VECTORS.sha256` at the commit recorded
+in `connect/mls/interop/PINS.md`; this plan adds runners only, and duplicating the fetch here is how
+two copies of one corpus end up pinned to two different commits.
 
-```bash
-mkdir -p connect/mls/testdata/vectors
-curl -fsSL "https://raw.githubusercontent.com/mlswg/mls-implementations/$(grep -oP 'mlswg=\K\S+' connect/mls/interop/PINS.md)/test-vectors/welcome.json" \
-  -o connect/mls/testdata/vectors/welcome.json
-```
-
-Add to `connect/mls/welcome.go`:
-
-```go
-// syntaxMarshalGroupInfoTBS keeps the syntax import local and gives the vector
-// test the exact signature input without re-deriving it.
-func syntaxMarshalGroupInfoTBS(tbs *GroupInfoTBS) ([]byte, error) {
-	return syntax.Marshal(tbs)
-}
-```
+Delete `8` from `expectedPendingFamilies` in the Validation plan's vector registry in this same
+commit, so `TestVectorFamiliesVerify` actually runs it.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./connect/mls/... -run TestWelcomeVectors -v`
-Expected: PASS, with `ran` greater than zero.
+Run: `go test ./connect/mls/... -run 'TestWelcomeVectors|TestVectorFamiliesVerify' -v`
+Expected: PASS, with family 8 listed as executed rather than pending.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add connect/mls/welcome_vectors_test.go connect/mls/welcome.go connect/mls/testdata/vectors/welcome.json && \
-git commit -m "test(mls): the RFC 9420 welcome vector family, verify and generate directions"
+git add connect/mls/welcome_kat_test.go && \
+git commit -m "test(mls): vector family 8 welcome, verify and generate directions"
+```
+
+---
+
+### Task 17a: Vector family 9, `tree-operations`
+
+**Files:**
+- Create: `connect/mls/tree_operations_kat_test.go`
+- Consume: `connect/mls/testdata/vectors/tree-operations.json`
+
+**Why it lives here.** Family 9 applies an `add`, `update` or `remove` **proposal** to a ratchet tree
+and compares the result. It is written against `Proposal.Add.KeyPackage`,
+`Proposal.Update.LeafNode` and `Proposal.Remove.Removed`, so it needs the wave-3 `Proposal` arms —
+which makes it the TreeKEM plan's only wave-4 dependency. A family with no owner in a wave it can
+execute in is a family that never runs, so it moves here.
+
+**Interfaces:**
+- Consumes: `RegisterVectorFamily`, `VectorFamily`, `LoadVectorFile`, `MustHex`, `HexOf` (Validation plan); `UnmarshalRatchetTree`, `(*RatchetTree).TreeHash`, `(*RatchetTree).AddLeaf`, `(*RatchetTree).UpdateLeaf`, `(*RatchetTree).RemoveLeaf` (TreeKEM plan); `Proposal`, `Add`, `Update`, `Remove` (Framing plan); `syntax.Unmarshal`, `syntax.MarshalLimit`, `syntax.MaxRatchetTreeLength` (Syntax plan); `ApplyProposals`, `ProposalList`, `CachedProposal` (Tasks 6, 8).
+- Produces: no new exported API.
+
+- [ ] **Step 1: Write the failing test**
+
+`connect/mls/tree_operations_kat_test.go`:
+
+```go
+package mls
+
+import (
+	"bytes"
+	"encoding/json"
+	"testing"
+
+	"github.com/urnetwork/connect/mls/syntax"
+)
+
+// treeOperationVector is the test-vectors.md shape: a tree before, one
+// proposal, the sender's leaf index, and the tree and tree hash after.
+type treeOperationVector struct {
+	CipherSuite    uint16 `json:"cipher_suite"`
+	TreeBefore     string `json:"tree_before"`
+	Proposal       string `json:"proposal"`
+	ProposalSender uint32 `json:"proposal_sender"`
+	TreeHashBefore string `json:"tree_hash_before"`
+	TreeAfter      string `json:"tree_after"`
+	TreeHashAfter  string `json:"tree_hash_after"`
+}
+
+func init() {
+	RegisterVectorFamily(VectorFamily{
+		Number: 9,
+		Name:   "tree-operations",
+		File:   "tree-operations.json",
+		Slice:  "A2",
+		Verify: verifyTreeOperationVector,
+		// no generate direction: the corpus fixes the trees, and generating a
+		// different tree would not be the same vector.
+		Generate: nil,
+	})
+}
+
+func verifyTreeOperationVector(t *testing.T, raw json.RawMessage) {
+	t.Helper()
+	var vector treeOperationVector
+	if err := json.Unmarshal(raw, &vector); err != nil {
+		t.Fatalf("parse tree-operations vector: %v", err)
+	}
+	crypto, err := NewCryptoProvider(CipherSuite(vector.CipherSuite))
+	if err != nil {
+		t.Skipf("ciphersuite %#04x is not implemented", vector.CipherSuite)
+	}
+
+	tree, err := UnmarshalRatchetTree(MustHex(t, vector.TreeBefore))
+	if err != nil {
+		t.Fatalf("decode tree_before: %v", err)
+	}
+	hashBefore, err := tree.TreeHash(crypto)
+	if err != nil {
+		t.Fatalf("TreeHash before: %v", err)
+	}
+	if !bytes.Equal(hashBefore, MustHex(t, vector.TreeHashBefore)) {
+		t.Fatalf("tree_hash_before = %s, want %s", HexOf(hashBefore), vector.TreeHashBefore)
+	}
+
+	var proposal Proposal
+	if err := syntax.Unmarshal(MustHex(t, vector.Proposal), &proposal); err != nil {
+		t.Fatalf("decode proposal: %v", err)
+	}
+
+	// The vector applies exactly one proposal, so the list has exactly one
+	// entry and goes through the same ApplyProposals the commit path uses.
+	// A second application path here is how the vector passes and the group
+	// forks.
+	cached := CachedProposal{Proposal: proposal, Sender: LeafIndex(vector.ProposalSender), ByValue: true}
+	list := &ProposalList{All: []CachedProposal{cached}}
+	switch proposal.ProposalType {
+	case ProposalTypeAdd:
+		list.Adds = append(list.Adds, cached)
+	case ProposalTypeUpdate:
+		list.Updates = append(list.Updates, cached)
+	case ProposalTypeRemove:
+		list.Removes = append(list.Removes, cached)
+	default:
+		t.Fatalf("tree-operations vector carries %s", proposalTypeName(proposal.ProposalType))
+	}
+
+	ctx := &GroupContext{
+		Version:     ProtocolVersionMls10,
+		CipherSuite: CipherSuite(vector.CipherSuite),
+		GroupId:     []byte("tree-operations"),
+		TreeHash:    hashBefore,
+	}
+	result, err := ApplyProposals(crypto, tree, ctx, LeafIndex(vector.ProposalSender), list)
+	if err != nil {
+		t.Fatalf("ApplyProposals: %v", err)
+	}
+
+	hashAfter, err := result.Tree.TreeHash(crypto)
+	if err != nil {
+		t.Fatalf("TreeHash after: %v", err)
+	}
+	if !bytes.Equal(hashAfter, MustHex(t, vector.TreeHashAfter)) {
+		t.Fatalf("tree_hash_after = %s, want %s", HexOf(hashAfter), vector.TreeHashAfter)
+	}
+	encoded, err := syntax.MarshalLimit(result.Tree, syntax.MaxRatchetTreeLength)
+	if err != nil {
+		t.Fatalf("MarshalLimit: %v", err)
+	}
+	if !bytes.Equal(encoded, MustHex(t, vector.TreeAfter)) {
+		t.Fatalf("tree_after = %s, want %s", HexOf(encoded), vector.TreeAfter)
+	}
+}
+
+func TestTreeOperationVectorsFromCorpus(t *testing.T) {
+	vectors := LoadVectorFile(t, "tree-operations.json")
+	if len(vectors) == 0 {
+		t.Fatal("tree-operations.json is empty")
+	}
+	for i := range vectors {
+		raw := vectors[i]
+		t.Run("", func(t *testing.T) { verifyTreeOperationVector(t, raw) })
+	}
+}
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `go test ./connect/mls/... -run TestTreeOperationVectors -v`
+Expected: FAIL to build with `undefined: verifyTreeOperationVector`, then FAIL in `LoadVectorFile`
+until `testdata/vectors/tree-operations.json` is vendored.
+
+- [ ] **Step 3: Write minimal implementation**
+
+No new production code: the runner drives `ApplyProposals`, which Task 8 already produces, precisely
+so the vector and the commit path cannot diverge. Delete `9` from `expectedPendingFamilies` in the
+Validation plan's vector registry in this same commit.
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `go test ./connect/mls/... -run 'TestTreeOperationVectors|TestVectorFamiliesVerify' -v`
+Expected: PASS, with family 9 listed as executed.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add connect/mls/tree_operations_kat_test.go && \
+git commit -m "test(mls): vector family 9 tree-operations, driven through ApplyProposals"
 ```
 
 ---
@@ -6805,7 +7470,7 @@ git commit -m "test(mls): the RFC 9420 welcome vector family, verify and generat
 - Test: `connect/mls/group_test.go`
 
 **Interfaces:**
-- Consumes: `UnprotectPrivate`, `(*AuthenticatedContent).VerifySignature`, `ConfirmedTranscriptHash`, `InterimTranscriptHash` (Framing plan); `(*RatchetTree).ApplyUpdatePath` (TreeKEM plan); `ApplyProposals`, `ValidateProposalList`, `ValidateCommit`, `ValSem205ConfirmationTag` (Tasks 7, 8, 10).
+- Consumes: `OpenPrivateMessage(crypto CryptoProvider, keys MessageKeySource, senderDataSecret []byte, message *PrivateMessage, resolve SignatureKeyResolver, groupContext []byte) (*AuthenticatedContent, error)`, `OpenPublicMessage`, `SignatureKeyResolver`, `StaticSignatureKey`, `CheckFramedContentContext(content *FramedContent, groupId []byte, epoch uint64) error`, `CheckSenderLeaf(sender Sender, leafOccupied func(LeafIndex) bool) error`, `SignAuthenticatedContent`, `SealPrivateMessage`, `MarshalMLSMessage`, `ParseMLSMessage`, `(*AuthenticatedContent).ConfirmedTranscriptHashInput`, `(*PublicMessage).AuthenticatedContent` (Framing plan); `(*RatchetTree).MergeUpdatePath(crypto CryptoProvider, sender LeafIndex, path *UpdatePath) error`, `(*RatchetTree).DecryptUpdatePath(...) (*PathDecryptResult, error)`, `PathDecryptResult`, `(*TreeKEMPrivate).Clone` (TreeKEM plan); `ConfirmedTranscriptHash`, `NewKeySchedule`, `ZeroSecret`, `EmptyPskSecret`, `(*KeySchedule).ConfirmationTag`, `(*TranscriptHashes).Clone/Update`, `NewSecretTree` (Key schedule plan); `syntax.Marshal` (Syntax plan); `(*Profile).CheckVersion`, `(*Profile).CheckWireFormat`, the ValSem sentinels (Validation plan); `ApplyProposals`, `ValidateProposalList`, `ValidateCommit`, `ValSem203PathDecrypt`, `ValSem205ConfirmationTag`, `CheckErrata8745`, `CheckErrata8815` (Tasks 7, 8, 10).
 - Produces:
 ```go
 type ProcessedKind uint8
@@ -6850,7 +7515,7 @@ func testTwoMemberGroup(t *testing.T, crypto CryptoProvider) (*Group, *Group, *t
 
 	bob := testIdentity(t, crypto, "bob")
 	kp, initPriv, encPriv := testKeyPackage(t, crypto, bob)
-	encoded, err := syntaxMarshalKeyPackage(kp)
+	encoded, err := syntax.Marshal(kp)
 	if err != nil {
 		t.Fatalf("marshal key package: %v", err)
 	}
@@ -7075,44 +7740,64 @@ func (self *Group) ProcessMessage(message []byte) (*Processed, error) {
 	if err != nil {
 		return nil, err
 	}
-	profile := self.cfg.Profile
-	if profile == nil {
-		profile = DefaultProfile()
+	profile := self.profileLocked()
+	if err := profile.CheckVersion(parsed.Version); err != nil {
+		return nil, err
 	}
 	if err := profile.CheckWireFormat(parsed.WireFormat); err != nil {
 		return nil, err
 	}
-	if parsed.PrivateMessage == nil {
-		return nil, ErrApplicationMustBeCiphertext
-	}
-	authenticated, err := UnprotectPrivate(self.crypto, self.secretTree,
-		self.secrets.SenderDataSecret, self.context, parsed.PrivateMessage)
+
+	groupContext, err := syntax.Marshal(self.context)
 	if err != nil {
 		return nil, err
 	}
 
-	// ValSem002 and ValSem003
-	if !bytesEqual(authenticated.Content.GroupId, self.context.GroupId) {
-		return nil, ErrWrongGroupId
+	// The resolver is what turns a Sender into the key the framing layer
+	// verifies against, and it is where ValSem004 and ValSem006's blank-leaf
+	// case are enforced: an external sender or a blank leaf never yields a key.
+	resolve := SignatureKeyResolver(func(sender Sender) (SignaturePublicKey, error) {
+		if sender.SenderType != SenderTypeMember {
+			return nil, fmt.Errorf("%w: sender type %d is not implemented in v1",
+				ErrProfileExternalSender, sender.SenderType)
+		}
+		if err := CheckSenderLeaf(sender, func(leaf LeafIndex) bool {
+			return self.tree.Leaf(leaf) != nil
+		}); err != nil {
+			return nil, err
+		}
+		leaf := self.tree.Leaf(sender.LeafIndex)
+		if leaf == nil {
+			return nil, fmt.Errorf("%w: leaf %d", ErrBlankSenderLeaf, sender.LeafIndex)
+		}
+		return leaf.SignatureKey, nil
+	})
+
+	var authenticated *AuthenticatedContent
+	switch {
+	case parsed.PrivateMessage != nil:
+		authenticated, err = OpenPrivateMessage(self.crypto, self.secretTree,
+			self.schedule.Secrets().SenderData, parsed.PrivateMessage, resolve, groupContext)
+	case parsed.PublicMessage != nil:
+		// Only reachable when the profile allows PublicMessage, which
+		// DefaultProfile does not; the passive-client vector families set it.
+		authenticated, err = OpenPublicMessage(self.crypto, self.schedule.Secrets().Membership,
+			parsed.PublicMessage, resolve, groupContext)
+	default:
+		return nil, ErrApplicationMustBeCiphertext
 	}
-	if authenticated.Content.Epoch != self.context.Epoch {
-		return nil, fmt.Errorf("%w: message epoch %d, group epoch %d",
-			ErrWrongEpoch, authenticated.Content.Epoch, self.context.Epoch)
+	if err != nil {
+		return nil, err
 	}
-	// ValSem004
+
+	// ValSem002 and ValSem003, through the framing plan's one check so the
+	// sender side and the receiver side cannot disagree about what "this group,
+	// this epoch" means.
+	if err := CheckFramedContentContext(&authenticated.Content,
+		self.context.GroupId, self.context.Epoch); err != nil {
+		return nil, err
+	}
 	sender := authenticated.Content.Sender
-	if sender.SenderType != SenderTypeMember {
-		return nil, fmt.Errorf("%w: sender type %d is not implemented in v1",
-			ErrProfileExternalSender, sender.SenderType)
-	}
-	senderLeaf, ok := self.tree.LeafNode(sender.LeafIndex)
-	if !ok {
-		return nil, fmt.Errorf("%w: leaf %d", ErrBlankSenderLeaf, sender.LeafIndex)
-	}
-	// ValSem010
-	if err := authenticated.VerifySignature(self.crypto, senderLeaf.SignatureKey, self.context); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrBadSignature, err)
-	}
 
 	switch authenticated.Content.ContentType {
 	case ContentTypeApplication:
@@ -7156,6 +7841,9 @@ func (self *Group) stageInboundCommitLocked(authenticated *AuthenticatedContent)
 	if err != nil {
 		return nil, err
 	}
+	if err := CheckErrata8815(commit, self.proposals); err != nil {
+		return nil, err
+	}
 	applied, err := ApplyProposals(self.crypto, self.tree, self.context, self.ownLeaf, list)
 	if err != nil {
 		return nil, err
@@ -7180,53 +7868,54 @@ func (self *Group) stageInboundCommitLocked(authenticated *AuthenticatedContent)
 	if err := self.checkSuccessionLocked(list, applied, committer); err != nil {
 		return nil, err
 	}
-	if err := ValidateCommit(&CommitValidationInput{
-		Crypto:     self.crypto,
-		PreTree:    self.tree,
-		PostTree:   applied.Tree,
-		Context:    self.context,
-		Extensions: applied.Extensions,
-		Committer:  committer,
-		Own:        self.ownLeaf,
-		List:       list,
-		Commit:     commit,
-		Now:        nowFunc(),
-	}); err != nil {
-		return nil, err
-	}
 
-	commitSecret := make([]byte, self.crypto.HashSize())
+	// The path is merged BEFORE the tree hash is taken, because the new epoch's
+	// group context is the HPKE context the path was encrypted under and its
+	// tree_hash covers the path's own public keys. Receive-side ordering:
+	// MergeUpdatePath, TreeHash, build the provisional context, DecryptUpdatePath.
+	commitSecret := ZeroSecret(self.crypto)
+	ownPriv := self.ownPriv
 	if commit.Path != nil {
+		if err := CheckErrata8745(commit.Path, self.context); err != nil {
+			return nil, err
+		}
+		if err := applied.Tree.MergeUpdatePath(self.crypto, committer, commit.Path); err != nil {
+			return nil, err
+		}
+		pathTreeHash, err := applied.Tree.TreeHash(self.crypto)
+		if err != nil {
+			return nil, err
+		}
 		provisional := &GroupContext{
 			Version:                 self.context.Version,
 			CipherSuite:             self.context.CipherSuite,
-			GroupId:                 self.context.GroupId,
+			GroupId:                 append([]byte(nil), self.context.GroupId...),
 			Epoch:                   self.context.Epoch + 1,
+			TreeHash:                pathTreeHash,
 			ConfirmedTranscriptHash: self.context.ConfirmedTranscriptHash,
 			Extensions:              applied.Extensions,
 		}
-		treeHash, err := applied.Tree.RootHash()
+		provisionalBytes, err := syntax.Marshal(provisional)
 		if err != nil {
 			return nil, err
 		}
-		provisional.TreeHash = treeHash
-		provisionalBytes, err := provisional.Marshal()
+		decrypted, err := applied.Tree.DecryptUpdatePath(self.crypto, committer, commit.Path,
+			provisionalBytes, self.ownPriv.Clone(), applied.AddedLeaves)
 		if err != nil {
-			return nil, err
+			// the cryptographic half of ValSem203; the structural half runs in
+			// ValidateCommit, and both carry ErrPathDecrypt
+			return nil, fmt.Errorf("%w: %v", ErrPathDecrypt, err)
 		}
-		secret, err := applied.Tree.ApplyUpdatePath(committer, commit.Path, self.ownLeaf,
-			self.ownEncPriv, provisionalBytes, applied.AddedLeaves)
-		if err != nil {
-			return nil, err
-		}
-		commitSecret = secret
+		commitSecret = decrypted.CommitSecret
+		ownPriv = decrypted.Private
 	}
 
-	confirmedHash, err := ConfirmedTranscriptHash(self.crypto, self.interimHash, authenticated)
+	confirmedInput, err := authenticated.ConfirmedTranscriptHashInput()
 	if err != nil {
 		return nil, err
 	}
-	treeHash, err := applied.Tree.RootHash()
+	confirmedHash := ConfirmedTranscriptHash(self.crypto, self.transcript.Interim, confirmedInput)
+	treeHash, err := applied.Tree.TreeHash(self.crypto)
 	if err != nil {
 		return nil, err
 	}
@@ -7239,12 +7928,26 @@ func (self *Group) stageInboundCommitLocked(authenticated *AuthenticatedContent)
 		ConfirmedTranscriptHash: confirmedHash,
 		Extensions:              applied.Extensions,
 	}
-	newContextBytes, err := newContext.Marshal()
-	if err != nil {
+
+	// The structural commit checks run against the post-merge tree and the new
+	// context, which is the state the committer validated against.
+	if err := ValidateCommit(&CommitValidationInput{
+		Crypto:     self.crypto,
+		PreTree:    self.tree,
+		PostTree:   applied.Tree,
+		Context:    newContext,
+		Extensions: applied.Extensions,
+		Committer:  committer,
+		Own:        self.ownLeaf,
+		List:       list,
+		Commit:     commit,
+		Now:        nowFunc(),
+	}); err != nil {
 		return nil, err
 	}
-	secrets, err := DeriveEpochSecrets(self.crypto, self.secrets.InitSecret, commitSecret,
-		EmptyPskSecret(self.crypto), newContextBytes)
+
+	schedule, err := NewKeySchedule(self.crypto, self.schedule.Secrets().InitSecret, commitSecret,
+		EmptyPskSecret(self.crypto), newContext)
 	if err != nil {
 		return nil, err
 	}
@@ -7253,33 +7956,39 @@ func (self *Group) stageInboundCommitLocked(authenticated *AuthenticatedContent)
 	// checked before any of this state is allowed near the live group.
 	if err := ValSem205ConfirmationTag(&CommitValidationInput{
 		Crypto:          self.crypto,
-		ConfirmationKey: secrets.ConfirmationKey,
+		ConfirmationKey: schedule.Secrets().Confirmation,
 		ConfirmedHash:   confirmedHash,
 		ConfirmationTag: authenticated.Auth.ConfirmationTag,
 	}); err != nil {
 		return nil, err
 	}
-	interimHash, err := InterimTranscriptHash(self.crypto, confirmedHash, authenticated.Auth.ConfirmationTag)
+	transcript := self.transcript.Clone()
+	if err := transcript.Update(self.crypto, confirmedInput, authenticated.Auth.ConfirmationTag); err != nil {
+		return nil, err
+	}
+	secretTree, err := NewSecretTree(self.crypto, applied.Tree.LeafWidth(), schedule.Secrets().Encryption)
 	if err != nil {
 		return nil, err
 	}
 
 	return &StagedCommit{
-		committer:   committer,
-		epoch:       newContext.Epoch,
-		context:     newContext,
-		tree:        applied.Tree,
-		secrets:     secrets,
-		secretTree:  NewSecretTree(self.crypto, applied.Tree.Size(), secrets.EncryptionSecret),
-		ownEncPriv:  self.ownEncPriv,
-		interimHash: interimHash,
-		list:        list,
-		added:       applied.AddedLeaves,
-		removed:     applied.RemovedLeaves,
-		updated:     applied.UpdatedLeaves,
-		selfRemoved: applied.SelfRemoved,
-		hasPath:     commit.Path != nil,
-		confirmTag:  authenticated.Auth.ConfirmationTag,
+		committer:     committer,
+		epoch:         newContext.Epoch,
+		context:       newContext,
+		tree:          applied.Tree,
+		schedule:      schedule,
+		secretTree:    secretTree,
+		ownPriv:       ownPriv,
+		transcript:    transcript,
+		list:          list,
+		added:         applied.AddedLeaves,
+		removed:       applied.RemovedLeaves,
+		updated:       applied.UpdatedLeaves,
+		selfRemoved:   applied.SelfRemoved,
+		hasPath:       commit.Path != nil,
+		confirmTag:    authenticated.Auth.ConfirmationTag,
+		restoreKind:   restoreFromJoiner,
+		restoreSecret: schedule.JoinerSecret(),
 	}, nil
 }
 
@@ -7295,8 +8004,15 @@ func (self *Group) ApplyCommit(processed *Processed) error {
 		self.stateLock.Lock()
 		self.pending = nil
 		self.closed = true
-		self.secrets = nil
+		if self.schedule != nil {
+			self.schedule.Zeroize()
+		}
+		if self.secretTree != nil {
+			self.secretTree.Zeroize()
+		}
+		self.schedule = nil
 		self.secretTree = nil
+		self.restoreSecret = nil
 		self.stateLock.Unlock()
 		return ErrRemovedFromGroup
 	}
@@ -7310,6 +8026,10 @@ func (self *Group) Protect(aad, plaintext []byte) ([]byte, error) {
 	if self.closed {
 		return nil, fmt.Errorf("mls: group is closed")
 	}
+	groupContext, err := syntax.Marshal(self.context)
+	if err != nil {
+		return nil, err
+	}
 	content := &FramedContent{
 		GroupId:           append([]byte(nil), self.context.GroupId...),
 		Epoch:             self.context.Epoch,
@@ -7318,21 +8038,21 @@ func (self *Group) Protect(aad, plaintext []byte) ([]byte, error) {
 		ContentType:       ContentTypeApplication,
 		ApplicationData:   plaintext,
 	}
-	authenticated, err := SignFramedContent(self.crypto, self.signer,
-		WireFormatPrivateMessage, content, self.context)
+	authenticated, err := SignAuthenticatedContent(self.crypto, self.signer,
+		WireFormatPrivateMessage, content, groupContext)
 	if err != nil {
 		return nil, err
 	}
-	private, err := ProtectPrivate(self.crypto, self.secretTree, self.secrets.SenderDataSecret,
-		self.context, authenticated, 0)
+	private, err := SealPrivateMessage(self.crypto, self.secretTree,
+		self.schedule.Secrets().SenderData, authenticated, PaddingSizeV1)
 	if err != nil {
 		return nil, err
 	}
-	return (&MLSMessage{
+	return MarshalMLSMessage(&MLSMessage{
 		Version:        ProtocolVersionMls10,
 		WireFormat:     WireFormatPrivateMessage,
 		PrivateMessage: private,
-	}).Marshal()
+	})
 }
 
 // Unprotect opens an application message.
@@ -7369,21 +8089,31 @@ git commit -m "feat(mls): commit processing following RFC 9420 section 12.4.2"
 - Test: `connect/mls/group_test.go`
 
 **Interfaces:**
-- Consumes: `StateStore` (Task 11); `syntax.Marshal`, `syntax.Unmarshal`.
+- Consumes: `StateStore` (Task 11); `syntax.Writer`, `syntax.Reader`, `syntax.NewWriter`, `(*Writer).WriteUint8/WriteUint16/WriteUint32/WriteOpaque`, `(*Reader).ReadUint8/ReadUint16/ReadUint32/ReadOpaque`, `syntax.Marshal`, `syntax.Unmarshal`, `syntax.MarshalLimit`, `syntax.MaxRatchetTreeLength` (Syntax plan); `PastEpochWindow`, `NewKeyScheduleFromEpochSecret`, `NewKeyScheduleFromJoiner`, `EmptyPskSecret`, `InitialTranscriptHashes`, `NewSecretTree`, `(*KeySchedule).Secrets`, `(*KeySchedule).ConfirmationTag` (Key schedule plan); `UnmarshalRatchetTree`, `(*RatchetTree).Leaf`, `(*RatchetTree).LeafWidth`, `NewTreeKEMPrivate` (TreeKEM plan).
 - Produces:
 ```go
 type groupStateBlob struct {
-    Version     uint16
-    Context     []byte `tls:"head=varint"`
-    Tree        []byte `tls:"head=varint"`
-    InterimHash []byte `tls:"head=varint"`
-    OwnLeaf     uint32
-    OwnEncPriv  []byte `tls:"head=varint"`
-    Secrets     []byte `tls:"head=varint"`
+    Version       uint16
+    Context       []byte
+    Tree          []byte
+    Confirmed     []byte
+    Interim       []byte
+    OwnLeaf       uint32
+    OwnEncPriv    []byte
+    RestoreKind   uint8
+    RestoreSecret []byte
 }
+func (self *groupStateBlob) MarshalMLS(w *syntax.Writer) error
+func (self *groupStateBlob) UnmarshalMLS(r *syntax.Reader) error
 func (self *Group) MergePendingCommit() error
 func LoadGroup(cfg *GroupConfig, epoch uint64, signer SignaturePrivateKey) (*Group, error)
 ```
+
+`groupStateBlob` is unexported but it is still a wire type, so it carries the one codec method set
+and no struct tags (**C1**). `EpochSecrets` is not serialized: it is derived, and the blob stores the
+one input the epoch's `KeySchedule` was built from — the random `epoch_secret` for epoch 0, the
+`joiner_secret` for every epoch a commit opened — so `LoadGroup` rebuilds the schedule through the
+same two constructors that built it in the first place rather than through a second derivation.
 
 **`DeleteGroupStateBefore` is a security requirement, not housekeeping.** `eph_root[n]` lives in the
 epoch state, so a retained old epoch state is a retained `eph_root` — the thing MASTER §8.1 says must
@@ -7399,7 +8129,7 @@ func TestMergePendingCommitPersistsAndPrunes(t *testing.T) {
 	owner := testIdentity(t, crypto, "owner")
 	cfg := testGroupConfig(t, crypto, owner, "group-1")
 	store := cfg.Store.(*testStore)
-	group, err := NewGroup(cfg, owner.SigPriv, Credential{CredentialType: CredentialTypeBasic, Identity: owner.IdentityPub})
+	group, err := NewGroup(cfg, owner.SigPriv, BasicCredential(owner.IdentityPub))
 	if err != nil {
 		t.Fatalf("NewGroup: %v", err)
 	}
@@ -7434,7 +8164,7 @@ func TestPastEpochWindowDropsOlderState(t *testing.T) {
 	owner := testIdentity(t, crypto, "owner")
 	cfg := testGroupConfig(t, crypto, owner, "group-1")
 	store := cfg.Store.(*testStore)
-	group, err := NewGroup(cfg, owner.SigPriv, Credential{CredentialType: CredentialTypeBasic, Identity: owner.IdentityPub})
+	group, err := NewGroup(cfg, owner.SigPriv, BasicCredential(owner.IdentityPub))
 	if err != nil {
 		t.Fatalf("NewGroup: %v", err)
 	}
@@ -7461,7 +8191,7 @@ func TestLoadGroupRestoresAnEpoch(t *testing.T) {
 	crypto := testCrypto(t)
 	owner := testIdentity(t, crypto, "owner")
 	cfg := testGroupConfig(t, crypto, owner, "group-1")
-	group, err := NewGroup(cfg, owner.SigPriv, Credential{CredentialType: CredentialTypeBasic, Identity: owner.IdentityPub})
+	group, err := NewGroup(cfg, owner.SigPriv, BasicCredential(owner.IdentityPub))
 	if err != nil {
 		t.Fatalf("NewGroup: %v", err)
 	}
@@ -7503,41 +8233,110 @@ Replace `marshalState` and `MergePendingCommit` in `connect/mls/group.go`:
 // state from an older build is refused rather than misread.
 const groupStateBlobVersion uint16 = 1
 
-// groupStateBlob is one epoch's persisted state. The epoch secrets are in it,
-// which is why Spec A §3.5 requires the store implementation to seal it before
-// it touches disk.
+// groupStateBlob is one epoch's persisted state. It carries key material, which
+// is why Spec A §3.5 requires the store implementation to seal it before it
+// touches disk.
 type groupStateBlob struct {
-	Version     uint16
-	Context     []byte `tls:"head=varint"`
-	Tree        []byte `tls:"head=varint"`
-	InterimHash []byte `tls:"head=varint"`
-	OwnLeaf     uint32
-	OwnEncPriv  []byte `tls:"head=varint"`
-	Secrets     []byte `tls:"head=varint"`
+	Version       uint16
+	Context       []byte
+	Tree          []byte
+	Confirmed     []byte
+	Interim       []byte
+	OwnLeaf       uint32
+	OwnEncPriv    []byte
+	RestoreKind   uint8
+	RestoreSecret []byte
+}
+
+var _ syntax.Codec = (*groupStateBlob)(nil)
+
+// MarshalMLS writes the blob. There are no struct tags anywhere in this
+// package: one codec, written out, so the fuzz corpus covers this blob too.
+func (self *groupStateBlob) MarshalMLS(w *syntax.Writer) error {
+	w.WriteUint16(self.Version)
+	w.WriteOpaque(self.Context)
+	w.WriteOpaque(self.Tree)
+	w.WriteOpaque(self.Confirmed)
+	w.WriteOpaque(self.Interim)
+	w.WriteUint32(self.OwnLeaf)
+	w.WriteOpaque(self.OwnEncPriv)
+	w.WriteUint8(self.RestoreKind)
+	w.WriteOpaque(self.RestoreSecret)
+	return nil
+}
+
+// UnmarshalMLS reads the blob.
+func (self *groupStateBlob) UnmarshalMLS(r *syntax.Reader) error {
+	version, err := r.ReadUint16()
+	if err != nil {
+		return err
+	}
+	context, err := r.ReadOpaque()
+	if err != nil {
+		return err
+	}
+	tree, err := r.ReadOpaque()
+	if err != nil {
+		return err
+	}
+	confirmed, err := r.ReadOpaque()
+	if err != nil {
+		return err
+	}
+	interim, err := r.ReadOpaque()
+	if err != nil {
+		return err
+	}
+	ownLeaf, err := r.ReadUint32()
+	if err != nil {
+		return err
+	}
+	ownEncPriv, err := r.ReadOpaque()
+	if err != nil {
+		return err
+	}
+	restoreKind, err := r.ReadUint8()
+	if err != nil {
+		return err
+	}
+	restoreSecret, err := r.ReadOpaque()
+	if err != nil {
+		return err
+	}
+	*self = groupStateBlob{
+		Version:       version,
+		Context:       context,
+		Tree:          tree,
+		Confirmed:     confirmed,
+		Interim:       interim,
+		OwnLeaf:       ownLeaf,
+		OwnEncPriv:    ownEncPriv,
+		RestoreKind:   restoreKind,
+		RestoreSecret: restoreSecret,
+	}
+	return nil
 }
 
 // marshalState serializes the current epoch.
 func (self *Group) marshalState() ([]byte, error) {
-	tree, err := self.tree.Encode()
+	tree, err := syntax.MarshalLimit(self.tree, syntax.MaxRatchetTreeLength)
 	if err != nil {
 		return nil, err
 	}
-	context, err := self.context.Marshal()
-	if err != nil {
-		return nil, err
-	}
-	secrets, err := syntax.Marshal(self.secrets)
+	context, err := syntax.Marshal(self.context)
 	if err != nil {
 		return nil, err
 	}
 	return syntax.Marshal(&groupStateBlob{
-		Version:     groupStateBlobVersion,
-		Context:     context,
-		Tree:        tree,
-		InterimHash: self.interimHash,
-		OwnLeaf:     uint32(self.ownLeaf),
-		OwnEncPriv:  self.ownEncPriv,
-		Secrets:     secrets,
+		Version:       groupStateBlobVersion,
+		Context:       context,
+		Tree:          tree,
+		Confirmed:     self.transcript.Confirmed,
+		Interim:       self.transcript.Interim,
+		OwnLeaf:       uint32(self.ownLeaf),
+		OwnEncPriv:    self.ownPriv.EncryptionPriv,
+		RestoreKind:   uint8(self.restoreKind),
+		RestoreSecret: self.restoreSecret,
 	})
 }
 
@@ -7556,10 +8355,12 @@ func (self *Group) MergePendingCommit() error {
 	staged := self.pending
 	self.tree = staged.tree
 	self.context = staged.context
-	self.secrets = staged.secrets
+	self.schedule = staged.schedule
 	self.secretTree = staged.secretTree
-	self.ownEncPriv = staged.ownEncPriv
-	self.interimHash = staged.interimHash
+	self.ownPriv = staged.ownPriv
+	self.transcript = staged.transcript
+	self.restoreKind = staged.restoreKind
+	self.restoreSecret = staged.restoreSecret
 	self.proposals.Clear()
 	self.pending = nil
 
@@ -7575,19 +8376,21 @@ func (self *Group) MergePendingCommit() error {
 
 // LoadGroup restores a group from persisted epoch state. The signer is supplied
 // by the caller rather than stored here, because a signature private key does
-// not belong in the same blob as the epoch secrets.
+// not belong in the same blob as the epoch's key material.
+//
+// The key schedule is rebuilt through the same constructor that built it: from
+// the epoch secret for epoch 0, from the joiner secret for every epoch a commit
+// opened. Storing derived EpochSecrets instead would be a second derivation
+// path, and a second derivation path is how a restored group and a live one
+// disagree about the epoch authenticator.
 func LoadGroup(cfg *GroupConfig, epoch uint64, signer SignaturePrivateKey) (*Group, error) {
 	raw, err := cfg.Store.GetGroupState(cfg.GroupId, epoch)
 	if err != nil {
 		return nil, err
 	}
 	var blob groupStateBlob
-	read, err := syntax.Unmarshal(raw, &blob)
-	if err != nil {
+	if err := syntax.Unmarshal(raw, &blob); err != nil {
 		return nil, err
-	}
-	if read != len(raw) {
-		return nil, fmt.Errorf("mls: %d trailing bytes after group state", len(raw)-read)
 	}
 	if blob.Version != groupStateBlobVersion {
 		return nil, fmt.Errorf("mls: group state blob version %d, this build writes %d",
@@ -7595,38 +8398,55 @@ func LoadGroup(cfg *GroupConfig, epoch uint64, signer SignaturePrivateKey) (*Gro
 	}
 
 	var context GroupContext
-	if _, err := syntaxUnmarshalGroupContext(blob.Context, &context); err != nil {
+	if err := syntax.Unmarshal(blob.Context, &context); err != nil {
 		return nil, err
 	}
-	tree, err := ParseRatchetTree(cfg.Crypto, blob.Tree)
+	tree, err := UnmarshalRatchetTree(blob.Tree)
 	if err != nil {
 		return nil, err
 	}
-	var secrets EpochSecrets
-	if _, err := syntax.Unmarshal(blob.Secrets, &secrets); err != nil {
-		return nil, err
-	}
 	ownLeaf := LeafIndex(blob.OwnLeaf)
-	leaf, ok := tree.LeafNode(ownLeaf)
-	if !ok {
+	leaf := tree.Leaf(ownLeaf)
+	if leaf == nil {
 		return nil, ErrWelcomeLeafNotFound
 	}
-	if err := tree.SetLeafPrivate(ownLeaf, HpkePrivateKey(blob.OwnEncPriv)); err != nil {
+
+	var schedule *KeySchedule
+	switch restoreKind(blob.RestoreKind) {
+	case restoreFromEpochSecret:
+		schedule, err = NewKeyScheduleFromEpochSecret(cfg.Crypto, blob.RestoreSecret, &context)
+	case restoreFromJoiner:
+		schedule, err = NewKeyScheduleFromJoiner(cfg.Crypto, blob.RestoreSecret,
+			EmptyPskSecret(cfg.Crypto), &context)
+	default:
+		return nil, fmt.Errorf("mls: group state restore kind %d is not defined", blob.RestoreKind)
+	}
+	if err != nil {
 		return nil, err
 	}
+	secretTree, err := NewSecretTree(cfg.Crypto, tree.LeafWidth(), schedule.Secrets().Encryption)
+	if err != nil {
+		return nil, err
+	}
+	transcript := InitialTranscriptHashes()
+	transcript.Confirmed = blob.Confirmed
+	transcript.Interim = blob.Interim
+
 	return &Group{
-		cfg:         cfg,
-		crypto:      cfg.Crypto,
-		signer:      signer,
-		cred:        leaf.Credential,
-		ownLeaf:     ownLeaf,
-		ownEncPriv:  HpkePrivateKey(blob.OwnEncPriv),
-		tree:        tree,
-		context:     &context,
-		secrets:     &secrets,
-		secretTree:  NewSecretTree(cfg.Crypto, tree.Size(), secrets.EncryptionSecret),
-		interimHash: blob.InterimHash,
-		proposals:   NewProposalCache(),
+		cfg:           cfg,
+		crypto:        cfg.Crypto,
+		signer:        signer,
+		cred:          leaf.Credential,
+		ownLeaf:       ownLeaf,
+		ownPriv:       NewTreeKEMPrivate(ownLeaf, HpkePrivateKey(blob.OwnEncPriv)),
+		tree:          tree,
+		context:       &context,
+		schedule:      schedule,
+		secretTree:    secretTree,
+		transcript:    transcript,
+		proposals:     NewProposalCache(),
+		restoreKind:   restoreKind(blob.RestoreKind),
+		restoreSecret: blob.RestoreSecret,
 	}, nil
 }
 ```
@@ -7652,7 +8472,7 @@ git commit -m "feat(mls): epoch persistence and the 32 epoch past-epoch window"
 - Test: `connect/mls/commit_test.go`
 
 **Interfaces:**
-- Consumes: `GroupPolicyExtension.RoleOf/AdminCount` (Task 3); `ApplyResult` (Task 8).
+- Consumes: `(*RatchetTree).MemberCount() uint32`, `(*RatchetTree).NonBlankLeaves`, `(*RatchetTree).Leaf` (TreeKEM plan); `(*GroupPolicyExtension).RoleOf/AdminCount` (Task 3); `ApplyResult` (Task 8); `ErrBlankSenderLeaf` (Validation plan).
 - Produces:
 ```go
 func CheckGroupSize(tree *RatchetTree) error
@@ -7671,7 +8491,7 @@ Append to `connect/mls/commit_test.go`:
 ```go
 func TestCheckGroupSizeRefusesPast500(t *testing.T) {
 	crypto := testCrypto(t)
-	tree := NewRatchetTree(crypto)
+	tree := NewRatchetTree()
 	for i := 0; i < MaxGroupMembers; i += 1 {
 		leaf, _ := testLeafNode(t, crypto, testIdentity(t, crypto, "m"))
 		if _, err := tree.AddLeaf(leaf); err != nil {
@@ -7693,7 +8513,7 @@ func TestCheckGroupSizeRefusesPast500(t *testing.T) {
 func TestCheckDeviceCountRefusesAnEleventhLeaf(t *testing.T) {
 	crypto := testCrypto(t)
 	alice := testIdentity(t, crypto, "alice")
-	tree := NewRatchetTree(crypto)
+	tree := NewRatchetTree()
 	for i := 0; i < MaxDeviceLeavesPerIdentity; i += 1 {
 		leaf, _ := testLeafNode(t, crypto, alice)
 		if _, err := tree.AddLeaf(leaf); err != nil {
@@ -7779,14 +8599,15 @@ Expected: FAIL to build with `undefined: CheckGroupSize`, `undefined: CheckRemov
 
 - [ ] **Step 3: Write minimal implementation**
 
-Append to `connect/mls/commit.go`:
+Append to `connect/mls/commit.go`, whose import block becomes `bytes`, `fmt` and
+`github.com/urnetwork/connect/mls/syntax`:
 
 ```go
 // CheckGroupSize enforces MASTER §6's 500 member cap on the post-commit tree.
 // Enforced by the committing client and by every receiving client, so the cap
 // does not depend on one well-behaved participant.
 func CheckGroupSize(tree *RatchetTree) error {
-	count := len(tree.NonBlankLeaves())
+	count := tree.MemberCount()
 	if count > MaxGroupMembers {
 		return fmt.Errorf("%w: commit would leave %d members, the cap is %d",
 			ErrGroupSizeExceeded, count, MaxGroupMembers)
@@ -7800,7 +8621,10 @@ func CheckGroupSize(tree *RatchetTree) error {
 func CheckDeviceCount(tree *RatchetTree) error {
 	counts := map[string]int{}
 	for _, leafIndex := range tree.NonBlankLeaves() {
-		leaf, _ := tree.LeafNode(leafIndex)
+		leaf := tree.Leaf(leafIndex)
+		if leaf == nil {
+			continue
+		}
 		identity := string(leaf.Credential.Identity)
 		counts[identity] += 1
 		if counts[identity] > MaxDeviceLeavesPerIdentity {
@@ -7820,8 +8644,8 @@ func CheckRemovalAuthority(policy *GroupPolicyExtension, tree *RatchetTree,
 	if len(list.Removes) == 0 {
 		return nil
 	}
-	committerLeaf, ok := tree.LeafNode(committer)
-	if !ok {
+	committerLeaf := tree.Leaf(committer)
+	if committerLeaf == nil {
 		return fmt.Errorf("%w: committer leaf %d is blank", ErrBlankSenderLeaf, committer)
 	}
 	committerRole, _ := policy.RoleOf(committerLeaf.Credential.Identity)
@@ -7829,13 +8653,13 @@ func CheckRemovalAuthority(policy *GroupPolicyExtension, tree *RatchetTree,
 		return nil
 	}
 	for _, cached := range list.Removes {
-		target, ok := tree.LeafNode(cached.Proposal.Remove.Removed)
-		if !ok {
+		target := tree.Leaf(cached.Proposal.Remove.Removed)
+		if target == nil {
 			continue
 		}
 		// a member removing their own device leaf is self-service device
 		// management, not an administrative removal
-		if bytesEqual(target.Credential.Identity, committerLeaf.Credential.Identity) {
+		if bytes.Equal(target.Credential.Identity, committerLeaf.Credential.Identity) {
 			continue
 		}
 		targetRole, _ := policy.RoleOf(target.Credential.Identity)
@@ -7893,17 +8717,17 @@ git commit -m "feat(mls): 500 member cap, 10 device cap and owner-only admin rem
 - Test: `connect/mls/succession_test.go`
 
 **Interfaces:**
-- Consumes: `OwnerSuccessorExtension`, `successionPreimage` (Task 4); `GroupPolicyExtension` (Task 3); `crypto.VerifyWithLabel`; `ApplyResult`, `ProposalList` (Tasks 6, 8).
+- Consumes: `OwnerSuccessorExtension`, `OwnerSuccessorOf`, `successionPreimage` (Task 4); `GroupPolicyExtension` (Task 3); `CryptoProvider.SignWithLabel/VerifyWithLabel`, `SignaturePrivateKey`, `SignaturePublicKey` (Crypto/HPKE plan); `(*RatchetTree).Leaf` (TreeKEM plan); `ApplyResult`, `ProposalList` (Tasks 6, 8); `ErrBlankSenderLeaf` (Validation plan).
 - Produces:
 ```go
 type SuccessionCountersignature struct {
-    AdminMemberId []byte `tls:"head=varint"`
-    Signature     []byte `tls:"head=varint"`
+    AdminMemberId []byte
+    Signature     []byte
 }
 type SuccessionClaim struct {
-    SuccessorMemberId  []byte                        `tls:"head=varint"`
-    NominatedAtMs      uint64
-    Countersignatures  []SuccessionCountersignature  `tls:"head=varint"`
+    SuccessorMemberId []byte
+    NominatedAtMs     uint64
+    Countersignatures []SuccessionCountersignature
 }
 func SuccessionQuorum(adminCount int) int
 func SignSuccessionCountersignature(crypto CryptoProvider, priv SignaturePrivateKey,
@@ -8144,17 +8968,19 @@ import (
 )
 
 // SuccessionCountersignature is one admin's assertion that the owner is
-// unreachable.
+// unreachable. It rides inside connect/message's own payload, not on the MLS
+// wire, so it carries no codec: the only bytes this file defines are the
+// countersignature preimage.
 type SuccessionCountersignature struct {
-	AdminMemberId []byte `tls:"head=varint"`
-	Signature     []byte `tls:"head=varint"`
+	AdminMemberId []byte
+	Signature     []byte
 }
 
 // SuccessionClaim rides in the promotion record's MLS-authenticated payload.
 type SuccessionClaim struct {
-	SuccessorMemberId []byte                       `tls:"head=varint"`
+	SuccessorMemberId []byte
 	NominatedAtMs     uint64
-	Countersignatures []SuccessionCountersignature `tls:"head=varint"`
+	Countersignatures []SuccessionCountersignature
 }
 
 // SuccessionQuorum is max(2, ceil(2 * admins / 3)). One arithmetic rule: two
@@ -8176,7 +9002,10 @@ func SignSuccessionCountersignature(crypto CryptoProvider, priv SignaturePrivate
 	adminMemberId, groupId []byte, epoch uint64, successorMemberId []byte,
 	nominatedAtMs uint64) (SuccessionCountersignature, error) {
 
-	preimage := successionPreimage(groupId, epoch, successorMemberId, nominatedAtMs)
+	preimage, err := successionPreimage(groupId, epoch, successorMemberId, nominatedAtMs)
+	if err != nil {
+		return SuccessionCountersignature{}, err
+	}
 	signature, err := crypto.SignWithLabel(priv, "URmessageSuccession", preimage)
 	if err != nil {
 		return SuccessionCountersignature{}, err
@@ -8223,7 +9052,11 @@ func ValidateSuccession(crypto CryptoProvider, groupId []byte, epoch uint64,
 	// 3: a supermajority of CURRENT admins, counted at the epoch the promotion
 	// commits from
 	required := SuccessionQuorum(prePolicy.AdminCount())
-	preimage := successionPreimage(groupId, epoch, nomination.SuccessorMemberId, nomination.NominatedAtMs)
+	preimage, err := successionPreimage(groupId, epoch,
+		nomination.SuccessorMemberId, nomination.NominatedAtMs)
+	if err != nil {
+		return err
+	}
 	counted := map[string]bool{}
 	for _, countersignature := range claim.Countersignatures {
 		role, ok := prePolicy.RoleOf(countersignature.AdminMemberId)
@@ -8277,16 +9110,16 @@ func (self *Group) checkSuccessionLocked(list *ProposalList, applied *ApplyResul
 	}
 	preOwner, _ := prePolicy.OwnerId()
 	postOwner, _ := postPolicy.OwnerId()
-	if bytesEqual(preOwner, postOwner) {
+	if bytes.Equal(preOwner, postOwner) {
 		return nil
 	}
 
-	committerLeaf, ok := self.tree.LeafNode(committer)
-	if !ok {
+	committerLeaf := self.tree.Leaf(committer)
+	if committerLeaf == nil {
 		return fmt.Errorf("%w: committer leaf %d is blank", ErrBlankSenderLeaf, committer)
 	}
 	// an owner handing the group over is an ordinary transfer, not a succession
-	if bytesEqual(committerLeaf.Credential.Identity, preOwner) {
+	if bytes.Equal(committerLeaf.Credential.Identity, preOwner) {
 		return nil
 	}
 
@@ -8303,12 +9136,8 @@ func (self *Group) checkSuccessionLocked(list *ProposalList, applied *ApplyResul
 }
 ```
 
-Add the two fields to `Group`:
-
-```go
-	successionClaim   *SuccessionClaim
-	lastOwnerRecordMs uint64
-```
+`Group` already carries `successionClaim *SuccessionClaim` and `lastOwnerRecordMs uint64` from
+Task 11; this task only fills them in and reads them.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -8344,6 +9173,8 @@ import (
 	"bytes"
 	"errors"
 	"testing"
+
+	"github.com/urnetwork/connect/mls/syntax"
 )
 
 // testCohort is a set of groups that must stay in lockstep.
@@ -8401,7 +9232,7 @@ func (self *testCohort) addMember(t *testing.T, crypto CryptoProvider, committer
 	t.Helper()
 	member := testIdentity(t, crypto, name)
 	kp, initPriv, encPriv := testKeyPackage(t, crypto, member)
-	encoded, err := syntaxMarshalKeyPackage(kp)
+	encoded, err := syntax.Marshal(kp)
 	if err != nil {
 		t.Fatalf("marshal key package: %v", err)
 	}
@@ -8624,14 +9455,20 @@ func TestProfileRefusalsEndToEnd(t *testing.T) {
 	defer committer.Close()
 	defer receiver.Close()
 
-	// a PSK proposal cannot even be built: the type has no struct in this package
-	var proposal Proposal
-	if _, err := proposal.UnmarshalTLS([]byte{0x00, 0x04, 0x00}); !errors.Is(err, ErrProfilePSK) {
-		t.Fatalf("psk parse = %v, want ErrProfilePSK", err)
+	// The codec decodes all seven arms so the messages vector family can round
+	// trip them; this plan's gate is what refuses the three v1 does not run.
+	psk := &Proposal{ProposalType: ProposalTypePreSharedKey, PreSharedKey: &PreSharedKey{}}
+	if err := checkProposalProfile(DefaultProfile(), psk); !errors.Is(err, ErrProfilePsk) {
+		t.Fatalf("psk gate = %v, want ErrProfilePsk", err)
 	}
-	// an external_init proposal is refused with the external-commit error
-	if _, err := proposal.UnmarshalTLS([]byte{0x00, 0x06, 0x00}); !errors.Is(err, ErrProfileExternalCommit) {
-		t.Fatalf("external_init parse = %v, want ErrProfileExternalCommit", err)
+	externalInit := &Proposal{ProposalType: ProposalTypeExternalInit, ExternalInit: &ExternalInit{}}
+	if err := checkProposalProfile(DefaultProfile(), externalInit); !errors.Is(err, ErrProfileExternalCommit) {
+		t.Fatalf("external_init gate = %v, want ErrProfileExternalCommit", err)
+	}
+	// and a psk proposal that arrives on the wire never reaches the cache
+	content := testProposalContent(t, crypto, committer.OwnLeafIndex(), psk)
+	if _, err := committer.proposals.Store(crypto, content); !errors.Is(err, ErrProfilePsk) {
+		t.Fatalf("psk cache Store = %v, want ErrProfilePsk", err)
 	}
 	// a group context extension outside the allowed set is refused before it commits
 	bad := []Extension{{ExtensionType: ExtensionTypeExternalSenders, ExtensionData: []byte{}}}
@@ -8669,16 +9506,14 @@ git commit -m "test(mls): round-trip group lifecycle gate across add, update, re
 
 ---
 
-### Task 23: The passive-client vector families
+### Task 23: Vector families 13, 14 and 15 — passive client
 
 **Files:**
-- Create: `connect/mls/passive_client_vectors_test.go`
-- Create: `connect/mls/testdata/vectors/passive-client-welcome.json`
-- Create: `connect/mls/testdata/vectors/passive-client-handling-commit.json`
-- Create: `connect/mls/testdata/vectors/passive-client-random.json`
+- Create: `connect/mls/passive_client_kat_test.go`
+- Consume: `connect/mls/testdata/vectors/passive-client-welcome.json`, `passive-client-handling-commit.json`, `passive-client-random.json`
 
 **Interfaces:**
-- Consumes: `JoinFromWelcome`, `ProcessMessage`, `ApplyCommit`, `EpochAuthenticator` (Tasks 16, 18).
+- Consumes: `RegisterVectorFamily`, `VectorFamily`, `LoadVectorFile`, `MustHex` (Validation plan); `Profile`, `DefaultProfile()`, `Profile.AllowPublicMessage` (Validation plan); `ParseMLSMessage`, `MLSMessage` (Framing plan); `JoinFromWelcome`, `ProcessMessage`, `ApplyCommit`, `EpochAuthenticator` (Tasks 16, 18).
 - Produces: no new exported API. Spec A §4.2.1 maps families 13, 14 and 15 to `group.go`, which is
 this plan's file, so they are this plan's obligation.
 
@@ -8693,16 +9528,14 @@ epoch authenticator again.
 
 - [ ] **Step 1: Write the failing test**
 
-`connect/mls/passive_client_vectors_test.go`:
+`connect/mls/passive_client_kat_test.go`:
 
 ```go
 package mls
 
 import (
 	"bytes"
-	"encoding/hex"
 	"encoding/json"
-	"os"
 	"testing"
 )
 
@@ -8713,150 +9546,171 @@ type passiveEpoch struct {
 }
 
 type passiveVector struct {
-	CipherSuite               uint16 `json:"cipher_suite"`
-	ExternalPsks              []any  `json:"external_psks"`
-	KeyPackage                string `json:"key_package"`
-	SignaturePriv             string `json:"signature_priv"`
-	EncryptionPriv            string `json:"encryption_priv"`
-	InitPriv                  string `json:"init_priv"`
-	Welcome                   string `json:"welcome"`
-	RatchetTree               string `json:"ratchet_tree"`
-	InitialEpochAuthenticator string `json:"initial_epoch_authenticator"`
+	CipherSuite               uint16         `json:"cipher_suite"`
+	ExternalPsks              []any          `json:"external_psks"`
+	KeyPackage                string         `json:"key_package"`
+	SignaturePriv             string         `json:"signature_priv"`
+	EncryptionPriv            string         `json:"encryption_priv"`
+	InitPriv                  string         `json:"init_priv"`
+	Welcome                   string         `json:"welcome"`
+	RatchetTree               string         `json:"ratchet_tree"`
+	InitialEpochAuthenticator string         `json:"initial_epoch_authenticator"`
 	Epochs                    []passiveEpoch `json:"epochs"`
 }
 
-func runPassiveVectors(t *testing.T, path string) {
+func init() {
+	RegisterVectorFamily(VectorFamily{
+		Number: 13, Name: "passive-client-welcome", File: "passive-client-welcome.json",
+		Slice: "A4", Verify: verifyPassiveVector, Generate: nil,
+	})
+	RegisterVectorFamily(VectorFamily{
+		Number: 14, Name: "passive-client-handling-commit", File: "passive-client-handling-commit.json",
+		Slice: "A4", Verify: verifyPassiveVector, Generate: nil,
+	})
+	RegisterVectorFamily(VectorFamily{
+		Number: 15, Name: "passive-client-random", File: "passive-client-random.json",
+		Slice: "A4", Verify: verifyPassiveVector, Generate: nil,
+	})
+}
+
+// vectorProfile is DefaultProfile with the wire-format gate relaxed. Some
+// passive-client configurations deliver handshake messages as PublicMessage,
+// which group policy refuses in product code (A-ASSUME-4 keeps the product on
+// PrivateMessage). These three families are the one place that matters.
+func vectorProfile() *Profile {
+	profile := DefaultProfile()
+	profile.AllowPublicMessage = true
+	return profile
+}
+
+// verifyPassiveVector joins with the Welcome, asserts the computed epoch
+// authenticator equals initial_epoch_authenticator, then for each epoch applies
+// the proposals and the commit and asserts the epoch authenticator again.
+func verifyPassiveVector(t *testing.T, raw json.RawMessage) {
 	t.Helper()
-	raw, err := os.ReadFile(path)
+	var vector passiveVector
+	if err := json.Unmarshal(raw, &vector); err != nil {
+		t.Fatalf("parse passive-client vector: %v", err)
+	}
+	suite := CipherSuite(vector.CipherSuite)
+	crypto, err := NewCryptoProvider(suite)
 	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
+		t.Skipf("ciphersuite %#04x is not implemented", vector.CipherSuite)
 	}
-	var vectors []passiveVector
-	if err := json.Unmarshal(raw, &vectors); err != nil {
-		t.Fatalf("parse %s: %v", path, err)
+	if len(vector.ExternalPsks) != 0 {
+		// v1 refuses PSKs; a vector that needs one is out of profile.
+		t.Skip("vector requires external psks, which the v1 profile refuses")
 	}
+	if vector.RatchetTree == "" {
+		// null ratchet_tree means the tree rides in the GroupInfo's
+		// ratchet_tree extension, which v1 does not publish or consume.
+		t.Skip("vector carries the ratchet tree in the group info extension")
+	}
+
+	kpMessage, err := ParseMLSMessage(MustHex(t, vector.KeyPackage))
+	if err != nil {
+		t.Fatalf("parse key package: %v", err)
+	}
+	if kpMessage.KeyPackage == nil {
+		t.Fatal("message is not a key package")
+	}
+	cfg := &GroupConfig{
+		Suite:   suite,
+		Crypto:  crypto,
+		Store:   newTestStore(),
+		Profile: vectorProfile(),
+	}
+	group, err := JoinFromWelcome(cfg, MustHex(t, vector.Welcome), MustHex(t, vector.RatchetTree),
+		&JoinKeyMaterial{
+			KeyPackage:     *kpMessage.KeyPackage,
+			InitPrivate:    HpkePrivateKey(MustHex(t, vector.InitPriv)),
+			EncryptPrivate: HpkePrivateKey(MustHex(t, vector.EncryptionPriv)),
+			SignPrivate:    SignaturePrivateKey(MustHex(t, vector.SignaturePriv)),
+		})
+	if err != nil {
+		t.Fatalf("JoinFromWelcome: %v", err)
+	}
+	defer group.Close()
+
+	if !bytes.Equal(group.EpochAuthenticator(), MustHex(t, vector.InitialEpochAuthenticator)) {
+		t.Fatal("initial epoch authenticator mismatch")
+	}
+
+	for e, epoch := range vector.Epochs {
+		for p, proposal := range epoch.Proposals {
+			if _, err := group.ProcessMessage(MustHex(t, proposal)); err != nil {
+				t.Fatalf("epoch %d proposal %d: %v", e, p, err)
+			}
+		}
+		processed, err := group.ProcessMessage(MustHex(t, epoch.Commit))
+		if err != nil {
+			t.Fatalf("epoch %d: ProcessMessage: %v", e, err)
+		}
+		if err := group.ApplyCommit(processed); err != nil {
+			t.Fatalf("epoch %d: ApplyCommit: %v", e, err)
+		}
+		if !bytes.Equal(group.EpochAuthenticator(), MustHex(t, epoch.EpochAuthenticator)) {
+			t.Fatalf("epoch %d: epoch authenticator mismatch", e)
+		}
+	}
+}
+
+func runPassiveFamily(t *testing.T, file string) {
+	t.Helper()
+	vectors := LoadVectorFile(t, file)
 	if len(vectors) == 0 {
-		t.Fatalf("%s is empty", path)
+		t.Fatalf("%s is empty", file)
 	}
-
-	ran := 0
-	for i, vector := range vectors {
-		suite := CipherSuite(vector.CipherSuite)
-		crypto, err := NewCryptoProvider(suite)
-		if err != nil {
-			continue
-		}
-		if len(vector.ExternalPsks) != 0 {
-			// v1 refuses PSKs at parse; a vector that needs one is out of profile
-			continue
-		}
-		ran += 1
-
-		kpMessage, err := ParseMLSMessage(mustHex(t, vector.KeyPackage))
-		if err != nil {
-			t.Fatalf("vector %d: parse key package: %v", i, err)
-		}
-		cfg := &GroupConfig{
-			Suite:   suite,
-			Crypto:  crypto,
-			Store:   newTestStore(),
-			Profile: DefaultProfile(),
-		}
-		group, err := JoinFromWelcome(cfg, mustHex(t, vector.Welcome), mustHex(t, vector.RatchetTree),
-			&JoinKeyMaterial{
-				KeyPackage:     *kpMessage.KeyPackage,
-				InitPrivate:    HpkePrivateKey(mustHex(t, vector.InitPriv)),
-				EncryptPrivate: HpkePrivateKey(mustHex(t, vector.EncryptionPriv)),
-				SignPrivate:    SignaturePrivateKey(mustHex(t, vector.SignaturePriv)),
-			})
-		if err != nil {
-			t.Fatalf("vector %d: JoinFromWelcome: %v", i, err)
-		}
-		if !bytes.Equal(group.EpochAuthenticator(), mustHex(t, vector.InitialEpochAuthenticator)) {
-			t.Fatalf("vector %d: initial epoch authenticator mismatch", i)
-		}
-
-		for e, epoch := range vector.Epochs {
-			for p, proposal := range epoch.Proposals {
-				if _, err := group.ProcessMessage(mustHex(t, proposal)); err != nil {
-					t.Fatalf("vector %d epoch %d proposal %d: %v", i, e, p, err)
-				}
-			}
-			processed, err := group.ProcessMessage(mustHex(t, epoch.Commit))
-			if err != nil {
-				t.Fatalf("vector %d epoch %d: ProcessMessage: %v", i, e, err)
-			}
-			if err := group.ApplyCommit(processed); err != nil {
-				t.Fatalf("vector %d epoch %d: ApplyCommit: %v", i, e, err)
-			}
-			if !bytes.Equal(group.EpochAuthenticator(), mustHex(t, epoch.EpochAuthenticator)) {
-				t.Fatalf("vector %d epoch %d: epoch authenticator mismatch", i, e)
-			}
-		}
-		group.Close()
-	}
-	if ran == 0 {
-		t.Fatalf("%s: no vector matched an implemented ciphersuite and the v1 profile", path)
+	for i := range vectors {
+		raw := vectors[i]
+		t.Run("", func(t *testing.T) { verifyPassiveVector(t, raw) })
 	}
 }
 
 func TestPassiveClientWelcomeVectors(t *testing.T) {
-	runPassiveVectors(t, "testdata/vectors/passive-client-welcome.json")
+	runPassiveFamily(t, "passive-client-welcome.json")
 }
 
 func TestPassiveClientHandlingCommitVectors(t *testing.T) {
-	runPassiveVectors(t, "testdata/vectors/passive-client-handling-commit.json")
+	runPassiveFamily(t, "passive-client-handling-commit.json")
 }
 
 func TestPassiveClientRandomVectors(t *testing.T) {
-	runPassiveVectors(t, "testdata/vectors/passive-client-random.json")
+	runPassiveFamily(t, "passive-client-random.json")
 }
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `go test ./connect/mls/... -run TestPassiveClient -v`
-Expected: FAIL with `read testdata/vectors/passive-client-welcome.json: no such file or directory`.
+Expected: FAIL to build with `undefined: verifyPassiveVector`, then FAIL in `LoadVectorFile` until
+the three files are vendored.
 
 - [ ] **Step 3: Write minimal implementation**
 
-Vendor the three files at the pinned mlswg commit:
+No new production code. The three files are vendored by the Validation plan's single vendoring task
+at the commit recorded in `connect/mls/interop/PINS.md`; there is one vendoring step in this slice
+and one pin file, and adding a second fetch here is how two copies of one corpus end up pinned to
+two different commits.
 
-```bash
-PIN=$(grep -oP 'mlswg=\K\S+' connect/mls/interop/PINS.md)
-for family in passive-client-welcome passive-client-handling-commit passive-client-random; do
-  curl -fsSL "https://raw.githubusercontent.com/mlswg/mls-implementations/${PIN}/test-vectors/${family}.json" \
-    -o "connect/mls/testdata/vectors/${family}.json"
-done
-```
+`vectorProfile()` is **called** — it is `GroupConfig.Profile` in `verifyPassiveVector` above, not a
+helper that is defined and then never used while `DefaultProfile()` is passed instead. That mistake
+would leave families 13–15 red on every configuration that delivers handshake messages as
+`PublicMessage`. `Profile.AllowPublicMessage` is the Validation plan's exported field, and it is the
+only knob this file touches.
 
-The vectors deliver handshake messages as `PublicMessage` in some configurations. `DefaultProfile`
-refuses `PublicMessage` by group policy, and the passive-client families are the one place that
-matters, so `GroupConfig.Profile` here is `DefaultProfile()` with the wire-format gate relaxed:
-
-```go
-// in the test file, alongside runPassiveVectors
-func vectorProfile() *Profile {
-	profile := DefaultProfile()
-	profile.AllowPublicMessage = true   // vectors only; group policy still refuses it in product code
-	return profile
-}
-```
-
-`Profile.AllowPublicMessage` is consumed from the Validation plan's `profile.go`; if it does not
-exist, add it there as an unexported-by-default field with a constructor, rather than duplicating a
-second profile type here. `A-ASSUME-4` keeps the product on `PrivateMessage`; this flag exists so
-the vector families and the nightly `-public` interop matrix can exercise the other path.
+Delete `13`, `14` and `15` from `expectedPendingFamilies` in the Validation plan's vector registry in
+this same commit.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./connect/mls/... -run TestPassiveClient -v`
-Expected: PASS for all three families, each with `ran` greater than zero.
+Run: `go test ./connect/mls/... -run 'TestPassiveClient|TestVectorFamiliesVerify' -v`
+Expected: PASS for all three families, with 13, 14 and 15 listed as executed.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add connect/mls/passive_client_vectors_test.go connect/mls/testdata/vectors/passive-client-*.json && \
+git add connect/mls/passive_client_kat_test.go && \
 git commit -m "test(mls): passive-client vector families 13, 14 and 15"
 ```
 
@@ -8871,15 +9725,21 @@ by inspection:
 |---|---|---|
 | Every task's tests pass | `go test ./connect/mls/... -count=1` | ok |
 | Race-clean | `go test ./connect/mls/... -race -count=1` | ok |
-| The `welcome` vector family passes, both directions | `go test ./connect/mls/... -run TestWelcomeVectors -v` | PASS, `ran > 0` |
-| Passive-client families 13, 14, 15 pass | `go test ./connect/mls/... -run TestPassiveClient -v` | PASS, `ran > 0` each |
+| The `welcome` family (8) passes, both directions | `go test ./connect/mls/... -run TestWelcomeVectors -v` | PASS |
+| The `tree-operations` family (9) passes | `go test ./connect/mls/... -run TestTreeOperationVectors -v` | PASS |
+| Passive-client families 13, 14, 15 pass | `go test ./connect/mls/... -run TestPassiveClient -v` | PASS |
+| All five families are registered, not pending | `go test ./connect/mls/... -run TestVectorFamiliesVerify -v` | 8, 9, 13, 14, 15 executed; none in `expectedPendingFamilies` |
 | Round-trip group tests pass | `go test ./connect/mls/... -run 'TestGroupLifecycleFullCycle\|TestJoinAtAnAdvancedEpoch\|TestLosingCommitter\|TestProfileRefusalsEndToEnd' -v` | PASS |
 | Layering holds | `go test ./connect/ -run TestLayering -v` | PASS — `connect/mls` imports neither `connect` nor `connect/message` |
 | No forbidden primitive | `grep -rn 'GenerateSharedSecret\|box.Precompute\|curve25519.ScalarMult' connect/mls/` | no matches |
-| Vectors are pinned | `connect/mls/interop/PINS.md` names the mlswg commit the four vendored files came from | recorded |
+| One codec, no tags | `grep -rn 'tls:"\|MarshalTLS\|UnmarshalTLS' connect/mls/` | no matches |
+| No second length-prefix helper | `grep -rn 'appendLengthPrefixed' connect/mls/` | no matches |
+| Vectors are pinned | `connect/mls/interop/PINS.md` names the mlswg commit the vendored files came from | recorded, by the Validation plan's single vendoring task |
 
 **What this plan does not close.** The other 43-code negative-test obligation, the mlswg gRPC interop
 harness in both roles, and the differential fuzzing against OpenMLS's nine targets belong to the
 Validation and interop plan. This plan provides the named check functions those tests target
-(`ValSem101`–`ValSem113`, `ValSem200`–`ValSem209`, `ValSem300`) and the group state machine the
-interop client drives; it does not itself satisfy Gates 2, 3 or 4 of Spec A §4.
+(`ValSem101`–`ValSem113`, `ValSem200`–`ValSem209`, `ValSem300`, `CheckErrata8745`,
+`CheckErrata8815`), the three unexported `CommitOptions` test seams, `(*Group).OwnLeafNodeCopy` and
+`(*Group).ClearPendingCommit` that the forge drives, and the group state machine the interop client
+runs; it does not itself satisfy Gates 2, 3 or 4 of Spec A §4.

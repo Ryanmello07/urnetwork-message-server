@@ -38,34 +38,77 @@ only (`crypto/ecdh`, `crypto/hkdf`, `crypto/sha3`) plus `chacha20poly1305` from 
 - All commands run from the root of the `connect` repo, module `github.com/urnetwork/connect`, on branch `beta/message`. Package path is `./mls/...`.
 - **Windows git hazard:** this workspace has lost its git index before. Before every `git commit`, run `git ls-files | wc -l` and confirm the count has not dropped. A dropped count means the index vanished — re-`git add` the whole tree before committing.
 
+The four slice-wide conventions from the canonical interface registry, verbatim:
+
+**C1 — one codec, one method set.** Every wire type in `package mls` implements exactly:
+
+```go
+MarshalMLS(w *syntax.Writer) error
+UnmarshalMLS(r *syntax.Reader) error
+```
+
+and nothing else. No `MarshalTo`, no `MarshalTLS`, no `Marshal() ([]byte, error)`, no
+`Parse<Type>(data []byte)` free constructor, no `tls:` struct tags, no reflection. Byte-level access
+is `syntax.Marshal(&v)` / `syntax.Unmarshal(bs, &v)`. Every wire type carries
+`var _ syntax.Codec = (*T)(nil)` in its own file so drift fails at build rather than at Gate 4.
+
+The two sanctioned exceptions, because they are a different operation rather than a second spelling
+of the same one:
+- **Extension bodies.** `Extension.ExtensionData` is opaque, so a concrete extension converts
+  bytes↔struct: `func (self *X) Encode() (Extension, error)` and
+  `func ParseXExtension(data []byte) (*X, error)`. Owned per-extension.
+- **p8's codec table.** Five decode/encode closures over `syntax.Marshal`/`Unmarshal`, built inside
+  p8 (§9.4). They export no new `Parse*`/`Encode*` names.
+
+**C2 — the syntax Writer is sticky *and* `MarshalMLS` returns an error.** Leaf writes
+(`WriteUint16`, `WriteOpaque`, …) return nothing and route buffer failures into the Writer's sticky
+error, checked once at `Bytes() ([]byte, error)`. `MarshalMLS` returns an `error` so an encoder can
+raise a *semantic* refusal that is not a buffer error — `Credential.MarshalMLS` returning
+`ErrProfileCredentialType` on an x509 credential is the case in this plan. `syntax.Marshal` returns
+`errors.Join(v.MarshalMLS(w), w.Err())`, so both surface. Higher-order encode callbacks
+(`syntax.WriteVector`, `(*Writer).WriteOptional`) return `error` for the same reason.
+
+**C3 — counts are `LeafCount`, indices are `LeafIndex`/`NodeIndex`, and tree-math arithmetic that
+can be out of range returns an error.** The tree-math plan's block is normative for every caller.
+`TreeSize` does not exist.
+
+**C4 — the GroupContext crosses a plan boundary as bytes.** Every framing entry point takes
+`groupContext []byte`. Callers obtain them from `syntax.Marshal(gc)` or `(*Group).GroupContext()`.
+This plan takes `groupContext []byte` in `EncryptUpdatePath` and `DecryptUpdatePath` for the same
+reason.
+
 ---
 
 ## File Structure
 
 | File | Single responsibility |
 |---|---|
-| `mls/tree_errors.go` | **Create.** The typed errors raised by tree and TreeKEM code that are *not* ValSem-numbered. ValSem-numbered errors come from `errors.go` (validation plan). |
-| `mls/extension.go` | **Create.** `ExtensionType`, `Extension`, `Capabilities`, `RequiredCapabilities`, `ProtocolVersion`, `CredentialType`, `ProposalType`, and the `urmessage_leaf_keys` (0xF002) extension body. Wire codec for each. |
+| `mls/tree_errors.go` | **Create.** The typed errors raised by tree and TreeKEM code that are *not* ValSem-numbered. ValSem-numbered errors and every `ErrProfile*` come from `errors.go` (validation plan). |
+| `mls/tree_adapt.go` | **Create.** The private helpers this package uses against the wave-1 surfaces: `marshalBytes` for the preimages that are not `syntax.Codec` values, and the `leftOf`/`rightOf`/`leafIndexOf`/`rootOf`/`directPathOf` tree-math shims. Internal to this plan; no other plan gets them. |
+| `mls/extension.go` | **Create.** The IANA registry enums — `ProtocolVersion`, `CredentialType`, `ProposalType`, `ExtensionType` and their constants — plus `Extension`, `WriteExtensions`/`ReadExtensions`/`FindExtension`, `Capabilities`, `RequiredCapabilities`, and the `urmessage_leaf_keys` (0xF002) extension body. Wire codec for each. |
 | `mls/extension_test.go` | **Create.** Round-trip and rejection tests for the above. |
-| `mls/leaf_node.go` | **Create.** `LeafNodeSource`, `Lifetime`, `LeafNode`, `LeafNodeTBS`, leaf signing and signature verification, RFC 9420 §7.3 leaf validation including erratum 8745. |
-| `mls/leaf_node_test.go` | **Create.** LeafNode codec, signing, and §7.3 validation tests. |
-| `mls/tree.go` | **Create.** `NodeType`, `ParentNode`, `Node`, `RatchetTree` storage and accessors, blanking, resolution, add/update/remove, truncation, filtered direct path, copath encryption targets, and the `ratchet_tree` extension codec. |
+| `mls/credential.go` | **Create.** `Credential` and `BasicCredential`, refusing every non-basic credential type at parse. |
+| `mls/leaf_node.go` | **Create.** `LeafNodeSource`, `Lifetime`, `LeafNode`, `NewLeafNode`, LeafNodeTBS signing and signature verification, RFC 9420 §7.3 leaf validation including erratum 8745. |
+| `mls/leaf_node_test.go` | **Create.** LeafNode codec, construction, signing, and §7.3 validation tests. |
+| `mls/key_package.go` | **Create.** `KeyPackage`, `NewKeyPackage`, `(*KeyPackage).Ref`, `(*KeyPackage).Validate` and the KeyPackageTBS signature. |
+| `mls/key_package_test.go` | **Create.** KeyPackage codec, construction, ref and validation tests. |
+| `mls/tree.go` | **Create.** `NodeType`, `ParentNode`, `Node`, `OptionalNode`, `RatchetTree` storage and accessors, the `NodeShape` implementation, blanking, resolution, add/update/remove, truncation, filtered direct path, copath encryption targets, and the `ratchet_tree` extension codec. |
 | `mls/tree_test.go` | **Create.** Structure, resolution, tree-operation and codec tests. |
 | `mls/tree_hash.go` | **Create.** `TreeHashInput`/`LeafNodeHashInput`/`ParentNodeHashInput`, the tree hash, the original tree hash under an exclusion set, `ParentHashInput`, and parent-hash verification (§7.9.2). |
 | `mls/tree_hash_test.go` | **Create.** Tree hash, original tree hash and parent-hash-validity tests. |
-| `mls/tree_sync.go` | **Create.** Whole-tree validation: structure, leaf validation across the tree, key uniqueness, unmerged-leaf consistency, parent hashes, tree hash against a GroupContext value. |
-| `mls/tree_sync_test.go` | **Create.** Tree validation tests, including the negative ValSem cases owned here. |
-| `mls/treekem.go` | **Create.** `HpkeCiphertext`, `UpdatePathNode`, `UpdatePath` and their codec; path-secret ladder; `TreeKEMPrivate`; UpdatePath creation, encryption, merge and decryption. |
+| `mls/tree_sync.go` | **Create.** Whole-tree validation: structure, leaf validation across the tree, key uniqueness, unmerged-leaf consistency, parent hashes, tree hash against a GroupContext value, and `CheckUpdatePathKeyUniqueness`. |
+| `mls/tree_sync_test.go` | **Create.** Tree validation tests, including the negative cases owned here. |
+| `mls/treekem.go` | **Create.** `HpkeCiphertext`, `SealWithLabel`/`OpenWithLabel`, `UpdatePathNode`, `UpdatePath` and their codec; path-secret ladder; `TreeKEMPrivate`; UpdatePath creation, encryption, merge and decryption. |
 | `mls/treekem_test.go` | **Create.** Path secret, create/encrypt/merge/decrypt and negative tests. |
 | `mls/tree_testutil_test.go` | **Create.** The n-member test tree builder shared by every test file in this plan. |
-| `mls/tree_vectors_test.go` | **Create.** Harnesses for vector families 9 (tree-operations), 10 (tree-validation) and 11 (TreeKEM). |
-| `mls/tree_fuzz_test.go` | **Create.** `FuzzRatchetTreeDecode` and `FuzzUpdatePathDecode`: no-panic and round-trip-stability properties (Gate 4 properties 1 and 2). |
+| `mls/tree_kat_test.go` | **Create.** Runners for vector families 10 (tree-validation) and 11 (TreeKEM), each registering itself through `RegisterVectorFamily`. Family 9 (tree-operations) is the group lifecycle plan's. |
+| `mls/tree_roundtrip_test.go` | **Create.** The corpus-driven no-panic and round-trip-stability regression tests for the ratchet tree and UpdatePath decoders. The `Fuzz*` targets themselves are the validation plan's (§9.5); this file contributes the seed corpus and the deterministic regression net. |
 | `mls/tree_bench_test.go` | **Create.** Tree hash, parent-hash verification and UpdatePath benchmarks at the 500-member design target. |
-| `mls/testdata/vectors/tree-operations.json` | **Create.** Vendored family 9 vector, pinned. |
-| `mls/testdata/vectors/tree-validation.json` | **Create.** Vendored family 10 vector, pinned. |
-| `mls/testdata/vectors/treekem.json` | **Create.** Vendored family 11 vector, pinned. |
-| `mls/testdata/vectors/PINS.md` | **Create.** The mlswg commit the three files came from and their SHA-256 digests. |
-| `mls/testdata/corpus/ratchet_tree/`, `mls/testdata/corpus/update_path/` | **Create.** Seed corpora for the two fuzz targets. |
+| `mls/interop/testdata/corpus/ratchet_tree/`, `mls/interop/testdata/corpus/update_path/` | **Create.** Seed corpus contributions to the corpus directory the validation plan's fuzz targets and the nightly differential job read. |
+
+Vendoring is **not** in this plan. `mls/testdata/vectors/*.json`, `testdata/vectors/VECTORS.sha256`
+and `mls/interop/PINS.md` are all produced by the validation plan's single vendoring task; this plan
+keeps only its runners and reads the files through `LoadVectorFile`.
 
 ---
 
@@ -78,197 +121,307 @@ slice. This plan does not define any of them.
 // mls/syntax — Syntax and codec plan (wave 1)
 package syntax
 
-const MaxVectorLength = 1 << 20        // 1 MiB
-const MaxRatchetTreeLength = 16 << 20  // 16 MiB
+const MaxVectorLength int = 1 << 20       // 1 MiB, every field but the tree
+const MaxRatchetTreeLength int = 1 << 24  // 16 MiB, the ratchet tree only
 
-type Writer struct{ /* opaque */ }
+var ErrTruncated error
+var ErrTrailingBytes error
+var ErrLengthExceedsMax error
+var ErrOptionalPresence error
+
+type Writer struct{ ... }                        // not safe for concurrent use
 func NewWriter() *Writer
+func NewWriterLimit(maxVectorLength int) *Writer
+func (self *Writer) Bytes() ([]byte, error)      // undefined when err non-nil
+func (self *Writer) Err() error
+func (self *Writer) Len() int
+func (self *Writer) MaxVectorLength() int
 func (self *Writer) WriteUint8(v uint8)
 func (self *Writer) WriteUint16(v uint16)
 func (self *Writer) WriteUint32(v uint32)
 func (self *Writer) WriteUint64(v uint64)
-func (self *Writer) WriteBytes(b []byte)      // raw, no length prefix
-func (self *Writer) WriteOpaqueVec(b []byte)  // MLS variable-length prefix then b
-func (self *Writer) Bytes() []byte
+func (self *Writer) WriteRaw(bs []byte)          // opaque x[N], no prefix
+func (self *Writer) WriteOpaque(bs []byte)       // opaque x<V>; nil == empty
+func (self *Writer) WriteOptional(present bool, encodeOne func(w *Writer) error) error
 
-type Reader struct{ /* opaque */ }
-func NewReader(data []byte) *Reader
+type Reader struct{ ... }                                    // not safe for concurrent use
+func NewReader(bs []byte) *Reader
+func NewReaderLimit(bs []byte, maxVectorLength int) *Reader
+func (self *Reader) Offset() int
+func (self *Reader) Remaining() int
+func (self *Reader) Empty() bool
+func (self *Reader) MaxVectorLength() int
+func (self *Reader) Done() error             // ErrTrailingBytes when bytes remain
 func (self *Reader) ReadUint8() (uint8, error)
 func (self *Reader) ReadUint16() (uint16, error)
 func (self *Reader) ReadUint32() (uint32, error)
 func (self *Reader) ReadUint64() (uint64, error)
-func (self *Reader) ReadOpaqueVec() ([]byte, error)
-func (self *Reader) ReadVecReader() (*Reader, error) // sub-Reader over one length-prefixed region
-func (self *Reader) Empty() bool
+func (self *Reader) ReadRaw(n int) ([]byte, error)     // opaque x[N]; a COPY
+func (self *Reader) ReadOpaque() ([]byte, error)       // a COPY, never nil
+func (self *Reader) ReadSub() (*Reader, error)         // bounded view of the next opaque<V>
+func (self *Reader) ReadOptional(decodeOne func(r *Reader) error) (present bool, err error)
 
-var ErrTruncated error
-var ErrTrailingBytes error
-var ErrNonMinimalLength error
-var ErrVectorTooLong error
+func WriteVector[T any](w *Writer, items []T, encodeOne func(w *Writer, item T) error) error
+func ReadVector[T any](r *Reader, decodeOne func(r *Reader) (T, error)) ([]T, error)
+
+type Marshaler interface {
+	MarshalMLS(w *Writer) error
+}
+type Unmarshaler interface {
+	UnmarshalMLS(r *Reader) error
+}
+type Codec interface {
+	Marshaler
+	Unmarshaler
+}
+
+func Marshal(v Marshaler) ([]byte, error)
+func Unmarshal(bs []byte, v Unmarshaler) error         // enforces full consumption
+func UnmarshalLimit(bs []byte, v Unmarshaler, maxVectorLength int) error
 ```
 
 ```go
-// mls/crypto.go, mls/hpke.go, mls/suite.go — Crypto primitives and HPKE plan (wave 1)
+// mls/suite.go, mls/crypto*.go, mls/hpke.go — Crypto primitives and HPKE plan (wave 1)
 package mls
 
 type CipherSuite uint16
-const CipherSuiteX25519ChaCha20SHA256Ed25519 CipherSuite = 0x0003
+const CipherSuiteX25519ChaCha20Sha256Ed25519 CipherSuite = 0x0003
+
+type SuiteParams struct {
+    Suite       CipherSuite
+    Name        string
+    KemId       uint16
+    KdfId       uint16
+    AeadId      uint16
+    SignatureId uint16
+    Nh          int
+    Nk          int
+    Nn          int
+    Nt          int
+    Nsecret     int
+    Nenc        int
+    Npk         int
+    Nsk         int
+    NsigPub     int
+    NsigPriv    int
+}
+func LookupSuite(suite CipherSuite) (*SuiteParams, error)
 
 type HpkePublicKey []byte
 type HpkePrivateKey []byte
 type SignaturePublicKey []byte
-type SignaturePrivateKey []byte
+type SignaturePrivateKey []byte    // Ed25519 32-byte seed
 
-type CryptoProvider interface { /* full surface in Spec A §3.3 */
+type CryptoProvider interface {                     // exactly Spec A §3.3
     Suite() CipherSuite
     HashSize() int
+    KeySize() int
+    NonceSize() int
     Hash(data []byte) []byte
-    DeriveSecret(secret []byte, label string) []byte
+    Mac(key []byte, data []byte) []byte
+    MacVerify(key []byte, data []byte, tag []byte) bool
+    Extract(salt []byte, ikm []byte) []byte
+    Expand(prk []byte, info []byte, length int) []byte
     ExpandWithLabel(secret []byte, label string, context []byte, length int) []byte
-    DeriveKeyPair(ikm []byte) (HpkePrivateKey, HpkePublicKey, error)
+    DeriveSecret(secret []byte, label string) []byte
+    DeriveTreeSecret(secret []byte, label string, generation uint32, length int) []byte
+    AeadSeal(key []byte, nonce []byte, aad []byte, plaintext []byte) ([]byte, error)
+    AeadOpen(key []byte, nonce []byte, aad []byte, ciphertext []byte) ([]byte, error)
     SignWithLabel(priv SignaturePrivateKey, label string, content []byte) ([]byte, error)
-    VerifyWithLabel(pub SignaturePublicKey, label string, content, sig []byte) error
+    VerifyWithLabel(pub SignaturePublicKey, label string, content []byte, sig []byte) error
+    HpkeSeal(pub HpkePublicKey, info []byte, aad []byte, plaintext []byte) (kemOutput []byte, ciphertext []byte, err error)
+    HpkeOpen(priv HpkePrivateKey, kemOutput []byte, info []byte, aad []byte, ciphertext []byte) ([]byte, error)
+    DeriveKeyPair(ikm []byte) (HpkePrivateKey, HpkePublicKey, error)
     SignatureKeyPair() (SignaturePrivateKey, SignaturePublicKey, error)
     Random(n int) []byte
 }
 func NewCryptoProvider(suite CipherSuite) (CryptoProvider, error)
 
+func RefHash(crypto CryptoProvider, label string, value []byte) []byte
+func MakeKeyPackageRef(crypto CryptoProvider, keyPackage []byte) []byte
+
 // RFC 9420 §5.1.3, wrapping RFC 9180 SealBase/OpenBase with the MLS EncryptContext struct.
-func EncryptWithLabel(crypto CryptoProvider, pub HpkePublicKey, label string,
-    context, plaintext []byte) (kemOutput, ciphertext []byte, err error)
-func DecryptWithLabel(crypto CryptoProvider, priv HpkePrivateKey, label string,
-    context, kemOutput, ciphertext []byte) ([]byte, error)
+// The flat byte-slice form is normative; the HpkeCiphertext-shaped convenience over it is
+// SealWithLabel/OpenWithLabel, Produced by THIS plan.
+func EncryptWithLabel(crypto CryptoProvider, pub HpkePublicKey, label string, context []byte, plaintext []byte) (kemOutput []byte, ciphertext []byte, err error)
+func DecryptWithLabel(crypto CryptoProvider, priv HpkePrivateKey, label string, context []byte, kemOutput []byte, ciphertext []byte) ([]byte, error)
 ```
 
 ```go
-// mls/tree_math.go — Tree math plan (wave 1)
+// mls/tree_math.go — Tree math plan (wave 1). Normative in full; every arithmetic that
+// can be out of range returns an error (C3).
 package mls
 
 type LeafIndex uint32
 type NodeIndex uint32
+type LeafCount uint32
+
+const MaxLeafCount LeafCount = 1 << 31
+
+var ErrLeafCountRange, ErrLeafCountNotFull, ErrNodeOutOfRange, ErrLeafOutOfRange,
+    ErrNodeIsParent, ErrLeafHasNoChildren, ErrRootHasNoParent, ErrRootHasNoSibling,
+    ErrNodeWidthNotOdd error
 
 func (self LeafIndex) NodeIndex() NodeIndex
-func (self NodeIndex) LeafIndex() (LeafIndex, bool)
 func (self NodeIndex) IsLeaf() bool
-func Level(x NodeIndex) uint32
-func NodeWidth(nLeaves uint32) uint32           // 2*nLeaves - 1, 0 for nLeaves == 0
-func Root(nLeaves uint32) NodeIndex
-func Left(x NodeIndex) (NodeIndex, bool)        // false when x is a leaf
-func Right(x NodeIndex) (NodeIndex, bool)
-func Parent(x NodeIndex, nLeaves uint32) (NodeIndex, bool)   // false at the root
-func Sibling(x NodeIndex, nLeaves uint32) (NodeIndex, bool)
-func DirectPath(x NodeIndex, nLeaves uint32) []NodeIndex     // excludes x, includes the root
-func CoPath(x NodeIndex, nLeaves uint32) []NodeIndex
-func CommonAncestor(x, y NodeIndex) NodeIndex
-```
+func (self NodeIndex) LeafIndex() (LeafIndex, error)
+func (self NodeIndex) Level() uint32
 
-```go
-// mls/credential.go — Syntax and codec plan (wave 1)
-package mls
+func NodeWidth(n LeafCount) uint32
+func LeafCountFromNodeWidth(w uint32) (LeafCount, error)
+func IsFullLeafCount(n LeafCount) bool
+func FullLeafCount(n LeafCount) LeafCount
+func ExtendedLeafCount(n LeafCount) (LeafCount, error)
+func TruncatedLeafCount(rightmostNonBlankLeaf LeafIndex) (LeafCount, error)
 
-type Credential struct {
-    CredentialType CredentialType // 0x0001 basic only in v1
-    Identity       []byte         // BasicCredential.identity
+func Root(n LeafCount) (NodeIndex, error)
+func Left(x NodeIndex) (NodeIndex, error)
+func Right(x NodeIndex) (NodeIndex, error)
+func Parent(x NodeIndex, n LeafCount) (NodeIndex, error)
+func Sibling(x NodeIndex, n LeafCount) (NodeIndex, error)
+func DirectPath(x NodeIndex, n LeafCount) ([]NodeIndex, error)
+func Copath(x NodeIndex, n LeafCount) ([]NodeIndex, error)
+func CommonAncestor(x NodeIndex, y NodeIndex) NodeIndex
+
+func SubtreeSpan(x NodeIndex) (firstNode NodeIndex, lastNode NodeIndex)
+func SubtreeLeaves(x NodeIndex) (firstLeaf LeafIndex, lastLeaf LeafIndex)
+func InSubtree(head NodeIndex, x NodeIndex) bool
+
+type NodeShape interface {
+    LeafCount() LeafCount
+    IsBlank(x NodeIndex) bool
+    UnmergedLeaves(x NodeIndex) []LeafIndex
 }
-func (self *Credential) MarshalTo(w *syntax.Writer) error
-func UnmarshalCredential(r *syntax.Reader) (Credential, error)
+type PathStep struct {
+    Node        NodeIndex
+    CopathChild NodeIndex
+}
+func Resolution(shape NodeShape, x NodeIndex) ([]NodeIndex, error)
+func FilteredDirectPath(shape NodeShape, leaf LeafIndex) ([]PathStep, error)
 ```
 
 ```go
-// mls/errors.go — Validation and interop harness plan (wave 1). One value per ValSem code.
+// mls/errors.go — Validation and interop harness plan (wave 1). The single declaration
+// site for every ValSem-numbered sentinel and every v1-profile refusal.
 package mls
+
+type ValSemCode uint16
+func ValSem(code ValSemCode, detail error) error
 
 var ErrBadSignature error                // ValSem010
 var ErrDuplicateSignatureKey error       // ValSem101
 var ErrDuplicateEncryptionKey error      // ValSem103 / 110 / 206 / 207
 var ErrMissingRequiredCapability error   // ValSem106 / 109
+var ErrMissingPath error                 // ValSem201
 var ErrPathLength error                  // ValSem202
 var ErrPathDecrypt error                 // ValSem203
 var ErrPathKeyMismatch error             // ValSem204
+var ErrUnsupportedGroupExtension error   // ValSem209
 var ErrTrailingBlankNodes error          // ValSem300
+var ErrProfileCredentialType error       // the v1 BasicCredential-only refusal
+var ErrProfileCiphersuite error          // the v1 single-suite refusal
 ```
 
 ```go
-// mls/key_schedule.go — Key schedule and secret tree plan (wave 2)
+// mls/profile.go — Validation and interop harness plan (wave 1)
 package mls
 
-// Consumed only by tree_sync.go, to check a tree hash against the context that pinned it.
+type Profile struct{ ... }
+func (self *Profile) CheckCredentialType(t CredentialType) error
+```
+
+```go
+// mls/key_schedule.go, mls/group_context.go — Key schedule and secret tree plan (wave 2)
+package mls
+
+// Consumed only by tree_sync.go and the family-11 runner, to check a tree hash against
+// the context that pinned it and to build the HPKE context bytes.
 type GroupContext struct {
-    Version                 ProtocolVersion
+    Version                 ProtocolVersion   // the ProtocolVersion type is Produced by THIS plan
     CipherSuite             CipherSuite
     GroupId                 []byte
     Epoch                   uint64
     TreeHash                []byte
     ConfirmedTranscriptHash []byte
-    Extensions              []Extension    // the Extension type is Produced by THIS plan
+    Extensions              []Extension       // the Extension type is Produced by THIS plan
 }
-func (self *GroupContext) Marshal() ([]byte, error)
+func (self *GroupContext) MarshalMLS(w *syntax.Writer) error
+func (self *GroupContext) UnmarshalMLS(r *syntax.Reader) error
+// bytes come from syntax.Marshal(gc); GroupContext has no Marshal method of its own (C1).
 ```
 
 ```go
-// mls/proposal.go, mls/key_package.go — Group lifecycle plan (wave 4).
-// Consumed by Task 28 only. No other task in this plan depends on wave 4.
+// mls/vectors_test.go — Validation and interop harness plan (wave 1). The one vector
+// registry, the one hex decoder, the one loader. This plan defines none of them.
 package mls
 
-type ProposalKind uint16
-const (
-    ProposalKindAdd    ProposalKind = 0x0001
-    ProposalKindUpdate ProposalKind = 0x0002
-    ProposalKindRemove ProposalKind = 0x0003
-)
-type KeyPackage struct {
-    Version     ProtocolVersion
-    CipherSuite CipherSuite
-    InitKey     HpkePublicKey
-    LeafNode    LeafNode      // the LeafNode type is Produced by THIS plan
-    Extensions  []Extension
-    Signature   []byte
+type VectorFamily struct {
+    Number   int
+    Name     string
+    File     string
+    Slice    string
+    Verify   func(t *testing.T, raw json.RawMessage)
+    Generate func(t *testing.T) json.RawMessage
 }
-type Proposal struct {
-    Kind    ProposalKind
-    Add     *KeyPackage
-    Update  *LeafNode
-    Remove  *LeafIndex
-}
-func ParseProposal(data []byte) (*Proposal, error)
+func RegisterVectorFamily(family VectorFamily)
+func LoadVectorFile(t *testing.T, file string) []json.RawMessage
+func MustHex(t *testing.T, s string) []byte
+func HexOf(b []byte) string
 ```
 
 ---
 
 ## Interfaces produced by this plan
 
-The complete contract other plans write their Consumes blocks against. Nothing else in `mls/tree*.go`,
-`mls/leaf_node.go` or `mls/extension.go` is exported.
+The complete contract other plans write their Consumes blocks against, taken verbatim from the
+canonical interface registry §6. Nothing else in these files is exported.
 
 ```go
 package mls
 
-// ---- extension.go ----
+// ---- extension.go: the IANA registry enums ----
 type ProtocolVersion uint16
-type CredentialType uint16
-type ProposalType uint16
-type ExtensionType uint16
+const ProtocolVersionMls10 ProtocolVersion = 0x0001
 
-const ProtocolVersionMLS10 ProtocolVersion = 0x0001
+type CredentialType uint16
 const CredentialTypeBasic CredentialType = 0x0001
+
+type ProposalType uint16
 const (
-    ExtensionTypeRatchetTree         ExtensionType = 0x0002
-    ExtensionTypeRequiredCapabilities ExtensionType = 0x0003
-    ExtensionTypeUrmessageGroupPolicy ExtensionType = 0xF001
-    ExtensionTypeUrmessageLeafKeys    ExtensionType = 0xF002
+    ProposalTypeReserved               ProposalType = 0x0000
+    ProposalTypeAdd                    ProposalType = 0x0001
+    ProposalTypeUpdate                 ProposalType = 0x0002
+    ProposalTypeRemove                 ProposalType = 0x0003
+    ProposalTypePreSharedKey           ProposalType = 0x0004
+    ProposalTypeReInit                 ProposalType = 0x0005
+    ProposalTypeExternalInit           ProposalType = 0x0006
+    ProposalTypeGroupContextExtensions ProposalType = 0x0007
+)
+
+type ExtensionType uint16
+const (
+    ExtensionTypeRatchetTree             ExtensionType = 0x0002
+    ExtensionTypeRequiredCapabilities    ExtensionType = 0x0003
+    ExtensionTypeExternalSenders         ExtensionType = 0x0004
+    ExtensionTypeUrmessageGroupPolicy    ExtensionType = 0xF001
+    ExtensionTypeUrmessageLeafKeys       ExtensionType = 0xF002
     ExtensionTypeUrmessageOwnerSuccessor ExtensionType = 0xF003
 )
 
+// ---- extension.go: Extension ----
 type Extension struct {
     ExtensionType ExtensionType
     ExtensionData []byte
 }
-func (self *Extension) MarshalTo(w *syntax.Writer) error
-func UnmarshalExtension(r *syntax.Reader) (Extension, error)
-func MarshalExtensions(exts []Extension) ([]byte, error)
-func UnmarshalExtensions(r *syntax.Reader) ([]Extension, error)
+func (self *Extension) MarshalMLS(w *syntax.Writer) error
+func (self *Extension) UnmarshalMLS(r *syntax.Reader) error
+var _ syntax.Codec = (*Extension)(nil)
+
+func WriteExtensions(w *syntax.Writer, exts []Extension) error
+func ReadExtensions(r *syntax.Reader) ([]Extension, error)
 func FindExtension(exts []Extension, t ExtensionType) ([]byte, bool)
 
+// ---- extension.go: Capabilities and RequiredCapabilities ----
 type Capabilities struct {
     Versions     []ProtocolVersion
     CipherSuites []CipherSuite
@@ -276,31 +429,47 @@ type Capabilities struct {
     Proposals    []ProposalType
     Credentials  []CredentialType
 }
-func (self *Capabilities) MarshalTo(w *syntax.Writer) error
-func UnmarshalCapabilities(r *syntax.Reader) (Capabilities, error)
-func (self *Capabilities) SupportsExtension(t ExtensionType) bool
-func (self *Capabilities) SupportsCredential(t CredentialType) bool
-func (self *Capabilities) SupportsProposal(t ProposalType) bool
+func (self *Capabilities) MarshalMLS(w *syntax.Writer) error
+func (self *Capabilities) UnmarshalMLS(r *syntax.Reader) error
 func (self *Capabilities) SupportsVersion(v ProtocolVersion) bool
 func (self *Capabilities) SupportsCipherSuite(s CipherSuite) bool
+func (self *Capabilities) SupportsExtension(t ExtensionType) bool
+func (self *Capabilities) SupportsProposal(t ProposalType) bool
+func (self *Capabilities) SupportsCredential(t CredentialType) bool
+func (self *Capabilities) Supports(rc *RequiredCapabilities) error
+var _ syntax.Codec = (*Capabilities)(nil)
 
 type RequiredCapabilities struct {
     ExtensionTypes  []ExtensionType
     ProposalTypes   []ProposalType
     CredentialTypes []CredentialType
 }
-func (self *RequiredCapabilities) Marshal() ([]byte, error)
-func UnmarshalRequiredCapabilities(data []byte) (RequiredCapabilities, error)
+func (self *RequiredCapabilities) MarshalMLS(w *syntax.Writer) error
+func (self *RequiredCapabilities) UnmarshalMLS(r *syntax.Reader) error
+var _ syntax.Codec = (*RequiredCapabilities)(nil)
 
-// urmessage_leaf_keys, 0xF002. MASTER §5.3, Spec A §3.4.
-type LeafKeysExtension struct {
-    AlgId          uint16 // 0x0014 = X-Wing (X25519 + ML-KEM-768)
-    DeviceXwingPub []byte // exactly XwingPublicKeyLen bytes for alg 0x0014
-}
+// ---- extension.go: the X-Wing constants and urmessage_leaf_keys, 0xF002 ----
+// MASTER §5.3, Spec A §3.4. The 1216 is duplicated across the mls/message package
+// boundary on purpose: mls must not import message. The crypto plan carries the
+// compile assertion that message.XwingPublicKeySize and this agree.
 const AlgIdXwing uint16 = 0x0014
 const XwingPublicKeyLen = 1216
-func (self *LeafKeysExtension) Marshal() ([]byte, error)
-func UnmarshalLeafKeysExtension(data []byte) (LeafKeysExtension, error)
+type LeafKeysExtension struct {
+    AlgId          uint16      // 0x0014 = X-Wing (X25519 + ML-KEM-768)
+    DeviceXwingPub []byte      // exactly XwingPublicKeyLen bytes for alg 0x0014
+}
+func (self *LeafKeysExtension) Encode() (Extension, error)
+func ParseLeafKeysExtension(data []byte) (*LeafKeysExtension, error)
+
+// ---- credential.go ----
+type Credential struct {
+    CredentialType CredentialType   // 0x0001 basic only in v1
+    Identity       []byte           // BasicCredential.identity
+}
+func (self *Credential) MarshalMLS(w *syntax.Writer) error   // ErrProfileCredentialType on x509
+func (self *Credential) UnmarshalMLS(r *syntax.Reader) error // ErrProfileCredentialType on x509
+func BasicCredential(identity []byte) Credential
+var _ syntax.Codec = (*Credential)(nil)
 
 // ---- leaf_node.go ----
 type LeafNodeSource uint8
@@ -309,7 +478,6 @@ const (
     LeafNodeSourceUpdate     LeafNodeSource = 2
     LeafNodeSourceCommit     LeafNodeSource = 3
 )
-
 type Lifetime struct {
     NotBefore uint64
     NotAfter  uint64
@@ -321,34 +489,52 @@ type LeafNode struct {
     Credential     Credential
     Capabilities   Capabilities
     LeafNodeSource LeafNodeSource
-    Lifetime       Lifetime   // source == key_package
-    ParentHash     []byte     // source == commit
+    Lifetime       Lifetime     // source == key_package
+    ParentHash     []byte       // source == commit
     Extensions     []Extension
     Signature      []byte
 }
-func (self *LeafNode) MarshalTo(w *syntax.Writer) error
-func (self *LeafNode) Marshal() ([]byte, error)
-func UnmarshalLeafNode(r *syntax.Reader) (*LeafNode, error)
-func ParseLeafNode(data []byte) (*LeafNode, error)
+func (self *LeafNode) MarshalMLS(w *syntax.Writer) error
+func (self *LeafNode) UnmarshalMLS(r *syntax.Reader) error
 func (self *LeafNode) Clone() *LeafNode
+var _ syntax.Codec = (*LeafNode)(nil)
 
-func (self *LeafNode) Sign(crypto CryptoProvider, signer SignaturePrivateKey,
-    groupId []byte, leafIndex LeafIndex) error
-func (self *LeafNode) VerifySignature(crypto CryptoProvider,
-    groupId []byte, leafIndex LeafIndex) error
+func NewLeafNode(crypto CryptoProvider, signer SignaturePrivateKey, cred Credential,
+    encKey HpkePublicKey, caps Capabilities, exts []Extension) (*LeafNode, error)
+func (self *LeafNode) Sign(crypto CryptoProvider, signer SignaturePrivateKey, groupId []byte, leafIndex LeafIndex) error
+func (self *LeafNode) VerifySignature(crypto CryptoProvider, groupId []byte, leafIndex LeafIndex) error
 
 type LeafValidationContext struct {
-    Crypto            CryptoProvider
-    Suite             CipherSuite
-    GroupId           []byte
-    LeafIndex         LeafIndex
-    ExpectedSource    LeafNodeSource
-    RequiredCaps      *RequiredCapabilities
-    GroupExtensions   []Extension
-    NowMs             uint64  // 0 skips the lifetime check
-    ClockSkewMs       uint64
+    Crypto          CryptoProvider
+    Suite           CipherSuite
+    GroupId         []byte
+    LeafIndex       LeafIndex
+    ExpectedSource  LeafNodeSource
+    RequiredCaps    *RequiredCapabilities
+    GroupExtensions []Extension
+    NowMs           uint64        // 0 skips the lifetime check
+    ClockSkewMs     uint64
 }
 func (self *LeafNode) Validate(ctx *LeafValidationContext) error
+
+// ---- key_package.go ----
+type KeyPackage struct {
+    Version     ProtocolVersion
+    CipherSuite CipherSuite
+    InitKey     HpkePublicKey
+    LeafNode    LeafNode
+    Extensions  []Extension
+    Signature   []byte
+}
+func (self *KeyPackage) MarshalMLS(w *syntax.Writer) error
+func (self *KeyPackage) UnmarshalMLS(r *syntax.Reader) error
+var _ syntax.Codec = (*KeyPackage)(nil)
+
+func NewKeyPackage(crypto CryptoProvider, suite CipherSuite, cred Credential,
+    caps Capabilities, exts []Extension) (kp *KeyPackage, initPriv HpkePrivateKey,
+    encPriv HpkePrivateKey, err error)
+func (self *KeyPackage) Ref(crypto CryptoProvider) ([]byte, error)
+func (self *KeyPackage) Validate(crypto CryptoProvider, suite CipherSuite, now time.Time) error
 
 // ---- tree.go ----
 type NodeType uint8
@@ -356,28 +542,34 @@ const (
     NodeTypeLeaf   NodeType = 1
     NodeTypeParent NodeType = 2
 )
-
 type ParentNode struct {
     EncryptionKey  HpkePublicKey
     ParentHash     []byte
     UnmergedLeaves []LeafIndex
 }
-func (self *ParentNode) MarshalTo(w *syntax.Writer) error
-func UnmarshalParentNode(r *syntax.Reader) (*ParentNode, error)
+func (self *ParentNode) MarshalMLS(w *syntax.Writer) error
+func (self *ParentNode) UnmarshalMLS(r *syntax.Reader) error
 func (self *ParentNode) Clone() *ParentNode
-
 type Node struct {
     NodeType NodeType
     Leaf     *LeafNode
     Parent   *ParentNode
 }
+type OptionalNode struct {
+    Present bool
+    Node    Node
+}
 
 type RatchetTree struct{ /* opaque: nodes []*Node */ }
-
 func NewRatchetTree() *RatchetTree
-func (self *RatchetTree) LeafWidth() uint32     // leaf slots; always a power of two
-func (self *RatchetTree) NodeWidth() uint32     // 2*LeafWidth - 1
-func (self *RatchetTree) Get(x NodeIndex) *Node // nil when blank or out of range
+func (self *RatchetTree) MarshalMLS(w *syntax.Writer) error
+func (self *RatchetTree) UnmarshalMLS(r *syntax.Reader) error
+func UnmarshalRatchetTree(data []byte) (*RatchetTree, error)   // UnmarshalLimit(MaxRatchetTreeLength)
+var _ syntax.Codec = (*RatchetTree)(nil)
+
+func (self *RatchetTree) LeafWidth() LeafCount        // leaf slots; a power of two
+func (self *RatchetTree) NodeWidth() uint32
+func (self *RatchetTree) Get(x NodeIndex) *Node       // nil when blank or out of range
 func (self *RatchetTree) Leaf(i LeafIndex) *LeafNode
 func (self *RatchetTree) ParentAt(x NodeIndex) *ParentNode
 func (self *RatchetTree) SetLeaf(i LeafIndex, leaf *LeafNode) error
@@ -387,15 +579,23 @@ func (self *RatchetTree) BlankDirectPath(i LeafIndex) error
 func (self *RatchetTree) Clone() *RatchetTree
 func (self *RatchetTree) Members() []LeafIndex
 func (self *RatchetTree) MemberCount() uint32
+func (self *RatchetTree) NonBlankLeaves() []LeafIndex
 func (self *RatchetTree) FindLeafBySignatureKey(key SignaturePublicKey) (LeafIndex, bool)
+func (self *RatchetTree) EncryptionKeyInUse(key HpkePublicKey) bool
+func (self *RatchetTree) HasTrailingBlankNodes() bool
 func (self *RatchetTree) Resolution(x NodeIndex) []NodeIndex
 func (self *RatchetTree) AddLeaf(leaf *LeafNode) (LeafIndex, error)
 func (self *RatchetTree) UpdateLeaf(i LeafIndex, leaf *LeafNode) error
 func (self *RatchetTree) RemoveLeaf(i LeafIndex) error
 func (self *RatchetTree) FilteredDirectPath(i LeafIndex) ([]NodeIndex, error)
 func (self *RatchetTree) EncryptionTargets(sender LeafIndex, exclude []LeafIndex) ([][]NodeIndex, error)
-func (self *RatchetTree) Marshal() ([]byte, error)
-func UnmarshalRatchetTree(data []byte) (*RatchetTree, error)
+
+// RatchetTree implements the tree math plan's NodeShape, with UnmergedLeaves returning
+// the stored list in stored order.
+func (self *RatchetTree) LeafCount() LeafCount
+func (self *RatchetTree) IsBlank(x NodeIndex) bool
+func (self *RatchetTree) UnmergedLeaves(x NodeIndex) []LeafIndex
+var _ NodeShape = (*RatchetTree)(nil)
 
 // ---- tree_hash.go ----
 func (self *RatchetTree) TreeHash(crypto CryptoProvider) ([]byte, error)
@@ -416,12 +616,23 @@ type TreeValidationContext struct {
 }
 func (self *RatchetTree) Validate(ctx *TreeValidationContext) error
 func (self *RatchetTree) ValidateAgainstContext(ctx *TreeValidationContext, gc *GroupContext) error
+func CheckUpdatePathKeyUniqueness(tree *RatchetTree, path *UpdatePath) error
 
 // ---- treekem.go ----
 type HpkeCiphertext struct {
     KemOutput  []byte
     Ciphertext []byte
 }
+func (self *HpkeCiphertext) MarshalMLS(w *syntax.Writer) error
+func (self *HpkeCiphertext) UnmarshalMLS(r *syntax.Reader) error
+
+// the HpkeCiphertext-shaped convenience over the crypto plan's flat pair — it lives
+// here, next to the type it returns, so the crypto plan stays free of TreeKEM types.
+func SealWithLabel(crypto CryptoProvider, pub HpkePublicKey, label string,
+    context []byte, plaintext []byte) (*HpkeCiphertext, error)
+func OpenWithLabel(crypto CryptoProvider, priv HpkePrivateKey, label string,
+    context []byte, ct *HpkeCiphertext) ([]byte, error)
+
 type UpdatePathNode struct {
     EncryptionKey       HpkePublicKey
     EncryptedPathSecret []HpkeCiphertext
@@ -430,10 +641,9 @@ type UpdatePath struct {
     LeafNode LeafNode
     Nodes    []UpdatePathNode
 }
-func (self *UpdatePath) MarshalTo(w *syntax.Writer) error
-func (self *UpdatePath) Marshal() ([]byte, error)
-func UnmarshalUpdatePath(r *syntax.Reader) (*UpdatePath, error)
-func ParseUpdatePath(data []byte) (*UpdatePath, error)
+func (self *UpdatePath) MarshalMLS(w *syntax.Writer) error
+func (self *UpdatePath) UnmarshalMLS(r *syntax.Reader) error
+var _ syntax.Codec = (*UpdatePath)(nil)
 
 type TreeKEMPrivate struct {
     LeafIndex      LeafIndex
@@ -486,6 +696,25 @@ var ErrNoPathSecret error
 var ErrPathSecretMismatch error
 ```
 
+**Ownership notes carried over from the registry, so no other plan waits on this one.**
+
+- `KeyPackage` was consumed by four plans and produced by none. It lands here, in wave 2, beside
+  `leaf_node.go`: it is a `LeafNode` plus an init key plus a signature, it depends only on the
+  crypto plan and this plan's own types, and putting it in wave 4 is what would make the framing
+  plan's wave-3 `MLSMessage` uncompilable, since `package mls` is one package.
+- `Credential` and `BasicCredential` land here: no wave-1 plan produces any MLS type.
+- `NewLeafNode`, `(*Capabilities).Supports`, `NonBlankLeaves`, `EncryptionKeyInUse`,
+  `HasTrailingBlankNodes`, `OptionalNode`, `SealWithLabel` and `OpenWithLabel` are symbols the group
+  lifecycle and validation plans call and nobody produced. They are all reads of, or thin wrappers
+  over, this plan's own types, so they land here rather than being open-coded elsewhere.
+- `LeafKeysExtension`, `AlgIdXwing` and the 1216 constant are this plan's, not the group lifecycle
+  plan's: the leaf node carries the extension and `LeafNode.Validate` range-checks it. That plan
+  keeps only the `LeafKeysOf(leaf)` accessor.
+- The registry enums — `ProtocolVersion`, `ProposalType`, `ExtensionType` and their constants — are
+  this plan's. The framing plan declares none of them; it owns the wire structs that use them.
+  **This plan's Task 3 sequences first in wave 2**, before the key schedule plan's Task 3, because
+  that plan consumes `Extension` and `WriteExtensions`/`ReadExtensions` from here.
+
 **Ordering note for callers.** The three TreeKEM entry points must be called in this order, because
 the HPKE context is the new epoch's GroupContext and its `tree_hash` covers the path's own public
 keys:
@@ -504,70 +733,72 @@ and on the receiving side:
 
 ## Tasks
 
-### Task 1: Vendor and pin the three vector families
+### Task 1: The tree vector runner file, wired to the shared registry
 
 **Files:**
-- Create: `mls/testdata/vectors/tree-operations.json`, `mls/testdata/vectors/tree-validation.json`, `mls/testdata/vectors/treekem.json`, `mls/testdata/vectors/PINS.md`
-- Test: `mls/tree_vectors_test.go`
+- Create: `mls/tree_kat_test.go`
+- Test: `mls/tree_kat_test.go`
 
 **Interfaces:**
-- Consumes: nothing.
-- Produces: `mls/testdata/vectors/PINS.md` recording the mlswg commit and per-file SHA-256; test helpers `treeVectorFile(t *testing.T, name string) []byte` and `treeHex(t *testing.T, s string) []byte` used by every later vector task in this plan.
+- Consumes: `LoadVectorFile(t *testing.T, file string) []json.RawMessage`, `MustHex(t *testing.T, s string) []byte`, `HexOf(b []byte) string`, `RegisterVectorFamily(family VectorFamily)`, `VectorFamily` (Validation and interop harness plan, wave 1); `CipherSuite`, `CipherSuiteX25519ChaCha20Sha256Ed25519` (Crypto plan, wave 1).
+- Produces: nothing exported. This task creates the file the family-10 and family-11 runners live in and the one private helper they share, `treeVectorsOfSuite`.
+
+**Vendoring is not this plan's.** The validation plan has the single vendoring task for all sixteen
+mlswg files, `testdata/vectors/VECTORS.sha256` and `mls/interop/PINS.md`. Three parallel hex
+decoders and three pin files over one corpus is how two of them end up disagreeing about the empty
+string, so this plan defines no `treeVectorFile`, no `treeHex` and no `PINS.md`, and calls
+`LoadVectorFile`/`MustHex`/`HexOf` instead. If `testdata/vectors/tree-validation.json` is missing
+when this task runs, the fix is to run the validation plan's vendoring task, not to download it here.
 
 - [ ] **Step 1: Write the failing test**
 
 ```go
-// mls/tree_vectors_test.go
+// mls/tree_kat_test.go
 package mls
 
 import (
-    "crypto/sha256"
-    "encoding/hex"
-    "os"
-    "path/filepath"
-    "strings"
+    "encoding/json"
     "testing"
 )
 
-// the mlswg files this plan verifies. the digests live in PINS.md, so bumping a
-// vector is a reviewable diff rather than a silent re-download.
+// the three mlswg files whose contents this package's code is exercised against.
+// family 9 (tree-operations) is verified by the group lifecycle plan, because its
+// vector carries a serialized Proposal; the two families this plan gates on are 10
+// and 11.
 var treeVectorFiles = []string{
-    "tree-operations.json",
     "tree-validation.json",
     "treekem.json",
 }
 
-func treeVectorFile(t *testing.T, name string) []byte {
+// decode every entry of a vendored vector file into T and keep only the entries for
+// the implemented ciphersuite. every runner in this file starts with one call to it.
+func treeVectorsOfSuite[T any](t *testing.T, file string, suiteOf func(v *T) CipherSuite) []T {
     t.Helper()
-    data, err := os.ReadFile(filepath.Join("testdata", "vectors", name))
-    if err != nil {
-        t.Fatalf("read vector %s: %v", name, err)
+    raws := LoadVectorFile(t, file)
+    if len(raws) == 0 {
+        t.Fatalf("%s is empty", file)
     }
-    return data
-}
-
-func treeHex(t *testing.T, s string) []byte {
-    t.Helper()
-    b, err := hex.DecodeString(s)
-    if err != nil {
-        t.Fatalf("bad hex %q: %v", s, err)
-    }
-    return b
-}
-
-func TestTreeVectorsArePinned(t *testing.T) {
-    pins, err := os.ReadFile(filepath.Join("testdata", "vectors", "PINS.md"))
-    if err != nil {
-        t.Fatalf("read PINS.md: %v", err)
-    }
-    for _, name := range treeVectorFiles {
-        sum := sha256.Sum256(treeVectorFile(t, name))
-        digest := hex.EncodeToString(sum[:])
-        if !strings.Contains(string(pins), name) {
-            t.Fatalf("%s is not named in PINS.md", name)
+    out := []T{}
+    for i, raw := range raws {
+        var v T
+        if err := json.Unmarshal(raw, &v); err != nil {
+            t.Fatalf("%s entry %d: %v", file, i, err)
         }
-        if !strings.Contains(string(pins), digest) {
-            t.Fatalf("%s digest %s is not recorded in PINS.md", name, digest)
+        if suiteOf(&v) != CipherSuiteX25519ChaCha20Sha256Ed25519 {
+            continue
+        }
+        out = append(out, v)
+    }
+    if len(out) == 0 {
+        t.Fatalf("no entry of %s used ciphersuite 0x0003", file)
+    }
+    return out
+}
+
+func TestTreeVectorFilesAreVendored(t *testing.T) {
+    for _, file := range treeVectorFiles {
+        if raws := LoadVectorFile(t, file); len(raws) == 0 {
+            t.Fatalf("%s decoded to zero entries", file)
         }
     }
 }
@@ -575,51 +806,32 @@ func TestTreeVectorsArePinned(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./mls/... -run TestTreeVectorsArePinned -v`
-Expected: FAIL with `read PINS.md: open testdata/vectors/PINS.md: no such file or directory`
+Run: `go test ./mls/... -run TestTreeVectorFilesAreVendored -v`
+Expected: FAIL to compile with `undefined: LoadVectorFile` until the validation plan's wave-1 tasks
+land; once they have, FAIL with the loader's own "no such file" until its vendoring task has run
 
 - [ ] **Step 3: Write minimal implementation**
 
-Fetch the three files at the mlswg commit already recorded in `mls/interop/PINS.md` if that file
-exists; otherwise pin `mlswg/mls-implementations` at the current `main` and record it. The files
-live under `test-vectors/` in that repository.
+No production code. The file above *is* the deliverable; the failure is resolved by the validation
+plan's wave-1 registry task (`LoadVectorFile`, `MustHex`, `HexOf`, `RegisterVectorFamily`) and its
+vendoring task (the sixteen files plus `VECTORS.sha256`), both of which precede this plan.
 
-```bash
-MLSWG_COMMIT=$(git ls-remote https://github.com/mlswg/mls-implementations.git main | cut -f1)
-mkdir -p mls/testdata/vectors
-for f in tree-operations tree-validation treekem; do
-  curl -fsSL "https://raw.githubusercontent.com/mlswg/mls-implementations/$MLSWG_COMMIT/test-vectors/$f.json" \
-    -o "mls/testdata/vectors/$f.json"
-done
-{
-  echo "# Vendored mlswg test vectors"
-  echo
-  echo "Source: https://github.com/mlswg/mls-implementations"
-  echo "Commit: $MLSWG_COMMIT"
-  echo
-  echo "| File | SHA-256 |"
-  echo "|---|---|"
-  for f in tree-operations tree-validation treekem; do
-    echo "| $f.json | $(sha256sum mls/testdata/vectors/$f.json | cut -d" " -f1) |"
-  done
-} > mls/testdata/vectors/PINS.md
-```
-
-If the Syntax-and-codec plan or the Validation plan already vendored these three files at a
-different commit, keep theirs and regenerate `PINS.md` from the files on disk instead of
-re-downloading. One pinned mlswg commit per repository, never two.
+If `LoadVectorFile` exists but the two files do not, run the validation plan's vendoring task. Do
+not add a second download step here and do not add `mls/testdata/vectors/PINS.md`: the one pin file
+is `mls/interop/PINS.md`, and two pin files at two paths is exactly the drift the single vendoring
+task exists to prevent.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./mls/... -run TestTreeVectorsArePinned -v`
+Run: `go test ./mls/... -run TestTreeVectorFilesAreVendored -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git ls-files | wc -l
-git add mls/testdata/vectors mls/tree_vectors_test.go
-git commit -m "test(mls): vendor and pin the tree-operations, tree-validation and treekem vectors"
+git add mls/tree_kat_test.go
+git commit -m "test(mls): tree vector runner file wired to the shared vector registry"
 ```
 
 ---
@@ -725,15 +937,27 @@ git commit -m "feat(mls): typed errors for ratchet tree and TreeKEM failures"
 
 ---
 
-### Task 3: Extension, Capabilities and RequiredCapabilities wire types
+### Task 3: The registry enums, Extension, Capabilities and RequiredCapabilities
 
 **Files:**
-- Create: `mls/extension.go`
+- Create: `mls/tree_adapt.go`, `mls/extension.go`
 - Test: `mls/extension_test.go`
 
+**This task sequences first in wave 2**, ahead of the key schedule plan's Task 3, which consumes
+`Extension` and `WriteExtensions`/`ReadExtensions` from here. The registry enums live here and
+nowhere else: the framing and group lifecycle plans declare none of them, because two declarations
+of `ProposalType` in one Go package is a redeclaration error rather than a difference of opinion.
+
 **Interfaces:**
-- Consumes: `syntax.Writer`, `syntax.Reader`, `syntax.NewWriter`, `syntax.NewReader`, `syntax.ErrTrailingBytes` (Syntax and codec plan, wave 1); `CipherSuite`, `CipherSuiteX25519ChaCha20SHA256Ed25519` (Crypto plan, wave 1).
-- Produces: `ProtocolVersion`, `CredentialType`, `ProposalType`, `ExtensionType` and their constants; `Extension`, `UnmarshalExtension`, `MarshalExtensions`, `UnmarshalExtensions`, `FindExtension`; `Capabilities` with `MarshalTo`, `UnmarshalCapabilities` and the five `Supports*` predicates; `RequiredCapabilities` with `Marshal` and `UnmarshalRequiredCapabilities`.
+- Consumes: `syntax.Writer`, `syntax.Reader`, `syntax.NewWriter`, `syntax.NewReader`, `func (self *Writer) WriteUint16(v uint16)`, `func (self *Writer) WriteOpaque(bs []byte)`, `func (self *Writer) Bytes() ([]byte, error)`, `func (self *Reader) ReadUint16() (uint16, error)`, `func (self *Reader) ReadOpaque() ([]byte, error)`, `func WriteVector[T any](w *Writer, items []T, encodeOne func(w *Writer, item T) error) error`, `func ReadVector[T any](r *Reader, decodeOne func(r *Reader) (T, error)) ([]T, error)`, `func Marshal(v Marshaler) ([]byte, error)`, `func Unmarshal(bs []byte, v Unmarshaler) error`, `syntax.Codec`, `syntax.ErrTrailingBytes` (Syntax and codec plan, wave 1); `type LeafIndex uint32`, `type NodeIndex uint32`, `type LeafCount uint32`, `func (self NodeIndex) LeafIndex() (LeafIndex, error)`, `func Left(x NodeIndex) (NodeIndex, error)`, `func Right(x NodeIndex) (NodeIndex, error)`, `func Root(n LeafCount) (NodeIndex, error)`, `func DirectPath(x NodeIndex, n LeafCount) ([]NodeIndex, error)` (Tree math plan, wave 1); `type CipherSuite uint16`, `CipherSuiteX25519ChaCha20Sha256Ed25519` (Crypto plan, wave 1); `ErrMissingRequiredCapability` (Validation plan, `errors.go`); `ErrTreeMalformed` (Task 2).
+- Produces: `ProtocolVersion` + `ProtocolVersionMls10`; `CredentialType` + `CredentialTypeBasic`; `ProposalType` + its eight constants; `ExtensionType` + its six constants; `Extension` with `MarshalMLS`/`UnmarshalMLS`; `WriteExtensions`, `ReadExtensions`, `FindExtension`; `Capabilities` with `MarshalMLS`/`UnmarshalMLS`, the five `Supports*` predicates and `Supports(rc)`; `RequiredCapabilities` with `MarshalMLS`/`UnmarshalMLS`. Also the private `mls/tree_adapt.go` helpers — `marshalBytes`, `leftOf`, `rightOf`, `leafIndexOf`, `rootOf`, `directPathOf` — which are internal to this plan and exported to nobody.
+
+The tree-math shims exist because this package's own invariant (a leaf width of at least one, and
+every node index it forms already in range) makes the error arm unreachable, and a `(value, ok)`
+shape reads better at those call sites. They convert an error to `false`, and **every** call site
+turns `false` into this package's `ErrTreeMalformed`, so no error is swallowed. `rootOf` and
+`directPathOf` keep the error, because those two are the ones a future change to the width
+invariant would break silently.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -755,13 +979,17 @@ func TestExtensionRoundTrip(t *testing.T) {
         {ExtensionType: ExtensionTypeUrmessageGroupPolicy, ExtensionData: []byte("policy")},
         {ExtensionType: ExtensionTypeUrmessageLeafKeys, ExtensionData: nil},
     }
-    encoded, err := MarshalExtensions(in)
-    if err != nil {
-        t.Fatalf("MarshalExtensions: %v", err)
+    w := syntax.NewWriter()
+    if err := WriteExtensions(w, in); err != nil {
+        t.Fatalf("WriteExtensions: %v", err)
     }
-    out, err := UnmarshalExtensions(syntax.NewReader(encoded))
+    encoded, err := w.Bytes()
     if err != nil {
-        t.Fatalf("UnmarshalExtensions: %v", err)
+        t.Fatalf("Bytes: %v", err)
+    }
+    out, err := ReadExtensions(syntax.NewReader(encoded))
+    if err != nil {
+        t.Fatalf("ReadExtensions: %v", err)
     }
     if len(out) != len(in) {
         t.Fatalf("got %d extensions, want %d", len(out), len(in))
@@ -774,9 +1002,13 @@ func TestExtensionRoundTrip(t *testing.T) {
             t.Fatalf("extension %d data = %x, want %x", i, out[i].ExtensionData, in[i].ExtensionData)
         }
     }
-    reencoded, err := MarshalExtensions(out)
+    again := syntax.NewWriter()
+    if err := WriteExtensions(again, out); err != nil {
+        t.Fatalf("re-WriteExtensions: %v", err)
+    }
+    reencoded, err := again.Bytes()
     if err != nil {
-        t.Fatalf("re-MarshalExtensions: %v", err)
+        t.Fatalf("Bytes: %v", err)
     }
     if !bytes.Equal(reencoded, encoded) {
         t.Fatalf("re-encode = %x, want %x", reencoded, encoded)
@@ -789,26 +1021,46 @@ func TestExtensionRoundTrip(t *testing.T) {
     }
 }
 
+// one Extension on its own is a syntax.Codec, so the whole-corpus round-trip
+// property has an instantiation path for it.
+func TestExtensionIsACodec(t *testing.T) {
+    in := &Extension{ExtensionType: ExtensionTypeExternalSenders, ExtensionData: []byte("s")}
+    encoded, err := syntax.Marshal(in)
+    if err != nil {
+        t.Fatalf("Marshal: %v", err)
+    }
+    out := &Extension{}
+    if err := syntax.Unmarshal(encoded, out); err != nil {
+        t.Fatalf("Unmarshal: %v", err)
+    }
+    if out.ExtensionType != in.ExtensionType || !bytes.Equal(out.ExtensionData, in.ExtensionData) {
+        t.Fatalf("round trip = %+v, want %+v", out, in)
+    }
+    if err := syntax.Unmarshal(append(encoded, 0x00), &Extension{}); !errors.Is(err, syntax.ErrTrailingBytes) {
+        t.Fatalf("trailing byte err = %v, want ErrTrailingBytes", err)
+    }
+}
+
 func TestCapabilitiesRoundTripAndPredicates(t *testing.T) {
-    in := Capabilities{
-        Versions:     []ProtocolVersion{ProtocolVersionMLS10},
-        CipherSuites: []CipherSuite{CipherSuiteX25519ChaCha20SHA256Ed25519},
+    in := &Capabilities{
+        Versions:     []ProtocolVersion{ProtocolVersionMls10},
+        CipherSuites: []CipherSuite{CipherSuiteX25519ChaCha20Sha256Ed25519},
         Extensions:   []ExtensionType{ExtensionTypeUrmessageGroupPolicy, ExtensionTypeUrmessageLeafKeys},
-        Proposals:    []ProposalType{},
+        Proposals:    []ProposalType{ProposalTypeAdd, ProposalTypeRemove},
         Credentials:  []CredentialType{CredentialTypeBasic},
     }
-    w := syntax.NewWriter()
-    if err := in.MarshalTo(w); err != nil {
-        t.Fatalf("MarshalTo: %v", err)
-    }
-    out, err := UnmarshalCapabilities(syntax.NewReader(w.Bytes()))
+    encoded, err := syntax.Marshal(in)
     if err != nil {
-        t.Fatalf("UnmarshalCapabilities: %v", err)
+        t.Fatalf("Marshal: %v", err)
     }
-    if !out.SupportsVersion(ProtocolVersionMLS10) {
+    out := &Capabilities{}
+    if err := syntax.Unmarshal(encoded, out); err != nil {
+        t.Fatalf("Unmarshal: %v", err)
+    }
+    if !out.SupportsVersion(ProtocolVersionMls10) {
         t.Fatalf("SupportsVersion(mls10) = false")
     }
-    if !out.SupportsCipherSuite(CipherSuiteX25519ChaCha20SHA256Ed25519) {
+    if !out.SupportsCipherSuite(CipherSuiteX25519ChaCha20Sha256Ed25519) {
         t.Fatalf("SupportsCipherSuite(0x0003) = false")
     }
     if !out.SupportsExtension(ExtensionTypeUrmessageLeafKeys) {
@@ -817,24 +1069,60 @@ func TestCapabilitiesRoundTripAndPredicates(t *testing.T) {
     if out.SupportsExtension(ExtensionTypeUrmessageOwnerSuccessor) {
         t.Fatalf("SupportsExtension(0xF003) = true, want false")
     }
+    if !out.SupportsProposal(ProposalTypeRemove) {
+        t.Fatalf("SupportsProposal(remove) = false")
+    }
+    if out.SupportsProposal(ProposalTypeGroupContextExtensions) {
+        t.Fatalf("SupportsProposal(gce) = true, want false")
+    }
     if !out.SupportsCredential(CredentialTypeBasic) {
         t.Fatalf("SupportsCredential(basic) = false")
     }
 }
 
+func TestCapabilitiesSupportsRequiredCapabilities(t *testing.T) {
+    caps := &Capabilities{
+        Versions:     []ProtocolVersion{ProtocolVersionMls10},
+        CipherSuites: []CipherSuite{CipherSuiteX25519ChaCha20Sha256Ed25519},
+        Extensions:   []ExtensionType{ExtensionTypeUrmessageLeafKeys},
+        Proposals:    []ProposalType{ProposalTypeAdd},
+        Credentials:  []CredentialType{CredentialTypeBasic},
+    }
+    if err := caps.Supports(nil); err != nil {
+        t.Fatalf("Supports(nil): %v", err)
+    }
+    ok := &RequiredCapabilities{
+        ExtensionTypes:  []ExtensionType{ExtensionTypeUrmessageLeafKeys},
+        ProposalTypes:   []ProposalType{ProposalTypeAdd},
+        CredentialTypes: []CredentialType{CredentialTypeBasic},
+    }
+    if err := caps.Supports(ok); err != nil {
+        t.Fatalf("Supports(satisfied): %v", err)
+    }
+    for name, rc := range map[string]*RequiredCapabilities{
+        "extension": {ExtensionTypes: []ExtensionType{ExtensionTypeUrmessageOwnerSuccessor}},
+        "proposal":  {ProposalTypes: []ProposalType{ProposalTypeGroupContextExtensions}},
+        "credential": {CredentialTypes: []CredentialType{CredentialType(0x0002)}},
+    } {
+        if err := caps.Supports(rc); !errors.Is(err, ErrMissingRequiredCapability) {
+            t.Fatalf("%s: err = %v, want ErrMissingRequiredCapability", name, err)
+        }
+    }
+}
+
 func TestRequiredCapabilitiesRoundTrip(t *testing.T) {
-    in := RequiredCapabilities{
+    in := &RequiredCapabilities{
         ExtensionTypes:  []ExtensionType{ExtensionTypeUrmessageGroupPolicy, ExtensionTypeUrmessageLeafKeys},
         ProposalTypes:   nil,
         CredentialTypes: []CredentialType{CredentialTypeBasic},
     }
-    encoded, err := in.Marshal()
+    encoded, err := syntax.Marshal(in)
     if err != nil {
         t.Fatalf("Marshal: %v", err)
     }
-    out, err := UnmarshalRequiredCapabilities(encoded)
-    if err != nil {
-        t.Fatalf("UnmarshalRequiredCapabilities: %v", err)
+    out := &RequiredCapabilities{}
+    if err := syntax.Unmarshal(encoded, out); err != nil {
+        t.Fatalf("Unmarshal: %v", err)
     }
     if len(out.ExtensionTypes) != 2 || out.ExtensionTypes[1] != ExtensionTypeUrmessageLeafKeys {
         t.Fatalf("extension types = %v", out.ExtensionTypes)
@@ -845,7 +1133,7 @@ func TestRequiredCapabilitiesRoundTrip(t *testing.T) {
     if len(out.CredentialTypes) != 1 || out.CredentialTypes[0] != CredentialTypeBasic {
         t.Fatalf("credential types = %v", out.CredentialTypes)
     }
-    if _, err := UnmarshalRequiredCapabilities(append(encoded, 0x00)); !errors.Is(err, syntax.ErrTrailingBytes) {
+    if err := syntax.Unmarshal(append(encoded, 0x00), &RequiredCapabilities{}); !errors.Is(err, syntax.ErrTrailingBytes) {
         t.Fatalf("trailing byte err = %v, want ErrTrailingBytes", err)
     }
 }
@@ -853,10 +1141,70 @@ func TestRequiredCapabilitiesRoundTrip(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./mls/... -run "TestExtensionRoundTrip|TestCapabilities|TestRequiredCapabilities" -v`
+Run: `go test ./mls/... -run "TestExtension|TestCapabilities|TestRequiredCapabilities" -v`
 Expected: FAIL to compile with `undefined: Extension`
 
 - [ ] **Step 3: Write minimal implementation**
+
+First the two private adapters, because `mls/extension.go` and every later file in this plan use
+`marshalBytes`:
+
+```go
+// mls/tree_adapt.go
+package mls
+
+import "github.com/urnetwork/connect/mls/syntax"
+
+// run an encoder against a fresh Writer and yield its bytes, surfacing the Writer's
+// sticky error. used ONLY for the preimages that are not themselves syntax.Codec
+// values: the LeafNodeTBS signature content, the KeyPackageTBS signature content and
+// the three §7.8/§7.9 hash inputs. Every wire type goes through syntax.Marshal.
+func marshalBytes(encode func(w *syntax.Writer) error) ([]byte, error) {
+    w := syntax.NewWriter()
+    if err := encode(w); err != nil {
+        return nil, err
+    }
+    return w.Bytes()
+}
+
+// The tree-math plan returns an error from every arithmetic that can be out of range.
+// Inside a RatchetTree the leaf width is at least one and every node index this
+// package forms is already in range, so the error arm is unreachable; these shims
+// keep the (value, ok) shape at those call sites. They are internal to this plan —
+// no other plan gets them, because a shim that turns an error into false is how a
+// trailing-blank tree gets silently accepted somewhere that has no such invariant.
+// Every call site below turns false into ErrTreeMalformed.
+func leftOf(x NodeIndex) (NodeIndex, bool) {
+    y, err := Left(x)
+    return y, err == nil
+}
+
+func rightOf(x NodeIndex) (NodeIndex, bool) {
+    y, err := Right(x)
+    return y, err == nil
+}
+
+func leafIndexOf(x NodeIndex) (LeafIndex, bool) {
+    i, err := x.LeafIndex()
+    return i, err == nil
+}
+
+// these two keep the error: they are the pair a future change to the width
+// invariant would otherwise break by returning node zero.
+func rootOf(n LeafCount) (NodeIndex, error) {
+    if n == 0 {
+        return 0, ErrTreeMalformed
+    }
+    return Root(n)
+}
+
+func directPathOf(x NodeIndex, n LeafCount) ([]NodeIndex, error) {
+    if n == 0 {
+        return nil, ErrTreeMalformed
+    }
+    return DirectPath(x, n)
+}
+```
 
 ```go
 // mls/extension.go
@@ -864,20 +1212,37 @@ package mls
 
 import "github.com/urnetwork/connect/mls/syntax"
 
-// RFC 9420 §7.2 and §12.4.3 registries. every one is uint16 and none is a closed
-// set: GREASE values must parse and be ignored, never error.
+// The IANA registries of RFC 9420 §17. Every one is uint16 and none is a closed set:
+// a GREASE value must parse and be carried, never error. They live in one file
+// because that is what the registries are; the wire structs that use them live in
+// the framing and group lifecycle plans.
 type ProtocolVersion uint16
-type CredentialType uint16
-type ProposalType uint16
-type ExtensionType uint16
 
-const ProtocolVersionMLS10 ProtocolVersion = 0x0001
+const ProtocolVersionMls10 ProtocolVersion = 0x0001
+
+type CredentialType uint16
 
 const CredentialTypeBasic CredentialType = 0x0001
+
+type ProposalType uint16
+
+const (
+    ProposalTypeReserved               ProposalType = 0x0000
+    ProposalTypeAdd                    ProposalType = 0x0001
+    ProposalTypeUpdate                 ProposalType = 0x0002
+    ProposalTypeRemove                 ProposalType = 0x0003
+    ProposalTypePreSharedKey           ProposalType = 0x0004
+    ProposalTypeReInit                 ProposalType = 0x0005
+    ProposalTypeExternalInit           ProposalType = 0x0006
+    ProposalTypeGroupContextExtensions ProposalType = 0x0007
+)
+
+type ExtensionType uint16
 
 const (
     ExtensionTypeRatchetTree             ExtensionType = 0x0002
     ExtensionTypeRequiredCapabilities    ExtensionType = 0x0003
+    ExtensionTypeExternalSenders         ExtensionType = 0x0004
     ExtensionTypeUrmessageGroupPolicy    ExtensionType = 0xF001
     ExtensionTypeUrmessageLeafKeys       ExtensionType = 0xF002
     ExtensionTypeUrmessageOwnerSuccessor ExtensionType = 0xF003
@@ -889,52 +1254,44 @@ type Extension struct {
     ExtensionData []byte
 }
 
-func (self *Extension) MarshalTo(w *syntax.Writer) error {
+func (self *Extension) MarshalMLS(w *syntax.Writer) error {
     w.WriteUint16(uint16(self.ExtensionType))
-    w.WriteOpaqueVec(self.ExtensionData)
+    w.WriteOpaque(self.ExtensionData)
     return nil
 }
 
-func UnmarshalExtension(r *syntax.Reader) (Extension, error) {
-    t, err := r.ReadUint16()
+func (self *Extension) UnmarshalMLS(r *syntax.Reader) error {
+    extensionType, err := r.ReadUint16()
     if err != nil {
-        return Extension{}, err
+        return err
     }
-    data, err := r.ReadOpaqueVec()
+    data, err := r.ReadOpaque()
     if err != nil {
-        return Extension{}, err
+        return err
     }
-    return Extension{ExtensionType: ExtensionType(t), ExtensionData: data}, nil
+    self.ExtensionType = ExtensionType(extensionType)
+    self.ExtensionData = data
+    return nil
 }
 
-// the whole length-prefixed extensions vector, as it appears inside a LeafNode, a
-// KeyPackage or a GroupContext.
-func MarshalExtensions(exts []Extension) ([]byte, error) {
-    inner := syntax.NewWriter()
-    for i := range exts {
-        if err := exts[i].MarshalTo(inner); err != nil {
-            return nil, err
-        }
-    }
-    w := syntax.NewWriter()
-    w.WriteOpaqueVec(inner.Bytes())
-    return w.Bytes(), nil
+var _ syntax.Codec = (*Extension)(nil)
+
+// extensions<V> is never a standalone message: it is always an inline field of
+// GroupContext, LeafNode, KeyPackage, GroupInfo or ReInit. So the pair is
+// writer-taking and reader-taking, and the length prefix is written by
+// syntax.WriteVector rather than by hand at five call sites.
+func WriteExtensions(w *syntax.Writer, exts []Extension) error {
+    return syntax.WriteVector(w, exts, func(w *syntax.Writer, ext Extension) error {
+        return ext.MarshalMLS(w)
+    })
 }
 
-func UnmarshalExtensions(r *syntax.Reader) ([]Extension, error) {
-    sub, err := r.ReadVecReader()
-    if err != nil {
-        return nil, err
-    }
-    exts := []Extension{}
-    for !sub.Empty() {
-        ext, err := UnmarshalExtension(sub)
-        if err != nil {
-            return nil, err
-        }
-        exts = append(exts, ext)
-    }
-    return exts, nil
+func ReadExtensions(r *syntax.Reader) ([]Extension, error) {
+    return syntax.ReadVector(r, func(r *syntax.Reader) (Extension, error) {
+        var ext Extension
+        err := ext.UnmarshalMLS(r)
+        return ext, err
+    })
 }
 
 func FindExtension(exts []Extension, t ExtensionType) ([]byte, bool) {
@@ -946,6 +1303,21 @@ func FindExtension(exts []Extension, t ExtensionType) ([]byte, bool) {
     return nil, false
 }
 
+// the four uint16 registries all encode as one length-prefixed vector of uint16.
+func writeUint16Vec[T ~uint16](w *syntax.Writer, values []T) error {
+    return syntax.WriteVector(w, values, func(w *syntax.Writer, v T) error {
+        w.WriteUint16(uint16(v))
+        return nil
+    })
+}
+
+func readUint16Vec[T ~uint16](r *syntax.Reader) ([]T, error) {
+    return syntax.ReadVector(r, func(r *syntax.Reader) (T, error) {
+        v, err := r.ReadUint16()
+        return T(v), err
+    })
+}
+
 // RFC 9420 §7.2. what the client behind a leaf node understands.
 type Capabilities struct {
     Versions     []ProtocolVersion
@@ -955,59 +1327,41 @@ type Capabilities struct {
     Credentials  []CredentialType
 }
 
-func writeUint16Vec[T ~uint16](w *syntax.Writer, values []T) {
-    inner := syntax.NewWriter()
-    for _, v := range values {
-        inner.WriteUint16(uint16(v))
+func (self *Capabilities) MarshalMLS(w *syntax.Writer) error {
+    if err := writeUint16Vec(w, self.Versions); err != nil {
+        return err
     }
-    w.WriteOpaqueVec(inner.Bytes())
+    if err := writeUint16Vec(w, self.CipherSuites); err != nil {
+        return err
+    }
+    if err := writeUint16Vec(w, self.Extensions); err != nil {
+        return err
+    }
+    if err := writeUint16Vec(w, self.Proposals); err != nil {
+        return err
+    }
+    return writeUint16Vec(w, self.Credentials)
 }
 
-func readUint16Vec[T ~uint16](r *syntax.Reader) ([]T, error) {
-    sub, err := r.ReadVecReader()
-    if err != nil {
-        return nil, err
-    }
-    out := []T{}
-    for !sub.Empty() {
-        v, err := sub.ReadUint16()
-        if err != nil {
-            return nil, err
-        }
-        out = append(out, T(v))
-    }
-    return out, nil
-}
-
-func (self *Capabilities) MarshalTo(w *syntax.Writer) error {
-    writeUint16Vec(w, self.Versions)
-    writeUint16Vec(w, self.CipherSuites)
-    writeUint16Vec(w, self.Extensions)
-    writeUint16Vec(w, self.Proposals)
-    writeUint16Vec(w, self.Credentials)
-    return nil
-}
-
-func UnmarshalCapabilities(r *syntax.Reader) (Capabilities, error) {
-    var self Capabilities
+func (self *Capabilities) UnmarshalMLS(r *syntax.Reader) error {
     var err error
     if self.Versions, err = readUint16Vec[ProtocolVersion](r); err != nil {
-        return Capabilities{}, err
+        return err
     }
     if self.CipherSuites, err = readUint16Vec[CipherSuite](r); err != nil {
-        return Capabilities{}, err
+        return err
     }
     if self.Extensions, err = readUint16Vec[ExtensionType](r); err != nil {
-        return Capabilities{}, err
+        return err
     }
     if self.Proposals, err = readUint16Vec[ProposalType](r); err != nil {
-        return Capabilities{}, err
+        return err
     }
-    if self.Credentials, err = readUint16Vec[CredentialType](r); err != nil {
-        return Capabilities{}, err
-    }
-    return self, nil
+    self.Credentials, err = readUint16Vec[CredentialType](r)
+    return err
 }
+
+var _ syntax.Codec = (*Capabilities)(nil)
 
 func (self *Capabilities) SupportsVersion(v ProtocolVersion) bool {
     for _, x := range self.Versions {
@@ -1060,6 +1414,31 @@ func (self *Capabilities) SupportsCredential(t CredentialType) bool {
     return false
 }
 
+// the whole required_capabilities check in one call, so the group lifecycle plan's
+// ValSem106 and ValSem109 sites cannot each spell the three loops differently.
+// A nil rc is "no requirement" and is satisfied by anything.
+func (self *Capabilities) Supports(rc *RequiredCapabilities) error {
+    if rc == nil {
+        return nil
+    }
+    for _, t := range rc.ExtensionTypes {
+        if !self.SupportsExtension(t) {
+            return ErrMissingRequiredCapability
+        }
+    }
+    for _, t := range rc.ProposalTypes {
+        if !self.SupportsProposal(t) {
+            return ErrMissingRequiredCapability
+        }
+    }
+    for _, t := range rc.CredentialTypes {
+        if !self.SupportsCredential(t) {
+            return ErrMissingRequiredCapability
+        }
+    }
+    return nil
+}
+
 // required_capabilities, extension type 0x0003, carried in the group context.
 type RequiredCapabilities struct {
     ExtensionTypes  []ExtensionType
@@ -1067,45 +1446,46 @@ type RequiredCapabilities struct {
     CredentialTypes []CredentialType
 }
 
-func (self *RequiredCapabilities) Marshal() ([]byte, error) {
-    w := syntax.NewWriter()
-    writeUint16Vec(w, self.ExtensionTypes)
-    writeUint16Vec(w, self.ProposalTypes)
-    writeUint16Vec(w, self.CredentialTypes)
-    return w.Bytes(), nil
+func (self *RequiredCapabilities) MarshalMLS(w *syntax.Writer) error {
+    if err := writeUint16Vec(w, self.ExtensionTypes); err != nil {
+        return err
+    }
+    if err := writeUint16Vec(w, self.ProposalTypes); err != nil {
+        return err
+    }
+    return writeUint16Vec(w, self.CredentialTypes)
 }
 
-func UnmarshalRequiredCapabilities(data []byte) (RequiredCapabilities, error) {
-    r := syntax.NewReader(data)
-    var self RequiredCapabilities
+func (self *RequiredCapabilities) UnmarshalMLS(r *syntax.Reader) error {
     var err error
     if self.ExtensionTypes, err = readUint16Vec[ExtensionType](r); err != nil {
-        return RequiredCapabilities{}, err
+        return err
     }
     if self.ProposalTypes, err = readUint16Vec[ProposalType](r); err != nil {
-        return RequiredCapabilities{}, err
+        return err
     }
-    if self.CredentialTypes, err = readUint16Vec[CredentialType](r); err != nil {
-        return RequiredCapabilities{}, err
-    }
-    if !r.Empty() {
-        return RequiredCapabilities{}, syntax.ErrTrailingBytes
-    }
-    return self, nil
+    self.CredentialTypes, err = readUint16Vec[CredentialType](r)
+    return err
 }
+
+var _ syntax.Codec = (*RequiredCapabilities)(nil)
 ```
+
+Nothing here declares a `Marshal()` or a `Parse*` of its own: `syntax.Marshal`/`syntax.Unmarshal`
+are the byte-level entry points, and `syntax.Unmarshal` is what raises `ErrTrailingBytes` — which is
+why `RequiredCapabilities` needs no trailing-bytes check in its own decoder.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./mls/... -run "TestExtensionRoundTrip|TestCapabilities|TestRequiredCapabilities" -v`
+Run: `go test ./mls/... -run "TestExtension|TestCapabilities|TestRequiredCapabilities" -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git ls-files | wc -l
-git add mls/extension.go mls/extension_test.go
-git commit -m "feat(mls): Extension, Capabilities and RequiredCapabilities wire types"
+git add mls/tree_adapt.go mls/extension.go mls/extension_test.go
+git commit -m "feat(mls): registry enums, Extension, Capabilities and RequiredCapabilities"
 ```
 
 ---
@@ -1117,8 +1497,14 @@ git commit -m "feat(mls): Extension, Capabilities and RequiredCapabilities wire 
 - Test: `mls/extension_test.go`
 
 **Interfaces:**
-- Consumes: `syntax.Writer`, `syntax.Reader`, `syntax.ErrTrailingBytes` (Syntax plan); `ErrLeafKeysExtensionInvalid` (Task 2).
-- Produces: `const AlgIdXwing uint16 = 0x0014`, `const XwingPublicKeyLen = 1216`, `LeafKeysExtension{AlgId uint16; DeviceXwingPub []byte}`, `func (self *LeafKeysExtension) Marshal() ([]byte, error)`, `func UnmarshalLeafKeysExtension(data []byte) (LeafKeysExtension, error)`. `connect/message`'s `wrap.go` reads this off every leaf to find each device's X-Wing wrap target.
+- Consumes: `syntax.NewWriter`, `syntax.NewReader`, `func (self *Writer) WriteUint16(v uint16)`, `func (self *Writer) WriteOpaque(bs []byte)`, `func (self *Writer) Bytes() ([]byte, error)`, `func (self *Reader) ReadUint16() (uint16, error)`, `func (self *Reader) ReadOpaque() ([]byte, error)`, `func (self *Reader) Done() error`, `syntax.ErrTrailingBytes` (Syntax plan); `Extension`, `ExtensionTypeUrmessageLeafKeys` (Task 3); `ErrLeafKeysExtensionInvalid` (Task 2).
+- Produces: `const AlgIdXwing uint16 = 0x0014`, `const XwingPublicKeyLen = 1216`, `LeafKeysExtension{AlgId uint16; DeviceXwingPub []byte}`, `func (self *LeafKeysExtension) Encode() (Extension, error)`, `func ParseLeafKeysExtension(data []byte) (*LeafKeysExtension, error)`. `connect/message`'s `wrap.go` reads this off every leaf to find each device's X-Wing wrap target; the group lifecycle plan keeps only the `LeafKeysOf(leaf)` accessor over it.
+
+`Extension.ExtensionData` is opaque, so a concrete extension body converts bytes↔struct rather than
+implementing `MarshalMLS`/`UnmarshalMLS`. That is one of the two sanctioned exceptions to C1, and
+the sanctioned spelling is exactly `Encode() (Extension, error)` / `ParseXExtension(data []byte)` —
+`Encode` returns the whole `Extension`, tag and all, so no call site can pair the body with the
+wrong extension type.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1130,14 +1516,17 @@ func TestLeafKeysExtensionRoundTrip(t *testing.T) {
     for i := range pub {
         pub[i] = byte(i)
     }
-    in := LeafKeysExtension{AlgId: AlgIdXwing, DeviceXwingPub: pub}
-    encoded, err := in.Marshal()
+    in := &LeafKeysExtension{AlgId: AlgIdXwing, DeviceXwingPub: pub}
+    ext, err := in.Encode()
     if err != nil {
-        t.Fatalf("Marshal: %v", err)
+        t.Fatalf("Encode: %v", err)
     }
-    out, err := UnmarshalLeafKeysExtension(encoded)
+    if ext.ExtensionType != ExtensionTypeUrmessageLeafKeys {
+        t.Fatalf("Encode tagged %#x, want %#x", ext.ExtensionType, ExtensionTypeUrmessageLeafKeys)
+    }
+    out, err := ParseLeafKeysExtension(ext.ExtensionData)
     if err != nil {
-        t.Fatalf("UnmarshalLeafKeysExtension: %v", err)
+        t.Fatalf("ParseLeafKeysExtension: %v", err)
     }
     if out.AlgId != AlgIdXwing {
         t.Fatalf("alg_id = %#x, want %#x", out.AlgId, AlgIdXwing)
@@ -1145,33 +1534,41 @@ func TestLeafKeysExtensionRoundTrip(t *testing.T) {
     if !bytes.Equal(out.DeviceXwingPub, pub) {
         t.Fatalf("device_xwing_pub mismatch")
     }
+    again, err := out.Encode()
+    if err != nil {
+        t.Fatalf("re-Encode: %v", err)
+    }
+    if !bytes.Equal(again.ExtensionData, ext.ExtensionData) {
+        t.Fatalf("re-encode differs")
+    }
 }
 
 func TestLeafKeysExtensionRejectsWrongLength(t *testing.T) {
-    short := LeafKeysExtension{AlgId: AlgIdXwing, DeviceXwingPub: make([]byte, XwingPublicKeyLen-1)}
-    if _, err := short.Marshal(); !errors.Is(err, ErrLeafKeysExtensionInvalid) {
-        t.Fatalf("Marshal short key err = %v, want ErrLeafKeysExtensionInvalid", err)
+    short := &LeafKeysExtension{AlgId: AlgIdXwing, DeviceXwingPub: make([]byte, XwingPublicKeyLen-1)}
+    if _, err := short.Encode(); !errors.Is(err, ErrLeafKeysExtensionInvalid) {
+        t.Fatalf("Encode short key err = %v, want ErrLeafKeysExtensionInvalid", err)
     }
-    good := LeafKeysExtension{AlgId: AlgIdXwing, DeviceXwingPub: make([]byte, XwingPublicKeyLen)}
-    encoded, err := good.Marshal()
+    good := &LeafKeysExtension{AlgId: AlgIdXwing, DeviceXwingPub: make([]byte, XwingPublicKeyLen)}
+    ext, err := good.Encode()
     if err != nil {
-        t.Fatalf("Marshal: %v", err)
+        t.Fatalf("Encode: %v", err)
     }
-    if _, err := UnmarshalLeafKeysExtension(encoded[:len(encoded)-1]); err == nil {
-        t.Fatalf("UnmarshalLeafKeysExtension(truncated) = nil error, want failure")
+    encoded := ext.ExtensionData
+    if _, err := ParseLeafKeysExtension(encoded[:len(encoded)-1]); err == nil {
+        t.Fatalf("ParseLeafKeysExtension(truncated) = nil error, want failure")
     }
     trailing := append(append([]byte{}, encoded...), 0x00)
-    if _, err := UnmarshalLeafKeysExtension(trailing); !errors.Is(err, syntax.ErrTrailingBytes) {
-        t.Fatalf("UnmarshalLeafKeysExtension(trailing) err = %v, want ErrTrailingBytes", err)
+    if _, err := ParseLeafKeysExtension(trailing); !errors.Is(err, syntax.ErrTrailingBytes) {
+        t.Fatalf("ParseLeafKeysExtension(trailing) err = %v, want ErrTrailingBytes", err)
     }
 }
 
 func TestLeafKeysExtensionRejectsUnimplementedAlg(t *testing.T) {
     // 0x0013 is reserved for hybrid X25519 + ML-KEM-1024 and is not implemented in
     // v1. MASTER §7.1. it must be refused, not carried.
-    in := LeafKeysExtension{AlgId: 0x0013, DeviceXwingPub: make([]byte, XwingPublicKeyLen)}
-    if _, err := in.Marshal(); !errors.Is(err, ErrLeafKeysExtensionInvalid) {
-        t.Fatalf("Marshal alg 0x0013 err = %v, want ErrLeafKeysExtensionInvalid", err)
+    in := &LeafKeysExtension{AlgId: 0x0013, DeviceXwingPub: make([]byte, XwingPublicKeyLen)}
+    if _, err := in.Encode(); !errors.Is(err, ErrLeafKeysExtensionInvalid) {
+        t.Fatalf("Encode alg 0x0013 err = %v, want ErrLeafKeysExtensionInvalid", err)
     }
 }
 ```
@@ -1191,6 +1588,9 @@ Expected: FAIL to compile with `undefined: XwingPublicKeyLen`
 const AlgIdXwing uint16 = 0x0014
 
 // the X-Wing public key length at ML-KEM-768: 1184 bytes of ML-KEM plus 32 of X25519.
+// this is duplicated from message.XwingPublicKeySize on purpose and in one direction
+// only, because mls must not import message. The crypto plan carries the compile
+// assertion that the two agree.
 const XwingPublicKeyLen = 1216
 
 // urmessage_leaf_keys, extension type 0xF002. MASTER §5.3. it rides in the LeafNode
@@ -1201,36 +1601,44 @@ type LeafKeysExtension struct {
     DeviceXwingPub []byte
 }
 
-func (self *LeafKeysExtension) Marshal() ([]byte, error) {
+func (self *LeafKeysExtension) Encode() (Extension, error) {
     if self.AlgId != AlgIdXwing {
-        return nil, ErrLeafKeysExtensionInvalid
+        return Extension{}, ErrLeafKeysExtensionInvalid
     }
     if len(self.DeviceXwingPub) != XwingPublicKeyLen {
-        return nil, ErrLeafKeysExtensionInvalid
+        return Extension{}, ErrLeafKeysExtensionInvalid
     }
-    w := syntax.NewWriter()
-    w.WriteUint16(self.AlgId)
-    w.WriteOpaqueVec(self.DeviceXwingPub)
-    return w.Bytes(), nil
+    body, err := marshalBytes(func(w *syntax.Writer) error {
+        w.WriteUint16(self.AlgId)
+        w.WriteOpaque(self.DeviceXwingPub)
+        return nil
+    })
+    if err != nil {
+        return Extension{}, err
+    }
+    return Extension{
+        ExtensionType: ExtensionTypeUrmessageLeafKeys,
+        ExtensionData: body,
+    }, nil
 }
 
-func UnmarshalLeafKeysExtension(data []byte) (LeafKeysExtension, error) {
+func ParseLeafKeysExtension(data []byte) (*LeafKeysExtension, error) {
     r := syntax.NewReader(data)
     algId, err := r.ReadUint16()
     if err != nil {
-        return LeafKeysExtension{}, err
+        return nil, err
     }
-    pub, err := r.ReadOpaqueVec()
+    pub, err := r.ReadOpaque()
     if err != nil {
-        return LeafKeysExtension{}, err
+        return nil, err
     }
-    if !r.Empty() {
-        return LeafKeysExtension{}, syntax.ErrTrailingBytes
+    if err := r.Done(); err != nil {
+        return nil, err
     }
     if algId != AlgIdXwing || len(pub) != XwingPublicKeyLen {
-        return LeafKeysExtension{}, ErrLeafKeysExtensionInvalid
+        return nil, ErrLeafKeysExtensionInvalid
     }
-    return LeafKeysExtension{AlgId: algId, DeviceXwingPub: pub}, nil
+    return &LeafKeysExtension{AlgId: algId, DeviceXwingPub: pub}, nil
 }
 ```
 
@@ -1249,6 +1657,154 @@ git commit -m "feat(mls): urmessage_leaf_keys leaf extension carrying the X-Wing
 
 ---
 
+### Task 4A: Credential
+
+**Files:**
+- Create: `mls/credential.go`
+- Test: `mls/credential_test.go`
+
+**Interfaces:**
+- Consumes: `syntax.Writer`, `syntax.Reader`, `func (self *Writer) WriteUint16(v uint16)`, `func (self *Writer) WriteOpaque(bs []byte)`, `func (self *Reader) ReadUint16() (uint16, error)`, `func (self *Reader) ReadOpaque() ([]byte, error)`, `func Marshal(v Marshaler) ([]byte, error)`, `func Unmarshal(bs []byte, v Unmarshaler) error`, `syntax.Codec` (Syntax plan); `CredentialType`, `CredentialTypeBasic` (Task 3); `ErrProfileCredentialType` (Validation plan, `errors.go`).
+- Produces: `Credential` with `MarshalMLS`/`UnmarshalMLS`, and `func BasicCredential(identity []byte) Credential`.
+
+**`Credential` is produced here.** No wave-1 plan produces any MLS type, so the original attribution
+to the syntax plan had no owner; the group lifecycle and validation plans both consume it and
+neither produces it. It lands here because `LeafNode` embeds it by value and this is the file family
+that validates it.
+
+Refusing a non-basic credential type **at parse** rather than by a later check is what keeps x509
+bytes from ever being carried inside a `LeafNode` this package accepted (Spec A §3.2). That refusal
+is a *semantic* one, not a buffer error, which is the reason `MarshalMLS` returns an `error` at all
+(C2): under a return-free encoder it would have to panic or be dropped, and a dropped encoder
+refusal produces wrong signed bytes rather than a failure. The group lifecycle plan calls
+`(*Profile).CheckCredentialType` at its own parse boundary for the same decision at the policy
+layer; this one is the codec-layer floor and is not negotiable by profile.
+
+- [ ] **Step 1: Write the failing test**
+
+```go
+// mls/credential_test.go
+package mls
+
+import (
+    "bytes"
+    "errors"
+    "testing"
+
+    "github.com/urnetwork/connect/mls/syntax"
+)
+
+func TestBasicCredentialRoundTrip(t *testing.T) {
+    in := BasicCredential([]byte("alice"))
+    if in.CredentialType != CredentialTypeBasic {
+        t.Fatalf("credential type = %#x, want basic", in.CredentialType)
+    }
+    encoded, err := syntax.Marshal(&in)
+    if err != nil {
+        t.Fatalf("Marshal: %v", err)
+    }
+    out := &Credential{}
+    if err := syntax.Unmarshal(encoded, out); err != nil {
+        t.Fatalf("Unmarshal: %v", err)
+    }
+    if out.CredentialType != CredentialTypeBasic || !bytes.Equal(out.Identity, []byte("alice")) {
+        t.Fatalf("round trip = %+v", out)
+    }
+    if err := syntax.Unmarshal(append(encoded, 0x00), &Credential{}); !errors.Is(err, syntax.ErrTrailingBytes) {
+        t.Fatalf("trailing byte err = %v, want ErrTrailingBytes", err)
+    }
+}
+
+func TestCredentialRefusesX509OnBothSides(t *testing.T) {
+    // decode side: x509 bytes must never reach a LeafNode this package accepted.
+    x509 := syntax.NewWriter()
+    x509.WriteUint16(0x0002)
+    x509.WriteOpaque([]byte("cert"))
+    encoded, err := x509.Bytes()
+    if err != nil {
+        t.Fatalf("Bytes: %v", err)
+    }
+    if err := syntax.Unmarshal(encoded, &Credential{}); !errors.Is(err, ErrProfileCredentialType) {
+        t.Fatalf("decode err = %v, want ErrProfileCredentialType", err)
+    }
+    // encode side: the same refusal, surfaced as a returned error rather than
+    // dropped into the Writer, so no wrong bytes are ever signed.
+    bad := &Credential{CredentialType: CredentialType(0x0002), Identity: []byte("cert")}
+    if _, err := syntax.Marshal(bad); !errors.Is(err, ErrProfileCredentialType) {
+        t.Fatalf("encode err = %v, want ErrProfileCredentialType", err)
+    }
+}
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `go test ./mls/... -run "TestBasicCredential|TestCredentialRefusesX509" -v`
+Expected: FAIL to compile with `undefined: BasicCredential`
+
+- [ ] **Step 3: Write minimal implementation**
+
+```go
+// mls/credential.go
+package mls
+
+import "github.com/urnetwork/connect/mls/syntax"
+
+// RFC 9420 §5.3. BasicCredential only in v1. x509 is refused at parse rather than
+// by a later check, so no x509 bytes are ever carried inside a LeafNode this
+// package accepted. Spec A §3.2.
+type Credential struct {
+    CredentialType CredentialType
+    Identity       []byte
+}
+
+func BasicCredential(identity []byte) Credential {
+    return Credential{CredentialType: CredentialTypeBasic, Identity: identity}
+}
+
+func (self *Credential) MarshalMLS(w *syntax.Writer) error {
+    if self.CredentialType != CredentialTypeBasic {
+        return ErrProfileCredentialType
+    }
+    w.WriteUint16(uint16(self.CredentialType))
+    w.WriteOpaque(self.Identity)
+    return nil
+}
+
+func (self *Credential) UnmarshalMLS(r *syntax.Reader) error {
+    credentialType, err := r.ReadUint16()
+    if err != nil {
+        return err
+    }
+    if CredentialType(credentialType) != CredentialTypeBasic {
+        return ErrProfileCredentialType
+    }
+    identity, err := r.ReadOpaque()
+    if err != nil {
+        return err
+    }
+    self.CredentialType = CredentialTypeBasic
+    self.Identity = identity
+    return nil
+}
+
+var _ syntax.Codec = (*Credential)(nil)
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `go test ./mls/... -run "TestBasicCredential|TestCredentialRefusesX509" -v`
+Expected: PASS
+
+- [ ] **Step 5: Commit**
+
+```bash
+git ls-files | wc -l
+git add mls/credential.go mls/credential_test.go
+git commit -m "feat(mls): BasicCredential-only Credential refusing x509 at parse"
+```
+
+---
+
 ### Task 5: LeafNode structure and codec
 
 **Files:**
@@ -1256,8 +1812,8 @@ git commit -m "feat(mls): urmessage_leaf_keys leaf extension carrying the X-Wing
 - Test: `mls/leaf_node_test.go`
 
 **Interfaces:**
-- Consumes: `syntax.*` (Syntax plan); `Credential`, `UnmarshalCredential` (Syntax plan, `credential.go`); `HpkePublicKey`, `SignaturePublicKey` (Crypto plan); `Extension`, `Capabilities` (Task 3); `ErrTreeMalformed` (Task 2).
-- Produces: `LeafNodeSource` with `LeafNodeSourceKeyPackage/Update/Commit`; `Lifetime`; `LeafNode`; `func (self *LeafNode) MarshalTo(w *syntax.Writer) error`; `func (self *LeafNode) Marshal() ([]byte, error)`; `func UnmarshalLeafNode(r *syntax.Reader) (*LeafNode, error)`; `func ParseLeafNode(data []byte) (*LeafNode, error)`; `func (self *LeafNode) Clone() *LeafNode`.
+- Consumes: `syntax.Writer`, `syntax.Reader`, `func (self *Writer) WriteUint8(v uint8)`, `func (self *Writer) WriteUint64(v uint64)`, `func (self *Writer) WriteOpaque(bs []byte)`, `func (self *Reader) ReadUint8() (uint8, error)`, `func (self *Reader) ReadUint64() (uint64, error)`, `func (self *Reader) ReadOpaque() ([]byte, error)`, `func Marshal(v Marshaler) ([]byte, error)`, `func Unmarshal(bs []byte, v Unmarshaler) error`, `syntax.Codec`, `syntax.ErrTrailingBytes` (Syntax plan); `type HpkePublicKey []byte`, `type SignaturePublicKey []byte` (Crypto plan); `Extension`, `Capabilities`, `WriteExtensions`, `ReadExtensions` (Task 3); `Credential` (Task 4A); `ErrTreeMalformed` (Task 2).
+- Produces: `LeafNodeSource` with `LeafNodeSourceKeyPackage/Update/Commit`; `Lifetime`; `LeafNode`; `func (self *LeafNode) MarshalMLS(w *syntax.Writer) error`; `func (self *LeafNode) UnmarshalMLS(r *syntax.Reader) error`; `var _ syntax.Codec = (*LeafNode)(nil)`; `func (self *LeafNode) Clone() *LeafNode`. Byte-level access is `syntax.Marshal(leaf)` / `syntax.Unmarshal(bs, leaf)`; this type declares no `Marshal()` and no `ParseLeafNode` (C1).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1279,8 +1835,8 @@ func testLeafNodeTemplate() *LeafNode {
         SignatureKey:  SignaturePublicKey(bytes.Repeat([]byte{0x22}, 32)),
         Credential:    Credential{CredentialType: CredentialTypeBasic, Identity: []byte("alice")},
         Capabilities: Capabilities{
-            Versions:     []ProtocolVersion{ProtocolVersionMLS10},
-            CipherSuites: []CipherSuite{CipherSuiteX25519ChaCha20SHA256Ed25519},
+            Versions:     []ProtocolVersion{ProtocolVersionMls10},
+            CipherSuites: []CipherSuite{CipherSuiteX25519ChaCha20Sha256Ed25519},
             Extensions:   []ExtensionType{ExtensionTypeUrmessageLeafKeys},
             Credentials:  []CredentialType{CredentialTypeBasic},
         },
@@ -1314,15 +1870,15 @@ func TestLeafNodeRoundTripEverySource(t *testing.T) {
     }
     for _, c := range cases {
         in := c.build()
-        encoded, err := in.Marshal()
+        encoded, err := syntax.Marshal(in)
         if err != nil {
             t.Fatalf("%s Marshal: %v", c.name, err)
         }
-        out, err := ParseLeafNode(encoded)
-        if err != nil {
-            t.Fatalf("%s ParseLeafNode: %v", c.name, err)
+        out := &LeafNode{}
+        if err := syntax.Unmarshal(encoded, out); err != nil {
+            t.Fatalf("%s Unmarshal: %v", c.name, err)
         }
-        reencoded, err := out.Marshal()
+        reencoded, err := syntax.Marshal(out)
         if err != nil {
             t.Fatalf("%s re-Marshal: %v", c.name, err)
         }
@@ -1344,15 +1900,15 @@ func TestLeafNodeRoundTripEverySource(t *testing.T) {
 func TestLeafNodeRejectsUnknownSourceAndTrailingBytes(t *testing.T) {
     leaf := testLeafNodeTemplate()
     leaf.LeafNodeSource = LeafNodeSourceUpdate
-    encoded, err := leaf.Marshal()
+    encoded, err := syntax.Marshal(leaf)
     if err != nil {
         t.Fatalf("Marshal: %v", err)
     }
-    if _, err := ParseLeafNode(append(encoded, 0x00)); !errors.Is(err, syntax.ErrTrailingBytes) {
+    if err := syntax.Unmarshal(append(encoded, 0x00), &LeafNode{}); !errors.Is(err, syntax.ErrTrailingBytes) {
         t.Fatalf("trailing byte err = %v, want ErrTrailingBytes", err)
     }
     leaf.LeafNodeSource = LeafNodeSource(9)
-    if _, err := leaf.Marshal(); !errors.Is(err, ErrTreeMalformed) {
+    if _, err := syntax.Marshal(leaf); !errors.Is(err, ErrTreeMalformed) {
         t.Fatalf("Marshal unknown source err = %v, want ErrTreeMalformed", err)
     }
 }
@@ -1421,12 +1977,12 @@ type LeafNode struct {
 
 // the fields common to LeafNode and LeafNodeTBS, up to and including extensions.
 func (self *LeafNode) marshalCore(w *syntax.Writer) error {
-    w.WriteOpaqueVec(self.EncryptionKey)
-    w.WriteOpaqueVec(self.SignatureKey)
-    if err := self.Credential.MarshalTo(w); err != nil {
+    w.WriteOpaque(self.EncryptionKey)
+    w.WriteOpaque(self.SignatureKey)
+    if err := self.Credential.MarshalMLS(w); err != nil {
         return err
     }
-    if err := self.Capabilities.MarshalTo(w); err != nil {
+    if err := self.Capabilities.MarshalMLS(w); err != nil {
         return err
     }
     w.WriteUint8(uint8(self.LeafNodeSource))
@@ -1437,49 +1993,36 @@ func (self *LeafNode) marshalCore(w *syntax.Writer) error {
     case LeafNodeSourceUpdate:
         // empty struct
     case LeafNodeSourceCommit:
-        w.WriteOpaqueVec(self.ParentHash)
+        w.WriteOpaque(self.ParentHash)
     default:
         return ErrTreeMalformed
     }
-    exts, err := MarshalExtensions(self.Extensions)
-    if err != nil {
-        return err
-    }
-    w.WriteBytes(exts)
-    return nil
+    return WriteExtensions(w, self.Extensions)
 }
 
-func (self *LeafNode) MarshalTo(w *syntax.Writer) error {
+func (self *LeafNode) MarshalMLS(w *syntax.Writer) error {
     if err := self.marshalCore(w); err != nil {
         return err
     }
-    w.WriteOpaqueVec(self.Signature)
+    w.WriteOpaque(self.Signature)
     return nil
 }
 
-func (self *LeafNode) Marshal() ([]byte, error) {
-    w := syntax.NewWriter()
-    if err := self.MarshalTo(w); err != nil {
-        return nil, err
-    }
-    return w.Bytes(), nil
-}
-
-func unmarshalLeafNodeCore(r *syntax.Reader, self *LeafNode) error {
-    encryptionKey, err := r.ReadOpaqueVec()
+// the same fields in the same order as marshalCore, so LeafNodeTBS and LeafNode
+// cannot drift apart.
+func (self *LeafNode) unmarshalCore(r *syntax.Reader) error {
+    encryptionKey, err := r.ReadOpaque()
     if err != nil {
         return err
     }
-    signatureKey, err := r.ReadOpaqueVec()
+    signatureKey, err := r.ReadOpaque()
     if err != nil {
         return err
     }
-    credential, err := UnmarshalCredential(r)
-    if err != nil {
+    if err := self.Credential.UnmarshalMLS(r); err != nil {
         return err
     }
-    capabilities, err := UnmarshalCapabilities(r)
-    if err != nil {
+    if err := self.Capabilities.UnmarshalMLS(r); err != nil {
         return err
     }
     source, err := r.ReadUint8()
@@ -1488,8 +2031,6 @@ func unmarshalLeafNodeCore(r *syntax.Reader, self *LeafNode) error {
     }
     self.EncryptionKey = HpkePublicKey(encryptionKey)
     self.SignatureKey = SignaturePublicKey(signatureKey)
-    self.Credential = credential
-    self.Capabilities = capabilities
     self.LeafNodeSource = LeafNodeSource(source)
     switch self.LeafNodeSource {
     case LeafNodeSourceKeyPackage:
@@ -1502,42 +2043,29 @@ func unmarshalLeafNodeCore(r *syntax.Reader, self *LeafNode) error {
     case LeafNodeSourceUpdate:
         // empty struct
     case LeafNodeSourceCommit:
-        if self.ParentHash, err = r.ReadOpaqueVec(); err != nil {
+        if self.ParentHash, err = r.ReadOpaque(); err != nil {
             return err
         }
     default:
         return ErrTreeMalformed
     }
-    if self.Extensions, err = UnmarshalExtensions(r); err != nil {
+    self.Extensions, err = ReadExtensions(r)
+    return err
+}
+
+func (self *LeafNode) UnmarshalMLS(r *syntax.Reader) error {
+    if err := self.unmarshalCore(r); err != nil {
         return err
     }
+    signature, err := r.ReadOpaque()
+    if err != nil {
+        return err
+    }
+    self.Signature = signature
     return nil
 }
 
-func UnmarshalLeafNode(r *syntax.Reader) (*LeafNode, error) {
-    self := &LeafNode{}
-    if err := unmarshalLeafNodeCore(r, self); err != nil {
-        return nil, err
-    }
-    signature, err := r.ReadOpaqueVec()
-    if err != nil {
-        return nil, err
-    }
-    self.Signature = signature
-    return self, nil
-}
-
-func ParseLeafNode(data []byte) (*LeafNode, error) {
-    r := syntax.NewReader(data)
-    self, err := UnmarshalLeafNode(r)
-    if err != nil {
-        return nil, err
-    }
-    if !r.Empty() {
-        return nil, syntax.ErrTrailingBytes
-    }
-    return self, nil
-}
+var _ syntax.Codec = (*LeafNode)(nil)
 
 func cloneBytes(b []byte) []byte {
     if b == nil {
@@ -1601,8 +2129,12 @@ git commit -m "feat(mls): LeafNode structure and byte-exact codec for all three 
 - Test: `mls/leaf_node_test.go`
 
 **Interfaces:**
-- Consumes: `CryptoProvider.SignWithLabel`, `CryptoProvider.VerifyWithLabel`, `CryptoProvider.SignatureKeyPair`, `NewCryptoProvider` (Crypto plan); `ErrBadSignature` (Validation plan, `errors.go`).
-- Produces: `func (self *LeafNode) Sign(crypto CryptoProvider, signer SignaturePrivateKey, groupId []byte, leafIndex LeafIndex) error` and `func (self *LeafNode) VerifySignature(crypto CryptoProvider, groupId []byte, leafIndex LeafIndex) error`. `groupId` and `leafIndex` are ignored for `key_package`-source leaves and are covered by the signature for `update` and `commit` sources, per RFC 9420 §7.2.
+- Consumes: `SignWithLabel(priv SignaturePrivateKey, label string, content []byte) ([]byte, error)`, `VerifyWithLabel(pub SignaturePublicKey, label string, content []byte, sig []byte) error`, `SignatureKeyPair() (SignaturePrivateKey, SignaturePublicKey, error)` on `CryptoProvider`, `func NewCryptoProvider(suite CipherSuite) (CryptoProvider, error)` (Crypto plan); `ErrBadSignature` (Validation plan, `errors.go`); `marshalBytes` (Task 3); `Credential` (Task 4A).
+- Produces: `func (self *LeafNode) Sign(crypto CryptoProvider, signer SignaturePrivateKey, groupId []byte, leafIndex LeafIndex) error`, `func (self *LeafNode) VerifySignature(crypto CryptoProvider, groupId []byte, leafIndex LeafIndex) error`, and `func NewLeafNode(crypto CryptoProvider, signer SignaturePrivateKey, cred Credential, encKey HpkePublicKey, caps Capabilities, exts []Extension) (*LeafNode, error)`. `groupId` and `leafIndex` are ignored for `key_package`-source leaves and are covered by the signature for `update` and `commit` sources, per RFC 9420 §7.2.
+
+`NewLeafNode` is a symbol the group lifecycle plan calls at four sites and nobody produced. It builds
+the `key_package`-source leaf — the only source a leaf can have before it is in a tree — and signs it
+with no group id and no index, which is why it needs neither argument.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1610,7 +2142,7 @@ git commit -m "feat(mls): LeafNode structure and byte-exact codec for all three 
 // mls/leaf_node_test.go (append)
 
 func TestLeafNodeSignVerifyKeyPackageSourceIgnoresIndex(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -1633,7 +2165,7 @@ func TestLeafNodeSignVerifyKeyPackageSourceIgnoresIndex(t *testing.T) {
 }
 
 func TestLeafNodeCommitSourceBindsGroupIdAndLeafIndex(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -1660,7 +2192,7 @@ func TestLeafNodeCommitSourceBindsGroupIdAndLeafIndex(t *testing.T) {
 }
 
 func TestLeafNodeSignatureCoversEveryField(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -1689,11 +2221,50 @@ func TestLeafNodeSignatureCoversEveryField(t *testing.T) {
         }
     }
 }
+
+func TestNewLeafNodeSignsAKeyPackageSourceLeaf(t *testing.T) {
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
+    if err != nil {
+        t.Fatalf("NewCryptoProvider: %v", err)
+    }
+    signerPriv, signerPub, err := crypto.SignatureKeyPair()
+    if err != nil {
+        t.Fatalf("SignatureKeyPair: %v", err)
+    }
+    _, encPub, err := crypto.DeriveKeyPair(crypto.Random(crypto.HashSize()))
+    if err != nil {
+        t.Fatalf("DeriveKeyPair: %v", err)
+    }
+    caps := Capabilities{
+        Versions:     []ProtocolVersion{ProtocolVersionMls10},
+        CipherSuites: []CipherSuite{CipherSuiteX25519ChaCha20Sha256Ed25519},
+        Extensions:   []ExtensionType{ExtensionTypeUrmessageLeafKeys},
+        Credentials:  []CredentialType{CredentialTypeBasic},
+    }
+    exts := []Extension{{ExtensionType: ExtensionTypeUrmessageLeafKeys, ExtensionData: []byte("k")}}
+    leaf, err := NewLeafNode(crypto, signerPriv, BasicCredential([]byte("alice")), encPub, caps, exts)
+    if err != nil {
+        t.Fatalf("NewLeafNode: %v", err)
+    }
+    if leaf.LeafNodeSource != LeafNodeSourceKeyPackage {
+        t.Fatalf("source = %d, want key_package", leaf.LeafNodeSource)
+    }
+    if !bytes.Equal(leaf.SignatureKey, signerPub) {
+        t.Fatalf("NewLeafNode did not install the signer's public key")
+    }
+    if leaf.Lifetime.NotAfter <= leaf.Lifetime.NotBefore {
+        t.Fatalf("lifetime = %+v, want a non-empty window", leaf.Lifetime)
+    }
+    // a key_package leaf is bound to no group and no position, so any context verifies.
+    if err := leaf.VerifySignature(crypto, []byte("any group"), LeafIndex(9)); err != nil {
+        t.Fatalf("VerifySignature: %v", err)
+    }
+}
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./mls/... -run "TestLeafNodeSign|TestLeafNodeCommitSource|TestLeafNodeSignature" -v`
+Run: `go test ./mls/... -run "TestLeafNodeSign|TestLeafNodeCommitSource|TestLeafNodeSignature|TestNewLeafNode" -v`
 Expected: FAIL to compile with `leaf.Sign undefined (type *LeafNode has no field or method Sign)`
 
 - [ ] **Step 3: Write minimal implementation**
@@ -1707,21 +2278,24 @@ const leafNodeSignatureLabel = "LeafNodeTBS"
 // LeafNodeTBS is the leaf's core fields, followed by the group id and leaf index for
 // update and commit sources only. binding the index is what stops a leaf being
 // replayed into a different position in the tree.
+// LeafNodeTBS is not a syntax.Codec — it is a preimage, never a message — so it is
+// built with marshalBytes rather than syntax.Marshal.
 func (self *LeafNode) signatureContent(groupId []byte, leafIndex LeafIndex) ([]byte, error) {
-    w := syntax.NewWriter()
-    if err := self.marshalCore(w); err != nil {
-        return nil, err
-    }
-    switch self.LeafNodeSource {
-    case LeafNodeSourceKeyPackage:
-        // no context: a KeyPackage is not yet bound to a group or a position
-    case LeafNodeSourceUpdate, LeafNodeSourceCommit:
-        w.WriteOpaqueVec(groupId)
-        w.WriteUint32(uint32(leafIndex))
-    default:
-        return nil, ErrTreeMalformed
-    }
-    return w.Bytes(), nil
+    return marshalBytes(func(w *syntax.Writer) error {
+        if err := self.marshalCore(w); err != nil {
+            return err
+        }
+        switch self.LeafNodeSource {
+        case LeafNodeSourceKeyPackage:
+            // no context: a KeyPackage is not yet bound to a group or a position
+        case LeafNodeSourceUpdate, LeafNodeSourceCommit:
+            w.WriteOpaque(groupId)
+            w.WriteUint32(uint32(leafIndex))
+        default:
+            return ErrTreeMalformed
+        }
+        return nil
+    })
 }
 
 func (self *LeafNode) Sign(crypto CryptoProvider, signer SignaturePrivateKey,
@@ -1750,11 +2324,57 @@ func (self *LeafNode) VerifySignature(crypto CryptoProvider,
     }
     return nil
 }
+
+// Spec A §3.1: a fresh KeyPackage leaf is valid from now, back-dated by the clock
+// skew allowance, for the default lifetime.
+const (
+    leafLifetimeSkewSeconds    uint64 = 3600
+    leafLifetimeDefaultSeconds uint64 = 90 * 24 * 3600
+)
+
+// SignaturePrivateKey is an Ed25519 32-byte seed, so its public half is a derivation
+// rather than a fresh generation. NewLeafNode must never call SignatureKeyPair: it
+// was handed a key pair, and generating a second one inside the constructor is how a
+// leaf ends up signed by a key nobody holds.
+func signaturePublicKeyOf(priv SignaturePrivateKey) SignaturePublicKey {
+    return SignaturePublicKey(ed25519.NewKeyFromSeed(priv).Public().(ed25519.PublicKey))
+}
+
+// the key_package-source leaf, signed with no group id and no leaf index because it
+// is not yet bound to either. The group lifecycle plan calls this wherever it needs
+// a leaf before there is a tree to put it in.
+func NewLeafNode(crypto CryptoProvider, signer SignaturePrivateKey, cred Credential,
+    encKey HpkePublicKey, caps Capabilities, exts []Extension) (*LeafNode, error) {
+    now := uint64(time.Now().Unix())
+    leaf := &LeafNode{
+        EncryptionKey:  encKey,
+        SignatureKey:   signaturePublicKeyOf(signer),
+        Credential:     cred,
+        Capabilities:   caps,
+        LeafNodeSource: LeafNodeSourceKeyPackage,
+        Lifetime: Lifetime{
+            NotBefore: now - leafLifetimeSkewSeconds,
+            NotAfter:  now + leafLifetimeDefaultSeconds,
+        },
+        Extensions: exts,
+    }
+    if err := leaf.Sign(crypto, signer, nil, 0); err != nil {
+        return nil, err
+    }
+    // signing and then verifying costs one Ed25519 verify per key package and turns a
+    // mismatched key pair into an error here rather than a rejected Add later.
+    if err := leaf.VerifySignature(crypto, nil, 0); err != nil {
+        return nil, err
+    }
+    return leaf, nil
+}
 ```
+
+Add `"crypto/ed25519"` and `"time"` to the imports of `mls/leaf_node.go`.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./mls/... -run "TestLeafNodeSign|TestLeafNodeCommitSource|TestLeafNodeSignature" -v`
+Run: `go test ./mls/... -run "TestLeafNodeSign|TestLeafNodeCommitSource|TestLeafNodeSignature|TestNewLeafNode" -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -1774,8 +2394,12 @@ git commit -m "feat(mls): LeafNodeTBS signing and verification bound to group id
 - Test: `mls/leaf_node_test.go`
 
 **Interfaces:**
-- Consumes: `ErrBadSignature`, `ErrMissingRequiredCapability` (Validation plan, `errors.go`); `ErrLeafNodeSourceMismatch`, `ErrLeafNodeLifetime` (Task 2).
-- Produces: `LeafValidationContext{Crypto, Suite, GroupId, LeafIndex, ExpectedSource, RequiredCaps, GroupExtensions, NowMs, ClockSkewMs}` and `func (self *LeafNode) Validate(ctx *LeafValidationContext) error`. `tree_sync.go` (Task 23) calls it once per non-blank leaf; `key_package.go` (Group lifecycle plan) calls it with `ExpectedSource = LeafNodeSourceKeyPackage`; `proposal.go` calls it with `LeafNodeSourceUpdate`.
+- Consumes: `ErrBadSignature`, `ErrMissingRequiredCapability` (Validation plan, `errors.go`); `(*Capabilities).Supports`, `ParseLeafKeysExtension`, `ExtensionTypeUrmessageLeafKeys` (Tasks 3, 4); `ErrLeafNodeSourceMismatch`, `ErrLeafNodeLifetime`, `ErrLeafKeysExtensionInvalid` (Task 2).
+- Produces: `LeafValidationContext{Crypto, Suite, GroupId, LeafIndex, ExpectedSource, RequiredCaps, GroupExtensions, NowMs, ClockSkewMs}` and `func (self *LeafNode) Validate(ctx *LeafValidationContext) error`. `tree_sync.go` (Task 23) calls it once per non-blank leaf; `key_package.go` (Task 7A) calls it with `ExpectedSource = LeafNodeSourceKeyPackage`; the group lifecycle plan's proposal validation calls it with `LeafNodeSourceUpdate`.
+
+The context struct is deliberate rather than a positional call: there are eight inputs, two of them
+optional, and two adjacent `uint64` time arguments in a positional signature is a defect waiting to
+happen.
 
 Erratum 8745 (RFC 9420 §13.4) adds the requirement that a leaf replaced by an Update proposal or by
 a commit's update path is checked for group-extension support, not only a leaf arriving in an Add.
@@ -1815,7 +2439,7 @@ func signedTestLeaf(t *testing.T, crypto CryptoProvider, source LeafNodeSource,
 func testLeafValidationContext(crypto CryptoProvider, source LeafNodeSource) *LeafValidationContext {
     return &LeafValidationContext{
         Crypto:         crypto,
-        Suite:          CipherSuiteX25519ChaCha20SHA256Ed25519,
+        Suite:          CipherSuiteX25519ChaCha20Sha256Ed25519,
         GroupId:        []byte("group"),
         LeafIndex:      LeafIndex(1),
         ExpectedSource: source,
@@ -1832,7 +2456,7 @@ func testLeafValidationContext(crypto CryptoProvider, source LeafNodeSource) *Le
 }
 
 func TestLeafNodeValidateAcceptsAGoodLeaf(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -1843,7 +2467,7 @@ func TestLeafNodeValidateAcceptsAGoodLeaf(t *testing.T) {
 }
 
 func TestLeafNodeValidateRejectsWrongSource(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -1855,7 +2479,7 @@ func TestLeafNodeValidateRejectsWrongSource(t *testing.T) {
 }
 
 func TestLeafNodeValidateRejectsExpiredLifetime(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -1875,7 +2499,7 @@ func TestLeafNodeValidateRejectsExpiredLifetime(t *testing.T) {
 }
 
 func TestLeafNodeValidateRejectsMissingRequiredCapability(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -1891,7 +2515,7 @@ func TestLeafNodeValidateRejectsMissingRequiredCapability(t *testing.T) {
 }
 
 func TestLeafNodeValidateRejectsUnsupportedOwnExtension(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -1907,7 +2531,7 @@ func TestLeafNodeValidateRejectsUnsupportedOwnExtension(t *testing.T) {
 }
 
 func TestErrata8745(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -1984,21 +2608,15 @@ func (self *LeafNode) Validate(ctx *LeafValidationContext) error {
             return ErrMissingRequiredCapability
         }
     }
-    if ctx.RequiredCaps != nil {
-        for _, t := range ctx.RequiredCaps.ExtensionTypes {
-            if !self.Capabilities.SupportsExtension(t) {
-                return ErrMissingRequiredCapability
-            }
-        }
-        for _, t := range ctx.RequiredCaps.ProposalTypes {
-            if !self.Capabilities.SupportsProposal(t) {
-                return ErrMissingRequiredCapability
-            }
-        }
-        for _, t := range ctx.RequiredCaps.CredentialTypes {
-            if !self.Capabilities.SupportsCredential(t) {
-                return ErrMissingRequiredCapability
-            }
+    if err := self.Capabilities.Supports(ctx.RequiredCaps); err != nil {
+        return err
+    }
+    // MASTER §5.3: the urmessage_leaf_keys body is range-checked here, because this
+    // is the last point before the leaf is trusted by the tree and by
+    // connect/message's wrap path.
+    if body, ok := FindExtension(self.Extensions, ExtensionTypeUrmessageLeafKeys); ok {
+        if _, err := ParseLeafKeysExtension(body); err != nil {
+            return ErrLeafKeysExtensionInvalid
         }
     }
     if self.LeafNodeSource == LeafNodeSourceKeyPackage && ctx.NowMs != 0 {
@@ -2035,6 +2653,379 @@ git commit -m "feat(mls): RFC 9420 section 7.3 leaf node validation with erratum
 
 ---
 
+### Task 7A: KeyPackage
+
+**Files:**
+- Create: `mls/key_package.go`
+- Test: `mls/key_package_test.go`
+
+**Interfaces:**
+- Consumes: `syntax.Writer`, `syntax.Reader`, `func (self *Writer) WriteUint16(v uint16)`, `func (self *Writer) WriteOpaque(bs []byte)`, `func (self *Reader) ReadUint16() (uint16, error)`, `func (self *Reader) ReadOpaque() ([]byte, error)`, `func Marshal(v Marshaler) ([]byte, error)`, `func Unmarshal(bs []byte, v Unmarshaler) error`, `syntax.Codec` (Syntax plan); `func MakeKeyPackageRef(crypto CryptoProvider, keyPackage []byte) []byte`, `SignWithLabel`, `VerifyWithLabel`, `SignatureKeyPair`, `DeriveKeyPair`, `Random`, `HashSize` on `CryptoProvider` (Crypto plan); `ErrBadSignature`, `ErrProfileCiphersuite` (Validation plan, `errors.go`); `Extension`, `Capabilities`, `WriteExtensions`, `ReadExtensions`, `ProtocolVersion`, `ProtocolVersionMls10` (Task 3); `Credential` (Task 4A); `LeafNode`, `NewLeafNode`, `(*LeafNode).Validate`, `LeafValidationContext`, `marshalBytes` (Tasks 3, 5, 6, 7).
+- Produces: `KeyPackage` with `MarshalMLS`/`UnmarshalMLS` and `var _ syntax.Codec = (*KeyPackage)(nil)`; `func NewKeyPackage(crypto CryptoProvider, suite CipherSuite, cred Credential, caps Capabilities, exts []Extension) (kp *KeyPackage, initPriv HpkePrivateKey, encPriv HpkePrivateKey, err error)`; `func (self *KeyPackage) Ref(crypto CryptoProvider) ([]byte, error)`; `func (self *KeyPackage) Validate(crypto CryptoProvider, suite CipherSuite, now time.Time) error`.
+
+**`KeyPackage` lands here, in wave 2.** It was consumed by four plans and produced by none: the
+framing plan's `MLSMessage` names it by direct type in wave 3, the group lifecycle plan's file
+structure has no `key_package.go`, and the validation plan's codec table decodes it. It belongs
+beside `leaf_node.go` because it is a `LeafNode` plus an init key plus a signature and shares that
+file family's validation code, and its only dependencies are the crypto plan (wave 1) and this
+plan's own types. The group lifecycle plan keeps only the `StateStore` key-package persistence.
+
+`Validate` delegates the whole of §7.3 to `LeafNode.Validate` with
+`ExpectedSource = LeafNodeSourceKeyPackage`, and `Ref` delegates to the crypto plan's
+`MakeKeyPackageRef`. Neither reimplements anything. The `init_key != leaf.encryption_key` check is
+**not** here — it is ValSem104, and the group lifecycle plan owns the 100-series.
+
+`NewKeyPackage` generates the signature key pair as well as the two HPKE pairs, and keeps the seed
+on an unexported `signPriv` field. `package mls` is one package, so the group lifecycle plan reads
+it directly when it assembles `JoinKeyMaterial`; the field is zero on any `KeyPackage` that arrived
+off the wire, and it is not part of the encoding.
+
+- [ ] **Step 1: Write the failing test**
+
+```go
+// mls/key_package_test.go
+package mls
+
+import (
+    "bytes"
+    "errors"
+    "testing"
+    "time"
+
+    "github.com/urnetwork/connect/mls/syntax"
+)
+
+func testKeyPackageCapabilities() Capabilities {
+    return Capabilities{
+        Versions:     []ProtocolVersion{ProtocolVersionMls10},
+        CipherSuites: []CipherSuite{CipherSuiteX25519ChaCha20Sha256Ed25519},
+        Extensions:   []ExtensionType{ExtensionTypeUrmessageLeafKeys},
+        Proposals:    []ProposalType{ProposalTypeAdd, ProposalTypeUpdate, ProposalTypeRemove},
+        Credentials:  []CredentialType{CredentialTypeBasic},
+    }
+}
+
+func TestNewKeyPackageRoundTripsAndValidates(t *testing.T) {
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
+    if err != nil {
+        t.Fatalf("NewCryptoProvider: %v", err)
+    }
+    leafKeys := &LeafKeysExtension{
+        AlgId:          AlgIdXwing,
+        DeviceXwingPub: make([]byte, XwingPublicKeyLen),
+    }
+    ext, err := leafKeys.Encode()
+    if err != nil {
+        t.Fatalf("Encode: %v", err)
+    }
+    kp, initPriv, encPriv, err := NewKeyPackage(crypto, CipherSuiteX25519ChaCha20Sha256Ed25519,
+        BasicCredential([]byte("alice")), testKeyPackageCapabilities(), []Extension{ext})
+    if err != nil {
+        t.Fatalf("NewKeyPackage: %v", err)
+    }
+    if len(initPriv) == 0 || len(encPriv) == 0 {
+        t.Fatalf("NewKeyPackage returned empty private keys")
+    }
+    if bytes.Equal(initPriv, encPriv) {
+        t.Fatalf("the init and encryption key pairs are the same")
+    }
+    if bytes.Equal(kp.InitKey, kp.LeafNode.EncryptionKey) {
+        t.Fatalf("init_key equals the leaf encryption key")
+    }
+    if err := kp.Validate(crypto, CipherSuiteX25519ChaCha20Sha256Ed25519, time.Now()); err != nil {
+        t.Fatalf("Validate: %v", err)
+    }
+
+    encoded, err := syntax.Marshal(kp)
+    if err != nil {
+        t.Fatalf("Marshal: %v", err)
+    }
+    out := &KeyPackage{}
+    if err := syntax.Unmarshal(encoded, out); err != nil {
+        t.Fatalf("Unmarshal: %v", err)
+    }
+    reencoded, err := syntax.Marshal(out)
+    if err != nil {
+        t.Fatalf("re-Marshal: %v", err)
+    }
+    if !bytes.Equal(reencoded, encoded) {
+        t.Fatalf("re-encode differs")
+    }
+    if err := out.Validate(crypto, CipherSuiteX25519ChaCha20Sha256Ed25519, time.Now()); err != nil {
+        t.Fatalf("decoded Validate: %v", err)
+    }
+    if err := syntax.Unmarshal(append(encoded, 0x00), &KeyPackage{}); !errors.Is(err, syntax.ErrTrailingBytes) {
+        t.Fatalf("trailing byte err = %v, want ErrTrailingBytes", err)
+    }
+}
+
+func TestKeyPackageRefIsStableAndBindsEveryField(t *testing.T) {
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
+    if err != nil {
+        t.Fatalf("NewCryptoProvider: %v", err)
+    }
+    kp, _, _, err := NewKeyPackage(crypto, CipherSuiteX25519ChaCha20Sha256Ed25519,
+        BasicCredential([]byte("alice")), testKeyPackageCapabilities(), nil)
+    if err != nil {
+        t.Fatalf("NewKeyPackage: %v", err)
+    }
+    ref, err := kp.Ref(crypto)
+    if err != nil {
+        t.Fatalf("Ref: %v", err)
+    }
+    if len(ref) != crypto.HashSize() {
+        t.Fatalf("ref length = %d, want %d", len(ref), crypto.HashSize())
+    }
+    again, err := kp.Ref(crypto)
+    if err != nil {
+        t.Fatalf("Ref: %v", err)
+    }
+    if !bytes.Equal(ref, again) {
+        t.Fatalf("Ref is not deterministic")
+    }
+    other, _, _, err := NewKeyPackage(crypto, CipherSuiteX25519ChaCha20Sha256Ed25519,
+        BasicCredential([]byte("alice")), testKeyPackageCapabilities(), nil)
+    if err != nil {
+        t.Fatalf("NewKeyPackage: %v", err)
+    }
+    otherRef, err := other.Ref(crypto)
+    if err != nil {
+        t.Fatalf("Ref: %v", err)
+    }
+    if bytes.Equal(ref, otherRef) {
+        t.Fatalf("two key packages with fresh keys share a ref")
+    }
+}
+
+func TestKeyPackageValidateRejects(t *testing.T) {
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
+    if err != nil {
+        t.Fatalf("NewCryptoProvider: %v", err)
+    }
+    build := func(t *testing.T) *KeyPackage {
+        t.Helper()
+        kp, _, _, err := NewKeyPackage(crypto, CipherSuiteX25519ChaCha20Sha256Ed25519,
+            BasicCredential([]byte("alice")), testKeyPackageCapabilities(), nil)
+        if err != nil {
+            t.Fatalf("NewKeyPackage: %v", err)
+        }
+        return kp
+    }
+
+    wrongSuite := build(t)
+    if err := wrongSuite.Validate(crypto, CipherSuite(0x0001), time.Now()); !errors.Is(err, ErrProfileCiphersuite) {
+        t.Fatalf("suite mismatch err = %v, want ErrProfileCiphersuite", err)
+    }
+
+    tampered := build(t)
+    tampered.InitKey = HpkePublicKey(bytes.Repeat([]byte{0xEE}, len(tampered.InitKey)))
+    if err := tampered.Validate(crypto, CipherSuiteX25519ChaCha20Sha256Ed25519, time.Now()); !errors.Is(err, ErrBadSignature) {
+        t.Fatalf("tampered init key err = %v, want ErrBadSignature", err)
+    }
+
+    wrongSource := build(t)
+    wrongSource.LeafNode.LeafNodeSource = LeafNodeSourceUpdate
+    if err := wrongSource.Validate(crypto, CipherSuiteX25519ChaCha20Sha256Ed25519, time.Now()); err == nil {
+        t.Fatalf("an update-source leaf inside a KeyPackage was accepted")
+    }
+
+    expired := build(t)
+    far := time.Unix(int64(expired.LeafNode.Lifetime.NotAfter)+2*3600, 0)
+    if err := expired.Validate(crypto, CipherSuiteX25519ChaCha20Sha256Ed25519, far); !errors.Is(err, ErrLeafNodeLifetime) {
+        t.Fatalf("expired err = %v, want ErrLeafNodeLifetime", err)
+    }
+}
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `go test ./mls/... -run "TestNewKeyPackage|TestKeyPackage" -v`
+Expected: FAIL to compile with `undefined: NewKeyPackage`
+
+- [ ] **Step 3: Write minimal implementation**
+
+```go
+// mls/key_package.go
+package mls
+
+import (
+    "time"
+
+    "github.com/urnetwork/connect/mls/syntax"
+)
+
+// RFC 9420 §10. one joiner's advertised init key and leaf node, signed as a unit.
+type KeyPackage struct {
+    Version     ProtocolVersion
+    CipherSuite CipherSuite
+    InitKey     HpkePublicKey
+    LeafNode    LeafNode
+    Extensions  []Extension
+    Signature   []byte
+
+    // set by NewKeyPackage only, never encoded, zero on anything off the wire.
+    // package mls is one package, so the group lifecycle plan reads this when it
+    // assembles JoinKeyMaterial.
+    signPriv SignaturePrivateKey
+}
+
+// RFC 9420 §10. the signature label for a key package.
+const keyPackageSignatureLabel = "KeyPackageTBS"
+
+// KeyPackageTBS: everything but the signature.
+func (self *KeyPackage) marshalCore(w *syntax.Writer) error {
+    w.WriteUint16(uint16(self.Version))
+    w.WriteUint16(uint16(self.CipherSuite))
+    w.WriteOpaque(self.InitKey)
+    if err := self.LeafNode.MarshalMLS(w); err != nil {
+        return err
+    }
+    return WriteExtensions(w, self.Extensions)
+}
+
+func (self *KeyPackage) MarshalMLS(w *syntax.Writer) error {
+    if err := self.marshalCore(w); err != nil {
+        return err
+    }
+    w.WriteOpaque(self.Signature)
+    return nil
+}
+
+func (self *KeyPackage) UnmarshalMLS(r *syntax.Reader) error {
+    version, err := r.ReadUint16()
+    if err != nil {
+        return err
+    }
+    suite, err := r.ReadUint16()
+    if err != nil {
+        return err
+    }
+    initKey, err := r.ReadOpaque()
+    if err != nil {
+        return err
+    }
+    if err := self.LeafNode.UnmarshalMLS(r); err != nil {
+        return err
+    }
+    exts, err := ReadExtensions(r)
+    if err != nil {
+        return err
+    }
+    signature, err := r.ReadOpaque()
+    if err != nil {
+        return err
+    }
+    self.Version = ProtocolVersion(version)
+    self.CipherSuite = CipherSuite(suite)
+    self.InitKey = HpkePublicKey(initKey)
+    self.Extensions = exts
+    self.Signature = signature
+    self.signPriv = nil
+    return nil
+}
+
+var _ syntax.Codec = (*KeyPackage)(nil)
+
+func (self *KeyPackage) signatureContent() ([]byte, error) {
+    return marshalBytes(self.marshalCore)
+}
+
+// a fresh key package with three fresh key pairs: the init pair, the leaf encryption
+// pair and the signature pair. The two HPKE private halves are returned so the caller
+// can persist them against the ref; the signature seed rides on signPriv.
+func NewKeyPackage(crypto CryptoProvider, suite CipherSuite, cred Credential,
+    caps Capabilities, exts []Extension) (*KeyPackage, HpkePrivateKey, HpkePrivateKey, error) {
+    signPriv, _, err := crypto.SignatureKeyPair()
+    if err != nil {
+        return nil, nil, nil, err
+    }
+    initPriv, initPub, err := crypto.DeriveKeyPair(crypto.Random(crypto.HashSize()))
+    if err != nil {
+        return nil, nil, nil, err
+    }
+    encPriv, encPub, err := crypto.DeriveKeyPair(crypto.Random(crypto.HashSize()))
+    if err != nil {
+        return nil, nil, nil, err
+    }
+    leaf, err := NewLeafNode(crypto, signPriv, cred, encPub, caps, exts)
+    if err != nil {
+        return nil, nil, nil, err
+    }
+    kp := &KeyPackage{
+        Version:     ProtocolVersionMls10,
+        CipherSuite: suite,
+        InitKey:     initPub,
+        LeafNode:    *leaf,
+        Extensions:  nil,
+        signPriv:    signPriv,
+    }
+    content, err := kp.signatureContent()
+    if err != nil {
+        return nil, nil, nil, err
+    }
+    signature, err := crypto.SignWithLabel(signPriv, keyPackageSignatureLabel, content)
+    if err != nil {
+        return nil, nil, nil, err
+    }
+    kp.Signature = signature
+    return kp, initPriv, encPriv, nil
+}
+
+// RFC 9420 §5.2. the ref is the hash of the whole encoded key package, so it changes
+// with every field including the signature.
+func (self *KeyPackage) Ref(crypto CryptoProvider) ([]byte, error) {
+    encoded, err := syntax.Marshal(self)
+    if err != nil {
+        return nil, err
+    }
+    return MakeKeyPackageRef(crypto, encoded), nil
+}
+
+// RFC 9420 §10.1, minus the 100-series proposal checks. ValSem104
+// (init_key != leaf encryption key) is the group lifecycle plan's, because it is a
+// property of the proposal list rather than of one key package.
+func (self *KeyPackage) Validate(crypto CryptoProvider, suite CipherSuite, now time.Time) error {
+    if self.Version != ProtocolVersionMls10 {
+        return ErrProfileCiphersuite
+    }
+    if self.CipherSuite != suite {
+        return ErrProfileCiphersuite
+    }
+    content, err := self.signatureContent()
+    if err != nil {
+        return err
+    }
+    if err := crypto.VerifyWithLabel(self.LeafNode.SignatureKey, keyPackageSignatureLabel,
+        content, self.Signature); err != nil {
+        return ErrBadSignature
+    }
+    return self.LeafNode.Validate(&LeafValidationContext{
+        Crypto:         crypto,
+        Suite:          suite,
+        GroupId:        nil,
+        LeafIndex:      0,
+        ExpectedSource: LeafNodeSourceKeyPackage,
+        NowMs:          uint64(now.UnixMilli()),
+        ClockSkewMs:    leafLifetimeSkewSeconds * 1000,
+    })
+}
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `go test ./mls/... -run "TestNewKeyPackage|TestKeyPackage" -v`
+Expected: PASS
+
+- [ ] **Step 5: Commit**
+
+```bash
+git ls-files | wc -l
+git add mls/key_package.go mls/key_package_test.go
+git commit -m "feat(mls): KeyPackage with construction, ref and validation"
+```
+
+---
+
 ### Task 8: ParentNode, Node and the RatchetTree container
 
 **Files:**
@@ -2042,8 +3033,19 @@ git commit -m "feat(mls): RFC 9420 section 7.3 leaf node validation with erratum
 - Test: `mls/tree_test.go`
 
 **Interfaces:**
-- Consumes: `LeafIndex`, `NodeIndex`, `NodeWidth`, `Root`, `Left`, `Right`, `Parent`, `Sibling`, `DirectPath`, `Level`, `NodeIndex.IsLeaf`, `LeafIndex.NodeIndex`, `NodeIndex.LeafIndex` (Tree math plan, wave 1); `syntax.*`; `HpkePublicKey`, `SignaturePublicKey` (Crypto plan); `LeafNode` (Task 5); `ErrLeafIndexOutOfRange`, `ErrNodeIndexOutOfRange`, `ErrTreeMalformed`, `ErrNodeTypeMismatch` (Task 2).
-- Produces: `NodeType` with `NodeTypeLeaf`/`NodeTypeParent`; `ParentNode` with `MarshalTo`, `UnmarshalParentNode`, `Clone`; `Node`; `RatchetTree` with `NewRatchetTree`, `LeafWidth`, `NodeWidth`, `Get`, `Leaf`, `ParentAt`, `SetLeaf`, `SetParent`, `Blank`, `BlankDirectPath`, `Clone`, `Members`, `MemberCount`, `FindLeafBySignatureKey`.
+- Consumes: `type LeafIndex uint32`, `type NodeIndex uint32`, `type LeafCount uint32`, `const MaxLeafCount LeafCount = 1 << 31`, `func NodeWidth(n LeafCount) uint32`, `func ExtendedLeafCount(n LeafCount) (LeafCount, error)`, `func (self NodeIndex) IsLeaf() bool`, `func (self LeafIndex) NodeIndex() NodeIndex`, `type NodeShape interface{ LeafCount() LeafCount; IsBlank(x NodeIndex) bool; UnmergedLeaves(x NodeIndex) []LeafIndex }` (Tree math plan, wave 1); `syntax.Writer`, `syntax.Reader`, `func (self *Writer) WriteOpaque(bs []byte)`, `func (self *Writer) WriteUint32(v uint32)`, `func (self *Reader) ReadOpaque() ([]byte, error)`, `func (self *Reader) ReadUint32() (uint32, error)`, `func WriteVector[T any](...) error`, `func ReadVector[T any](...) ([]T, error)` (Syntax plan); `type HpkePublicKey []byte`, `type SignaturePublicKey []byte` (Crypto plan); `LeafNode` (Task 5); `directPathOf` (Task 3); `ErrLeafIndexOutOfRange`, `ErrNodeIndexOutOfRange`, `ErrTreeMalformed`, `ErrNodeTypeMismatch` (Task 2).
+- Produces: `NodeType` with `NodeTypeLeaf`/`NodeTypeParent`; `ParentNode` with `MarshalMLS`/`UnmarshalMLS`/`Clone`; `Node`; `OptionalNode`; `RatchetTree` with `NewRatchetTree`, `LeafWidth() LeafCount`, `NodeWidth() uint32`, `Get`, `Leaf`, `ParentAt`, `SetLeaf`, `SetParent`, `Blank`, `BlankDirectPath`, `Clone`, `Members`, `MemberCount`, `NonBlankLeaves`, `FindLeafBySignatureKey`, `EncryptionKeyInUse`, `HasTrailingBlankNodes`, and the three `NodeShape` methods `LeafCount`/`IsBlank`/`UnmergedLeaves` with `var _ NodeShape = (*RatchetTree)(nil)`.
+
+**`LeafWidth` returns `LeafCount`, not `uint32`** (C3): it is a count, and every tree-math entry
+point it feeds takes a count. `NodeWidth()` stays `uint32` because that is what the tree-math
+`NodeWidth(n LeafCount) uint32` returns and what indexes the node array.
+
+`NonBlankLeaves`, `EncryptionKeyInUse` and `HasTrailingBlankNodes` are three accessors the group
+lifecycle and validation plans call and nobody produced. They are reads of the private node array,
+so they belong here rather than open-coded against `Get` in two other plans.
+
+Implementing `NodeShape` is what lets the tree-math plan's `Resolution` and `FilteredDirectPath`
+work on a real tree, which is why this plan has no resolution algorithm of its own.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2192,6 +3194,66 @@ func TestRatchetTreeFindLeafBySignatureKey(t *testing.T) {
         t.Fatalf("FindLeafBySignatureKey found an absent key")
     }
 }
+
+func TestRatchetTreeAccessorsAndNodeShape(t *testing.T) {
+    tree := NewRatchetTree()
+    for i := uint32(0); i < 3; i++ {
+        leaf := testLeafNodeTemplate()
+        leaf.LeafNodeSource = LeafNodeSourceUpdate
+        leaf.EncryptionKey = HpkePublicKey(bytes.Repeat([]byte{byte(0x40 + i)}, 32))
+        if err := tree.SetLeaf(LeafIndex(i), leaf); err != nil {
+            t.Fatalf("SetLeaf(%d): %v", i, err)
+        }
+    }
+    if got := tree.NonBlankLeaves(); len(got) != 3 || got[2] != LeafIndex(2) {
+        t.Fatalf("NonBlankLeaves = %v", got)
+    }
+    if !tree.EncryptionKeyInUse(HpkePublicKey(bytes.Repeat([]byte{0x41}, 32))) {
+        t.Fatalf("EncryptionKeyInUse missed leaf 1's key")
+    }
+    if tree.EncryptionKeyInUse(HpkePublicKey(bytes.Repeat([]byte{0x99}, 32))) {
+        t.Fatalf("EncryptionKeyInUse found an absent key")
+    }
+    if err := tree.SetParent(NodeIndex(1), &ParentNode{
+        EncryptionKey:  HpkePublicKey(bytes.Repeat([]byte{0x50}, 32)),
+        UnmergedLeaves: []LeafIndex{1},
+    }); err != nil {
+        t.Fatalf("SetParent: %v", err)
+    }
+    if !tree.EncryptionKeyInUse(HpkePublicKey(bytes.Repeat([]byte{0x50}, 32))) {
+        t.Fatalf("EncryptionKeyInUse ignored a parent node key")
+    }
+
+    // NodeShape: the three methods the tree math plan's Resolution walks.
+    var shape NodeShape = tree
+    if shape.LeafCount() != tree.LeafWidth() {
+        t.Fatalf("NodeShape.LeafCount = %d, want %d", shape.LeafCount(), tree.LeafWidth())
+    }
+    if shape.IsBlank(NodeIndex(0)) {
+        t.Fatalf("leaf 0 reported blank")
+    }
+    if !shape.IsBlank(NodeIndex(6)) {
+        t.Fatalf("leaf 3 is unoccupied and must report blank")
+    }
+    if got := shape.UnmergedLeaves(NodeIndex(1)); len(got) != 1 || got[0] != LeafIndex(1) {
+        t.Fatalf("NodeShape.UnmergedLeaves(1) = %v, want [1]", got)
+    }
+    if got := shape.UnmergedLeaves(NodeIndex(3)); len(got) != 0 {
+        t.Fatalf("a blank parent has no unmerged leaves, got %v", got)
+    }
+
+    // trailing blanks: leaf 3 and the nodes above it are empty in a width-4 tree.
+    if !tree.HasTrailingBlankNodes() {
+        t.Fatalf("a tree whose last node is blank must report trailing blanks")
+    }
+    full := NewRatchetTree()
+    if err := full.SetLeaf(LeafIndex(0), testLeafNodeTemplate()); err != nil {
+        t.Fatalf("SetLeaf: %v", err)
+    }
+    if full.HasTrailingBlankNodes() {
+        t.Fatalf("a one-leaf tree has no trailing blank")
+    }
+}
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -2226,44 +3288,39 @@ type ParentNode struct {
     UnmergedLeaves []LeafIndex
 }
 
-func (self *ParentNode) MarshalTo(w *syntax.Writer) error {
-    w.WriteOpaqueVec(self.EncryptionKey)
-    w.WriteOpaqueVec(self.ParentHash)
-    inner := syntax.NewWriter()
-    for _, leaf := range self.UnmergedLeaves {
-        inner.WriteUint32(uint32(leaf))
+func (self *ParentNode) MarshalMLS(w *syntax.Writer) error {
+    w.WriteOpaque(self.EncryptionKey)
+    w.WriteOpaque(self.ParentHash)
+    return syntax.WriteVector(w, self.UnmergedLeaves,
+        func(w *syntax.Writer, leaf LeafIndex) error {
+            w.WriteUint32(uint32(leaf))
+            return nil
+        })
+}
+
+func (self *ParentNode) UnmarshalMLS(r *syntax.Reader) error {
+    encryptionKey, err := r.ReadOpaque()
+    if err != nil {
+        return err
     }
-    w.WriteOpaqueVec(inner.Bytes())
+    parentHash, err := r.ReadOpaque()
+    if err != nil {
+        return err
+    }
+    unmerged, err := syntax.ReadVector(r, func(r *syntax.Reader) (LeafIndex, error) {
+        v, err := r.ReadUint32()
+        return LeafIndex(v), err
+    })
+    if err != nil {
+        return err
+    }
+    self.EncryptionKey = HpkePublicKey(encryptionKey)
+    self.ParentHash = parentHash
+    self.UnmergedLeaves = unmerged
     return nil
 }
 
-func UnmarshalParentNode(r *syntax.Reader) (*ParentNode, error) {
-    encryptionKey, err := r.ReadOpaqueVec()
-    if err != nil {
-        return nil, err
-    }
-    parentHash, err := r.ReadOpaqueVec()
-    if err != nil {
-        return nil, err
-    }
-    sub, err := r.ReadVecReader()
-    if err != nil {
-        return nil, err
-    }
-    unmerged := []LeafIndex{}
-    for !sub.Empty() {
-        v, err := sub.ReadUint32()
-        if err != nil {
-            return nil, err
-        }
-        unmerged = append(unmerged, LeafIndex(v))
-    }
-    return &ParentNode{
-        EncryptionKey:  HpkePublicKey(encryptionKey),
-        ParentHash:     parentHash,
-        UnmergedLeaves: unmerged,
-    }, nil
-}
+var _ syntax.Codec = (*ParentNode)(nil)
 
 func (self *ParentNode) Clone() *ParentNode {
     return &ParentNode{
@@ -2291,6 +3348,14 @@ func (self *Node) Clone() *Node {
     return out
 }
 
+// one element of the ratchet_tree vector: optional<Node>. it is a named type rather
+// than a bare *Node so the validation plan's codec table and fuzz corpus have a
+// decodable unit for a single position.
+type OptionalNode struct {
+    Present bool
+    Node    Node
+}
+
 // the ratchet tree in RFC 9420 §4.2 array order. nil entries are blank nodes. the
 // leaf width is always a power of two, so the array is always a complete tree.
 // NOT safe for concurrent use.
@@ -2306,23 +3371,31 @@ func (self *RatchetTree) NodeWidth() uint32 {
     return uint32(len(self.nodes))
 }
 
-func (self *RatchetTree) LeafWidth() uint32 {
-    return (self.NodeWidth() + 1) / 2
+// a count, not an index: this feeds NodeWidth, DirectPath, Root and Resolution, all
+// of which take LeafCount.
+func (self *RatchetTree) LeafWidth() LeafCount {
+    return LeafCount((self.NodeWidth() + 1) / 2)
 }
 
-// grow to at least the given leaf width, doubling. existing node indices are
+// grow to at least the given leaf count, doubling. existing node indices are
 // unchanged, because doubling only appends a new root and a blank right subtree.
-func (self *RatchetTree) growTo(leafWidth uint32) {
+// ExtendedLeafCount is the doubling, and it is what refuses to pass MaxLeafCount.
+func (self *RatchetTree) growTo(target LeafCount) error {
     width := self.LeafWidth()
-    for width < leafWidth {
-        width *= 2
+    for width < target {
+        extended, err := ExtendedLeafCount(width)
+        if err != nil {
+            return err
+        }
+        width = extended
     }
     if width == self.LeafWidth() {
-        return
+        return nil
     }
     grown := make([]*Node, NodeWidth(width))
     copy(grown, self.nodes)
     self.nodes = grown
+    return nil
 }
 
 func (self *RatchetTree) Get(x NodeIndex) *Node {
@@ -2349,10 +3422,12 @@ func (self *RatchetTree) ParentAt(x NodeIndex) *ParentNode {
 }
 
 func (self *RatchetTree) SetLeaf(i LeafIndex, leaf *LeafNode) error {
-    if uint32(i) == ^uint32(0) {
+    if LeafCount(i) >= MaxLeafCount {
         return ErrLeafIndexOutOfRange
     }
-    self.growTo(uint32(i) + 1)
+    if err := self.growTo(LeafCount(i) + 1); err != nil {
+        return err
+    }
     self.nodes[i.NodeIndex()] = &Node{NodeType: NodeTypeLeaf, Leaf: leaf}
     return nil
 }
@@ -2379,10 +3454,14 @@ func (self *RatchetTree) Blank(x NodeIndex) error {
 // blanks every parent node between the leaf and the root. the leaf itself is left
 // alone, because Update and Remove differ only in what they put back there.
 func (self *RatchetTree) BlankDirectPath(i LeafIndex) error {
-    if uint32(i) >= self.LeafWidth() {
+    if LeafCount(i) >= self.LeafWidth() {
         return ErrLeafIndexOutOfRange
     }
-    for _, x := range DirectPath(i.NodeIndex(), self.LeafWidth()) {
+    path, err := directPathOf(i.NodeIndex(), self.LeafWidth())
+    if err != nil {
+        return err
+    }
+    for _, x := range path {
         if err := self.Blank(x); err != nil {
             return err
         }
@@ -2400,9 +3479,11 @@ func (self *RatchetTree) Clone() *RatchetTree {
     return out
 }
 
-func (self *RatchetTree) Members() []LeafIndex {
+// every occupied leaf slot, ascending. Members is the same list under the name the
+// group lifecycle plan uses for it; there is one implementation.
+func (self *RatchetTree) NonBlankLeaves() []LeafIndex {
     out := []LeafIndex{}
-    for i := uint32(0); i < self.LeafWidth(); i++ {
+    for i := uint32(0); i < uint32(self.LeafWidth()); i++ {
         if self.Leaf(LeafIndex(i)) != nil {
             out = append(out, LeafIndex(i))
         }
@@ -2410,12 +3491,16 @@ func (self *RatchetTree) Members() []LeafIndex {
     return out
 }
 
+func (self *RatchetTree) Members() []LeafIndex {
+    return self.NonBlankLeaves()
+}
+
 func (self *RatchetTree) MemberCount() uint32 {
-    return uint32(len(self.Members()))
+    return uint32(len(self.NonBlankLeaves()))
 }
 
 func (self *RatchetTree) FindLeafBySignatureKey(key SignaturePublicKey) (LeafIndex, bool) {
-    for i := uint32(0); i < self.LeafWidth(); i++ {
+    for i := uint32(0); i < uint32(self.LeafWidth()); i++ {
         leaf := self.Leaf(LeafIndex(i))
         if leaf == nil {
             continue
@@ -2426,6 +3511,51 @@ func (self *RatchetTree) FindLeafBySignatureKey(key SignaturePublicKey) (LeafInd
     }
     return 0, false
 }
+
+// is this HPKE public key already at some node, leaf or parent? the group lifecycle
+// plan's ValSem103 and ValSem110 ask exactly this, once per proposal.
+func (self *RatchetTree) EncryptionKeyInUse(key HpkePublicKey) bool {
+    for x := uint32(0); x < self.NodeWidth(); x++ {
+        node := self.nodes[x]
+        if node == nil {
+            continue
+        }
+        if node.Leaf != nil && subtle.ConstantTimeCompare(node.Leaf.EncryptionKey, key) == 1 {
+            return true
+        }
+        if node.Parent != nil && subtle.ConstantTimeCompare(node.Parent.EncryptionKey, key) == 1 {
+            return true
+        }
+    }
+    return false
+}
+
+// ValSem300 asks this of an exported tree. it is a read of the node array, so it
+// lives here rather than being re-derived from the encoding in two other plans.
+func (self *RatchetTree) HasTrailingBlankNodes() bool {
+    return len(self.nodes) > 0 && self.nodes[len(self.nodes)-1] == nil
+}
+
+// ---- NodeShape, so the tree math plan's Resolution and FilteredDirectPath run
+// against a real tree. UnmergedLeaves returns the stored list in stored order.
+
+func (self *RatchetTree) LeafCount() LeafCount {
+    return self.LeafWidth()
+}
+
+func (self *RatchetTree) IsBlank(x NodeIndex) bool {
+    return self.Get(x) == nil
+}
+
+func (self *RatchetTree) UnmergedLeaves(x NodeIndex) []LeafIndex {
+    parent := self.ParentAt(x)
+    if parent == nil {
+        return nil
+    }
+    return parent.UnmergedLeaves
+}
+
+var _ NodeShape = (*RatchetTree)(nil)
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -2450,7 +3580,7 @@ git commit -m "feat(mls): ratchet tree container with ParentNode, blanking and d
 - Test: `mls/tree_testutil_test.go`
 
 **Interfaces:**
-- Consumes: `NewCryptoProvider`, `CryptoProvider.SignatureKeyPair`, `CryptoProvider.DeriveKeyPair`, `CryptoProvider.Random` (Crypto plan); `RatchetTree`, `LeafNode` (Tasks 5, 8).
+- Consumes: `func NewCryptoProvider(suite CipherSuite) (CryptoProvider, error)`, `SignatureKeyPair`, `DeriveKeyPair`, `Random`, `HashSize` on `CryptoProvider` (Crypto plan); `BasicCredential` (Task 4A); `(*LeafKeysExtension).Encode` (Task 4); `RatchetTree`, `LeafNode` (Tasks 5, 8).
 - Produces (test-only, used by every later task in this plan): `type testMember struct { LeafIndex LeafIndex; SignaturePriv SignaturePrivateKey; EncryptionPriv HpkePrivateKey }` and `func newTestTree(t testing.TB, crypto CryptoProvider, n uint32) (*RatchetTree, []*testMember)`. It takes `testing.TB` rather than `*testing.T` so the Task 28 benchmarks can build trees without faking a `testing.T`.
 
 - [ ] **Step 1: Write the failing test**
@@ -2492,35 +3622,31 @@ func newTestTree(t testing.TB, crypto CryptoProvider, n uint32) (*RatchetTree, [
         if err != nil {
             t.Fatalf("DeriveKeyPair(%d): %v", i, err)
         }
-        leafKeys := LeafKeysExtension{
+        leafKeys := &LeafKeysExtension{
             AlgId:          AlgIdXwing,
             DeviceXwingPub: crypto.Random(XwingPublicKeyLen),
         }
-        leafKeysData, err := leafKeys.Marshal()
+        leafKeysExt, err := leafKeys.Encode()
         if err != nil {
-            t.Fatalf("LeafKeysExtension.Marshal(%d): %v", i, err)
+            t.Fatalf("LeafKeysExtension.Encode(%d): %v", i, err)
         }
         leaf := &LeafNode{
             EncryptionKey: encryptionPub,
             SignatureKey:  signaturePub,
-            Credential: Credential{
-                CredentialType: CredentialTypeBasic,
-                Identity:       []byte(fmt.Sprintf("member-%d", i)),
-            },
+            Credential:    BasicCredential([]byte(fmt.Sprintf("member-%d", i))),
             Capabilities: Capabilities{
-                Versions:     []ProtocolVersion{ProtocolVersionMLS10},
-                CipherSuites: []CipherSuite{CipherSuiteX25519ChaCha20SHA256Ed25519},
+                Versions:     []ProtocolVersion{ProtocolVersionMls10},
+                CipherSuites: []CipherSuite{CipherSuiteX25519ChaCha20Sha256Ed25519},
                 Extensions: []ExtensionType{
                     ExtensionTypeUrmessageGroupPolicy,
                     ExtensionTypeUrmessageLeafKeys,
                     ExtensionTypeUrmessageOwnerSuccessor,
                 },
+                Proposals:   []ProposalType{ProposalTypeAdd, ProposalTypeUpdate, ProposalTypeRemove},
                 Credentials: []CredentialType{CredentialTypeBasic},
             },
             LeafNodeSource: LeafNodeSourceUpdate,
-            Extensions: []Extension{
-                {ExtensionType: ExtensionTypeUrmessageLeafKeys, ExtensionData: leafKeysData},
-            },
+            Extensions:     []Extension{leafKeysExt},
         }
         if err := leaf.Sign(crypto, signaturePriv, testGroupId(), LeafIndex(i)); err != nil {
             t.Fatalf("Sign(%d): %v", i, err)
@@ -2538,7 +3664,7 @@ func newTestTree(t testing.TB, crypto CryptoProvider, n uint32) (*RatchetTree, [
 }
 
 func TestNewTestTreeShape(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -2603,8 +3729,15 @@ git commit -m "test(mls): shared n-member ratchet tree builder"
 - Test: `mls/tree_test.go`
 
 **Interfaces:**
-- Consumes: `Left`, `Right`, `NodeIndex.IsLeaf` (Tree math plan).
-- Produces: `func (self *RatchetTree) Resolution(x NodeIndex) []NodeIndex` — RFC 9420 §7.1: a non-blank node resolves to itself followed by its unmerged leaves; a blank leaf resolves to the empty list; a blank parent resolves to its left child's resolution concatenated with its right child's. Consumed by `treekem.go` and by the tree-validation vector.
+- Consumes: `func Resolution(shape NodeShape, x NodeIndex) ([]NodeIndex, error)`, `type NodeShape interface{...}`, `func Root(n LeafCount) (NodeIndex, error)` (Tree math plan); the `NodeShape` implementation and `rootOf` (Tasks 8, 3).
+- Produces: `func (self *RatchetTree) Resolution(x NodeIndex) []NodeIndex` — a thin, error-free delegation to the tree math plan's `Resolution(shape, x)`, for the call sites that already know `x` is in range. RFC 9420 §7.1: a non-blank node resolves to itself followed by its unmerged leaves; a blank leaf resolves to the empty list; a blank parent resolves to its left child's resolution concatenated with its right child's.
+
+**There is no resolution algorithm in this plan.** The tree math plan owns it, this plan supplies
+the `NodeShape` (Task 8), and the only thing added here is the convenience method the registry
+pins. The method drops the error because its single failure mode is an out-of-range `x`, which
+every internal caller has already bounded; the two places that have not — `EncryptionTargets` and
+`FilteredDirectPath` — call the free `Resolution(self, x)` and `FilteredDirectPath(self, i)` and
+return the error.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2612,14 +3745,18 @@ git commit -m "test(mls): shared n-member ratchet tree builder"
 // mls/tree_test.go (append)
 
 func TestResolutionRules(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
     tree, _ := newTestTree(t, crypto, 4)
+    root, err := rootOf(tree.LeafWidth())
+    if err != nil {
+        t.Fatalf("rootOf: %v", err)
+    }
 
     // all parents blank: the root resolves to the four leaves, left to right.
-    got := tree.Resolution(Root(tree.LeafWidth()))
+    got := tree.Resolution(root)
     want := []NodeIndex{0, 2, 4, 6}
     if !equalNodeIndices(got, want) {
         t.Fatalf("blank-parent root resolution = %v, want %v", got, want)
@@ -2629,7 +3766,7 @@ func TestResolutionRules(t *testing.T) {
     if err := tree.Blank(NodeIndex(2)); err != nil {
         t.Fatalf("Blank: %v", err)
     }
-    got = tree.Resolution(Root(tree.LeafWidth()))
+    got = tree.Resolution(root)
     want = []NodeIndex{0, 4, 6}
     if !equalNodeIndices(got, want) {
         t.Fatalf("with leaf 1 blank, root resolution = %v, want %v", got, want)
@@ -2650,10 +3787,23 @@ func TestResolutionRules(t *testing.T) {
     if !equalNodeIndices(got, want) {
         t.Fatalf("non-blank parent resolution = %v, want %v", got, want)
     }
-    got = tree.Resolution(Root(tree.LeafWidth()))
+    got = tree.Resolution(root)
     want = []NodeIndex{1, 0, 4, 6}
     if !equalNodeIndices(got, want) {
         t.Fatalf("root resolution = %v, want %v", got, want)
+    }
+
+    // the method and the free function the tree math plan owns agree, and the free
+    // one is where an out-of-range node index is an error rather than an empty list.
+    free, err := Resolution(tree, root)
+    if err != nil {
+        t.Fatalf("Resolution(tree, root): %v", err)
+    }
+    if !equalNodeIndices(free, got) {
+        t.Fatalf("the method and the free function disagree: %v vs %v", got, free)
+    }
+    if _, err := Resolution(tree, NodeIndex(tree.NodeWidth())); err == nil {
+        t.Fatalf("Resolution past the node width returned no error")
     }
 }
 
@@ -2680,35 +3830,16 @@ Expected: FAIL to compile with `tree.Resolution undefined`
 ```go
 // mls/tree.go (append)
 
-// RFC 9420 §7.1. the ordered list of non-blank nodes that collectively cover every
-// non-blank descendant. an unmerged leaf counts toward its ancestors' resolutions,
-// which is what makes a freshly added member reachable before anyone commits a path.
+// RFC 9420 §7.1, delegated to the tree math plan against this tree's NodeShape.
+// The only failure Resolution has is an out-of-range x, and every call site of this
+// method has already bounded x, so the convenience form drops it. Anywhere x is not
+// already bounded, call Resolution(self, x) directly and return the error.
 func (self *RatchetTree) Resolution(x NodeIndex) []NodeIndex {
-    if uint32(x) >= self.NodeWidth() {
+    out, err := Resolution(self, x)
+    if err != nil {
         return []NodeIndex{}
     }
-    node := self.nodes[x]
-    if node != nil {
-        out := []NodeIndex{x}
-        if node.Parent != nil {
-            for _, leaf := range node.Parent.UnmergedLeaves {
-                out = append(out, leaf.NodeIndex())
-            }
-        }
-        return out
-    }
-    if x.IsLeaf() {
-        return []NodeIndex{}
-    }
-    left, ok := Left(x)
-    if !ok {
-        return []NodeIndex{}
-    }
-    right, ok := Right(x)
-    if !ok {
-        return []NodeIndex{}
-    }
-    return append(self.Resolution(left), self.Resolution(right)...)
+    return out
 }
 ```
 
@@ -2734,8 +3865,22 @@ git commit -m "feat(mls): node resolution including unmerged leaves"
 - Test: `mls/tree_test.go`
 
 **Interfaces:**
-- Consumes: `syntax.*`, `syntax.MaxRatchetTreeLength` (Syntax plan); `ErrTrailingBlankNodes` (Validation plan, ValSem300); `ErrTreeMalformed`, `ErrNodeTypeMismatch` (Task 2).
-- Produces: `func (self *RatchetTree) Marshal() ([]byte, error)` and `func UnmarshalRatchetTree(data []byte) (*RatchetTree, error)`. The encoding is `optional<Node> ratchet_tree<V>` with trailing blanks stripped; the decoder refuses a trailing blank (ValSem300), refuses a node whose type contradicts its position, and pads to the next complete tree width.
+- Consumes: `func (self *Writer) WriteOptional(present bool, encodeOne func(w *Writer) error) error`, `func (self *Reader) ReadOptional(decodeOne func(r *Reader) error) (present bool, err error)`, `func (self *Reader) ReadSub() (*Reader, error)`, `func WriteVector[T any](...) error`, `func Marshal(v Marshaler) ([]byte, error)`, `func UnmarshalLimit(bs []byte, v Unmarshaler, maxVectorLength int) error`, `func (self *Reader) Remaining() int` (the presence-octet test only), `const MaxRatchetTreeLength int = 1 << 24`, `syntax.ErrOptionalPresence`, `syntax.ErrLengthExceedsMax`, `syntax.Codec` (Syntax plan); `func NodeWidth(n LeafCount) uint32`, `func ExtendedLeafCount(n LeafCount) (LeafCount, error)`, `func (self NodeIndex) IsLeaf() bool` (Tree math plan); `ErrTrailingBlankNodes` (Validation plan, ValSem300); `ErrTreeMalformed`, `ErrNodeTypeMismatch` (Task 2).
+- Produces: `func (self *Node) MarshalMLS(w *syntax.Writer) error` / `UnmarshalMLS`; `func (self *OptionalNode) MarshalMLS(w *syntax.Writer) error` / `UnmarshalMLS`; `func (self *RatchetTree) MarshalMLS(w *syntax.Writer) error` / `UnmarshalMLS`; `var _ syntax.Codec = (*RatchetTree)(nil)`; and `func UnmarshalRatchetTree(data []byte) (*RatchetTree, error)`.
+
+The encoding is `optional<Node> ratchet_tree<V>` with trailing blanks stripped; the decoder refuses
+a trailing blank (ValSem300), refuses a node whose type contradicts its position, and pads to the
+next complete tree width.
+
+**`UnmarshalRatchetTree` is the one place in this package that raises the vector limit.** It is
+`syntax.UnmarshalLimit(data, tree, syntax.MaxRatchetTreeLength)` — 16 MiB, not the 1 MiB default
+every other field gets. The syntax plan names the tree as the exception and this is the only
+producer that wires it; a tree decoded through plain `syntax.Unmarshal` refuses a large group at
+`ErrLengthExceedsMax`, which reads as a corrupt Welcome rather than as a limit. It is a free
+function rather than a method because the limit is not something a caller should have to remember.
+
+`RatchetTree` still implements `syntax.Codec`, so it is a `CheckRoundTrip` target and an entry in
+the validation plan's codec table; the plain `UnmarshalMLS` simply carries the default limit.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2743,7 +3888,7 @@ git commit -m "feat(mls): node resolution including unmerged leaves"
 // mls/tree_test.go (append)
 
 func TestRatchetTreeMarshalRoundTrip(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -2756,7 +3901,7 @@ func TestRatchetTreeMarshalRoundTrip(t *testing.T) {
         }); n >= 2 && err != nil {
             t.Fatalf("n=%d SetParent: %v", n, err)
         }
-        encoded, err := tree.Marshal()
+        encoded, err := syntax.Marshal(tree)
         if err != nil {
             t.Fatalf("n=%d Marshal: %v", n, err)
         }
@@ -2767,7 +3912,7 @@ func TestRatchetTreeMarshalRoundTrip(t *testing.T) {
         if out.MemberCount() != n {
             t.Fatalf("n=%d decoded member count = %d", n, out.MemberCount())
         }
-        reencoded, err := out.Marshal()
+        reencoded, err := syntax.Marshal(out)
         if err != nil {
             t.Fatalf("n=%d re-Marshal: %v", n, err)
         }
@@ -2777,13 +3922,13 @@ func TestRatchetTreeMarshalRoundTrip(t *testing.T) {
     }
 }
 
-func TestValSem300_TrailingBlankNodes(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+func TestRatchetTreeRefusesTrailingBlankNodes(t *testing.T) {
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
     tree, _ := newTestTree(t, crypto, 3)
-    encoded, err := tree.Marshal()
+    encoded, err := syntax.Marshal(tree)
     if err != nil {
         t.Fatalf("Marshal: %v", err)
     }
@@ -2799,10 +3944,15 @@ func TestValSem300_TrailingBlankNodes(t *testing.T) {
     if _, err := UnmarshalRatchetTree(padded); !errors.Is(err, ErrTrailingBlankNodes) {
         t.Fatalf("err = %v, want ErrTrailingBlankNodes", err)
     }
+    // the same fact through the accessor the group lifecycle and validation plans
+    // call, so a tree that was built rather than decoded is caught too.
+    if !tree.HasTrailingBlankNodes() {
+        t.Fatalf("a width-4 tree holding three leaves has trailing blank nodes")
+    }
 }
 
 func TestRatchetTreeRejectsNodeTypeInWrongPosition(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -2811,7 +3961,7 @@ func TestRatchetTreeRejectsNodeTypeInWrongPosition(t *testing.T) {
     tree.nodes[0] = &Node{NodeType: NodeTypeParent, Parent: &ParentNode{
         EncryptionKey: HpkePublicKey(bytes.Repeat([]byte{0xAA}, 32)),
     }}
-    encoded, err := tree.Marshal()
+    encoded, err := syntax.Marshal(tree)
     if err != nil {
         t.Fatalf("Marshal: %v", err)
     }
@@ -2819,60 +3969,67 @@ func TestRatchetTreeRejectsNodeTypeInWrongPosition(t *testing.T) {
         t.Fatalf("err = %v, want ErrNodeTypeMismatch", err)
     }
 }
+
+func TestRatchetTreeRejectsABadPresenceOctet(t *testing.T) {
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
+    if err != nil {
+        t.Fatalf("NewCryptoProvider: %v", err)
+    }
+    tree, _ := newTestTree(t, crypto, 2)
+    encoded, err := syntax.Marshal(tree)
+    if err != nil {
+        t.Fatalf("Marshal: %v", err)
+    }
+    // the first octet of the vector body is the first node's presence octet. the
+    // length prefix is variable-width, so find its length by decoding rather than
+    // by assuming an offset.
+    body, err := syntax.NewReader(encoded).ReadSub()
+    if err != nil {
+        t.Fatalf("ReadSub: %v", err)
+    }
+    prefixLen := len(encoded) - body.Remaining()
+    mutated := append([]byte{}, encoded...)
+    mutated[prefixLen] = 0x02
+    if _, err := UnmarshalRatchetTree(mutated); !errors.Is(err, syntax.ErrOptionalPresence) {
+        t.Fatalf("err = %v, want ErrOptionalPresence", err)
+    }
+}
 ```
 
 Add this helper to `mls/tree_test.go`:
 
 ```go
-// the same encoding as RatchetTree.Marshal but with one absent node appended, which
-// is exactly what ValSem300 forbids.
+// the same encoding as syntax.Marshal(tree) but with one absent node appended,
+// which is exactly what ValSem300 forbids.
 func marshalRatchetTreeWithTrailingBlank(tree *RatchetTree) ([]byte, error) {
+    canonical, err := syntax.Marshal(tree)
+    if err != nil {
+        return nil, err
+    }
+    body, err := syntax.NewReader(canonical).ReadSub()
+    if err != nil {
+        return nil, err
+    }
     inner := syntax.NewWriter()
-    canonical, err := tree.Marshal()
-    if err != nil {
-        return nil, err
-    }
-    r := syntax.NewReader(canonical)
-    body, err := r.ReadVecReader()
-    if err != nil {
-        return nil, err
-    }
     for !body.Empty() {
-        present, err := body.ReadUint8()
-        if err != nil {
+        node := &OptionalNode{}
+        if err := node.UnmarshalMLS(body); err != nil {
             return nil, err
         }
-        inner.WriteUint8(present)
-        if present == 0 {
-            continue
-        }
-        nodeType, err := body.ReadUint8()
-        if err != nil {
+        if err := node.MarshalMLS(inner); err != nil {
             return nil, err
-        }
-        inner.WriteUint8(nodeType)
-        if NodeType(nodeType) == NodeTypeLeaf {
-            leaf, err := UnmarshalLeafNode(body)
-            if err != nil {
-                return nil, err
-            }
-            if err := leaf.MarshalTo(inner); err != nil {
-                return nil, err
-            }
-        } else {
-            parent, err := UnmarshalParentNode(body)
-            if err != nil {
-                return nil, err
-            }
-            if err := parent.MarshalTo(inner); err != nil {
-                return nil, err
-            }
         }
     }
-    inner.WriteUint8(0)
+    if err := (&OptionalNode{}).MarshalMLS(inner); err != nil {
+        return nil, err
+    }
+    payload, err := inner.Bytes()
+    if err != nil {
+        return nil, err
+    }
     w := syntax.NewWriter()
-    w.WriteOpaqueVec(inner.Bytes())
-    return w.Bytes(), nil
+    w.WriteOpaque(payload)
+    return w.Bytes()
 }
 ```
 
@@ -2880,133 +4037,177 @@ and add `"github.com/urnetwork/connect/mls/syntax"` to the imports of `mls/tree_
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./mls/... -run "TestRatchetTreeMarshal|TestValSem300|TestRatchetTreeRejectsNodeType" -v`
-Expected: FAIL to compile with `tree.Marshal undefined`
+Run: `go test ./mls/... -run "TestRatchetTreeMarshal|TestRatchetTreeRefuses|TestRatchetTreeRejects" -v`
+Expected: FAIL to compile with `undefined: UnmarshalRatchetTree`
 
 - [ ] **Step 3: Write minimal implementation**
 
 ```go
 // mls/tree.go (append)
 
-func (self *Node) marshalTo(w *syntax.Writer) error {
+func (self *Node) MarshalMLS(w *syntax.Writer) error {
     w.WriteUint8(uint8(self.NodeType))
     switch self.NodeType {
     case NodeTypeLeaf:
         if self.Leaf == nil {
             return ErrTreeMalformed
         }
-        return self.Leaf.MarshalTo(w)
+        return self.Leaf.MarshalMLS(w)
     case NodeTypeParent:
         if self.Parent == nil {
             return ErrTreeMalformed
         }
-        return self.Parent.MarshalTo(w)
+        return self.Parent.MarshalMLS(w)
     default:
         return ErrTreeMalformed
     }
 }
 
+// position-agnostic: whether this node type is legal at the index it was read from
+// is the tree decoder's check, because only the tree knows the index.
+func (self *Node) UnmarshalMLS(r *syntax.Reader) error {
+    nodeType, err := r.ReadUint8()
+    if err != nil {
+        return err
+    }
+    switch NodeType(nodeType) {
+    case NodeTypeLeaf:
+        leaf := &LeafNode{}
+        if err := leaf.UnmarshalMLS(r); err != nil {
+            return err
+        }
+        self.NodeType, self.Leaf, self.Parent = NodeTypeLeaf, leaf, nil
+    case NodeTypeParent:
+        parent := &ParentNode{}
+        if err := parent.UnmarshalMLS(r); err != nil {
+            return err
+        }
+        self.NodeType, self.Leaf, self.Parent = NodeTypeParent, nil, parent
+    default:
+        return ErrTreeMalformed
+    }
+    return nil
+}
+
+var _ syntax.Codec = (*Node)(nil)
+
+// the presence octet plus the node. WriteOptional/ReadOptional own the octet, so a
+// value that is neither 0 nor 1 is syntax.ErrOptionalPresence and never has to be
+// re-spelled in this package's own error set.
+func (self *OptionalNode) MarshalMLS(w *syntax.Writer) error {
+    return w.WriteOptional(self.Present, func(w *syntax.Writer) error {
+        return self.Node.MarshalMLS(w)
+    })
+}
+
+func (self *OptionalNode) UnmarshalMLS(r *syntax.Reader) error {
+    present, err := r.ReadOptional(func(r *syntax.Reader) error {
+        return self.Node.UnmarshalMLS(r)
+    })
+    if err != nil {
+        return err
+    }
+    self.Present = present
+    return nil
+}
+
+var _ syntax.Codec = (*OptionalNode)(nil)
+
 // the ratchet_tree extension body, RFC 9420 §12.4.3.1: optional<Node> ratchet_tree<V>
 // with every trailing blank stripped.
-func (self *RatchetTree) Marshal() ([]byte, error) {
+func (self *RatchetTree) MarshalMLS(w *syntax.Writer) error {
     end := len(self.nodes)
     for end > 0 && self.nodes[end-1] == nil {
         end--
     }
-    inner := syntax.NewWriter()
-    for _, node := range self.nodes[:end] {
-        if node == nil {
-            inner.WriteUint8(0)
-            continue
-        }
-        inner.WriteUint8(1)
-        if err := node.marshalTo(inner); err != nil {
-            return nil, err
-        }
-    }
-    w := syntax.NewWriter()
-    w.WriteOpaqueVec(inner.Bytes())
-    return w.Bytes(), nil
+    return syntax.WriteVector(w, self.nodes[:end],
+        func(w *syntax.Writer, node *Node) error {
+            optional := OptionalNode{Present: node != nil}
+            if node != nil {
+                optional.Node = *node
+            }
+            return optional.MarshalMLS(w)
+        })
 }
 
-func UnmarshalRatchetTree(data []byte) (*RatchetTree, error) {
-    if len(data) > syntax.MaxRatchetTreeLength {
-        return nil, syntax.ErrVectorTooLong
-    }
-    r := syntax.NewReader(data)
-    body, err := r.ReadVecReader()
+// the element decoder needs the node index to check type against position, and that
+// is what ReadVector's element callback does not carry, so this reads the sub-reader
+// directly — the sanctioned form for a heterogeneous vector.
+func (self *RatchetTree) UnmarshalMLS(r *syntax.Reader) error {
+    body, err := r.ReadSub()
     if err != nil {
-        return nil, err
-    }
-    if !r.Empty() {
-        return nil, syntax.ErrTrailingBytes
+        return err
     }
     nodes := []*Node{}
     for !body.Empty() {
-        present, err := body.ReadUint8()
-        if err != nil {
-            return nil, err
+        x := NodeIndex(len(nodes))
+        optional := &OptionalNode{}
+        if err := optional.UnmarshalMLS(body); err != nil {
+            return err
         }
-        switch present {
-        case 0:
+        if !optional.Present {
             nodes = append(nodes, nil)
             continue
-        case 1:
-        default:
-            return nil, ErrTreeMalformed
         }
-        nodeType, err := body.ReadUint8()
-        if err != nil {
-            return nil, err
-        }
-        x := NodeIndex(len(nodes))
-        switch NodeType(nodeType) {
+        node := optional.Node
+        switch node.NodeType {
         case NodeTypeLeaf:
             if !x.IsLeaf() {
-                return nil, ErrNodeTypeMismatch
+                return ErrNodeTypeMismatch
             }
-            leaf, err := UnmarshalLeafNode(body)
-            if err != nil {
-                return nil, err
-            }
-            nodes = append(nodes, &Node{NodeType: NodeTypeLeaf, Leaf: leaf})
         case NodeTypeParent:
             if x.IsLeaf() {
-                return nil, ErrNodeTypeMismatch
+                return ErrNodeTypeMismatch
             }
-            parent, err := UnmarshalParentNode(body)
-            if err != nil {
-                return nil, err
-            }
-            nodes = append(nodes, &Node{NodeType: NodeTypeParent, Parent: parent})
         default:
-            return nil, ErrTreeMalformed
+            return ErrTreeMalformed
         }
+        nodes = append(nodes, &node)
     }
     // ValSem300: an exported ratchet tree carries no trailing blank nodes.
     if len(nodes) > 0 && nodes[len(nodes)-1] == nil {
-        return nil, ErrTrailingBlankNodes
+        return ErrTrailingBlankNodes
     }
-    tree := &RatchetTree{nodes: nodes}
     if len(nodes) == 0 {
-        tree.nodes = make([]*Node, 1)
-        return tree, nil
+        self.nodes = make([]*Node, 1)
+        return nil
     }
-    // pad up to the next complete tree.
-    leafWidth := uint32(1)
+    // pad up to the next complete tree. ExtendedLeafCount is the doubling, and it is
+    // what refuses to run past MaxLeafCount on a hostile length.
+    leafWidth := LeafCount(1)
     for NodeWidth(leafWidth) < uint32(len(nodes)) {
-        leafWidth *= 2
+        extended, err := ExtendedLeafCount(leafWidth)
+        if err != nil {
+            return err
+        }
+        leafWidth = extended
     }
     padded := make([]*Node, NodeWidth(leafWidth))
     copy(padded, nodes)
-    tree.nodes = padded
+    self.nodes = padded
+    return nil
+}
+
+var _ syntax.Codec = (*RatchetTree)(nil)
+
+// the ratchet tree is the one field in this slice that gets the 16 MiB limit rather
+// than the 1 MiB default. Decoding through plain syntax.Unmarshal would refuse a
+// large group at ErrLengthExceedsMax, which reads as a corrupt Welcome rather than
+// as a limit, so the raised limit is wired here once and no caller has to remember
+// it. syntax.UnmarshalLimit also enforces full consumption, so there is no separate
+// trailing-bytes check.
+func UnmarshalRatchetTree(data []byte) (*RatchetTree, error) {
+    tree := &RatchetTree{}
+    if err := syntax.UnmarshalLimit(data, tree, syntax.MaxRatchetTreeLength); err != nil {
+        return nil, err
+    }
     return tree, nil
 }
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./mls/... -run "TestRatchetTreeMarshal|TestValSem300|TestRatchetTreeRejectsNodeType" -v`
+Run: `go test ./mls/... -run "TestRatchetTreeMarshal|TestRatchetTreeRefuses|TestRatchetTreeRejects" -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -3026,7 +4227,7 @@ git commit -m "feat(mls): ratchet_tree extension codec refusing trailing blank n
 - Test: `mls/tree_hash_test.go`
 
 **Interfaces:**
-- Consumes: `CryptoProvider.Hash` (Crypto plan); `Left`, `Right`, `Root`, `NodeIndex.IsLeaf`, `NodeIndex.LeafIndex` (Tree math plan); `syntax.*`.
+- Consumes: `Hash(data []byte) []byte` on `CryptoProvider` (Crypto plan); `func Left(x NodeIndex) (NodeIndex, error)`, `func Right(x NodeIndex) (NodeIndex, error)`, `func Root(n LeafCount) (NodeIndex, error)`, `func (self NodeIndex) IsLeaf() bool`, `func (self NodeIndex) LeafIndex() (LeafIndex, error)` (Tree math plan), reached through the `leftOf`/`rightOf`/`rootOf`/`leafIndexOf` shims of Task 3; `syntax.Writer`, `func (self *Writer) WriteUint8(v uint8)`, `func (self *Writer) WriteUint32(v uint32)`, `func (self *Writer) WriteOpaque(bs []byte)`, `func (self *Writer) WriteOptional(present bool, encodeOne func(w *Writer) error) error` (Syntax plan); `marshalBytes` (Task 3).
 - Produces: `func (self *RatchetTree) NodeTreeHash(crypto CryptoProvider, x NodeIndex) ([]byte, error)`, `func (self *RatchetTree) TreeHash(crypto CryptoProvider) ([]byte, error)`, `func (self *RatchetTree) TreeHashes(crypto CryptoProvider) ([][]byte, error)`. `TreeHash` is what `GroupContext.TreeHash` is set from; `TreeHashes` is indexed by node index and is what the tree-validation vector checks.
 
 The hash inputs are RFC 9420 §7.8:
@@ -3053,7 +4254,7 @@ import (
 )
 
 func TestTreeHashChangesWithEveryObservableChange(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -3089,7 +4290,7 @@ func TestTreeHashChangesWithEveryObservableChange(t *testing.T) {
 }
 
 func TestTreeHashesIndexedByNode(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -3110,17 +4311,21 @@ func TestTreeHashesIndexedByNode(t *testing.T) {
             t.Fatalf("node %d: TreeHashes disagrees with NodeTreeHash", x)
         }
     }
-    root, err := tree.TreeHash(crypto)
+    rootHash, err := tree.TreeHash(crypto)
     if err != nil {
         t.Fatalf("TreeHash: %v", err)
     }
-    if !bytes.Equal(root, hashes[Root(tree.LeafWidth())]) {
+    root, err := rootOf(tree.LeafWidth())
+    if err != nil {
+        t.Fatalf("rootOf: %v", err)
+    }
+    if !bytes.Equal(rootHash, hashes[root]) {
         t.Fatalf("TreeHash is not the root entry of TreeHashes")
     }
 }
 
 func TestBlankLeafStillHashesAtItsIndex(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -3159,31 +4364,26 @@ package mls
 import "github.com/urnetwork/connect/mls/syntax"
 
 // RFC 9420 §7.8. the leaf index is inside the hash input, so a blank position is
-// distinguishable from every other blank position.
+// distinguishable from every other blank position. optional<LeafNode> is written
+// through WriteOptional, so the presence octet has one implementation.
 func (self *RatchetTree) leafHashInput(w *syntax.Writer, i LeafIndex, leaf *LeafNode) error {
     w.WriteUint8(uint8(NodeTypeLeaf))
     w.WriteUint32(uint32(i))
-    if leaf == nil {
-        w.WriteUint8(0)
-        return nil
-    }
-    w.WriteUint8(1)
-    return leaf.MarshalTo(w)
+    return w.WriteOptional(leaf != nil, func(w *syntax.Writer) error {
+        return leaf.MarshalMLS(w)
+    })
 }
 
 func (self *RatchetTree) parentHashInput(w *syntax.Writer, parent *ParentNode,
     leftHash, rightHash []byte) error {
     w.WriteUint8(uint8(NodeTypeParent))
-    if parent == nil {
-        w.WriteUint8(0)
-    } else {
-        w.WriteUint8(1)
-        if err := parent.MarshalTo(w); err != nil {
-            return err
-        }
+    if err := w.WriteOptional(parent != nil, func(w *syntax.Writer) error {
+        return parent.MarshalMLS(w)
+    }); err != nil {
+        return err
     }
-    w.WriteOpaqueVec(leftHash)
-    w.WriteOpaqueVec(rightHash)
+    w.WriteOpaque(leftHash)
+    w.WriteOpaque(rightHash)
     return nil
 }
 
@@ -3196,9 +4396,8 @@ func (self *RatchetTree) treeHash(crypto CryptoProvider, x NodeIndex,
     if uint32(x) >= self.NodeWidth() {
         return nil, ErrNodeIndexOutOfRange
     }
-    w := syntax.NewWriter()
     if x.IsLeaf() {
-        i, ok := x.LeafIndex()
+        i, ok := leafIndexOf(x)
         if !ok {
             return nil, ErrTreeMalformed
         }
@@ -3206,16 +4405,19 @@ func (self *RatchetTree) treeHash(crypto CryptoProvider, x NodeIndex,
         if exclude != nil && exclude[i] {
             leaf = nil
         }
-        if err := self.leafHashInput(w, i, leaf); err != nil {
+        input, err := marshalBytes(func(w *syntax.Writer) error {
+            return self.leafHashInput(w, i, leaf)
+        })
+        if err != nil {
             return nil, err
         }
-        return crypto.Hash(w.Bytes()), nil
+        return crypto.Hash(input), nil
     }
-    left, ok := Left(x)
+    left, ok := leftOf(x)
     if !ok {
         return nil, ErrTreeMalformed
     }
-    right, ok := Right(x)
+    right, ok := rightOf(x)
     if !ok {
         return nil, ErrTreeMalformed
     }
@@ -3239,10 +4441,13 @@ func (self *RatchetTree) treeHash(crypto CryptoProvider, x NodeIndex,
         filtered.UnmergedLeaves = kept
         parent = filtered
     }
-    if err := self.parentHashInput(w, parent, leftHash, rightHash); err != nil {
+    input, err := marshalBytes(func(w *syntax.Writer) error {
+        return self.parentHashInput(w, parent, leftHash, rightHash)
+    })
+    if err != nil {
         return nil, err
     }
-    return crypto.Hash(w.Bytes()), nil
+    return crypto.Hash(input), nil
 }
 
 func (self *RatchetTree) NodeTreeHash(crypto CryptoProvider, x NodeIndex) ([]byte, error) {
@@ -3250,7 +4455,11 @@ func (self *RatchetTree) NodeTreeHash(crypto CryptoProvider, x NodeIndex) ([]byt
 }
 
 func (self *RatchetTree) TreeHash(crypto CryptoProvider) ([]byte, error) {
-    return self.treeHash(crypto, Root(self.LeafWidth()), nil)
+    root, err := rootOf(self.LeafWidth())
+    if err != nil {
+        return nil, err
+    }
+    return self.treeHash(crypto, root, nil)
 }
 
 // every node's tree hash, indexed by node index. the tree-validation vector checks
@@ -3290,7 +4499,7 @@ git commit -m "feat(mls): RFC 9420 section 7.8 tree hash over the ratchet tree"
 - Test: `mls/tree_hash_test.go`
 
 **Interfaces:**
-- Consumes: `CryptoProvider.Hash`; `Left`, `Right`, `Sibling`, `CommonAncestor` (Tree math plan).
+- Consumes: `Hash(data []byte) []byte` on `CryptoProvider`; `func Left(x NodeIndex) (NodeIndex, error)`, `func Right(x NodeIndex) (NodeIndex, error)` (Tree math plan), through the `leftOf`/`rightOf` shims of Task 3; `marshalBytes` (Task 3); `treeHash` (Task 12); `ErrParentHashMismatch` (Task 2).
 - Produces: `func (self *RatchetTree) ParentHash(crypto CryptoProvider, parent, copathChild NodeIndex) ([]byte, error)` — the parent hash of node `parent` taken with respect to the copath child `copathChild`, per RFC 9420 §7.9:
 
 ```
@@ -3309,7 +4518,7 @@ is exactly `treeHash(crypto, copathChild, exclude)` from Task 12 with `exclude =
 // mls/tree_hash_test.go (append)
 
 func TestParentHashDependsOnUnmergedLeaves(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -3357,7 +4566,7 @@ func TestParentHashDependsOnUnmergedLeaves(t *testing.T) {
 }
 
 func TestParentHashCoversTheParentsOwnFields(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -3434,11 +4643,16 @@ func (self *RatchetTree) ParentHash(crypto CryptoProvider,
     if err != nil {
         return nil, err
     }
-    w := syntax.NewWriter()
-    w.WriteOpaqueVec(node.EncryptionKey)
-    w.WriteOpaqueVec(node.ParentHash)
-    w.WriteOpaqueVec(siblingHash)
-    return crypto.Hash(w.Bytes()), nil
+    input, err := marshalBytes(func(w *syntax.Writer) error {
+        w.WriteOpaque(node.EncryptionKey)
+        w.WriteOpaque(node.ParentHash)
+        w.WriteOpaque(siblingHash)
+        return nil
+    })
+    if err != nil {
+        return nil, err
+    }
+    return crypto.Hash(input), nil
 }
 
 // the parent_hash field a node carries, whatever kind of node it is. a leaf carries
@@ -3479,7 +4693,7 @@ git commit -m "feat(mls): parent hash over the original sibling tree hash (RFC 9
 - Test: `mls/tree_hash_test.go`
 
 **Interfaces:**
-- Consumes: `Left`, `Right` (Tree math plan); `ErrParentHashMismatch` (Task 2); `Resolution` (Task 10); `ParentHash` (Task 13).
+- Consumes: `func Left(x NodeIndex) (NodeIndex, error)`, `func Right(x NodeIndex) (NodeIndex, error)` (Tree math plan), through the `leftOf`/`rightOf` shims of Task 3; `ErrParentHashMismatch`, `ErrTreeMalformed` (Task 2); `(*RatchetTree).Resolution` (Task 10); `(*RatchetTree).ParentHash` (Task 13).
 - Produces: `func (self *RatchetTree) VerifyParentHashes(crypto CryptoProvider) error`. RFC 9420 §7.9.2: for every non-blank parent P with children L and R, exactly one of "some node in `Resolution(L)` carries the parent hash of P taken with copath child R" and the mirrored statement for R must hold. Exactly one — both, or neither, is a failure.
 
 A tree whose parent nodes are all blank is trivially parent-hash valid, which is why the Task 9
@@ -3519,7 +4733,7 @@ func buildParentHashChain(t *testing.T, crypto CryptoProvider) (*RatchetTree, []
 }
 
 func TestVerifyParentHashesAcceptsAllBlankParents(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -3532,7 +4746,7 @@ func TestVerifyParentHashesAcceptsAllBlankParents(t *testing.T) {
 }
 
 func TestVerifyParentHashesAcceptsAValidChain(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -3543,7 +4757,7 @@ func TestVerifyParentHashesAcceptsAValidChain(t *testing.T) {
 }
 
 func TestVerifyParentHashesRejectsATamperedChain(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -3559,7 +4773,7 @@ func TestVerifyParentHashesRejectsATamperedChain(t *testing.T) {
 }
 
 func TestVerifyParentHashesRejectsBothChildrenClaimingTheSameParent(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -3624,11 +4838,11 @@ func (self *RatchetTree) VerifyParentHashes(crypto CryptoProvider) error {
         if self.ParentAt(node) == nil {
             continue
         }
-        left, ok := Left(node)
+        left, ok := leftOf(node)
         if !ok {
             return ErrTreeMalformed
         }
-        right, ok := Right(node)
+        right, ok := rightOf(node)
         if !ok {
             return ErrTreeMalformed
         }
@@ -3674,7 +4888,7 @@ git commit -m "feat(mls): parent hash validity for the whole tree (RFC 9420 sect
 - Test: `mls/tree_test.go`
 
 **Interfaces:**
-- Consumes: `DirectPath`, `Root` (Tree math plan); `ErrLeafIndexOutOfRange`, `ErrUnmergedLeavesNotSorted` (Task 2).
+- Consumes: `func DirectPath(x NodeIndex, n LeafCount) ([]NodeIndex, error)` (through the `directPathOf` shim of Task 3), `func NodeWidth(n LeafCount) uint32`, `func TruncatedLeafCount(rightmostNonBlankLeaf LeafIndex) (LeafCount, error)` (Tree math plan); `ErrLeafIndexOutOfRange` (Task 2).
 - Produces: `func (self *RatchetTree) AddLeaf(leaf *LeafNode) (LeafIndex, error)`, `func (self *RatchetTree) UpdateLeaf(i LeafIndex, leaf *LeafNode) error`, `func (self *RatchetTree) RemoveLeaf(i LeafIndex) error`. These are what `commit.go` (Group lifecycle plan) calls when it applies a proposal list, in RFC 9420 §12.3 order: GroupContextExtensions, Update, Remove, Add.
 
 RFC 9420 §7.7 semantics, each of which has a distinct failure mode if got wrong:
@@ -3691,7 +4905,7 @@ RFC 9420 §7.7 semantics, each of which has a distinct failure mode if got wrong
 // mls/tree_test.go (append)
 
 func TestAddLeafFillsTheLeftmostBlankAndMarksUnmerged(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -3736,7 +4950,7 @@ func TestAddLeafFillsTheLeftmostBlankAndMarksUnmerged(t *testing.T) {
 }
 
 func TestUpdateLeafBlanksTheDirectPath(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -3768,7 +4982,7 @@ func TestUpdateLeafBlanksTheDirectPath(t *testing.T) {
 }
 
 func TestRemoveLeafBlanksAndTruncates(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -3802,7 +5016,7 @@ func TestRemoveLeafBlanksAndTruncates(t *testing.T) {
 }
 
 func TestRemoveLeafDropsItFromUnmergedLeaves(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -3844,22 +5058,22 @@ Expected: FAIL to compile with `tree.AddLeaf undefined`
 // node above it records the new leaf as unmerged — the node's key predates the
 // member, so the member cannot use it until someone commits a path through it.
 func (self *RatchetTree) AddLeaf(leaf *LeafNode) (LeafIndex, error) {
-    target := LeafIndex(0)
-    found := false
-    for i := uint32(0); i < self.LeafWidth(); i++ {
+    // no blank leaf means the tree grows, and SetLeaf is what grows it.
+    target := LeafIndex(self.LeafWidth())
+    for i := uint32(0); i < uint32(self.LeafWidth()); i++ {
         if self.Leaf(LeafIndex(i)) == nil {
             target = LeafIndex(i)
-            found = true
             break
         }
-    }
-    if !found {
-        target = LeafIndex(self.LeafWidth())
     }
     if err := self.SetLeaf(target, leaf); err != nil {
         return 0, err
     }
-    for _, x := range DirectPath(target.NodeIndex(), self.LeafWidth()) {
+    path, err := directPathOf(target.NodeIndex(), self.LeafWidth())
+    if err != nil {
+        return 0, err
+    }
+    for _, x := range path {
         parent := self.ParentAt(x)
         if parent == nil {
             continue
@@ -3871,7 +5085,7 @@ func (self *RatchetTree) AddLeaf(leaf *LeafNode) (LeafIndex, error) {
 
 // RFC 9420 §7.7. replacing a leaf invalidates every node above it, so they are blanked.
 func (self *RatchetTree) UpdateLeaf(i LeafIndex, leaf *LeafNode) error {
-    if uint32(i) >= self.LeafWidth() || self.Leaf(i) == nil {
+    if LeafCount(i) >= self.LeafWidth() || self.Leaf(i) == nil {
         return ErrLeafIndexOutOfRange
     }
     if err := self.SetLeaf(i, leaf); err != nil {
@@ -3881,9 +5095,9 @@ func (self *RatchetTree) UpdateLeaf(i LeafIndex, leaf *LeafNode) error {
 }
 
 // RFC 9420 §7.7. blank the leaf and its direct path, drop it from any surviving
-// unmerged list, then shrink while the right half holds only blanks.
+// unmerged list, then shrink to the smallest full width that still holds a member.
 func (self *RatchetTree) RemoveLeaf(i LeafIndex) error {
-    if uint32(i) >= self.LeafWidth() || self.Leaf(i) == nil {
+    if LeafCount(i) >= self.LeafWidth() || self.Leaf(i) == nil {
         return ErrLeafIndexOutOfRange
     }
     if err := self.BlankDirectPath(i); err != nil {
@@ -3905,26 +5119,28 @@ func (self *RatchetTree) RemoveLeaf(i LeafIndex) error {
         }
         parent.UnmergedLeaves = kept
     }
-    self.truncate()
-    return nil
+    return self.truncate()
 }
 
-// halve the tree while every leaf in the right half is blank.
-func (self *RatchetTree) truncate() {
-    for self.LeafWidth() > 1 {
-        half := self.LeafWidth() / 2
-        occupied := false
-        for i := half; i < self.LeafWidth(); i++ {
-            if self.Leaf(LeafIndex(i)) != nil {
-                occupied = true
-                break
-            }
-        }
-        if occupied {
-            return
-        }
-        self.nodes = self.nodes[:NodeWidth(half)]
+// shrink to the smallest full leaf count that still contains the rightmost occupied
+// leaf. TruncatedLeafCount is that computation, so this does not re-derive it by
+// halving — the halving loop and the tree math would then be two answers to one
+// question, and the tree hash only agrees with one of them.
+func (self *RatchetTree) truncate() error {
+    leaves := self.NonBlankLeaves()
+    if len(leaves) == 0 {
+        self.nodes = make([]*Node, 1)
+        return nil
     }
+    target, err := TruncatedLeafCount(leaves[len(leaves)-1])
+    if err != nil {
+        return err
+    }
+    if target >= self.LeafWidth() {
+        return nil
+    }
+    self.nodes = self.nodes[:NodeWidth(target)]
+    return nil
 }
 ```
 
@@ -3950,10 +5166,16 @@ git commit -m "feat(mls): Add, Update and Remove on the ratchet tree with trunca
 - Test: `mls/tree_test.go`
 
 **Interfaces:**
-- Consumes: `DirectPath`, `Left`, `Right`, `Sibling`, `CommonAncestor` (Tree math plan); `Resolution` (Task 10).
+- Consumes: `func FilteredDirectPath(shape NodeShape, leaf LeafIndex) ([]PathStep, error)`, `type PathStep struct{ Node NodeIndex; CopathChild NodeIndex }`, `func Resolution(shape NodeShape, x NodeIndex) ([]NodeIndex, error)` (Tree math plan); the `NodeShape` implementation (Task 8); `ErrLeafIndexOutOfRange` (Task 2).
 - Produces:
-  - `func (self *RatchetTree) FilteredDirectPath(i LeafIndex) ([]NodeIndex, error)` — the direct path of leaf `i`, bottom-up, with every node removed whose copath child has an empty resolution.
+  - private `func (self *RatchetTree) filteredPathSteps(i LeafIndex) ([]PathStep, error)` — the tree math plan's `[]PathStep` with a leaf-range guard, used by Tasks 18, 20, 21 and 22, which all need the copath child as well as the node.
+  - `func (self *RatchetTree) FilteredDirectPath(i LeafIndex) ([]NodeIndex, error)` — the same path with the copath children dropped: the direct path of leaf `i`, bottom-up, with every node removed whose copath child has an empty resolution.
   - `func (self *RatchetTree) EncryptionTargets(sender LeafIndex, exclude []LeafIndex) ([][]NodeIndex, error)` — one entry per filtered-direct-path node, in the same order, each the resolution of that node's copath child with the leaves in `exclude` removed. `exclude` is the set of leaves added by the same commit: they receive the path secret in the Welcome, never in the UpdatePath.
+
+**The filtering rule lives in the tree math plan, not here.** `PathStep.CopathChild` is what removes
+this plan's private `pathChildren` helper: the copath child of a node with respect to a leaf is pure
+structure, so re-deriving it from `CommonAncestor` at four call sites was four chances to derive it
+differently.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -3961,7 +5183,7 @@ git commit -m "feat(mls): Add, Update and Remove on the ratchet tree with trunca
 // mls/tree_test.go (append)
 
 func TestFilteredDirectPathSkipsEmptyCopathResolutions(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -3997,7 +5219,7 @@ func TestFilteredDirectPathSkipsEmptyCopathResolutions(t *testing.T) {
 }
 
 func TestEncryptionTargetsExcludeNewlyAddedLeaves(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -4027,7 +5249,7 @@ func TestEncryptionTargetsExcludeNewlyAddedLeaves(t *testing.T) {
 }
 
 func TestEncryptionTargetsExcludeUnmergedNewLeaves(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -4060,39 +5282,25 @@ Expected: FAIL to compile with `tree.FilteredDirectPath undefined`
 ```go
 // mls/tree.go (append)
 
-// the child of x that lies on the path from x down to leaf i, and the other child.
-func (self *RatchetTree) pathChildren(x NodeIndex, i LeafIndex) (onPath, copath NodeIndex, err error) {
-    left, ok := Left(x)
-    if !ok {
-        return 0, 0, ErrTreeMalformed
-    }
-    right, ok := Right(x)
-    if !ok {
-        return 0, 0, ErrTreeMalformed
-    }
-    if CommonAncestor(left, i.NodeIndex()) == left {
-        return left, right, nil
-    }
-    return right, left, nil
-}
-
-// RFC 9420 §7.6. the direct path with every node removed whose copath child has an
-// empty resolution: there is nobody under that child to encrypt to, so the node
-// carries no key at all and stays blank.
-func (self *RatchetTree) FilteredDirectPath(i LeafIndex) ([]NodeIndex, error) {
-    if uint32(i) >= self.LeafWidth() {
+// RFC 9420 §7.6, delegated to the tree math plan: the direct path with every node
+// removed whose copath child has an empty resolution — there is nobody under that
+// child to encrypt to, so the node carries no key at all and stays blank. Each step
+// carries the copath child, which is what the encryption and parent-hash passes need.
+func (self *RatchetTree) filteredPathSteps(i LeafIndex) ([]PathStep, error) {
+    if LeafCount(i) >= self.LeafWidth() {
         return nil, ErrLeafIndexOutOfRange
     }
-    out := []NodeIndex{}
-    for _, x := range DirectPath(i.NodeIndex(), self.LeafWidth()) {
-        _, copath, err := self.pathChildren(x, i)
-        if err != nil {
-            return nil, err
-        }
-        if len(self.Resolution(copath)) == 0 {
-            continue
-        }
-        out = append(out, x)
+    return FilteredDirectPath(self, i)
+}
+
+func (self *RatchetTree) FilteredDirectPath(i LeafIndex) ([]NodeIndex, error) {
+    steps, err := self.filteredPathSteps(i)
+    if err != nil {
+        return nil, err
+    }
+    out := make([]NodeIndex, 0, len(steps))
+    for _, step := range steps {
+        out = append(out, step.Node)
     }
     return out, nil
 }
@@ -4102,7 +5310,7 @@ func (self *RatchetTree) FilteredDirectPath(i LeafIndex) ([]NodeIndex, error) {
 // same commit receives the path secret in its Welcome, never in the UpdatePath.
 func (self *RatchetTree) EncryptionTargets(sender LeafIndex,
     exclude []LeafIndex) ([][]NodeIndex, error) {
-    path, err := self.FilteredDirectPath(sender)
+    steps, err := self.filteredPathSteps(sender)
     if err != nil {
         return nil, err
     }
@@ -4110,13 +5318,14 @@ func (self *RatchetTree) EncryptionTargets(sender LeafIndex,
     for _, leaf := range exclude {
         excluded[leaf.NodeIndex()] = true
     }
-    out := make([][]NodeIndex, 0, len(path))
-    for _, x := range path {
-        _, copath, err := self.pathChildren(x, sender)
+    out := make([][]NodeIndex, 0, len(steps))
+    for _, step := range steps {
+        // the free form, not the method: this x is the tree math plan's own output
+        // rather than one this package bounded, so its error is returned.
+        resolution, err := Resolution(self, step.CopathChild)
         if err != nil {
             return nil, err
         }
-        resolution := self.Resolution(copath)
         kept := make([]NodeIndex, 0, len(resolution))
         for _, y := range resolution {
             if excluded[y] {
@@ -4152,7 +5361,7 @@ git commit -m "feat(mls): filtered direct path and copath encryption targets"
 - Test: `mls/treekem_test.go`
 
 **Interfaces:**
-- Consumes: `CryptoProvider.DeriveSecret`, `CryptoProvider.DeriveKeyPair`, `CryptoProvider.HashSize` (Crypto plan); `ErrNoPathSecret`, `ErrPathSecretMismatch` (Task 2).
+- Consumes: `DeriveSecret(secret []byte, label string) []byte`, `DeriveKeyPair(ikm []byte) (HpkePrivateKey, HpkePublicKey, error)`, `HashSize() int` on `CryptoProvider`; `type HpkePrivateKey []byte`, `type HpkePublicKey []byte` (Crypto plan); `ErrNoPathSecret`, `ErrPathSecretMismatch` (Task 2).
 - Produces:
   - `func DerivePathSecrets(crypto CryptoProvider, initial []byte, count int) [][]byte` — `path_secret[0] = initial`, `path_secret[n] = DeriveSecret(path_secret[n-1], "path")`, returning `count+1` values so the caller has the one beyond the root that becomes the commit secret.
   - `func DeriveNodeKeyPair(crypto CryptoProvider, pathSecret []byte) (HpkePrivateKey, HpkePublicKey, error)` — `node_secret = DeriveSecret(path_secret, "node")`, then `KEM.DeriveKeyPair(node_secret)`.
@@ -4175,7 +5384,7 @@ import (
 )
 
 func TestDerivePathSecretsIsALadder(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -4199,7 +5408,7 @@ func TestDerivePathSecretsIsALadder(t *testing.T) {
 }
 
 func TestDeriveNodeKeyPairIsDeterministicAndDistinctFromThePathSecret(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -4225,7 +5434,7 @@ func TestDeriveNodeKeyPairIsDeterministicAndDistinctFromThePathSecret(t *testing
 }
 
 func TestTreeKEMPrivateNodePrivateKeyAndConsistency(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -4399,7 +5608,7 @@ git commit -m "feat(mls): path secret ladder, node key derivation and private Tr
 - Test: `mls/treekem_test.go`
 
 **Interfaces:**
-- Consumes: `CryptoProvider.Random`, `CryptoProvider.HashSize`, `CryptoProvider.DeriveKeyPair` (Crypto plan); `FilteredDirectPath`, `BlankDirectPath`, `SetParent`, `SetLeaf`, `pathChildren` (Tasks 8, 15, 16); `ParentHash` (Task 13); `LeafNode.Sign` (Task 6).
+- Consumes: `Random(n int) []byte`, `HashSize() int`, `DeriveKeyPair(ikm []byte) (HpkePrivateKey, HpkePublicKey, error)` on `CryptoProvider` (Crypto plan); `type PathStep struct{ Node NodeIndex; CopathChild NodeIndex }` (Tree math plan); `filteredPathSteps`, `BlankDirectPath`, `SetParent`, `SetLeaf` (Tasks 8, 16); `(*RatchetTree).ParentHash` (Task 13); `(*LeafNode).Sign` (Task 6).
 - Produces: `UpdatePathPlan{Path []NodeIndex; PathSecrets [][]byte; PublicKeys []HpkePublicKey; LeafNode *LeafNode; CommitSecret []byte; Private *TreeKEMPrivate}` and
   `func (self *RatchetTree) CreateUpdatePathSecrets(crypto CryptoProvider, sender LeafIndex, signer SignaturePrivateKey, groupId []byte) (*UpdatePathPlan, error)`.
 
@@ -4419,7 +5628,7 @@ chain, which is why nothing but the encryption keys travels on the wire.
 // mls/treekem_test.go (append)
 
 func TestCreateUpdatePathSecretsInstallsAChainThatVerifies(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -4482,7 +5691,7 @@ func TestCreateUpdatePathSecretsInstallsAChainThatVerifies(t *testing.T) {
 }
 
 func TestCreateUpdatePathSecretsGivesTheLeafAnIndependentKey(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -4523,7 +5732,7 @@ func TestCreateUpdatePathSecretsGivesTheLeafAnIndependentKey(t *testing.T) {
 }
 
 func TestCreateUpdatePathSecretsInASingleMemberGroup(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -4575,9 +5784,16 @@ func (self *RatchetTree) CreateUpdatePathSecrets(crypto CryptoProvider, sender L
     if current == nil {
         return nil, ErrLeafIndexOutOfRange
     }
-    path, err := self.FilteredDirectPath(sender)
+    // computed before the direct path is blanked: blanking the sender's own direct
+    // path cannot change any copath child's resolution, so the filtered path is the
+    // same either way, and computing it first keeps the failure ahead of the mutation.
+    steps, err := self.filteredPathSteps(sender)
     if err != nil {
         return nil, err
+    }
+    path := make([]NodeIndex, 0, len(steps))
+    for _, step := range steps {
+        path = append(path, step.Node)
     }
     // the ladder: one secret per filtered node, plus the rung past the root.
     ladder := DerivePathSecrets(crypto, crypto.Random(crypto.HashSize()), len(path))
@@ -4613,16 +5829,14 @@ func (self *RatchetTree) CreateUpdatePathSecrets(crypto CryptoProvider, sender L
     }
 
     // parent hashes, top-down: the root carries a zero-length parent hash, and every
-    // node below carries the parent hash of the node above it.
+    // node below carries the parent hash of the node above it. the copath child comes
+    // from the PathStep rather than being re-derived, so the sender and the receiver
+    // in Task 21 are provably walking the same chain.
     carried := []byte{}
-    for i := len(path) - 1; i >= 0; i-- {
-        _, copath, err := self.pathChildren(path[i], sender)
-        if err != nil {
-            return nil, err
-        }
-        parent := self.ParentAt(path[i])
+    for i := len(steps) - 1; i >= 0; i-- {
+        parent := self.ParentAt(steps[i].Node)
         parent.ParentHash = carried
-        hash, err := self.ParentHash(crypto, path[i], copath)
+        hash, err := self.ParentHash(crypto, steps[i].Node, steps[i].CopathChild)
         if err != nil {
             return nil, err
         }
@@ -4673,8 +5887,17 @@ git commit -m "feat(mls): UpdatePath secret and parent hash generation"
 - Test: `mls/treekem_test.go`
 
 **Interfaces:**
-- Consumes: `syntax.*` (Syntax plan); `LeafNode` codec (Task 5).
-- Produces: `HpkeCiphertext{KemOutput, Ciphertext []byte}`, `UpdatePathNode{EncryptionKey HpkePublicKey; EncryptedPathSecret []HpkeCiphertext}`, `UpdatePath{LeafNode LeafNode; Nodes []UpdatePathNode}`, and `MarshalTo` / `Marshal` / `UnmarshalUpdatePath` / `ParseUpdatePath`. `HpkeCiphertext` is also what `Welcome`'s `EncryptedGroupSecrets` uses, so the Group lifecycle plan consumes it from here rather than defining a second copy.
+- Consumes: `syntax.Writer`, `syntax.Reader`, `func (self *Writer) WriteOpaque(bs []byte)`, `func (self *Reader) ReadOpaque() ([]byte, error)`, `func WriteVector[T any](...) error`, `func ReadVector[T any](...) ([]T, error)`, `func Marshal(v Marshaler) ([]byte, error)`, `func Unmarshal(bs []byte, v Unmarshaler) error`, `syntax.Codec` (Syntax plan); `func EncryptWithLabel(crypto CryptoProvider, pub HpkePublicKey, label string, context []byte, plaintext []byte) (kemOutput []byte, ciphertext []byte, err error)`, `func DecryptWithLabel(crypto CryptoProvider, priv HpkePrivateKey, label string, context []byte, kemOutput []byte, ciphertext []byte) ([]byte, error)` (Crypto plan); `LeafNode` codec (Task 5).
+- Produces: `HpkeCiphertext{KemOutput, Ciphertext []byte}` with `MarshalMLS`/`UnmarshalMLS`; `SealWithLabel` and `OpenWithLabel`; `UpdatePathNode{EncryptionKey HpkePublicKey; EncryptedPathSecret []HpkeCiphertext}` with `MarshalMLS`/`UnmarshalMLS`; `UpdatePath{LeafNode LeafNode; Nodes []UpdatePathNode}` with `MarshalMLS`/`UnmarshalMLS` and `var _ syntax.Codec = (*UpdatePath)(nil)`. Byte-level access is `syntax.Marshal` / `syntax.Unmarshal`; there is no `Marshal()` and no `ParseUpdatePath` (C1).
+
+`HpkeCiphertext` is also what `Welcome`'s `EncryptedGroupSecrets` uses, so the framing plan consumes
+it from here rather than defining a second copy.
+
+**`SealWithLabel`/`OpenWithLabel` land here, next to the type they return.** The crypto plan's
+`EncryptWithLabel`/`DecryptWithLabel` keep their flat `(kemOutput, ciphertext)` form, because that
+plan must stay free of TreeKEM types; the group lifecycle plan's `BuildWelcome` and
+`JoinFromWelcome` want the struct-shaped pair, and this is the file that owns the struct. They are a
+two-line adaptation, not a second HPKE implementation.
 
 ```
 struct { opaque kem_output<V>; opaque ciphertext<V>; } HPKECiphertext;
@@ -4707,15 +5930,15 @@ func TestUpdatePathRoundTrip(t *testing.T) {
             },
         },
     }
-    encoded, err := in.Marshal()
+    encoded, err := syntax.Marshal(in)
     if err != nil {
         t.Fatalf("Marshal: %v", err)
     }
-    out, err := ParseUpdatePath(encoded)
-    if err != nil {
-        t.Fatalf("ParseUpdatePath: %v", err)
+    out := &UpdatePath{}
+    if err := syntax.Unmarshal(encoded, out); err != nil {
+        t.Fatalf("Unmarshal: %v", err)
     }
-    reencoded, err := out.Marshal()
+    reencoded, err := syntax.Marshal(out)
     if err != nil {
         t.Fatalf("re-Marshal: %v", err)
     }
@@ -4739,22 +5962,53 @@ func TestUpdatePathRejectsTrailingBytes(t *testing.T) {
     leaf.LeafNodeSource = LeafNodeSourceCommit
     leaf.ParentHash = bytes.Repeat([]byte{0x44}, 32)
     in := &UpdatePath{LeafNode: *leaf, Nodes: []UpdatePathNode{}}
-    encoded, err := in.Marshal()
+    encoded, err := syntax.Marshal(in)
     if err != nil {
         t.Fatalf("Marshal: %v", err)
     }
-    if _, err := ParseUpdatePath(append(encoded, 0x00)); err == nil {
-        t.Fatalf("ParseUpdatePath(trailing) = nil error, want failure")
+    if err := syntax.Unmarshal(append(encoded, 0x00), &UpdatePath{}); !errors.Is(err, syntax.ErrTrailingBytes) {
+        t.Fatalf("trailing byte err = %v, want ErrTrailingBytes", err)
     }
-    if _, err := ParseUpdatePath(encoded[:len(encoded)-1]); err == nil {
-        t.Fatalf("ParseUpdatePath(truncated) = nil error, want failure")
+    if err := syntax.Unmarshal(encoded[:len(encoded)-1], &UpdatePath{}); err == nil {
+        t.Fatalf("Unmarshal(truncated) = nil error, want failure")
+    }
+}
+
+func TestSealAndOpenWithLabelRoundTrip(t *testing.T) {
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
+    if err != nil {
+        t.Fatalf("NewCryptoProvider: %v", err)
+    }
+    priv, pub, err := crypto.DeriveKeyPair(crypto.Random(crypto.HashSize()))
+    if err != nil {
+        t.Fatalf("DeriveKeyPair: %v", err)
+    }
+    ct, err := SealWithLabel(crypto, pub, "Welcome", []byte("context"), []byte("secret"))
+    if err != nil {
+        t.Fatalf("SealWithLabel: %v", err)
+    }
+    if len(ct.KemOutput) == 0 || len(ct.Ciphertext) == 0 {
+        t.Fatalf("SealWithLabel produced an empty ciphertext")
+    }
+    got, err := OpenWithLabel(crypto, priv, "Welcome", []byte("context"), ct)
+    if err != nil {
+        t.Fatalf("OpenWithLabel: %v", err)
+    }
+    if !bytes.Equal(got, []byte("secret")) {
+        t.Fatalf("OpenWithLabel = %q, want %q", got, "secret")
+    }
+    if _, err := OpenWithLabel(crypto, priv, "Welcome", []byte("other"), ct); err == nil {
+        t.Fatalf("the ciphertext opened under a different context")
+    }
+    if _, err := OpenWithLabel(crypto, priv, "GroupSecrets", []byte("context"), ct); err == nil {
+        t.Fatalf("the ciphertext opened under a different label")
     }
 }
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./mls/... -run TestUpdatePath -v`
+Run: `go test ./mls/... -run "TestUpdatePath|TestSealAndOpenWithLabel" -v`
 Expected: FAIL to compile with `undefined: UpdatePath`
 
 - [ ] **Step 3: Write minimal implementation**
@@ -4768,22 +6022,43 @@ type HpkeCiphertext struct {
     Ciphertext []byte
 }
 
-func (self *HpkeCiphertext) MarshalTo(w *syntax.Writer) error {
-    w.WriteOpaqueVec(self.KemOutput)
-    w.WriteOpaqueVec(self.Ciphertext)
+func (self *HpkeCiphertext) MarshalMLS(w *syntax.Writer) error {
+    w.WriteOpaque(self.KemOutput)
+    w.WriteOpaque(self.Ciphertext)
     return nil
 }
 
-func UnmarshalHpkeCiphertext(r *syntax.Reader) (HpkeCiphertext, error) {
-    kemOutput, err := r.ReadOpaqueVec()
+func (self *HpkeCiphertext) UnmarshalMLS(r *syntax.Reader) error {
+    kemOutput, err := r.ReadOpaque()
     if err != nil {
-        return HpkeCiphertext{}, err
+        return err
     }
-    ciphertext, err := r.ReadOpaqueVec()
+    ciphertext, err := r.ReadOpaque()
     if err != nil {
-        return HpkeCiphertext{}, err
+        return err
     }
-    return HpkeCiphertext{KemOutput: kemOutput, Ciphertext: ciphertext}, nil
+    self.KemOutput = kemOutput
+    self.Ciphertext = ciphertext
+    return nil
+}
+
+var _ syntax.Codec = (*HpkeCiphertext)(nil)
+
+// the HpkeCiphertext-shaped form of the crypto plan's flat pair. it lives here
+// rather than there because the crypto plan must not name a TreeKEM type, and it is
+// an adaptation rather than a second HPKE implementation.
+func SealWithLabel(crypto CryptoProvider, pub HpkePublicKey, label string,
+    context []byte, plaintext []byte) (*HpkeCiphertext, error) {
+    kemOutput, ciphertext, err := EncryptWithLabel(crypto, pub, label, context, plaintext)
+    if err != nil {
+        return nil, err
+    }
+    return &HpkeCiphertext{KemOutput: kemOutput, Ciphertext: ciphertext}, nil
+}
+
+func OpenWithLabel(crypto CryptoProvider, priv HpkePrivateKey, label string,
+    context []byte, ct *HpkeCiphertext) ([]byte, error) {
+    return DecryptWithLabel(crypto, priv, label, context, ct.KemOutput, ct.Ciphertext)
 }
 
 // RFC 9420 §7.6. one node of the sender's filtered direct path: its new public key
@@ -4793,40 +6068,33 @@ type UpdatePathNode struct {
     EncryptedPathSecret []HpkeCiphertext
 }
 
-func (self *UpdatePathNode) MarshalTo(w *syntax.Writer) error {
-    w.WriteOpaqueVec(self.EncryptionKey)
-    inner := syntax.NewWriter()
-    for i := range self.EncryptedPathSecret {
-        if err := self.EncryptedPathSecret[i].MarshalTo(inner); err != nil {
-            return err
-        }
+func (self *UpdatePathNode) MarshalMLS(w *syntax.Writer) error {
+    w.WriteOpaque(self.EncryptionKey)
+    return syntax.WriteVector(w, self.EncryptedPathSecret,
+        func(w *syntax.Writer, ct HpkeCiphertext) error {
+            return ct.MarshalMLS(w)
+        })
+}
+
+func (self *UpdatePathNode) UnmarshalMLS(r *syntax.Reader) error {
+    encryptionKey, err := r.ReadOpaque()
+    if err != nil {
+        return err
     }
-    w.WriteOpaqueVec(inner.Bytes())
+    ciphertexts, err := syntax.ReadVector(r, func(r *syntax.Reader) (HpkeCiphertext, error) {
+        var ct HpkeCiphertext
+        err := ct.UnmarshalMLS(r)
+        return ct, err
+    })
+    if err != nil {
+        return err
+    }
+    self.EncryptionKey = HpkePublicKey(encryptionKey)
+    self.EncryptedPathSecret = ciphertexts
     return nil
 }
 
-func UnmarshalUpdatePathNode(r *syntax.Reader) (UpdatePathNode, error) {
-    encryptionKey, err := r.ReadOpaqueVec()
-    if err != nil {
-        return UpdatePathNode{}, err
-    }
-    sub, err := r.ReadVecReader()
-    if err != nil {
-        return UpdatePathNode{}, err
-    }
-    ciphertexts := []HpkeCiphertext{}
-    for !sub.Empty() {
-        ct, err := UnmarshalHpkeCiphertext(sub)
-        if err != nil {
-            return UpdatePathNode{}, err
-        }
-        ciphertexts = append(ciphertexts, ct)
-    }
-    return UpdatePathNode{
-        EncryptionKey:       HpkePublicKey(encryptionKey),
-        EncryptedPathSecret: ciphertexts,
-    }, nil
-}
+var _ syntax.Codec = (*UpdatePathNode)(nil)
 
 // RFC 9420 §7.6.
 type UpdatePath struct {
@@ -4834,64 +6102,38 @@ type UpdatePath struct {
     Nodes    []UpdatePathNode
 }
 
-func (self *UpdatePath) MarshalTo(w *syntax.Writer) error {
-    if err := self.LeafNode.MarshalTo(w); err != nil {
+func (self *UpdatePath) MarshalMLS(w *syntax.Writer) error {
+    if err := self.LeafNode.MarshalMLS(w); err != nil {
         return err
     }
-    inner := syntax.NewWriter()
-    for i := range self.Nodes {
-        if err := self.Nodes[i].MarshalTo(inner); err != nil {
-            return err
-        }
+    return syntax.WriteVector(w, self.Nodes,
+        func(w *syntax.Writer, node UpdatePathNode) error {
+            return node.MarshalMLS(w)
+        })
+}
+
+func (self *UpdatePath) UnmarshalMLS(r *syntax.Reader) error {
+    if err := self.LeafNode.UnmarshalMLS(r); err != nil {
+        return err
     }
-    w.WriteOpaqueVec(inner.Bytes())
+    nodes, err := syntax.ReadVector(r, func(r *syntax.Reader) (UpdatePathNode, error) {
+        var node UpdatePathNode
+        err := node.UnmarshalMLS(r)
+        return node, err
+    })
+    if err != nil {
+        return err
+    }
+    self.Nodes = nodes
     return nil
 }
 
-func (self *UpdatePath) Marshal() ([]byte, error) {
-    w := syntax.NewWriter()
-    if err := self.MarshalTo(w); err != nil {
-        return nil, err
-    }
-    return w.Bytes(), nil
-}
-
-func UnmarshalUpdatePath(r *syntax.Reader) (*UpdatePath, error) {
-    leaf, err := UnmarshalLeafNode(r)
-    if err != nil {
-        return nil, err
-    }
-    sub, err := r.ReadVecReader()
-    if err != nil {
-        return nil, err
-    }
-    nodes := []UpdatePathNode{}
-    for !sub.Empty() {
-        node, err := UnmarshalUpdatePathNode(sub)
-        if err != nil {
-            return nil, err
-        }
-        nodes = append(nodes, node)
-    }
-    return &UpdatePath{LeafNode: *leaf, Nodes: nodes}, nil
-}
-
-func ParseUpdatePath(data []byte) (*UpdatePath, error) {
-    r := syntax.NewReader(data)
-    path, err := UnmarshalUpdatePath(r)
-    if err != nil {
-        return nil, err
-    }
-    if !r.Empty() {
-        return nil, syntax.ErrTrailingBytes
-    }
-    return path, nil
-}
+var _ syntax.Codec = (*UpdatePath)(nil)
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./mls/... -run TestUpdatePath -v`
+Run: `go test ./mls/... -run "TestUpdatePath|TestSealAndOpenWithLabel" -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -4911,11 +6153,17 @@ git commit -m "feat(mls): UpdatePath, UpdatePathNode and HpkeCiphertext wire typ
 - Test: `mls/treekem_test.go`
 
 **Interfaces:**
-- Consumes: `EncryptWithLabel` (Crypto/HPKE plan); `EncryptionTargets` (Task 16); `UpdatePathPlan` (Task 18); `UpdatePath` (Task 19).
+- Consumes: `func EncryptWithLabel(crypto CryptoProvider, pub HpkePublicKey, label string, context []byte, plaintext []byte) (kemOutput []byte, ciphertext []byte, err error)` (Crypto/HPKE plan), through `SealWithLabel` (Task 19); `EncryptionTargets` (Task 16); `UpdatePathPlan` (Task 18); `UpdatePath`, `HpkeCiphertext` (Task 19); `ErrPathLength` (Validation plan, ValSem202).
 - Produces: `func (self *RatchetTree) EncryptUpdatePath(crypto CryptoProvider, plan *UpdatePathPlan, sender LeafIndex, groupContext []byte, exclude []LeafIndex) (*UpdatePath, error)`.
 
-Each path secret is sealed with `EncryptWithLabel(pub, "UpdatePathNode", groupContext, path_secret)`,
-once per node of the copath child's resolution, **in resolution order** — the receiver locates its
+`groupContext` is `[]byte`, not a `*GroupContext`: the serialized form is what goes into the HPKE
+`info`, and taking bytes is what keeps this call from having to know how the key schedule plan
+encodes a GroupContext. Callers obtain them from `syntax.Marshal(gc)` (C4).
+
+Each path secret is sealed with
+`SealWithLabel(crypto, pub, "UpdatePathNode", groupContext, pathSecret)` — the HpkeCiphertext-shaped
+form of the crypto plan's `EncryptWithLabel` — once per node of the copath child's resolution,
+**in resolution order**; the receiver locates its
 ciphertext by index into the same resolution, so the ordering is load-bearing. `groupContext` is the
 serialized GroupContext of the epoch the commit opens, whose `tree_hash` is the tree hash **after**
 Task 18 mutated the tree.
@@ -4926,7 +6174,7 @@ Task 18 mutated the tree.
 // mls/treekem_test.go (append)
 
 func TestEncryptUpdatePathProducesOneCiphertextPerResolutionNode(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -4972,7 +6220,7 @@ func TestEncryptUpdatePathProducesOneCiphertextPerResolutionNode(t *testing.T) {
 }
 
 func TestEncryptUpdatePathIsDecryptableByAResolutionMember(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -5006,7 +6254,7 @@ func TestEncryptUpdatePathIsDecryptableByAResolutionMember(t *testing.T) {
 }
 
 func TestEncryptUpdatePathSkipsExcludedLeaves(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -5061,15 +6309,12 @@ func (self *RatchetTree) EncryptUpdatePath(crypto CryptoProvider, plan *UpdatePa
             if err != nil {
                 return nil, err
             }
-            kemOutput, ciphertext, err := EncryptWithLabel(crypto, pub, updatePathNodeLabel,
+            ct, err := SealWithLabel(crypto, pub, updatePathNodeLabel,
                 groupContext, plan.PathSecrets[i])
             if err != nil {
                 return nil, err
             }
-            ciphertexts = append(ciphertexts, HpkeCiphertext{
-                KemOutput:  kemOutput,
-                Ciphertext: ciphertext,
-            })
+            ciphertexts = append(ciphertexts, *ct)
         }
         nodes = append(nodes, UpdatePathNode{
             EncryptionKey:       plan.PublicKeys[i],
@@ -5117,7 +6362,7 @@ git commit -m "feat(mls): encrypt UpdatePath secrets to each copath resolution"
 - Test: `mls/treekem_test.go`
 
 **Interfaces:**
-- Consumes: `FilteredDirectPath`, `BlankDirectPath`, `SetParent`, `SetLeaf`, `pathChildren` (Tasks 8, 15, 16); `ParentHash` (Task 13); `ErrPathLength` (ValSem202, Validation plan); `ErrParentHashMismatch` (Task 2).
+- Consumes: `type PathStep struct{ Node NodeIndex; CopathChild NodeIndex }` (Tree math plan); `filteredPathSteps`, `BlankDirectPath`, `SetParent`, `SetLeaf` (Tasks 8, 16); `(*RatchetTree).ParentHash` (Task 13); `ErrPathLength` (ValSem202, Validation plan); `ErrParentHashMismatch`, `ErrLeafIndexOutOfRange` (Task 2).
 - Produces: `func (self *RatchetTree) MergeUpdatePath(crypto CryptoProvider, sender LeafIndex, path *UpdatePath) error`.
 
 The receiver gets only the encryption keys on the wire, so it **recomputes** the parent-hash chain
@@ -5154,7 +6399,7 @@ func createAndEncryptPath(t *testing.T, crypto CryptoProvider, tree *RatchetTree
 }
 
 func TestMergeUpdatePathReproducesTheSendersTree(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -5182,8 +6427,8 @@ func TestMergeUpdatePathReproducesTheSendersTree(t *testing.T) {
     }
 }
 
-func TestValSem202_PathLength(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+func TestMergeUpdatePathRejectsAWrongLengthPath(t *testing.T) {
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -5201,7 +6446,7 @@ func TestValSem202_PathLength(t *testing.T) {
 }
 
 func TestMergeUpdatePathRejectsATamperedNodeKey(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -5231,7 +6476,7 @@ func TestMergeUpdatePathRejectsATamperedNodeKey(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./mls/... -run "TestMergeUpdatePath|TestValSem202" -v`
+Run: `go test ./mls/... -run TestMergeUpdatePath -v`
 Expected: FAIL to compile with `receiverTree.MergeUpdatePath undefined`
 
 - [ ] **Step 3: Write minimal implementation**
@@ -5248,34 +6493,32 @@ func (self *RatchetTree) MergeUpdatePath(crypto CryptoProvider, sender LeafIndex
     if self.Leaf(sender) == nil {
         return ErrLeafIndexOutOfRange
     }
-    filtered, err := self.FilteredDirectPath(sender)
+    steps, err := self.filteredPathSteps(sender)
     if err != nil {
         return err
     }
     // ValSem202: the path covers exactly the filtered direct path.
-    if len(path.Nodes) != len(filtered) {
+    if len(path.Nodes) != len(steps) {
         return ErrPathLength
     }
     provisional := self.Clone()
     if err := provisional.BlankDirectPath(sender); err != nil {
         return err
     }
-    for i, x := range filtered {
-        if err := provisional.SetParent(x, &ParentNode{
+    for i, step := range steps {
+        if err := provisional.SetParent(step.Node, &ParentNode{
             EncryptionKey: cloneBytes(path.Nodes[i].EncryptionKey),
         }); err != nil {
             return err
         }
     }
+    // the same walk the sender did in Task 18, over the same PathStep list, so the
+    // two chains cannot differ by a copath child derived two different ways.
     carried := []byte{}
-    for i := len(filtered) - 1; i >= 0; i-- {
-        _, copath, err := provisional.pathChildren(filtered[i], sender)
-        if err != nil {
-            return err
-        }
-        parent := provisional.ParentAt(filtered[i])
+    for i := len(steps) - 1; i >= 0; i-- {
+        parent := provisional.ParentAt(steps[i].Node)
         parent.ParentHash = carried
-        hash, err := provisional.ParentHash(crypto, filtered[i], copath)
+        hash, err := provisional.ParentHash(crypto, steps[i].Node, steps[i].CopathChild)
         if err != nil {
             return err
         }
@@ -5294,7 +6537,7 @@ func (self *RatchetTree) MergeUpdatePath(crypto CryptoProvider, sender LeafIndex
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./mls/... -run "TestMergeUpdatePath|TestValSem202" -v`
+Run: `go test ./mls/... -run TestMergeUpdatePath -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -5314,7 +6557,7 @@ git commit -m "feat(mls): merge a received UpdatePath and recompute its parent h
 - Test: `mls/treekem_test.go`
 
 **Interfaces:**
-- Consumes: `DecryptWithLabel` (Crypto/HPKE plan); `EncryptionTargets`, `FilteredDirectPath` (Task 16); `CommonAncestor` (Tree math plan); `TreeKEMPrivate` (Task 17); `ErrPathDecrypt` (ValSem203), `ErrPathKeyMismatch` (ValSem204), `ErrPathLength` (ValSem202) from the Validation plan; `ErrNoPathSecret` (Task 2).
+- Consumes: `func DecryptWithLabel(crypto CryptoProvider, priv HpkePrivateKey, label string, context []byte, kemOutput []byte, ciphertext []byte) ([]byte, error)` (Crypto/HPKE plan), through `OpenWithLabel` (Task 19); `EncryptionTargets`, `filteredPathSteps` (Task 16); `func CommonAncestor(x NodeIndex, y NodeIndex) NodeIndex` (Tree math plan); `TreeKEMPrivate` (Task 17); `ErrPathDecrypt` (ValSem203), `ErrPathKeyMismatch` (ValSem204), `ErrPathLength` (ValSem202) from the Validation plan; `ErrNoPathSecret` (Task 2).
 - Produces: `PathDecryptResult{CommitSecret []byte; Private *TreeKEMPrivate}` and
   `func (self *RatchetTree) DecryptUpdatePath(crypto CryptoProvider, sender LeafIndex, path *UpdatePath, groupContext []byte, priv *TreeKEMPrivate, exclude []LeafIndex) (*PathDecryptResult, error)`.
 
@@ -5331,7 +6574,7 @@ private key for. Every derived public key is compared to the one in the `UpdateP
 // mls/treekem_test.go (append)
 
 func TestDecryptUpdatePathAgreesOnTheCommitSecret(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -5366,8 +6609,8 @@ func TestDecryptUpdatePathAgreesOnTheCommitSecret(t *testing.T) {
     }
 }
 
-func TestValSem203_PathDecrypt(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+func TestDecryptUpdatePathRejectsATamperedCiphertext(t *testing.T) {
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -5400,8 +6643,8 @@ func TestValSem203_PathDecrypt(t *testing.T) {
     }
 }
 
-func TestValSem204_PathKeyMismatch(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+func TestDecryptUpdatePathRejectsAnAnnouncedKeyMismatch(t *testing.T) {
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -5428,7 +6671,7 @@ func TestValSem204_PathKeyMismatch(t *testing.T) {
 }
 
 func TestDecryptUpdatePathRefusesWhenNoCiphertextIsAddressedToUs(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -5448,7 +6691,7 @@ func TestDecryptUpdatePathRefusesWhenNoCiphertextIsAddressedToUs(t *testing.T) {
 }
 
 func TestDecryptUpdatePathUsesAHeldPathSecretWhenItHasOne(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -5487,7 +6730,7 @@ func TestDecryptUpdatePathUsesAHeldPathSecretWhenItHasOne(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./mls/... -run "TestDecryptUpdatePath|TestValSem203|TestValSem204" -v`
+Run: `go test ./mls/... -run TestDecryptUpdatePath -v`
 Expected: FAIL to compile with `receiverTree.DecryptUpdatePath undefined`
 
 - [ ] **Step 3: Write minimal implementation**
@@ -5501,9 +6744,9 @@ type PathDecryptResult struct {
     Private      *TreeKEMPrivate
 }
 
-func indexOfNode(path []NodeIndex, x NodeIndex) (int, bool) {
-    for i, y := range path {
-        if y == x {
+func indexOfStep(steps []PathStep, x NodeIndex) (int, bool) {
+    for i, step := range steps {
+        if step.Node == x {
             return i, true
         }
     }
@@ -5516,11 +6759,11 @@ func indexOfNode(path []NodeIndex, x NodeIndex) (int, bool) {
 func (self *RatchetTree) DecryptUpdatePath(crypto CryptoProvider, sender LeafIndex,
     path *UpdatePath, groupContext []byte, priv *TreeKEMPrivate,
     exclude []LeafIndex) (*PathDecryptResult, error) {
-    filtered, err := self.FilteredDirectPath(sender)
+    steps, err := self.filteredPathSteps(sender)
     if err != nil {
         return nil, err
     }
-    if len(path.Nodes) != len(filtered) {
+    if len(path.Nodes) != len(steps) {
         return nil, ErrPathLength
     }
     targets, err := self.EncryptionTargets(sender, exclude)
@@ -5531,7 +6774,7 @@ func (self *RatchetTree) DecryptUpdatePath(crypto CryptoProvider, sender LeafInd
     // filtered path, because our own non-blank leaf keeps that copath resolution
     // non-empty.
     lowest := CommonAncestor(sender.NodeIndex(), priv.LeafIndex.NodeIndex())
-    start, ok := indexOfNode(filtered, lowest)
+    start, ok := indexOfStep(steps, lowest)
     if !ok {
         return nil, ErrNoPathSecret
     }
@@ -5548,8 +6791,7 @@ func (self *RatchetTree) DecryptUpdatePath(crypto CryptoProvider, sender LeafInd
             continue
         }
         ct := path.Nodes[start].EncryptedPathSecret[j]
-        opened, err := DecryptWithLabel(crypto, nodePriv, updatePathNodeLabel,
-            groupContext, ct.KemOutput, ct.Ciphertext)
+        opened, err := OpenWithLabel(crypto, nodePriv, updatePathNodeLabel, groupContext, &ct)
         if err != nil {
             return nil, ErrPathDecrypt
         }
@@ -5560,7 +6802,7 @@ func (self *RatchetTree) DecryptUpdatePath(crypto CryptoProvider, sender LeafInd
         return nil, ErrNoPathSecret
     }
     out := priv.Clone()
-    for i := start; i < len(filtered); i++ {
+    for i := start; i < len(steps); i++ {
         _, derivedPub, err := DeriveNodeKeyPair(crypto, secret)
         if err != nil {
             return nil, err
@@ -5569,7 +6811,7 @@ func (self *RatchetTree) DecryptUpdatePath(crypto CryptoProvider, sender LeafInd
         if subtle.ConstantTimeCompare(derivedPub, path.Nodes[i].EncryptionKey) != 1 {
             return nil, ErrPathKeyMismatch
         }
-        out.PathSecrets[filtered[i]] = cloneBytes(secret)
+        out.PathSecrets[steps[i].Node] = cloneBytes(secret)
         secret = crypto.DeriveSecret(secret, "path")
     }
     return &PathDecryptResult{CommitSecret: secret, Private: out}, nil
@@ -5582,7 +6824,7 @@ the heap after the check.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./mls/... -run "TestDecryptUpdatePath|TestValSem203|TestValSem204" -v`
+Run: `go test ./mls/... -run TestDecryptUpdatePath -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -5602,7 +6844,7 @@ git commit -m "feat(mls): decrypt a received UpdatePath and ratchet to the commi
 - Test: `mls/tree_sync_test.go`
 
 **Interfaces:**
-- Consumes: `LeafNode.Validate`, `LeafValidationContext` (Task 7); `VerifyParentHashes` (Task 14); `TreeHash` (Task 12); `GroupContext` (Key schedule plan, wave 2); `ErrDuplicateEncryptionKey`, `ErrDuplicateSignatureKey` (Validation plan); `ErrUnmergedLeavesNotSorted`, `ErrUnmergedLeafInconsistent`, `ErrTreeHashMismatch`, `ErrNodeTypeMismatch`, `ErrTreeMalformed` (Task 2).
+- Consumes: `(*LeafNode).Validate`, `LeafValidationContext` (Task 7); `VerifyParentHashes` (Task 14); `TreeHash` (Task 12); `func LeafCountFromNodeWidth(w uint32) (LeafCount, error)`, `func IsFullLeafCount(n LeafCount) bool`, `func InSubtree(head NodeIndex, x NodeIndex) bool`, `func DirectPath(x NodeIndex, n LeafCount) ([]NodeIndex, error)` (Tree math plan, the last through `directPathOf`); `type GroupContext struct{...}` (Key schedule plan, wave 2); `ErrDuplicateEncryptionKey`, `ErrDuplicateSignatureKey` (Validation plan); `ErrUnmergedLeavesNotSorted`, `ErrUnmergedLeafInconsistent`, `ErrTreeHashMismatch`, `ErrNodeTypeMismatch`, `ErrTreeMalformed` (Task 2).
 - Produces: `TreeValidationContext{Crypto, Suite, GroupId, RequiredCaps, GroupExtensions, NowMs, ClockSkewMs}`,
   `func (self *RatchetTree) Validate(ctx *TreeValidationContext) error`,
   `func (self *RatchetTree) ValidateAgainstContext(ctx *TreeValidationContext, gc *GroupContext) error`.
@@ -5633,7 +6875,7 @@ import (
 func testTreeValidationContext(crypto CryptoProvider) *TreeValidationContext {
     return &TreeValidationContext{
         Crypto:  crypto,
-        Suite:   CipherSuiteX25519ChaCha20SHA256Ed25519,
+        Suite:   CipherSuiteX25519ChaCha20Sha256Ed25519,
         GroupId: testGroupId(),
         RequiredCaps: &RequiredCapabilities{
             ExtensionTypes:  []ExtensionType{ExtensionTypeUrmessageGroupPolicy, ExtensionTypeUrmessageLeafKeys},
@@ -5648,7 +6890,7 @@ func testTreeValidationContext(crypto CryptoProvider) *TreeValidationContext {
 }
 
 func TestValidateAcceptsAFreshAndACommittedTree(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -5668,7 +6910,7 @@ func TestValidateAcceptsAFreshAndACommittedTree(t *testing.T) {
 }
 
 func TestValidateRejectsDuplicateKeys(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -5700,7 +6942,7 @@ func TestValidateRejectsDuplicateKeys(t *testing.T) {
 }
 
 func TestValidateRejectsBadUnmergedLeaves(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -5729,7 +6971,7 @@ func TestValidateRejectsBadUnmergedLeaves(t *testing.T) {
 }
 
 func TestValidateRejectsAnUnmergedLeafThatAnIntermediateDoesNotCarry(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -5752,7 +6994,7 @@ func TestValidateRejectsAnUnmergedLeafThatAnIntermediateDoesNotCarry(t *testing.
 }
 
 func TestValidateAgainstContextChecksTheTreeHash(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -5762,8 +7004,8 @@ func TestValidateAgainstContextChecksTheTreeHash(t *testing.T) {
         t.Fatalf("TreeHash: %v", err)
     }
     gc := &GroupContext{
-        Version:     ProtocolVersionMLS10,
-        CipherSuite: CipherSuiteX25519ChaCha20SHA256Ed25519,
+        Version:     ProtocolVersionMls10,
+        CipherSuite: CipherSuiteX25519ChaCha20Sha256Ed25519,
         GroupId:     testGroupId(),
         Epoch:       1,
         TreeHash:    treeHash,
@@ -5806,11 +7048,17 @@ type TreeValidationContext struct {
 
 func (self *RatchetTree) validateStructure() error {
     width := self.NodeWidth()
-    if width == 0 || width%2 == 0 {
+    if width == 0 {
         return ErrTreeMalformed
     }
-    leafWidth := self.LeafWidth()
-    if leafWidth&(leafWidth-1) != 0 {
+    // LeafCountFromNodeWidth is the tree math plan's own inverse, so an even node
+    // width surfaces as ErrNodeWidthNotOdd there rather than as a local %2 check
+    // that could disagree with it.
+    leafWidth, err := LeafCountFromNodeWidth(width)
+    if err != nil {
+        return ErrTreeMalformed
+    }
+    if leafWidth != self.LeafWidth() || !IsFullLeafCount(leafWidth) {
         return ErrTreeMalformed
     }
     for x := uint32(0); x < width; x++ {
@@ -5832,7 +7080,7 @@ func (self *RatchetTree) validateStructure() error {
 }
 
 func (self *RatchetTree) validateLeaves(ctx *TreeValidationContext) error {
-    for i := uint32(0); i < self.LeafWidth(); i++ {
+    for i := uint32(0); i < uint32(self.LeafWidth()); i++ {
         leaf := self.Leaf(LeafIndex(i))
         if leaf == nil {
             continue
@@ -5897,16 +7145,20 @@ func (self *RatchetTree) validateUnmergedLeaves() error {
             if i > 0 && parent.UnmergedLeaves[i-1] >= leaf {
                 return ErrUnmergedLeavesNotSorted
             }
-            if uint32(leaf) >= self.LeafWidth() {
+            if LeafCount(leaf) >= self.LeafWidth() {
                 return ErrUnmergedLeafInconsistent
             }
             if self.Leaf(leaf) == nil {
                 return ErrUnmergedLeafInconsistent
             }
-            if CommonAncestor(leaf.NodeIndex(), node) != node {
+            if !InSubtree(node, leaf.NodeIndex()) {
                 return ErrUnmergedLeafInconsistent
             }
-            for _, intermediate := range DirectPath(leaf.NodeIndex(), self.LeafWidth()) {
+            path, err := directPathOf(leaf.NodeIndex(), self.LeafWidth())
+            if err != nil {
+                return err
+            }
+            for _, intermediate := range path {
                 if intermediate == node {
                     break
                 }
@@ -5980,22 +7232,27 @@ git commit -m "feat(mls): whole-tree validation for out-of-band ratchet trees"
 ### Task 24: The tree-validation vector family (family 10)
 
 **Files:**
-- Modify: `mls/tree_vectors_test.go`
-- Test: `mls/tree_vectors_test.go`
+- Modify: `mls/tree_kat_test.go`
+- Test: `mls/tree_kat_test.go`
 
 **Interfaces:**
-- Consumes: `treeVectorFile`, `treeHex` (Task 1); `UnmarshalRatchetTree` (Task 11); `Resolution` (Task 10); `TreeHashes` (Task 12); `VerifyParentHashes` (Task 14); `LeafNode.VerifySignature` (Task 6); `NewCryptoProvider` (Crypto plan).
-- Produces: `TestVectorTreeValidation`, the gate named `tree-validation` in this plan's scope.
+- Consumes: `func LoadVectorFile(t *testing.T, file string) []json.RawMessage`, `func MustHex(t *testing.T, s string) []byte`, `func HexOf(b []byte) string`, `func RegisterVectorFamily(family VectorFamily)`, `type VectorFamily struct{...}` (Validation plan, wave 1); `treeVectorsOfSuite` (Task 1); `UnmarshalRatchetTree` (Task 11); `(*RatchetTree).Resolution` (Task 10); `TreeHashes` (Task 12); `VerifyParentHashes` (Task 14); `(*LeafNode).VerifySignature` (Task 6); `func NewCryptoProvider(suite CipherSuite) (CryptoProvider, error)` (Crypto plan).
+- Produces: `TestVectorTreeValidation`, the gate named `tree-validation` in this plan's scope, plus the `init()` that registers family 10 with the shared registry.
 
 Vector fields, verified in this order: `cipher_suite`, `tree` (a serialized ratchet tree), `group_id`,
 `resolutions` (one list of node indices per node index), `tree_hashes` (one hash per node index).
 Every leaf signature is verified against `group_id` at its own index, and the whole tree is checked
 for parent-hash validity.
 
+**Registering the family is part of this task, not an afterthought.** The validation plan's
+`TestVectorFamiliesVerify` walks the registry, so a family that never calls `RegisterVectorFamily`
+is a family that never runs, and Gate 1 goes green with it silently skipped.
+`expectedPendingFamilies` loses the number `10` in the same commit.
+
 - [ ] **Step 1: Write the failing test**
 
 ```go
-// mls/tree_vectors_test.go (append)
+// mls/tree_kat_test.go (append)
 
 type treeValidationVector struct {
     CipherSuite uint16     `json:"cipher_suite"`
@@ -6005,109 +7262,129 @@ type treeValidationVector struct {
     TreeHashes  []string   `json:"tree_hashes"`
 }
 
-func TestVectorTreeValidation(t *testing.T) {
-    var vectors []treeValidationVector
-    if err := json.Unmarshal(treeVectorFile(t, "tree-validation.json"), &vectors); err != nil {
-        t.Fatalf("decode tree-validation.json: %v", err)
+func init() {
+    RegisterVectorFamily(VectorFamily{
+        Number: 10,
+        Name:   "tree-validation",
+        File:   "tree-validation.json",
+        Slice:  "A1",
+        Verify: verifyTreeValidationVector,
+    })
+}
+
+func verifyTreeValidationVector(t *testing.T, raw json.RawMessage) {
+    t.Helper()
+    var vector treeValidationVector
+    if err := json.Unmarshal(raw, &vector); err != nil {
+        t.Fatalf("decode tree-validation entry: %v", err)
     }
-    if len(vectors) == 0 {
-        t.Fatalf("tree-validation.json is empty")
+    if CipherSuite(vector.CipherSuite) != CipherSuiteX25519ChaCha20Sha256Ed25519 {
+        return
     }
-    ran := 0
-    for i, vector := range vectors {
-        if CipherSuite(vector.CipherSuite) != CipherSuiteX25519ChaCha20SHA256Ed25519 {
+    crypto, err := NewCryptoProvider(CipherSuite(vector.CipherSuite))
+    if err != nil {
+        t.Fatalf("NewCryptoProvider: %v", err)
+    }
+    tree, err := UnmarshalRatchetTree(MustHex(t, vector.Tree))
+    if err != nil {
+        t.Fatalf("UnmarshalRatchetTree: %v", err)
+    }
+    groupId := MustHex(t, vector.GroupId)
+
+    if uint32(len(vector.Resolutions)) != tree.NodeWidth() {
+        t.Fatalf("%d resolutions for %d nodes", len(vector.Resolutions), tree.NodeWidth())
+    }
+    for x, want := range vector.Resolutions {
+        got := tree.Resolution(NodeIndex(x))
+        if len(got) != len(want) {
+            t.Fatalf("node %d resolution = %v, want %v", x, got, want)
+        }
+        for j := range want {
+            if uint32(got[j]) != want[j] {
+                t.Fatalf("node %d resolution = %v, want %v", x, got, want)
+            }
+        }
+    }
+
+    hashes, err := tree.TreeHashes(crypto)
+    if err != nil {
+        t.Fatalf("TreeHashes: %v", err)
+    }
+    if len(vector.TreeHashes) != len(hashes) {
+        t.Fatalf("%d tree hashes for %d nodes", len(vector.TreeHashes), len(hashes))
+    }
+    for x, want := range vector.TreeHashes {
+        if !bytes.Equal(hashes[x], MustHex(t, want)) {
+            t.Fatalf("node %d tree hash = %s, want %s", x, HexOf(hashes[x]), want)
+        }
+    }
+
+    if err := tree.VerifyParentHashes(crypto); err != nil {
+        t.Fatalf("VerifyParentHashes: %v", err)
+    }
+
+    for x := uint32(0); x < uint32(tree.LeafWidth()); x++ {
+        leaf := tree.Leaf(LeafIndex(x))
+        if leaf == nil {
             continue
         }
-        ran++
-        crypto, err := NewCryptoProvider(CipherSuite(vector.CipherSuite))
-        if err != nil {
-            t.Fatalf("vector %d NewCryptoProvider: %v", i, err)
-        }
-        tree, err := UnmarshalRatchetTree(treeHex(t, vector.Tree))
-        if err != nil {
-            t.Fatalf("vector %d UnmarshalRatchetTree: %v", i, err)
-        }
-        groupId := treeHex(t, vector.GroupId)
-
-        if uint32(len(vector.Resolutions)) != tree.NodeWidth() {
-            t.Fatalf("vector %d has %d resolutions for %d nodes",
-                i, len(vector.Resolutions), tree.NodeWidth())
-        }
-        for x, want := range vector.Resolutions {
-            got := tree.Resolution(NodeIndex(x))
-            if len(got) != len(want) {
-                t.Fatalf("vector %d node %d resolution = %v, want %v", i, x, got, want)
-            }
-            for j := range want {
-                if uint32(got[j]) != want[j] {
-                    t.Fatalf("vector %d node %d resolution = %v, want %v", i, x, got, want)
-                }
-            }
-        }
-
-        hashes, err := tree.TreeHashes(crypto)
-        if err != nil {
-            t.Fatalf("vector %d TreeHashes: %v", i, err)
-        }
-        if len(vector.TreeHashes) != len(hashes) {
-            t.Fatalf("vector %d has %d tree hashes for %d nodes",
-                i, len(vector.TreeHashes), len(hashes))
-        }
-        for x, want := range vector.TreeHashes {
-            if !bytes.Equal(hashes[x], treeHex(t, want)) {
-                t.Fatalf("vector %d node %d tree hash = %x, want %s", i, x, hashes[x], want)
-            }
-        }
-
-        if err := tree.VerifyParentHashes(crypto); err != nil {
-            t.Fatalf("vector %d VerifyParentHashes: %v", i, err)
-        }
-
-        for x := uint32(0); x < tree.LeafWidth(); x++ {
-            leaf := tree.Leaf(LeafIndex(x))
-            if leaf == nil {
-                continue
-            }
-            if err := leaf.VerifySignature(crypto, groupId, LeafIndex(x)); err != nil {
-                t.Fatalf("vector %d leaf %d signature: %v", i, x, err)
-            }
+        if err := leaf.VerifySignature(crypto, groupId, LeafIndex(x)); err != nil {
+            t.Fatalf("leaf %d signature: %v", x, err)
         }
     }
-    if ran == 0 {
-        t.Fatalf("no tree-validation vector used ciphersuite 0x0003")
+}
+
+func TestVectorTreeValidation(t *testing.T) {
+    for i, raw := range LoadVectorFile(t, "tree-validation.json") {
+        raw := raw
+        t.Run(fmt.Sprintf("vector-%d", i), func(t *testing.T) {
+            verifyTreeValidationVector(t, raw)
+        })
     }
+    // treeVectorsOfSuite fails if not one entry used 0x0003, which is what stops a
+    // wholly-skipped family from reading as a pass.
+    treeVectorsOfSuite(t, "tree-validation.json",
+        func(v *treeValidationVector) CipherSuite { return CipherSuite(v.CipherSuite) })
 }
 ```
 
-Add `"bytes"` and `"encoding/json"` to the imports of `mls/tree_vectors_test.go`.
+Add `"bytes"` and `"fmt"` to the imports of `mls/tree_kat_test.go` (`encoding/json` and `testing`
+are already there from Task 1).
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `go test ./mls/... -run TestVectorTreeValidation -v`
-Expected: FAIL — either `decode tree-validation.json` if Task 1 has not run, or a concrete
-`node N resolution = ... want ...` mismatch
+Expected: FAIL — the loader's "no such file" if the validation plan's vendoring task has not run, or
+a concrete `node N resolution = ... want ...` mismatch
 
 - [ ] **Step 3: Write minimal implementation**
 
 No new production code. If the vector fails, the defect is in `Resolution`, `TreeHashes`,
-`VerifyParentHashes` or `UnmarshalRatchetTree`, and the fix belongs to that function's own task.
-Two failures are expected here and are real bugs, not vector quirks:
+`VerifyParentHashes` or `UnmarshalRatchetTree`, and the fix belongs to that function's own task —
+except `Resolution`, which is the tree math plan's, so a resolution mismatch is a defect there or in
+this plan's `NodeShape` (Task 8), never in the vector. Three failures are expected here and are real
+bugs:
 
-- A resolution mismatch on a node with unmerged leaves means `Resolution` is emitting the unmerged
-  leaves in the wrong place or the wrong order — they follow the node itself, in the order stored.
+- A resolution mismatch on a node with unmerged leaves means `UnmergedLeaves` is not returning the
+  stored list in stored order — the resolution puts them after the node itself, in that order.
 - A tree-hash mismatch on a blank leaf means `leafHashInput` omitted the leaf index.
+- A `LeafCount`/`NodeWidth` disagreement means `LeafWidth` was computed rather than taken from the
+  tree math plan's inverse; `validateStructure` is where that surfaces.
+
+Delete `10` from `expectedPendingFamilies` in the validation plan's registry test in this same
+commit — the family is no longer pending.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./mls/... -run TestVectorTreeValidation -v`
-Expected: PASS
+Run: `go test ./mls/... -run "TestVectorTreeValidation|TestVectorFamiliesVerify" -v`
+Expected: PASS, with `TestVectorFamiliesVerify` now running family 10
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git ls-files | wc -l
-git add mls/tree_vectors_test.go
-git commit -m "test(mls): tree-validation vector family passes"
+git add mls/tree_kat_test.go
+git commit -m "test(mls): tree-validation vector family passes and registers as family 10"
 ```
 
 ---
@@ -6115,12 +7392,15 @@ git commit -m "test(mls): tree-validation vector family passes"
 ### Task 25: The TreeKEM vector family (family 11), both directions
 
 **Files:**
-- Modify: `mls/tree_vectors_test.go`
-- Test: `mls/tree_vectors_test.go`
+- Modify: `mls/tree_kat_test.go`
+- Test: `mls/tree_kat_test.go`
 
 **Interfaces:**
-- Consumes: `treeVectorFile`, `treeHex` (Task 1); `UnmarshalRatchetTree` (Task 11); `ParseUpdatePath` (Task 19); `MergeUpdatePath` (Task 21); `DecryptUpdatePath` (Task 22); `CreateUpdatePathSecrets`, `EncryptUpdatePath` (Tasks 18, 20); `TreeKEMPrivate` (Task 17); `GroupContext` and `GroupContext.Marshal` (Key schedule plan, wave 2); `CommonAncestor` (Tree math plan).
-- Produces: `TestVectorTreeKEM` (verify direction) and `TestVectorTreeKEMGenerate` (generate direction), the gate named `treekem` in this plan's scope.
+- Consumes: `func LoadVectorFile(t *testing.T, file string) []json.RawMessage`, `func MustHex(t *testing.T, s string) []byte`, `func HexOf(b []byte) string`, `func RegisterVectorFamily(family VectorFamily)`, `type VectorFamily struct{...}` (Validation plan, wave 1); `treeVectorsOfSuite` (Task 1); `UnmarshalRatchetTree` (Task 11); `UpdatePath` codec (Task 19); `MergeUpdatePath` (Task 21); `DecryptUpdatePath` (Task 22); `CreateUpdatePathSecrets`, `EncryptUpdatePath` (Tasks 18, 20); `TreeKEMPrivate` (Task 17); `type GroupContext struct{...}` and `func (self *GroupContext) MarshalMLS(w *syntax.Writer) error` (Key schedule plan, wave 2), through `syntax.Marshal`; `func CommonAncestor(x NodeIndex, y NodeIndex) NodeIndex` (Tree math plan).
+- Produces: `TestVectorTreeKEM` (verify direction) and `TestVectorTreeKEMGenerate` (generate direction), the gate named `treekem` in this plan's scope, plus the `init()` that registers family 11.
+
+`expectedPendingFamilies` loses the number `11` in this task's commit, for the same reason family 10
+loses its number in Task 24's.
 
 Vector fields: `cipher_suite`, `group_id`, `epoch`, `confirmed_transcript_hash`, `ratchet_tree`,
 `leaves_private[]{index, encryption_priv, signature_priv, path_secrets[]{node, path_secret}}`, and
@@ -6133,7 +7413,7 @@ that path — which is why generation and encryption are two separate calls in t
 - [ ] **Step 1: Write the failing test**
 
 ```go
-// mls/tree_vectors_test.go (append)
+// mls/tree_kat_test.go (append)
 
 type treeKemPathSecret struct {
     Node       uint32 `json:"node"`
@@ -6168,16 +7448,19 @@ type treeKemVector struct {
 func (self *treeKemVector) groupContext(t *testing.T, treeHash []byte) []byte {
     t.Helper()
     gc := &GroupContext{
-        Version:                 ProtocolVersionMLS10,
+        Version:                 ProtocolVersionMls10,
         CipherSuite:             CipherSuite(self.CipherSuite),
-        GroupId:                 treeHex(t, self.GroupId),
+        GroupId:                 MustHex(t, self.GroupId),
         Epoch:                   self.Epoch,
         TreeHash:                treeHash,
-        ConfirmedTranscriptHash: treeHex(t, self.ConfirmedTranscriptHash),
+        ConfirmedTranscriptHash: MustHex(t, self.ConfirmedTranscriptHash),
     }
-    encoded, err := gc.Marshal()
+    // GroupContext has no Marshal of its own (C1); syntax.Marshal is the byte-level
+    // entry point, and it is what the framing plan's callers use too, so the HPKE
+    // info here is byte-identical to the one a real commit builds.
+    encoded, err := syntax.Marshal(gc)
     if err != nil {
-        t.Fatalf("GroupContext.Marshal: %v", err)
+        t.Fatalf("Marshal(GroupContext): %v", err)
     }
     return encoded
 }
@@ -6189,121 +7472,126 @@ func (self *treeKemVector) private(t *testing.T, index uint32) (*TreeKEMPrivate,
             continue
         }
         priv := NewTreeKEMPrivate(LeafIndex(entry.Index),
-            HpkePrivateKey(treeHex(t, entry.EncryptionPriv)))
+            HpkePrivateKey(MustHex(t, entry.EncryptionPriv)))
         for _, secret := range entry.PathSecrets {
-            priv.PathSecrets[NodeIndex(secret.Node)] = treeHex(t, secret.PathSecret)
+            priv.PathSecrets[NodeIndex(secret.Node)] = MustHex(t, secret.PathSecret)
         }
         return priv, true
     }
     return nil, false
 }
 
-func TestVectorTreeKEM(t *testing.T) {
-    var vectors []treeKemVector
-    if err := json.Unmarshal(treeVectorFile(t, "treekem.json"), &vectors); err != nil {
-        t.Fatalf("decode treekem.json: %v", err)
+func init() {
+    RegisterVectorFamily(VectorFamily{
+        Number: 11,
+        Name:   "treekem",
+        File:   "treekem.json",
+        Slice:  "A1",
+        Verify: verifyTreeKemVector,
+    })
+}
+
+func verifyTreeKemVector(t *testing.T, raw json.RawMessage) {
+    t.Helper()
+    var vector treeKemVector
+    if err := json.Unmarshal(raw, &vector); err != nil {
+        t.Fatalf("decode treekem entry: %v", err)
     }
-    if len(vectors) == 0 {
-        t.Fatalf("treekem.json is empty")
+    if CipherSuite(vector.CipherSuite) != CipherSuiteX25519ChaCha20Sha256Ed25519 {
+        return
     }
-    ran := 0
-    for i, vector := range vectors {
-        if CipherSuite(vector.CipherSuite) != CipherSuiteX25519ChaCha20SHA256Ed25519 {
-            continue
+    crypto, err := NewCryptoProvider(CipherSuite(vector.CipherSuite))
+    if err != nil {
+        t.Fatalf("NewCryptoProvider: %v", err)
+    }
+    base, err := UnmarshalRatchetTree(MustHex(t, vector.RatchetTree))
+    if err != nil {
+        t.Fatalf("UnmarshalRatchetTree: %v", err)
+    }
+    // the supplied private state must already agree with the supplied tree.
+    for _, entry := range vector.LeavesPrivate {
+        priv, _ := vector.private(t, entry.Index)
+        if err := priv.Consistent(crypto, base); err != nil {
+            t.Fatalf("leaf %d private state: %v", entry.Index, err)
         }
-        ran++
-        crypto, err := NewCryptoProvider(CipherSuite(vector.CipherSuite))
+    }
+    for j, update := range vector.UpdatePaths {
+        path := &UpdatePath{}
+        if err := syntax.Unmarshal(MustHex(t, update.UpdatePath), path); err != nil {
+            t.Fatalf("path %d Unmarshal(UpdatePath): %v", j, err)
+        }
+        merged := base.Clone()
+        if err := merged.MergeUpdatePath(crypto, LeafIndex(update.Sender), path); err != nil {
+            t.Fatalf("path %d MergeUpdatePath: %v", j, err)
+        }
+        treeHash, err := merged.TreeHash(crypto)
         if err != nil {
-            t.Fatalf("vector %d NewCryptoProvider: %v", i, err)
+            t.Fatalf("path %d TreeHash: %v", j, err)
         }
-        base, err := UnmarshalRatchetTree(treeHex(t, vector.RatchetTree))
-        if err != nil {
-            t.Fatalf("vector %d UnmarshalRatchetTree: %v", i, err)
+        if !bytes.Equal(treeHash, MustHex(t, update.TreeHashAfter)) {
+            t.Fatalf("path %d tree hash = %s, want %s", j, HexOf(treeHash), update.TreeHashAfter)
         }
-        // the supplied private state must already agree with the supplied tree.
-        for _, entry := range vector.LeavesPrivate {
-            priv, _ := vector.private(t, entry.Index)
-            if err := priv.Consistent(crypto, base); err != nil {
-                t.Fatalf("vector %d leaf %d private state: %v", i, entry.Index, err)
+        if err := merged.VerifyParentHashes(crypto); err != nil {
+            t.Fatalf("path %d VerifyParentHashes: %v", j, err)
+        }
+        groupContext := vector.groupContext(t, treeHash)
+        wantCommitSecret := MustHex(t, update.CommitSecret)
+        for leafIndex, wantSecret := range update.PathSecrets {
+            if wantSecret == nil {
+                continue
             }
-        }
-        for j, update := range vector.UpdatePaths {
-            path, err := ParseUpdatePath(treeHex(t, update.UpdatePath))
+            priv, ok := vector.private(t, uint32(leafIndex))
+            if !ok {
+                continue
+            }
+            got, err := merged.DecryptUpdatePath(crypto, LeafIndex(update.Sender), path,
+                groupContext, priv, nil)
             if err != nil {
-                t.Fatalf("vector %d path %d ParseUpdatePath: %v", i, j, err)
+                t.Fatalf("path %d leaf %d DecryptUpdatePath: %v", j, leafIndex, err)
             }
-            merged := base.Clone()
-            if err := merged.MergeUpdatePath(crypto, LeafIndex(update.Sender), path); err != nil {
-                t.Fatalf("vector %d path %d MergeUpdatePath: %v", i, j, err)
+            lowest := CommonAncestor(LeafIndex(update.Sender).NodeIndex(),
+                LeafIndex(leafIndex).NodeIndex())
+            if !bytes.Equal(got.Private.PathSecrets[lowest], MustHex(t, *wantSecret)) {
+                t.Fatalf("path %d leaf %d path secret at node %d differs", j, leafIndex, lowest)
             }
-            treeHash, err := merged.TreeHash(crypto)
-            if err != nil {
-                t.Fatalf("vector %d path %d TreeHash: %v", i, j, err)
-            }
-            if !bytes.Equal(treeHash, treeHex(t, update.TreeHashAfter)) {
-                t.Fatalf("vector %d path %d tree hash = %x, want %s",
-                    i, j, treeHash, update.TreeHashAfter)
-            }
-            if err := merged.VerifyParentHashes(crypto); err != nil {
-                t.Fatalf("vector %d path %d VerifyParentHashes: %v", i, j, err)
-            }
-            groupContext := vector.groupContext(t, treeHash)
-            wantCommitSecret := treeHex(t, update.CommitSecret)
-            for leafIndex, wantSecret := range update.PathSecrets {
-                if wantSecret == nil {
-                    continue
-                }
-                priv, ok := vector.private(t, uint32(leafIndex))
-                if !ok {
-                    continue
-                }
-                got, err := merged.DecryptUpdatePath(crypto, LeafIndex(update.Sender), path,
-                    groupContext, priv, nil)
-                if err != nil {
-                    t.Fatalf("vector %d path %d leaf %d DecryptUpdatePath: %v", i, j, leafIndex, err)
-                }
-                lowest := CommonAncestor(LeafIndex(update.Sender).NodeIndex(),
-                    LeafIndex(leafIndex).NodeIndex())
-                if !bytes.Equal(got.Private.PathSecrets[lowest], treeHex(t, *wantSecret)) {
-                    t.Fatalf("vector %d path %d leaf %d path secret at node %d differs",
-                        i, j, leafIndex, lowest)
-                }
-                if !bytes.Equal(got.CommitSecret, wantCommitSecret) {
-                    t.Fatalf("vector %d path %d leaf %d commit secret = %x, want %s",
-                        i, j, leafIndex, got.CommitSecret, update.CommitSecret)
-                }
+            if !bytes.Equal(got.CommitSecret, wantCommitSecret) {
+                t.Fatalf("path %d leaf %d commit secret = %s, want %s",
+                    j, leafIndex, HexOf(got.CommitSecret), update.CommitSecret)
             }
         }
-    }
-    if ran == 0 {
-        t.Fatalf("no treekem vector used ciphersuite 0x0003")
     }
 }
 
-func TestVectorTreeKEMGenerate(t *testing.T) {
-    var vectors []treeKemVector
-    if err := json.Unmarshal(treeVectorFile(t, "treekem.json"), &vectors); err != nil {
-        t.Fatalf("decode treekem.json: %v", err)
+func TestVectorTreeKEM(t *testing.T) {
+    for i, raw := range LoadVectorFile(t, "treekem.json") {
+        raw := raw
+        t.Run(fmt.Sprintf("vector-%d", i), func(t *testing.T) {
+            verifyTreeKemVector(t, raw)
+        })
     }
+    treeVectorsOfSuite(t, "treekem.json",
+        func(v *treeKemVector) CipherSuite { return CipherSuite(v.CipherSuite) })
+}
+
+func TestVectorTreeKEMGenerate(t *testing.T) {
+    vectors := treeVectorsOfSuite(t, "treekem.json",
+        func(v *treeKemVector) CipherSuite { return CipherSuite(v.CipherSuite) })
     ran := 0
     for i, vector := range vectors {
-        if CipherSuite(vector.CipherSuite) != CipherSuiteX25519ChaCha20SHA256Ed25519 {
-            continue
-        }
         crypto, err := NewCryptoProvider(CipherSuite(vector.CipherSuite))
         if err != nil {
             t.Fatalf("vector %d NewCryptoProvider: %v", i, err)
         }
-        base, err := UnmarshalRatchetTree(treeHex(t, vector.RatchetTree))
+        base, err := UnmarshalRatchetTree(MustHex(t, vector.RatchetTree))
         if err != nil {
             t.Fatalf("vector %d UnmarshalRatchetTree: %v", i, err)
         }
-        groupId := treeHex(t, vector.GroupId)
+        groupId := MustHex(t, vector.GroupId)
         for _, entry := range vector.LeavesPrivate {
             sender := LeafIndex(entry.Index)
             senderTree := base.Clone()
             plan, err := senderTree.CreateUpdatePathSecrets(crypto, sender,
-                SignaturePrivateKey(treeHex(t, entry.SignaturePriv)), groupId)
+                SignaturePrivateKey(MustHex(t, entry.SignaturePriv)), groupId)
             if err != nil {
                 t.Fatalf("vector %d sender %d CreateUpdatePathSecrets: %v", i, sender, err)
             }
@@ -6350,11 +7638,15 @@ func TestVectorTreeKEMGenerate(t *testing.T) {
 }
 ```
 
+`treeKemVector.groupContext` and `treeKemVector.private` are methods on the vector rather than free
+helpers so `syntax` is imported once in this file; add `"github.com/urnetwork/connect/mls/syntax"`
+to `mls/tree_kat_test.go`.
+
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `go test ./mls/... -run TestVectorTreeKEM -v`
-Expected: FAIL — `decode treekem.json` before Task 1, or a concrete `tree hash = ... want ...` or
-`commit secret = ... want ...` mismatch
+Expected: FAIL — the loader's "no such file" if the validation plan's vendoring task has not run, or
+a concrete `tree hash = ... want ...` or `commit secret = ... want ...` mismatch
 
 - [ ] **Step 3: Write minimal implementation**
 
@@ -6368,17 +7660,21 @@ makes the vector pass in one direction only:
 - A path secret that decrypts for one leaf and not another means the ciphertext index was found by
   trial rather than by position in the copath resolution — `DecryptUpdatePath` must index, not search.
 
+Delete `11` from `expectedPendingFamilies` in the validation plan's registry test in this same
+commit.
+
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./mls/... -run TestVectorTreeKEM -v`
-Expected: PASS (both `TestVectorTreeKEM` and `TestVectorTreeKEMGenerate`)
+Run: `go test ./mls/... -run "TestVectorTreeKEM|TestVectorFamiliesVerify" -v`
+Expected: PASS (`TestVectorTreeKEM`, `TestVectorTreeKEMGenerate`, and `TestVectorFamiliesVerify`
+now running families 10 and 11)
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git ls-files | wc -l
-git add mls/tree_vectors_test.go
-git commit -m "test(mls): TreeKEM vector family passes in both directions"
+git add mls/tree_kat_test.go
+git commit -m "test(mls): TreeKEM vector family passes in both directions and registers as family 11"
 ```
 
 ---
@@ -6390,37 +7686,48 @@ git commit -m "test(mls): TreeKEM vector family passes in both directions"
 - Test: `mls/tree_sync_test.go`
 
 **Interfaces:**
-- Consumes: `ErrDuplicateEncryptionKey` (Validation plan, used for ValSem206 and ValSem207); `MergeUpdatePath` (Task 21).
-- Produces: `func (self *RatchetTree) CheckUpdatePathKeyUniqueness(sender LeafIndex, path *UpdatePath) error` — ValSem206 (the path's leaf-node encryption key is unique against every key already in the tree) and ValSem207 (each path node's encryption key is unique the same way). `commit.go` (Group lifecycle plan) calls it before `MergeUpdatePath`, because the check is against the pre-merge tree.
+- Consumes: `ErrDuplicateEncryptionKey` (Validation plan, used for ValSem206 and ValSem207); `FindLeafBySignatureKey`, `Leaf` (Task 8); `UpdatePath` (Task 19); `MergeUpdatePath` (Task 21).
+- Produces: `func CheckUpdatePathKeyUniqueness(tree *RatchetTree, path *UpdatePath) error` — ValSem206 (the path's leaf-node encryption key is unique against every key already in the tree) and ValSem207 (each path node's encryption key is unique the same way). The group lifecycle plan calls it before `MergeUpdatePath`, because the check is against the pre-merge tree; the validation plan calls it from its Gate 3 rows.
 
-Spec A §4.3 requires one test function per code, named `TestValSemNNN_<slug>`, as a top-level
-function. ValSem202, 203, 204 and 300 already have theirs (Tasks 11, 21, 22). This task adds 206 and
-207 and a coverage assertion that fails if a tree-owned code loses its test.
+**It is a free function taking the tree, and it takes no `sender`.** The sender's own outgoing leaf
+key is the one key the path is *replacing*, so it must not count as a collision — and the path
+already identifies that leaf, because a commit does not change the committer's signature key. So the
+sender is recovered with `FindLeafBySignatureKey(path.LeafNode.SignatureKey)` rather than passed in,
+which removes the one argument a caller could get wrong and turn a real ValSem206 into a pass.
+
+**The ValSem-numbered test names are the validation plan's, exclusively** (Spec A §4.3). That plan
+declares `TestValSem202_PathLength`, `TestValSem203_PathDecrypt`, `TestValSem204_PathKeyMismatch`,
+`TestValSem206_PathLeafDuplicateEncryptionKey`, `TestValSem207_PathNodeDuplicateEncryptionKey` and
+`TestValSem300_TrailingBlankNodes`, and two functions of one name in one Go package do not compile.
+What this plan keeps is the production surface those tests drive — `CheckUpdatePathKeyUniqueness`,
+`MergeUpdatePath`, `DecryptUpdatePath`, `UnmarshalRatchetTree` — plus behaviour-named regression
+tests of its own. There is no `TestTreeValSemCoverage` here either: ValSem coverage is asserted once,
+in the validation plan, and asserting it twice against two name lists is how the two lists drift.
 
 - [ ] **Step 1: Write the failing test**
 
 ```go
 // mls/tree_sync_test.go (append)
 
-func TestValSem206_PathLeafKeyUnique(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+func TestUpdatePathLeafKeyUniqueness(t *testing.T) {
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
     tree, members := newTestTree(t, crypto, 4)
     _, path, _, _ := createAndEncryptPath(t, crypto, tree, members[0], nil)
-    if err := tree.CheckUpdatePathKeyUniqueness(members[0].LeafIndex, path); err != nil {
+    if err := CheckUpdatePathKeyUniqueness(tree, path); err != nil {
         t.Fatalf("a fresh path must be unique: %v", err)
     }
     tampered := &UpdatePath{LeafNode: *path.LeafNode.Clone(), Nodes: path.Nodes}
     tampered.LeafNode.EncryptionKey = cloneBytes(tree.Leaf(LeafIndex(2)).EncryptionKey)
-    if err := tree.CheckUpdatePathKeyUniqueness(members[0].LeafIndex, tampered); !errors.Is(err, ErrDuplicateEncryptionKey) {
+    if err := CheckUpdatePathKeyUniqueness(tree, tampered); !errors.Is(err, ErrDuplicateEncryptionKey) {
         t.Fatalf("err = %v, want ErrDuplicateEncryptionKey", err)
     }
 }
 
-func TestValSem207_PathNodeKeysUnique(t *testing.T) {
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+func TestUpdatePathNodeKeyUniqueness(t *testing.T) {
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -6430,71 +7737,49 @@ func TestValSem207_PathNodeKeysUnique(t *testing.T) {
     // a path node reusing a leaf's key that is already in the tree.
     tampered := &UpdatePath{LeafNode: path.LeafNode, Nodes: append([]UpdatePathNode{}, path.Nodes...)}
     tampered.Nodes[0].EncryptionKey = cloneBytes(tree.Leaf(LeafIndex(2)).EncryptionKey)
-    if err := tree.CheckUpdatePathKeyUniqueness(members[0].LeafIndex, tampered); !errors.Is(err, ErrDuplicateEncryptionKey) {
+    if err := CheckUpdatePathKeyUniqueness(tree, tampered); !errors.Is(err, ErrDuplicateEncryptionKey) {
         t.Fatalf("reused tree key: err = %v, want ErrDuplicateEncryptionKey", err)
     }
 
     // two nodes of the same path sharing a key.
     tampered = &UpdatePath{LeafNode: path.LeafNode, Nodes: append([]UpdatePathNode{}, path.Nodes...)}
     tampered.Nodes[1].EncryptionKey = cloneBytes(tampered.Nodes[0].EncryptionKey)
-    if err := tree.CheckUpdatePathKeyUniqueness(members[0].LeafIndex, tampered); !errors.Is(err, ErrDuplicateEncryptionKey) {
+    if err := CheckUpdatePathKeyUniqueness(tree, tampered); !errors.Is(err, ErrDuplicateEncryptionKey) {
         t.Fatalf("repeated path key: err = %v, want ErrDuplicateEncryptionKey", err)
     }
 
     // the sender's own outgoing leaf key is being replaced, so it does not count.
+    // this is the case that fails if the sender is guessed rather than recovered
+    // from the path's own signature key.
     reused := &UpdatePath{LeafNode: *path.LeafNode.Clone(), Nodes: path.Nodes}
     reused.LeafNode.EncryptionKey = cloneBytes(tree.Leaf(members[0].LeafIndex).EncryptionKey)
-    if err := tree.CheckUpdatePathKeyUniqueness(members[0].LeafIndex, reused); err != nil {
+    if err := CheckUpdatePathKeyUniqueness(tree, reused); err != nil {
         t.Fatalf("the sender's own leaf key must not collide with itself: %v", err)
     }
 }
 
-// Spec A §4.3 requires one named test per ValSem code. this asserts the tree-owned
-// set is present, so deleting one shows up here rather than in a coverage report.
-func TestTreeValSemCoverage(t *testing.T) {
-    required := []string{
-        "TestValSem202_PathLength",
-        "TestValSem203_PathDecrypt",
-        "TestValSem204_PathKeyMismatch",
-        "TestValSem206_PathLeafKeyUnique",
-        "TestValSem207_PathNodeKeysUnique",
-        "TestValSem300_TrailingBlankNodes",
-    }
-    source, err := os.ReadDir(".")
+// a path whose leaf signature key is in no leaf of the tree is not from a member, so
+// nothing is being replaced and every key in it must be new.
+func TestUpdatePathKeyUniquenessWithAnUnknownSender(t *testing.T) {
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
-        t.Fatalf("ReadDir: %v", err)
+        t.Fatalf("NewCryptoProvider: %v", err)
     }
-    found := map[string]bool{}
-    for _, entry := range source {
-        if entry.IsDir() || !strings.HasSuffix(entry.Name(), "_test.go") {
-            continue
-        }
-        data, err := os.ReadFile(entry.Name())
-        if err != nil {
-            t.Fatalf("ReadFile %s: %v", entry.Name(), err)
-        }
-        for _, name := range required {
-            if strings.Contains(string(data), "func "+name+"(") {
-                found[name] = true
-            }
-        }
-    }
-    for _, name := range required {
-        if !found[name] {
-            t.Fatalf("%s is missing; every tree-owned ValSem code needs its own named test", name)
-        }
+    tree, members := newTestTree(t, crypto, 4)
+    _, path, _, _ := createAndEncryptPath(t, crypto, tree, members[0], nil)
+    stranger := &UpdatePath{LeafNode: *path.LeafNode.Clone(), Nodes: path.Nodes}
+    stranger.LeafNode.SignatureKey = SignaturePublicKey(bytes.Repeat([]byte{0x7E}, 32))
+    stranger.LeafNode.EncryptionKey = cloneBytes(tree.Leaf(members[0].LeafIndex).EncryptionKey)
+    if err := CheckUpdatePathKeyUniqueness(tree, stranger); !errors.Is(err, ErrDuplicateEncryptionKey) {
+        t.Fatalf("err = %v, want ErrDuplicateEncryptionKey", err)
     }
 }
 ```
 
-Add `"os"` and `"strings"` to the imports of `mls/tree_sync_test.go`, and rename the existing
-`TestValSem202_PathLength`, `TestValSem203_PathDecrypt`, `TestValSem204_PathKeyMismatch` and
-`TestValSem300_TrailingBlankNodes` to exactly those names if any of them differs.
-
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./mls/... -run "TestValSem206|TestValSem207|TestTreeValSemCoverage" -v`
-Expected: FAIL to compile with `tree.CheckUpdatePathKeyUniqueness undefined`
+Run: `go test ./mls/... -run TestUpdatePath.*Uniqueness -v`
+Expected: FAIL to compile with `undefined: CheckUpdatePathKeyUniqueness`
 
 - [ ] **Step 3: Write minimal implementation**
 
@@ -6502,17 +7787,25 @@ Expected: FAIL to compile with `tree.CheckUpdatePathKeyUniqueness undefined`
 // mls/tree_sync.go (append)
 
 // ValSem206 and ValSem207. every encryption key an UpdatePath introduces must be new
-// to the tree, and new within the path. the sender's own outgoing leaf key is skipped:
-// it is the one key the path is replacing. run this against the PRE-merge tree.
-func (self *RatchetTree) CheckUpdatePathKeyUniqueness(sender LeafIndex, path *UpdatePath) error {
+// to the tree, and new within the path. the committer's own outgoing leaf key is
+// skipped: it is the one key the path is replacing. Run this against the PRE-merge
+// tree.
+//
+// The committer is recovered from the path rather than passed in. A commit never
+// changes the committer's signature key, so the leaf carrying that key is the leaf
+// being replaced; taking it as an argument would let one wrong call site turn a real
+// duplicate into a pass. A path whose signature key matches no leaf is not from a
+// member, and then nothing is being replaced.
+func CheckUpdatePathKeyUniqueness(tree *RatchetTree, path *UpdatePath) error {
+    replaced, isMember := tree.FindLeafBySignatureKey(path.LeafNode.SignatureKey)
     existing := map[string]bool{}
-    for x := uint32(0); x < self.NodeWidth(); x++ {
-        node := self.nodes[x]
+    for x := uint32(0); x < tree.NodeWidth(); x++ {
+        node := tree.Get(NodeIndex(x))
         if node == nil {
             continue
         }
         if node.Leaf != nil {
-            if NodeIndex(x) == sender.NodeIndex() {
+            if isMember && NodeIndex(x) == replaced.NodeIndex() {
                 continue
             }
             existing[string(node.Leaf.EncryptionKey)] = true
@@ -6538,7 +7831,7 @@ func (self *RatchetTree) CheckUpdatePathKeyUniqueness(sender LeafIndex, path *Up
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./mls/... -run "TestValSem|TestTreeValSemCoverage" -v`
+Run: `go test ./mls/... -run TestUpdatePath.*Uniqueness -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -6551,15 +7844,23 @@ git commit -m "feat(mls): UpdatePath encryption key uniqueness (ValSem206, ValSe
 
 ---
 
-### Task 27: Fuzz targets for the tree and UpdatePath decoders
+### Task 27: Seed corpus and the round-trip stability regression net
 
 **Files:**
-- Create: `mls/tree_fuzz_test.go`, `mls/testdata/corpus/ratchet_tree/`, `mls/testdata/corpus/update_path/`
-- Test: `mls/tree_fuzz_test.go`
+- Create: `mls/tree_roundtrip_test.go`, `mls/interop/testdata/corpus/ratchet_tree/`, `mls/interop/testdata/corpus/update_path/`
+- Test: `mls/tree_roundtrip_test.go`
 
 **Interfaces:**
-- Consumes: `UnmarshalRatchetTree`, `RatchetTree.Marshal` (Task 11); `ParseUpdatePath`, `UpdatePath.Marshal` (Task 19).
-- Produces: `FuzzRatchetTreeDecode` and `FuzzUpdatePathDecode`, asserting Gate 4 properties 1 (no panic, no unbounded allocation) and 2 (round-trip stability). These feed the same corpus directory the differential job in Spec A §4.4 reads, and they extend `FuzzExtensionDecodeBytes` — a ratchet tree arrives as an extension body, so a tree decoder bug is reachable from the extension target too.
+- Consumes: `func Marshal(v Marshaler) ([]byte, error)`, `func Unmarshal(bs []byte, v Unmarshaler) error` (Syntax plan); `LoadVectorFile`, `MustHex`, `HexOf` (Validation plan); `UnmarshalRatchetTree`, `(*RatchetTree).MarshalMLS` (Task 11); `UpdatePath` codec (Task 19).
+- Produces: the two committed seed corpora, plus `TestRatchetTreeDecodeIsRoundTripStable` and `TestUpdatePathDecodeIsRoundTripStable` — the deterministic regression net over that corpus.
+
+**The `Fuzz*` targets are the validation plan's, not this plan's.** That plan owns all nine Gate-4
+fuzz targets, because it owns the codec table and the differential-oracle hook they call, and
+`TestFuzzTargetsCoverEveryKind` parses the target file with `go/ast` so a deleted target turns it
+red. A tenth and eleventh target declared here would be outside that count and outside that check.
+What this plan contributes is the two things the validation plan cannot derive on its own: the seed
+corpus, which comes from this plan's own vectors, and a deterministic table-driven assertion of the
+same two properties over that corpus, which runs in every `go test` rather than only under `-fuzz`.
 
 Round-trip stability is the property that matters most here: MLS signs over serialized forms, so a
 decoder that accepts two encodings of one tree is a signature-bypass primitive. `encode(decode(x))`
@@ -6568,7 +7869,7 @@ must equal the canonical re-serialization, and `decode(encode(decode(x)))` must 
 - [ ] **Step 1: Write the failing test**
 
 ```go
-// mls/tree_fuzz_test.go
+// mls/tree_roundtrip_test.go
 package mls
 
 import (
@@ -6576,95 +7877,101 @@ import (
     "os"
     "path/filepath"
     "testing"
+
+    "github.com/urnetwork/connect/mls/syntax"
 )
 
-func seedCorpus(f *testing.F, dir string) {
-    f.Helper()
-    entries, err := os.ReadDir(filepath.Join("testdata", "corpus", dir))
+// the committed corpus the validation plan's fuzz targets seed from and the nightly
+// differential job in Spec A §4.4 adds to. One directory per decoder.
+func corpusInputs(t testing.TB, kind string) [][]byte {
+    t.Helper()
+    dir := filepath.Join("interop", "testdata", "corpus", kind)
+    entries, err := os.ReadDir(dir)
     if err != nil {
-        f.Fatalf("read corpus %s: %v", dir, err)
+        t.Fatalf("read corpus %s: %v", kind, err)
     }
-    if len(entries) == 0 {
-        f.Fatalf("corpus %s is empty", dir)
-    }
+    out := [][]byte{}
     for _, entry := range entries {
         if entry.IsDir() {
             continue
         }
-        data, err := os.ReadFile(filepath.Join("testdata", "corpus", dir, entry.Name()))
+        data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
         if err != nil {
-            f.Fatalf("read %s: %v", entry.Name(), err)
+            t.Fatalf("read %s: %v", entry.Name(), err)
         }
-        f.Add(data)
+        out = append(out, data)
     }
+    if len(out) == 0 {
+        t.Fatalf("corpus %s is empty", kind)
+    }
+    return out
 }
 
-func FuzzRatchetTreeDecode(f *testing.F) {
-    seedCorpus(f, "ratchet_tree")
-    f.Fuzz(func(t *testing.T, data []byte) {
+func TestRatchetTreeDecodeIsRoundTripStable(t *testing.T) {
+    for i, data := range corpusInputs(t, "ratchet_tree") {
         tree, err := UnmarshalRatchetTree(data)
         if err != nil {
-            return
+            t.Fatalf("input %d: the corpus holds only accepted inputs: %v", i, err)
         }
-        encoded, err := tree.Marshal()
+        encoded, err := syntax.Marshal(tree)
         if err != nil {
-            t.Fatalf("a decoded tree failed to re-encode: %v", err)
+            t.Fatalf("input %d: a decoded tree failed to re-encode: %v", i, err)
         }
         again, err := UnmarshalRatchetTree(encoded)
         if err != nil {
-            t.Fatalf("the canonical re-encoding failed to decode: %v", err)
+            t.Fatalf("input %d: the canonical re-encoding failed to decode: %v", i, err)
         }
-        reencoded, err := again.Marshal()
+        reencoded, err := syntax.Marshal(again)
         if err != nil {
-            t.Fatalf("re-encode: %v", err)
+            t.Fatalf("input %d: re-encode: %v", i, err)
         }
         if !bytes.Equal(encoded, reencoded) {
-            t.Fatalf("encoding is not stable across a second round trip")
+            t.Fatalf("input %d: encoding is not stable across a second round trip", i)
         }
         if again.NodeWidth() != tree.NodeWidth() {
-            t.Fatalf("node width changed across a round trip: %d then %d",
-                tree.NodeWidth(), again.NodeWidth())
+            t.Fatalf("input %d: node width changed across a round trip: %d then %d",
+                i, tree.NodeWidth(), again.NodeWidth())
         }
-    })
+    }
 }
 
-func FuzzUpdatePathDecode(f *testing.F) {
-    seedCorpus(f, "update_path")
-    f.Fuzz(func(t *testing.T, data []byte) {
-        path, err := ParseUpdatePath(data)
-        if err != nil {
-            return
+func TestUpdatePathDecodeIsRoundTripStable(t *testing.T) {
+    for i, data := range corpusInputs(t, "update_path") {
+        path := &UpdatePath{}
+        if err := syntax.Unmarshal(data, path); err != nil {
+            t.Fatalf("input %d: the corpus holds only accepted inputs: %v", i, err)
         }
-        encoded, err := path.Marshal()
+        encoded, err := syntax.Marshal(path)
         if err != nil {
-            t.Fatalf("a decoded update path failed to re-encode: %v", err)
+            t.Fatalf("input %d: a decoded update path failed to re-encode: %v", i, err)
         }
         if !bytes.Equal(encoded, data) {
-            t.Fatalf("ParseUpdatePath accepted a non-canonical encoding")
+            t.Fatalf("input %d: the decoder accepted a non-canonical encoding: %s vs %s",
+                i, HexOf(encoded), HexOf(data))
         }
-        again, err := ParseUpdatePath(encoded)
-        if err != nil {
-            t.Fatalf("the canonical re-encoding failed to decode: %v", err)
+        again := &UpdatePath{}
+        if err := syntax.Unmarshal(encoded, again); err != nil {
+            t.Fatalf("input %d: the canonical re-encoding failed to decode: %v", i, err)
         }
         if len(again.Nodes) != len(path.Nodes) {
-            t.Fatalf("node count changed across a round trip")
+            t.Fatalf("input %d: node count changed across a round trip", i)
         }
-    })
+    }
 }
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./mls/... -run "FuzzRatchetTreeDecode|FuzzUpdatePathDecode" -v`
-Expected: FAIL with `read corpus ratchet_tree: open testdata/corpus/ratchet_tree: no such file or directory`
+Run: `go test ./mls/... -run "TestRatchetTreeDecodeIsRoundTripStable|TestUpdatePathDecodeIsRoundTripStable" -v`
+Expected: FAIL with `read corpus ratchet_tree: open interop/testdata/corpus/ratchet_tree: no such file or directory`
 
 - [ ] **Step 3: Write minimal implementation**
 
 Seed both corpora from material that already exists, so the corpus is derived rather than invented:
 
 ```bash
-mkdir -p mls/testdata/corpus/ratchet_tree mls/testdata/corpus/update_path
-cat > /tmp/seed_corpus_test.go <<'GOEOF'
+mkdir -p mls/interop/testdata/corpus/ratchet_tree mls/interop/testdata/corpus/update_path
+cat > mls/seed_corpus_test.go <<'GOEOF'
 package mls
 
 import (
@@ -6677,50 +7984,55 @@ import (
 )
 
 // TestSeedTreeCorpus writes the ratchet trees and update paths carried by the
-// vendored vectors into the fuzz corpora. run once, then deleted.
+// vendored vectors into the committed corpus. Run once, then deleted.
 func TestSeedTreeCorpus(t *testing.T) {
-    write := func(dir string, data []byte) {
+    write := func(kind string, data []byte) {
         sum := sha256.Sum256(data)
-        name := filepath.Join("testdata", "corpus", dir, hex.EncodeToString(sum[:8]))
+        name := filepath.Join("interop", "testdata", "corpus", kind, hex.EncodeToString(sum[:8]))
         if err := os.WriteFile(name, data, 0o644); err != nil {
             t.Fatalf("write %s: %v", name, err)
         }
     }
-    var validation []treeValidationVector
-    if err := json.Unmarshal(treeVectorFile(t, "tree-validation.json"), &validation); err != nil {
-        t.Fatalf("decode: %v", err)
+    for _, raw := range LoadVectorFile(t, "tree-validation.json") {
+        var vector treeValidationVector
+        if err := json.Unmarshal(raw, &vector); err != nil {
+            t.Fatalf("decode tree-validation entry: %v", err)
+        }
+        write("ratchet_tree", MustHex(t, vector.Tree))
     }
-    for _, vector := range validation {
-        write("ratchet_tree", treeHex(t, vector.Tree))
-    }
-    var treekem []treeKemVector
-    if err := json.Unmarshal(treeVectorFile(t, "treekem.json"), &treekem); err != nil {
-        t.Fatalf("decode: %v", err)
-    }
-    for _, vector := range treekem {
-        write("ratchet_tree", treeHex(t, vector.RatchetTree))
+    for _, raw := range LoadVectorFile(t, "treekem.json") {
+        var vector treeKemVector
+        if err := json.Unmarshal(raw, &vector); err != nil {
+            t.Fatalf("decode treekem entry: %v", err)
+        }
+        write("ratchet_tree", MustHex(t, vector.RatchetTree))
         for _, update := range vector.UpdatePaths {
-            write("update_path", treeHex(t, update.UpdatePath))
+            write("update_path", MustHex(t, update.UpdatePath))
         }
     }
 }
 GOEOF
-cp /tmp/seed_corpus_test.go mls/seed_corpus_test.go
 go test ./mls/... -run TestSeedTreeCorpus -v
 rm mls/seed_corpus_test.go
 ```
 
-The corpus is a set of files under `mls/testdata/corpus/`, checked in, and the nightly differential
-job in Spec A §4.4 adds to it from interop wire dumps. If the tree fuzz target finds a
-round-trip instability, the reproducing input lands in `testdata/fuzz/` and is committed with the
-fix, exactly like any other regression input.
+Then tell the validation plan's fuzz targets about the two directories: its `seedCorpus(f, kind)`
+helper reads `interop/testdata/corpus/<kind>`, and `ratchet_tree` and `update_path` join the kinds
+it already seeds. Nothing else in this plan declares an `f.Fuzz`.
+
+The corpus is checked in, and the nightly differential job in Spec A §4.4 adds to it from interop
+wire dumps. If a fuzz target finds a round-trip instability, the reproducing input lands in
+`testdata/fuzz/` next to the target and is committed with the fix, exactly like any other regression
+input — and it is added to this corpus, so the deterministic tests above catch a recurrence without
+waiting for the fuzzer to rediscover it.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./mls/... -run "FuzzRatchetTreeDecode|FuzzUpdatePathDecode" -v`
-Expected: PASS (seed corpus only)
+Run: `go test ./mls/... -run "TestRatchetTreeDecodeIsRoundTripStable|TestUpdatePathDecodeIsRoundTripStable" -v`
+Expected: PASS
 
-Then the per-commit budget from Spec A §4.4:
+Then the per-commit budget from Spec A §4.4, against the validation plan's targets now that they
+have this corpus:
 
 Run: `go test ./mls/ -fuzz FuzzRatchetTreeDecode -fuzztime 60s`
 Expected: `elapsed: 60s ... no failures`
@@ -6732,8 +8044,8 @@ Expected: `elapsed: 60s ... no failures`
 
 ```bash
 git ls-files | wc -l
-git add mls/tree_fuzz_test.go mls/testdata/corpus
-git commit -m "test(mls): fuzz the ratchet tree and UpdatePath decoders for round-trip stability"
+git add mls/tree_roundtrip_test.go mls/interop/testdata/corpus
+git commit -m "test(mls): seed corpus and round-trip stability net for the tree decoders"
 ```
 
 ---
@@ -6767,7 +8079,7 @@ import (
 
 func benchmarkTree(b *testing.B, n uint32) (*RatchetTree, []*testMember, CryptoProvider) {
     b.Helper()
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         b.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -6857,7 +8169,7 @@ func TestJoinCostAt500MembersIsBounded(t *testing.T) {
     if testing.Short() {
         t.Skip("500-member tree construction is slow under -short")
     }
-    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20SHA256Ed25519)
+    crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
     if err != nil {
         t.Fatalf("NewCryptoProvider: %v", err)
     }
@@ -6918,11 +8230,16 @@ func (self *RatchetTree) parentHashWithMemo(crypto CryptoProvider,
         }
         siblingHash = hash
     }
-    w := syntax.NewWriter()
-    w.WriteOpaqueVec(node.EncryptionKey)
-    w.WriteOpaqueVec(node.ParentHash)
-    w.WriteOpaqueVec(siblingHash)
-    return crypto.Hash(w.Bytes()), nil
+    input, err := marshalBytes(func(w *syntax.Writer) error {
+        w.WriteOpaque(node.EncryptionKey)
+        w.WriteOpaque(node.ParentHash)
+        w.WriteOpaque(siblingHash)
+        return nil
+    })
+    if err != nil {
+        return nil, err
+    }
+    return crypto.Hash(input), nil
 }
 
 func (self *RatchetTree) ParentHash(crypto CryptoProvider,
@@ -6940,11 +8257,11 @@ func (self *RatchetTree) VerifyParentHashes(crypto CryptoProvider) error {
         if self.ParentAt(node) == nil {
             continue
         }
-        left, ok := Left(node)
+        left, ok := leftOf(node)
         if !ok {
             return ErrTreeMalformed
         }
-        right, ok := Right(node)
+        right, ok := rightOf(node)
         if !ok {
             return ErrTreeMalformed
         }
@@ -6987,28 +8304,38 @@ git commit -m "test(mls): tree and TreeKEM benchmarks at the 500-member cap"
 
 ---
 
-### Task 29: The tree-operations vector family (family 9)
+### Task 29: (moved out) The tree-operations vector family, family 9
 
-**Files:**
-- Modify: `mls/tree_vectors_test.go`
-- Test: `mls/tree_vectors_test.go`
+**This task is not in this plan.** Family 9's vector supplies a serialized `Proposal`, which the
+framing plan owns and the group lifecycle plan drives, so the runner moves to the group lifecycle
+plan alongside families 8, 13, 14 and 15. It was this plan's only wave-4 dependency, and a family
+whose owner cannot execute in the wave it needs is a family that never runs.
 
-**Interfaces:**
-- Consumes: `ParseProposal`, `Proposal`, `ProposalKind`, `KeyPackage` (**Group lifecycle plan, wave 4**); `AddLeaf`, `UpdateLeaf`, `RemoveLeaf` (Task 15); `TreeHash` (Task 12); `RatchetTree.Marshal`, `UnmarshalRatchetTree` (Task 11).
-- Produces: `TestVectorTreeOperations`.
+What this plan still owes it is the production surface it exercises — `AddLeaf`, `UpdateLeaf`,
+`RemoveLeaf` (Task 15), `TreeHash` (Task 12), `RatchetTree`'s codec and `UnmarshalRatchetTree`
+(Task 11) — all of which are green at Task 26. The runner there reads
+`Proposal.Add.KeyPackage.LeafNode`, `Proposal.Update.LeafNode` and `Proposal.Remove.Removed` from
+the framing plan's permissive `Proposal` shape, and registers family 9 through
+`RegisterVectorFamily`.
 
-**This is the only task in this plan that depends on wave 4.** The vector supplies a serialized
-`Proposal`, and `Proposal` carries a `KeyPackage`, which `key_package.go` owns. Nothing else here is
-blocked: the two gates this plan is measured on (`treekem`, `tree-validation`) are green at Task 26.
-Run this task when `ParseProposal` exists; until then it is the one unchecked box.
+The task body below is retained **only** as the reference the group lifecycle plan's runner is
+written from, and its checkbox is not this plan's to tick.
+
+<details>
+<summary>Reference body, now owned by the group lifecycle plan</summary>
+
+**Interfaces (as they land in the group lifecycle plan):**
+- Consumes: `Proposal`, `ProposalTypeAdd`/`ProposalTypeUpdate`/`ProposalTypeRemove`, `Add`, `Update`, `Remove` (framing plan, wave 3); `KeyPackage` (Task 7A here); `AddLeaf`, `UpdateLeaf`, `RemoveLeaf` (Task 15 here); `TreeHash` (Task 12 here); `RatchetTree` codec and `UnmarshalRatchetTree` (Task 11 here); `LoadVectorFile`, `MustHex`, `HexOf`, `RegisterVectorFamily` (validation plan).
+- Produces: `TestVectorTreeOperations` and the `init()` registering family 9.
 
 Vector fields: `cipher_suite`, `tree_before`, `proposal`, `proposal_sender`, `tree_hash_before`,
 `tree_after`, `tree_hash_after`.
 
-- [ ] **Step 1: Write the failing test**
+Vector fields: `cipher_suite`, `tree_before`, `proposal`, `proposal_sender`, `tree_hash_before`,
+`tree_after`, `tree_hash_after`.
 
 ```go
-// mls/tree_vectors_test.go (append)
+// mls/tree_operations_kat_test.go, in the group lifecycle plan
 
 type treeOperationsVector struct {
     CipherSuite    uint16 `json:"cipher_suite"`
@@ -7020,120 +8347,113 @@ type treeOperationsVector struct {
     TreeHashAfter  string `json:"tree_hash_after"`
 }
 
+func init() {
+    RegisterVectorFamily(VectorFamily{
+        Number: 9,
+        Name:   "tree-operations",
+        File:   "tree-operations.json",
+        Slice:  "A1",
+        Verify: verifyTreeOperationsVector,
+    })
+}
+
+func verifyTreeOperationsVector(t *testing.T, raw json.RawMessage) {
+    t.Helper()
+    var vector treeOperationsVector
+    if err := json.Unmarshal(raw, &vector); err != nil {
+        t.Fatalf("decode tree-operations entry: %v", err)
+    }
+    if CipherSuite(vector.CipherSuite) != CipherSuiteX25519ChaCha20Sha256Ed25519 {
+        return
+    }
+    crypto, err := NewCryptoProvider(CipherSuite(vector.CipherSuite))
+    if err != nil {
+        t.Fatalf("NewCryptoProvider: %v", err)
+    }
+    tree, err := UnmarshalRatchetTree(MustHex(t, vector.TreeBefore))
+    if err != nil {
+        t.Fatalf("UnmarshalRatchetTree: %v", err)
+    }
+    before, err := tree.TreeHash(crypto)
+    if err != nil {
+        t.Fatalf("TreeHash: %v", err)
+    }
+    if !bytes.Equal(before, MustHex(t, vector.TreeHashBefore)) {
+        t.Fatalf("tree_hash_before = %s, want %s", HexOf(before), vector.TreeHashBefore)
+    }
+    proposal := &Proposal{}
+    if err := syntax.Unmarshal(MustHex(t, vector.Proposal), proposal); err != nil {
+        t.Fatalf("Unmarshal(Proposal): %v", err)
+    }
+    switch proposal.ProposalType {
+    case ProposalTypeAdd:
+        if _, err := tree.AddLeaf(proposal.Add.KeyPackage.LeafNode.Clone()); err != nil {
+            t.Fatalf("AddLeaf: %v", err)
+        }
+    case ProposalTypeUpdate:
+        if err := tree.UpdateLeaf(LeafIndex(vector.ProposalSender),
+            proposal.Update.LeafNode.Clone()); err != nil {
+            t.Fatalf("UpdateLeaf: %v", err)
+        }
+    case ProposalTypeRemove:
+        if err := tree.RemoveLeaf(proposal.Remove.Removed); err != nil {
+            t.Fatalf("RemoveLeaf: %v", err)
+        }
+    default:
+        t.Fatalf("proposal type %#x is outside what tree operations covers", proposal.ProposalType)
+    }
+    encoded, err := syntax.Marshal(tree)
+    if err != nil {
+        t.Fatalf("Marshal: %v", err)
+    }
+    if !bytes.Equal(encoded, MustHex(t, vector.TreeAfter)) {
+        t.Fatalf("tree_after differs")
+    }
+    after, err := tree.TreeHash(crypto)
+    if err != nil {
+        t.Fatalf("TreeHash: %v", err)
+    }
+    if !bytes.Equal(after, MustHex(t, vector.TreeHashAfter)) {
+        t.Fatalf("tree_hash_after = %s, want %s", HexOf(after), vector.TreeHashAfter)
+    }
+}
+
 func TestVectorTreeOperations(t *testing.T) {
-    var vectors []treeOperationsVector
-    if err := json.Unmarshal(treeVectorFile(t, "tree-operations.json"), &vectors); err != nil {
-        t.Fatalf("decode tree-operations.json: %v", err)
-    }
-    if len(vectors) == 0 {
-        t.Fatalf("tree-operations.json is empty")
-    }
-    ran := 0
-    for i, vector := range vectors {
-        if CipherSuite(vector.CipherSuite) != CipherSuiteX25519ChaCha20SHA256Ed25519 {
-            continue
-        }
-        ran++
-        crypto, err := NewCryptoProvider(CipherSuite(vector.CipherSuite))
-        if err != nil {
-            t.Fatalf("vector %d NewCryptoProvider: %v", i, err)
-        }
-        tree, err := UnmarshalRatchetTree(treeHex(t, vector.TreeBefore))
-        if err != nil {
-            t.Fatalf("vector %d UnmarshalRatchetTree: %v", i, err)
-        }
-        before, err := tree.TreeHash(crypto)
-        if err != nil {
-            t.Fatalf("vector %d TreeHash: %v", i, err)
-        }
-        if !bytes.Equal(before, treeHex(t, vector.TreeHashBefore)) {
-            t.Fatalf("vector %d tree_hash_before = %x, want %s", i, before, vector.TreeHashBefore)
-        }
-        proposal, err := ParseProposal(treeHex(t, vector.Proposal))
-        if err != nil {
-            t.Fatalf("vector %d ParseProposal: %v", i, err)
-        }
-        switch proposal.Kind {
-        case ProposalKindAdd:
-            if _, err := tree.AddLeaf(proposal.Add.LeafNode.Clone()); err != nil {
-                t.Fatalf("vector %d AddLeaf: %v", i, err)
-            }
-        case ProposalKindUpdate:
-            if err := tree.UpdateLeaf(LeafIndex(vector.ProposalSender), proposal.Update.Clone()); err != nil {
-                t.Fatalf("vector %d UpdateLeaf: %v", i, err)
-            }
-        case ProposalKindRemove:
-            if err := tree.RemoveLeaf(*proposal.Remove); err != nil {
-                t.Fatalf("vector %d RemoveLeaf: %v", i, err)
-            }
-        default:
-            t.Fatalf("vector %d carries proposal kind %#x, which tree operations does not cover",
-                i, proposal.Kind)
-        }
-        encoded, err := tree.Marshal()
-        if err != nil {
-            t.Fatalf("vector %d Marshal: %v", i, err)
-        }
-        if !bytes.Equal(encoded, treeHex(t, vector.TreeAfter)) {
-            t.Fatalf("vector %d tree_after differs", i)
-        }
-        after, err := tree.TreeHash(crypto)
-        if err != nil {
-            t.Fatalf("vector %d TreeHash: %v", i, err)
-        }
-        if !bytes.Equal(after, treeHex(t, vector.TreeHashAfter)) {
-            t.Fatalf("vector %d tree_hash_after = %x, want %s", i, after, vector.TreeHashAfter)
-        }
-    }
-    if ran == 0 {
-        t.Fatalf("no tree-operations vector used ciphersuite 0x0003")
+    for i, raw := range LoadVectorFile(t, "tree-operations.json") {
+        raw := raw
+        t.Run(fmt.Sprintf("vector-%d", i), func(t *testing.T) {
+            verifyTreeOperationsVector(t, raw)
+        })
     }
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+The two failures with a wrong fix available, both of which land in **this** plan's code:
 
-Run: `go test ./mls/... -run TestVectorTreeOperations -v`
-Expected: FAIL to compile with `undefined: ParseProposal` until the Group lifecycle plan lands, then
-a concrete `tree_after differs`
-
-- [ ] **Step 3: Write minimal implementation**
-
-No new production code. The two failures with a wrong fix available:
-
-- `tree_after` differing only in trailing bytes means `Marshal` is not stripping trailing blanks, or
-  `RemoveLeaf` is not truncating. Fix the operation, never the comparison.
+- `tree_after` differing only in trailing bytes means `RatchetTree.MarshalMLS` is not stripping
+  trailing blanks, or `RemoveLeaf`/`truncate` is not shrinking. Fix the operation, never the
+  comparison.
 - `tree_after` differing at a parent node after an Add means `AddLeaf` blanked the direct path
   instead of appending to `unmerged_leaves`.
 
-- [ ] **Step 4: Run test to verify it passes**
-
-Run: `go test ./mls/... -run TestVectorTreeOperations -v`
-Expected: PASS
-
-- [ ] **Step 5: Commit**
-
-```bash
-git ls-files | wc -l
-git add mls/tree_vectors_test.go
-git commit -m "test(mls): tree-operations vector family passes"
-```
+</details>
 
 ---
 
 ## Execution order and gates
 
-Tasks 1 through 26 are strictly sequential: each depends on the one before it. Tasks 27 and 28 depend
-only on Task 26. Task 29 additionally depends on the Group lifecycle plan.
+Tasks 1 through 26 are strictly sequential: each depends on the one before it, and **Task 3 is this
+plan's wave-2 entry point**, ahead of the key schedule plan's Task 3. Tasks 27 and 28 depend only on
+Task 26.
 
 | Gate | Green after |
 |---|---|
 | `tree-validation` (vector family 10) | Task 24 |
 | `treekem` (vector family 11), both directions | Task 25 |
-| Spec A Gate 3, the tree-owned ValSem codes 202, 203, 204, 206, 207, 300 | Task 26 |
+| Spec A Gate 3, the tree-owned rows 202, 203, 204, 206, 207, 300 — asserted by the validation plan's `TestValSemNNN_*` against this plan's `CheckUpdatePathKeyUniqueness`, `MergeUpdatePath`, `DecryptUpdatePath` and `UnmarshalRatchetTree` | Task 26 |
 | Spec A Gate 3, erratum 8745 | Task 7 |
-| Spec A Gate 4 properties 1 and 2, tree decoders | Task 27 |
-| `tree-operations` (vector family 9) | Task 29, after the Group lifecycle plan |
+| Spec A Gate 4 properties 1 and 2, tree decoders — the validation plan's `FuzzRatchetTreeDecode` and `FuzzUpdatePathDecode` over this plan's seed corpus | Task 27 |
+| `tree-operations` (vector family 9) | the group lifecycle plan, once the framing plan's `Proposal` lands |
 
 ## What this plan does not own
 
@@ -7142,294 +8462,110 @@ Named here so no other plan waits on it:
 - `key_package.go`, `proposal.go`, `commit.go`, `group.go`, `welcome` — Group lifecycle plan. The
   500-member and 10-device caps, the removal-authority rule and owner succession are all commit-level
   and live there, not in the tree.
-- `credential.go` — Syntax and codec plan. This plan consumes `Credential` and `UnmarshalCredential`.
-- `errors.go` and the other 37 ValSem codes — Validation and interop harness plan.
-- `GroupContext` and its serialization — Key schedule and secret tree plan. This plan takes the
-  serialized group context as `[]byte` everywhere except `ValidateAgainstContext`, which is the one
-  place a `*GroupContext` is needed and the only source of a compile dependency on that plan.
-- Erratum 8815 (§12.2, proposal references in a Commit) — Group lifecycle plan.
-- The mlswg gRPC interop client — Validation and interop harness plan. It drives this package through
-  `mls.Group`, so nothing here is exported for its benefit.
+- `Proposal`, `ProposalOrRef` and `Commit` and their codecs — Framing plan. This plan declares none
+  of them; it declares only the `ProposalType` enum they are keyed on (Task 3). Refusing a proposal
+  type is a *profile* decision, taken by `(*Profile).CheckProposalType` in the validation plan, not
+  a codec decision taken here.
+- `Welcome`, `GroupInfo`, `GroupSecrets` and their codecs — Framing plan. This plan produces
+  `HpkeCiphertext` and `SealWithLabel`/`OpenWithLabel`, which is everything they need from here.
+- `Profile`, `DefaultProfile` and the seven `Check*` — Validation plan. This plan consumes
+  `CheckCredentialType`; the codec-layer BasicCredential-only refusal in Task 4A is a floor beneath
+  it, not a duplicate of it.
+- `errors.go`, every `ValSemNNN` sentinel, every `ErrProfile*`, and every `TestValSemNNN_*` test
+  name — Validation plan. This plan raises those errors and never declares them.
+- The vector registry (`RegisterVectorFamily`, `LoadVectorFile`, `MustHex`, `HexOf`), the vendoring
+  of all sixteen mlswg files, `testdata/vectors/VECTORS.sha256` and the one pin file at
+  `mls/interop/PINS.md` — Validation plan. This plan defines no hex decoder, no vector loader and no
+  pin file; it registers families 10 and 11 and reads the two files it needs.
+- All nine Gate-4 `Fuzz*` targets — Validation plan. This plan contributes the two seed corpora and
+  the deterministic round-trip regression tests over them (Task 27).
+- Vector family 9, `tree-operations` — Group lifecycle plan (see the moved Task 29).
+- `group.go`, `commit.go`, `welcome.go`, `succession.go`, the proposal cache, the ValSem 100- and
+  200-series checks — Group lifecycle plan. The 500-member and 10-device caps, the removal-authority
+  rule and owner succession are all commit-level and live there, not in the tree.
+- `GroupContext` and its codec — Key schedule and secret tree plan. This plan takes the serialized
+  group context as `[]byte` everywhere except `ValidateAgainstContext`, which is the one place a
+  `*GroupContext` is needed and the only source of a compile dependency on that plan.
+- Erratum 8815 (§12.2, proposal references in a Commit), and `CheckErrata8745` — Group lifecycle
+  plan. This plan implements erratum 8745's *substance* inside `LeafNode.Validate` (Task 7); the
+  commit-level `CheckErrata8745(path, context)` entry point is that plan's.
+- The mlswg gRPC interop client — Validation plan. It drives this package through `mls.Group`, so
+  nothing here is exported for its benefit.
 
 
 ---
 
-## Amendment A — reconciliation with the wave-1 plans as written
+## Amendment A — record of the reconciliation against the canonical interface registry
 
-The wave-1 plans landed while this one was being written. Four contracts differ from the ones the
-task bodies above assume. **Apply this amendment before Task 3**; it is mechanical, and every
-difference is named here so no task body has to be re-read to find it.
+This plan and the other seven were written in parallel, and the registry is the file that settled
+every symbol crossing a boundary between them. **Everything below is already folded into the task
+bodies above** — there is no rewrite rule left to apply, and no task body calls a signature the
+registry does not contain. This section exists so a reviewer can see what moved and why, not so an
+implementer has to patch anything.
 
-### A.1 `connect/mls/syntax` — the landed names
+### A.1 Where the registry overrode this plan
 
-| This plan's task bodies | The Syntax and codec plan's actual API |
+| This plan had | The registry says | Folded into |
+|---|---|---|
+| `MarshalTo(w) error` + `UnmarshalX(r)` + `Marshal()` + `ParseX(data)` | `MarshalMLS(w) error` / `UnmarshalMLS(r) error` only, with `syntax.Marshal` / `syntax.Unmarshal` for bytes (**C1**) | every codec task: 3, 4, 4A, 5, 7A, 8, 11, 19 |
+| `MarshalExtensions(exts) ([]byte, error)` / `UnmarshalExtensions(r)` | `WriteExtensions(w, exts) error` / `ReadExtensions(r) ([]Extension, error)` | Task 3 |
+| `(*LeafKeysExtension).Marshal` / `UnmarshalLeafKeysExtension` | `Encode() (Extension, error)` / `ParseLeafKeysExtension(data)` — the sanctioned extension-body exception to C1 | Task 4 |
+| `(*RatchetTree).LeafWidth() uint32` | `LeafWidth() LeafCount` (**C3**) | Tasks 8, 11, 15, 16, 23 |
+| `UnmarshalRatchetTree` with a hand-rolled length check | `syntax.UnmarshalLimit(data, tree, syntax.MaxRatchetTreeLength)` | Task 11 |
+| `(*RatchetTree).CheckUpdatePathKeyUniqueness(sender, path)` | free `CheckUpdatePathKeyUniqueness(tree, path)`, no `sender` | Task 26 |
+| `ProtocolVersionMLS10`, `CipherSuiteX25519ChaCha20SHA256Ed25519` | `ProtocolVersionMls10`, `CipherSuiteX25519ChaCha20Sha256Ed25519` — `CODESTYLE.md`, no all-caps initialisms | everywhere |
+| `Resolution` implemented here | the tree math plan's `Resolution(shape, x)`; this plan supplies `NodeShape` and keeps a one-line convenience method | Tasks 8, 10 |
+| a private `pathChildren` helper | the tree math plan's `FilteredDirectPath(shape, leaf) ([]PathStep, error)`, whose `PathStep.CopathChild` is the same fact derived once | Tasks 16, 18, 21, 22 |
+
+### A.2 The tree-math shims that survive, and why
+
+The tree math plan returns an error from every arithmetic that can be out of range. Inside a
+`RatchetTree` the leaf width is at least one and every node index this package forms is already in
+range, so `mls/tree_adapt.go` (Task 3) keeps five private shims — `leftOf`, `rightOf`, `leafIndexOf`,
+`rootOf`, `directPathOf` — that restore the `(value, ok)` shape at those call sites. **They are
+internal to this plan.** No other plan gets them, and no exported surface exposes them: a shim that
+turns an error into `false` somewhere without that width invariant is exactly how a malformed tree
+gets silently accepted. `rootOf` and `directPathOf` keep the error for the same reason.
+
+`nodeWidthOf` and `siblingOf` are gone: with `LeafWidth()` returning `LeafCount`, `NodeWidth(n)` and
+`Sibling(x, n)` take the value directly and the conversion wrapper has nothing left to do.
+
+### A.3 Symbols that moved in, and symbols that moved out
+
+**In** — gaps the registry assigned here because they are this plan's own types or thin reads of
+them, with the task that now produces each:
+
+| Symbol | Task |
 |---|---|
-| `w.WriteOpaqueVec(b)` | `w.WriteOpaque(b)` |
-| `w.WriteBytes(b)` | `w.WriteRaw(b)` |
-| `w.Bytes() []byte` | `w.Bytes() ([]byte, error)` — the `Writer` carries a sticky error |
-| `r.ReadOpaqueVec()` | `r.ReadOpaque()` |
-| `r.ReadVecReader()` | `r.ReadSub()` |
-| `!r.Empty()` as a trailing-bytes check | `r.Done() error`, which returns `ErrTrailingBytes` |
-| `syntax.ErrVectorTooLong` | `syntax.ErrLengthExceedsMax` |
-| `syntax.MaxRatchetTreeLength` | unchanged; it is `int`, value `1 << 24` |
+| `KeyPackage`, `NewKeyPackage`, `Ref`, `Validate`, codec | 7A |
+| `Credential`, `BasicCredential` | 4A |
+| `NewLeafNode` | 6 |
+| `(*Capabilities).Supports(rc)` | 3 |
+| `NonBlankLeaves`, `EncryptionKeyInUse`, `HasTrailingBlankNodes`, `OptionalNode` | 8, 11 |
+| `SealWithLabel`, `OpenWithLabel` | 19 |
+| the eight `ProposalType` constants and `ExtensionTypeExternalSenders` | 3 |
+| the three `NodeShape` methods | 8 |
 
-`r.Empty()` still exists and is still the right loop condition when iterating a sub-reader; only the
-top-level "nothing left over" assertion becomes `r.Done()`.
+**Out** — things this plan used to carry that belong elsewhere:
 
-The sticky-error `Writer` is the one difference that changes shape rather than spelling. Two helpers
-absorb it, and they are the only place in the tree code that touches `Writer.Bytes`:
+- vendoring, `PINS.md`, `treeVectorFile`, `treeHex`, `TestTreeVectorsArePinned` → validation plan
+  (Task 1 keeps only the runner file and calls `LoadVectorFile`/`MustHex`/`HexOf`);
+- `FuzzRatchetTreeDecode`, `FuzzUpdatePathDecode` → validation plan, which owns all nine Gate-4
+  targets; Task 27 contributes the seed corpus and a deterministic regression net over it;
+- vector family 9, `tree-operations` → group lifecycle plan (Task 29 is a reference body only);
+- `Proposal`/`ProposalKind`/`ParseProposal`, which this plan consumed from a wave-4 file that never
+  existed → the framing plan's `Proposal` with `ProposalType`, `Add.KeyPackage`, `Update.LeafNode`
+  and `Remove.Removed`.
 
-```go
-// mls/tree_adapt.go — created by Task 3, before mls/extension.go
-package mls
+### A.4 The ValSem-named tests belong to the validation plan
 
-import "github.com/urnetwork/connect/mls/syntax"
-
-// run an encoder against a fresh Writer and yield its bytes, surfacing the sticky
-// error. every Marshal in this plan is one call to this.
-func marshalBytes(encode func(w *syntax.Writer) error) ([]byte, error) {
-    w := syntax.NewWriter()
-    if err := encode(w); err != nil {
-        return nil, err
-    }
-    return w.Bytes()
-}
-
-// opaque<V> whose body is a sequence of structs: encode into a sub-Writer, then
-// write the result as one length-prefixed region.
-func writeVec(w *syntax.Writer, encode func(inner *syntax.Writer) error) error {
-    inner := syntax.NewWriter()
-    if err := encode(inner); err != nil {
-        return err
-    }
-    body, err := inner.Bytes()
-    if err != nil {
-        return err
-    }
-    w.WriteOpaque(body)
-    return nil
-}
-```
-
-Rewrite rule for every task body above. A block of the form
-
-```go
-inner := syntax.NewWriter()
-for i := range items {
-    if err := items[i].MarshalTo(inner); err != nil { return err }
-}
-w.WriteOpaqueVec(inner.Bytes())
-```
-
-becomes
-
-```go
-if err := writeVec(w, func(inner *syntax.Writer) error {
-    for i := range items {
-        if err := items[i].MarshalTo(inner); err != nil {
-            return err
-        }
-    }
-    return nil
-}); err != nil {
-    return err
-}
-```
-
-and a block of the form
-
-```go
-w := syntax.NewWriter()
-if err := self.MarshalTo(w); err != nil { return nil, err }
-return w.Bytes(), nil
-```
-
-becomes `return marshalBytes(self.MarshalTo)`.
-
-This affects exactly these functions: `Extension.MarshalTo`, `MarshalExtensions`, `writeUint16Vec`,
-`Capabilities.MarshalTo`, `RequiredCapabilities.Marshal`, `LeafKeysExtension.Marshal`,
-`LeafNode.marshalCore`, `LeafNode.Marshal`, `LeafNode.signatureContent`, `ParentNode.MarshalTo`,
-`RatchetTree.Marshal`, `RatchetTree.leafHashInput`, `RatchetTree.parentHashInput`,
-`RatchetTree.ParentHash` and `parentHashWithMemo`, `HpkeCiphertext.MarshalTo`,
-`UpdatePathNode.MarshalTo`, `UpdatePath.MarshalTo`, `UpdatePath.Marshal`, and the test helper
-`marshalRatchetTreeWithTrailingBlank`.
-
-`writeUint16Vec` becomes:
-
-```go
-func writeUint16Vec[T ~uint16](w *syntax.Writer, values []T) error {
-    return writeVec(w, func(inner *syntax.Writer) error {
-        for _, v := range values {
-            inner.WriteUint16(uint16(v))
-        }
-        return nil
-    })
-}
-```
-
-and every call site gains an `if err := ...; err != nil { return err }`.
-
-### A.2 `connect/mls/tree_math.go` — the landed names
-
-| This plan's task bodies | The Tree math plan's actual API |
-|---|---|
-| `NodeWidth(n uint32) uint32` | `NodeWidth(n LeafCount) uint32` |
-| `Root(n uint32) NodeIndex` | `Root(n LeafCount) (NodeIndex, error)` |
-| `Left(x) (NodeIndex, bool)` | `Left(x NodeIndex) (NodeIndex, error)` |
-| `Right(x) (NodeIndex, bool)` | `Right(x NodeIndex) (NodeIndex, error)` |
-| `Parent(x, n uint32) (NodeIndex, bool)` | `Parent(x NodeIndex, n LeafCount) (NodeIndex, error)` |
-| `Sibling(x, n uint32) (NodeIndex, bool)` | `Sibling(x NodeIndex, n LeafCount) (NodeIndex, error)` |
-| `DirectPath(x, n uint32) []NodeIndex` | `DirectPath(x NodeIndex, n LeafCount) ([]NodeIndex, error)` |
-| `CoPath(...)` | `Copath(x NodeIndex, n LeafCount) ([]NodeIndex, error)` — lower-case p |
-| `Level(x NodeIndex) uint32` | `x.Level() uint32`, a method |
-| `x.LeafIndex() (LeafIndex, bool)` | `x.LeafIndex() (LeafIndex, error)` |
-| `CommonAncestor(x, y)` | unchanged |
-
-Shims, added to `mls/tree_adapt.go` in the same Task 3 step, keep the `(value, ok)` shape the task
-bodies use. They convert an error to `false`, and every call site above already returns
-`ErrTreeMalformed` on `false`, so no error is swallowed — it is re-raised with this package's own
-type:
-
-```go
-func leftOf(x NodeIndex) (NodeIndex, bool)  { y, err := Left(x); return y, err == nil }
-func rightOf(x NodeIndex) (NodeIndex, bool) { y, err := Right(x); return y, err == nil }
-
-func siblingOf(x NodeIndex, leafWidth uint32) (NodeIndex, bool) {
-    y, err := Sibling(x, LeafCount(leafWidth))
-    return y, err == nil
-}
-
-func leafIndexOf(x NodeIndex) (LeafIndex, bool) {
-    i, err := x.LeafIndex()
-    return i, err == nil
-}
-
-// the RatchetTree invariant is a leaf width of at least one, so neither of these can
-// fail through any path this package has. the guard is here so a future change to
-// that invariant fails loudly rather than returning node zero.
-func rootOf(leafWidth uint32) (NodeIndex, error) {
-    if leafWidth == 0 {
-        return 0, ErrTreeMalformed
-    }
-    return Root(LeafCount(leafWidth))
-}
-
-func directPathOf(x NodeIndex, leafWidth uint32) ([]NodeIndex, error) {
-    if leafWidth == 0 {
-        return nil, ErrTreeMalformed
-    }
-    return DirectPath(x, LeafCount(leafWidth))
-}
-
-func nodeWidthOf(leafWidth uint32) uint32 { return NodeWidth(LeafCount(leafWidth)) }
-```
-
-Substitutions in the task bodies: `Left(` → `leftOf(`, `Right(` → `rightOf(`,
-`Sibling(x, self.LeafWidth())` → `siblingOf(x, self.LeafWidth())`, `x.LeafIndex()` → `leafIndexOf(x)`,
-`NodeWidth(width)` → `nodeWidthOf(width)`, and `Level(x)` → `x.Level()`.
-
-`Root(...)` and `DirectPath(...)` appear in single-value position in `RatchetTree.TreeHash`,
-`BlankDirectPath`, `AddLeaf`, `RemoveLeaf`, `FilteredDirectPath`, `validateUnmergedLeaves`, and in
-the resolution and tree-hash tests. Each becomes a two-value call with the error returned:
-
-```go
-root, err := rootOf(self.LeafWidth())
-if err != nil {
-    return nil, err
-}
-return self.treeHash(crypto, root, nil)
-```
-
-and in tests, `root, err := rootOf(tree.LeafWidth())` with a `t.Fatalf` on error.
-
-### A.3 `Credential` is produced here, not consumed
-
-The Group lifecycle plan (wave 4) lists `Credential` among the types it consumes **from this plan**,
-and no wave-1 plan produces it. This plan therefore owns `mls/credential.go`, and the Consumes block
-above is corrected: `Credential` and `UnmarshalCredential` are **Produces**, not Consumes.
-
-Add to Task 3, as a sixth step before its commit:
-
-```go
-// mls/credential.go
-package mls
-
-import "github.com/urnetwork/connect/mls/syntax"
-
-// RFC 9420 §5.3. BasicCredential only in v1. x509 is refused at parse rather than
-// by a later check, so no x509 bytes are ever carried inside a LeafNode this
-// package accepted. Spec A §3.2.
-type Credential struct {
-    CredentialType CredentialType
-    Identity       []byte
-}
-
-func (self *Credential) MarshalTo(w *syntax.Writer) error {
-    if self.CredentialType != CredentialTypeBasic {
-        return ErrProfileCredentialType
-    }
-    w.WriteUint16(uint16(self.CredentialType))
-    w.WriteOpaque(self.Identity)
-    return nil
-}
-
-func UnmarshalCredential(r *syntax.Reader) (Credential, error) {
-    credentialType, err := r.ReadUint16()
-    if err != nil {
-        return Credential{}, err
-    }
-    if CredentialType(credentialType) != CredentialTypeBasic {
-        return Credential{}, ErrProfileCredentialType
-    }
-    identity, err := r.ReadOpaque()
-    if err != nil {
-        return Credential{}, err
-    }
-    return Credential{CredentialType: CredentialTypeBasic, Identity: identity}, nil
-}
-```
-
-`ErrProfileCredentialType` comes from `errors.go` (Validation plan), per Spec A §3.2. Its test, added
-to `mls/extension_test.go` in the same step:
-
-```go
-func TestCredentialRefusesX509(t *testing.T) {
-    w := syntax.NewWriter()
-    w.WriteUint16(0x0002) // x509
-    w.WriteOpaque([]byte("cert"))
-    encoded, err := w.Bytes()
-    if err != nil {
-        t.Fatalf("Bytes: %v", err)
-    }
-    if _, err := UnmarshalCredential(syntax.NewReader(encoded)); !errors.Is(err, ErrProfileCredentialType) {
-        t.Fatalf("err = %v, want ErrProfileCredentialType", err)
-    }
-    basic := Credential{CredentialType: CredentialTypeBasic, Identity: []byte("alice")}
-    out, err := marshalBytes(basic.MarshalTo)
-    if err != nil {
-        t.Fatalf("MarshalTo: %v", err)
-    }
-    got, err := UnmarshalCredential(syntax.NewReader(out))
-    if err != nil {
-        t.Fatalf("UnmarshalCredential: %v", err)
-    }
-    if got.CredentialType != CredentialTypeBasic || string(got.Identity) != "alice" {
-        t.Fatalf("round trip = %+v", got)
-    }
-}
-```
-
-### A.4 The ValSem-named tests belong to the Validation plan
-
-The Validation and interop harness plan owns Gate 3 and declares, by name,
-`TestValSem202_PathLength`, `TestValSem203_PathDecrypt`, `TestValSem204_PathKeyMismatch`,
+That plan owns Gate 3 and declares, by name, `TestValSem202_PathLength`,
+`TestValSem203_PathDecrypt`, `TestValSem204_PathKeyMismatch`,
 `TestValSem206_PathLeafDuplicateEncryptionKey`, `TestValSem207_PathNodeDuplicateEncryptionKey` and
-`TestValSem300_TrailingBlankNodes`. Four of those names are also used by Tasks 11, 21, 22 and 26
-here, and two test functions with the same name in one package do not compile.
+`TestValSem300_TrailingBlankNodes`. Two test functions of one name in one Go package do not compile,
+so the tests here are named for the behaviour instead — already applied in Tasks 11, 21, 22 and 26:
 
-**Rename every ValSem-named test in this plan**, keeping the assertions exactly as written:
-
-| Task | This plan's name becomes | The Validation plan's name it must not collide with |
+| Task | This plan's name | The validation plan's name it must not collide with |
 |---|---|---|
 | 11 | `TestRatchetTreeRefusesTrailingBlankNodes` | `TestValSem300_TrailingBlankNodes` |
 | 21 | `TestMergeUpdatePathRejectsAWrongLengthPath` | `TestValSem202_PathLength` |
@@ -7438,14 +8574,8 @@ here, and two test functions with the same name in one package do not compile.
 | 26 | `TestUpdatePathLeafKeyUniqueness` | `TestValSem206_PathLeafDuplicateEncryptionKey` |
 | 26 | `TestUpdatePathNodeKeyUniqueness` | `TestValSem207_PathNodeDuplicateEncryptionKey` |
 
-Task 26's `TestTreeValSemCoverage` is deleted along with them: coverage of the ValSem set is asserted
-once, in the Validation plan, and asserting it twice against two name lists is how the two lists
-drift apart. What this plan keeps is the production surface those tests drive —
-`CheckUpdatePathKeyUniqueness`, `MergeUpdatePath`, `DecryptUpdatePath`, `UnmarshalRatchetTree` — plus
-the renamed tests above, which are this package's own regression net and are named for the behaviour
-rather than for the code.
-
-The `Run:` lines in Tasks 11, 21, 22 and 26 change to match the new names, and the gate table's
-Gate 3 row now reads: green when the Validation plan's `validation_commit_test.go` runs against
-Task 26's `CheckUpdatePathKeyUniqueness`.
+`TestTreeValSemCoverage` is gone with them: ValSem coverage is asserted once, in the validation
+plan, and asserting it twice against two name lists is how the two lists drift apart. What this plan
+keeps is the production surface those tests drive — `CheckUpdatePathKeyUniqueness`,
+`MergeUpdatePath`, `DecryptUpdatePath`, `UnmarshalRatchetTree`.
 

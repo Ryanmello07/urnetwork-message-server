@@ -25,7 +25,10 @@ presentation-language length prefix.
 
 ## Global Constraints
 
-- Go 1.26.5, pinned. `connect/go.mod` currently reads `go 1.26.3` and is bumped by Task 1.
+- Go 1.26.5, pinned. `connect/go.mod` keeps its `go 1.26.3` directive and gains `toolchain
+  go1.26.5` — raising the directive would raise the language floor for all of `connect`, which is
+  out of this slice's scope. **The `go.mod` edit belongs to the Syntax and codec plan (p1 Task 1).**
+  Task 1 here only asserts the result and is a no-op when p1 has already landed it.
 - Standard library only for crypto: `crypto/mlkem`, `crypto/ecdh`, `crypto/hkdf`, `crypto/sha3`, plus
   `chacha20poly1305` from the already-pinned `golang.org/x/crypto`.
 - NO cgo, NO Rust, NO new third-party crypto dependency. New dependencies permitted in `connect` on
@@ -54,6 +57,37 @@ presentation-language length prefix.
   `darwin/arm64`, `android/{arm64,arm,amd64}`, `ios/arm64`. No build tags on the crypto.
 - `CODESTYLE.md`: `self` receivers, explicit struct field names, doc comment on every file, type and
   func, no name repetition in comments, top-level `func TestXxx` with no positive-path `t.Run`.
+
+The four canonical conventions of the slice-1 interface registry, carried here verbatim:
+
+- **C1 — one codec, one method set.** Every wire type in `package mls` implements exactly
+  `MarshalMLS(w *syntax.Writer) error` and `UnmarshalMLS(r *syntax.Reader) error` and nothing else.
+  No `MarshalTo`, no `MarshalTLS`, no `Marshal() ([]byte, error)`, no `Parse<Type>(data []byte)` free
+  constructor, no `tls:` struct tags, no reflection. Byte-level access is `syntax.Marshal(&v)` /
+  `syntax.Unmarshal(bs, &v)`. Every wire type carries `var _ syntax.Codec = (*T)(nil)` in its own
+  file so drift fails at build rather than at Gate 4. This plan declares no wire type, so C1 binds it
+  only as a consumer.
+- **C2 — the syntax Writer is sticky *and* `MarshalMLS` returns an error.** Leaf writes
+  (`WriteUint16`, `WriteUint32`, `WriteOpaque`, `WriteRaw`, …) return nothing and every write after
+  the first error is a no-op; the error is taken once, at `(*syntax.Writer).Bytes() ([]byte, error)`.
+- **C3 — counts are `LeafCount`, indices are `LeafIndex`/`NodeIndex`, and tree-math arithmetic that
+  can be out of range returns an error.** `TreeSize` does not exist. This plan names none of them.
+- **C4 — the GroupContext crosses a plan boundary as bytes.** Every framing entry point takes
+  `groupContext []byte`. This plan names none of them.
+
+Two registry overrides that land directly on this plan's own surface:
+
+- **O-2 — no append-style free functions in `package syntax`.** `syntax.WriteVarVec(dst, v) []byte`
+  and `syntax.WriteUint16(dst, v) []byte` do not exist and are not added: they would be a second,
+  independent implementation of the RFC 9420 §2.1.2 length prefix in a slice whose whole thesis is
+  that one codec with one fuzz corpus is what makes Gate 4 property 2 meaningful. The four label
+  encoders here — `mlsKdfLabel`, `RefHash`, `mlsSignContent`, `mlsEncryptContext`, the bytes MLS
+  signs over — build their preimages through `w := syntax.NewWriter(); w.WriteOpaque(...);
+  bs, err := w.Bytes()`.
+- **O-9 — `ErrBadSignature` is `ErrCryptoBadSignature` here.** The bare name is declared once in
+  `package mls`, by the Validation and interop plan, where it is ValSem010 and Gate 3 asserts it.
+  This plan's crypto-layer error is renamed; that plan's `ErrBadSignature` wraps it, so `errors.Is`
+  holds through both.
 
 ---
 
@@ -91,7 +125,7 @@ Two findings that change what gets implemented:
 
 | File | Responsibility |
 |---|---|
-| `connect/go.mod` | **modify** — `go 1.26.5` |
+| `connect/go.mod` | **not modified here** — `go 1.26.3` + `toolchain go1.26.5` is p1 Task 1's edit; Task 1 asserts it |
 | `connect/mls/doc.go` | package doc: what `connect/mls` is, what it must never import |
 | `connect/mls/pins_test.go` | compile assertions that the pinned stdlib surface exists |
 | `connect/mls/crypto_forbidden_test.go` | source-walking gate: no `GenerateSharedSecret`, `box.Precompute`, `curve25519.ScalarMult`; `hkdf.Extract` and `ECDH(` confined to their one file each |
@@ -108,22 +142,29 @@ Two findings that change what gets implemented:
 | `connect/mls/crypto_labels.go` | RFC 9420 §5.1–5.2 labelled constructions: `KDFLabel`, `SignContent`, `EncryptContext`, `RefHashInput` |
 | `connect/mls/crypto_labels_test.go` | boundary conformance of the label encodings against `syntax` |
 | `connect/mls/crypto_test.go` | provider behaviour, `Extract` argument order, concurrency safety |
-| `connect/mls/crypto_basics_vectors_test.go` | the `crypto-basics` vector gate, verify and generate directions |
-| `connect/mls/testdata/vectors/crypto-basics.json` | vendored from `mlswg/mls-implementations` |
-| `connect/mls/testdata/vectors/hpke-rfc9180-x25519.json` | vendored from `cfrg/draft-irtf-cfrg-hpke`, filtered to the two entries we instantiate |
-| `connect/mls/testdata/vectors/PINS.md` | upstream repo, commit, path and sha256 for every vendored file |
+| `connect/mls/crypto_basics_kat_test.go` | the `crypto-basics` vector gate (family 2), verify and generate directions, `RegisterVectorFamily` |
+| `connect/mls/testdata/vectors/crypto-basics.json` | **vendored by p8 Task 6**, not here; this plan keeps only the runner |
+| `connect/mls/testdata/vectors/rfc/hpke-rfc9180-x25519.json` | vendored from `cfrg/draft-irtf-cfrg-hpke`, filtered to the two entries we instantiate. Under `rfc/` so p8's sixteen-file assertion over `testdata/vectors/*.json` stays exact |
+| `connect/mls/interop/PINS.md` | **p8 Task 6's file**; Tasks 9 and 20 append their two rows to it. There is no `connect/mls/PINS.md` and no `testdata/vectors/PINS.md` |
 | `connect/message/doc.go` | package doc for the storage layer |
 | `connect/message/xwing.go` | X-Wing KEM per draft-connolly-cfrg-xwing-kem |
 | `connect/message/xwing_errors.go` | typed errors for X-Wing |
 | `connect/message/xwing_test.go` | round-trip, sizes, negative cases |
 | `connect/message/xwing_vectors_test.go` | the draft KAT gate |
 | `connect/message/xwing_fuzz_test.go` | `FuzzXwingDecapsulate` — no panic on arbitrary ciphertext |
-| `connect/message/testdata/vectors/xwing-draft10.json` | vendored from the draft repo |
-| `connect/message/testdata/vectors/PINS.md` | upstream repo, commit, path and sha256 |
+| `connect/message/xwing_mls_pin_test.go` | Task 22: the compile assertion that `message.XwingPublicKeySize` and `mls.XwingPublicKeyLen` agree |
+| `connect/message/testdata/vectors/rfc/xwing-draft10.json` | vendored from the draft repo |
 
-**Files this plan must not touch**, because another wave-1 plan owns them: `connect/mls/syntax/*`
-(Syntax and codec), `connect/mls/tree_math.go` (Tree math), `connect/mls/errors.go`,
-`connect/mls/validation.go`, `connect/mls/profile.go` (Validation and interop harness).
+**Files this plan must not touch**, because another plan owns them: `connect/go.mod` and
+`connect/mls/syntax/*` (Syntax and codec, p1), `connect/mls/tree_math.go` (Tree math, p3),
+`connect/mls/errors.go`, `connect/mls/profile.go`, `connect/mls/codec_table.go`,
+`connect/mls/vectors_test.go` and `connect/mls/interop/*` (Validation and interop harness, p8).
+
+Two sanctioned exceptions to that last line, both required of every family-owning task by the
+registry: Task 17 deletes `2` from `expectedPendingFamilies` in `connect/mls/vectors_test.go` in the
+same commit that registers family 2, and Tasks 9 and 20 append one row each to
+`connect/mls/interop/PINS.md`. Both are one-line additions to a file p8 creates in wave 1, and both
+must be sequenced after p8 Task 6.
 
 ---
 
@@ -223,6 +264,7 @@ type CryptoProvider interface {
 }
 
 func NewCryptoProvider(suite CipherSuite) (CryptoProvider, error)
+func NewCryptoProviderWithRandom(suite CipherSuite, random io.Reader) (CryptoProvider, error)
 
 // crypto_labels.go — Tasks 12-15. Free functions, so CryptoProvider stays exactly
 // the interface Spec A §3.3 fixes.
@@ -240,7 +282,7 @@ var (
     ErrBadNonceLength     = errors.New("mls: nonce length does not match the ciphersuite")
     ErrBadKemOutput       = errors.New("mls: kem output length does not match the ciphersuite")
     ErrBadSignatureKey    = errors.New("mls: signature key length does not match the ciphersuite")
-    ErrBadSignature       = errors.New("mls: signature verification failed")
+    ErrCryptoBadSignature = errors.New("mls: signature verification failed")
     ErrAeadOpen           = errors.New("mls: aead open failed")
     ErrSequenceOverflow   = errors.New("mls: hpke context sequence number overflow")
 )
@@ -287,35 +329,52 @@ var (
 
 ### What this plan needs from other plans
 
+Every signature below is the canonical interface registry's, verbatim.
+
 | Needed | From | Exact signature expected |
 |---|---|---|
-| MLS variable-length vector prefix | **Syntax and codec (wave 1)** | `package syntax`, `func WriteVarVec(dst []byte, v []byte) []byte` — appends the RFC 9420 §2.1.2 prefix (1 byte if `len < 64`; 2 bytes big-endian with `0x4000` set if `len < 16384`; 4 bytes big-endian with `0x80000000` set otherwise) then `v` |
-| Fixed-width integer appenders | **Syntax and codec (wave 1)** | `func WriteUint16(dst []byte, v uint16) []byte`, `func WriteUint32(dst []byte, v uint32) []byte` — big-endian |
+| The sticky writer | **Syntax and codec (p1, wave 1)** | `package syntax`, `type Writer struct{ ... }` (not safe for concurrent use), `func NewWriter() *Writer`, `func (self *Writer) Bytes() ([]byte, error)` — the value is undefined when the error is non-nil |
+| Fixed-width integer writes | **Syntax and codec (p1, wave 1)** | `func (self *Writer) WriteUint16(v uint16)`, `func (self *Writer) WriteUint32(v uint32)` — big-endian, return nothing, sticky on error |
+| The RFC 9420 §2.1.2 variable-length prefix | **Syntax and codec (p1, wave 1)** | `func (self *Writer) WriteOpaque(bs []byte)` — `opaque x<V>`; a nil slice encodes as empty. 1 prefix byte if `len < 64`; 2 bytes big-endian with `0x4000` set if `len < 16384`; 4 bytes big-endian with `0x80000000` set otherwise |
+| The reader, for the negative tests | **Syntax and codec (p1, wave 1)** | `func NewReader(bs []byte) *Reader`, `func (self *Reader) ReadOpaque() ([]byte, error)` — a copy, never nil |
+| Vector-corpus helpers | **Validation and interop harness (p8, wave 1)** | `func LoadVectorFile(t *testing.T, file string) []json.RawMessage`, `func MustHex(t *testing.T, s string) []byte`, `func HexOf(b []byte) string` |
+| The vector registry | **Validation and interop harness (p8, wave 1)** | `type VectorFamily struct { Number int; Name string; File string; Slice string; Verify func(t *testing.T, raw json.RawMessage); Generate func(t *testing.T) json.RawMessage }`, `func RegisterVectorFamily(family VectorFamily)` |
+| The vendored `crypto-basics.json` and `VECTORS.sha256` | **Validation and interop harness (p8 Task 6, wave 1)** | file at `connect/mls/testdata/vectors/crypto-basics.json`, pinned in `connect/mls/interop/PINS.md` |
+| The X-Wing public-key length in `package mls` | **TreeKEM (p5 Task 4, wave 2)** | `const XwingPublicKeyLen = 1216` — consumed only by Task 22's compile assertion |
 
-Only Tasks 12–18 depend on `syntax`. Tasks 1–11 and 19–21 are stdlib-only and can be executed while
-the Syntax plan is still in flight. Task 12 carries its own boundary-conformance test pinning the
-three varint width transitions, so a drift in `syntax` fails here rather than silently changing a
-signed serialization.
+`syntax.WriteVarVec`, `syntax.WriteUint16(dst, v) []byte` and `syntax.WriteUint32(dst, v) []byte` —
+the append-style free functions an earlier draft of this plan consumed — **do not exist** (registry
+override O-2). Nothing here reconstructs them.
+
+Only Tasks 12–18 depend on `syntax`, and Tasks 17–18 additionally on p8's vector helpers. Tasks
+1–11, 19 and 21 are stdlib-only and can be executed while the Syntax plan is still in flight. Task 12
+carries its own boundary-conformance test pinning the three prefix width transitions through
+`(*syntax.Writer).WriteOpaque`, so a drift in `syntax` fails here rather than silently changing a
+signed serialization. Task 22 is the only task in this plan that reaches into wave 2.
 
 ### What other plans get from this plan
 
 | Consumer plan | Consumes |
 |---|---|
-| Key schedule and secret tree (wave 2) | `CryptoProvider.Extract/Expand/ExpandWithLabel/DeriveSecret/DeriveTreeSecret`, `NewCryptoProvider`, `SuiteParams.Nh/Nk/Nn` |
-| TreeKEM (wave 2) | `EncryptWithLabel`, `DecryptWithLabel`, `CryptoProvider.DeriveKeyPair`, `HpkePublicKey`, `HpkePrivateKey` |
-| Framing and message protection (wave 3) | `CryptoProvider.AeadSeal/AeadOpen/Mac/MacVerify/SignWithLabel/VerifyWithLabel`, `SignaturePublicKey`, `SignaturePrivateKey` |
-| Group lifecycle (wave 4) | `MakeKeyPackageRef`, `MakeProposalRef`, `CryptoProvider.SignatureKeyPair`, `Suites`, `LookupSuite` |
-| Syntax and codec (wave 1) | nothing — the dependency is one-way |
-| Tree math (wave 1) | nothing |
-| Validation and interop harness (wave 1) | `ErrInvalidPoint`, `ErrBadSignature`, `ErrAeadOpen`, `IsRegisteredSuite` |
+| Tree math (p3, wave 1) | `CipherSuite`, `CryptoProvider` |
+| Key schedule and secret tree (p4, wave 2) | `CipherSuite` and both suite constants, `SuiteParams`, `LookupSuite`, `CryptoProvider` (`Extract`/`Expand`/`ExpandWithLabel`/`DeriveSecret`/`DeriveTreeSecret`/`Mac`/`MacVerify`/`Hash`), `NewCryptoProvider`, `HpkePublicKey`, `HpkePrivateKey` |
+| TreeKEM (p5, wave 2) | `CipherSuite`, `SuiteParams`, `LookupSuite`, `CryptoProvider`, `NewCryptoProvider`, `RefHash`, `MakeKeyPackageRef`, `EncryptWithLabel`, `DecryptWithLabel`, `HpkePublicKey`, `HpkePrivateKey`, `SignaturePublicKey`, `SignaturePrivateKey` |
+| Framing and message protection (p6, wave 3) | `CipherSuite`, `CryptoProvider` (`AeadSeal`/`AeadOpen`/`Mac`/`MacVerify`/`SignWithLabel`/`VerifyWithLabel`), `NewCryptoProvider`, `MakeProposalRef`, `SignaturePublicKey`, `SignaturePrivateKey`, `HpkePublicKey`, `HpkePrivateKey`, `ErrAeadOpen` |
+| Group lifecycle (p7, wave 4) | `Suites`, `LookupSuite`, `SuiteParams`, `CipherSuite`, `CryptoProvider`, `NewCryptoProvider`, `MakeKeyPackageRef`, `MakeProposalRef`, `EncryptWithLabel`, `DecryptWithLabel`, all four key types |
+| Validation and interop harness (p8, wave 1) | `Suites`, `IsRegisteredSuite`, both suite constants, `CryptoProvider`, `NewCryptoProvider`, `NewCryptoProviderWithRandom`, `ErrUnknownCipherSuite`, `ErrInvalidPoint`, `ErrAeadOpen`, all four key types |
+| Syntax and codec (p1, wave 1) | nothing — the dependency is one-way |
 | Storage layer (later slice) | the whole `message` X-Wing surface, `mls.X25519DH` |
+
+`ErrCryptoBadSignature` is deliberately absent from p8's row: p8 declares `ErrBadSignature`
+(ValSem010) itself and wraps this plan's crypto-layer error, so the wrapping is p8's edit, not a
+consumption of a name p8 also declares.
 
 ---
 
 ### Task 1: Toolchain pin, package skeleton, stdlib compile assertions
 
 **Files:**
-- Modify: `connect/go.mod`
+- Assert only, do not modify: `connect/go.mod`
 - Create: `connect/mls/doc.go`, `connect/mls/crypto_errors.go`
 - Test: `connect/mls/pins_test.go`
 
@@ -323,7 +382,7 @@ signed serialization.
 - Consumes: nothing.
 - Produces: package `mls` exists and compiles; `ErrUnknownCipherSuite`, `ErrInvalidPoint`,
   `ErrBadKeyLength`, `ErrBadNonceLength`, `ErrBadKemOutput`, `ErrBadSignatureKey`,
-  `ErrBadSignature`, `ErrAeadOpen`, `ErrSequenceOverflow` — all `error` values.
+  `ErrCryptoBadSignature`, `ErrAeadOpen`, `ErrSequenceOverflow` — all `error` values.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -392,7 +451,7 @@ func TestMlkemSeedSizeIsSixtyFour(t *testing.T) {
 func TestCryptoErrorsAreDistinct(t *testing.T) {
 	all := []error{
 		ErrUnknownCipherSuite, ErrInvalidPoint, ErrBadKeyLength, ErrBadNonceLength,
-		ErrBadKemOutput, ErrBadSignatureKey, ErrBadSignature, ErrAeadOpen, ErrSequenceOverflow,
+		ErrBadKemOutput, ErrBadSignatureKey, ErrCryptoBadSignature, ErrAeadOpen, ErrSequenceOverflow,
 	}
 	for i, a := range all {
 		if a == nil {
@@ -416,13 +475,27 @@ binary produced).
 
 - [ ] **Step 3: Write minimal implementation**
 
-`connect/go.mod`, first two lines of the module stanza:
+`connect/go.mod` is **p1 Task 1's edit**, not this plan's: the `go` directive stays at `1.26.3` so
+the language floor for all of `connect` is unchanged, and a `toolchain` line pins the compiler. Guard
+the step so running it after p1 is a no-op and running it before p1 does nothing at all:
+
+```bash
+git diff --exit-code go.mod >/dev/null || { echo "go.mod is already dirty; land p1 Task 1 first"; exit 1; }
+grep -q '^toolchain go1.26.5$' go.mod || echo "toolchain line missing: land p1 Task 1 before this plan's Task 1"
+```
+
+The expected content, for reference only:
 
 ```
 module github.com/urnetwork/connect
 
-go 1.26.5
+go 1.26.3
+
+toolchain go1.26.5
 ```
+
+`TestPinnedToolchain` below is what actually holds this: it reads `runtime.Version()`, so a
+toolchain that moved fails here whether or not `go.mod` says so.
 
 `connect/mls/doc.go`:
 
@@ -448,6 +521,10 @@ package mls
 //
 // the RFC 9420 ValSem validation codes live in errors.go, which this file is
 // deliberately not. a crypto failure is not a validation semantic.
+//
+// ErrCryptoBadSignature is NOT named ErrBadSignature: that name belongs to errors.go,
+// where it is ValSem010 and Gate 3 asserts it. errors.go wraps this value, so
+// errors.Is holds through both and a caller can ask either question.
 package mls
 
 import "errors"
@@ -459,7 +536,7 @@ var (
 	ErrBadNonceLength     = errors.New("mls: nonce length does not match the ciphersuite")
 	ErrBadKemOutput       = errors.New("mls: kem output length does not match the ciphersuite")
 	ErrBadSignatureKey    = errors.New("mls: signature key length does not match the ciphersuite")
-	ErrBadSignature       = errors.New("mls: signature verification failed")
+	ErrCryptoBadSignature = errors.New("mls: signature verification failed")
 	ErrAeadOpen           = errors.New("mls: aead open failed")
 	ErrSequenceOverflow   = errors.New("mls: hpke context sequence number overflow")
 )
@@ -474,9 +551,11 @@ Expected: PASS — `TestPinnedToolchain`, `TestMlkemSeedSizeIsSixtyFour`,
 - [ ] **Step 5: Commit**
 
 ```bash
-git add go.mod mls/doc.go mls/crypto_errors.go mls/pins_test.go && \
-git commit -m "feat(mls): package skeleton, go 1.26.5 pin and stdlib compile assertions"
+git add mls/doc.go mls/crypto_errors.go mls/pins_test.go && \
+git commit -m "feat(mls): package skeleton and stdlib compile assertions"
 ```
+
+`go.mod` is deliberately absent from the `git add`: it is p1's file.
 
 ---
 
@@ -1086,7 +1165,9 @@ git commit -m "feat(mls): single x25519 call site, invalid point is a hard error
 - Test: `connect/mls/hpke_test.go`
 
 **Interfaces:**
-- Consumes: `SuiteParams`, `LookupSuite` (Task 3).
+- Consumes: `SuiteParams`, `LookupSuite` (Task 3); `func MustHex(t *testing.T, s string) []byte`
+  from the Validation and interop harness (p8, wave 1) — this package has exactly one hex decoder
+  and it is p8's, so no local `mustHex` is declared here or anywhere else in `package mls`.
 - Produces (unexported, used by Tasks 6–8 and by the vector tests in the same package):
   - `func hpkeKemSuiteId(params *SuiteParams) []byte`
   - `func hpkeSuiteId(params *SuiteParams) []byte`
@@ -1102,7 +1183,6 @@ package mls
 
 import (
 	"bytes"
-	"encoding/hex"
 	"testing"
 )
 
@@ -1139,12 +1219,12 @@ func TestHpkeLabeledExtractKat(t *testing.T) {
 		t.Fatalf("LookupSuite: %v", err)
 	}
 	suiteId := hpkeKemSuiteId(params)
-	prk := hpkeLabeledExtract(suiteId, nil, "eae_prk", mustHex(t, "1176e33aac5b7be5c9d0aee49e08a67f9ba8236a1cb4b1a5a7c07d38e5c1e5ba"))
+	prk := hpkeLabeledExtract(suiteId, nil, "eae_prk", MustHex(t, "1176e33aac5b7be5c9d0aee49e08a67f9ba8236a1cb4b1a5a7c07d38e5c1e5ba"))
 	if len(prk) != 32 {
 		t.Fatalf("prk is %d bytes, want 32", len(prk))
 	}
 	// determinism, and independence from the salt argument being nil vs empty.
-	again := hpkeLabeledExtract(suiteId, []byte{}, "eae_prk", mustHex(t, "1176e33aac5b7be5c9d0aee49e08a67f9ba8236a1cb4b1a5a7c07d38e5c1e5ba"))
+	again := hpkeLabeledExtract(suiteId, []byte{}, "eae_prk", MustHex(t, "1176e33aac5b7be5c9d0aee49e08a67f9ba8236a1cb4b1a5a7c07d38e5c1e5ba"))
 	if !bytes.Equal(prk, again) {
 		t.Fatalf("nil and empty salt disagree: %x vs %x", prk, again)
 	}
@@ -1169,21 +1249,18 @@ func TestHpkeLabeledExpandRejectsOverlongOutput(t *testing.T) {
 		t.Fatalf("expand returned %d bytes, want %d", len(out), 255*32)
 	}
 }
-
-func mustHex(t *testing.T, s string) []byte {
-	t.Helper()
-	b, err := hex.DecodeString(s)
-	if err != nil {
-		t.Fatalf("hex %q: %v", s, err)
-	}
-	return b
-}
 ```
+
+There is no local `mustHex` here. `MustHex` is p8's, declared once in `connect/mls/vectors_test.go`
+in this same package; three parallel hex decoders over one corpus is how two of them end up
+disagreeing about the empty string.
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `go test ./mls/... -run TestHpke -v` from `connect/`
-Expected: FAIL — `mls/hpke_test.go:...: undefined: hpkeKemSuiteId` (build failure).
+Expected: FAIL — `mls/hpke_test.go:...: undefined: hpkeKemSuiteId` (build failure). If p8 Tasks 1–9
+have not landed, the failure is instead `undefined: MustHex`, which is the correct signal to execute
+p8's Phase A first — both plans are wave 1.
 
 - [ ] **Step 3: Write minimal implementation**
 
@@ -1969,13 +2046,21 @@ git commit -m "feat(mls): single-shot hpke seal and open in base mode"
 ### Task 9: Vendor the RFC 9180 vectors and gate HPKE against them
 
 **Files:**
-- Create: `connect/mls/testdata/vectors/hpke-rfc9180-x25519.json`, `connect/mls/testdata/vectors/PINS.md`
+- Create: `connect/mls/testdata/vectors/rfc/hpke-rfc9180-x25519.json`
+- Modify: `connect/mls/interop/PINS.md` (p8 Task 6's file — one row appended)
 - Test: `connect/mls/hpke_vectors_test.go`
 
 **Interfaces:**
-- Consumes: everything from Tasks 5–8.
+- Consumes: everything from Tasks 5–8; `func MustHex(t *testing.T, s string) []byte` from the
+  Validation and interop harness (p8, wave 1).
 - Produces: nothing exported. This is the gate that says the HPKE instantiation is the RFC's, not
   merely self-consistent.
+
+This file is **not** one of the sixteen mlswg families, so it is not vendored by p8 Task 6 and it
+does not use `LoadVectorFile`: it lives under `testdata/vectors/rfc/` precisely so p8's assertion
+that `testdata/vectors/*.json` is exactly the sixteen mlswg files stays exact. Its own sha256 pin
+stays in this file's loader, and its provenance row goes in the one pin file,
+`connect/mls/interop/PINS.md`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1992,7 +2077,6 @@ package mls
 import (
 	"bytes"
 	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"os"
 	"testing"
@@ -2034,10 +2118,10 @@ type hpkeVector struct {
 	Exports            []hpkeVectorExport     `json:"exports"`
 }
 
-const hpkeVectorPath = "testdata/vectors/hpke-rfc9180-x25519.json"
+const hpkeVectorPath = "testdata/vectors/rfc/hpke-rfc9180-x25519.json"
 
-// the digest recorded in testdata/vectors/PINS.md. a vector file that changed under
-// us must break the build, not quietly weaken the gate.
+// the digest recorded in interop/PINS.md. a vector file that changed under us must
+// break the build, not quietly weaken the gate.
 const hpkeVectorSha256 = "3cc5f951dea0b7dbe80419215e64c810498ee4dd76c376763bbe6860c346b11a"
 
 func loadHpkeVectors(t *testing.T) []hpkeVector {
@@ -2047,8 +2131,8 @@ func loadHpkeVectors(t *testing.T) []hpkeVector {
 		t.Fatalf("read %s: %v", hpkeVectorPath, err)
 	}
 	digest := sha256.Sum256(raw)
-	if got := hex.EncodeToString(digest[:]); got != hpkeVectorSha256 {
-		t.Fatalf("%s sha256 = %s, want %s (see testdata/vectors/PINS.md)", hpkeVectorPath, got, hpkeVectorSha256)
+	if got := HexOf(digest[:]); got != hpkeVectorSha256 {
+		t.Fatalf("%s sha256 = %s, want %s (see interop/PINS.md)", hpkeVectorPath, got, hpkeVectorSha256)
 	}
 	var vectors []hpkeVector
 	if err := json.Unmarshal(raw, &vectors); err != nil {
@@ -2081,24 +2165,24 @@ func suiteForHpkeVector(t *testing.T, vector hpkeVector) *SuiteParams {
 func TestHpkeVectorDeriveKeyPair(t *testing.T) {
 	for _, vector := range loadHpkeVectors(t) {
 		params := suiteForHpkeVector(t, vector)
-		privE, pubE, err := HpkeDeriveKeyPair(params, mustHex(t, vector.IkmE))
+		privE, pubE, err := HpkeDeriveKeyPair(params, MustHex(t, vector.IkmE))
 		if err != nil {
 			t.Fatalf("derive e: %v", err)
 		}
-		if !bytes.Equal(privE, mustHex(t, vector.SkEm)) {
+		if !bytes.Equal(privE, MustHex(t, vector.SkEm)) {
 			t.Errorf("aead %#04x: skEm = %x, want %s", vector.AeadId, privE, vector.SkEm)
 		}
-		if !bytes.Equal(pubE, mustHex(t, vector.PkEm)) {
+		if !bytes.Equal(pubE, MustHex(t, vector.PkEm)) {
 			t.Errorf("aead %#04x: pkEm = %x, want %s", vector.AeadId, pubE, vector.PkEm)
 		}
-		privR, pubR, err := HpkeDeriveKeyPair(params, mustHex(t, vector.IkmR))
+		privR, pubR, err := HpkeDeriveKeyPair(params, MustHex(t, vector.IkmR))
 		if err != nil {
 			t.Fatalf("derive r: %v", err)
 		}
-		if !bytes.Equal(privR, mustHex(t, vector.SkRm)) {
+		if !bytes.Equal(privR, MustHex(t, vector.SkRm)) {
 			t.Errorf("aead %#04x: skRm = %x, want %s", vector.AeadId, privR, vector.SkRm)
 		}
-		if !bytes.Equal(pubR, mustHex(t, vector.PkRm)) {
+		if !bytes.Equal(pubR, MustHex(t, vector.PkRm)) {
 			t.Errorf("aead %#04x: pkRm = %x, want %s", vector.AeadId, pubR, vector.PkRm)
 		}
 	}
@@ -2108,21 +2192,21 @@ func TestHpkeVectorEncapAndDecap(t *testing.T) {
 	for _, vector := range loadHpkeVectors(t) {
 		params := suiteForHpkeVector(t, vector)
 		sharedSecret, kemOutput, err := hpkeEncapDeterministic(params,
-			HpkePublicKey(mustHex(t, vector.PkRm)), HpkePrivateKey(mustHex(t, vector.SkEm)))
+			HpkePublicKey(MustHex(t, vector.PkRm)), HpkePrivateKey(MustHex(t, vector.SkEm)))
 		if err != nil {
 			t.Fatalf("encap: %v", err)
 		}
-		if !bytes.Equal(kemOutput, mustHex(t, vector.Enc)) {
+		if !bytes.Equal(kemOutput, MustHex(t, vector.Enc)) {
 			t.Errorf("aead %#04x: enc = %x, want %s", vector.AeadId, kemOutput, vector.Enc)
 		}
-		if !bytes.Equal(sharedSecret, mustHex(t, vector.SharedSecret)) {
+		if !bytes.Equal(sharedSecret, MustHex(t, vector.SharedSecret)) {
 			t.Errorf("aead %#04x: shared_secret = %x, want %s", vector.AeadId, sharedSecret, vector.SharedSecret)
 		}
-		back, err := hpkeDecap(params, HpkePrivateKey(mustHex(t, vector.SkRm)), mustHex(t, vector.Enc))
+		back, err := hpkeDecap(params, HpkePrivateKey(MustHex(t, vector.SkRm)), MustHex(t, vector.Enc))
 		if err != nil {
 			t.Fatalf("decap: %v", err)
 		}
-		if !bytes.Equal(back, mustHex(t, vector.SharedSecret)) {
+		if !bytes.Equal(back, MustHex(t, vector.SharedSecret)) {
 			t.Errorf("aead %#04x: decap shared_secret = %x, want %s", vector.AeadId, back, vector.SharedSecret)
 		}
 	}
@@ -2131,14 +2215,14 @@ func TestHpkeVectorEncapAndDecap(t *testing.T) {
 func TestHpkeVectorKeySchedule(t *testing.T) {
 	for _, vector := range loadHpkeVectors(t) {
 		params := suiteForHpkeVector(t, vector)
-		ctx, err := hpkeKeySchedule(params, mustHex(t, vector.SharedSecret), mustHex(t, vector.Info))
+		ctx, err := hpkeKeySchedule(params, MustHex(t, vector.SharedSecret), MustHex(t, vector.Info))
 		if err != nil {
 			t.Fatalf("key schedule: %v", err)
 		}
-		if !bytes.Equal(ctx.baseNonce, mustHex(t, vector.BaseNonce)) {
+		if !bytes.Equal(ctx.baseNonce, MustHex(t, vector.BaseNonce)) {
 			t.Errorf("aead %#04x: base_nonce = %x, want %s", vector.AeadId, ctx.baseNonce, vector.BaseNonce)
 		}
-		if !bytes.Equal(ctx.exporterSecret, mustHex(t, vector.ExporterSecret)) {
+		if !bytes.Equal(ctx.exporterSecret, MustHex(t, vector.ExporterSecret)) {
 			t.Errorf("aead %#04x: exporter_secret = %x, want %s", vector.AeadId, ctx.exporterSecret, vector.ExporterSecret)
 		}
 	}
@@ -2149,20 +2233,20 @@ func TestHpkeVectorEncryptions(t *testing.T) {
 	// context's own counter, so this walks the nonce derivation as well as the aead.
 	for _, vector := range loadHpkeVectors(t) {
 		params := suiteForHpkeVector(t, vector)
-		sender, err := hpkeKeySchedule(params, mustHex(t, vector.SharedSecret), mustHex(t, vector.Info))
+		sender, err := hpkeKeySchedule(params, MustHex(t, vector.SharedSecret), MustHex(t, vector.Info))
 		if err != nil {
 			t.Fatalf("key schedule: %v", err)
 		}
 		for i, encryption := range vector.Encryptions {
 			nonce := sender.nonce()
-			if !bytes.Equal(nonce, mustHex(t, encryption.Nonce)) {
+			if !bytes.Equal(nonce, MustHex(t, encryption.Nonce)) {
 				t.Fatalf("aead %#04x seq %d: nonce = %x, want %s", vector.AeadId, i, nonce, encryption.Nonce)
 			}
-			ciphertext, err := sender.Seal(mustHex(t, encryption.Aad), mustHex(t, encryption.Pt))
+			ciphertext, err := sender.Seal(MustHex(t, encryption.Aad), MustHex(t, encryption.Pt))
 			if err != nil {
 				t.Fatalf("seal %d: %v", i, err)
 			}
-			if !bytes.Equal(ciphertext, mustHex(t, encryption.Ct)) {
+			if !bytes.Equal(ciphertext, MustHex(t, encryption.Ct)) {
 				t.Fatalf("aead %#04x seq %d: ct = %x, want %s", vector.AeadId, i, ciphertext, encryption.Ct)
 			}
 		}
@@ -2172,16 +2256,16 @@ func TestHpkeVectorEncryptions(t *testing.T) {
 func TestHpkeVectorExports(t *testing.T) {
 	for _, vector := range loadHpkeVectors(t) {
 		params := suiteForHpkeVector(t, vector)
-		ctx, err := hpkeKeySchedule(params, mustHex(t, vector.SharedSecret), mustHex(t, vector.Info))
+		ctx, err := hpkeKeySchedule(params, MustHex(t, vector.SharedSecret), MustHex(t, vector.Info))
 		if err != nil {
 			t.Fatalf("key schedule: %v", err)
 		}
 		for i, export := range vector.Exports {
-			got, err := ctx.Export(mustHex(t, export.ExporterContext), export.Length)
+			got, err := ctx.Export(MustHex(t, export.ExporterContext), export.Length)
 			if err != nil {
 				t.Fatalf("export %d: %v", i, err)
 			}
-			if !bytes.Equal(got, mustHex(t, export.ExportedValue)) {
+			if !bytes.Equal(got, MustHex(t, export.ExportedValue)) {
 				t.Errorf("aead %#04x export %d = %x, want %s", vector.AeadId, i, got, export.ExportedValue)
 			}
 		}
@@ -2192,12 +2276,12 @@ func TestHpkeVectorExports(t *testing.T) {
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `go test ./mls/... -run TestHpkeVector -v` from `connect/`
-Expected: FAIL — `read testdata/vectors/hpke-rfc9180-x25519.json: open ...: no such file or
+Expected: FAIL — `read testdata/vectors/rfc/hpke-rfc9180-x25519.json: open ...: no such file or
 directory`.
 
 - [ ] **Step 3: Write minimal implementation**
 
-The implementation is the vendored data. Run, from `connect/mls/testdata/vectors/`:
+The implementation is the vendored data. Run, from `connect/mls/testdata/vectors/rfc/`:
 
 ```bash
 mkdir -p . && \
@@ -2219,19 +2303,19 @@ Expected digests, already computed against that commit:
 `/tmp/hpke-upstream.json` → `61fc662f01996cd06d713dacf5e133167bd309a1f329442d53f1e21a47b3ede6`
 `hpke-rfc9180-x25519.json` → `3cc5f951dea0b7dbe80419215e64c810498ee4dd76c376763bbe6860c346b11a`
 
-`connect/mls/testdata/vectors/PINS.md`:
+Then append one row and one section to `connect/mls/interop/PINS.md`, the single pin file that
+p8 Task 6 creates. Do not create `connect/mls/PINS.md` or
+`connect/mls/testdata/vectors/PINS.md`; neither exists in this slice.
 
 ```markdown
-# Vendored test vectors
+| `testdata/vectors/rfc/hpke-rfc9180-x25519.json` | `cfrg/draft-irtf-cfrg-hpke` | `b1f7cb0cdeab6906c61b3d6574e8bdfdbe1cd3fb` | `test-vectors.json` | `3cc5f951dea0b7dbe80419215e64c810498ee4dd76c376763bbe6860c346b11a` |
+```
 
-Every file here is vendored at a recorded upstream commit and pinned by sha256 in the test that
-reads it. Bumping any row is a PR that must show a green vector job.
+```markdown
+## testdata/vectors/rfc/hpke-rfc9180-x25519.json
 
-| File | Upstream | Commit | Upstream path | sha256 of the vendored file |
-|---|---|---|---|---|
-| `hpke-rfc9180-x25519.json` | `cfrg/draft-irtf-cfrg-hpke` | `b1f7cb0cdeab6906c61b3d6574e8bdfdbe1cd3fb` | `test-vectors.json` | `3cc5f951dea0b7dbe80419215e64c810498ee4dd76c376763bbe6860c346b11a` |
-
-## hpke-rfc9180-x25519.json
+Not an mlswg family, hence `rfc/`: `testdata/vectors/*.json` stays exactly the sixteen mlswg files
+p8 Task 6 vendors and asserts over.
 
 Filtered from the upstream file, whose own sha256 at that commit is
 `61fc662f01996cd06d713dacf5e133167bd309a1f329442d53f1e21a47b3ede6`, by the deterministic selection
@@ -2255,7 +2339,7 @@ suites), `TestHpkeVectorExports` all ok.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add mls/testdata/vectors/hpke-rfc9180-x25519.json mls/testdata/vectors/PINS.md mls/hpke_vectors_test.go && \
+git add mls/testdata/vectors/rfc/hpke-rfc9180-x25519.json mls/interop/PINS.md mls/hpke_vectors_test.go && \
 git commit -m "test(mls): gate hpke against the rfc 9180 base-mode vectors, both suites"
 ```
 
@@ -2268,9 +2352,11 @@ git commit -m "test(mls): gate hpke against the rfc 9180 base-mode vectors, both
 
 **Interfaces:**
 - Consumes: `HpkeOpenBase`, `HpkeDeriveKeyPair`, `LookupSuite` (Tasks 3, 6, 8).
-- Produces: `FuzzHpkeOpenBase`, satisfying Gate 4 property 1 (no panic, no OOM, no unbounded
-  allocation) for this plan's files. Properties 2 and 3 belong to the codec, which is the Syntax
-  plan's.
+- Produces: `FuzzHpkeOpenBase`, `FuzzHpkeDeriveKeyPair` — property 1 of Gate 4 (no panic, no OOM, no
+  unbounded allocation) over this plan's crypto surface. Both are private to this plan and neither
+  is one of the nine codec fuzz targets Gate 4 counts: those are p8's, built on p8's codec table and
+  oracle hook, and `TestFuzzTargetsCoverEveryKind` parses that file rather than this one. Properties
+  2 and 3 belong to the codec, which is p1's.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2822,9 +2908,17 @@ git commit -m "feat(mls): crypto provider core with (salt, ikm) extract and suit
 - Test: `connect/mls/crypto_labels_test.go`
 
 **Interfaces:**
-- Consumes: `syntax.WriteVarVec`, `syntax.WriteUint16`, `syntax.WriteUint32` from the **Syntax and
-  codec (wave 1)** plan; `CryptoProvider.Expand` (Task 11).
+- Consumes, from the **Syntax and codec (p1, wave 1)** plan, exactly:
+  - `func syntax.NewWriter() *syntax.Writer`
+  - `func (self *syntax.Writer) WriteUint16(v uint16)`
+  - `func (self *syntax.Writer) WriteUint32(v uint32)`
+  - `func (self *syntax.Writer) WriteOpaque(bs []byte)`
+  - `func (self *syntax.Writer) Bytes() ([]byte, error)`
+  - `func syntax.NewReader(bs []byte) *syntax.Reader`, `func (self *syntax.Reader) ReadOpaque() ([]byte, error)` — the boundary test reads its own encoding back
+  - `const syntax.MaxVectorLength int`
+- Consumes, from this plan: `CryptoProvider.Expand` (Task 11).
 - Produces:
+  - `func mlsLabelBytes(w *syntax.Writer) []byte`
   - `func mlsKdfLabel(label string, context []byte, length int) []byte`
   - `suiteCryptoProvider.ExpandWithLabel(secret []byte, label string, context []byte, length int) []byte`
   - `suiteCryptoProvider.DeriveSecret(secret []byte, label string) []byte`
@@ -2859,7 +2953,7 @@ func TestKdfLabelEncoding(t *testing.T) {
 	}
 }
 
-func TestVarVecBoundariesMatchSyntax(t *testing.T) {
+func TestOpaqueVectorBoundariesMatchSyntax(t *testing.T) {
 	// the boundary conformance this plan owes the Syntax plan. if syntax's prefix
 	// widths drift, every signature and every derived secret in this package moves,
 	// and it must fail here rather than at an interop run.
@@ -2873,13 +2967,45 @@ func TestVarVecBoundariesMatchSyntax(t *testing.T) {
 		{n: 16383, prefix: []byte{0x7f, 0xff}},
 		{n: 16384, prefix: []byte{0x80, 0x00, 0x40, 0x00}},
 	} {
-		encoded := syntax.WriteVarVec(nil, make([]byte, testCase.n))
+		writer := syntax.NewWriter()
+		writer.WriteOpaque(make([]byte, testCase.n))
+		encoded, err := writer.Bytes()
+		if err != nil {
+			t.Fatalf("length %d: %v", testCase.n, err)
+		}
 		if !bytes.HasPrefix(encoded, testCase.prefix) {
 			t.Errorf("length %d encoded with prefix %x, want %x", testCase.n, encoded[:len(testCase.prefix)], testCase.prefix)
 		}
 		if len(encoded) != len(testCase.prefix)+testCase.n {
 			t.Errorf("length %d encoded to %d bytes, want %d", testCase.n, len(encoded), len(testCase.prefix)+testCase.n)
 		}
+		// and it must read back as the same vector, so the two halves of the prefix
+		// cannot drift apart in the same commit.
+		back, err := syntax.NewReader(encoded).ReadOpaque()
+		if err != nil {
+			t.Fatalf("length %d read back: %v", testCase.n, err)
+		}
+		if len(back) != testCase.n {
+			t.Errorf("length %d read back as %d bytes", testCase.n, len(back))
+		}
+	}
+}
+
+func TestLabelWriterUsesTheDefaultVectorLimit(t *testing.T) {
+	// mlsLabelBytes panics rather than returning a short preimage, and this pins the
+	// boundary at which it would: syntax.MaxVectorLength. every value that reaches a
+	// labelled construction came through a decode or an encode already bounded by it,
+	// so the panic is unreachable in production — but if that ever stops being true,
+	// it must stop being true loudly.
+	writer := syntax.NewWriter()
+	writer.WriteOpaque(make([]byte, syntax.MaxVectorLength))
+	if _, err := writer.Bytes(); err != nil {
+		t.Fatalf("a vector of exactly MaxVectorLength was refused: %v", err)
+	}
+	overlong := syntax.NewWriter()
+	overlong.WriteOpaque(make([]byte, syntax.MaxVectorLength+1))
+	if _, err := overlong.Bytes(); err == nil {
+		t.Fatalf("a vector of MaxVectorLength+1 was accepted")
 	}
 }
 
@@ -2956,11 +3082,31 @@ import "github.com/urnetwork/connect/mls/syntax"
 // every MLS label is domain separated by this prefix before serialization.
 const MlsLabelPrefix = "MLS 1.0 "
 
+// the sticky writer's error, taken once (C2).
+//
+// every labelled construction in this file returns bytes and no error, because the
+// interface Spec A §3.3 fixes on CryptoProvider has no error return and neither does
+// RefHash. that is sound rather than a shortcut: a syntax.Writer's only failure mode
+// is a vector longer than its limit, and every value that reaches a labelled
+// construction arrived through a decode or an encode already bounded by
+// syntax.MaxVectorLength. a panic here is therefore unreachable — and it is a panic
+// rather than a silent truncation because a short preimage is a signature-bypass
+// primitive.
+func mlsLabelBytes(w *syntax.Writer) []byte {
+	encoded, err := w.Bytes()
+	if err != nil {
+		panic("mls: a labelled preimage could not be encoded: " + err.Error())
+	}
+	return encoded
+}
+
 // struct { uint16 length; opaque label<V>; opaque context<V> } KDFLabel
 func mlsKdfLabel(label string, context []byte, length int) []byte {
-	encoded := syntax.WriteUint16(nil, uint16(length))
-	encoded = syntax.WriteVarVec(encoded, []byte(MlsLabelPrefix+label))
-	return syntax.WriteVarVec(encoded, context)
+	writer := syntax.NewWriter()
+	writer.WriteUint16(uint16(length))
+	writer.WriteOpaque([]byte(MlsLabelPrefix + label))
+	writer.WriteOpaque(context)
+	return mlsLabelBytes(writer)
 }
 
 func (self *suiteCryptoProvider) ExpandWithLabel(secret []byte, label string, context []byte, length int) []byte {
@@ -2971,9 +3117,13 @@ func (self *suiteCryptoProvider) DeriveSecret(secret []byte, label string) []byt
 	return self.ExpandWithLabel(secret, label, nil, self.params.Nh)
 }
 
-// the generation is the context, encoded as a big-endian uint32 (RFC 9420 §9).
+// the generation is the context, encoded as a big-endian uint32 (RFC 9420 §9). it
+// goes through the same writer as everything else: there is one integer encoder in
+// this system and it is p1's.
 func (self *suiteCryptoProvider) DeriveTreeSecret(secret []byte, label string, generation uint32, length int) []byte {
-	return self.ExpandWithLabel(secret, label, syntax.WriteUint32(nil, generation), length)
+	writer := syntax.NewWriter()
+	writer.WriteUint32(generation)
+	return self.ExpandWithLabel(secret, label, mlsLabelBytes(writer), length)
 }
 ```
 
@@ -2981,8 +3131,8 @@ Delete the three corresponding stubs from `connect/mls/crypto.go`.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./mls/... -run "TestKdfLabel|TestVarVecBoundaries|TestDeriveSecret|TestDeriveTree|TestExpandWithLabel" -v` from `connect/`
-Expected: PASS — five tests ok.
+Run: `go test ./mls/... -run "TestKdfLabel|TestOpaqueVectorBoundaries|TestLabelWriter|TestDeriveSecret|TestDeriveTree|TestExpandWithLabel" -v` from `connect/`
+Expected: PASS — six tests ok.
 
 - [ ] **Step 5: Commit**
 
@@ -3000,7 +3150,9 @@ git commit -m "feat(mls): expand-with-label, derive-secret and derive-tree-secre
 - Test: `connect/mls/crypto_labels_test.go`
 
 **Interfaces:**
-- Consumes: `syntax.WriteVarVec`; `CryptoProvider.Hash` (Task 11).
+- Consumes: `func syntax.NewWriter() *syntax.Writer`, `func (self *syntax.Writer) WriteOpaque(bs []byte)`,
+  `func (self *syntax.Writer) Bytes() ([]byte, error)` (p1); `mlsLabelBytes` (Task 12);
+  `CryptoProvider.Hash` (Task 11).
 - Produces:
   - `func RefHash(crypto CryptoProvider, label string, value []byte) []byte`
   - `func MakeKeyPackageRef(crypto CryptoProvider, keyPackage []byte) []byte`
@@ -3023,13 +3175,25 @@ func TestRefHashDoesNotAddTheMlsPrefix(t *testing.T) {
 		t.Fatalf("NewCryptoProvider: %v", err)
 	}
 	value := []byte("the value")
-	input := syntax.WriteVarVec(nil, []byte("RefHash"))
-	input = syntax.WriteVarVec(input, value)
+
+	bare := syntax.NewWriter()
+	bare.WriteOpaque([]byte("RefHash"))
+	bare.WriteOpaque(value)
+	input, err := bare.Bytes()
+	if err != nil {
+		t.Fatalf("encode the bare-label input: %v", err)
+	}
 	if got, want := RefHash(crypto, "RefHash", value), crypto.Hash(input); !bytes.Equal(got, want) {
 		t.Fatalf("RefHash = %x, want %x", got, want)
 	}
-	prefixed := syntax.WriteVarVec(nil, []byte(MlsLabelPrefix+"RefHash"))
-	prefixed = syntax.WriteVarVec(prefixed, value)
+
+	writer := syntax.NewWriter()
+	writer.WriteOpaque([]byte(MlsLabelPrefix + "RefHash"))
+	writer.WriteOpaque(value)
+	prefixed, err := writer.Bytes()
+	if err != nil {
+		t.Fatalf("encode the prefixed-label input: %v", err)
+	}
 	if bytes.Equal(RefHash(crypto, "RefHash", value), crypto.Hash(prefixed)) {
 		t.Fatalf("RefHash added the MLS 1.0 prefix")
 	}
@@ -3092,10 +3256,14 @@ const (
 // with ExpandWithLabel: RFC 9420 §5.2 defines the reference labels with the prefix
 // already inside them, and the crypto-basics vector exercises RefHash with a bare
 // label that must not gain one.
+//
+// no error return, by the registry's fixed signature — see mlsLabelBytes for why the
+// writer cannot fail here.
 func RefHash(crypto CryptoProvider, label string, value []byte) []byte {
-	input := syntax.WriteVarVec(nil, []byte(label))
-	input = syntax.WriteVarVec(input, value)
-	return crypto.Hash(input)
+	writer := syntax.NewWriter()
+	writer.WriteOpaque([]byte(label))
+	writer.WriteOpaque(value)
+	return crypto.Hash(mlsLabelBytes(writer))
 }
 
 func MakeKeyPackageRef(crypto CryptoProvider, keyPackage []byte) []byte {
@@ -3130,7 +3298,9 @@ git commit -m "feat(mls): refhash and the key package and proposal reference lab
 - Test: `connect/mls/crypto_labels_test.go`
 
 **Interfaces:**
-- Consumes: `syntax.WriteVarVec`; `ErrBadSignatureKey`, `ErrBadSignature` (Task 1).
+- Consumes: `func syntax.NewWriter() *syntax.Writer`, `func (self *syntax.Writer) WriteOpaque(bs []byte)`,
+  `func (self *syntax.Writer) Bytes() ([]byte, error)` (p1); `mlsLabelBytes` (Task 12);
+  `ErrBadSignatureKey`, `ErrCryptoBadSignature` (Task 1).
 - Produces:
   - `func mlsSignContent(label string, content []byte) []byte`
   - `suiteCryptoProvider.SignWithLabel(priv SignaturePrivateKey, label string, content []byte) ([]byte, error)`
@@ -3195,16 +3365,16 @@ func TestSignatureIsLabelBound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sign: %v", err)
 	}
-	if err := crypto.VerifyWithLabel(pub, "FramedContentTBS", content, sig); !errors.Is(err, ErrBadSignature) {
-		t.Fatalf("wrong label verified: error = %v, want ErrBadSignature", err)
+	if err := crypto.VerifyWithLabel(pub, "FramedContentTBS", content, sig); !errors.Is(err, ErrCryptoBadSignature) {
+		t.Fatalf("wrong label verified: error = %v, want ErrCryptoBadSignature", err)
 	}
-	if err := crypto.VerifyWithLabel(pub, "LeafNodeTBS", append(bytes.Clone(content), '!'), sig); !errors.Is(err, ErrBadSignature) {
-		t.Fatalf("wrong content verified: error = %v, want ErrBadSignature", err)
+	if err := crypto.VerifyWithLabel(pub, "LeafNodeTBS", append(bytes.Clone(content), '!'), sig); !errors.Is(err, ErrCryptoBadSignature) {
+		t.Fatalf("wrong content verified: error = %v, want ErrCryptoBadSignature", err)
 	}
 	tampered := bytes.Clone(sig)
 	tampered[0] ^= 0x01
-	if err := crypto.VerifyWithLabel(pub, "LeafNodeTBS", content, tampered); !errors.Is(err, ErrBadSignature) {
-		t.Fatalf("tampered signature verified: error = %v, want ErrBadSignature", err)
+	if err := crypto.VerifyWithLabel(pub, "LeafNodeTBS", content, tampered); !errors.Is(err, ErrCryptoBadSignature) {
+		t.Fatalf("tampered signature verified: error = %v, want ErrCryptoBadSignature", err)
 	}
 }
 
@@ -3226,8 +3396,8 @@ func TestSignatureRejectsWrongKeySizes(t *testing.T) {
 		t.Fatalf("SignatureKeyPair: %v", err)
 	}
 	for _, n := range []int{0, 63, 65} {
-		if err := crypto.VerifyWithLabel(pub, "x", nil, make([]byte, n)); !errors.Is(err, ErrBadSignature) {
-			t.Errorf("verify a %d-byte signature error = %v, want ErrBadSignature", n, err)
+		if err := crypto.VerifyWithLabel(pub, "x", nil, make([]byte, n)); !errors.Is(err, ErrCryptoBadSignature) {
+			t.Errorf("verify a %d-byte signature error = %v, want ErrCryptoBadSignature", n, err)
 		}
 	}
 }
@@ -3248,8 +3418,10 @@ imports):
 ```go
 // struct { opaque label<V>; opaque content<V> } SignContent
 func mlsSignContent(label string, content []byte) []byte {
-	encoded := syntax.WriteVarVec(nil, []byte(MlsLabelPrefix+label))
-	return syntax.WriteVarVec(encoded, content)
+	writer := syntax.NewWriter()
+	writer.WriteOpaque([]byte(MlsLabelPrefix + label))
+	writer.WriteOpaque(content)
+	return mlsLabelBytes(writer)
 }
 
 // the private key is the 32-byte RFC 8032 seed, which is what MLS carries and what
@@ -3264,15 +3436,18 @@ func (self *suiteCryptoProvider) SignWithLabel(priv SignaturePrivateKey, label s
 
 // a failed verification is always an error and never a logged warning (G7). the
 // caller has no branch to take other than rejecting the message.
+//
+// ErrCryptoBadSignature, not ErrBadSignature: the bare name is errors.go's ValSem010,
+// and errors.go wraps this one so a framing caller can still ask either question.
 func (self *suiteCryptoProvider) VerifyWithLabel(pub SignaturePublicKey, label string, content []byte, sig []byte) error {
 	if len(pub) != self.params.NsigPub {
 		return ErrBadSignatureKey
 	}
 	if len(sig) != ed25519.SignatureSize {
-		return ErrBadSignature
+		return ErrCryptoBadSignature
 	}
 	if !ed25519.Verify(ed25519.PublicKey(pub), mlsSignContent(label, content), sig) {
-		return ErrBadSignature
+		return ErrCryptoBadSignature
 	}
 	return nil
 }
@@ -3309,13 +3484,21 @@ git commit -m "feat(mls): sign-with-label and verify-with-label over ed25519 see
 - Test: `connect/mls/crypto_labels_test.go`
 
 **Interfaces:**
-- Consumes: `syntax.WriteVarVec`; `HpkeSealBase`, `HpkeOpenBase` (Task 8); `HpkeDeriveKeyPair`
-  (Task 6).
+- Consumes: `func syntax.NewWriter() *syntax.Writer`, `func (self *syntax.Writer) WriteOpaque(bs []byte)`,
+  `func (self *syntax.Writer) Bytes() ([]byte, error)` (p1); `mlsLabelBytes` (Task 12);
+  `HpkeSealBase`, `HpkeOpenBase` (Task 8); `HpkeDeriveKeyPair` (Task 6).
 - Produces:
   - `func mlsEncryptContext(label string, context []byte) []byte`
   - `func EncryptWithLabel(crypto CryptoProvider, pub HpkePublicKey, label string, context []byte, plaintext []byte) (kemOutput []byte, ciphertext []byte, err error)`
   - `func DecryptWithLabel(crypto CryptoProvider, priv HpkePrivateKey, label string, context []byte, kemOutput []byte, ciphertext []byte) ([]byte, error)`
   - `suiteCryptoProvider.HpkeSeal`, `suiteCryptoProvider.HpkeOpen`, `suiteCryptoProvider.DeriveKeyPair`
+
+Both entry points keep the **flat byte-slice pair** `(kemOutput, ciphertext)`. The
+`*HpkeCiphertext`-shaped convenience the group-lifecycle plan wants —
+`SealWithLabel(crypto, pub, label, context, plaintext) (*HpkeCiphertext, error)` and
+`OpenWithLabel(crypto, priv, label, context, ct *HpkeCiphertext) ([]byte, error)` — is **p5's**, and
+lives next to the `HpkeCiphertext` type it returns so this plan stays free of TreeKEM types. Do not
+add it here.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -3421,8 +3604,10 @@ Append to `connect/mls/crypto_labels.go`:
 ```go
 // struct { opaque label<V>; opaque context<V> } EncryptContext
 func mlsEncryptContext(label string, context []byte) []byte {
-	encoded := syntax.WriteVarVec(nil, []byte(MlsLabelPrefix+label))
-	return syntax.WriteVarVec(encoded, context)
+	writer := syntax.NewWriter()
+	writer.WriteOpaque([]byte(MlsLabelPrefix + label))
+	writer.WriteOpaque(context)
+	return mlsLabelBytes(writer)
 }
 
 // EncryptWithLabel, RFC 9420 §5.1.3. the EncryptContext is the HPKE info and the
@@ -3596,36 +3781,274 @@ git commit -m "test(mls): assert the crypto provider is complete for every regis
 
 ---
 
-### Task 17: Vendor crypto-basics.json and gate the verify direction
+### Task 16a: NewCryptoProviderWithRandom, the deterministic provider
+
+The canonical interface registry assigns this constructor to this plan as a gap: the Validation and
+interop harness's forge needs a provider whose randomness it controls, so that a failing ValSem case
+reproduces byte for byte, and nothing produced it. It is a new task rather than an amendment to Task
+11 because it changes where three methods get their entropy, and that change deserves its own red
+test.
 
 **Files:**
-- Create: `connect/mls/testdata/vectors/crypto-basics.json`
-- Modify: `connect/mls/testdata/vectors/PINS.md`
-- Test: `connect/mls/crypto_basics_vectors_test.go`
+- Modify: `connect/mls/crypto.go`, `connect/mls/crypto_labels.go`
+- Test: `connect/mls/crypto_test.go`
 
 **Interfaces:**
-- Consumes: the whole `CryptoProvider` and `RefHash` (Tasks 11–16).
-- Produces: the `crypto-basics` gate — the acceptance criterion this plan is measured by.
+- Consumes: `LookupSuite` (Task 3); the whole `CryptoProvider` (Tasks 11–16).
+- Produces:
+  - `func NewCryptoProviderWithRandom(suite CipherSuite, random io.Reader) (CryptoProvider, error)`
+  - `suiteCryptoProvider.random io.Reader` — the single entropy source for `Random`,
+    `SignatureKeyPair` and `HpkeSeal`
+
+`NewCryptoProvider(suite)` keeps its exact signature and becomes
+`NewCryptoProviderWithRandom(suite, rand.Reader)`, so there is one implementation and the default is
+visibly `crypto/rand`.
 
 - [ ] **Step 1: Write the failing test**
 
-`connect/mls/crypto_basics_vectors_test.go`:
+Append to `connect/mls/crypto_test.go`:
+
+```go
+func TestProviderWithRandomIsDeterministic(t *testing.T) {
+	// two providers over the same byte stream must produce the same keys and the same
+	// sealed bytes. this is what makes a failing interop or ValSem case reproducible
+	// rather than a one-shot observation.
+	stream := func() io.Reader { return bytes.NewReader(bytes.Repeat([]byte{0x1a}, 4096)) }
+
+	first, err := NewCryptoProviderWithRandom(CipherSuiteX25519ChaCha20Sha256Ed25519, stream())
+	if err != nil {
+		t.Fatalf("NewCryptoProviderWithRandom: %v", err)
+	}
+	second, err := NewCryptoProviderWithRandom(CipherSuiteX25519ChaCha20Sha256Ed25519, stream())
+	if err != nil {
+		t.Fatalf("NewCryptoProviderWithRandom: %v", err)
+	}
+
+	if !bytes.Equal(first.Random(32), second.Random(32)) {
+		t.Fatalf("Random does not read from the supplied reader")
+	}
+
+	firstPriv, firstPub, err := first.SignatureKeyPair()
+	if err != nil {
+		t.Fatalf("SignatureKeyPair: %v", err)
+	}
+	secondPriv, secondPub, err := second.SignatureKeyPair()
+	if err != nil {
+		t.Fatalf("SignatureKeyPair: %v", err)
+	}
+	if !bytes.Equal(firstPriv, secondPriv) || !bytes.Equal(firstPub, secondPub) {
+		t.Fatalf("SignatureKeyPair does not read from the supplied reader")
+	}
+
+	_, pub, err := first.DeriveKeyPair(bytes.Repeat([]byte{0x1b}, 32))
+	if err != nil {
+		t.Fatalf("DeriveKeyPair: %v", err)
+	}
+	firstKem, firstCiphertext, err := first.HpkeSeal(pub, []byte("info"), []byte("aad"), []byte("plaintext"))
+	if err != nil {
+		t.Fatalf("HpkeSeal: %v", err)
+	}
+	secondKem, secondCiphertext, err := second.HpkeSeal(pub, []byte("info"), []byte("aad"), []byte("plaintext"))
+	if err != nil {
+		t.Fatalf("HpkeSeal: %v", err)
+	}
+	if !bytes.Equal(firstKem, secondKem) || !bytes.Equal(firstCiphertext, secondCiphertext) {
+		t.Fatalf("HpkeSeal does not read its ephemeral key from the supplied reader")
+	}
+}
+
+func TestProviderWithRandomRefusesUnknownSuite(t *testing.T) {
+	if _, err := NewCryptoProviderWithRandom(0x0002, rand.Reader); !errors.Is(err, ErrUnknownCipherSuite) {
+		t.Fatalf("error = %v, want ErrUnknownCipherSuite", err)
+	}
+}
+
+func TestNewCryptoProviderDefaultsToCryptoRand(t *testing.T) {
+	// the default constructor must NOT be deterministic. a provider that quietly took
+	// a fixed stream would pass every other test in this package and destroy every key
+	// in production.
+	crypto, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
+	if err != nil {
+		t.Fatalf("NewCryptoProvider: %v", err)
+	}
+	other, err := NewCryptoProvider(CipherSuiteX25519ChaCha20Sha256Ed25519)
+	if err != nil {
+		t.Fatalf("NewCryptoProvider: %v", err)
+	}
+	if bytes.Equal(crypto.Random(32), other.Random(32)) {
+		t.Fatalf("two default providers produced the same random bytes")
+	}
+	priv, _, err := crypto.SignatureKeyPair()
+	if err != nil {
+		t.Fatalf("SignatureKeyPair: %v", err)
+	}
+	otherPriv, _, err := other.SignatureKeyPair()
+	if err != nil {
+		t.Fatalf("SignatureKeyPair: %v", err)
+	}
+	if bytes.Equal(priv, otherPriv) {
+		t.Fatalf("two default providers produced the same signature key")
+	}
+}
+
+func TestProviderRandomFailureIsNotSilent(t *testing.T) {
+	// a short reader must not yield short or zero key material. Random has no error
+	// return in the interface Spec A §3.3 fixes, so the only correct behaviour is a
+	// panic, and it is asserted rather than assumed.
+	crypto, err := NewCryptoProviderWithRandom(CipherSuiteX25519ChaCha20Sha256Ed25519, bytes.NewReader([]byte{0x01, 0x02}))
+	if err != nil {
+		t.Fatalf("NewCryptoProviderWithRandom: %v", err)
+	}
+	defer func() {
+		if recover() == nil {
+			t.Fatalf("Random returned from an exhausted reader instead of panicking")
+		}
+	}()
+	crypto.Random(32)
+}
+```
+
+Add `"io"` to the `crypto_test.go` import block; `"crypto/rand"` is already needed by
+`TestProviderWithRandomRefusesUnknownSuite`, so add it too.
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `go test ./mls/... -run "TestProviderWithRandom|TestNewCryptoProviderDefaults|TestProviderRandomFailure" -v` from `connect/`
+Expected: FAIL — `mls/crypto_test.go:...: undefined: NewCryptoProviderWithRandom` (build failure).
+
+- [ ] **Step 3: Write minimal implementation**
+
+In `connect/mls/crypto.go`, add the field, add the constructor, and route the three entropy
+consumers through it (add `"io"` to the imports; `"crypto/rand"` is already there):
+
+```go
+type suiteCryptoProvider struct {
+	params *SuiteParams
+	random io.Reader
+}
+
+func NewCryptoProvider(suite CipherSuite) (CryptoProvider, error) {
+	return NewCryptoProviderWithRandom(suite, rand.Reader)
+}
+
+// the deterministic constructor. the interop forge and the negative-path tests need a
+// provider whose entropy they control, so a failing ValSem case reproduces byte for
+// byte instead of being observed once. production callers use NewCryptoProvider and
+// get crypto/rand; nothing in this package reads crypto/rand behind a caller's back.
+func NewCryptoProviderWithRandom(suite CipherSuite, random io.Reader) (CryptoProvider, error) {
+	params, err := LookupSuite(suite)
+	if err != nil {
+		return nil, err
+	}
+	return &suiteCryptoProvider{params: params, random: random}, nil
+}
+
+// a failure here is not a runtime condition a caller can act on and the interface has
+// no error return, so a short read panics rather than yielding short or zero key
+// material.
+func (self *suiteCryptoProvider) Random(n int) []byte {
+	b := make([]byte, n)
+	if _, err := io.ReadFull(self.random, b); err != nil {
+		panic("mls: the random source failed: " + err.Error())
+	}
+	return b
+}
+
+func (self *suiteCryptoProvider) HpkeSeal(pub HpkePublicKey, info []byte, aad []byte, plaintext []byte) ([]byte, []byte, error) {
+	return HpkeSealBase(self.random, self.params, pub, info, aad, plaintext)
+}
+```
+
+Delete the Task 11 `Random` body and the Task 15 `HpkeSeal` body they replace, and the
+`NewCryptoProvider` body Task 11 wrote.
+
+In `connect/mls/crypto_labels.go`, `SignatureKeyPair` stops reading `crypto/rand` directly:
+
+```go
+func (self *suiteCryptoProvider) SignatureKeyPair() (SignaturePrivateKey, SignaturePublicKey, error) {
+	pub, priv, err := ed25519.GenerateKey(self.random)
+	if err != nil {
+		return nil, nil, err
+	}
+	return SignaturePrivateKey(priv.Seed()), SignaturePublicKey(pub), nil
+}
+```
+
+`"crypto/rand"` can now leave `crypto_labels.go`'s import block entirely.
+
+Finally, narrow the concurrency claim in `crypto.go`'s file comment, which Task 11 wrote as an
+unconditional property of the type:
+
+```go
+// the implementation NewCryptoProvider returns is safe for concurrent use (Spec A
+// §3.6): it holds only the suite parameters and crypto/rand.Reader, both of which are.
+// a provider built by NewCryptoProviderWithRandom inherits the caller's reader and is
+// exactly as concurrency-safe as that reader — the deterministic test readers are not,
+// and are used from one goroutine.
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `go test ./mls/... -race -run "TestProvider|TestNewCryptoProvider" -v` from `connect/`
+Expected: PASS — every `TestProvider*` from Tasks 11 and 16 still ok, plus
+`TestProviderWithRandomIsDeterministic`, `TestProviderWithRandomRefusesUnknownSuite`,
+`TestNewCryptoProviderDefaultsToCryptoRand`, `TestProviderRandomFailureIsNotSilent`.
+
+`TestProviderIsSafeForConcurrentUse` still passes: `crypto/rand.Reader` is safe for concurrent use,
+and a provider built over a caller's own reader inherits that caller's guarantee — which is why the
+concurrency claim in the doc comment is now stated against `NewCryptoProvider`, not against every
+instance.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add mls/crypto.go mls/crypto_labels.go mls/crypto_test.go && \
+git commit -m "feat(mls): deterministic crypto provider over a caller-supplied random source"
+```
+
+---
+
+### Task 17: The crypto-basics vector gate, verify direction
+
+**Files:**
+- Modify: `connect/mls/vectors_test.go` — delete `2` from `expectedPendingFamilies`, one line
+- Test: `connect/mls/crypto_basics_kat_test.go`
+
+The vector **file** `connect/mls/testdata/vectors/crypto-basics.json` is not created here. All
+sixteen mlswg files, plus `testdata/vectors/VECTORS.sha256` and the pin rows in
+`connect/mls/interop/PINS.md`, are vendored once by **p8 Task 6**; this plan keeps only the runner.
+Sequence this task after p8 Task 6 — both are wave 1.
+
+**Interfaces:**
+- Consumes: the whole `CryptoProvider` and `RefHash` (Tasks 11–16a); from the Validation and interop
+  harness (p8, wave 1), exactly:
+  - `func LoadVectorFile(t *testing.T, file string) []json.RawMessage`
+  - `func MustHex(t *testing.T, s string) []byte`
+  - `type VectorFamily struct { Number int; Name string; File string; Slice string; Verify func(t *testing.T, raw json.RawMessage); Generate func(t *testing.T) json.RawMessage }`
+  - `func RegisterVectorFamily(family VectorFamily)`
+- Produces: the `crypto-basics` gate — the acceptance criterion this plan is measured by — registered
+  as **family 2** so `TestVectorFamiliesVerify` runs it. Without the registration Gate 1 is green
+  with fifteen of sixteen families never executed, which is the specific failure the registry names.
+
+- [ ] **Step 1: Write the failing test**
+
+`connect/mls/crypto_basics_kat_test.go`:
 
 ```go
 // the crypto-basics family of the RFC 9420 test vectors, vector family 2 of 16.
 //
 // the file carries one entry per ciphersuite, 0x0001 through 0x0007. we implement two
-// of them, and the other five are skipped explicitly with the suite recorded, so the
+// of them, and the other five are refused explicitly with the suite recorded, so the
 // count of exercised entries is visible rather than assumed.
+//
+// the file itself, its sha256 and its row in interop/PINS.md are p8 Task 6's; this
+// file is the runner and nothing else.
 package mls
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"os"
 	"testing"
 )
 
@@ -3685,29 +4108,58 @@ type cryptoBasicsVector struct {
 	EncryptWithLabel cryptoBasicsEncryptWithLabel `json:"encrypt_with_label"`
 }
 
-const cryptoBasicsPath = "testdata/vectors/crypto-basics.json"
+const cryptoBasicsFile = "crypto-basics.json"
 
-// the digest recorded in testdata/vectors/PINS.md.
-const cryptoBasicsSha256 = "17cfcf89af9f51d0f2aa7af77f6f9ec99376a039214b6d42a6f11646b83e8c29"
+// registered from an init so TestVectorFamiliesVerify picks family 2 up. the same
+// commit that lands this file deletes 2 from expectedPendingFamilies in
+// vectors_test.go — a registered family that is still listed as pending is a gate
+// that reports green while running nothing.
+func init() {
+	RegisterVectorFamily(VectorFamily{
+		Number:   2,
+		Name:     "crypto-basics",
+		File:     cryptoBasicsFile,
+		Slice:    "A1",
+		Verify:   verifyCryptoBasicsRaw,
+		Generate: generateCryptoBasicsRaw,
+	})
+}
 
+// LoadVectorFile is p8's: it resolves the path under testdata/vectors and checks the
+// entry's digest against VECTORS.sha256, so this file carries no path and no pin.
 func loadCryptoBasicsVectors(t *testing.T) []cryptoBasicsVector {
 	t.Helper()
-	raw, err := os.ReadFile(cryptoBasicsPath)
-	if err != nil {
-		t.Fatalf("read %s: %v", cryptoBasicsPath, err)
+	raws := LoadVectorFile(t, cryptoBasicsFile)
+	if len(raws) != 7 {
+		t.Fatalf("%s has %d entries, want 7", cryptoBasicsFile, len(raws))
 	}
-	digest := sha256.Sum256(raw)
-	if got := hex.EncodeToString(digest[:]); got != cryptoBasicsSha256 {
-		t.Fatalf("%s sha256 = %s, want %s (see testdata/vectors/PINS.md)", cryptoBasicsPath, got, cryptoBasicsSha256)
-	}
-	var vectors []cryptoBasicsVector
-	if err := json.Unmarshal(raw, &vectors); err != nil {
-		t.Fatalf("parse %s: %v", cryptoBasicsPath, err)
-	}
-	if len(vectors) != 7 {
-		t.Fatalf("%s has %d entries, want 7", cryptoBasicsPath, len(vectors))
+	vectors := make([]cryptoBasicsVector, 0, len(raws))
+	for i, raw := range raws {
+		var vector cryptoBasicsVector
+		if err := json.Unmarshal(raw, &vector); err != nil {
+			t.Fatalf("%s entry %d: %v", cryptoBasicsFile, i, err)
+		}
+		vectors = append(vectors, vector)
 	}
 	return vectors
+}
+
+// the registry's Verify hook: one raw entry, already digest-checked by p8.
+func verifyCryptoBasicsRaw(t *testing.T, raw json.RawMessage) {
+	t.Helper()
+	var vector cryptoBasicsVector
+	if err := json.Unmarshal(raw, &vector); err != nil {
+		t.Fatalf("parse a crypto-basics entry: %v", err)
+	}
+	if !IsRegisteredSuite(vector.CipherSuite) {
+		// not a skip: an unregistered suite must be refused, and asserting that here
+		// keeps the five unimplemented entries inside the gate rather than outside it.
+		if _, err := NewCryptoProvider(vector.CipherSuite); !errors.Is(err, ErrUnknownCipherSuite) {
+			t.Fatalf("suite %#04x error = %v, want ErrUnknownCipherSuite", uint16(vector.CipherSuite), err)
+		}
+		return
+	}
+	verifyCryptoBasicsVector(t, vector)
 }
 
 func TestCryptoBasicsCoversBothRegisteredSuites(t *testing.T) {
@@ -3732,8 +4184,8 @@ func TestCryptoBasicsRefHash(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewCryptoProvider: %v", err)
 		}
-		got := RefHash(crypto, vector.RefHash.Label, mustHex(t, vector.RefHash.Value))
-		if !bytes.Equal(got, mustHex(t, vector.RefHash.Out)) {
+		got := RefHash(crypto, vector.RefHash.Label, MustHex(t, vector.RefHash.Value))
+		if !bytes.Equal(got, MustHex(t, vector.RefHash.Out)) {
 			t.Errorf("suite %#04x RefHash = %x, want %s", uint16(vector.CipherSuite), got, vector.RefHash.Out)
 		}
 	}
@@ -3749,8 +4201,8 @@ func TestCryptoBasicsExpandWithLabel(t *testing.T) {
 			t.Fatalf("NewCryptoProvider: %v", err)
 		}
 		testCase := vector.ExpandWithLabel
-		got := crypto.ExpandWithLabel(mustHex(t, testCase.Secret), testCase.Label, mustHex(t, testCase.Context), testCase.Length)
-		if !bytes.Equal(got, mustHex(t, testCase.Out)) {
+		got := crypto.ExpandWithLabel(MustHex(t, testCase.Secret), testCase.Label, MustHex(t, testCase.Context), testCase.Length)
+		if !bytes.Equal(got, MustHex(t, testCase.Out)) {
 			t.Errorf("suite %#04x ExpandWithLabel = %x, want %s", uint16(vector.CipherSuite), got, testCase.Out)
 		}
 	}
@@ -3766,8 +4218,8 @@ func TestCryptoBasicsDeriveSecret(t *testing.T) {
 			t.Fatalf("NewCryptoProvider: %v", err)
 		}
 		testCase := vector.DeriveSecret
-		got := crypto.DeriveSecret(mustHex(t, testCase.Secret), testCase.Label)
-		if !bytes.Equal(got, mustHex(t, testCase.Out)) {
+		got := crypto.DeriveSecret(MustHex(t, testCase.Secret), testCase.Label)
+		if !bytes.Equal(got, MustHex(t, testCase.Out)) {
 			t.Errorf("suite %#04x DeriveSecret = %x, want %s", uint16(vector.CipherSuite), got, testCase.Out)
 		}
 	}
@@ -3783,8 +4235,8 @@ func TestCryptoBasicsDeriveTreeSecret(t *testing.T) {
 			t.Fatalf("NewCryptoProvider: %v", err)
 		}
 		testCase := vector.DeriveTreeSecret
-		got := crypto.DeriveTreeSecret(mustHex(t, testCase.Secret), testCase.Label, testCase.Generation, testCase.Length)
-		if !bytes.Equal(got, mustHex(t, testCase.Out)) {
+		got := crypto.DeriveTreeSecret(MustHex(t, testCase.Secret), testCase.Label, testCase.Generation, testCase.Length)
+		if !bytes.Equal(got, MustHex(t, testCase.Out)) {
 			t.Errorf("suite %#04x DeriveTreeSecret = %x, want %s", uint16(vector.CipherSuite), got, testCase.Out)
 		}
 	}
@@ -3800,17 +4252,17 @@ func TestCryptoBasicsSignWithLabel(t *testing.T) {
 			t.Fatalf("NewCryptoProvider: %v", err)
 		}
 		testCase := vector.SignWithLabel
-		if err := crypto.VerifyWithLabel(SignaturePublicKey(mustHex(t, testCase.Pub)),
-			testCase.Label, mustHex(t, testCase.Content), mustHex(t, testCase.Signature)); err != nil {
+		if err := crypto.VerifyWithLabel(SignaturePublicKey(MustHex(t, testCase.Pub)),
+			testCase.Label, MustHex(t, testCase.Content), MustHex(t, testCase.Signature)); err != nil {
 			t.Errorf("suite %#04x VerifyWithLabel on the supplied signature: %v", uint16(vector.CipherSuite), err)
 		}
 		// ed25519 is deterministic, so our own signature must be byte identical.
-		got, err := crypto.SignWithLabel(SignaturePrivateKey(mustHex(t, testCase.Priv)),
-			testCase.Label, mustHex(t, testCase.Content))
+		got, err := crypto.SignWithLabel(SignaturePrivateKey(MustHex(t, testCase.Priv)),
+			testCase.Label, MustHex(t, testCase.Content))
 		if err != nil {
 			t.Fatalf("suite %#04x SignWithLabel: %v", uint16(vector.CipherSuite), err)
 		}
-		if !bytes.Equal(got, mustHex(t, testCase.Signature)) {
+		if !bytes.Equal(got, MustHex(t, testCase.Signature)) {
 			t.Errorf("suite %#04x SignWithLabel = %x, want %s", uint16(vector.CipherSuite), got, testCase.Signature)
 		}
 	}
@@ -3826,29 +4278,29 @@ func TestCryptoBasicsEncryptWithLabel(t *testing.T) {
 			t.Fatalf("NewCryptoProvider: %v", err)
 		}
 		testCase := vector.EncryptWithLabel
-		got, err := DecryptWithLabel(crypto, HpkePrivateKey(mustHex(t, testCase.Priv)),
-			testCase.Label, mustHex(t, testCase.Context),
-			mustHex(t, testCase.KemOutput), mustHex(t, testCase.Ciphertext))
+		got, err := DecryptWithLabel(crypto, HpkePrivateKey(MustHex(t, testCase.Priv)),
+			testCase.Label, MustHex(t, testCase.Context),
+			MustHex(t, testCase.KemOutput), MustHex(t, testCase.Ciphertext))
 		if err != nil {
 			t.Fatalf("suite %#04x DecryptWithLabel: %v", uint16(vector.CipherSuite), err)
 		}
-		if !bytes.Equal(got, mustHex(t, testCase.Plaintext)) {
+		if !bytes.Equal(got, MustHex(t, testCase.Plaintext)) {
 			t.Errorf("suite %#04x DecryptWithLabel = %x, want %s", uint16(vector.CipherSuite), got, testCase.Plaintext)
 		}
 		// the vector's public key must be the one its private key derives, or the
 		// pairing is untested and a swapped key would go unnoticed.
-		priv, err := X25519PrivateKey(mustHex(t, testCase.Priv))
+		priv, err := X25519PrivateKey(MustHex(t, testCase.Priv))
 		if err != nil {
 			t.Fatalf("parse priv: %v", err)
 		}
-		if !bytes.Equal(priv.PublicKey().Bytes(), mustHex(t, testCase.Pub)) {
+		if !bytes.Equal(priv.PublicKey().Bytes(), MustHex(t, testCase.Pub)) {
 			t.Errorf("suite %#04x: the vector's pub is not derived from its priv", uint16(vector.CipherSuite))
 		}
 		// tampering must fail closed
-		tampered := bytes.Clone(mustHex(t, testCase.Ciphertext))
+		tampered := bytes.Clone(MustHex(t, testCase.Ciphertext))
 		tampered[0] ^= 0x01
-		if _, err := DecryptWithLabel(crypto, HpkePrivateKey(mustHex(t, testCase.Priv)),
-			testCase.Label, mustHex(t, testCase.Context), mustHex(t, testCase.KemOutput), tampered); !errors.Is(err, ErrAeadOpen) {
+		if _, err := DecryptWithLabel(crypto, HpkePrivateKey(MustHex(t, testCase.Priv)),
+			testCase.Label, MustHex(t, testCase.Context), MustHex(t, testCase.KemOutput), tampered); !errors.Is(err, ErrAeadOpen) {
 			t.Errorf("suite %#04x: a tampered ciphertext decrypted", uint16(vector.CipherSuite))
 		}
 	}
@@ -3873,56 +4325,47 @@ func TestCryptoBasicsUnimplementedSuitesAreRefused(t *testing.T) {
 }
 ```
 
+`verifyCryptoBasicsVector` and `generateCryptoBasicsRaw` are written in Task 18; this task's
+`init()` references them, so Task 17 and Task 18 land as a pair or Task 17's file does not compile.
+That is deliberate: registering a family whose `Generate` hook is nil would hide the second
+direction from the registry rather than from the reader.
+
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `go test ./mls/... -run TestCryptoBasics -v` from `connect/`
-Expected: FAIL — `read testdata/vectors/crypto-basics.json: open ...: no such file or directory`.
+Expected: FAIL — `mls/crypto_basics_kat_test.go:...: undefined: verifyCryptoBasicsVector` (build
+failure). If p8 Task 6 has not landed, the failure is instead
+`crypto-basics.json: no such file` from `LoadVectorFile`, which is the correct signal to run p8's
+vendoring task first.
 
 - [ ] **Step 3: Write minimal implementation**
 
-Run, from `connect/mls/testdata/vectors/`:
+No production code and no vendored data. The file and its digest are p8 Task 6's; this task's
+implementation is the runner in Step 1 plus, in the **same commit**, the one-line deletion of `2`
+from `expectedPendingFamilies` in `connect/mls/vectors_test.go`:
 
-```bash
-curl -sL -o crypto-basics.json \
-  https://raw.githubusercontent.com/mlswg/mls-implementations/cfd450286d1bfd9cd2519b95c80f9771f94a5b1a/test-vectors/crypto-basics.json && \
-sha256sum crypto-basics.json
-```
-
-Expected: `17cfcf89af9f51d0f2aa7af77f6f9ec99376a039214b6d42a6f11646b83e8c29  crypto-basics.json`
-
-Add the row to `connect/mls/testdata/vectors/PINS.md`:
-
-```markdown
-| `crypto-basics.json` | `mlswg/mls-implementations` | `cfd450286d1bfd9cd2519b95c80f9771f94a5b1a` | `test-vectors/crypto-basics.json` | `17cfcf89af9f51d0f2aa7af77f6f9ec99376a039214b6d42a6f11646b83e8c29` |
-```
-
-and, below the table:
-
-```markdown
-## crypto-basics.json
-
-Vendored whole, unmodified: 20 KB, one entry per RFC 9420 ciphersuite 0x0001 through 0x0007. The
-five entries for suites this implementation does not register are exercised by
-`TestCryptoBasicsUnimplementedSuitesAreRefused`, which asserts they are refused rather than skipped
-in silence.
-
-This is family 2 of the 16 required by Spec A §4.2.1. The remaining 15 are vendored from this same
-commit by the plans that gate them, and every one of them belongs in this table.
+```go
+// before
+var expectedPendingFamilies = []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}
+// after
+var expectedPendingFamilies = []int{1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./mls/... -run TestCryptoBasics -v` from `connect/`
+Run: `go test ./mls/... -run "TestCryptoBasics|TestVectorFamilies" -v` from `connect/`
 Expected: PASS — `TestCryptoBasicsCoversBothRegisteredSuites`, `TestCryptoBasicsRefHash`,
 `TestCryptoBasicsExpandWithLabel`, `TestCryptoBasicsDeriveSecret`,
 `TestCryptoBasicsDeriveTreeSecret`, `TestCryptoBasicsSignWithLabel`,
-`TestCryptoBasicsEncryptWithLabel`, `TestCryptoBasicsUnimplementedSuitesAreRefused` all ok.
+`TestCryptoBasicsEncryptWithLabel`, `TestCryptoBasicsUnimplementedSuitesAreRefused` all ok, and
+p8's `TestVectorFamiliesVerify` now runs family 2 rather than skipping it, with
+`expectedPendingFamilies` down to fifteen entries.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add mls/testdata/vectors/crypto-basics.json mls/testdata/vectors/PINS.md mls/crypto_basics_vectors_test.go && \
-git commit -m "test(mls): gate crypto-basics vector family, verify direction, both suites"
+git add mls/crypto_basics_kat_test.go mls/vectors_test.go && \
+git commit -m "test(mls): register and gate the crypto-basics vector family, both suites"
 ```
 
 ---
@@ -3930,105 +4373,124 @@ git commit -m "test(mls): gate crypto-basics vector family, verify direction, bo
 ### Task 18: The crypto-basics generate direction
 
 **Files:**
-- Test: `connect/mls/crypto_basics_vectors_test.go`
+- Test: `connect/mls/crypto_basics_kat_test.go`
 
 **Interfaces:**
-- Consumes: everything from Task 17.
-- Produces: `TestCryptoBasicsGenerate` — Spec A §4.2.1's second direction. Verification alone cannot
-  see a bug where the encoder and the decoder are wrong in the same direction, because a supplied
-  vector never round-trips through our encoder.
+- Consumes: everything from Task 17; `func HexOf(b []byte) string` and
+  `func MustHex(t *testing.T, s string) []byte` from the Validation and interop harness (p8).
+- Produces: `verifyCryptoBasicsVector`, `generateCryptoBasicsRaw` — the `Generate` hook the family
+  registration in Task 17 names — and `TestCryptoBasicsGenerate`, Spec A §4.2.1's second direction.
+  Verification alone cannot see a bug where the encoder and the decoder are wrong in the same
+  direction, because a supplied vector never round-trips through our encoder.
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `connect/mls/crypto_basics_vectors_test.go`:
+Append to `connect/mls/crypto_basics_kat_test.go`:
 
 ```go
+// the registry's Generate hook. one entry per registered suite, in the mlswg format,
+// as a single json.RawMessage array — the shape RegisterVectorFamily expects.
+func generateCryptoBasicsRaw(t *testing.T) json.RawMessage {
+	t.Helper()
+	generated := make([]cryptoBasicsVector, 0, len(Suites()))
+	for _, suite := range Suites() {
+		generated = append(generated, generateCryptoBasicsVector(t, suite))
+	}
+	raw, err := json.Marshal(generated)
+	if err != nil {
+		t.Fatalf("marshal the generated crypto-basics vectors: %v", err)
+	}
+	return raw
+}
+
 func TestCryptoBasicsGenerate(t *testing.T) {
 	// generate a fresh vector from our own implementation, serialize it in the mlswg
 	// format, parse it back, and verify it through the same path the supplied vectors
 	// take. this catches an encoder and a decoder that are wrong together.
-	for _, suite := range Suites() {
-		crypto, err := NewCryptoProvider(suite)
-		if err != nil {
-			t.Fatalf("NewCryptoProvider: %v", err)
-		}
-		secret := crypto.Random(crypto.HashSize())
-		signPriv, signPub, err := crypto.SignatureKeyPair()
-		if err != nil {
-			t.Fatalf("SignatureKeyPair: %v", err)
-		}
-		hpkePriv, hpkePub, err := crypto.DeriveKeyPair(crypto.Random(32))
-		if err != nil {
-			t.Fatalf("DeriveKeyPair: %v", err)
-		}
-		content := crypto.Random(48)
-		signature, err := crypto.SignWithLabel(signPriv, "GeneratedSignLabel", content)
-		if err != nil {
-			t.Fatalf("SignWithLabel: %v", err)
-		}
-		plaintext := crypto.Random(32)
-		context := crypto.Random(16)
-		kemOutput, ciphertext, err := EncryptWithLabel(crypto, hpkePub, "GeneratedEncryptLabel", context, plaintext)
-		if err != nil {
-			t.Fatalf("EncryptWithLabel: %v", err)
-		}
+	var decoded []cryptoBasicsVector
+	if err := json.Unmarshal(generateCryptoBasicsRaw(t), &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(decoded) != len(Suites()) {
+		t.Fatalf("decoded %d entries, want %d", len(decoded), len(Suites()))
+	}
+	for _, vector := range decoded {
+		verifyCryptoBasicsVector(t, vector)
+	}
+}
 
-		generated := cryptoBasicsVector{
-			CipherSuite: suite,
-			RefHash: cryptoBasicsRefHash{
-				Label: "GeneratedRefLabel",
-				Value: hex.EncodeToString(content),
-				Out:   hex.EncodeToString(RefHash(crypto, "GeneratedRefLabel", content)),
-			},
-			ExpandWithLabel: cryptoBasicsExpandWithLabel{
-				Secret:  hex.EncodeToString(secret),
-				Label:   "GeneratedExpandLabel",
-				Context: hex.EncodeToString(context),
-				Length:  32,
-				Out:     hex.EncodeToString(crypto.ExpandWithLabel(secret, "GeneratedExpandLabel", context, 32)),
-			},
-			DeriveSecret: cryptoBasicsDeriveSecret{
-				Secret: hex.EncodeToString(secret),
-				Label:  "GeneratedDeriveLabel",
-				Out:    hex.EncodeToString(crypto.DeriveSecret(secret, "GeneratedDeriveLabel")),
-			},
-			DeriveTreeSecret: cryptoBasicsDeriveTreeSecret{
-				Secret:     hex.EncodeToString(secret),
-				Label:      "GeneratedTreeLabel",
-				Generation: 0x0102_0304,
-				Length:     32,
-				Out:        hex.EncodeToString(crypto.DeriveTreeSecret(secret, "GeneratedTreeLabel", 0x0102_0304, 32)),
-			},
-			SignWithLabel: cryptoBasicsSignWithLabel{
-				Priv:      hex.EncodeToString(signPriv),
-				Pub:       hex.EncodeToString(signPub),
-				Content:   hex.EncodeToString(content),
-				Label:     "GeneratedSignLabel",
-				Signature: hex.EncodeToString(signature),
-			},
-			EncryptWithLabel: cryptoBasicsEncryptWithLabel{
-				Priv:       hex.EncodeToString(hpkePriv),
-				Pub:        hex.EncodeToString(hpkePub),
-				Label:      "GeneratedEncryptLabel",
-				Context:    hex.EncodeToString(context),
-				Plaintext:  hex.EncodeToString(plaintext),
-				KemOutput:  hex.EncodeToString(kemOutput),
-				Ciphertext: hex.EncodeToString(ciphertext),
-			},
-		}
+// one generated entry. HexOf is p8's, the same encoder every other family uses, so
+// the corpus this plan emits and the corpus p8's oracle reads cannot disagree about
+// case or about the empty string.
+func generateCryptoBasicsVector(t *testing.T, suite CipherSuite) cryptoBasicsVector {
+	t.Helper()
+	crypto, err := NewCryptoProvider(suite)
+	if err != nil {
+		t.Fatalf("NewCryptoProvider: %v", err)
+	}
+	secret := crypto.Random(crypto.HashSize())
+	signPriv, signPub, err := crypto.SignatureKeyPair()
+	if err != nil {
+		t.Fatalf("SignatureKeyPair: %v", err)
+	}
+	hpkePriv, hpkePub, err := crypto.DeriveKeyPair(crypto.Random(32))
+	if err != nil {
+		t.Fatalf("DeriveKeyPair: %v", err)
+	}
+	content := crypto.Random(48)
+	signature, err := crypto.SignWithLabel(signPriv, "GeneratedSignLabel", content)
+	if err != nil {
+		t.Fatalf("SignWithLabel: %v", err)
+	}
+	plaintext := crypto.Random(32)
+	context := crypto.Random(16)
+	kemOutput, ciphertext, err := EncryptWithLabel(crypto, hpkePub, "GeneratedEncryptLabel", context, plaintext)
+	if err != nil {
+		t.Fatalf("EncryptWithLabel: %v", err)
+	}
 
-		encoded, err := json.Marshal([]cryptoBasicsVector{generated})
-		if err != nil {
-			t.Fatalf("marshal: %v", err)
-		}
-		var decoded []cryptoBasicsVector
-		if err := json.Unmarshal(encoded, &decoded); err != nil {
-			t.Fatalf("unmarshal: %v", err)
-		}
-		if len(decoded) != 1 {
-			t.Fatalf("decoded %d entries", len(decoded))
-		}
-		verifyCryptoBasicsVector(t, decoded[0])
+	return cryptoBasicsVector{
+		CipherSuite: suite,
+		RefHash: cryptoBasicsRefHash{
+			Label: "GeneratedRefLabel",
+			Value: HexOf(content),
+			Out:   HexOf(RefHash(crypto, "GeneratedRefLabel", content)),
+		},
+		ExpandWithLabel: cryptoBasicsExpandWithLabel{
+			Secret:  HexOf(secret),
+			Label:   "GeneratedExpandLabel",
+			Context: HexOf(context),
+			Length:  32,
+			Out:     HexOf(crypto.ExpandWithLabel(secret, "GeneratedExpandLabel", context, 32)),
+		},
+		DeriveSecret: cryptoBasicsDeriveSecret{
+			Secret: HexOf(secret),
+			Label:  "GeneratedDeriveLabel",
+			Out:    HexOf(crypto.DeriveSecret(secret, "GeneratedDeriveLabel")),
+		},
+		DeriveTreeSecret: cryptoBasicsDeriveTreeSecret{
+			Secret:     HexOf(secret),
+			Label:      "GeneratedTreeLabel",
+			Generation: 0x0102_0304,
+			Length:     32,
+			Out:        HexOf(crypto.DeriveTreeSecret(secret, "GeneratedTreeLabel", 0x0102_0304, 32)),
+		},
+		SignWithLabel: cryptoBasicsSignWithLabel{
+			Priv:      HexOf(signPriv),
+			Pub:       HexOf(signPub),
+			Content:   HexOf(content),
+			Label:     "GeneratedSignLabel",
+			Signature: HexOf(signature),
+		},
+		EncryptWithLabel: cryptoBasicsEncryptWithLabel{
+			Priv:       HexOf(hpkePriv),
+			Pub:        HexOf(hpkePub),
+			Label:      "GeneratedEncryptLabel",
+			Context:    HexOf(context),
+			Plaintext:  HexOf(plaintext),
+			KemOutput:  HexOf(kemOutput),
+			Ciphertext: HexOf(ciphertext),
+		},
 	}
 }
 
@@ -4039,33 +4501,33 @@ func verifyCryptoBasicsVector(t *testing.T, vector cryptoBasicsVector) {
 	if err != nil {
 		t.Fatalf("NewCryptoProvider: %v", err)
 	}
-	if got := RefHash(crypto, vector.RefHash.Label, mustHex(t, vector.RefHash.Value)); !bytes.Equal(got, mustHex(t, vector.RefHash.Out)) {
+	if got := RefHash(crypto, vector.RefHash.Label, MustHex(t, vector.RefHash.Value)); !bytes.Equal(got, MustHex(t, vector.RefHash.Out)) {
 		t.Errorf("suite %#04x RefHash = %x, want %s", uint16(vector.CipherSuite), got, vector.RefHash.Out)
 	}
 	expand := vector.ExpandWithLabel
-	if got := crypto.ExpandWithLabel(mustHex(t, expand.Secret), expand.Label, mustHex(t, expand.Context), expand.Length); !bytes.Equal(got, mustHex(t, expand.Out)) {
+	if got := crypto.ExpandWithLabel(MustHex(t, expand.Secret), expand.Label, MustHex(t, expand.Context), expand.Length); !bytes.Equal(got, MustHex(t, expand.Out)) {
 		t.Errorf("suite %#04x ExpandWithLabel = %x, want %s", uint16(vector.CipherSuite), got, expand.Out)
 	}
 	derive := vector.DeriveSecret
-	if got := crypto.DeriveSecret(mustHex(t, derive.Secret), derive.Label); !bytes.Equal(got, mustHex(t, derive.Out)) {
+	if got := crypto.DeriveSecret(MustHex(t, derive.Secret), derive.Label); !bytes.Equal(got, MustHex(t, derive.Out)) {
 		t.Errorf("suite %#04x DeriveSecret = %x, want %s", uint16(vector.CipherSuite), got, derive.Out)
 	}
 	tree := vector.DeriveTreeSecret
-	if got := crypto.DeriveTreeSecret(mustHex(t, tree.Secret), tree.Label, tree.Generation, tree.Length); !bytes.Equal(got, mustHex(t, tree.Out)) {
+	if got := crypto.DeriveTreeSecret(MustHex(t, tree.Secret), tree.Label, tree.Generation, tree.Length); !bytes.Equal(got, MustHex(t, tree.Out)) {
 		t.Errorf("suite %#04x DeriveTreeSecret = %x, want %s", uint16(vector.CipherSuite), got, tree.Out)
 	}
 	sign := vector.SignWithLabel
-	if err := crypto.VerifyWithLabel(SignaturePublicKey(mustHex(t, sign.Pub)), sign.Label, mustHex(t, sign.Content), mustHex(t, sign.Signature)); err != nil {
+	if err := crypto.VerifyWithLabel(SignaturePublicKey(MustHex(t, sign.Pub)), sign.Label, MustHex(t, sign.Content), MustHex(t, sign.Signature)); err != nil {
 		t.Errorf("suite %#04x VerifyWithLabel: %v", uint16(vector.CipherSuite), err)
 	}
 	encrypt := vector.EncryptWithLabel
-	got, err := DecryptWithLabel(crypto, HpkePrivateKey(mustHex(t, encrypt.Priv)), encrypt.Label,
-		mustHex(t, encrypt.Context), mustHex(t, encrypt.KemOutput), mustHex(t, encrypt.Ciphertext))
+	got, err := DecryptWithLabel(crypto, HpkePrivateKey(MustHex(t, encrypt.Priv)), encrypt.Label,
+		MustHex(t, encrypt.Context), MustHex(t, encrypt.KemOutput), MustHex(t, encrypt.Ciphertext))
 	if err != nil {
 		t.Errorf("suite %#04x DecryptWithLabel: %v", uint16(vector.CipherSuite), err)
 		return
 	}
-	if !bytes.Equal(got, mustHex(t, encrypt.Plaintext)) {
+	if !bytes.Equal(got, MustHex(t, encrypt.Plaintext)) {
 		t.Errorf("suite %#04x DecryptWithLabel = %x, want %s", uint16(vector.CipherSuite), got, encrypt.Plaintext)
 	}
 }
@@ -4085,25 +4547,27 @@ func TestCryptoBasicsSuppliedVectorsThroughTheGeneratePath(t *testing.T) {
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `go test ./mls/... -run TestCryptoBasicsGenerate -v` from `connect/`
-Expected: FAIL — `mls/crypto_basics_vectors_test.go:...: undefined: verifyCryptoBasicsVector` if the
-helper is added in a second edit, or a compile error on the `cryptoBasicsVector` literal if any field
-name drifted from Task 17.
+Expected: FAIL — `mls/crypto_basics_kat_test.go:...: undefined: generateCryptoBasicsVector` if the
+generator is added in a second edit, or a compile error on the `cryptoBasicsVector` literal if any
+field name drifted from Task 17.
 
 - [ ] **Step 3: Write minimal implementation**
 
-No production code changes. The generate direction is satisfied entirely by the code Tasks 11–16
+No production code changes. The generate direction is satisfied entirely by the code Tasks 11–16a
 already landed; if it fails, the fix belongs in whichever of those tasks the failing field maps to,
 not here.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./mls/... -run TestCryptoBasics -v` from `connect/`
-Expected: PASS — ten tests ok, covering both directions for both registered suites.
+Run: `go test ./mls/... -run "TestCryptoBasics|TestVectorFamilies" -v` from `connect/`
+Expected: PASS — ten tests ok, covering both directions for both registered suites, and family 2's
+`Generate` hook is now non-nil, so p8's registry runner exercises it instead of treating the format
+as having no generate direction.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add mls/crypto_basics_vectors_test.go && \
+git add mls/crypto_basics_kat_test.go && \
 git commit -m "test(mls): crypto-basics generate direction, both suites"
 ```
 
@@ -4475,13 +4939,18 @@ git commit -m "feat(message): x-wing key generation from a 32-byte seed"
 
 **Files:**
 - Modify: `connect/message/xwing.go`
-- Create: `connect/message/testdata/vectors/xwing-draft10.json`,
-  `connect/message/testdata/vectors/PINS.md`
+- Create: `connect/message/testdata/vectors/rfc/xwing-draft10.json`
+- Modify: `connect/mls/interop/PINS.md` (p8 Task 6's file — one row appended)
 - Test: `connect/message/xwing_test.go`, `connect/message/xwing_vectors_test.go`
 
 **Interfaces:**
 - Consumes: everything from Task 19; `mls.X25519DH`, `mls.X25519PublicKey`,
   `mls.X25519GenerateKey` (Task 4).
+
+`MustHex`, `HexOf` and `LoadVectorFile` are p8's and live in `connect/mls/vectors_test.go`, a
+`_test.go` file: they are visible to `package mls` and to nothing else, so `package message` keeps
+its own `mustHexBytes`. That is the one sanctioned duplicate hex decoder in the slice, and it exists
+because of a Go visibility rule rather than a preference.
 - Produces:
   - `func XwingEncapsulate(random io.Reader, pub *XwingPublicKey) (ct []byte, ss []byte, err error)`
   - `func XwingDecapsulate(priv *XwingPrivateKey, ct []byte) (ss []byte, err error)`
@@ -4648,9 +5117,9 @@ type xwingVector struct {
 	Ss    string `json:"ss"`
 }
 
-const xwingVectorPath = "testdata/vectors/xwing-draft10.json"
+const xwingVectorPath = "testdata/vectors/rfc/xwing-draft10.json"
 
-// the digest recorded in testdata/vectors/PINS.md.
+// the digest recorded in ../mls/interop/PINS.md, the one pin file in the slice.
 const xwingVectorSha256 = "409efe197550b22985b4a0419418a0c5f2c2b193426c55bd998399ec8d3e614d"
 
 func loadXwingVectors(t *testing.T) []xwingVector {
@@ -4661,7 +5130,7 @@ func loadXwingVectors(t *testing.T) []xwingVector {
 	}
 	digest := sha256.Sum256(raw)
 	if got := hex.EncodeToString(digest[:]); got != xwingVectorSha256 {
-		t.Fatalf("%s sha256 = %s, want %s (see testdata/vectors/PINS.md)", xwingVectorPath, got, xwingVectorSha256)
+		t.Fatalf("%s sha256 = %s, want %s (see ../mls/interop/PINS.md)", xwingVectorPath, got, xwingVectorSha256)
 	}
 	var vectors []xwingVector
 	if err := json.Unmarshal(raw, &vectors); err != nil {
@@ -4673,6 +5142,9 @@ func loadXwingVectors(t *testing.T) []xwingVector {
 	return vectors
 }
 
+// package message cannot see p8's MustHex: it is declared in mls/vectors_test.go,
+// and a _test.go file's symbols are not exported across a package boundary. this is
+// the only hex decoder in the slice that is not p8's, and only for that reason.
 func mustHexBytes(t *testing.T, s string) []byte {
 	t.Helper()
 	b, err := hex.DecodeString(s)
@@ -4855,7 +5327,7 @@ func XwingDecapsulate(priv *XwingPrivateKey, ct []byte) ([]byte, error) {
 }
 ```
 
-Then vendor the vectors. Run, from `connect/message/testdata/vectors/`:
+Then vendor the vectors. Run, from `connect/message/testdata/vectors/rfc/`:
 
 ```bash
 curl -sL -o xwing-draft10.json \
@@ -4865,16 +5337,15 @@ sha256sum xwing-draft10.json
 
 Expected: `409efe197550b22985b4a0419418a0c5f2c2b193426c55bd998399ec8d3e614d  xwing-draft10.json`
 
-`connect/message/testdata/vectors/PINS.md`:
+Append one row and one section to `connect/mls/interop/PINS.md` — the single pin file, p8 Task 6's.
+There is no `connect/message/testdata/vectors/PINS.md`.
 
 ```markdown
-# Vendored test vectors
+| `../../message/testdata/vectors/rfc/xwing-draft10.json` | `dconnolly/draft-connolly-cfrg-xwing-kem` | `9b6ce9e614811dba8d46841052f3883cbc4c1a65` | `spec/test-vectors.json` | `409efe197550b22985b4a0419418a0c5f2c2b193426c55bd998399ec8d3e614d` |
+```
 
-| File | Upstream | Commit | Upstream path | sha256 |
-|---|---|---|---|---|
-| `xwing-draft10.json` | `dconnolly/draft-connolly-cfrg-xwing-kem` | `9b6ce9e614811dba8d46841052f3883cbc4c1a65` | `spec/test-vectors.json` | `409efe197550b22985b4a0419418a0c5f2c2b193426c55bd998399ec8d3e614d` |
-
-## xwing-draft10.json
+```markdown
+## message/testdata/vectors/rfc/xwing-draft10.json
 
 Three KAT vectors, vendored whole and unmodified, from the draft-10 reference implementation
 (`spec/xwing.py` at the same commit). Fields per vector: `seed` (32 B), `sk` (32 B, equal to the
@@ -4899,7 +5370,7 @@ Expected: PASS — `TestXwingRoundTrip`, `TestXwingEncapsulateIsNotDerandomizabl
 
 ```bash
 git add message/xwing.go message/xwing_test.go message/xwing_vectors_test.go \
-        message/testdata/vectors/xwing-draft10.json message/testdata/vectors/PINS.md && \
+        message/testdata/vectors/rfc/xwing-draft10.json mls/interop/PINS.md && \
 git commit -m "feat(message): x-wing encapsulate and decapsulate, gated on the draft vectors"
 ```
 
@@ -4912,8 +5383,8 @@ git commit -m "feat(message): x-wing encapsulate and decapsulate, gated on the d
 
 **Interfaces:**
 - Consumes: everything from Tasks 19–20.
-- Produces: `FuzzXwingDecapsulate`, `FuzzParseXwingPublicKey`,
-  `TestMessageDoesNotImportSdk`, `TestMlsDoesNotImportConnect`.
+- Produces: `FuzzXwingDecapsulate`, `FuzzParseXwingPublicKey`, `TestMessageDoesNotImportSdk`,
+  `TestMlsDoesNotImportConnectOrMessage`, `TestConnectDoesNotImportMlsOrMessage`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -5077,16 +5548,113 @@ git commit -m "test(message): fuzz x-wing decapsulate and assert the package lay
 
 ---
 
+### Task 22: Pin `message.XwingPublicKeySize` against `mls.XwingPublicKeyLen`
+
+**Sequenced after p5 Task 4 (wave 2), not with the rest of this plan.** The TreeKEM plan owns
+`LeafKeysExtension` and, with it, `const XwingPublicKeyLen = 1216` in `package mls` — the length
+`LeafNode.Validate` range-checks a device's X-Wing public key against. `mls` must never import
+`message`, so the 1216 is deliberately written twice, in two packages, in one direction only. The
+canonical interface registry assigns the assertion that the two agree to **this** plan, because this
+plan owns the value that is authoritative.
+
+**Files:**
+- Test: `connect/message/xwing_mls_pin_test.go`
+
+**Interfaces:**
+- Consumes: `const mls.XwingPublicKeyLen = 1216` from the **TreeKEM (p5 Task 4, wave 2)** plan;
+  `XwingPublicKeySize`, `XwingGenerateKey` (Task 19).
+- Produces: `TestXwingPublicKeySizeMatchesMls` and the compile-time array assertion behind it.
+
+- [ ] **Step 1: Write the failing test**
+
+`connect/message/xwing_mls_pin_test.go`:
+
+```go
+// the one place the duplicated 1216 is checked.
+//
+// mls.XwingPublicKeyLen and message.XwingPublicKeySize are the same number in two
+// packages because connect/mls must never import connect/message. the duplication is
+// deliberate and one-directional; this file is what stops it from becoming a drift.
+package message
+
+import (
+	"testing"
+
+	"github.com/urnetwork/connect/mls"
+)
+
+// compile-time equality: an array length is a non-negative constant, so declaring the
+// difference in both directions fails to build unless the two constants are equal.
+// this fires before any test runs, which is the point — a mismatch must not be
+// discoverable only by executing something.
+var (
+	_ [XwingPublicKeySize - mls.XwingPublicKeyLen]struct{}
+	_ [mls.XwingPublicKeyLen - XwingPublicKeySize]struct{}
+)
+
+func TestXwingPublicKeySizeMatchesMls(t *testing.T) {
+	if XwingPublicKeySize != mls.XwingPublicKeyLen {
+		t.Fatalf("message.XwingPublicKeySize = %d, mls.XwingPublicKeyLen = %d", XwingPublicKeySize, mls.XwingPublicKeyLen)
+	}
+	// and the constant must be the length a real key actually has, or both sides are
+	// consistently wrong.
+	priv, err := XwingGenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if n := len(priv.Public().Bytes()); n != mls.XwingPublicKeyLen {
+		t.Fatalf("a generated public key is %d bytes, but mls.XwingPublicKeyLen is %d", n, mls.XwingPublicKeyLen)
+	}
+}
+```
+
+Add `"crypto/rand"` to the import block.
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `go test ./message/... -run TestXwingPublicKeySizeMatchesMls -v` from `connect/`
+Expected: FAIL — `message/xwing_mls_pin_test.go:...: undefined: mls.XwingPublicKeyLen` (build
+failure). That is the correct signal that p5 Task 4 has not landed; this task waits for it rather
+than declaring the constant here, because declaring it here would put the leaf-node range check in
+the wrong package.
+
+Then prove the assertion itself, once p5 Task 4 has landed: temporarily change
+`XwingPublicKeySize` in `connect/message/xwing.go` to `1217`.
+Expected: FAIL at build — `invalid array length XwingPublicKeySize - mls.XwingPublicKeyLen`, with
+no test binary produced. Restore `1216`.
+
+- [ ] **Step 3: Write minimal implementation**
+
+None. The implementation is the two constants already agreeing, and `TestXwingSizesAreTheDraftSizes`
+from Task 19 is what fixes this side of the pair at the draft's 1216.
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `go test ./message/... ./mls/... -race -v` from `connect/`
+Expected: PASS — both packages, including `TestXwingPublicKeySizeMatchesMls`.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add message/xwing_mls_pin_test.go && \
+git commit -m "test(message): pin the duplicated x-wing public key length against mls"
+```
+
+---
+
 ## Done means
 
 | Gate | Command | Expected |
 |---|---|---|
 | The `crypto-basics` family passes, both directions, both registered suites | `go test ./mls/... -run TestCryptoBasics -v` | 10 tests ok |
+| Family 2 is registered, not merely implemented | `go test ./mls/... -run TestVectorFamilies -v` | family 2 runs; `expectedPendingFamilies` is down to fifteen |
 | HPKE matches RFC 9180 | `go test ./mls/... -run TestHpkeVector -v` | 5 tests ok, 514 sealed messages |
 | X-Wing matches the draft | `go test ./message/... -run TestXwingVector -v` | 3 tests ok, 3 vectors each |
-| No forbidden primitive, one `hkdf.Extract` pair, one `ECDH` | `go test ./mls/... -run "TestForbidden|TestHkdf|TestEcdh" -v` | 4 gates ok |
+| No forbidden primitive, one `hkdf.Extract` pair, one `ECDH` | `go test ./mls/... -run "TestForbidden\|TestHkdf\|TestEcdh" -v` | 4 gates ok |
 | The provider is complete | `go test ./mls/... -run TestProviderHasNoRemainingStubs -v` | ok for both suites |
-| Layering holds | `go test ./message/... -run "TestMls|TestConnect|TestMessage" -v` | 3 gates ok |
+| The provider is reproducible on demand and random by default | `go test ./mls/... -run "TestProviderWithRandom\|TestNewCryptoProviderDefaults" -v` | 3 tests ok |
+| Layering holds | `go test ./message/... -run "TestMls\|TestConnect\|TestMessage" -v` | 3 gates ok |
+| The duplicated 1216 agrees across the package boundary (after p5 Task 4) | `go test ./message/... -run TestXwingPublicKeySizeMatchesMls -v` | ok |
 | No panics on attacker bytes | `go test ./mls/... ./message/... -fuzz Fuzz... -fuzztime 60s` per target | 0 interesting |
 | Everything, under the race detector | `go test ./mls/... ./message/... -race` | ok |
 | Every shipped platform builds | the `GOOS`/`GOARCH` loop in Task 21 | no output |
@@ -5096,10 +5664,21 @@ git commit -m "test(message): fuzz x-wing decapsulate and assert the package lay
 - **Spec A §5.4 needs a correction**: the combiner input order is `ss_M ‖ ss_X ‖ ct_X ‖ pk_X ‖
   XWingLabel`, label last. Task 20 implements the draft and `TestXwingCombinerOrderMatchesTheDraft`
   pins it, but the spec text should be fixed so the next reader does not implement the table.
-- **`connect/mls/errors.go` is not created by this plan.** The Validation plan owns it and the 43
-  ValSem codes. This plan's `crypto_errors.go` is a separate file on purpose, and the two must not
-  be merged: a crypto failure and a validation semantic are different things and the ValSem tests
-  assert on the specific typed error.
+- **`connect/mls/errors.go` is not created by this plan.** The Validation plan owns it, the 43 ValSem
+  codes and the 51 sentinels. This plan's `crypto_errors.go` is a separate file on purpose, and the
+  two must not be merged: a crypto failure and a validation semantic are different things and the
+  ValSem tests assert on the specific typed error.
+- **`ErrBadSignature` is not declared here.** It is `errors.go`'s, where it is ValSem010. That plan
+  must wrap this plan's `ErrCryptoBadSignature` — e.g. `ErrBadSignature = fmt.Errorf("mls:
+  signature verification failed (ValSem010): %w", ErrCryptoBadSignature)` — so that
+  `errors.Is(err, ErrBadSignature)` and `errors.Is(err, ErrCryptoBadSignature)` both hold on a
+  `VerifyWithLabel` failure. If that wrapping is missing, Gate 3's ValSem010 row goes red against
+  correct crypto, so it is named here rather than left to be discovered.
+- **`connect/go.mod` is p1 Task 1's.** The directive stays at `go 1.26.3` with `toolchain
+  go1.26.5`; this plan asserts the toolchain through `runtime.Version()` and never edits the file.
+- **The `HpkeCiphertext`-shaped `SealWithLabel`/`OpenWithLabel` pair is p5's**, not this plan's.
+  `EncryptWithLabel`/`DecryptWithLabel` here keep the flat `(kemOutput, ciphertext)` form so this
+  plan stays free of TreeKEM types.
 - **The `psk_secret` vector family (family 6) is the Key schedule plan's**, not this one's, even
   though PSK proposals are profile-refused. The empty-PSK case runs on every epoch.
 - **`XwingEncapsulate`'s `random` argument is honoured only for `ek_X`.** If a later plan needs a

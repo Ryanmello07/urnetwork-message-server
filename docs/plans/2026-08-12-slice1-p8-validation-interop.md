@@ -61,6 +61,47 @@ CI; GitHub Actions.
 - All `go test` and `git` commands in this plan run from the **workspace root**, the directory holding
   the sibling `connect/`, `sdk/` and `server/` checkouts wired by `go.work` (see the
   `urnetwork-workspace` skill). The branch is `beta/message` in `connect`.
+- `go.mod` keeps `go 1.26.3` and gains `toolchain go1.26.5`. The `go` directive is the syntax-and-codec
+  plan's to edit and nothing here touches it.
+
+### The four cross-plan conventions (canonical interface registry §0)
+
+**C1 — one codec, one method set.** Every wire type in `package mls` implements exactly:
+
+```go
+MarshalMLS(w *syntax.Writer) error
+UnmarshalMLS(r *syntax.Reader) error
+```
+
+and nothing else. No `MarshalTo`, no `MarshalTLS`, no `Marshal() ([]byte, error)`, no
+`Parse<Type>(data []byte)` free constructor, no `tls:` struct tags, no reflection. Byte-level access
+is `syntax.Marshal(&v)` / `syntax.Unmarshal(bs, &v)`. Every wire type carries
+`var _ syntax.Codec = (*T)(nil)` in its own file so drift fails at build rather than at Gate 4.
+
+The two sanctioned exceptions, because they are a different operation rather than a second spelling
+of the same one:
+- **Extension bodies.** `Extension.ExtensionData` is opaque, so a concrete extension converts
+  bytes↔struct: `func (self *X) Encode() (Extension, error)` and
+  `func ParseXExtension(data []byte) (*X, error)`. Owned per-extension.
+- **This plan's codec table.** Five decode/encode closures over `syntax.Marshal`/`syntax.Unmarshal`,
+  built in `codec_table.go` (Task 11). They export no new `Parse*`/`Encode*` names. `ParseMLSMessage`
+  and `MarshalMLSMessage` are the framing plan's, and are the single entry point every byte off the
+  wire passes through.
+
+**C2 — the syntax Writer is sticky *and* `MarshalMLS` returns an error.** Leaf writes
+(`WriteUint16`, `WriteOpaque`, …) return nothing and set a sticky error; one check at `Bytes()`
+suffices. `MarshalMLS` and the higher-order encode callbacks (`WriteVector`, `WriteOptional`) return
+`error`, because MLS encoders have *semantic* refusals — `Credential.MarshalMLS` returns
+`ErrProfileCredentialType` on an x509 credential — that are not buffer errors and must not be
+dropped. `syntax.Marshal` returns `errors.Join(v.MarshalMLS(w), w.Err())`.
+
+**C3 — counts are `LeafCount`, indices are `LeafIndex`/`NodeIndex`, and tree-math arithmetic that can
+be out of range returns an error.** `TreeSize` does not exist. This plan calls the two-valued form
+and handles the error; it takes **no** single-valued shims, because a shim that turns an error into
+`false` is exactly how ValSem300's trailing-blank case gets silently accepted.
+
+**C4 — the GroupContext crosses a plan boundary as bytes.** Every framing entry point takes
+`groupContext []byte`. Callers obtain them from `syntax.Marshal(gc)` or `(*Group).GroupContext()`.
 
 ---
 
@@ -72,8 +113,12 @@ Every file created or modified by this plan, and its single responsibility.
 |---|---|
 | `connect/layering_test.go` | Walks `go list -deps`; asserts the four forbidden import edges of Spec A §2.3 |
 | `connect/scripts/check-forbidden.sh` | Grep gates G1, G3, G8 and the three forbidden X25519 call sites |
-| `connect/mls/errors.go` | `ValSemCode`, `ValidationError`, one sentinel per ValSem code and per erratum |
+| `connect/mls/errors.go` | `ValSemCode`, `ValidationError`, the 51-entry catalogue, the sentinels |
 | `connect/mls/errors_test.go` | Catalogue closure; `errors.Is` semantics; ValSem coverage report |
+| `connect/mls/profile.go` | `Profile`, `DefaultProfile`, the seven `Check*` gates of the v1 narrow profile |
+| `connect/mls/profile_test.go` | `TestProfileIsClosed` and the five narrow-profile refusal tests |
+| `connect/mls/codec_table.go` | `CodecKind`, `CodecPair`, `CodecFor`, `CodecKinds` — **not** a `_test.go` file |
+| `connect/mls/codec_table_test.go` | `TestCodecTableIsClosed`, `TestCodecTableRejectsEmptyInput` |
 | `connect/mls/ERRATA.md` | RFC 9420 errata 8745 and 8815 transcribed verbatim, with the fetch date |
 | `connect/mls/errata_test.go` | Transcription guard + `TestErrata8745` + `TestErrata8815` |
 | `connect/mls/vectors_test.go` | Vector-family registry, JSON loader, manifest closure, generate meta-test |
@@ -88,12 +133,16 @@ Every file created or modified by this plan, and its single responsibility.
 | `connect/mls/validation_external_test.go` | ValSem240–246 |
 | `connect/mls/validation_psk_test.go` | ValSem401–403 |
 | `connect/mls/validation_epoch_test.go` | ValSem400 past-epoch bound |
-| `connect/mls/PINS.md` | Pinned mlswg commit, OpenMLS commit, three peer image digests |
-| `connect/mls/testdata/vectors/*.json` | The 16 vendored vector families |
+| `connect/mls/interop/PINS.md` | The **one** pin file: `mlswg=<sha>`, `openmls=<sha>`, three peer image digests |
+| `connect/mls/testdata/vectors/*.json` | The 16 vendored mlswg vector families, and nothing else |
+| `connect/mls/testdata/vectors/rfc/*.json` | Separately-sourced RFC 9180 / X-Wing vectors, outside the sixteen-file assertion |
 | `connect/mls/testdata/vectors/VECTORS.sha256` | Per-file digest manifest; makes a silent re-vendor a test failure |
-| `connect/mls/testdata/corpus/**` | Seed corpus for the 9 targets |
+| `connect/mls/testdata/corpus/**` | Committed seed corpus for the 9 targets, generated by `cmd/seedgen` |
 | `connect/mls/testdata/divergence-allowlist.json` | Justified accept/reject divergences from OpenMLS |
 | `connect/mls/interop/go.mod` | Separate module; gRPC and protobuf live here and nowhere else |
+| `connect/mls/interop/test-runner/` | The vendored mlswg gRPC test runner and its 8 config JSONs |
+| `connect/mls/interop/cmd/merge-runner-output/` | Unions the three runner outputs into one observed-failure set |
+| `connect/mls/interop/cmd/seedgen/` | Generates the committed fuzz seed corpus from the vector corpus |
 | `connect/mls/interop/proto/mls_client.proto` | Vendored mlswg service definition |
 | `connect/mls/interop/proto/mls_client.pb.go` | Generated messages |
 | `connect/mls/interop/proto/mls_client_grpc.pb.go` | Generated service stubs |
@@ -141,8 +190,61 @@ func (self *ValidationError) Is(target error) bool
 
 func ValSem(code ValSemCode, detail error) error
 func CodeOf(err error) (ValSemCode, bool)
-func ValSemCatalogue() []ValSemCode          // sorted, exactly 46 entries
+func ValSemCatalogue() []ValSemCode          // sorted, exactly 51 entries
 func ReasonFor(code ValSemCode) string
+```
+
+The sentinels are the single declaration site for every one of these names. The framing ten move
+here from the framing plan, the PSK three move here from the key-schedule plan, and the five narrow
+-profile refusals are new:
+
+```go
+// framing, ValSem002-011
+var ErrWrongGroupId, ErrWrongEpoch, ErrBlankSenderLeaf error
+var ErrApplicationMustBeCiphertext, ErrDecryptFailed error
+var ErrMissingMembershipTag, ErrBadMembershipTag error
+var ErrMissingConfirmationTag, ErrBadSignature, ErrNonZeroPadding error
+
+// proposals and commits, ValSem101-113 / 200-209 / 300
+var ErrDuplicateSignatureKey, ErrDuplicateInitKey, ErrDuplicateEncryptionKey error
+var ErrInitEqualsEncryptionKey, ErrSuiteMismatch, ErrMissingRequiredCapability error
+var ErrDuplicateRemove, ErrRemoveNonMember, ErrSelfUpdateInCommit error
+var ErrUpdateSenderNotMember, ErrUnsupportedProposalType error
+var ErrSelfRemoveInCommit, ErrMissingPath, ErrPathLength, ErrPathDecrypt error
+var ErrPathKeyMismatch, ErrBadConfirmationTag, ErrMultipleGCE error
+var ErrUnsupportedGroupExtension, ErrTrailingBlankNodes error
+
+// past-epoch window and PSK, ValSem400-403
+var ErrPastEpochRetained, ErrPskNonceLength, ErrPskType, ErrDuplicatePsk error
+
+// the v1 narrow profile
+var ErrProfileExternalCommit, ErrProfileExternalSender, ErrProfilePsk error
+var ErrProfileReInit, ErrProfileBranch error
+var ErrProfileCredentialType, ErrProfileCiphersuite error
+
+// errata
+var ErrUnknownProposalRef error
+```
+
+```go
+// connect/mls/profile.go — the v1 narrow profile. Group creation, every parse
+// boundary and the interop client all gate through it, and profile_test.go asserts
+// the allow-sets equal Spec A §3.1/§3.2 exactly.
+package mls
+
+type Profile struct {
+    AllowPublicMessage bool     // false in DefaultProfile; the passive-client vectors set it
+    /* unexported allow-sets */
+}
+
+func DefaultProfile() *Profile
+func (self *Profile) CheckVersion(v ProtocolVersion) error
+func (self *Profile) CheckCiphersuiteForCreate(s CipherSuite) error
+func (self *Profile) CheckProposalType(t ProposalType) error
+func (self *Profile) CheckCredentialType(t CredentialType) error
+func (self *Profile) CheckGroupExtension(t ExtensionType) error
+func (self *Profile) CheckLeafExtension(t ExtensionType) error
+func (self *Profile) CheckWireFormat(w WireFormat) error
 ```
 
 ```go
@@ -166,8 +268,11 @@ func HexOf(b []byte) string
 ```
 
 ```go
-// connect/mls/syntax_fuzz_test.go — the codec table the fuzz targets and the
-// oracle protocol share. Each Parse/Encode pair is supplied by its owning plan.
+// connect/mls/codec_table.go — NOT a _test.go file. The Go oracle client and the
+// separate connect/mls/interop module cannot see symbols in a test file, and the
+// kind id is the shared contract that stops Go and Rust drifting about which
+// decoder a divergence concerns. Every pair is one line over syntax.Marshal /
+// syntax.Unmarshal (C1); no Parse*/Encode* names are asked of any other plan.
 package mls
 
 type CodecKind uint8
@@ -237,91 +342,298 @@ type oracleResult struct {
 }
 
 func newOracle(t *testing.T) *oracle      // t.Skip when URMSG_MLS_ORACLE is unset
+func mustNewOracle(tb testing.TB) *oracle // the non-skipping form a fuzz target needs
 func (self *oracle) decode(kind CodecKind, input []byte) (oracleResult, error)
 func (self *oracle) close() error
 ```
 
+`Reserialized` is a `[]byte` with the plain `reserialized` tag: `encoding/json` already decodes a
+standard-base64 string into `[]byte`, so no second field and no manual decode step.
+
 ## Interfaces consumed by this plan
 
-Named against the plan expected to produce them. A signature drift here is a merge conflict, not a
-silent failure — every one of these is referenced by real code in a task below.
+Every signature below is the canonical interface registry's, verbatim. Every one is referenced by
+real code in a task below, and nothing in this plan calls a name that is not here.
 
 **From "Syntax and codec" (wave 1), `package syntax`:**
 
 ```go
-func Marshal(v any) ([]byte, error)
-func Unmarshal(b []byte, v any) error
-func ReadVarint(b []byte) (value uint64, n int, err error)
-func WriteVarint(dst []byte, value uint64) []byte
-const MaxVectorLength = 1 << 20
-const MaxRatchetTreeLength = 1 << 24
-var ErrNonMinimalLength error
+const MaxVarint uint32 = 1<<30 - 1
+const MaxVectorLength int = 1 << 20
+const MaxRatchetTreeLength int = 1 << 24
+
+var ErrTruncated error
 var ErrTrailingBytes error
-var ErrVectorTooLong error
+var ErrVarintReserved error
+var ErrVarintNotMinimal error
+var ErrVarintOverflow error
+var ErrLengthExceedsInput error
+var ErrLengthExceedsMax error
+var ErrZeroLengthElement error
+var ErrRoundTripNotByteExact error
+var ErrRoundTripNotStable error
+
+type Writer struct{ ... }
+func NewWriter() *Writer
+func (self *Writer) Bytes() ([]byte, error)
+func (self *Writer) WriteVarint(v uint32)
+func (self *Writer) WriteOpaque(bs []byte)
+
+type Reader struct{ ... }
+func NewReader(bs []byte) *Reader
+func (self *Reader) ReadVarint() (uint32, error)
+func (self *Reader) ReadOpaque() ([]byte, error)
+
+type Marshaler interface{ MarshalMLS(w *Writer) error }
+type Unmarshaler interface{ UnmarshalMLS(r *Reader) error }
+type Codec interface {
+    Marshaler
+    Unmarshaler
+}
+func Marshal(v Marshaler) ([]byte, error)
+func Unmarshal(bs []byte, v Unmarshaler) error
+func CheckRoundTrip[T any, PT interface {
+    *T
+    Codec
+}](bs []byte) error
+
+// family 16 is implemented once, in package syntax, against the Reader/Writer
+// varint methods it actually ships. Task 8 is a registry shim over this.
+func VerifyDeserializationVector(t *testing.T, raw json.RawMessage)
 ```
+
+The append-style free functions this plan used to name — `syntax.ReadVarint(b) (uint64, int, error)`
+and `syntax.WriteVarint(dst, v) []byte` — do not exist and are not added. The varint is
+`syntax.NewReader(b).ReadVarint()`, and it is `uint32`-valued. `ErrNonMinimalLength` is
+`ErrVarintNotMinimal`; `ErrVectorTooLong` is `ErrLengthExceedsMax`.
 
 **From "Crypto primitives and HPKE" (wave 1), `package mls`:**
 
 ```go
 type CipherSuite uint16
-const CipherSuiteX25519ChaCha20SHA256Ed25519 CipherSuite = 0x0003
-const CipherSuiteX25519AES128GCMSHA256Ed25519 CipherSuite = 0x0001
+const CipherSuiteX25519AesGcm128Sha256Ed25519 CipherSuite = 0x0001
+const CipherSuiteX25519ChaCha20Sha256Ed25519  CipherSuite = 0x0003
+
+func Suites() []CipherSuite
+func LookupSuite(suite CipherSuite) (*SuiteParams, error)
+func IsRegisteredSuite(suite CipherSuite) bool
+
+type HpkePublicKey []byte
+type HpkePrivateKey []byte
+type SignaturePublicKey []byte
+type SignaturePrivateKey []byte
+
 type CryptoProvider interface { /* Spec A §3.3, verbatim */ }
 func NewCryptoProvider(suite CipherSuite) (CryptoProvider, error)
 func NewCryptoProviderWithRandom(suite CipherSuite, random io.Reader) (CryptoProvider, error)
-func RegisteredSuites() []CipherSuite
-type SignaturePrivateKey []byte
-type SignaturePublicKey []byte
-type HpkePrivateKey []byte
-type HpkePublicKey []byte
+
+func MakeKeyPackageRef(crypto CryptoProvider, keyPackage []byte) []byte
+func MakeProposalRef(crypto CryptoProvider, authenticatedContent []byte) []byte
+
+var ErrUnknownCipherSuite error
+var ErrInvalidPoint error
+var ErrCryptoBadSignature error
+var ErrAeadOpen error
 ```
 
-`NewCryptoProviderWithRandom` is required by the forge so a failing ValSem test reproduces from a
-fixed seed. It is called out in the summary as an ask on that plan.
+`RegisteredSuites()` does not exist: `Suites()` plus `IsRegisteredSuite()` is the pair. The suite
+constants are `…ChaCha20Sha256…` and `…AesGcm128Sha256…`, per `CODESTYLE.md`'s no-all-caps rule.
+`MakeProposalRef` returns a bare `[]byte` — there is no error to handle. `ErrBadSignature` is
+**this plan's** ValSem010 sentinel and wraps the crypto layer's `ErrCryptoBadSignature`, so
+`errors.Is` holds through both.
 
 **From "Tree math" (wave 1), `package mls`:**
 
 ```go
 type LeafIndex uint32
 type NodeIndex uint32
-func Root(leafCount uint32) NodeIndex
-func DirectPath(x LeafIndex, leafCount uint32) []NodeIndex
-func Copath(x LeafIndex, leafCount uint32) []NodeIndex
+type LeafCount uint32
+
+func (self LeafIndex) NodeIndex() NodeIndex
+func Root(n LeafCount) (NodeIndex, error)
+func DirectPath(x NodeIndex, n LeafCount) ([]NodeIndex, error)
+func Copath(x NodeIndex, n LeafCount) ([]NodeIndex, error)
 ```
+
+Counts are `LeafCount`, indices are `NodeIndex`, and all three take an error return (**C3**). This
+plan takes no single-valued shims.
 
 **From "Key schedule and secret tree" (wave 2), `package mls`:**
 
 ```go
-type EpochSecretName uint8
+const PastEpochWindow uint64 = 32
+
+type GroupContext struct {
+    Version                 ProtocolVersion
+    CipherSuite             CipherSuite
+    GroupId                 []byte
+    Epoch                   uint64
+    TreeHash                []byte
+    ConfirmedTranscriptHash []byte
+    Extensions              []Extension
+}
+
+type PskType uint8
 const (
-    EpochSecretSenderData EpochSecretName = iota + 1
-    EpochSecretEncryption
+    PskTypeExternal   PskType = 1
+    PskTypeResumption PskType = 2
 )
-func (self *Group) EpochSecret(name EpochSecretName) ([]byte, error)
-func (self *Group) Export(label string, context []byte, length int) ([]byte, error)
-func (self *Group) EpochAuthenticator() []byte
+type ResumptionPskUsage uint8
+const (
+    ResumptionPskUsageApplication ResumptionPskUsage = 1
+    ResumptionPskUsageReInit      ResumptionPskUsage = 2
+    ResumptionPskUsageBranch      ResumptionPskUsage = 3
+)
+type PreSharedKeyId struct {
+    PskType    PskType
+    PskId      []byte
+    Usage      ResumptionPskUsage
+    PskGroupId []byte
+    PskEpoch   uint64
+    PskNonce   []byte
+}
 ```
 
-**From "TreeKEM" (wave 2), `package mls`:**
+`PastEpochWindow` is a `uint64` and is declared once, here. `PreSharedKeyID` is `PreSharedKeyId`.
+
+**From "Registry enums, extensions, tree, TreeKEM" (wave 2), `package mls`:**
 
 ```go
-type UpdatePath struct {
-    LeafNode LeafNode
-    Nodes    []UpdatePathNode
+type ProtocolVersion uint16
+const ProtocolVersionMls10 ProtocolVersion = 0x0001
+
+type CredentialType uint16
+const CredentialTypeBasic CredentialType = 0x0001
+
+type ProposalType uint16
+const (
+    ProposalTypeAdd                    ProposalType = 0x0001
+    ProposalTypeUpdate                 ProposalType = 0x0002
+    ProposalTypeRemove                 ProposalType = 0x0003
+    ProposalTypePreSharedKey           ProposalType = 0x0004
+    ProposalTypeReInit                 ProposalType = 0x0005
+    ProposalTypeExternalInit           ProposalType = 0x0006
+    ProposalTypeGroupContextExtensions ProposalType = 0x0007
+)
+
+type ExtensionType uint16
+const (
+    ExtensionTypeRatchetTree             ExtensionType = 0x0002
+    ExtensionTypeRequiredCapabilities    ExtensionType = 0x0003
+    ExtensionTypeExternalSenders         ExtensionType = 0x0004
+    ExtensionTypeUrmessageGroupPolicy    ExtensionType = 0xF001
+    ExtensionTypeUrmessageLeafKeys       ExtensionType = 0xF002
+    ExtensionTypeUrmessageOwnerSuccessor ExtensionType = 0xF003
+)
+
+type Extension struct {
+    ExtensionType ExtensionType
+    ExtensionData []byte
 }
-type UpdatePathNode struct {
-    EncryptionKey HpkePublicKey
-    EncryptedPathSecret []HpkeCiphertext
+func FindExtension(exts []Extension, t ExtensionType) ([]byte, bool)
+
+type Capabilities struct {
+    Versions     []ProtocolVersion
+    CipherSuites []CipherSuite
+    Extensions   []ExtensionType
+    Proposals    []ProposalType
+    Credentials  []CredentialType
 }
+type RequiredCapabilities struct {
+    ExtensionTypes  []ExtensionType
+    ProposalTypes   []ProposalType
+    CredentialTypes []CredentialType
+}
+type Credential struct {
+    CredentialType CredentialType
+    Identity       []byte
+}
+func BasicCredential(identity []byte) Credential
+
+type LeafNode struct {
+    EncryptionKey  HpkePublicKey
+    SignatureKey   SignaturePublicKey
+    Credential     Credential
+    Capabilities   Capabilities
+    LeafNodeSource LeafNodeSource
+    Lifetime       Lifetime
+    ParentHash     []byte
+    Extensions     []Extension
+    Signature      []byte
+}
+
+type KeyPackage struct {
+    Version     ProtocolVersion
+    CipherSuite CipherSuite
+    InitKey     HpkePublicKey
+    LeafNode    LeafNode
+    Extensions  []Extension
+    Signature   []byte
+}
+func NewKeyPackage(crypto CryptoProvider, suite CipherSuite, cred Credential,
+    caps Capabilities, exts []Extension) (kp *KeyPackage, initPriv HpkePrivateKey,
+    encPriv HpkePrivateKey, err error)
+func (self *KeyPackage) Ref(crypto CryptoProvider) ([]byte, error)
+
+type Node struct {
+    NodeType NodeType
+    Leaf     *LeafNode
+    Parent   *ParentNode
+}
+type OptionalNode struct {
+    Present bool
+    Node    Node
+}
+type RatchetTree struct{ /* opaque */ }
+func UnmarshalRatchetTree(data []byte) (*RatchetTree, error)
+func (self *RatchetTree) HasTrailingBlankNodes() bool
+type TreeValidationContext struct {
+    Crypto          CryptoProvider
+    Suite           CipherSuite
+    GroupId         []byte
+    RequiredCaps    *RequiredCapabilities
+    GroupExtensions []Extension
+    NowMs           uint64
+    ClockSkewMs     uint64
+}
+func (self *RatchetTree) Validate(ctx *TreeValidationContext) error
+
 type HpkeCiphertext struct {
     KemOutput  []byte
     Ciphertext []byte
 }
+type UpdatePathNode struct {
+    EncryptionKey       HpkePublicKey
+    EncryptedPathSecret []HpkeCiphertext
+}
+type UpdatePath struct {
+    LeafNode LeafNode
+    Nodes    []UpdatePathNode
+}
+func CheckUpdatePathKeyUniqueness(tree *RatchetTree, path *UpdatePath) error
+
+const AlgIdXwing uint16 = 0x0014
+const XwingPublicKeyLen = 1216
+type LeafKeysExtension struct {
+    AlgId          uint16
+    DeviceXwingPub []byte
+}
 ```
+
+`ParseRatchetTree`, `EncodeRatchetTree`, `ValidateRatchetTree` and `RatchetTreeExtension` do not
+exist. Parsing is `UnmarshalRatchetTree(data)` (which applies `MaxRatchetTreeLength` itself),
+encoding is `syntax.Marshal(tree)`, validating is `(*RatchetTree).Validate(ctx)`, and finding the
+extension is `FindExtension(exts, ExtensionTypeRatchetTree)`.
 
 **From "Framing and message protection" (wave 3), `package mls`:**
 
 ```go
+type WireFormat uint16
+const (
+    WireFormatPublicMessage  WireFormat = 0x0001
+    WireFormatPrivateMessage WireFormat = 0x0002
+    WireFormatKeyPackage     WireFormat = 0x0005
+)
 type ContentType uint8
 const (
     ContentTypeApplication ContentType = 1
@@ -330,79 +642,247 @@ const (
 )
 type SenderType uint8
 const (
-    SenderMember            SenderType = 1
-    SenderExternal          SenderType = 2
-    SenderNewMemberProposal SenderType = 3
-    SenderNewMemberCommit   SenderType = 4
+    SenderTypeMember            SenderType = 1
+    SenderTypeExternal          SenderType = 2
+    SenderTypeNewMemberProposal SenderType = 3
+    SenderTypeNewMemberCommit   SenderType = 4
 )
+
 type Sender struct {
-    Type       SenderType
-    LeafIndex  LeafIndex
+    SenderType  SenderType
+    LeafIndex   LeafIndex
     SenderIndex uint32
 }
 type FramedContent struct {
-    GroupId     []byte
-    Epoch       uint64
-    Sender      Sender
+    GroupId           []byte
+    Epoch             uint64
+    Sender            Sender
     AuthenticatedData []byte
-    ContentType ContentType
-    Application []byte
-    Proposal    *Proposal
-    Commit      *Commit
+    ContentType       ContentType
+    ApplicationData   []byte
+    Proposal          *Proposal
+    Commit            *Commit
 }
 type FramedContentAuthData struct {
-    Signature        []byte
-    ConfirmationTag  []byte
-    HasConfirmationTag bool
+    Signature       []byte
+    ConfirmationTag []byte
 }
-type WireFormat uint16
+type AuthenticatedContent struct {
+    WireFormat WireFormat
+    Content    FramedContent
+    Auth       FramedContentAuthData
+}
+func (self *AuthenticatedContent) ProposalRef(crypto CryptoProvider) (ProposalRef, error)
+type PublicMessage struct {
+    Content       FramedContent
+    Auth          FramedContentAuthData
+    MembershipTag []byte
+}
+func (self *PublicMessage) AuthenticatedContent() *AuthenticatedContent
+type PrivateMessage struct {
+    GroupId             []byte
+    Epoch               uint64
+    ContentType         ContentType
+    AuthenticatedData   []byte
+    EncryptedSenderData []byte
+    Ciphertext          []byte
+}
+type MLSMessage struct {
+    Version        ProtocolVersion
+    WireFormat     WireFormat
+    PublicMessage  *PublicMessage
+    PrivateMessage *PrivateMessage
+    Welcome        *Welcome
+    GroupInfo      *GroupInfo
+    KeyPackage     *KeyPackage
+}
+func MarshalMLSMessage(message *MLSMessage) ([]byte, error)
+func ParseMLSMessage(data []byte) (*MLSMessage, error)
+
+type Add struct{ KeyPackage KeyPackage }
+type Update struct{ LeafNode LeafNode }
+type Remove struct{ Removed LeafIndex }
+type PreSharedKey struct{ Psk PreSharedKeyId }
+type ExternalInit struct{ KemOutput []byte }
+type GroupContextExtensions struct{ Extensions []Extension }
+type Proposal struct {
+    ProposalType           ProposalType
+    Add                    *Add
+    Update                 *Update
+    Remove                 *Remove
+    PreSharedKey           *PreSharedKey
+    ReInit                 *ReInit
+    ExternalInit           *ExternalInit
+    GroupContextExtensions *GroupContextExtensions
+    UnknownType            ProposalType
+    UnknownBody            []byte
+}
+type ProposalOrRefType uint8
 const (
-    WireFormatPublicMessage  WireFormat = 1
-    WireFormatPrivateMessage WireFormat = 2
+    ProposalOrRefTypeProposal  ProposalOrRefType = 1
+    ProposalOrRefTypeReference ProposalOrRefType = 2
 )
-// the construction-bypass seam the forge needs — signs and frames c exactly as
-// the honest path does, but runs no validation gate.
-func (self *Group) sealFramedContentForTest(c *FramedContent, auth *FramedContentAuthData,
-    wf WireFormat, signer SignaturePrivateKey) ([]byte, error)
-func ParseMLSMessage(b []byte) (*MLSMessage, error)
-func EncodeMLSMessage(m *MLSMessage) ([]byte, error)
-```
-
-`sealFramedContentForTest` is an unexported seam in `framing.go`, not a public API. It is called out
-in the summary as an ask on that plan.
-
-**From "Group lifecycle" (wave 4), `package mls`:**
-
-```go
-func NewGroup(cfg *GroupConfig, signer SignaturePrivateKey, cred Credential) (*Group, error)
-func JoinFromWelcome(cfg *GroupConfig, welcome []byte, ratchetTree []byte, keys *JoinKeyMaterial) (*Group, error)
-func (self *Group) Commit(byReference [][]byte, byValue []Proposal, opts *CommitOptions) (*CommitResult, error)
-func (self *Group) ProcessMessage(message []byte) (*Processed, error)
-func (self *Group) ApplyCommit(processed *Processed) error
-func (self *Group) MergePendingCommit() error
-func (self *Group) ClearPendingCommit()
-func (self *Group) Close() error            // releases and zeroizes; the interop Free RPC needs it
-type StateStore interface { /* Spec A §3.5, verbatim */ }
-type Proposal struct { /* proposal.go */ }
 type ProposalRef []byte
+type ProposalOrRef struct {
+    Type      ProposalOrRefType
+    Proposal  *Proposal
+    Reference ProposalRef
+}
 type Commit struct {
     Proposals []ProposalOrRef
     Path      *UpdatePath
 }
-type Profile struct { /* profile.go */ }
-const PastEpochWindow = 32
-func ParseExtension(b []byte) (*Extension, error)
-func EncodeExtension(e *Extension) ([]byte, error)
-func ParseKeyPackage(b []byte) (*KeyPackage, error)
-func EncodeKeyPackage(kp *KeyPackage) ([]byte, error)
-func ParseProposal(b []byte) (*Proposal, error)
-func EncodeProposal(p *Proposal) ([]byte, error)
-func ParseWelcome(b []byte) (*Welcome, error)
-func EncodeWelcome(w *Welcome) ([]byte, error)
+type Welcome struct {
+    CipherSuite        CipherSuite
+    Secrets            []EncryptedGroupSecrets
+    EncryptedGroupInfo []byte
+}
+type GroupInfo struct {
+    GroupContext    GroupContext
+    Extensions      []Extension
+    ConfirmationTag []byte
+    Signer          LeafIndex
+    Signature       []byte
+}
+
+func SignAuthenticatedContent(crypto CryptoProvider, priv SignaturePrivateKey,
+    wireFormat WireFormat, content *FramedContent, groupContext []byte) (*AuthenticatedContent, error)
+
+// the two construction-bypass seams the forge needs — unexported, framing.go
+func (self *Group) sealFramedContentForTest(c *FramedContent, auth *FramedContentAuthData,
+    wf WireFormat, signer SignaturePrivateKey) ([]byte, error)
+func (self *Group) sealFramedContentWithPaddingForTest(c *FramedContent, auth *FramedContentAuthData,
+    wf WireFormat, signer SignaturePrivateKey, padding []byte) ([]byte, error)
 ```
 
-`Group.Close()` is required by the interop `Free` RPC, whose CI job asserts zero leaked states at
-exit. It is called out in the summary as an ask on that plan.
+`EncodeMLSMessage` does not exist — the encoder is `MarshalMLSMessage`, and `ParseMLSMessage` /
+`MarshalMLSMessage` are the one sanctioned pair of byte-level free functions outside this plan's
+codec table. `MLSMessage`'s arms are **fields**, not accessor methods. Three asks this plan used to
+make are refused, with the substitute named: `FramedContentAuthData.MembershipTag` →
+`PublicMessage.MembershipTag`; `FramedContentAuthData.HasConfirmationTag` → presence is derived from
+`ContentType`; `FramedContent.RawProposal` → `Proposal.UnknownType` / `Proposal.UnknownBody`.
+
+**From "Group lifecycle" (wave 4), `package mls`:**
+
+```go
+type StateStore interface {
+    PutGroupState(groupId []byte, epoch uint64, state []byte) error
+    GetGroupState(groupId []byte, epoch uint64) ([]byte, error)
+    DeleteGroupStateBefore(groupId []byte, epoch uint64) error
+    PutPrivateKey(pub []byte, priv []byte) error
+    GetPrivateKey(pub []byte) ([]byte, error)
+    DeletePrivateKey(pub []byte) error
+    PutKeyPackage(ref []byte, kp []byte, initPriv []byte, encPriv []byte) error
+    TakeKeyPackage(ref []byte) (kp, initPriv, encPriv []byte, err error)
+}
+
+type GroupConfig struct {
+    Suite        CipherSuite
+    GroupId      []byte
+    Extensions   []Extension
+    RequiredCaps RequiredCapabilities
+    Crypto       CryptoProvider
+    Store        StateStore
+    Profile      *Profile
+    LeafKeys     LeafKeysExtension
+}
+type Member struct {
+    LeafIndex    LeafIndex
+    IdentityPub  []byte
+    SignatureKey SignaturePublicKey
+    LeafKeys     *LeafKeysExtension
+    Role         Role
+}
+type EpochSecretName uint8
+const (
+    EpochSecretSenderData EpochSecretName = iota + 1
+    EpochSecretEncryption
+)
+type Group struct{ /* stateLock-guarded */ }
+
+func NewGroup(cfg *GroupConfig, signer SignaturePrivateKey, cred Credential) (*Group, error)
+func (self *Group) GroupId() []byte
+func (self *Group) Epoch() uint64
+func (self *Group) OwnLeafIndex() LeafIndex
+func (self *Group) OwnLeafNodeCopy() *LeafNode
+func (self *Group) Members() []Member
+func (self *Group) MemberAt(leafIndex LeafIndex) (Member, bool)
+func (self *Group) EpochAuthenticator() []byte
+func (self *Group) Export(label string, context []byte, length int) ([]byte, error)
+func (self *Group) EpochSecret(name EpochSecretName) ([]byte, error)
+func (self *Group) RatchetTree() ([]byte, error)
+func (self *Group) GroupContext() ([]byte, error)
+func (self *Group) Close() error
+
+func (self *Group) ProposeAdd(keyPackage []byte) (proposalMessage []byte, err error)
+func (self *Group) ProposeRemove(leaf LeafIndex) ([]byte, error)
+func (self *Group) ProposeUpdate() ([]byte, error)
+func (self *Group) ProposeGroupContextExtensions(exts []Extension) ([]byte, error)
+
+type CommitOptions struct {
+    Force          bool
+    ExtraProposals []Proposal
+
+    // test seams, unexported. They are fields of CommitOptions, NOT of Commit: a
+    // test flag must never touch a wire type.
+    skipValidation                         bool
+    dropConfirmationTag                    bool
+    confirmationTagOverPreCommitTranscript bool
+}
+type CommitResult struct {
+    Commit      []byte
+    Welcome     []byte
+    RatchetTree []byte
+}
+func (self *Group) Commit(byReference [][]byte, byValue []Proposal, opts *CommitOptions) (*CommitResult, error)
+
+type ProcessedKind uint8
+const (
+    ProcessedApplication ProcessedKind = 1
+    ProcessedProposal    ProcessedKind = 2
+    ProcessedCommit      ProcessedKind = 3
+)
+type ApplicationMessage struct {
+    SenderLeaf        LeafIndex
+    AuthenticatedData []byte
+    Plaintext         []byte
+}
+type Processed struct {
+    Kind        ProcessedKind
+    Sender      Sender
+    Application *ApplicationMessage
+    Proposal    *Proposal
+    Commit      *StagedCommit
+}
+func (self *Group) ProcessMessage(message []byte) (*Processed, error)
+func (self *Group) ApplyCommit(processed *Processed) error
+func (self *Group) MergePendingCommit() error
+func (self *Group) ClearPendingCommit()
+func (self *Group) Protect(aad, plaintext []byte) ([]byte, error)
+func (self *Group) Unprotect(privateMessage []byte) (*ApplicationMessage, error)
+
+type JoinKeyMaterial struct {
+    KeyPackage     KeyPackage
+    InitPrivate    HpkePrivateKey
+    EncryptPrivate HpkePrivateKey
+    SignPrivate    SignaturePrivateKey
+}
+func JoinFromWelcome(cfg *GroupConfig, welcome []byte, ratchetTree []byte,
+    keys *JoinKeyMaterial) (*Group, error)
+
+func CheckErrata8745(path *UpdatePath, context *GroupContext) error
+func CheckErrata8815(commit *Commit, pending *ProposalCache) error
+```
+
+The ten `Parse*`/`Encode*` names this plan used to ask the lifecycle plan for — `ParseExtension`,
+`EncodeExtension`, `ParseKeyPackage`, `EncodeKeyPackage`, `ParseProposal`, `EncodeProposal`,
+`ParseWelcome`, `EncodeWelcome` — **are not added anywhere.** Under **C1** each is one line inside
+this plan's own codec table over `syntax.Marshal` / `syntax.Unmarshal`, which keeps the naming
+contract inside one plan and removes ten cross-plan asks.
+
+`Profile` is **not** consumed from the lifecycle plan: it is produced here (`profile.go`, Task 2a).
+`PastEpochWindow` is the key-schedule plan's. `CheckErrata8745` and `CheckErrata8815` are the
+lifecycle plan's, called from commit processing; Task 23 tests them through `Group.ProcessMessage`.
 
 ---
 
@@ -417,12 +897,12 @@ Each test builds a valid group, applies exactly that mutation, and asserts exact
 |---|---|---|---|
 | 002 | `TestValSem002_WrongGroupId` | `FramedContent.GroupId` = the group id with its final byte incremented | `ErrWrongGroupId` |
 | 003 | `TestValSem003_WrongEpoch` | `FramedContent.Epoch = group.Epoch() + 1` | `ErrWrongEpoch` |
-| 004 | `TestValSem004_BlankSenderLeaf` | `Sender{Type: SenderMember, LeafIndex: 2}` after leaf 2 was removed and blanked | `ErrBlankSenderLeaf` |
+| 004 | `TestValSem004_BlankSenderLeaf` | `Sender{SenderType: SenderTypeMember, LeafIndex: 2}` after leaf 2 was removed and blanked | `ErrBlankSenderLeaf` |
 | 005 | `TestValSem005_ApplicationMustBeCiphertext` | application content framed with `WireFormatPublicMessage` | `ErrApplicationMustBeCiphertext` |
 | 006 | `TestValSem006_DecryptFails` | flip bit 0 of byte 0 of `PrivateMessage.Ciphertext` | `ErrDecryptFailed` |
-| 007 | `TestValSem007_MissingMembershipTag` | `PublicMessage` from a member with `MembershipTag` set to a zero-length slice | `ErrMissingMembershipTag` |
-| 008 | `TestValSem008_BadMembershipTag` | `MembershipTag` computed under `crypto.Random(32)` instead of `membership_key` | `ErrBadMembershipTag` |
-| 009 | `TestValSem009_MissingConfirmationTag` | a Commit whose `FramedContentAuthData.HasConfirmationTag = false` | `ErrMissingConfirmationTag` |
+| 007 | `TestValSem007_MissingMembershipTag` | `PublicMessage.MembershipTag` replaced with a zero-length slice | `ErrMissingMembershipTag` |
+| 008 | `TestValSem008_BadMembershipTag` | `PublicMessage.MembershipTag` replaced with `crypto.Random(32)` | `ErrBadMembershipTag` |
+| 009 | `TestValSem009_MissingConfirmationTag` | a Commit built with `CommitOptions.dropConfirmationTag` | `ErrMissingConfirmationTag` |
 | 010 | `TestValSem010_BadSignature` | `Signature` re-signed by member 1's signer while `Sender.LeafIndex` still names member 0 | `ErrBadSignature` |
 | 011 | `TestValSem011_NonZeroPadding` | `PrivateMessageContent` padded with `0x00 0x00 0x01` instead of all-zero | `ErrNonZeroPadding` |
 
@@ -441,7 +921,7 @@ Each test builds a valid group, applies exactly that mutation, and asserts exact
 | 109 | `TestValSem109_UpdateMissingRequiredCapability` | Update whose `LeafNode.Capabilities.Extensions` omits `0xF001` | `ErrMissingRequiredCapability` |
 | 110 | `TestValSem110_UpdateDuplicateEncryptionKey` | Update whose `LeafNode.EncryptionKey` is copied from member 2's leaf | `ErrDuplicateEncryptionKey` |
 | 111 | `TestValSem111_SelfUpdateInCommit` | committer's own Update, referenced by hash in `Commit.Proposals` | `ErrSelfUpdateInCommit` |
-| 112 | `TestValSem112_UpdateSenderNotMember` | standalone Update framed with `Sender{Type: SenderNewMemberProposal}` | `ErrUpdateSenderNotMember` |
+| 112 | `TestValSem112_UpdateSenderNotMember` | standalone Update framed with `Sender{SenderType: SenderTypeNewMemberProposal}` | `ErrUpdateSenderNotMember` |
 | 113 | `TestValSem113_UnsupportedProposalType` | proposal type `0xF0FF`, absent from every member's `Capabilities.Proposals` | `ErrUnsupportedProposalType` |
 
 **Commits (§12.4) and the ratchet tree (§12.4.3.1) — `validation_commit_test.go`**
@@ -453,7 +933,7 @@ Each test builds a valid group, applies exactly that mutation, and asserts exact
 | 202 | `TestValSem202_PathLength` | drop the last element of `UpdatePath.Nodes` | `ErrPathLength` |
 | 203 | `TestValSem203_PathDecrypt` | flip bit 0 of the `HpkeCiphertext.Ciphertext` addressed to the receiver's resolution slot | `ErrPathDecrypt` |
 | 204 | `TestValSem204_PathKeyMismatch` | replace `UpdatePathNode.EncryptionKey` at index 0 with a freshly generated public key, leaving the ciphertexts alone | `ErrPathKeyMismatch` |
-| 205 | `TestValSem205_BadConfirmationTag` | `ConfirmationTag` computed over the **pre**-commit `confirmed_transcript_hash` | `ErrBadConfirmationTag` |
+| 205 | `TestValSem205_BadConfirmationTag` | `CommitOptions.confirmationTagOverPreCommitTranscript` | `ErrBadConfirmationTag` |
 | 206 | `TestValSem206_PathLeafDuplicateEncryptionKey` | `UpdatePath.LeafNode.EncryptionKey` copied from member 2's leaf | `ErrDuplicateEncryptionKey` |
 | 207 | `TestValSem207_PathNodeDuplicateEncryptionKey` | `UpdatePath.Nodes[1].EncryptionKey = UpdatePath.Nodes[0].EncryptionKey` | `ErrDuplicateEncryptionKey` |
 | 208 | `TestValSem208_MultipleGCE` | two `GroupContextExtensions` proposals inline in one commit | `ErrMultipleGCE` |
@@ -467,7 +947,7 @@ of the RFC error, so implementing external commits in V2 is a mechanical swap.
 
 | Code | Test function | Malformed input | Expected |
 |---|---|---|---|
-| 240 | `TestValSem240_ExternalCommitNoExternalInit` | `Sender{Type: SenderNewMemberCommit}` commit with **zero** inline `ExternalInit` proposals | `ErrProfileExternalCommit` at parse |
+| 240 | `TestValSem240_ExternalCommitNoExternalInit` | `Sender{SenderType: SenderTypeNewMemberCommit}` commit with **zero** inline `ExternalInit` proposals | `ErrProfileExternalCommit` at the profile gate |
 | 241 | `TestValSem241_ExternalCommitTwoExternalInit` | same, with **two** inline `ExternalInit` proposals | `ErrProfileExternalCommit` |
 | 242 | `TestValSem242_ExternalCommitNonAllowlisted` | external commit carrying an inline `Add` (not on the §12.4.3.2 allowlist) | `ErrProfileExternalCommit` |
 | 244 | `TestValSem244_ExternalCommitByReference` | external commit whose `Commit.Proposals` holds a `ProposalRef` | `ErrProfileExternalCommit` |
@@ -480,24 +960,43 @@ There is no ValSem243 — the mlswg numbering skips it. ValSem247 is folded into
 
 | Code | Test function | Malformed input | Expected |
 |---|---|---|---|
-| 401 | `TestValSem401_PskNonceLength` | `PreSharedKeyID.PskNonce` of 31 bytes where `KDF.Nh == 32` | `ErrProfilePSK` at parse |
-| 402 | `TestValSem402_PskUsage` | `PreSharedKeyID` with resumption usage `reinit` (2) | `ErrProfilePSK` |
-| 403 | `TestValSem403_DuplicatePskId` | two byte-identical `PreSharedKeyID` values in one proposal list | `ErrProfilePSK` |
+| 401 | `TestValSem401_PskNonceLength` | `PreSharedKeyId.PskNonce` of 31 bytes where `KDF.Nh == 32` | `ErrProfilePsk` at the profile gate |
+| 402 | `TestValSem402_PskUsage` | `PreSharedKeyId` with `Usage: ResumptionPskUsageReInit` | `ErrProfilePsk` |
+| 403 | `TestValSem403_DuplicatePskId` | two byte-identical `PreSharedKeyId` values in one proposal list | `ErrProfilePsk` |
+
+Each carries a commented-out V2 assertion of `ValSem401` / `ValSem402` / `ValSem403`, whose sentinels
+(`ErrPskNonceLength`, `ErrPskType`, `ErrDuplicatePsk`) are declared here and returned by the key
+schedule plan's `(*PreSharedKeyId).Validate` once PSKs are implemented.
 
 **Past-epoch bound — `validation_epoch_test.go`**
 
 | Code | Test function | Assertion | Expected |
 |---|---|---|---|
-| 400 | `TestValSem400_PastEpochBound` | merge 40 commits; assert `memStore.EpochsHeld` holds exactly epochs `8..40` and nothing older | 33 epochs held, `epoch - 32` and below deleted |
+| 400 | `TestValSem400_PastEpochBound` | merge 40 commits; assert `memStore.EpochsHeld` holds exactly epochs `8..40` and nothing older | 33 epochs held, `epoch - 32` and below deleted; `ErrPastEpochRetained` names the violation |
+
+**The v1 narrow profile — `profile_test.go`**
+
+RFC 9420 assigns these five refusals no ValSem number, so they occupy a private block in the
+catalogue and their tests are named by behaviour rather than by number.
+
+| Code | Test function | Refused input | Expected |
+|---|---|---|---|
+| profile 9001 | `TestProfileRefusesExternalSenders` | `ExtensionTypeExternalSenders` in a GroupContext | `ErrProfileExternalSender` |
+| profile 9002 | `TestProfileRefusesReInit` | `ProposalTypeReInit` | `ErrProfileReInit` |
+| profile 9003 | `TestProfileRefusesBranching` | `ResumptionPskUsageBranch` | `ErrProfileBranch` |
+| profile 9004 | `TestProfileRefusesX509Credentials` | `CredentialType(0x0002)` | `ErrProfileCredentialType` |
+| profile 9005 | `TestProfileRefusesUnpinnedSuiteAtCreate` | `CipherSuiteX25519AesGcm128Sha256Ed25519` at group creation | `ErrProfileCiphersuite` |
 
 **Errata — `errata_test.go`**
 
 | Erratum | Test function | Malformed input | Expected |
 |---|---|---|---|
-| 8745 | `TestErrata8745` | a Commit whose `UpdatePath.LeafNode.Capabilities.Extensions` omits `0xF001`, a GroupContext extension | `ErrMissingRequiredCapability`; the pre-erratum "accept" outcome is asserted absent |
+| 8745 | `TestErrata8745` | a Commit whose `UpdatePath.LeafNode.Capabilities.Extensions` omits `0xF001`, a GroupContext extension | `ValSemErrata8745`; the pre-erratum "accept" outcome is asserted absent |
 | 8815 | `TestErrata8815` | a Commit whose `Commit.Proposals` holds a `ProposalRef` of 32 random bytes the receiver never saw | `ErrUnknownProposalRef` |
 
-Total: 43 ValSem codes + ValSem400 + 2 errata = **46 catalogue entries, 46 test functions.**
+Total: 43 ValSem codes + ValSem400 + 5 narrow-profile refusals + 2 errata = **51 catalogue entries,
+51 test functions**, which is the count `ValSemCatalogue()` returns and `TestValSemCatalogueIsClosed`
+asserts.
 
 ---
 
@@ -685,18 +1184,27 @@ git -C connect add mls/ERRATA.md mls/errata_test.go && git -C connect commit -m 
   - `func (self *ValidationError) Is(target error) bool`
   - `func ValSem(code ValSemCode, detail error) error`
   - `func CodeOf(err error) (ValSemCode, bool)`
-  - `func ValSemCatalogue() []ValSemCode`
+  - `func ValSemCatalogue() []ValSemCode` — sorted, exactly 51 entries
   - `func ReasonFor(code ValSemCode) string`
-  - the 46 sentinels: `ErrWrongGroupId`, `ErrWrongEpoch`, `ErrBlankSenderLeaf`,
-    `ErrApplicationMustBeCiphertext`, `ErrDecryptFailed`, `ErrMissingMembershipTag`,
-    `ErrBadMembershipTag`, `ErrMissingConfirmationTag`, `ErrBadSignature`, `ErrNonZeroPadding`,
-    `ErrDuplicateSignatureKey`, `ErrDuplicateInitKey`, `ErrDuplicateEncryptionKey`,
-    `ErrInitEqualsEncryptionKey`, `ErrSuiteMismatch`, `ErrMissingRequiredCapability`,
-    `ErrDuplicateRemove`, `ErrRemoveNonMember`, `ErrSelfUpdateInCommit`, `ErrUpdateSenderNotMember`,
-    `ErrUnsupportedProposalType`, `ErrSelfRemoveInCommit`, `ErrMissingPath`, `ErrPathLength`,
-    `ErrPathDecrypt`, `ErrPathKeyMismatch`, `ErrBadConfirmationTag`, `ErrMultipleGCE`,
-    `ErrUnsupportedGroupExtension`, `ErrProfileExternalCommit`, `ErrTrailingBlankNodes`,
-    `ErrProfilePSK`, `ErrPastEpochBound`, `ErrUnknownProposalRef`
+  - the sentinels, whose single declaration site this is: `ErrWrongGroupId`, `ErrWrongEpoch`,
+    `ErrBlankSenderLeaf`, `ErrApplicationMustBeCiphertext`, `ErrDecryptFailed`,
+    `ErrMissingMembershipTag`, `ErrBadMembershipTag`, `ErrMissingConfirmationTag`,
+    `ErrBadSignature`, `ErrNonZeroPadding`, `ErrDuplicateSignatureKey`, `ErrDuplicateInitKey`,
+    `ErrDuplicateEncryptionKey`, `ErrInitEqualsEncryptionKey`, `ErrSuiteMismatch`,
+    `ErrMissingRequiredCapability`, `ErrDuplicateRemove`, `ErrRemoveNonMember`,
+    `ErrSelfUpdateInCommit`, `ErrUpdateSenderNotMember`, `ErrUnsupportedProposalType`,
+    `ErrSelfRemoveInCommit`, `ErrMissingPath`, `ErrPathLength`, `ErrPathDecrypt`,
+    `ErrPathKeyMismatch`, `ErrBadConfirmationTag`, `ErrMultipleGCE`,
+    `ErrUnsupportedGroupExtension`, `ErrTrailingBlankNodes`, `ErrPastEpochRetained`,
+    `ErrPskNonceLength`, `ErrPskType`, `ErrDuplicatePsk`, `ErrProfileExternalCommit`,
+    `ErrProfileExternalSender`, `ErrProfilePsk`, `ErrProfileReInit`, `ErrProfileBranch`,
+    `ErrProfileCredentialType`, `ErrProfileCiphersuite`, `ErrUnknownProposalRef`
+
+Four of these move here from other plans and one is renamed, so each has exactly one declaration in
+`package mls`: the ten framing sentinels arrive from the framing plan (they are ValSem002–011);
+`ErrPskNonceLength`, `ErrPskType` and `ErrDuplicatePsk` arrive from the key-schedule plan (they are
+ValSem401–403); `ErrBadSignature` is ValSem010 and the crypto plan's same-named value is renamed
+`ErrCryptoBadSignature`, which this one wraps.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -813,6 +1321,17 @@ const (
 
 	ValSemErrata8745 ValSemCode = 8745
 	ValSemErrata8815 ValSemCode = 8815
+
+	// the five v1 narrow-profile refusals RFC 9420 gives no ValSem number. They sit
+	// above the errata ids in a private block, and formatCode renders them as
+	// "profile NNNN" rather than "ValSemNNN" so nobody mistakes one for an RFC code.
+	// External commits reuse ValSem240 and PSKs reuse ValSem401, because those two
+	// refusals do have RFC codes covering the same input.
+	ValSemProfileExternalSender ValSemCode = 9001
+	ValSemProfileReInit         ValSemCode = 9002
+	ValSemProfileBranch         ValSemCode = 9003
+	ValSemProfileCredentialType ValSemCode = 9004
+	ValSemProfileCiphersuite    ValSemCode = 9005
 )
 
 // valSemReason is the closed catalogue. A code with no entry here is not a code.
@@ -863,12 +1382,18 @@ var valSemReason = map[ValSemCode]string{
 	ValSem300: "exported ratchet tree ends in blank nodes",
 
 	ValSem400: "group state older than the past-epoch window was retained",
-	ValSem401: "pre-shared keys are not implemented in the v1 profile",
-	ValSem402: "pre-shared keys are not implemented in the v1 profile",
-	ValSem403: "pre-shared keys are not implemented in the v1 profile",
+	ValSem401: "psk: nonce length does not match the ciphersuite KDF output",
+	ValSem402: "psk: resumption usage is not permitted here",
+	ValSem403: "psk: pre-shared key id duplicated in one proposal list",
 
 	ValSemErrata8745: "leaf node capabilities do not cover every group context extension",
 	ValSemErrata8815: "commit references a proposal that was never received",
+
+	ValSemProfileExternalSender: "external senders are not implemented in the v1 profile",
+	ValSemProfileReInit:         "ReInit is not implemented in the v1 profile",
+	ValSemProfileBranch:         "branching is not implemented in the v1 profile",
+	ValSemProfileCredentialType: "only BasicCredential is implemented in the v1 profile",
+	ValSemProfileCiphersuite:    "group creation is pinned to ciphersuite 0x0003 by policy",
 }
 
 // ValidationError is the only error type a validation site returns. Detail is the
@@ -931,7 +1456,8 @@ func ValSemCatalogue() []ValSemCode {
 	return codes
 }
 
-// the sentinels. Each is the zero-detail form of its code, for errors.Is.
+// the sentinels. Each is the zero-detail form of its code, for errors.Is. This is
+// the single declaration site for every one of these names in package mls.
 var (
 	ErrWrongGroupId                = ValSem(ValSem002, nil)
 	ErrWrongEpoch                  = ValSem(ValSem003, nil)
@@ -941,7 +1467,6 @@ var (
 	ErrMissingMembershipTag        = ValSem(ValSem007, nil)
 	ErrBadMembershipTag            = ValSem(ValSem008, nil)
 	ErrMissingConfirmationTag      = ValSem(ValSem009, nil)
-	ErrBadSignature                = ValSem(ValSem010, nil)
 	ErrNonZeroPadding              = ValSem(ValSem011, nil)
 
 	ErrDuplicateSignatureKey     = ValSem(ValSem101, nil)
@@ -965,19 +1490,36 @@ var (
 	ErrMultipleGCE               = ValSem(ValSem208, nil)
 	ErrUnsupportedGroupExtension = ValSem(ValSem209, nil)
 
+	ErrTrailingBlankNodes = ValSem(ValSem300, nil)
+
+	ErrPastEpochRetained = ValSem(ValSem400, nil)
+	ErrPskNonceLength    = ValSem(ValSem401, nil)
+	ErrPskType           = ValSem(ValSem402, nil)
+	ErrDuplicatePsk      = ValSem(ValSem403, nil)
+
 	ErrProfileExternalCommit = ValSem(ValSem240, nil)
-	ErrTrailingBlankNodes    = ValSem(ValSem300, nil)
-	ErrPastEpochBound        = ValSem(ValSem400, nil)
-	ErrProfilePSK            = ValSem(ValSem401, nil)
+	ErrProfilePsk            = ValSem(ValSem401, nil)
+	ErrProfileExternalSender = ValSem(ValSemProfileExternalSender, nil)
+	ErrProfileReInit         = ValSem(ValSemProfileReInit, nil)
+	ErrProfileBranch         = ValSem(ValSemProfileBranch, nil)
+	ErrProfileCredentialType = ValSem(ValSemProfileCredentialType, nil)
+	ErrProfileCiphersuite    = ValSem(ValSemProfileCiphersuite, nil)
 
 	ErrUnknownProposalRef = ValSem(ValSemErrata8815, nil)
 )
+
+// ErrBadSignature is ValSem010. It is declared apart from the block above because
+// it is the one sentinel that wraps another plan's error: the crypto layer returns
+// ErrCryptoBadSignature, and errors.Is must hold through both spellings.
+var ErrBadSignature = ValSem(ValSem010, ErrCryptoBadSignature)
 ```
 
-Note the deliberate aliasing: ValSem103, 110, 206 and 207 all surface `ErrDuplicateEncryptionKey`
-and ValSem106 and 109 both surface `ErrMissingRequiredCapability`, exactly as Spec A §4.3 specifies.
-The **code** distinguishes them, so a test asserts `CodeOf(err) == ValSem110` where the sentinel
-alone would be ambiguous. `requireValSem` (Task 17) asserts the code, never the sentinel.
+Note the deliberate aliasing: ValSem103, 110, 206 and 207 all surface `ErrDuplicateEncryptionKey`;
+ValSem106 and 109 both surface `ErrMissingRequiredCapability`; ValSem240–246 all surface
+`ErrProfileExternalCommit`; and ValSem401 has two names, `ErrPskNonceLength` for the RFC check and
+`ErrProfilePsk` for the v1 refusal of the whole proposal type. The **code** distinguishes them, so a
+test asserts `CodeOf(err) == ValSem110` where the sentinel alone would be ambiguous. `requireValSem`
+(Task 17) asserts the code, never the sentinel.
 
 Add `"slices"` to the import block.
 
@@ -1017,9 +1559,10 @@ import (
 	"strings"
 )
 
-// expectedCatalogue is Spec A §4.3, transcribed. 43 ValSem codes, plus ValSem400
-// and the two errata. Changing this list without changing the spec is the failure
-// this test exists to cause.
+// expectedCatalogue is Spec A §4.3 plus the canonical interface registry §9.1,
+// transcribed: 43 ValSem codes, ValSem400, the two errata, and the five narrow
+// -profile refusals that have no RFC number. 51 entries. Changing this list without
+// changing the spec is the failure this test exists to cause.
 var expectedCatalogue = []ValSemCode{
 	2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
 	101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113,
@@ -1028,10 +1571,14 @@ var expectedCatalogue = []ValSemCode{
 	300,
 	400, 401, 402, 403,
 	8745, 8815,
+	9001, 9002, 9003, 9004, 9005,
 }
 
 func TestValSemCatalogueIsClosed(t *testing.T) {
 	got := ValSemCatalogue()
+	if len(got) != 51 {
+		t.Fatalf("catalogue has %d codes, the registry fixes it at 51", len(got))
+	}
 	if len(got) != len(expectedCatalogue) {
 		t.Fatalf("catalogue has %d codes, spec A §4.3 lists %d", len(got), len(expectedCatalogue))
 	}
@@ -1046,15 +1593,25 @@ func TestValSemCatalogueIsClosed(t *testing.T) {
 			t.Errorf("ValSem%d must not exist: 243 is skipped, 247 is folded into 010", absent)
 		}
 	}
-	// the catalogue counts 43 ValSem codes proper.
+	// the catalogue counts 43 ValSem codes proper: everything below 400.
 	proper := 0
 	for _, code := range got {
-		if code != 400 && code < 8000 {
+		if code < 400 {
 			proper++
 		}
 	}
 	if proper != 43 {
-		t.Errorf("catalogue holds %d ValSem codes excluding 400, want 43", proper)
+		t.Errorf("catalogue holds %d ValSem codes below 400, want 43", proper)
+	}
+	// and the five narrow-profile refusals, which are ours and not the RFC's.
+	profile := 0
+	for _, code := range got {
+		if code >= 9000 {
+			profile++
+		}
+	}
+	if profile != 5 {
+		t.Errorf("catalogue holds %d narrow-profile codes, want 5", profile)
 	}
 }
 
@@ -1068,7 +1625,7 @@ func TestValSemCoverageIsComplete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("glob: %v", err)
 	}
-	sources = append(sources, "errata_test.go")
+	sources = append(sources, "errata_test.go", "profile_test.go")
 	for _, source := range sources {
 		file, err := parser.ParseFile(fileSet, source, nil, 0)
 		if err != nil {
@@ -1116,9 +1673,24 @@ Expected: FAIL to build with `undefined: codeFromTestName`, `undefined: formatCo
 ```go
 // append to connect/mls/errors_test.go
 
-// codeFromTestName maps TestValSem204_PathKeyMismatch to 204 and TestErrata8745 to
-// 8745. Anything else is not a ValSem test and is ignored.
+// profileCodeTests maps the five narrow-profile refusals, which RFC 9420 gives no
+// number, to the profile_test.go functions that cover them. They are named by
+// behaviour because a numeric name would read as an RFC code.
+var profileCodeTests = map[string]ValSemCode{
+	"TestProfileRefusesExternalSenders":       ValSemProfileExternalSender,
+	"TestProfileRefusesReInit":                ValSemProfileReInit,
+	"TestProfileRefusesBranching":             ValSemProfileBranch,
+	"TestProfileRefusesX509Credentials":       ValSemProfileCredentialType,
+	"TestProfileRefusesUnpinnedSuiteAtCreate": ValSemProfileCiphersuite,
+}
+
+// codeFromTestName maps TestValSem204_PathKeyMismatch to 204, TestErrata8745 to
+// 8745, and each narrow-profile test to its private code. Anything else is not a
+// catalogue test and is ignored.
 func codeFromTestName(name string) (ValSemCode, bool) {
+	if code, ok := profileCodeTests[name]; ok {
+		return code, true
+	}
 	digits := ""
 	switch {
 	case strings.HasPrefix(name, "TestValSem"):
@@ -1140,10 +1712,14 @@ func codeFromTestName(name string) (ValSemCode, bool) {
 
 // formatCode renders a catalogue code the way the spec tables do.
 func formatCode(code ValSemCode) string {
-	if code >= 8000 {
+	switch {
+	case code >= 9000:
+		return "profile " + strconv.FormatUint(uint64(code), 10)
+	case code >= 8000:
 		return "errata " + strconv.FormatUint(uint64(code), 10)
+	default:
+		return "ValSem" + fmt.Sprintf("%03d", code)
 	}
-	return "ValSem" + fmt.Sprintf("%03d", code)
 }
 ```
 
@@ -1164,6 +1740,373 @@ test is enabled by the Task 24 workflow change. Record this in the task-23 commi
 
 ```bash
 git -C connect add mls/errors_test.go .gitignore && git -C connect commit -m "test(mls): assert the ValSem catalogue is closed and generate the coverage report"
+```
+
+---
+
+### Task 3a: `profile.go` — the v1 narrow profile
+
+`profile.go` was attributed circularly by every plan and created by nobody, while `GroupConfig.Profile`
+is required by `NewGroup`, `DefaultProfile()` is called at eight lifecycle sites and two here, and the
+v1 refusals behind Gate 3's 240–246 and 401–403 rows all run through it. The canonical interface
+registry §9.3 assigns it here, next to the `ErrProfile*` values the checks return.
+
+The task is authored in wave 1 with the rest of Phase A. Its parameter types are the registry enums
+(`ProtocolVersion`, `ProposalType`, `CredentialType`, `ExtensionType` from the TreeKEM plan, and
+`WireFormat` from the framing plan), so it turns green when those land — which is why the registry
+sequences the TreeKEM plan's registry-enum task first in wave 2.
+
+**Files:**
+- Create: `connect/mls/profile.go`
+- Test: `connect/mls/profile_test.go`
+
+**Interfaces:**
+- Consumes: `ValSem`, `CodeOf`, `ReasonFor`, `ErrProfileExternalCommit`, `ErrProfilePsk`,
+  `ErrProfileExternalSender`, `ErrProfileReInit`, `ErrProfileBranch`, `ErrProfileCredentialType`,
+  `ErrProfileCiphersuite`, `ErrUnsupportedProposalType`, `ErrUnsupportedGroupExtension`,
+  `ErrApplicationMustBeCiphertext` (Task 2); `IsRegisteredSuite(suite CipherSuite) bool`,
+  `CipherSuiteX25519ChaCha20Sha256Ed25519`, `CipherSuiteX25519AesGcm128Sha256Ed25519` (crypto plan);
+  `ProtocolVersion`, `ProtocolVersionMls10`, `ProposalType` and its constants, `CredentialType`,
+  `CredentialTypeBasic`, `ExtensionType` and its constants (TreeKEM plan); `WireFormat` and its
+  constants, `ErrUnknownWireFormat`, `ErrUnsupportedVersion` (framing plan).
+- Produces:
+  - `type Profile struct { AllowPublicMessage bool; /* unexported allow-sets */ }`
+  - `func DefaultProfile() *Profile`
+  - `func (self *Profile) CheckVersion(v ProtocolVersion) error`
+  - `func (self *Profile) CheckCiphersuiteForCreate(s CipherSuite) error`
+  - `func (self *Profile) CheckProposalType(t ProposalType) error`
+  - `func (self *Profile) CheckCredentialType(t CredentialType) error`
+  - `func (self *Profile) CheckGroupExtension(t ExtensionType) error`
+  - `func (self *Profile) CheckLeafExtension(t ExtensionType) error`
+  - `func (self *Profile) CheckWireFormat(w WireFormat) error`
+  - `TestProfileIsClosed` and the five narrow-profile refusal tests
+
+- [ ] **Step 1: Write the failing test**
+
+```go
+// connect/mls/profile_test.go
+// the v1 narrow profile, asserted against Spec A §3.1 and §3.2 rather than against
+// itself. A profile that quietly widens is the single failure mode this file exists
+// to prevent: every widening is a green build everywhere else.
+package mls
+
+import (
+	"errors"
+	"testing"
+)
+
+func TestProfileIsClosed(t *testing.T) {
+	profile := DefaultProfile()
+
+	if profile.AllowPublicMessage {
+		t.Error("DefaultProfile must refuse PublicMessage; only the passive-client vectors set it")
+	}
+	if err := profile.CheckVersion(ProtocolVersionMls10); err != nil {
+		t.Errorf("CheckVersion(mls10) = %v, want nil", err)
+	}
+	if err := profile.CheckVersion(ProtocolVersion(0x0002)); err == nil {
+		t.Error("CheckVersion accepted a version outside the profile")
+	}
+
+	// the proposal allow-set is exactly add, update, remove, group_context_extensions.
+	allowedProposals := []ProposalType{
+		ProposalTypeAdd, ProposalTypeUpdate, ProposalTypeRemove, ProposalTypeGroupContextExtensions,
+	}
+	for _, proposalType := range allowedProposals {
+		if err := profile.CheckProposalType(proposalType); err != nil {
+			t.Errorf("CheckProposalType(%#04x) = %v, want nil", proposalType, err)
+		}
+	}
+	refusedProposals := map[ProposalType]error{
+		ProposalTypePreSharedKey: ErrProfilePsk,
+		ProposalTypeReInit:       ErrProfileReInit,
+		ProposalTypeExternalInit: ErrProfileExternalCommit,
+	}
+	for proposalType, want := range refusedProposals {
+		if err := profile.CheckProposalType(proposalType); !errors.Is(err, want) {
+			t.Errorf("CheckProposalType(%#04x) = %v, want %v", proposalType, err, want)
+		}
+	}
+	if err := profile.CheckProposalType(ProposalType(0xF0FF)); !errors.Is(err, ErrUnsupportedProposalType) {
+		t.Errorf("CheckProposalType(0xF0FF) = %v, want ErrUnsupportedProposalType", err)
+	}
+
+	// the group-extension allow-set is exactly the three urmessage extensions plus
+	// required_capabilities and ratchet_tree.
+	allowedGroupExtensions := []ExtensionType{
+		ExtensionTypeRatchetTree, ExtensionTypeRequiredCapabilities,
+		ExtensionTypeUrmessageGroupPolicy, ExtensionTypeUrmessageLeafKeys,
+		ExtensionTypeUrmessageOwnerSuccessor,
+	}
+	for _, extensionType := range allowedGroupExtensions {
+		if err := profile.CheckGroupExtension(extensionType); err != nil {
+			t.Errorf("CheckGroupExtension(%#04x) = %v, want nil", extensionType, err)
+		}
+	}
+
+	// wire formats: PublicMessage refused by default, PrivateMessage always allowed,
+	// an unregistered value refused as unknown rather than as a profile decision.
+	if err := profile.CheckWireFormat(WireFormatPrivateMessage); err != nil {
+		t.Errorf("CheckWireFormat(private) = %v, want nil", err)
+	}
+	if err := profile.CheckWireFormat(WireFormatPublicMessage); !errors.Is(err, ErrApplicationMustBeCiphertext) {
+		t.Errorf("CheckWireFormat(public) = %v, want ErrApplicationMustBeCiphertext", err)
+	}
+	permissive := DefaultProfile()
+	permissive.AllowPublicMessage = true
+	if err := permissive.CheckWireFormat(WireFormatPublicMessage); err != nil {
+		t.Errorf("with AllowPublicMessage, CheckWireFormat(public) = %v, want nil", err)
+	}
+	if err := permissive.CheckWireFormat(WireFormat(0x00FF)); !errors.Is(err, ErrUnknownWireFormat) {
+		t.Errorf("CheckWireFormat(0x00FF) = %v, want ErrUnknownWireFormat", err)
+	}
+}
+
+func TestProfileRefusesExternalSenders(t *testing.T) {
+	profile := DefaultProfile()
+	err := profile.CheckGroupExtension(ExtensionTypeExternalSenders)
+	if !errors.Is(err, ErrProfileExternalSender) {
+		t.Fatalf("CheckGroupExtension(external_senders) = %v, want ErrProfileExternalSender", err)
+	}
+	if code, _ := CodeOf(err); code != ValSemProfileExternalSender {
+		t.Fatalf("code = %d, want %d", code, ValSemProfileExternalSender)
+	}
+	if err := profile.CheckLeafExtension(ExtensionTypeExternalSenders); !errors.Is(err, ErrProfileExternalSender) {
+		t.Fatalf("a leaf node must not carry external_senders either, got %v", err)
+	}
+}
+
+func TestProfileRefusesReInit(t *testing.T) {
+	err := DefaultProfile().CheckProposalType(ProposalTypeReInit)
+	if !errors.Is(err, ErrProfileReInit) {
+		t.Fatalf("CheckProposalType(reinit) = %v, want ErrProfileReInit", err)
+	}
+	if code, _ := CodeOf(err); code != ValSemProfileReInit {
+		t.Fatalf("code = %d, want %d", code, ValSemProfileReInit)
+	}
+}
+
+// TestProfileRefusesBranching pins the branch refusal. Branching has no proposal
+// type of its own — it is signalled by a resumption PSK with usage `branch` carried
+// in a Welcome — so the sender-side gate a client hits is the PSK proposal gate,
+// and the receiver-side gate is the lifecycle plan's join path. This asserts the
+// catalogue entry both of them return, and that the only in-band signal is refused.
+func TestProfileRefusesBranching(t *testing.T) {
+	if code, _ := CodeOf(ErrProfileBranch); code != ValSemProfileBranch {
+		t.Fatalf("ErrProfileBranch carries code %d, want %d", code, ValSemProfileBranch)
+	}
+	if want := "branching is not implemented in the v1 profile"; ReasonFor(ValSemProfileBranch) != want {
+		t.Fatalf("reason = %q, want %q", ReasonFor(ValSemProfileBranch), want)
+	}
+	if ResumptionPskUsageBranch != 3 {
+		t.Fatalf("ResumptionPskUsageBranch is %d; RFC 9420 §8.1 fixes it at 3", ResumptionPskUsageBranch)
+	}
+	if err := DefaultProfile().CheckProposalType(ProposalTypePreSharedKey); !errors.Is(err, ErrProfilePsk) {
+		t.Fatalf("the only in-band branch signal is a resumption psk, and it must be refused: %v", err)
+	}
+}
+
+func TestProfileRefusesX509Credentials(t *testing.T) {
+	profile := DefaultProfile()
+	if err := profile.CheckCredentialType(CredentialTypeBasic); err != nil {
+		t.Fatalf("CheckCredentialType(basic) = %v, want nil", err)
+	}
+	err := profile.CheckCredentialType(CredentialType(0x0002))
+	if !errors.Is(err, ErrProfileCredentialType) {
+		t.Fatalf("CheckCredentialType(x509) = %v, want ErrProfileCredentialType", err)
+	}
+	if code, _ := CodeOf(err); code != ValSemProfileCredentialType {
+		t.Fatalf("code = %d, want %d", code, ValSemProfileCredentialType)
+	}
+}
+
+func TestProfileRefusesUnpinnedSuiteAtCreate(t *testing.T) {
+	profile := DefaultProfile()
+	if err := profile.CheckCiphersuiteForCreate(CipherSuiteX25519ChaCha20Sha256Ed25519); err != nil {
+		t.Fatalf("CheckCiphersuiteForCreate(0x0003) = %v, want nil", err)
+	}
+	// 0x0001 is registered and implemented, and still refused at group creation, so
+	// the suite registry is not a hardcoded singleton.
+	if !IsRegisteredSuite(CipherSuiteX25519AesGcm128Sha256Ed25519) {
+		t.Fatal("0x0001 must stay registered and implemented")
+	}
+	err := profile.CheckCiphersuiteForCreate(CipherSuiteX25519AesGcm128Sha256Ed25519)
+	if !errors.Is(err, ErrProfileCiphersuite) {
+		t.Fatalf("CheckCiphersuiteForCreate(0x0001) = %v, want ErrProfileCiphersuite", err)
+	}
+	if code, _ := CodeOf(err); code != ValSemProfileCiphersuite {
+		t.Fatalf("code = %d, want %d", code, ValSemProfileCiphersuite)
+	}
+}
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `go test ./connect/mls/... -run TestProfile -v`
+Expected: FAIL to build with `undefined: DefaultProfile`, `undefined: Profile`
+
+- [ ] **Step 3: Write minimal implementation**
+
+```go
+// connect/mls/profile.go
+// the v1 narrow profile: BasicCredential only, no external commits, no external
+// senders, no PSKs, no ReInit, no branching, no subgroups. Every refusal is a typed
+// catalogue error, so a profile decision and its negative test cannot drift.
+//
+// The profile is data, not code: the allow-sets are tables, and profile_test.go
+// asserts the tables equal Spec A §3.1 and §3.2. Widening the profile is therefore
+// a visible diff in two places at once.
+package mls
+
+// Profile is the set of protocol features this build accepts. GroupConfig carries
+// one; NewGroup, every parse boundary and the interop client all gate through it.
+type Profile struct {
+	// AllowPublicMessage admits WireFormatPublicMessage. It is false in
+	// DefaultProfile — A-ASSUME-4 puts all handshake traffic in PrivateMessage —
+	// and the passive-client vector families set it, because the mlswg corpus
+	// frames handshake messages in the clear.
+	AllowPublicMessage bool
+
+	versions    map[ProtocolVersion]bool
+	createSuite map[CipherSuite]bool
+	proposals   map[ProposalType]bool
+	credentials map[CredentialType]bool
+	groupExts   map[ExtensionType]bool
+	leafExts    map[ExtensionType]bool
+}
+
+// DefaultProfile is the v1 narrow profile of Spec A §3.1 and §3.2.
+func DefaultProfile() *Profile {
+	return &Profile{
+		AllowPublicMessage: false,
+		versions: map[ProtocolVersion]bool{
+			ProtocolVersionMls10: true,
+		},
+		createSuite: map[CipherSuite]bool{
+			CipherSuiteX25519ChaCha20Sha256Ed25519: true,
+		},
+		proposals: map[ProposalType]bool{
+			ProposalTypeAdd:                    true,
+			ProposalTypeUpdate:                 true,
+			ProposalTypeRemove:                 true,
+			ProposalTypeGroupContextExtensions: true,
+		},
+		credentials: map[CredentialType]bool{
+			CredentialTypeBasic: true,
+		},
+		groupExts: map[ExtensionType]bool{
+			ExtensionTypeRatchetTree:             true,
+			ExtensionTypeRequiredCapabilities:    true,
+			ExtensionTypeUrmessageGroupPolicy:    true,
+			ExtensionTypeUrmessageLeafKeys:       true,
+			ExtensionTypeUrmessageOwnerSuccessor: true,
+		},
+		leafExts: map[ExtensionType]bool{
+			ExtensionTypeUrmessageLeafKeys: true,
+		},
+	}
+}
+
+// CheckVersion admits mls10 and nothing else.
+func (self *Profile) CheckVersion(v ProtocolVersion) error {
+	if self.versions[v] {
+		return nil
+	}
+	return ErrUnsupportedVersion
+}
+
+// CheckCiphersuiteForCreate is the group-creation policy, which is narrower than
+// the implemented set: 0x0001 is registered and implemented and still refused here.
+func (self *Profile) CheckCiphersuiteForCreate(s CipherSuite) error {
+	if self.createSuite[s] {
+		return nil
+	}
+	return ValSem(ValSemProfileCiphersuite, nil)
+}
+
+// CheckProposalType separates the three profile refusals — which name the feature
+// so a V2 knows what to implement — from ValSem113, which is the RFC's own
+// "no member supports this type" rule.
+func (self *Profile) CheckProposalType(t ProposalType) error {
+	if self.proposals[t] {
+		return nil
+	}
+	switch t {
+	case ProposalTypePreSharedKey:
+		return ValSem(ValSem401, nil)
+	case ProposalTypeReInit:
+		return ValSem(ValSemProfileReInit, nil)
+	case ProposalTypeExternalInit:
+		return ValSem(ValSem240, nil)
+	}
+	return ValSem(ValSem113, nil)
+}
+
+// CheckCredentialType is what enforces BasicCredential-only at parse, and is the
+// error Credential.MarshalMLS and Credential.UnmarshalMLS return on an x509 arm.
+func (self *Profile) CheckCredentialType(t CredentialType) error {
+	if self.credentials[t] {
+		return nil
+	}
+	return ValSem(ValSemProfileCredentialType, nil)
+}
+
+// CheckGroupExtension gates the GroupContext extension list. external_senders is
+// named separately from the generic refusal because it is a profile decision a V2
+// may reverse, and ValSem209 is not.
+func (self *Profile) CheckGroupExtension(t ExtensionType) error {
+	if self.groupExts[t] {
+		return nil
+	}
+	if t == ExtensionTypeExternalSenders {
+		return ValSem(ValSemProfileExternalSender, nil)
+	}
+	return ValSem(ValSem209, nil)
+}
+
+// CheckLeafExtension gates LeafNode.Extensions. Unknown types are accepted and
+// ignored — RFC 9420 §13.2 GREASE values are parsed, never generated, and must not
+// error, and the interop harness sends them — so only the two extensions that are
+// meaningless or forbidden in a leaf are refused.
+func (self *Profile) CheckLeafExtension(t ExtensionType) error {
+	if self.leafExts[t] {
+		return nil
+	}
+	switch t {
+	case ExtensionTypeExternalSenders:
+		return ValSem(ValSemProfileExternalSender, nil)
+	case ExtensionTypeRatchetTree, ExtensionTypeRequiredCapabilities:
+		return ValSem(ValSem209, nil)
+	}
+	return nil
+}
+
+// CheckWireFormat refuses PublicMessage unless AllowPublicMessage is set, and
+// refuses an unregistered value outright. The two are different failures: the first
+// is our policy, the second is a malformed message.
+func (self *Profile) CheckWireFormat(w WireFormat) error {
+	switch w {
+	case WireFormatPrivateMessage, WireFormatWelcome, WireFormatGroupInfo, WireFormatKeyPackage:
+		return nil
+	case WireFormatPublicMessage:
+		if self.AllowPublicMessage {
+			return nil
+		}
+		return ValSem(ValSem005, nil)
+	}
+	return ErrUnknownWireFormat
+}
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `go test ./connect/mls/... -run TestProfile -v`
+Expected: PASS — 6 tests
+
+- [ ] **Step 5: Commit**
+
+```bash
+git -C connect add mls/profile.go mls/profile_test.go && git -C connect commit -m "feat(mls): the v1 narrow profile, with its allow-sets asserted against the spec"
 ```
 
 ---
@@ -1472,13 +2415,22 @@ git -C connect add mls/forbidden_test.go scripts/check-forbidden.sh && git -C co
 
 ### Task 6: Vendor and pin the 16 vector families
 
+This is the **single** vendoring task for all sixteen mlswg files. Every other slice-1 plan keeps
+only its family runner and vendors nothing. There is likewise exactly **one** pin file,
+`connect/mls/interop/PINS.md`, with machine-readable `mlswg=<sha>` and `openmls=<sha>` lines that the
+framing and lifecycle plans grep; `connect/mls/interop/PINS.md` and `connect/mls/testdata/vectors/PINS.md`
+do not exist. The crypto plan's separately-sourced `hpke-rfc9180-x25519.json` and
+`xwing-draft10.json` live under `testdata/vectors/rfc/`, so the sixteen-file assertion over
+`testdata/vectors/*.json` stays exact.
+
 **Files:**
-- Create: `connect/mls/testdata/vectors/*.json` (16 files), `connect/mls/testdata/vectors/VECTORS.sha256`, `connect/mls/PINS.md`
+- Create: `connect/mls/testdata/vectors/*.json` (16 files), `connect/mls/testdata/vectors/VECTORS.sha256`, `connect/mls/interop/PINS.md`
 - Test: `connect/mls/vectors_pin_test.go`
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: the pinned corpus every family runner reads, and `TestVectorFilesArePinned`.
+- Produces: the pinned corpus every family runner reads, `TestVectorFilesArePinned`, and
+  `TestVectorFolderHoldsExactlySixteenFiles`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1548,12 +2500,56 @@ func TestVectorFilesArePinned(t *testing.T) {
 		}
 	}
 }
+
+// TestVectorFolderHoldsExactlySixteenFiles keeps the mlswg corpus separable from
+// everything else we vendor. The crypto plan's RFC 9180 and X-Wing vectors are not
+// mlswg files and live under testdata/vectors/rfc/, so a seventeenth top-level file
+// is either an un-manifested mlswg family or a file in the wrong place.
+func TestVectorFolderHoldsExactlySixteenFiles(t *testing.T) {
+	found, err := filepath.Glob(filepath.Join("testdata", "vectors", "*.json"))
+	if err != nil {
+		t.Fatalf("glob: %v", err)
+	}
+	if len(found) != 16 {
+		t.Fatalf("testdata/vectors holds %d json files, spec A §4.2.1 names 16: %v", len(found), found)
+	}
+}
+
+// TestPinsAreMachineReadable asserts the one pin file exists and carries the two
+// lines the framing and lifecycle plans grep for. Three pin files in three formats
+// is how two greps end up matching none of them.
+func TestPinsAreMachineReadable(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("interop", "PINS.md"))
+	if err != nil {
+		t.Fatalf("read interop/PINS.md: %v", err)
+	}
+	text := string(body)
+	for _, key := range []string{"mlswg=", "openmls="} {
+		index := strings.Index(text, key)
+		if index < 0 {
+			t.Errorf("interop/PINS.md has no machine-readable %s<sha> line", key)
+			continue
+		}
+		if len(strings.Fields(text[index:])[0]) != len(key)+40 {
+			t.Errorf("%s must be followed by a full 40-character commit sha", key)
+		}
+	}
+	for _, stale := range []string{
+		filepath.Join("PINS.md"),
+		filepath.Join("testdata", "vectors", "PINS.md"),
+	} {
+		if _, err := os.Stat(stale); err == nil {
+			t.Errorf("%s must not exist; interop/PINS.md is the one pin file", stale)
+		}
+	}
+}
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./connect/mls/... -run TestVectorFilesArePinned -v`
-Expected: FAIL with `open VECTORS.sha256: no such file or directory`
+Run: `go test ./connect/mls/... -run 'TestVectorFilesArePinned|TestVectorFolderHolds|TestPinsAreMachineReadable' -v`
+Expected: FAIL with `open VECTORS.sha256: no such file or directory` and
+`read interop/PINS.md: no such file or directory`
 
 - [ ] **Step 3: Write minimal implementation**
 
@@ -1569,20 +2565,29 @@ for f in tree-math crypto-basics secret-tree message-protection key-schedule psk
          passive-client-welcome passive-client-handling-commit passive-client-random deserialization ; do
   cp "/tmp/mls-implementations/test-vectors/${f}.json" "connect/mls/testdata/vectors/${f}.json"
 done
+mkdir -p connect/mls/testdata/vectors/rfc
 ( cd connect/mls/testdata/vectors && sha256sum *.json > VECTORS.sha256 )
 ```
 
 ```markdown
-<!-- connect/mls/PINS.md -->
+<!-- connect/mls/interop/PINS.md -->
 # Pinned external references
 
-Bumping any line here is a pull request that must show a green interop matrix and a green
-`vectors` job. Nothing in this file enters `go.mod`.
+This is the one pin file for the whole slice. Bumping any line here is a pull request that must show
+a green interop matrix and a green `vectors` job. Nothing in this file enters `go.mod`.
+
+The two commit lines are machine-readable and are grepped by other plans' tasks; keep the
+`key=<40-char sha>` shape exactly.
+
+```
+mlswg=0000000000000000000000000000000000000000
+openmls=0000000000000000000000000000000000000000
+```
 
 | What | Pin | Why |
 |---|---|---|
-| mlswg/mls-implementations | commit `<recorded by the clone above>` | the 16 vector families **and** the gRPC test runner, pinned together so the runner and the vectors never disagree |
-| openmls/openmls | commit `<recorded when the oracle is built>` | the differential oracle and the 9 fuzz targets; built out of process in CI, never linked |
+| mlswg/mls-implementations | the `mlswg=` line above | the 16 vector families **and** the gRPC test runner, pinned together so the runner and the vectors never disagree |
+| openmls/openmls | the `openmls=` line above | the differential oracle and the 9 fuzz targets; built out of process in CI, never linked |
 | `ghcr.io/urnetwork/mls-peer-openmls` | digest `sha256:<...>` | interop peer |
 | `ghcr.io/urnetwork/mls-peer-mlspp` | digest `sha256:<...>` | interop peer |
 | `ghcr.io/urnetwork/mls-peer-mls-rs` | digest `sha256:<...>` | interop peer |
@@ -1591,15 +2596,18 @@ Peer images are prebuilt and pushed to GHCR by the weekly `peer-image-bump` job,
 digest-bump PR. CI never compiles Rust or C++ on a per-commit path.
 ```
 
+Substitute the real shas recorded by the clone above for the two zero placeholders before running
+the test; `TestPinsAreMachineReadable` only checks the shape, and a zero sha is a valid shape.
+
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./connect/mls/... -run TestVectorFilesArePinned -v`
+Run: `go test ./connect/mls/... -run 'TestVectorFilesArePinned|TestVectorFolderHolds|TestPinsAreMachineReadable' -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git -C connect add mls/testdata/vectors mls/vectors_pin_test.go mls/PINS.md && git -C connect commit -m "test(mls): vendor and digest-pin the 16 RFC 9420 vector families"
+git -C connect add mls/testdata/vectors mls/vectors_pin_test.go mls/interop/PINS.md && git -C connect commit -m "test(mls): vendor and digest-pin the 16 RFC 9420 vector families"
 ```
 
 ---
@@ -1832,9 +2840,18 @@ git -C connect add mls/vectors_test.go && git -C connect commit -m "test(mls): v
 - Create: `connect/mls/vectors_deserialization_kat_test.go`
 - Test: same file
 
+Family 16 is **implemented once, in `package syntax`**, against the `Reader.ReadVarint` /
+`Writer.WriteVarint` methods that plan actually ships. This task is the registry shim, plus the
+generate direction — which needs no new symbol from that plan, because the writer's varint method is
+already exported.
+
 **Interfaces:**
-- Consumes: `syntax.ReadVarint(b []byte) (uint64, int, error)`, `syntax.WriteVarint(dst []byte, value uint64) []byte`, `syntax.ErrNonMinimalLength` (Syntax and codec plan); `RegisterVectorFamily`, `LoadVectorFile`, `MustHex`, `HexOf` (Task 7).
-- Produces: family 16's `Verify` and `Generate`; removes 16 from `expectedPendingFamilies`.
+- Consumes: `syntax.VerifyDeserializationVector(t *testing.T, raw json.RawMessage)`,
+  `syntax.NewWriter() *Writer`, `(*syntax.Writer).WriteVarint(v uint32)`,
+  `(*syntax.Writer).Bytes() ([]byte, error)`, `syntax.MaxVarint` (Syntax and codec plan);
+  `RegisterVectorFamily`, `HexOf` (Task 7).
+- Produces: family 16's registration with `Verify` and `Generate`; removes 16 from
+  `expectedPendingFamilies`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1844,73 +2861,86 @@ git -C connect add mls/vectors_test.go && git -C connect commit -m "test(mls): v
 // canonical-encoding property: one valid variable-length prefix per length, and a
 // non-minimal prefix is a decode error. A decoder that accepts two encodings of the
 // same object is a signature-bypass primitive, because MLS signs over serialized forms.
+//
+// The verifier lives in package syntax, next to the Reader and Writer it exercises.
+// A second copy here would be a second varint implementation, which is exactly what
+// the one-codec-one-corpus rule exists to prevent.
 package mls
 
 import (
-	"bytes"
 	"encoding/json"
 	"testing"
 
 	"github.com/urnetwork/connect/mls/syntax"
 )
 
-// deserializationCase is one row of deserialization.json.
+func init() {
+	RegisterVectorFamily(VectorFamily{
+		Number:   16,
+		Name:     "Vector deserialization",
+		File:     "deserialization.json",
+		Slice:    "A1",
+		Verify:   syntax.VerifyDeserializationVector,
+		Generate: generateDeserializationVector,
+	})
+}
+
+// TestFamily16IsRegisteredAgainstTheSyntaxRunner pins the shim. If this file ever
+// grows its own varint decoder again, the identity assertion below is what fails.
+func TestFamily16IsRegisteredAgainstTheSyntaxRunner(t *testing.T) {
+	family, ok := vectorManifest[16]
+	if !ok {
+		t.Fatal("family 16 is not registered")
+	}
+	if family.Verify == nil {
+		t.Fatal("family 16 has no verifier")
+	}
+	if family.Generate == nil {
+		t.Fatal("family 16 must support the generate direction; it is the only family that can in slice A1")
+	}
+	cases := LoadVectorFile(t, family.File)
+	if len(cases) == 0 {
+		t.Fatal("deserialization.json has no cases")
+	}
+}
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `go test ./connect/mls/... -run TestFamily16IsRegisteredAgainstTheSyntaxRunner -v`
+Expected: FAIL to build with `undefined: generateDeserializationVector`, and once that is added,
+`TestVectorManifestIsComplete` FAILs with
+`pending families [1 2 3 4 5 6 7 8 9 10 11 12 13 14 15], expected [1 2 ... 16]` if 16 was left in
+the pending list — the reverse direction, because 16 is now registered with a runner.
+
+- [ ] **Step 3: Write minimal implementation**
+
+```go
+// append to connect/mls/vectors_deserialization_kat_test.go
+
+// deserializationCase is one row of deserialization.json, in the mlswg shape.
 type deserializationCase struct {
 	VlbytesHeader string `json:"vlbytes_header"`
 	Length        uint32 `json:"length"`
 }
 
-func init() {
-	RegisterVectorFamily(VectorFamily{
-		Number: 16,
-		Name:   "Vector deserialization",
-		File:   "deserialization.json",
-		Slice:  "A1",
-		Verify: verifyDeserializationVector,
-		Generate: generateDeserializationVector,
-	})
-}
-
-func verifyDeserializationVector(t *testing.T, raw json.RawMessage) {
-	testCase := deserializationCase{}
-	if err := json.Unmarshal(raw, &testCase); err != nil {
-		t.Fatalf("parse case: %v", err)
-	}
-	header := MustHex(t, testCase.VlbytesHeader)
-
-	value, consumed, err := syntax.ReadVarint(header)
-	if err != nil {
-		t.Fatalf("ReadVarint(%x) = error %v, want length %d", header, err, testCase.Length)
-	}
-	if consumed != len(header) {
-		t.Errorf("ReadVarint(%x) consumed %d bytes, want %d", header, consumed, len(header))
-	}
-	if value != uint64(testCase.Length) {
-		t.Errorf("ReadVarint(%x) = %d, want %d", header, value, testCase.Length)
-	}
-
-	// canonicality: re-encoding the decoded length must reproduce the same bytes.
-	reencoded := syntax.WriteVarint(nil, value)
-	if !bytes.Equal(reencoded, header) {
-		t.Errorf("WriteVarint(%d) = %x, want %x — the prefix has exactly one valid encoding", value, reencoded, header)
-	}
-
-	// and the non-minimal form of the same value must be refused.
-	if longer := nonMinimalVarint(value); longer != nil {
-		if _, _, err := syntax.ReadVarint(longer); err == nil {
-			t.Errorf("ReadVarint accepted the non-minimal prefix %x for length %d", longer, value)
-		}
-	}
-}
-
+// generateDeserializationVector produces one case per prefix-width boundary, both
+// sides, from our own encoder — so the pinned corpus is not the only thing our
+// decoder is ever asked to agree with.
 func generateDeserializationVector(t *testing.T) json.RawMessage {
-	// one case per prefix width boundary, both sides.
-	lengths := []uint64{0, 1, 63, 64, 16383, 16384, 1 << 20}
+	t.Helper()
+	lengths := []uint32{0, 1, 63, 64, 16383, 16384, 1 << 20, syntax.MaxVarint}
 	cases := make([]deserializationCase, 0, len(lengths))
 	for _, length := range lengths {
+		writer := syntax.NewWriter()
+		writer.WriteVarint(length)
+		header, err := writer.Bytes()
+		if err != nil {
+			t.Fatalf("WriteVarint(%d): %v", length, err)
+		}
 		cases = append(cases, deserializationCase{
-			VlbytesHeader: HexOf(syntax.WriteVarint(nil, length)),
-			Length:        uint32(length),
+			VlbytesHeader: HexOf(header),
+			Length:        length,
 		})
 	}
 	body, err := json.Marshal(cases)
@@ -1921,34 +2951,7 @@ func generateDeserializationVector(t *testing.T) json.RawMessage {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `go test ./connect/mls/... -run TestVectorFamiliesVerify -v`
-Expected: FAIL to build with `undefined: nonMinimalVarint`, and once that is added,
-`TestVectorManifestIsComplete` FAILs with
-`pending families [1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16], expected [1 2 ... 15]` — the reverse
-direction, because 16 is now registered with a runner while the pending list still names it.
-
-- [ ] **Step 3: Write minimal implementation**
-
-```go
-// append to connect/mls/vectors_deserialization_kat_test.go
-
-// nonMinimalVarint re-encodes value one prefix width wider than the canonical form,
-// which RFC 9420 §2.1.2 forbids. nil when value already needs the widest prefix.
-func nonMinimalVarint(value uint64) []byte {
-	switch {
-	case value < 1<<6:
-		return []byte{0x40 | byte(value>>8), byte(value)}
-	case value < 1<<14:
-		return []byte{0x80, byte(value >> 16), byte(value >> 8), byte(value)}
-	default:
-		return nil
-	}
-}
-```
-
-And in `connect/mls/vectors_test.go`, remove 16:
+And in `connect/mls/vectors_test.go`, confirm 16 is absent from the pending list:
 
 ```go
 var expectedPendingFamilies = []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
@@ -1958,8 +2961,9 @@ stays as written — 16 was never in it. Confirm by running both tests.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./connect/mls/... -run 'TestVectorManifestIsComplete|TestVectorFamiliesVerify' -v`
-Expected: PASS, with family 16 running every case in `deserialization.json`
+Run: `go test ./connect/mls/... -run 'TestFamily16|TestVectorManifestIsComplete|TestVectorFamiliesVerify' -v`
+Expected: PASS, with family 16 running every case in `deserialization.json` through
+`syntax.VerifyDeserializationVector`
 
 - [ ] **Step 5: Commit**
 
@@ -2041,6 +3045,14 @@ git -C connect add mls/vectors_test.go && git -C connect commit -m "test(mls): g
 
 ---
 
+## Phase A′ — the pieces that cannot land in wave 1 (wave 4, after `group.go`)
+
+Tasks 10, 11 and 12 are scheduled apart from the rest of Phase A. `memStore` implements the group
+lifecycle plan's `StateStore`; the codec table names `KeyPackage`, `MLSMessage`, `Proposal` and
+`Welcome`; and the fuzz targets are built on the codec table. All three therefore land in wave 4,
+which is also what keeps `fuzz-short` from being red from wave 1 to wave 4. Task 13's `fuzz-short`
+job is added in wave 1 but its matrix is empty until this phase lands — see Task 13 step 3.
+
 ### Task 10: The in-memory state store
 
 **Files:**
@@ -2048,7 +3060,8 @@ git -C connect add mls/vectors_test.go && git -C connect commit -m "test(mls): g
 - Test: same file
 
 **Interfaces:**
-- Consumes: `type StateStore interface` (Group lifecycle plan, Spec A §3.5).
+- Consumes: `type StateStore interface` (Group lifecycle plan, Spec A §3.5) — the eight methods
+  listed in the consumed block above, verbatim.
 - Produces:
   - `func newMemStore() *memStore`
   - `func (self *memStore) EpochsHeld(groupId []byte) []uint64`
@@ -2067,6 +3080,7 @@ package mls
 
 import (
 	"encoding/hex"
+	"errors"
 	"slices"
 	"sync"
 	"testing"
@@ -2128,6 +3142,11 @@ type memStore struct {
 	packages  map[string][3][]byte
 }
 
+// errMemStoreMissing is a plain store miss. It is deliberately NOT a catalogue
+// code: a StateStore lookup failure is not an RFC validation semantic, and giving
+// it one would let a store bug masquerade as a ValSem failure in a negative test.
+var errMemStoreMissing = errors.New("mls: memstore: no such entry")
+
 func newMemStore() *memStore {
 	return &memStore{
 		states:   map[string]map[uint64][]byte{},
@@ -2152,7 +3171,7 @@ func (self *memStore) GetGroupState(groupId []byte, epoch uint64) ([]byte, error
 	defer self.stateLock.Unlock()
 	state, ok := self.states[hex.EncodeToString(groupId)][epoch]
 	if !ok {
-		return nil, ValSem(ValSem400, nil)
+		return nil, errMemStoreMissing
 	}
 	return slices.Clone(state), nil
 }
@@ -2184,7 +3203,7 @@ func (self *memStore) GetPrivateKey(pub []byte) ([]byte, error) {
 	defer self.stateLock.Unlock()
 	priv, ok := self.private[hex.EncodeToString(pub)]
 	if !ok {
-		return nil, ValSem(ValSem203, nil)
+		return nil, errMemStoreMissing
 	}
 	return slices.Clone(priv), nil
 }
@@ -2215,7 +3234,7 @@ func (self *memStore) TakeKeyPackage(ref []byte) (kp, initPriv, encPriv []byte, 
 	key := hex.EncodeToString(ref)
 	entry, ok := self.packages[key]
 	if !ok {
-		return nil, nil, nil, ValSem(ValSem203, nil)
+		return nil, nil, nil, errMemStoreMissing
 	}
 	delete(self.packages, key)
 	return entry[0], entry[1], entry[2], nil
@@ -2260,15 +3279,27 @@ git -C connect add mls/memstore_test.go && git -C connect commit -m "test(mls): 
 
 ### Task 11: The codec table the fuzz targets and the oracle share
 
+The declarations live in `codec_table.go`, **not** in a `_test.go` file: the Go oracle client and the
+separate `connect/mls/interop` module cannot see symbols in a test file, and the shared kind-id
+contract that stops Go and Rust drifting about which decoder a divergence concerns does not otherwise
+exist across that boundary. Only the two tests stay in `codec_table_test.go`.
+
+Under **C1** every pair is one line over `syntax.Marshal` / `syntax.Unmarshal`. The ten
+`Parse*`/`Encode*` names this task used to ask other plans for are not added anywhere, which keeps
+the naming contract inside this plan and removes ten cross-plan asks. `KindMlsMessage` is the one
+exception, because `ParseMLSMessage` / `MarshalMLSMessage` already exist as the framing plan's single
+wire entry point.
+
 **Files:**
-- Create: `connect/mls/codec_table_test.go`
-- Test: same file
+- Create: `connect/mls/codec_table.go`, `connect/mls/codec_table_test.go`
+- Test: `connect/mls/codec_table_test.go`
 
 **Interfaces:**
-- Consumes: `ParseExtension`/`EncodeExtension`, `ParseKeyPackage`/`EncodeKeyPackage`,
-  `ParseMLSMessage`/`EncodeMLSMessage`, `ParseProposal`/`EncodeProposal`,
-  `ParseWelcome`/`EncodeWelcome` (Syntax and codec plan for the first pair, Group lifecycle plan for
-  the rest).
+- Consumes: `syntax.Marshal(v Marshaler) ([]byte, error)`,
+  `syntax.Unmarshal(bs []byte, v Unmarshaler) error` (Syntax and codec plan);
+  `Extension`, `KeyPackage` (TreeKEM plan); `Proposal`, `Welcome`, `MLSMessage`,
+  `ParseMLSMessage(data []byte) (*MLSMessage, error)`,
+  `MarshalMLSMessage(message *MLSMessage) ([]byte, error)` (Framing plan).
 - Produces:
   - `type CodecKind uint8` with `KindExtension=1`, `KindKeyPackage=2`, `KindMlsMessage=3`, `KindProposal=4`, `KindWelcome=5`
   - `type CodecPair struct { Name string; Decode func([]byte) (any, error); Encode func(any) ([]byte, error) }`
@@ -2338,9 +3369,22 @@ Expected: FAIL to build with `undefined: CodecKinds`, `undefined: KindExtension`
 - [ ] **Step 3: Write minimal implementation**
 
 ```go
-// prepend to connect/mls/codec_table_test.go
+// connect/mls/codec_table.go
+// the five decoders the 9 fuzz targets and the differential oracle both address.
+// This is NOT a _test.go file: the interop module and the oracle client are outside
+// package mls's test binary and still have to agree with it about which decoder a
+// kind id names.
+//
+// Every pair is one line over syntax.Marshal / syntax.Unmarshal. There are no
+// per-type Parse*/Encode* wrappers anywhere in package mls, which is what lets
+// every wire type be a syntax.Codec and therefore a CheckRoundTrip target.
+package mls
 
-import "slices"
+import (
+	"slices"
+
+	"github.com/urnetwork/connect/mls/syntax"
+)
 
 // CodecKind identifies one decoder. The value is the first byte of an oracle
 // request frame and must never be renumbered.
@@ -2365,28 +3409,28 @@ type CodecPair struct {
 var codecTable = map[CodecKind]CodecPair{
 	KindExtension: {
 		Name:   "extension",
-		Decode: func(b []byte) (any, error) { return ParseExtension(b) },
-		Encode: func(v any) ([]byte, error) { return EncodeExtension(v.(*Extension)) },
+		Decode: func(b []byte) (any, error) { v := &Extension{}; return v, syntax.Unmarshal(b, v) },
+		Encode: func(v any) ([]byte, error) { return syntax.Marshal(v.(*Extension)) },
 	},
 	KindKeyPackage: {
 		Name:   "key_package",
-		Decode: func(b []byte) (any, error) { return ParseKeyPackage(b) },
-		Encode: func(v any) ([]byte, error) { return EncodeKeyPackage(v.(*KeyPackage)) },
+		Decode: func(b []byte) (any, error) { v := &KeyPackage{}; return v, syntax.Unmarshal(b, v) },
+		Encode: func(v any) ([]byte, error) { return syntax.Marshal(v.(*KeyPackage)) },
 	},
 	KindMlsMessage: {
 		Name:   "mls_message",
 		Decode: func(b []byte) (any, error) { return ParseMLSMessage(b) },
-		Encode: func(v any) ([]byte, error) { return EncodeMLSMessage(v.(*MLSMessage)) },
+		Encode: func(v any) ([]byte, error) { return MarshalMLSMessage(v.(*MLSMessage)) },
 	},
 	KindProposal: {
 		Name:   "proposal",
-		Decode: func(b []byte) (any, error) { return ParseProposal(b) },
-		Encode: func(v any) ([]byte, error) { return EncodeProposal(v.(*Proposal)) },
+		Decode: func(b []byte) (any, error) { v := &Proposal{}; return v, syntax.Unmarshal(b, v) },
+		Encode: func(v any) ([]byte, error) { return syntax.Marshal(v.(*Proposal)) },
 	},
 	KindWelcome: {
 		Name:   "welcome",
-		Decode: func(b []byte) (any, error) { return ParseWelcome(b) },
-		Encode: func(v any) ([]byte, error) { return EncodeWelcome(v.(*Welcome)) },
+		Decode: func(b []byte) (any, error) { v := &Welcome{}; return v, syntax.Unmarshal(b, v) },
+		Encode: func(v any) ([]byte, error) { return syntax.Marshal(v.(*Welcome)) },
 	},
 }
 
@@ -2407,6 +3451,10 @@ func CodecKinds() []CodecKind {
 }
 ```
 
+The four `syntax.Unmarshal` closures return a non-nil `v` alongside a non-nil error on failure. That
+is deliberate and the callers depend on it: `fuzzDecodeTarget` and the oracle both branch on the
+error alone, and returning the partly-filled value keeps the closure a single expression.
+
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `go test ./connect/mls/... -run TestCodecTable -v`
@@ -2415,7 +3463,7 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git -C connect add mls/codec_table_test.go && git -C connect commit -m "test(mls): shared codec table for the fuzz targets and the oracle"
+git -C connect add mls/codec_table.go mls/codec_table_test.go && git -C connect commit -m "test(mls): shared codec table for the fuzz targets and the oracle"
 ```
 
 ---
@@ -2463,31 +3511,71 @@ func FuzzProposalDecode(f *testing.F)        { fuzzDecodeTarget(f, KindProposal,
 func FuzzProposalDecodeBytes(f *testing.F)   { fuzzDecodeTarget(f, KindProposal, false) }
 func FuzzWelcomeDecode(f *testing.F)         { fuzzDecodeTarget(f, KindWelcome, true) }
 
-// TestFuzzTargetsCoverEveryKind fails if a decoder is added without a target, which
-// is how a decoder quietly stops being fuzzed.
+// TestFuzzTargetsCoverEveryKind fails if a decoder is added without a target, or a
+// target is deleted, which is how a decoder quietly stops being fuzzed. It parses
+// this file with go/ast rather than counting a hand-written literal slice: a literal
+// slice is a second list to keep in sync, and the second list is the one that rots.
 func TestFuzzTargetsCoverEveryKind(t *testing.T) {
-	covered := map[CodecKind]int{}
-	for _, kind := range []CodecKind{
-		KindExtension, KindExtension,
-		KindKeyPackage, KindKeyPackage,
-		KindMlsMessage, KindMlsMessage,
-		KindProposal, KindProposal,
-		KindWelcome,
-	} {
-		covered[kind]++
+	fileSet := token.NewFileSet()
+	file, err := parser.ParseFile(fileSet, "syntax_fuzz_test.go", nil, 0)
+	if err != nil {
+		t.Fatalf("parse syntax_fuzz_test.go: %v", err)
 	}
-	if len(covered) != len(CodecKinds()) {
-		t.Fatalf("%d kinds have targets, the codec table holds %d", len(covered), len(CodecKinds()))
-	}
+	covered := map[string]int{}
 	total := 0
-	for _, count := range covered {
-		total += count
+	for _, decl := range file.Decls {
+		function, ok := decl.(*ast.FuncDecl)
+		if !ok || function.Recv != nil || !strings.HasPrefix(function.Name.Name, "Fuzz") {
+			continue
+		}
+		total++
+		// each target's whole body is one call to fuzzDecodeTarget(f, KindX, bool),
+		// so the kind is the second argument's identifier.
+		kind := ""
+		ast.Inspect(function, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			name, ok := call.Fun.(*ast.Ident)
+			if !ok || name.Name != "fuzzDecodeTarget" || len(call.Args) != 3 {
+				return true
+			}
+			if identifier, ok := call.Args[1].(*ast.Ident); ok {
+				kind = identifier.Name
+			}
+			return false
+		})
+		if kind == "" {
+			t.Errorf("%s does not delegate to fuzzDecodeTarget with a CodecKind", function.Name.Name)
+			continue
+		}
+		covered[kind]++
 	}
 	if total != 9 {
 		t.Fatalf("%d fuzz targets, OpenMLS ships 9", total)
 	}
+	if len(covered) != len(CodecKinds()) {
+		t.Fatalf("%d kinds have targets, the codec table holds %d", len(covered), len(CodecKinds()))
+	}
+	for _, kind := range CodecKinds() {
+		pair, _ := CodecFor(kind)
+		found := false
+		for name := range covered {
+			// the identifier is KindExtension for the pair named "extension", and
+			// so on; compare on the codec table rather than on a second literal.
+			if strings.EqualFold(strings.TrimPrefix(name, "Kind"), strings.ReplaceAll(pair.Name, "_", "")) {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("codec %q has no fuzz target", pair.Name)
+		}
+	}
 }
 ```
+
+Add `"go/ast"`, `"go/parser"`, `"go/token"` and `"strings"` to the imports.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -2591,6 +3679,313 @@ git -C connect add mls/syntax_fuzz_test.go && git -C connect commit -m "test(mls
 
 ---
 
+### Task 12a: `seedgen` and the committed seed corpus
+
+A fuzz target seeded from `[]byte{}`, `{0x00}` and `{0x40, 0x00}` spends its first hour rediscovering
+the length prefix. Gate 4 wants the corpus committed, so every run starts where the last one got to
+and a crasher is reproducible from a clean checkout.
+
+**Files:**
+- Create: `connect/mls/interop/cmd/seedgen/main.go`, `connect/mls/testdata/corpus/**`
+- Test: `connect/mls/corpus_test.go`
+
+**Interfaces:**
+- Consumes: `CodecFor(kind CodecKind) (CodecPair, bool)`, `CodecKinds() []CodecKind` (Task 11 — and
+  the reason that task moves the table out of `codec_table_test.go`: `seedgen` lives in the interop
+  module and cannot see a test file's symbols, so `LoadVectorFile` and `MustHex` are unavailable to
+  it and it harvests the corpus itself); `syntax.MaxVectorLength` (Syntax and codec plan);
+  `MLSMessage`, `KeyPackage`, `Proposal`, `Welcome`, `Extension`, `Remove`, `LeafIndex`,
+  `ProtocolVersionMls10`, `WireFormatKeyPackage`, `ExtensionTypeRequiredCapabilities`,
+  `ExtensionTypeUrmessageLeafKeys`, `XwingPublicKeyLen`,
+  `CipherSuiteX25519ChaCha20Sha256Ed25519` (Framing, TreeKEM and Crypto plans).
+- Produces: `TestSeedCorpusIsCommitted`, `TestEverySeedIsHandledCleanly`, and the `seedgen` binary.
+
+- [ ] **Step 1: Write the failing test**
+
+```go
+// connect/mls/corpus_test.go
+// the seed corpus is committed, not generated at run time. A corpus that is
+// regenerated per run makes a crasher irreproducible, and an empty corpus makes
+// 60 s of fuzzing worth about 60 s of rediscovering the length prefix.
+package mls
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestSeedCorpusIsCommitted(t *testing.T) {
+	for _, kind := range CodecKinds() {
+		pair, _ := CodecFor(kind)
+		for _, folder := range []string{"bytes", "structured"} {
+			if kind == KindWelcome && folder == "bytes" {
+				// welcome has one target, the structured one; see Task 12.
+				continue
+			}
+			path := filepath.Join("testdata", "corpus", pair.Name, folder)
+			entries, err := os.ReadDir(path)
+			if err != nil {
+				t.Errorf("%s: %v — run interop/cmd/seedgen and commit the result", path, err)
+				continue
+			}
+			if len(entries) < 4 {
+				t.Errorf("%s holds %d seeds, want at least 4", path, len(entries))
+			}
+		}
+	}
+}
+
+// TestEverySeedIsHandledCleanly is property 1 over the committed corpus alone, so
+// a bad seed is caught by `go test` rather than only by `go test -fuzz`.
+func TestEverySeedIsHandledCleanly(t *testing.T) {
+	for _, kind := range CodecKinds() {
+		pair, _ := CodecFor(kind)
+		root := filepath.Join("testdata", "corpus", pair.Name)
+		err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+			if err != nil || entry.IsDir() {
+				return nil
+			}
+			body, readErr := os.ReadFile(path)
+			if readErr != nil {
+				t.Errorf("read %s: %v", path, readErr)
+				return nil
+			}
+			decoded, decodeErr := pair.Decode(body)
+			if decodeErr != nil {
+				return nil
+			}
+			if _, encodeErr := pair.Encode(decoded); encodeErr != nil {
+				t.Errorf("%s: decode accepted the seed but encode refused the result: %v", path, encodeErr)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Errorf("walk %s: %v", root, err)
+		}
+	}
+}
+```
+
+Add `"io/fs"` to the imports.
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `go test ./connect/mls/... -run 'TestSeedCorpusIsCommitted|TestEverySeedIsHandledCleanly' -v`
+Expected: FAIL with `testdata/corpus/extension/bytes: no such file or directory — run
+interop/cmd/seedgen and commit the result`
+
+- [ ] **Step 3: Write minimal implementation**
+
+```go
+// connect/mls/interop/cmd/seedgen/main.go
+// generate the committed fuzz seed corpus. It lives in the interop module, not in
+// package mls, because it is a developer tool: nothing in the product build should
+// be able to write into testdata.
+//
+// Two sources, matching the two target variants. The `bytes` corpus is every hex
+// blob in the pinned vector files plus every interop wire dump found under
+// out/wiredump. The `structured` corpus is our own encoder's output for a handful
+// of hand-built values, which is what gives the fuzzer a valid frame to mutate
+// rather than a valid frame to discover.
+package main
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+
+	"github.com/urnetwork/connect/mls"
+	"github.com/urnetwork/connect/mls/syntax"
+)
+
+// hexBlob matches a lowercase hex string long enough to be a plausible message.
+var hexBlob = regexp.MustCompile(`"([0-9a-f]{16,})"`)
+
+func main() {
+	vectors := flag.String("vectors", "../../testdata/vectors", "the pinned vector folder")
+	wiredump := flag.String("wiredump", "out/wiredump", "interop wire dumps, if any")
+	out := flag.String("out", "../../testdata/corpus", "the corpus root")
+	flag.Parse()
+
+	for _, kind := range mls.CodecKinds() {
+		pair, _ := mls.CodecFor(kind)
+		if err := os.MkdirAll(filepath.Join(*out, pair.Name, "bytes"), 0o755); err != nil {
+			fail(err)
+		}
+		if err := os.MkdirAll(filepath.Join(*out, pair.Name, "structured"), 0o755); err != nil {
+			fail(err)
+		}
+	}
+
+	// the bytes corpus: anything hex-shaped in the vector corpus, and every wire
+	// dump. A blob that decodes under some codec is filed under that codec; one
+	// that decodes under none is still useful and is filed under mls_message.
+	blobs := [][]byte{}
+	blobs = append(blobs, harvestHex(*vectors)...)
+	blobs = append(blobs, harvestFiles(*wiredump)...)
+	for _, blob := range blobs {
+		file(*out, classify(blob), "bytes", blob)
+	}
+
+	// the structured corpus: our own encoder over values we know are well-formed.
+	for _, seed := range structuredSeeds() {
+		pair, ok := mls.CodecFor(seed.kind)
+		if !ok {
+			continue
+		}
+		encoded, err := pair.Encode(seed.value)
+		if err != nil {
+			fail(fmt.Errorf("encode %s seed: %w", pair.Name, err))
+		}
+		file(*out, seed.kind, "structured", encoded)
+	}
+}
+
+type structuredSeed struct {
+	kind  mls.CodecKind
+	value any
+}
+
+// structuredSeeds is one minimal and one populated value per codec. They are built
+// through the exported types and encoded through the codec table, so a seed can
+// never encode a shape the decoder would reject.
+func structuredSeeds() []structuredSeed {
+	return []structuredSeed{
+		{mls.KindExtension, &mls.Extension{ExtensionType: mls.ExtensionTypeRequiredCapabilities}},
+		{mls.KindExtension, &mls.Extension{
+			ExtensionType: mls.ExtensionTypeUrmessageLeafKeys,
+			ExtensionData: make([]byte, mls.XwingPublicKeyLen),
+		}},
+		{mls.KindKeyPackage, &mls.KeyPackage{
+			Version:     mls.ProtocolVersionMls10,
+			CipherSuite: mls.CipherSuiteX25519ChaCha20Sha256Ed25519,
+		}},
+		{mls.KindProposal, &mls.Proposal{
+			ProposalType: mls.ProposalTypeRemove,
+			Remove:       &mls.Remove{Removed: mls.LeafIndex(1)},
+		}},
+		{mls.KindProposal, &mls.Proposal{
+			ProposalType: mls.ProposalType(0x0A0A),
+			UnknownType:  mls.ProposalType(0x0A0A),
+			UnknownBody:  []byte{0x0a, 0x0a},
+		}},
+		{mls.KindWelcome, &mls.Welcome{CipherSuite: mls.CipherSuiteX25519ChaCha20Sha256Ed25519}},
+		{mls.KindMlsMessage, &mls.MLSMessage{
+			Version:    mls.ProtocolVersionMls10,
+			WireFormat: mls.WireFormatKeyPackage,
+			KeyPackage: &mls.KeyPackage{
+				Version:     mls.ProtocolVersionMls10,
+				CipherSuite: mls.CipherSuiteX25519ChaCha20Sha256Ed25519,
+			},
+		}},
+	}
+}
+
+// classify files a harvested blob under the first codec that accepts it, and under
+// mls_message when none does — an input nobody accepts is exactly the input worth
+// keeping.
+func classify(blob []byte) mls.CodecKind {
+	for _, kind := range mls.CodecKinds() {
+		pair, _ := mls.CodecFor(kind)
+		if _, err := pair.Decode(blob); err == nil {
+			return kind
+		}
+	}
+	return mls.KindMlsMessage
+}
+
+// file writes one seed, named by its digest so re-running seedgen is idempotent.
+// A seed above the codec's own vector limit can only ever be rejected on length,
+// which teaches the fuzzer nothing and costs it a mutation slot.
+func file(root string, kind mls.CodecKind, folder string, body []byte) {
+	pair, ok := mls.CodecFor(kind)
+	if !ok || len(body) == 0 || len(body) > syntax.MaxVectorLength {
+		return
+	}
+	sum := sha256.Sum256(body)
+	name := hex.EncodeToString(sum[:8])
+	path := filepath.Join(root, pair.Name, folder, name)
+	if err := os.WriteFile(path, body, 0o644); err != nil {
+		fail(err)
+	}
+}
+
+func harvestHex(root string) [][]byte {
+	blobs := [][]byte{}
+	filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil || entry.IsDir() || filepath.Ext(path) != ".json" {
+			return nil
+		}
+		body, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return nil
+		}
+		if !json.Valid(body) {
+			return nil
+		}
+		for _, match := range hexBlob.FindAllSubmatch(body, -1) {
+			decoded, decodeErr := hex.DecodeString(string(match[1]))
+			if decodeErr == nil {
+				blobs = append(blobs, decoded)
+			}
+		}
+		return nil
+	})
+	return blobs
+}
+
+func harvestFiles(root string) [][]byte {
+	blobs := [][]byte{}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return blobs
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		body, readErr := os.ReadFile(filepath.Join(root, entry.Name()))
+		if readErr == nil {
+			blobs = append(blobs, body)
+		}
+	}
+	return blobs
+}
+
+func fail(err error) {
+	fmt.Fprintf(os.Stderr, "seedgen: %v\n", err)
+	os.Exit(1)
+}
+```
+
+Then run it once and commit the result:
+
+```bash
+( cd connect/mls/interop && go run ./cmd/seedgen )
+git -C connect add mls/testdata/corpus
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `go test ./connect/mls/... -run 'TestSeedCorpusIsCommitted|TestEverySeedIsHandledCleanly' -v`
+Expected: PASS
+
+- [ ] **Step 5: Commit**
+
+```bash
+git -C connect add mls/corpus_test.go mls/interop/cmd/seedgen mls/testdata/corpus && git -C connect commit -m "test(mls): committed fuzz seed corpus, generated from the pinned vectors and our own encoder"
+```
+
+---
+
+## Phase A, continued — the per-commit CI workflow (wave 1)
+
 ### Task 13: The per-commit CI workflow
 
 **Files:**
@@ -2598,9 +3993,9 @@ git -C connect add mls/syntax_fuzz_test.go && git -C connect commit -m "test(mls
 - Test: `connect/mls/workflow_test.go`
 
 **Interfaces:**
-- Consumes: the test names of Tasks 3–12.
-- Produces: the `vectors`, `valsem`, `layering`, `forbidden-crypto` and `fuzz-short` CI jobs, and
-  `TestWorkflowsPinTheToolchain`.
+- Consumes: the test names of Tasks 3, 3a, 4, 5, 6, 7, 8, 9 and 12.
+- Produces: the `vectors`, `valsem`, `profile`, `layering`, `forbidden-crypto` and `fuzz-short` CI
+  jobs, and `TestWorkflowsPinTheToolchain`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2639,10 +4034,13 @@ func TestWorkflowsPinTheToolchain(t *testing.T) {
 	}
 	for _, gate := range []string{
 		"TestVectorFilesArePinned",
+		"TestVectorFolderHoldsExactlySixteenFiles",
+		"TestPinsAreMachineReadable",
 		"TestVectorManifestIsComplete",
 		"TestVectorFamiliesVerify",
 		"TestVectorGenerateThenVerify",
 		"TestValSemCatalogueIsClosed",
+		"TestProfileIsClosed",
 		"TestForbiddenImportEdges",
 		"TestNoForbiddenCrypto",
 	} {
@@ -2684,7 +4082,7 @@ jobs:
       - uses: actions/setup-go@v5
         with: { go-version: '1.26.5' }
       - name: vector families
-        run: go test ./mls/... -run 'TestVectorFilesArePinned|TestVectorManifestIsComplete|TestVectorFamiliesVerify|TestVectorGenerateThenVerify' -v -count 1
+        run: go test ./mls/... -run 'TestVectorFilesArePinned|TestVectorFolderHoldsExactlySixteenFiles|TestPinsAreMachineReadable|TestVectorManifestIsComplete|TestVectorFamiliesVerify|TestVectorGenerateThenVerify|TestFamily16IsRegisteredAgainstTheSyntaxRunner' -v -count 1
   valsem:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -2695,12 +4093,21 @@ jobs:
       - name: catalogue closure
         run: go test ./mls/... -run 'TestValSemCatalogueIsClosed|TestErrataFileIsTranscribed' -v -count 1
       - name: negative tests
-        run: go test ./mls/... -run 'TestValSem|TestErrata' -v -count 1
+        run: go test ./mls/... -run 'TestValSem|TestErrata|TestProfileRefuses' -v -count 1
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: valsem-coverage
           path: mls/valsem-coverage.md
+  profile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.26.5' }
+      - name: the v1 narrow profile is closed
+        run: go test ./mls/... -run 'TestProfileIsClosed' -v -count 1
   layering:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -2752,7 +4159,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with: { go-version: '1.26.5' }
-      - run: go test ./mls/ -run '^$' -fuzz '^${{ matrix.target }}$' -fuzztime 60s
+      # the targets land in Phase A' (wave 4) with the codec table they are built
+      # on. Until then this job is green and silent rather than red for four waves.
+      - id: targets
+        run: |
+          if [ -f mls/syntax_fuzz_test.go ]; then echo 'present=yes' >> "$GITHUB_OUTPUT"; else echo 'present=no' >> "$GITHUB_OUTPUT"; fi
+      - if: steps.targets.outputs.present == 'yes'
+        run: go test ./mls/ -run '^$' -fuzz '^${{ matrix.target }}$' -fuzztime 60s
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -2783,7 +4196,7 @@ git -C connect add .github/workflows/mls-vectors.yml .github/workflows/mls-fuzz.
 
 **Interfaces:**
 - Consumes: nothing from other plans. OpenMLS is fetched by the CI job at the commit pinned in
-  `connect/mls/PINS.md`; it never enters any `go.mod` and the binary never ships.
+  `connect/mls/interop/PINS.md`; it never enters any `go.mod` and the binary never ships.
 - Produces: a binary that speaks the stdio protocol Task 15 implements the Go side of:
 
 ```
@@ -2854,7 +4267,7 @@ name = "urmessage_mls_oracle"
 path = "src/main.rs"
 
 [dependencies]
-openmls = { git = "https://github.com/openmls/openmls", rev = "PINNED_IN_mls/PINS.md" }
+openmls = { git = "https://github.com/openmls/openmls", rev = "PINNED_IN_mls/interop/PINS.md" }
 tls_codec = "0.4"
 base64 = "0.22"
 serde_json = "1"
@@ -2959,7 +4372,7 @@ fn main() -> io::Result<()> {
 # Building the differential oracle
 
 The oracle is built **only** in the nightly `fuzz-long` CI job, from the OpenMLS commit pinned in
-`connect/mls/PINS.md`. It is not part of any Go build, is not in any `go.mod`, and is never
+`connect/mls/interop/PINS.md`. It is not part of any Go build, is not in any `go.mod`, and is never
 included in a shipped artifact.
 
 ```
@@ -2994,13 +4407,16 @@ git -C connect add mls/interop/oracle && git -C connect commit -m "test(mls): ou
 **Interfaces:**
 - Consumes: `CodecKind` (Task 11); the framing of Task 14.
 - Produces:
-  - `type oracleResult struct { Accept bool; Reserialized []byte; Error string }`
+  - `type oracleResult struct { Accept bool "json:\"accept\""; Reserialized []byte "json:\"reserialized\""; Error string "json:\"error\"" }`
   - `func newOracle(t *testing.T) *oracle` — `t.Skip`s when `URMSG_MLS_ORACLE` is unset
+  - `func mustNewOracle(tb testing.TB) *oracle` — the non-skipping form a `*testing.F` needs
   - `func (self *oracle) decode(kind CodecKind, input []byte) (oracleResult, error)`
   - `func (self *oracle) close() error`
 
-  Standard library only: `os/exec`, `encoding/binary`, `encoding/json`, `encoding/base64`. Nothing
-  enters `go.mod`, so the layering test of Task 4 still passes.
+  Standard library only: `os/exec`, `encoding/binary`, `encoding/json`. `encoding/json` already
+  decodes a standard-base64 string into a `[]byte` field, so `Reserialized` is a `[]byte` with the
+  plain `reserialized` tag and there is no second field and no manual decode. Nothing enters
+  `go.mod`, so the layering test of Task 4 still passes.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -3012,7 +4428,6 @@ git -C connect add mls/interop/oracle && git -C connect commit -m "test(mls): ou
 package mls
 
 import (
-	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"os"
@@ -3087,11 +4502,13 @@ type oracle struct {
 	reader  *bufio.Reader
 }
 
-// oracleResult is the oracle's verdict on one input.
+// oracleResult is the oracle's verdict on one input. Reserialized is a []byte with
+// the plain tag because encoding/json decodes a standard-base64 string straight
+// into one; a second string field plus a manual decode is a second place for the
+// two sides to disagree about the encoding.
 type oracleResult struct {
 	Accept       bool   `json:"accept"`
-	Reserialized []byte `json:"-"`
-	Encoded      string `json:"reserialized"`
+	Reserialized []byte `json:"reserialized"`
 	Error        string `json:"error"`
 }
 
@@ -3100,22 +4517,33 @@ type oracleResult struct {
 // differential property never becomes a reason not to run the fuzzer.
 func newOracle(t *testing.T) *oracle {
 	t.Helper()
+	if os.Getenv("URMSG_MLS_ORACLE") == "" {
+		t.Skip("URMSG_MLS_ORACLE is unset; differential property skipped (see mls/interop/oracle/BUILD.md)")
+	}
+	return mustNewOracle(t)
+}
+
+// mustNewOracle is the non-skipping form. fuzzDecodeTarget holds a *testing.F and
+// has already decided the oracle is available, so it must not skip: skipping a
+// fuzz target from inside f.Cleanup's setup would silently drop the target.
+func mustNewOracle(tb testing.TB) *oracle {
+	tb.Helper()
 	path := os.Getenv("URMSG_MLS_ORACLE")
 	if path == "" {
-		t.Skip("URMSG_MLS_ORACLE is unset; differential property skipped (see mls/interop/oracle/BUILD.md)")
+		tb.Fatal("mustNewOracle called with URMSG_MLS_ORACLE unset")
 	}
 	command := exec.Command(path)
 	writer, err := command.StdinPipe()
 	if err != nil {
-		t.Fatalf("stdin pipe: %v", err)
+		tb.Fatalf("stdin pipe: %v", err)
 	}
 	readCloser, err := command.StdoutPipe()
 	if err != nil {
-		t.Fatalf("stdout pipe: %v", err)
+		tb.Fatalf("stdout pipe: %v", err)
 	}
 	command.Stderr = os.Stderr
 	if err := command.Start(); err != nil {
-		t.Fatalf("start oracle %s: %v", path, err)
+		tb.Fatalf("start oracle %s: %v", path, err)
 	}
 	return &oracle{command: command, writer: writer, reader: bufio.NewReader(readCloser)}
 }
@@ -3147,13 +4575,6 @@ func (self *oracle) decode(kind CodecKind, input []byte) (oracleResult, error) {
 	result := oracleResult{}
 	if err := json.Unmarshal(body, &result); err != nil {
 		return oracleResult{}, err
-	}
-	if result.Encoded != "" {
-		decoded, err := base64.StdEncoding.DecodeString(result.Encoded)
-		if err != nil {
-			return oracleResult{}, err
-		}
-		result.Reserialized = decoded
 	}
 	return result, nil
 }
@@ -3218,8 +4639,10 @@ func main() {
 }
 ```
 
-Add `"bufio"`, `"fmt"`, `"io"`, `"os/exec"`, `"runtime"` to the imports. Delete
-`TestOracleSkipsWhenUnset` from step 1 and replace it with the honest form:
+Add `"bufio"`, `"fmt"`, `"io"`, `"os/exec"`, `"runtime"` to the imports and drop
+`"encoding/base64"` from the client's own imports — the fake oracle below still needs it inside the
+program text it writes. Delete `TestOracleSkipsWhenUnset` from step 1 and replace it with the honest
+form:
 
 ```go
 func TestOracleSkipsWhenUnset(t *testing.T) {
@@ -3266,6 +4689,7 @@ git -C connect add mls/oracle_test.go && git -C connect commit -m "test(mls): st
 package mls
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -3303,7 +4727,12 @@ func TestDivergenceAllowlistIsJustified(t *testing.T) {
 		if entry.OpenMls == entry.Ours {
 			t.Errorf("entry %d records no divergence at all (%s == %s)", index, entry.OpenMls, entry.Ours)
 		}
-		key := string(rune(entry.Kind)) + entry.InputHex
+		raw, err := hex.DecodeString(entry.InputHex)
+		if err != nil {
+			t.Errorf("entry %d has an undecodable input_hex: %v", index, err)
+			continue
+		}
+		key := divergenceKey(entry.Kind, raw)
 		if seen[key] {
 			t.Errorf("entry %d duplicates an earlier input", index)
 		}
@@ -3379,14 +4808,45 @@ plus the target-scoped oracle and the allowlist lookup:
 
 ```go
 // differentialOracle is set by fuzzDecodeTarget when URMSG_MLS_ORACLE names a
-// binary. One subprocess per target, torn down by the target's cleanup.
+// binary. One subprocess per target, torn down by the target's cleanup; one
+// subprocess per input would make the differential property unusably slow.
 var differentialOracle *oracle
 
+var (
+	divergenceOnce  sync.Once
+	divergenceIndex map[string]bool
+)
+
+// divergenceKey is the identity of one allowlist entry. The kind is formatted as a
+// number rather than converted with string(rune(kind)), which is the conversion
+// that silently maps every value in the surrogate range onto U+FFFD.
+func divergenceKey(kind CodecKind, input []byte) string {
+	return strconv.FormatUint(uint64(kind), 10) + ":" + HexOf(input)
+}
+
 // allowedDivergence reports whether this exact input is a documented, justified
-// disagreement rather than a defect.
+// disagreement rather than a defect. A missing allowlist means no divergence is
+// permitted, which is the safe direction.
 func allowedDivergence(kind CodecKind, input []byte) bool {
-	loadDivergenceAllowlistOnce()
-	return divergenceIndex[string(rune(kind))+HexOf(input)]
+	divergenceOnce.Do(func() {
+		divergenceIndex = map[string]bool{}
+		body, err := os.ReadFile(filepath.Join("testdata", "divergence-allowlist.json"))
+		if err != nil {
+			return
+		}
+		entries := []divergenceEntry{}
+		if err := json.Unmarshal(body, &entries); err != nil {
+			return
+		}
+		for _, entry := range entries {
+			raw, err := hex.DecodeString(entry.InputHex)
+			if err != nil {
+				continue
+			}
+			divergenceIndex[divergenceKey(entry.Kind, raw)] = true
+		}
+	})
+	return divergenceIndex[divergenceKey(kind, input)]
 }
 ```
 
@@ -3394,15 +4854,25 @@ func allowedDivergence(kind CodecKind, input []byte) bool {
 
 ```go
 	if os.Getenv("URMSG_MLS_ORACLE") != "" {
-		differentialOracle = newOracle(&testing.T{})
-		f.Cleanup(func() { differentialOracle.close(); differentialOracle = nil })
+		differentialOracle = mustNewOracle(f)
+		f.Cleanup(func() {
+			differentialOracle.close()
+			differentialOracle = nil
+		})
 	}
 ```
 
-Replace `newOracle(&testing.T{})` with a non-skipping constructor `mustNewOracle(f)` taking
-`testing.TB`, since `f.Cleanup` is on `*testing.F` and `newOracle` skips through `*testing.T`.
-Change `newOracle`'s parameter type to `testing.TB` and keep the `Skip` call; `*testing.F` also
-implements `Skip`.
+`mustNewOracle` rather than `newOracle` is the whole point of the pair: `newOracle` skips through
+`*testing.T` when the variable is unset, and a fuzz target that skipped itself during setup would
+look identical to a fuzz target that ran clean. `fuzzDecodeTarget` has already tested the variable,
+so it takes the constructor that fails instead.
+
+`TestDivergenceAllowlistIsJustified` also uses `divergenceKey`, replacing its
+`string(rune(entry.Kind)) + entry.InputHex` duplicate-detection key with the same function, so the
+test and the fuzz path cannot disagree about what "the same entry" means.
+
+Add `"encoding/hex"`, `"path/filepath"`, `"strconv"` and `"sync"` to
+`connect/mls/syntax_fuzz_test.go`'s imports.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -3460,11 +4930,27 @@ git -C connect add mls/syntax_fuzz_test.go mls/divergence_test.go mls/testdata/d
 - Test: same file
 
 **Interfaces:**
-- Consumes: `NewGroup`, `GroupConfig`, `Profile`, `Credential`, `Group.Commit`,
-  `Group.MergePendingCommit`, `Group.ProcessMessage`, `JoinFromWelcome` (Group lifecycle plan);
-  `NewCryptoProviderWithRandom` (Crypto plan); `FramedContent`, `FramedContentAuthData`, `Sender`,
-  `WireFormat`, `Group.sealFramedContentForTest` (Framing plan); `newMemStore` (Task 10);
-  `ValSemCode`, `CodeOf` (Task 2).
+- Consumes: `NewCryptoProviderWithRandom(suite CipherSuite, random io.Reader) (CryptoProvider, error)`,
+  `CipherSuiteX25519ChaCha20Sha256Ed25519` (Crypto plan);
+  `BasicCredential(identity []byte) Credential`, `Capabilities`, `RequiredCapabilities`,
+  `Extension{ExtensionType, ExtensionData}`, `LeafKeysExtension`, `AlgIdXwing`, `XwingPublicKeyLen`,
+  `NewKeyPackage(crypto, suite, cred, caps, exts) (kp, initPriv, encPriv, err)`,
+  `UnmarshalRatchetTree(data []byte) (*RatchetTree, error)`, `(*RatchetTree).LeafWidth() LeafCount`
+  (TreeKEM plan);
+  `NewSecretTree(crypto CryptoProvider, leafCount LeafCount, encryptionSecret []byte) (*SecretTree, error)`
+  (Key schedule plan);
+  `Sender{SenderType, LeafIndex, SenderIndex}`, `FramedContent`, `FramedContentAuthData`,
+  `AuthenticatedContent`, `(*AuthenticatedContent).ProposalRef(crypto) (ProposalRef, error)`,
+  `WireFormat`, `ParseMLSMessage`, `MarshalMLSMessage`, `StaticSignatureKey(pub) SignatureKeyResolver`,
+  `OpenPrivateMessage(crypto, keys, senderDataSecret, message, resolve, groupContext) (*AuthenticatedContent, error)`,
+  `Proposal`, `Add`, `Update`, `Remove`, `ProposalRef`, `Commit`, `UpdatePath`,
+  `(*Group).sealFramedContentForTest(c, auth, wf, signer) ([]byte, error)` (Framing plan);
+  `NewGroup`, `GroupConfig`, `JoinFromWelcome`, `JoinKeyMaterial`, `(*Group).Commit`,
+  `CommitOptions` with its three unexported test seams, `(*Group).MergePendingCommit`,
+  `(*Group).ProcessMessage`, `(*Group).ApplyCommit`, `(*Group).OwnLeafIndex`,
+  `(*Group).OwnLeafNodeCopy`, `(*Group).GroupContext`, `(*Group).RatchetTree`,
+  `(*Group).EpochSecret`, `EpochSecretSenderData`, `EpochSecretEncryption` (Group lifecycle plan);
+  `newMemStore` (Task 10); `ValSemCode`, `CodeOf`, `ReasonFor`, `DefaultProfile` (Tasks 2 and 3a).
 - Produces — consumed by Tasks 18–23:
   - `func newForge(t *testing.T, members int) *forge`
   - `func (self *forge) g(i int) *Group`
@@ -3479,6 +4965,11 @@ git -C connect add mls/syntax_fuzz_test.go mls/divergence_test.go mls/testdata/d
   - `func (self *forge) commitBytes(i int, byValue []Proposal, byRef []ProposalRef, mutate func(*Commit, *UpdatePath)) []byte`
   - `func (self *forge) deliver(to int, raw []byte) error`
   - `func requireValSem(t *testing.T, err error, want ValSemCode)`
+  - and four helpers the registry surface implies rather than names:
+    `func forgeProfile() *Profile`, `func forgeCapabilities() Capabilities`,
+    `func (self *forge) openOwn(i int, raw []byte) *AuthenticatedContent`,
+    `func (self *forge) sealPublicWithMembershipTag(i int, c *FramedContent, tag []byte) []byte`,
+    `func (self *forge) commitBytesWithOptions(i int, byValue []Proposal, opts *CommitOptions) []byte`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -3550,18 +5041,34 @@ type forge struct {
 	groups  []*Group
 	signers []SignaturePrivateKey
 	stores  []*memStore
+
+	// pending carries what newKeyPackage just minted, so a caller can build the
+	// joiner without a five-value return at every site.
+	pendingSigner SignaturePrivateKey
+	pendingStore  *memStore
+}
+
+// forgeProfile is the v1 narrow profile with PublicMessage admitted. ValSem005, 007
+// and 008 are about what the RFC says a PublicMessage may carry, so the profile gate
+// must not fire first and hide the check under test. Everything else is DefaultProfile.
+func forgeProfile() *Profile {
+	profile := DefaultProfile()
+	profile.AllowPublicMessage = true
+	return profile
 }
 
 // newForge builds a group of members, all added and committed, at a deterministic
 // group id and with deterministic key material. Determinism is not a nicety: a
-// ValSem failure that cannot be reproduced is a ValSem failure nobody fixes.
+// ValSem failure that cannot be reproduced is a ValSem failure nobody fixes. The
+// randomness is deliberately math/rand, seeded from the member count — this is the
+// only place in the slice where a non-cryptographic source is correct.
 func newForge(t *testing.T, members int) *forge {
 	t.Helper()
 	if members < 2 {
 		t.Fatal("a forge needs at least two members: one to send and one to validate")
 	}
 	random := rand.New(rand.NewSource(int64(members)))
-	crypto, err := NewCryptoProviderWithRandom(CipherSuiteX25519ChaCha20SHA256Ed25519, random)
+	crypto, err := NewCryptoProviderWithRandom(CipherSuiteX25519ChaCha20Sha256Ed25519, random)
 	if err != nil {
 		t.Fatalf("crypto provider: %v", err)
 	}
@@ -3582,19 +5089,23 @@ func newForge(t *testing.T, members int) *forge {
 	self.stores = []*memStore{creatorStore}
 
 	adds := make([]Proposal, 0, members-1)
-	joiners := make([]*memStore, 0, members-1)
+	joinerStores := make([]*memStore, 0, members-1)
 	joinerSigners := make([]SignaturePrivateKey, 0, members-1)
 	joinerKeys := make([]*JoinKeyMaterial, 0, members-1)
 	for i := 1; i < members; i++ {
 		keyPackage, initPriv, encPriv := self.newKeyPackage(t)
-		encoded, err := EncodeKeyPackage(keyPackage)
-		if err != nil {
-			t.Fatalf("encode key package %d: %v", i, err)
-		}
-		adds = append(adds, Proposal{Add: &Add{KeyPackage: encoded}})
-		joiners = append(joiners, self.lastStore)
-		joinerSigners = append(joinerSigners, self.lastSigner)
-		joinerKeys = append(joinerKeys, &JoinKeyMaterial{InitPriv: initPriv, EncryptionPriv: encPriv, Signer: self.lastSigner})
+		adds = append(adds, Proposal{
+			ProposalType: ProposalTypeAdd,
+			Add:          &Add{KeyPackage: *keyPackage},
+		})
+		joinerStores = append(joinerStores, self.pendingStore)
+		joinerSigners = append(joinerSigners, self.pendingSigner)
+		joinerKeys = append(joinerKeys, &JoinKeyMaterial{
+			KeyPackage:     *keyPackage,
+			InitPrivate:    initPriv,
+			EncryptPrivate: encPriv,
+			SignPrivate:    self.pendingSigner,
+		})
 	}
 
 	result, err := creator.Commit(nil, adds, nil)
@@ -3605,75 +5116,112 @@ func newForge(t *testing.T, members int) *forge {
 		t.Fatalf("merge: %v", err)
 	}
 	for i, keys := range joinerKeys {
-		joined, err := JoinFromWelcome(self.config(groupId, joiners[i]), result.Welcome, result.RatchetTree, keys)
+		joined, err := JoinFromWelcome(self.config(groupId, joinerStores[i]), result.Welcome, result.RatchetTree, keys)
 		if err != nil {
 			t.Fatalf("member %d join: %v", i+1, err)
 		}
 		self.groups = append(self.groups, joined)
 		self.signers = append(self.signers, joinerSigners[i])
-		self.stores = append(self.stores, joiners[i])
+		self.stores = append(self.stores, joinerStores[i])
 	}
 	return self
 }
 
-// config is the v1 group configuration every forged group uses: the pinned suite,
-// the required capabilities of Spec A §3.4, and the v1 profile.
-func (self *forge) config(groupId []byte, store *memStore) *GroupConfig {
-	return &GroupConfig{
-		Suite:      CipherSuiteX25519ChaCha20SHA256Ed25519,
-		GroupId:    groupId,
-		Extensions: []Extension{{Type: ExtensionTypeUrmessageGroupPolicy, Data: []byte{0x00}}},
-		RequiredCaps: RequiredCapabilities{
-			ExtensionTypes:  []uint16{0xF001, 0xF002},
-			ProposalTypes:   []uint16{},
-			CredentialTypes: []uint16{CredentialTypeBasic},
+// forgeCapabilities is what every forged leaf advertises: the pinned version and
+// suite, all three urmessage extensions, and BasicCredential. Tests that need a
+// capability *missing* copy this and drop one entry.
+func forgeCapabilities() Capabilities {
+	return Capabilities{
+		Versions:     []ProtocolVersion{ProtocolVersionMls10},
+		CipherSuites: []CipherSuite{CipherSuiteX25519ChaCha20Sha256Ed25519},
+		Extensions: []ExtensionType{
+			ExtensionTypeUrmessageGroupPolicy,
+			ExtensionTypeUrmessageLeafKeys,
+			ExtensionTypeUrmessageOwnerSuccessor,
 		},
-		Crypto:   self.crypto,
-		Store:    store,
-		Profile:  DefaultProfile(),
-		LeafKeys: LeafKeysExtension{AlgId: 0x0014, DeviceXwingPub: self.crypto.Random(1216)},
+		Proposals: []ProposalType{
+			ProposalTypeAdd, ProposalTypeUpdate, ProposalTypeRemove,
+			ProposalTypeGroupContextExtensions,
+		},
+		Credentials: []CredentialType{CredentialTypeBasic},
 	}
 }
 
-func (self *forge) g(i int) *Group                 { return self.groups[i] }
-func (self *forge) signer(i int) SignaturePrivateKey { return self.signers[i] }
-func (self *forge) store(i int) *memStore          { return self.stores[i] }
+// config is the v1 group configuration every forged group uses: the pinned suite,
+// the required capabilities of Spec A §3.4, and the forge profile.
+func (self *forge) config(groupId []byte, store *memStore) *GroupConfig {
+	return &GroupConfig{
+		Suite:   groupSuite,
+		GroupId: groupId,
+		Extensions: []Extension{{
+			ExtensionType: ExtensionTypeUrmessageGroupPolicy,
+			ExtensionData: []byte{0x00},
+		}},
+		RequiredCaps: RequiredCapabilities{
+			ExtensionTypes: []ExtensionType{
+				ExtensionTypeUrmessageGroupPolicy,
+				ExtensionTypeUrmessageLeafKeys,
+			},
+			ProposalTypes:   []ProposalType{},
+			CredentialTypes: []CredentialType{CredentialTypeBasic},
+		},
+		Crypto:  self.crypto,
+		Store:   store,
+		Profile: forgeProfile(),
+		LeafKeys: LeafKeysExtension{
+			AlgId:          AlgIdXwing,
+			DeviceXwingPub: self.crypto.Random(XwingPublicKeyLen),
+		},
+	}
+}
 
-// lastStore and lastSigner carry the material newKeyPackage just generated, so the
-// caller can build the joiner without a second return-value tuple everywhere.
-var _ = 0
+// groupSuite is the one suite a forged group is created at.
+const groupSuite = CipherSuiteX25519ChaCha20Sha256Ed25519
+
+func (self *forge) g(i int) *Group                   { return self.groups[i] }
+func (self *forge) signer(i int) SignaturePrivateKey { return self.signers[i] }
+func (self *forge) store(i int) *memStore            { return self.stores[i] }
 
 // newKeyPackage mints a fresh, valid KeyPackage for a would-be member, and records
 // its signer and store on the forge for the join that follows.
+//
+// NewKeyPackage takes no signer and returns no signature private key: the v1
+// profile binds a leaf's signature key to its BasicCredential identity, which is
+// the member's Ed25519 identity public key. The forge generates that pair itself,
+// hands the public half in as the credential, and asserts the binding held — so if
+// the key-package constructor ever stops adopting the credential identity, this
+// says so at the first ValSem test rather than at the interop matrix.
 func (self *forge) newKeyPackage(t *testing.T) (*KeyPackage, HpkePrivateKey, HpkePrivateKey) {
 	t.Helper()
 	signer, public, err := self.crypto.SignatureKeyPair()
 	if err != nil {
 		t.Fatalf("signature key: %v", err)
 	}
-	initPriv, initPub, err := self.crypto.DeriveKeyPair(self.crypto.Random(32))
-	if err != nil {
-		t.Fatalf("init key: %v", err)
+	leafKeys := LeafKeysExtension{
+		AlgId:          AlgIdXwing,
+		DeviceXwingPub: self.crypto.Random(XwingPublicKeyLen),
 	}
-	encPriv, encPub, err := self.crypto.DeriveKeyPair(self.crypto.Random(32))
+	leafKeysExtension, err := leafKeys.Encode()
 	if err != nil {
-		t.Fatalf("encryption key: %v", err)
+		t.Fatalf("encode leaf keys: %v", err)
 	}
-	keyPackage, err := NewKeyPackage(self.crypto, CipherSuiteX25519ChaCha20SHA256Ed25519,
-		BasicCredential(public), signer, initPub, encPub,
-		LeafKeysExtension{AlgId: 0x0014, DeviceXwingPub: self.crypto.Random(1216)},
-		Capabilities{Extensions: []uint16{0xF001, 0xF002, 0xF003}, Credentials: []uint16{CredentialTypeBasic}})
+	keyPackage, initPriv, encPriv, err := NewKeyPackage(self.crypto, groupSuite,
+		BasicCredential(public), forgeCapabilities(), []Extension{leafKeysExtension})
 	if err != nil {
 		t.Fatalf("key package: %v", err)
 	}
-	self.lastSigner = signer
-	self.lastStore = newMemStore()
+	if !bytes.Equal(keyPackage.LeafNode.SignatureKey, public) {
+		t.Fatalf("NewKeyPackage did not adopt the credential identity as the leaf signature key; the forge has no other way to learn the joiner's signing key")
+	}
+	self.pendingSigner = signer
+	self.pendingStore = newMemStore()
 	return keyPackage, initPriv, encPriv
 }
 
 // content builds a fully valid FramedContent from member i, ready to be mutated.
 func (self *forge) content(i int, contentType ContentType, body []byte) *FramedContent {
-	return self.contentFrom(Sender{Type: SenderMember, LeafIndex: self.g(i).OwnLeafIndex()}, contentType, body)
+	sender := Sender{SenderType: SenderTypeMember, LeafIndex: self.g(i).OwnLeafIndex()}
+	return self.contentFrom(sender, contentType, body)
 }
 
 // contentFrom is the same for an arbitrary sender, which the external-commit tests need.
@@ -3686,11 +5234,11 @@ func (self *forge) contentFrom(sender Sender, contentType ContentType, body []by
 	}
 	switch contentType {
 	case ContentTypeApplication:
-		content.Application = body
+		content.ApplicationData = body
 	case ContentTypeProposal:
-		proposal, err := ParseProposal(body)
-		if err != nil {
-			self.t.Fatalf("parse proposal body: %v", err)
+		proposal := &Proposal{}
+		if err := syntax.Unmarshal(body, proposal); err != nil {
+			self.t.Fatalf("decode proposal body: %v", err)
 		}
 		content.Proposal = proposal
 	}
@@ -3724,41 +5272,145 @@ func (self *forge) seal(i int, c *FramedContent, mutate func(*FramedContentAuthD
 	return raw
 }
 
+// sealPublicWithMembershipTag frames c as a PublicMessage and then replaces the
+// membership tag with tag.
+//
+// The tag lives on PublicMessage, where RFC 9420 §6.1 puts it, and not on
+// FramedContentAuthData — so the mutation is a re-encode of the parsed message
+// rather than a field the signer writes. A zero-length tag is the ValSem007 case
+// and a random tag is the ValSem008 case.
+func (self *forge) sealPublicWithMembershipTag(i int, c *FramedContent, tag []byte) []byte {
+	self.t.Helper()
+	message, err := ParseMLSMessage(self.sealPublic(i, c, nil))
+	if err != nil {
+		self.t.Fatalf("parse own public message: %v", err)
+	}
+	if message.PublicMessage == nil {
+		self.t.Fatalf("wire format %d is not a PublicMessage", message.WireFormat)
+	}
+	message.PublicMessage.MembershipTag = tag
+	raw, err := MarshalMLSMessage(message)
+	if err != nil {
+		self.t.Fatalf("re-encode public message: %v", err)
+	}
+	return raw
+}
+
 // proposalBytes frames a standalone Proposal from member i.
 func (self *forge) proposalBytes(i int, p Proposal) []byte {
 	self.t.Helper()
-	encoded, err := EncodeProposal(&p)
+	encoded, err := syntax.Marshal(&p)
 	if err != nil {
 		self.t.Fatalf("encode proposal: %v", err)
 	}
-	return self.sealPrivate(i, self.contentFrom(Sender{Type: SenderMember, LeafIndex: self.g(i).OwnLeafIndex()}, ContentTypeProposal, encoded), nil)
+	return self.sealPrivate(i, self.content(i, ContentTypeProposal, encoded), nil)
+}
+
+// openOwn decrypts a PrivateMessage the forge itself just produced, so a test can
+// reach the plaintext FramedContent and mutate it.
+//
+// It does this the same way a receiver does — OpenPrivateMessage against a secret
+// tree derived from the epoch's encryption_secret — rather than by reaching into
+// Group's unexported state, because a second, private decryption path in the test
+// kit is a second thing that can be wrong in the same direction as the first. The
+// secret tree is a throwaway: consuming a generation from it has no effect on any
+// group's own ratchet.
+func (self *forge) openOwn(i int, raw []byte) *AuthenticatedContent {
+	self.t.Helper()
+	message, err := ParseMLSMessage(raw)
+	if err != nil {
+		self.t.Fatalf("parse own message: %v", err)
+	}
+	if message.PrivateMessage == nil {
+		self.t.Fatalf("openOwn wants a PrivateMessage, got wire format %d", message.WireFormat)
+	}
+	group := self.g(i)
+	treeBytes, err := group.RatchetTree()
+	if err != nil {
+		self.t.Fatalf("export tree: %v", err)
+	}
+	tree, err := UnmarshalRatchetTree(treeBytes)
+	if err != nil {
+		self.t.Fatalf("parse tree: %v", err)
+	}
+	encryptionSecret, err := group.EpochSecret(EpochSecretEncryption)
+	if err != nil {
+		self.t.Fatalf("encryption secret: %v", err)
+	}
+	senderDataSecret, err := group.EpochSecret(EpochSecretSenderData)
+	if err != nil {
+		self.t.Fatalf("sender data secret: %v", err)
+	}
+	keys, err := NewSecretTree(self.crypto, tree.LeafWidth(), encryptionSecret)
+	if err != nil {
+		self.t.Fatalf("secret tree: %v", err)
+	}
+	groupContext, err := group.GroupContext()
+	if err != nil {
+		self.t.Fatalf("group context: %v", err)
+	}
+	resolve := StaticSignatureKey(group.OwnLeafNodeCopy().SignatureKey)
+	authContent, err := OpenPrivateMessage(self.crypto, keys, senderDataSecret,
+		message.PrivateMessage, resolve, groupContext)
+	if err != nil {
+		self.t.Fatalf("open own message: %v", err)
+	}
+	return authContent
 }
 
 // commitBytes builds a real Commit from member i — real path, real confirmation tag
-// — and applies mutate to the decoded Commit and its UpdatePath before framing, so
-// exactly one thing is wrong and everything else still verifies.
+// — and applies mutate to the plaintext Commit and its UpdatePath before re-framing,
+// so exactly one thing is wrong and everything else still verifies.
+//
+// Construction-side validation is skipped through the unexported CommitOptions
+// seam: half the commit-side codes need a commit the construction side already
+// refuses to build, and the receiver is the side under test. CommitOptions.Force
+// builds an UpdatePath even when the covered proposals do not require one, so a
+// path-mutating test never has to manufacture an Update proposal just to get a path
+// — which would make two things different from the honest case instead of one.
 func (self *forge) commitBytes(i int, byValue []Proposal, byRef []ProposalRef, mutate func(*Commit, *UpdatePath)) []byte {
 	self.t.Helper()
 	refs := make([][]byte, 0, len(byRef))
 	for _, ref := range byRef {
 		refs = append(refs, ref)
 	}
-	result, err := self.g(i).Commit(refs, byValue, &CommitOptions{SkipValidation: true})
+	result, err := self.g(i).Commit(refs, byValue, &CommitOptions{Force: true, skipValidation: true})
 	if err != nil {
 		self.t.Fatalf("build commit: %v", err)
 	}
-	message, err := ParseMLSMessage(result.Commit)
-	if err != nil {
-		self.t.Fatalf("parse own commit: %v", err)
+	if mutate == nil {
+		return result.Commit
 	}
-	if mutate != nil {
-		mutate(message.Commit(), message.Commit().Path)
+	authContent := self.openOwn(i, result.Commit)
+	if authContent.Content.Commit == nil {
+		self.t.Fatal("the committer's own message did not carry a Commit")
 	}
-	raw, err := EncodeMLSMessage(message)
+	mutate(authContent.Content.Commit, authContent.Content.Commit.Path)
+	// re-frame: the mutation changed the signed bytes, so the content is re-signed.
+	// Exactly one thing is wrong — the commit body — and the signature over it is
+	// correct, which is what keeps ValSem010 from firing before the code under test.
+	raw, err := self.g(i).sealFramedContentForTest(&authContent.Content, &authContent.Auth,
+		WireFormatPrivateMessage, self.signer(i))
 	if err != nil {
-		self.t.Fatalf("re-encode commit: %v", err)
+		self.t.Fatalf("re-frame commit: %v", err)
 	}
 	return raw
+}
+
+// commitBytesWithOptions is commitBytes for the two mutations that are not
+// expressible on the wire struct: a commit whose confirmation tag is absent, and
+// one whose tag was computed over the pre-commit transcript. Both are unexported
+// CommitOptions seams, NOT fields of the Commit wire type — a test flag on a wire
+// type would change what syntax.Marshal emits.
+func (self *forge) commitBytesWithOptions(i int, byValue []Proposal, opts *CommitOptions) []byte {
+	self.t.Helper()
+	opts.skipValidation = true
+	opts.Force = true
+	result, err := self.g(i).Commit(nil, byValue, opts)
+	if err != nil {
+		self.t.Fatalf("build commit: %v", err)
+	}
+	return result.Commit
 }
 
 // deliver hands raw bytes to member `to` and returns whatever the receiver decided.
@@ -3791,19 +5443,14 @@ func requireValSem(t *testing.T, err error, want ValSemCode) {
 }
 ```
 
-Add the two fields the key-package helper records to the struct:
+Add `"bytes"`, `"math/rand"`, `"testing"` and `"github.com/urnetwork/connect/mls/syntax"` to
+`testkit_test.go`'s imports.
 
-```go
-	lastSigner SignaturePrivateKey
-	lastStore  *memStore
-```
-
-and delete the `var _ = 0` placeholder line.
-
-`CommitOptions{SkipValidation: true}` is the construction-bypass seam on the commit path, the
-counterpart of `sealFramedContentForTest`. It is an ask on the Group lifecycle plan, restated in the
-summary: without it, `commitBytes` cannot produce a commit that the **construction** side already
-refuses, and half the commit-side ValSem codes have no test.
+`CommitOptions.skipValidation` is the construction-bypass seam on the commit path, the counterpart
+of `sealFramedContentForTest`. It is **unexported and lives on `CommitOptions`, not on `Commit`** —
+this plan's tests are in `package mls`, so they can set it, and a test flag on the `Commit` wire type
+would change what `syntax.Marshal(commit)` emits and therefore what the receiver's signature check
+covers. The same is true of `dropConfirmationTag` and `confirmationTagOverPreCommitTranscript`.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -3825,8 +5472,11 @@ git -C connect add mls/testkit_test.go && git -C connect commit -m "test(mls): t
 - Test: same file
 
 **Interfaces:**
-- Consumes: the whole forge API (Task 17); `Group.EpochSecret` (Key schedule plan) for the
-  membership-key mutation; `PrivateMessage` (Framing plan).
+- Consumes: the whole forge API (Task 17); `ParseMLSMessage`, `MarshalMLSMessage`, `PrivateMessage`,
+  `PublicMessage`, `Sender{SenderType, LeafIndex}`, `SenderTypeMember`,
+  `(*Group).sealFramedContentWithPaddingForTest(c, auth, wf, signer, padding) ([]byte, error)`
+  (Framing plan); `CommitOptions.dropConfirmationTag` (Group lifecycle plan);
+  `syntax.Marshal` (Syntax and codec plan).
 - Produces: `TestValSem002_WrongGroupId` … `TestValSem011_NonZeroPadding`.
 
 - [ ] **Step 1: Write the failing test**
@@ -3861,14 +5511,18 @@ func TestValSem004_BlankSenderLeaf(t *testing.T) {
 	f := newForge(t, 3)
 	// remove member 2, then send from its now-blank leaf.
 	removed := f.g(2).OwnLeafIndex()
-	commit := f.commitBytes(0, []Proposal{{Remove: &Remove{Removed: removed}}}, nil, nil)
+	commit := f.commitBytes(0, []Proposal{{
+		ProposalType: ProposalTypeRemove,
+		Remove:       &Remove{Removed: removed},
+	}}, nil, nil)
 	if err := f.deliver(1, commit); err != nil {
 		t.Fatalf("the remove commit must be valid: %v", err)
 	}
 	if err := f.g(0).MergePendingCommit(); err != nil {
 		t.Fatalf("merge: %v", err)
 	}
-	content := f.contentFrom(Sender{Type: SenderMember, LeafIndex: removed}, ContentTypeApplication, []byte("ghost"))
+	sender := Sender{SenderType: SenderTypeMember, LeafIndex: removed}
+	content := f.contentFrom(sender, ContentTypeApplication, []byte("ghost"))
 	content.Epoch = f.g(1).Epoch()
 	requireValSem(t, f.deliver(1, f.sealPrivate(0, content, nil)), ValSem004)
 }
@@ -3886,8 +5540,8 @@ func TestValSem006_DecryptFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	message.PrivateMessage().Ciphertext[0] ^= 0x01
-	mutated, err := EncodeMLSMessage(message)
+	message.PrivateMessage.Ciphertext[0] ^= 0x01
+	mutated, err := MarshalMLSMessage(message)
 	if err != nil {
 		t.Fatalf("re-encode: %v", err)
 	}
@@ -3897,33 +5551,28 @@ func TestValSem006_DecryptFails(t *testing.T) {
 func TestValSem007_MissingMembershipTag(t *testing.T) {
 	f := newForge(t, 2)
 	content := f.content(0, ContentTypeProposal, f.updateProposalBytes(0))
-	raw := f.sealPublic(0, content, func(auth *FramedContentAuthData) {
-		auth.MembershipTag = []byte{}
-	})
+	raw := f.sealPublicWithMembershipTag(0, content, []byte{})
 	requireValSem(t, f.deliver(1, raw), ValSem007)
 }
 
 func TestValSem008_BadMembershipTag(t *testing.T) {
 	f := newForge(t, 2)
 	content := f.content(0, ContentTypeProposal, f.updateProposalBytes(0))
-	raw := f.sealPublic(0, content, func(auth *FramedContentAuthData) {
-		auth.MembershipTag = f.crypto.Random(32)
-	})
+	raw := f.sealPublicWithMembershipTag(0, content, f.crypto.Random(32))
 	requireValSem(t, f.deliver(1, raw), ValSem008)
 }
 
 func TestValSem009_MissingConfirmationTag(t *testing.T) {
 	f := newForge(t, 2)
-	raw := f.commitBytes(0, []Proposal{{Update: &Update{}}}, nil, func(commit *Commit, path *UpdatePath) {
-		commit.DropConfirmationTag = true
-	})
+	raw := f.commitBytesWithOptions(0, nil, &CommitOptions{dropConfirmationTag: true})
 	requireValSem(t, f.deliver(1, raw), ValSem009)
 }
 
 func TestValSem010_BadSignature(t *testing.T) {
 	f := newForge(t, 3)
 	// member 1 signs, but the sender index still names member 0.
-	content := f.contentFrom(Sender{Type: SenderMember, LeafIndex: f.g(0).OwnLeafIndex()}, ContentTypeApplication, []byte("hello"))
+	sender := Sender{SenderType: SenderTypeMember, LeafIndex: f.g(0).OwnLeafIndex()}
+	content := f.contentFrom(sender, ContentTypeApplication, []byte("hello"))
 	raw := f.sealPrivate(1, content, nil)
 	requireValSem(t, f.deliver(2, raw), ValSem010)
 }
@@ -3957,7 +5606,10 @@ func (self *forge) updateProposalBytes(i int) []byte {
 	}
 	leaf := self.g(i).OwnLeafNodeCopy()
 	leaf.EncryptionKey = encPub
-	encoded, err := EncodeProposal(&Proposal{Update: &Update{LeafNode: leaf}})
+	encoded, err := syntax.Marshal(&Proposal{
+		ProposalType: ProposalTypeUpdate,
+		Update:       &Update{LeafNode: *leaf},
+	})
 	if err != nil {
 		self.t.Fatalf("encode update: %v", err)
 	}
@@ -3966,10 +5618,12 @@ func (self *forge) updateProposalBytes(i int) []byte {
 
 // sealPrivateWithPadding frames c as a PrivateMessage whose PrivateMessageContent
 // padding is exactly the bytes given, rather than the all-zero padding RFC 9420
-// §6.3.2 requires.
+// §6.3.2 requires. The auth data is the honest one — the seam signs c the same way
+// sealFramedContentForTest does — so padding is the only thing wrong.
 func (self *forge) sealPrivateWithPadding(i int, c *FramedContent, padding []byte) []byte {
 	self.t.Helper()
-	raw, err := self.g(i).sealFramedContentWithPaddingForTest(c, self.signer(i), padding)
+	raw, err := self.g(i).sealFramedContentWithPaddingForTest(c, &FramedContentAuthData{},
+		WireFormatPrivateMessage, self.signer(i), padding)
 	if err != nil {
 		self.t.Fatalf("seal with padding: %v", err)
 	}
@@ -3977,10 +5631,13 @@ func (self *forge) sealPrivateWithPadding(i int, c *FramedContent, padding []byt
 }
 ```
 
-`Group.OwnLeafNodeCopy()`, `Group.sealFramedContentWithPaddingForTest`,
-`FramedContentAuthData.MembershipTag` and `Commit.DropConfirmationTag` are the four seams these ten
-tests need. All four are unexported or test-only and all four are asks on the Framing and Group
-lifecycle plans, restated in the summary.
+Four seams carry these ten tests, and every one of them is in the canonical interface registry with
+the signature used above: `(*Group).sealFramedContentForTest` and
+`(*Group).sealFramedContentWithPaddingForTest` (framing plan, §7.3), `(*Group).OwnLeafNodeCopy` and
+`CommitOptions.dropConfirmationTag` (group lifecycle plan, §8.3). The two asks this task used to make
+that are **refused** — `FramedContentAuthData.MembershipTag` and
+`FramedContentAuthData.HasConfirmationTag` — are replaced by `PublicMessage.MembershipTag` (via
+`sealPublicWithMembershipTag`) and by `CommitOptions.dropConfirmationTag`.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -4002,8 +5659,13 @@ git -C connect add mls/validation_framing_test.go mls/testkit_test.go && git -C 
 - Test: same file
 
 **Interfaces:**
-- Consumes: the forge (Task 17); `Add`, `Update`, `Remove`, `Proposal`, `KeyPackage`, `Capabilities`
-  (Group lifecycle plan).
+- Consumes: the forge (Task 17); `Proposal{ProposalType, Add, Update, Remove, UnknownType,
+  UnknownBody}`, `Add{KeyPackage KeyPackage}`, `Update{LeafNode LeafNode}`,
+  `Remove{Removed LeafIndex}`, `ProposalRef`, `Sender{SenderType, LeafIndex}`,
+  `SenderTypeNewMemberProposal` (Framing plan); `KeyPackage`, `Capabilities{Extensions
+  []ExtensionType}`, `ExtensionTypeUrmessageGroupPolicy`, `ExtensionTypeUrmessageLeafKeys`,
+  `HpkePublicKey` (TreeKEM plan); `CipherSuiteX25519AesGcm128Sha256Ed25519` (Crypto plan);
+  `LeafIndex` (Tree math plan); `syntax.Marshal` (Syntax and codec plan).
 - Produces: `TestValSem101_DuplicateSignatureKey` … `TestValSem113_UnsupportedProposalType`.
 
 - [ ] **Step 1: Write the failing test**
@@ -4040,7 +5702,7 @@ func TestValSem103_DuplicateEncryptionKey(t *testing.T) {
 func TestValSem104_InitEqualsEncryptionKey(t *testing.T) {
 	f := newForge(t, 2)
 	keyPackage, _, _ := f.newKeyPackage(t)
-	keyPackage.InitKey = HpkePublicKey(keyPackage.LeafNode.EncryptionKey)
+	keyPackage.InitKey = keyPackage.LeafNode.EncryptionKey
 	requireValSem(t, f.deliver(1, f.addCommit(t, keyPackage)), ValSem104)
 }
 
@@ -4048,15 +5710,15 @@ func TestValSem105_SuiteMismatch(t *testing.T) {
 	f := newForge(t, 2)
 	keyPackage, _, _ := f.newKeyPackage(t)
 	// 0x0001 is registered and implemented, and still not this group's suite.
-	keyPackage.CipherSuite = CipherSuiteX25519AES128GCMSHA256Ed25519
+	keyPackage.CipherSuite = CipherSuiteX25519AesGcm128Sha256Ed25519
 	requireValSem(t, f.deliver(1, f.addCommit(t, keyPackage)), ValSem105)
 }
 
 func TestValSem106_AddMissingRequiredCapability(t *testing.T) {
 	f := newForge(t, 2)
 	keyPackage, _, _ := f.newKeyPackage(t)
-	// drop 0xF002 (urmessage_leaf_keys), which required_capabilities lists.
-	keyPackage.LeafNode.Capabilities.Extensions = []uint16{0xF001}
+	// drop urmessage_leaf_keys (0xF002), which required_capabilities lists.
+	keyPackage.LeafNode.Capabilities.Extensions = []ExtensionType{ExtensionTypeUrmessageGroupPolicy}
 	requireValSem(t, f.deliver(1, f.addCommit(t, keyPackage)), ValSem106)
 }
 
@@ -4064,23 +5726,30 @@ func TestValSem107_DuplicateRemove(t *testing.T) {
 	f := newForge(t, 3)
 	target := f.g(2).OwnLeafIndex()
 	raw := f.commitBytes(0, []Proposal{
-		{Remove: &Remove{Removed: target}},
-		{Remove: &Remove{Removed: target}},
+		{ProposalType: ProposalTypeRemove, Remove: &Remove{Removed: target}},
+		{ProposalType: ProposalTypeRemove, Remove: &Remove{Removed: target}},
 	}, nil, nil)
 	requireValSem(t, f.deliver(1, raw), ValSem107)
 }
 
 func TestValSem108_RemoveNonMember(t *testing.T) {
 	f := newForge(t, 3)
-	raw := f.commitBytes(0, []Proposal{{Remove: &Remove{Removed: LeafIndex(7)}}}, nil, nil)
+	raw := f.commitBytes(0, []Proposal{{
+		ProposalType: ProposalTypeRemove,
+		Remove:       &Remove{Removed: LeafIndex(7)},
+	}}, nil, nil)
 	requireValSem(t, f.deliver(1, raw), ValSem108)
 }
 
 func TestValSem109_UpdateMissingRequiredCapability(t *testing.T) {
 	f := newForge(t, 3)
 	leaf := f.g(1).OwnLeafNodeCopy()
-	leaf.Capabilities.Extensions = []uint16{0xF002} // drops 0xF001
-	raw := f.proposalBytes(1, Proposal{Update: &Update{LeafNode: leaf}})
+	// drops urmessage_group_policy (0xF001), a GroupContext extension.
+	leaf.Capabilities.Extensions = []ExtensionType{ExtensionTypeUrmessageLeafKeys}
+	raw := f.proposalBytes(1, Proposal{
+		ProposalType: ProposalTypeUpdate,
+		Update:       &Update{LeafNode: *leaf},
+	})
 	requireValSem(t, f.deliver(2, raw), ValSem109)
 }
 
@@ -4088,7 +5757,10 @@ func TestValSem110_UpdateDuplicateEncryptionKey(t *testing.T) {
 	f := newForge(t, 3)
 	leaf := f.g(1).OwnLeafNodeCopy()
 	leaf.EncryptionKey = f.g(2).OwnLeafNodeCopy().EncryptionKey
-	raw := f.proposalBytes(1, Proposal{Update: &Update{LeafNode: leaf}})
+	raw := f.proposalBytes(1, Proposal{
+		ProposalType: ProposalTypeUpdate,
+		Update:       &Update{LeafNode: *leaf},
+	})
 	requireValSem(t, f.deliver(2, raw), ValSem110)
 }
 
@@ -4100,7 +5772,7 @@ func TestValSem111_SelfUpdateInCommit(t *testing.T) {
 		t.Fatalf("key: %v", err)
 	}
 	own.EncryptionKey = encPub
-	update := Proposal{Update: &Update{LeafNode: own}}
+	update := Proposal{ProposalType: ProposalTypeUpdate, Update: &Update{LeafNode: *own}}
 	ref := f.reference(t, 0, update)
 	raw := f.commitBytes(0, nil, []ProposalRef{ref}, nil)
 	requireValSem(t, f.deliver(1, raw), ValSem111)
@@ -4109,20 +5781,33 @@ func TestValSem111_SelfUpdateInCommit(t *testing.T) {
 func TestValSem112_UpdateSenderNotMember(t *testing.T) {
 	f := newForge(t, 2)
 	leaf := f.g(0).OwnLeafNodeCopy()
-	encoded, err := EncodeProposal(&Proposal{Update: &Update{LeafNode: leaf}})
+	encoded, err := syntax.Marshal(&Proposal{
+		ProposalType: ProposalTypeUpdate,
+		Update:       &Update{LeafNode: *leaf},
+	})
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
-	content := f.contentFrom(Sender{Type: SenderNewMemberProposal}, ContentTypeProposal, encoded)
+	sender := Sender{SenderType: SenderTypeNewMemberProposal}
+	content := f.contentFrom(sender, ContentTypeProposal, encoded)
 	requireValSem(t, f.deliver(1, f.sealPrivate(0, content, nil)), ValSem112)
 }
 
 func TestValSem113_UnsupportedProposalType(t *testing.T) {
 	f := newForge(t, 2)
-	raw := f.commitBytes(0, []Proposal{{UnknownType: 0xF0FF, UnknownBody: []byte{0x00}}}, nil, nil)
+	// the GREASE arm: a type nobody registered, carried as opaque bytes. This is
+	// the codec's escape hatch, not a test-only field on FramedContent.
+	raw := f.commitBytes(0, []Proposal{{
+		ProposalType: ProposalType(0xF0FF),
+		UnknownType:  ProposalType(0xF0FF),
+		UnknownBody:  []byte{0x00},
+	}}, nil, nil)
 	requireValSem(t, f.deliver(1, raw), ValSem113)
 }
 ```
+
+`connect/mls/validation_proposal_test.go` imports `"testing"` and
+`"github.com/urnetwork/connect/mls/syntax"`.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -4135,25 +5820,31 @@ Expected: FAIL to build with `undefined: f.addCommit`, `undefined: f.reference`
 // append to connect/mls/testkit_test.go
 
 // addCommit frames a commit from member 0 covering one Add per key package, with
-// construction-side validation skipped so the receiver is the one that decides.
+// construction-side validation skipped so the receiver is the one that decides. The
+// Add arm carries the KeyPackage by value, not as bytes: one codec, one method set.
 func (self *forge) addCommit(t *testing.T, keyPackages ...*KeyPackage) []byte {
 	t.Helper()
 	proposals := make([]Proposal, 0, len(keyPackages))
 	for _, keyPackage := range keyPackages {
-		encoded, err := EncodeKeyPackage(keyPackage)
-		if err != nil {
-			t.Fatalf("encode key package: %v", err)
-		}
-		proposals = append(proposals, Proposal{Add: &Add{KeyPackage: encoded}})
+		proposals = append(proposals, Proposal{
+			ProposalType: ProposalTypeAdd,
+			Add:          &Add{KeyPackage: *keyPackage},
+		})
 	}
 	return self.commitBytes(0, proposals, nil, nil)
 }
 
 // reference publishes p from member i and returns the ProposalRef every other
 // member now holds for it, so a commit can cover it by reference.
+//
+// The ref comes from the AuthenticatedContent the receivers actually saw, via
+// (*AuthenticatedContent).ProposalRef, rather than from a hash of the wire bytes:
+// RFC 9420 §5.2 takes the ref over the serialized AuthenticatedContent, and hashing
+// the framed message instead would agree with nothing.
 func (self *forge) reference(t *testing.T, i int, p Proposal) ProposalRef {
 	t.Helper()
 	raw := self.proposalBytes(i, p)
+	authContent := self.openOwn(i, raw)
 	for j := range self.groups {
 		if j == i {
 			continue
@@ -4162,7 +5853,7 @@ func (self *forge) reference(t *testing.T, i int, p Proposal) ProposalRef {
 			t.Fatalf("member %d rejected the proposal it must hold a reference to: %v", j, err)
 		}
 	}
-	ref, err := MakeProposalRef(self.crypto, raw)
+	ref, err := authContent.ProposalRef(self.crypto)
 	if err != nil {
 		t.Fatalf("proposal ref: %v", err)
 	}
@@ -4170,8 +5861,11 @@ func (self *forge) reference(t *testing.T, i int, p Proposal) ProposalRef {
 }
 ```
 
-`Proposal.UnknownType`/`Proposal.UnknownBody` and `MakeProposalRef(CryptoProvider, []byte) (ProposalRef, error)`
-are asks on the Group lifecycle plan; `MakeProposalRef` is needed by Task 23's errata 8815 test too.
+`Proposal.UnknownType` / `Proposal.UnknownBody` are the framing plan's GREASE arm and are the
+substitute for the `FramedContent.RawProposal` this task used to ask for.
+`(*AuthenticatedContent).ProposalRef(crypto) (ProposalRef, error)` is the framing plan's, built over
+the crypto plan's `MakeProposalRef(crypto, authenticatedContent []byte) []byte`; Task 23's errata
+8815 test uses the same helper.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -4193,8 +5887,15 @@ git -C connect add mls/validation_proposal_test.go mls/testkit_test.go && git -C
 - Test: same file
 
 **Interfaces:**
-- Consumes: the forge (Task 17); `UpdatePath`, `UpdatePathNode`, `HpkeCiphertext` (TreeKEM plan);
-  `RatchetTreeExtension`, `Node` (Tree math / tree plan).
+- Consumes: the forge (Task 17); `UpdatePath`, `UpdatePathNode`, `HpkeCiphertext`,
+  `UnmarshalRatchetTree(data []byte) (*RatchetTree, error)`,
+  `(*RatchetTree).HasTrailingBlankNodes() bool`, `TreeValidationContext`,
+  `(*RatchetTree).Validate(ctx *TreeValidationContext) error` (TreeKEM plan);
+  `Commit{Proposals, Path}`, `GroupContextExtensions{Extensions}`, `Extension{ExtensionType,
+  ExtensionData}` (Framing and TreeKEM plans);
+  `CommitOptions.confirmationTagOverPreCommitTranscript` (Group lifecycle plan);
+  `syntax.NewReader`, `(*syntax.Reader).ReadOpaque`, `syntax.NewWriter`,
+  `(*syntax.Writer).WriteOpaque`, `(*syntax.Writer).Bytes` (Syntax and codec plan).
 - Produces: `TestValSem200_SelfRemoveInCommit` … `TestValSem209_UnsupportedGroupExtension`,
   `TestValSem300_TrailingBlankNodes`.
 
@@ -4207,12 +5908,19 @@ git -C connect add mls/validation_proposal_test.go mls/testkit_test.go && git -C
 // them and the differential oracle will not catch a mistake here.
 package mls
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/urnetwork/connect/mls/syntax"
+)
 
 func TestValSem200_SelfRemoveInCommit(t *testing.T) {
 	f := newForge(t, 3)
 	own := f.g(0).OwnLeafIndex()
-	raw := f.commitBytes(0, []Proposal{{Remove: &Remove{Removed: own}}}, nil, nil)
+	raw := f.commitBytes(0, []Proposal{{
+		ProposalType: ProposalTypeRemove,
+		Remove:       &Remove{Removed: own},
+	}}, nil, nil)
 	requireValSem(t, f.deliver(1, raw), ValSem200)
 }
 
@@ -4224,7 +5932,10 @@ func TestValSem201_MissingPath(t *testing.T) {
 		t.Fatalf("key: %v", err)
 	}
 	leaf.EncryptionKey = encPub
-	ref := f.reference(t, 1, Proposal{Update: &Update{LeafNode: leaf}})
+	ref := f.reference(t, 1, Proposal{
+		ProposalType: ProposalTypeUpdate,
+		Update:       &Update{LeafNode: *leaf},
+	})
 	raw := f.commitBytes(0, nil, []ProposalRef{ref}, func(commit *Commit, path *UpdatePath) {
 		commit.Path = nil
 	})
@@ -4233,7 +5944,7 @@ func TestValSem201_MissingPath(t *testing.T) {
 
 func TestValSem202_PathLength(t *testing.T) {
 	f := newForge(t, 4)
-	raw := f.commitBytes(0, []Proposal{{Update: &Update{}}}, nil, func(commit *Commit, path *UpdatePath) {
+	raw := f.commitBytes(0, nil, nil, func(commit *Commit, path *UpdatePath) {
 		path.Nodes = path.Nodes[:len(path.Nodes)-1]
 	})
 	requireValSem(t, f.deliver(1, raw), ValSem202)
@@ -4241,7 +5952,7 @@ func TestValSem202_PathLength(t *testing.T) {
 
 func TestValSem203_PathDecrypt(t *testing.T) {
 	f := newForge(t, 4)
-	raw := f.commitBytes(0, []Proposal{{Update: &Update{}}}, nil, func(commit *Commit, path *UpdatePath) {
+	raw := f.commitBytes(0, nil, nil, func(commit *Commit, path *UpdatePath) {
 		path.Nodes[0].EncryptedPathSecret[0].Ciphertext[0] ^= 0x01
 	})
 	requireValSem(t, f.deliver(1, raw), ValSem203)
@@ -4253,7 +5964,7 @@ func TestValSem204_PathKeyMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("key: %v", err)
 	}
-	raw := f.commitBytes(0, []Proposal{{Update: &Update{}}}, nil, func(commit *Commit, path *UpdatePath) {
+	raw := f.commitBytes(0, nil, nil, func(commit *Commit, path *UpdatePath) {
 		// the ciphertexts still carry the real path secret, so decryption succeeds
 		// and the derived public key no longer matches the announced one.
 		path.Nodes[0].EncryptionKey = wrongPub
@@ -4263,8 +5974,10 @@ func TestValSem204_PathKeyMismatch(t *testing.T) {
 
 func TestValSem205_BadConfirmationTag(t *testing.T) {
 	f := newForge(t, 3)
-	raw := f.commitBytes(0, []Proposal{{Update: &Update{}}}, nil, func(commit *Commit, path *UpdatePath) {
-		commit.ConfirmationTagOverPreCommitTranscript = true
+	// the tag is computed over the PRE-commit confirmed_transcript_hash. A random
+	// tag would trip ValSem010 first, so the seam is on the builder, not the wire.
+	raw := f.commitBytesWithOptions(0, nil, &CommitOptions{
+		confirmationTagOverPreCommitTranscript: true,
 	})
 	requireValSem(t, f.deliver(1, raw), ValSem205)
 }
@@ -4272,7 +5985,7 @@ func TestValSem205_BadConfirmationTag(t *testing.T) {
 func TestValSem206_PathLeafDuplicateEncryptionKey(t *testing.T) {
 	f := newForge(t, 3)
 	victim := f.g(2).OwnLeafNodeCopy().EncryptionKey
-	raw := f.commitBytes(0, []Proposal{{Update: &Update{}}}, nil, func(commit *Commit, path *UpdatePath) {
+	raw := f.commitBytes(0, nil, nil, func(commit *Commit, path *UpdatePath) {
 		path.LeafNode.EncryptionKey = victim
 	})
 	requireValSem(t, f.deliver(1, raw), ValSem206)
@@ -4280,7 +5993,7 @@ func TestValSem206_PathLeafDuplicateEncryptionKey(t *testing.T) {
 
 func TestValSem207_PathNodeDuplicateEncryptionKey(t *testing.T) {
 	f := newForge(t, 8)
-	raw := f.commitBytes(0, []Proposal{{Update: &Update{}}}, nil, func(commit *Commit, path *UpdatePath) {
+	raw := f.commitBytes(0, nil, nil, func(commit *Commit, path *UpdatePath) {
 		if len(path.Nodes) < 2 {
 			t.Fatalf("an 8-member tree must give the committer at least two path nodes, got %d", len(path.Nodes))
 		}
@@ -4291,20 +6004,30 @@ func TestValSem207_PathNodeDuplicateEncryptionKey(t *testing.T) {
 
 func TestValSem208_MultipleGCE(t *testing.T) {
 	f := newForge(t, 3)
-	extension := Extension{Type: ExtensionTypeUrmessageGroupPolicy, Data: []byte{0x01}}
-	raw := f.commitBytes(0, []Proposal{
-		{GroupContextExtensions: &GroupContextExtensions{Extensions: []Extension{extension}}},
-		{GroupContextExtensions: &GroupContextExtensions{Extensions: []Extension{extension}}},
-	}, nil, nil)
+	extension := Extension{
+		ExtensionType: ExtensionTypeUrmessageGroupPolicy,
+		ExtensionData: []byte{0x01},
+	}
+	gce := func() Proposal {
+		return Proposal{
+			ProposalType:           ProposalTypeGroupContextExtensions,
+			GroupContextExtensions: &GroupContextExtensions{Extensions: []Extension{extension}},
+		}
+	}
+	raw := f.commitBytes(0, []Proposal{gce(), gce()}, nil, nil)
 	requireValSem(t, f.deliver(1, raw), ValSem208)
 }
 
 func TestValSem209_UnsupportedGroupExtension(t *testing.T) {
 	f := newForge(t, 3)
 	// 0xF0AA appears in no member's capabilities.
-	raw := f.commitBytes(0, []Proposal{
-		{GroupContextExtensions: &GroupContextExtensions{Extensions: []Extension{{Type: 0xF0AA, Data: []byte{0x00}}}}},
-	}, nil, nil)
+	raw := f.commitBytes(0, []Proposal{{
+		ProposalType: ProposalTypeGroupContextExtensions,
+		GroupContextExtensions: &GroupContextExtensions{Extensions: []Extension{{
+			ExtensionType: ExtensionType(0xF0AA),
+			ExtensionData: []byte{0x00},
+		}}},
+	}}, nil, nil)
 	requireValSem(t, f.deliver(1, raw), ValSem209)
 }
 
@@ -4314,43 +6037,69 @@ func TestValSem300_TrailingBlankNodes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("export tree: %v", err)
 	}
-	tree, err := ParseRatchetTree(exported)
+	padded := appendBlankNode(t, exported)
+
+	tree, err := UnmarshalRatchetTree(padded)
 	if err != nil {
-		t.Fatalf("parse tree: %v", err)
+		t.Fatalf("a tree with a trailing blank must still PARSE; rejecting it at the codec would make the validation rule untestable: %v", err)
 	}
-	tree.Nodes = append(tree.Nodes, OptionalNode{Present: false})
-	padded, err := EncodeRatchetTree(tree)
-	if err != nil {
-		t.Fatalf("re-encode tree: %v", err)
+	if !tree.HasTrailingBlankNodes() {
+		t.Fatal("the padded tree does not report trailing blank nodes")
 	}
-	_, err = ValidateRatchetTree(f.crypto, padded, f.g(0).GroupId())
+	err = tree.Validate(&TreeValidationContext{
+		Crypto:  f.crypto,
+		Suite:   groupSuite,
+		GroupId: f.g(0).GroupId(),
+	})
 	requireValSem(t, err, ValSem300)
+}
+
+// appendBlankNode adds one absent optional<Node> to the end of a serialized
+// RatchetTree. The tree is `optional<Node> nodes<V>`, so this is a decode of the
+// outer vector, one 0x00 presence octet appended, and a re-encode — which keeps the
+// length prefix correct without a second, hand-rolled varint.
+func appendBlankNode(t *testing.T, encoded []byte) []byte {
+	t.Helper()
+	body, err := syntax.NewReader(encoded).ReadOpaque()
+	if err != nil {
+		t.Fatalf("read the node vector: %v", err)
+	}
+	writer := syntax.NewWriter()
+	writer.WriteOpaque(append(body, 0x00))
+	padded, err := writer.Bytes()
+	if err != nil {
+		t.Fatalf("re-encode the node vector: %v", err)
+	}
+	return padded
 }
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `go test ./connect/mls/... -run 'TestValSem2|TestValSem300' -v`
-Expected: FAIL to build with `undefined: Commit.ConfirmationTagOverPreCommitTranscript`,
-`undefined: ParseRatchetTree`, `undefined: ValidateRatchetTree`
+Expected: FAIL to build with `undefined: appendBlankNode`, and once that lands, FAIL with
+`expected ValSem202, the message was accepted` and the rest of the eleven
 
 - [ ] **Step 3: Write minimal implementation**
 
-No new forge helpers. Three seams are required from other plans and are restated in the summary:
+`appendBlankNode` above is the only new helper. Everything else is a seam that already exists in the
+canonical interface registry, and this task's deliverable is the eleven failing tests that force the
+checks behind them:
 
-- `Commit.ConfirmationTagOverPreCommitTranscript bool` — a test-only field on the commit builder
-  (Group lifecycle plan) that makes the committer compute the confirmation tag over the
-  **pre**-commit `confirmed_transcript_hash`. Without it ValSem205 has no failing input that is
-  otherwise well-formed, and a random tag would trip ValSem010 first.
-- `func ParseRatchetTree(b []byte) (*RatchetTree, error)` / `func EncodeRatchetTree(t *RatchetTree) ([]byte, error)` /
-  `func ValidateRatchetTree(crypto CryptoProvider, b []byte, groupId []byte) (*RatchetTree, error)` — the
-  Tree math plan's exported tree surface, with `type OptionalNode struct { Present bool; Node Node }`.
-- `Proposal.GroupContextExtensions *GroupContextExtensions` with `Extensions []Extension` — Group
-  lifecycle plan.
+- `CommitOptions.confirmationTagOverPreCommitTranscript` — an **unexported field on the commit
+  builder** (group lifecycle plan, §8.3) that makes the committer compute the confirmation tag over
+  the **pre**-commit `confirmed_transcript_hash`. Without it ValSem205 has no failing input that is
+  otherwise well-formed, and a random tag would trip ValSem010 first. It is not a field of `Commit`:
+  a test flag on a wire type would change what `syntax.Marshal(commit)` emits.
+- `UnmarshalRatchetTree`, `(*RatchetTree).HasTrailingBlankNodes` and `(*RatchetTree).Validate(ctx)` —
+  the TreeKEM plan's tree surface. There is no `ParseRatchetTree`, no `EncodeRatchetTree`, no
+  `ValidateRatchetTree` and no `RatchetTreeExtension`; `OptionalNode` exists but the tree's node
+  array is private, which is why the blank is appended on the wire rather than in the struct.
+- `Proposal.GroupContextExtensions *GroupContextExtensions` with `Extensions []Extension` — the
+  framing plan's proposal arm.
 
-The implementation work in this task is confined to `connect/mls/validation.go`'s
-`checkValSem200`…`checkValSem209` and `checkValSem300` returning the catalogue codes, which is the
-Group lifecycle plan's file. This task's deliverable is the ten failing tests that force them.
+The checks themselves — `ValSem200NoSelfRemove` through `ValSem209GroupExtensionsSupported`, and
+`ValSem300NoTrailingBlankNodes` — are the group lifecycle plan's, in `validate_commit.go`.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -4360,7 +6109,7 @@ Expected: PASS — 11 tests
 - [ ] **Step 5: Commit**
 
 ```bash
-git -C connect add mls/validation_commit_test.go && git -C connect commit -m "test(mls): ValSem200-209 and ValSem300, the commit and ratchet-tree codes"
+git -C connect add mls/validation_commit_test.go mls/validate_commit.go && git -C connect commit -m "test(mls): ValSem200-209 and ValSem300, the commit and ratchet-tree codes"
 ```
 
 ---
@@ -4372,8 +6121,11 @@ git -C connect add mls/validation_commit_test.go && git -C connect commit -m "te
 - Test: same file
 
 **Interfaces:**
-- Consumes: the forge (Task 17); `ExternalInit` (Group lifecycle plan — the type exists so it can be
-  refused at parse, and for no other reason).
+- Consumes: the forge (Task 17); `ExternalInit{KemOutput []byte}`, `ProposalOrRef{Type, Proposal,
+  Reference}`, `ProposalOrRefTypeProposal`, `ProposalOrRefTypeReference`, `Commit{Proposals, Path}`,
+  `Sender{SenderType}`, `SenderTypeNewMemberCommit` (Framing plan);
+  `UpdatePath{LeafNode, Nodes}` (TreeKEM plan);
+  `(*Profile).CheckProposalType`, `DefaultProfile` (Task 3a).
 - Produces: `TestValSem240_ExternalCommitNoExternalInit` …
   `TestValSem246_ExternalCommitSignerNotPathCredential`.
 
@@ -4410,14 +6162,13 @@ func TestValSem241_ExternalCommitTwoExternalInit(t *testing.T) {
 func TestValSem242_ExternalCommitNonAllowlisted(t *testing.T) {
 	f := newForge(t, 2)
 	keyPackage, _, _ := f.newKeyPackage(t)
-	encoded, err := EncodeKeyPackage(keyPackage)
-	if err != nil {
-		t.Fatalf("encode: %v", err)
-	}
 	raw := f.externalCommitBytes(t, externalCommitShape{
 		ExternalInits: 1,
 		WithPath:      true,
-		Inline:        []Proposal{{Add: &Add{KeyPackage: encoded}}},
+		Inline: []Proposal{{
+			ProposalType: ProposalTypeAdd,
+			Add:          &Add{KeyPackage: *keyPackage},
+		}},
 	})
 	requireValSem(t, f.deliver(1, raw), ValSem240)
 	// V2: expect ValSem242 — Add is not on the §12.4.3.2 allowlist.
@@ -4431,7 +6182,10 @@ func TestValSem244_ExternalCommitByReference(t *testing.T) {
 		t.Fatalf("key: %v", err)
 	}
 	leaf.EncryptionKey = encPub
-	ref := f.reference(t, 1, Proposal{Update: &Update{LeafNode: leaf}})
+	ref := f.reference(t, 1, Proposal{
+		ProposalType: ProposalTypeUpdate,
+		Update:       &Update{LeafNode: *leaf},
+	})
 	raw := f.externalCommitBytes(t, externalCommitShape{
 		ExternalInits: 1,
 		WithPath:      true,
@@ -4459,20 +6213,45 @@ func TestValSem246_ExternalCommitSignerNotPathCredential(t *testing.T) {
 	// V2: expect ValSem246 — the signature is verified with the path KeyPackage credential.
 }
 
-// TestExternalCommitsAreRefusedAtParse pins the layer the refusal happens at. If a
-// future change moves it later, the six tests above still pass while the profile
-// has quietly widened; this one does not.
-func TestExternalCommitsAreRefusedAtParse(t *testing.T) {
-	f := newForge(t, 2)
-	raw := f.externalCommitBytes(t, externalCommitShape{ExternalInits: 1, WithPath: true})
-	_, err := ParseMLSMessage(raw)
+// TestExternalCommitsAreRefusedByTheProfileGate pins the layer the refusal happens
+// at. If a future change moves it later, the six tests above still pass while the
+// profile has quietly widened; this one does not.
+//
+// It asserts on the gate itself rather than on ParseMLSMessage, because handshake
+// traffic is framed as PrivateMessage: the external_init arm is inside the
+// ciphertext, so no amount of parsing the wire message can see it. The refusal is
+// a profile decision taken on the decrypted proposal list, and the gate is where it
+// lives.
+func TestExternalCommitsAreRefusedByTheProfileGate(t *testing.T) {
+	err := DefaultProfile().CheckProposalType(ProposalTypeExternalInit)
 	requireValSem(t, err, ValSem240)
+
+	// and the codec must still DECODE the arm: refusing a proposal type is a
+	// profile decision, not a codec decision, and fusing the two would make the
+	// messages vector family untestable against the pinned corpus.
+	encoded, err := syntax.Marshal(&Proposal{
+		ProposalType: ProposalTypeExternalInit,
+		ExternalInit: &ExternalInit{KemOutput: make([]byte, 32)},
+	})
+	if err != nil {
+		t.Fatalf("encode external_init: %v", err)
+	}
+	decoded := &Proposal{}
+	if err := syntax.Unmarshal(encoded, decoded); err != nil {
+		t.Fatalf("the codec must decode every registered proposal arm: %v", err)
+	}
+	if decoded.ExternalInit == nil {
+		t.Fatal("the external_init arm did not survive a round trip")
+	}
 }
 ```
 
+`connect/mls/validation_external_test.go` imports `"testing"` and
+`"github.com/urnetwork/connect/mls/syntax"`.
+
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./connect/mls/... -run 'TestValSem24|TestExternalCommits' -v`
+Run: `go test ./connect/mls/... -run 'TestValSem24|TestExternalCommitsAreRefusedByTheProfileGate' -v`
 Expected: FAIL to build with `undefined: externalCommitShape`, `undefined: f.externalCommitBytes`
 
 - [ ] **Step 3: Write minimal implementation**
@@ -4499,35 +6278,46 @@ func (self *forge) externalCommitBytes(t *testing.T, shape externalCommitShape) 
 	t.Helper()
 	inline := make([]Proposal, 0, shape.ExternalInits+len(shape.Inline))
 	for i := 0; i < shape.ExternalInits; i++ {
-		inline = append(inline, Proposal{ExternalInit: &ExternalInit{KemOutput: self.crypto.Random(32)}})
+		inline = append(inline, Proposal{
+			ProposalType: ProposalTypeExternalInit,
+			ExternalInit: &ExternalInit{KemOutput: self.crypto.Random(32)},
+		})
 	}
 	inline = append(inline, shape.Inline...)
 
 	commit := &Commit{}
-	for _, proposal := range inline {
-		commit.Proposals = append(commit.Proposals, ProposalOrRef{Proposal: &proposal})
+	for index := range inline {
+		commit.Proposals = append(commit.Proposals, ProposalOrRef{
+			Type:     ProposalOrRefTypeProposal,
+			Proposal: &inline[index],
+		})
 	}
 	for _, ref := range shape.ByReference {
-		commit.Proposals = append(commit.Proposals, ProposalOrRef{Ref: ref})
+		commit.Proposals = append(commit.Proposals, ProposalOrRef{
+			Type:      ProposalOrRefTypeReference,
+			Reference: ref,
+		})
 	}
 	if shape.WithPath {
 		keyPackage, _, _ := self.newKeyPackage(t)
 		commit.Path = &UpdatePath{LeafNode: keyPackage.LeafNode}
 	}
 
-	content := self.contentFrom(Sender{Type: SenderNewMemberCommit}, ContentTypeCommit, nil)
+	content := self.contentFrom(Sender{SenderType: SenderTypeNewMemberCommit}, ContentTypeCommit, nil)
 	content.Commit = commit
 	return self.sealPrivate(shape.SignWithMember, content, nil)
 }
 ```
 
-`Proposal.ExternalInit *ExternalInit` with `KemOutput []byte`, and `ProposalOrRef` with `Proposal`
-and `Ref` arms, are asks on the Group lifecycle plan. Both types exist solely so the parser can
-refuse them with a typed error.
+Every type this helper names is already in the canonical interface registry: `ExternalInit`,
+`ProposalOrRef` with its `Type`/`Proposal`/`Reference` fields, and `Commit`, all owned by the framing
+plan, plus `UpdatePath` from the TreeKEM plan. Nothing new is asked of anyone. The proposal loop
+indexes `inline` rather than taking the address of the range variable, so each `ProposalOrRef` points
+at its own element.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./connect/mls/... -run 'TestValSem24|TestExternalCommits' -v`
+Run: `go test ./connect/mls/... -run 'TestValSem24|TestExternalCommitsAreRefusedByTheProfileGate' -v`
 Expected: PASS — 7 tests
 
 - [ ] **Step 5: Commit**
@@ -4545,8 +6335,11 @@ git -C connect add mls/validation_external_test.go mls/testkit_test.go && git -C
 - Test: same file
 
 **Interfaces:**
-- Consumes: the forge (Task 17); `PreSharedKey`, `PreSharedKeyID` (Group lifecycle plan — refused at
-  proposal parse).
+- Consumes: the forge (Task 17); `PreSharedKeyId{PskType, PskId, Usage, PskGroupId, PskEpoch,
+  PskNonce}`, `PskTypeExternal`, `PskTypeResumption`, `ResumptionPskUsageReInit` (Key schedule plan);
+  `PreSharedKey{Psk PreSharedKeyId}`, `Proposal`, `ProposalTypePreSharedKey` (Framing and TreeKEM
+  plans); `syntax.Marshal` (Syntax and codec plan);
+  `(*Profile).CheckProposalType`, `DefaultProfile` (Task 3a).
 - Produces: `TestValSem401_PskNonceLength`, `TestValSem402_PskUsage`,
   `TestValSem403_DuplicatePskId`.
 
@@ -4559,100 +6352,120 @@ git -C connect add mls/validation_external_test.go mls/testkit_test.go && git -C
 // the differential oracle offers no cover here either.
 package mls
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/urnetwork/connect/mls/syntax"
+)
 
 func TestValSem401_PskNonceLength(t *testing.T) {
 	f := newForge(t, 2)
 	// KDF.Nh is 32 for this suite; 31 is the malformed length.
-	id := PreSharedKeyID{
-		Usage:     PskUsageExternal,
-		PskId:     f.crypto.Random(32),
-		PskNonce:  f.crypto.Random(31),
+	id := PreSharedKeyId{
+		PskType:  PskTypeExternal,
+		PskId:    f.crypto.Random(32),
+		PskNonce: f.crypto.Random(31),
 	}
-	requireValSem(t, f.parsePskProposal(t, []PreSharedKeyID{id}), ValSem401)
+	requireValSem(t, f.deliverPskProposal(t, id), ValSem401)
 }
 
 func TestValSem402_PskUsage(t *testing.T) {
 	f := newForge(t, 2)
-	id := PreSharedKeyID{
-		Usage:    PskUsageResumptionReInit,
-		PskId:    f.crypto.Random(32),
-		PskNonce: f.crypto.Random(32),
+	id := PreSharedKeyId{
+		PskType:    PskTypeResumption,
+		Usage:      ResumptionPskUsageReInit,
+		PskGroupId: f.g(0).GroupId(),
+		PskEpoch:   f.g(0).Epoch(),
+		PskNonce:   f.crypto.Random(32),
 	}
-	requireValSem(t, f.parsePskProposal(t, []PreSharedKeyID{id}), ValSem401)
-	// V2, if PSKs are ever implemented: expect ValSem402 from the RFC check.
+	requireValSem(t, f.deliverPskProposal(t, id), ValSem401)
+	// V2, if PSKs are ever implemented: expect ValSem402 from the RFC check, whose
+	// sentinel ErrPskType is already in the catalogue.
 }
 
 func TestValSem403_DuplicatePskId(t *testing.T) {
 	f := newForge(t, 2)
-	id := PreSharedKeyID{
-		Usage:    PskUsageExternal,
+	id := PreSharedKeyId{
+		PskType:  PskTypeExternal,
 		PskId:    f.crypto.Random(32),
 		PskNonce: f.crypto.Random(32),
 	}
-	requireValSem(t, f.parsePskProposal(t, []PreSharedKeyID{id, id}), ValSem401)
-	// V2: expect ValSem403 — no duplicate PreSharedKeyID in one proposal list.
+	requireValSem(t, f.deliverPskProposal(t, id, id), ValSem401)
+	// V2: expect ValSem403 — no duplicate PreSharedKeyId in one proposal list —
+	// whose sentinel ErrDuplicatePsk is already in the catalogue.
 }
 
-// TestPskProposalsAreRefusedAtParse pins the layer, for the same reason as the
-// external-commit equivalent.
-func TestPskProposalsAreRefusedAtParse(t *testing.T) {
-	f := newForge(t, 2)
-	id := PreSharedKeyID{Usage: PskUsageExternal, PskId: f.crypto.Random(32), PskNonce: f.crypto.Random(32)}
-	encoded := encodePskProposalForTest(t, []PreSharedKeyID{id})
-	_, err := ParseProposal(encoded)
-	requireValSem(t, err, ValSem401)
+// TestPskProposalsAreRefusedByTheProfileGate pins the layer, for the same reason as
+// the external-commit equivalent: a refusal that quietly moves later is a profile
+// that quietly widened.
+func TestPskProposalsAreRefusedByTheProfileGate(t *testing.T) {
+	requireValSem(t, DefaultProfile().CheckProposalType(ProposalTypePreSharedKey), ValSem401)
+
+	// the codec still decodes the arm — a profile refusal is not a codec refusal.
+	encoded, err := syntax.Marshal(&Proposal{
+		ProposalType: ProposalTypePreSharedKey,
+		PreSharedKey: &PreSharedKey{Psk: PreSharedKeyId{
+			PskType:  PskTypeExternal,
+			PskId:    make([]byte, 32),
+			PskNonce: make([]byte, 32),
+		}},
+	})
+	if err != nil {
+		t.Fatalf("encode psk proposal: %v", err)
+	}
+	decoded := &Proposal{}
+	if err := syntax.Unmarshal(encoded, decoded); err != nil {
+		t.Fatalf("the codec must decode every registered proposal arm: %v", err)
+	}
+	if decoded.PreSharedKey == nil {
+		t.Fatal("the psk arm did not survive a round trip")
+	}
 }
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./connect/mls/... -run 'TestValSem4|TestPskProposals' -v`
-Expected: FAIL to build with `undefined: f.parsePskProposal`, `undefined: encodePskProposalForTest`
+Run: `go test ./connect/mls/... -run 'TestValSem40|TestPskProposals' -v`
+Expected: FAIL to build with `undefined: f.deliverPskProposal`
 
 - [ ] **Step 3: Write minimal implementation**
 
 ```go
 // append to connect/mls/testkit_test.go
 
-// encodePskProposalForTest hand-encodes a PreSharedKey proposal. The production
-// encoder has no PSK path — the profile refuses PSKs — so the bytes are built here,
-// exactly as a foreign client would send them.
-func encodePskProposalForTest(t *testing.T, ids []PreSharedKeyID) []byte {
+// deliverPskProposal frames one PreSharedKey proposal carrying ids and delivers it,
+// returning whatever the receiver decided.
+//
+// The bytes come from the production encoder, not from a hand-rolled one: the psk
+// arm is part of the wire format whether or not the v1 profile accepts it, and a
+// second encoder here would be a second thing to keep in step with the messages
+// vector family. A commit covers exactly one PreSharedKey proposal per element, so
+// several ids become several proposals.
+func (self *forge) deliverPskProposal(t *testing.T, ids ...PreSharedKeyId) error {
 	t.Helper()
-	body := []byte{}
+	proposals := make([]Proposal, 0, len(ids))
 	for _, id := range ids {
-		body = append(body, byte(id.Usage))
-		body = syntax.WriteVarint(body, uint64(len(id.PskId)))
-		body = append(body, id.PskId...)
-		body = syntax.WriteVarint(body, uint64(len(id.PskNonce)))
-		body = append(body, id.PskNonce...)
+		proposals = append(proposals, Proposal{
+			ProposalType: ProposalTypePreSharedKey,
+			PreSharedKey: &PreSharedKey{Psk: id},
+		})
 	}
-	// proposal type 0x0004 = psk
-	encoded := []byte{0x00, 0x04}
-	encoded = syntax.WriteVarint(encoded, uint64(len(body)))
-	return append(encoded, body...)
-}
-
-// parsePskProposal frames the hand-encoded PSK proposal and delivers it, returning
-// whatever the receiver decided.
-func (self *forge) parsePskProposal(t *testing.T, ids []PreSharedKeyID) error {
-	t.Helper()
-	encoded := encodePskProposalForTest(t, ids)
-	content := self.contentFrom(Sender{Type: SenderMember, LeafIndex: self.g(0).OwnLeafIndex()}, ContentTypeProposal, nil)
-	content.RawProposal = encoded
-	return self.deliver(1, self.sealPrivate(0, content, nil))
+	if len(proposals) == 1 {
+		return self.deliver(1, self.proposalBytes(0, proposals[0]))
+	}
+	return self.deliver(1, self.commitBytes(0, proposals, nil, nil))
 }
 ```
 
-`FramedContent.RawProposal []byte` — a test-only escape hatch that carries proposal bytes the
-production encoder cannot produce — plus `PreSharedKeyID`, `PskUsageExternal` and
-`PskUsageResumptionReInit`, are asks on the Framing and Group lifecycle plans. Add
-`"github.com/urnetwork/connect/mls/syntax"` to `testkit_test.go`'s imports.
+Every type named here is already in the canonical interface registry: `PreSharedKeyId` with
+`PskType`/`PskId`/`Usage`/`PskGroupId`/`PskEpoch`/`PskNonce` and the `PskType*` /
+`ResumptionPskUsage*` constants from the key-schedule plan, and the `PreSharedKey` proposal arm from
+the framing plan. Nothing new is asked of anyone, and the `FramedContent.RawProposal` escape hatch
+this task used to need is gone — the registry refused it, and the real encoder makes it unnecessary.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./connect/mls/... -run 'TestValSem4|TestPskProposals' -v`
+Run: `go test ./connect/mls/... -run 'TestValSem40|TestPskProposals' -v`
 Expected: PASS — 4 tests
 
 - [ ] **Step 5: Commit**
@@ -4670,8 +6483,12 @@ git -C connect add mls/validation_psk_test.go mls/testkit_test.go && git -C conn
 - Modify: `connect/mls/errata_test.go`
 
 **Interfaces:**
-- Consumes: the forge (Task 17); `memStore.EpochsHeld` (Task 10); `PastEpochWindow`,
-  `MakeProposalRef` (Group lifecycle plan).
+- Consumes: the forge (Task 17); `memStore.EpochsHeld` (Task 10);
+  `const PastEpochWindow uint64 = 32` (Key schedule plan);
+  `CheckErrata8745(path *UpdatePath, context *GroupContext) error`,
+  `CheckErrata8815(commit *Commit, pending *ProposalCache) error`,
+  `(*Group).MergePendingCommit`, `(*Group).ApplyCommit` (Group lifecycle plan);
+  `(*AuthenticatedContent).ProposalRef` through the forge's `reference` helper (Framing plan).
 - Produces: `TestValSem400_PastEpochBound`, `TestErrata8745`, `TestErrata8815`. This is the task that
   makes `TestValSemCoverageIsComplete` (Task 3) green.
 
@@ -4699,7 +6516,9 @@ func TestValSem400_PastEpochBound(t *testing.T) {
 	startingEpoch := f.g(0).Epoch()
 
 	for i := 0; i < 40; i++ {
-		raw := f.commitBytes(0, []Proposal{{Update: &Update{}}}, nil, nil)
+		// CommitOptions.Force gives every commit a fresh UpdatePath, so each one
+		// advances the epoch without needing a proposal to cover.
+		raw := f.commitBytes(0, nil, nil, nil)
 		if err := f.g(0).MergePendingCommit(); err != nil {
 			t.Fatalf("merge %d: %v", i, err)
 		}
@@ -4717,7 +6536,7 @@ func TestValSem400_PastEpochBound(t *testing.T) {
 	if want := finalEpoch - PastEpochWindow; oldest != want {
 		t.Fatalf("oldest retained epoch is %d, want %d (final %d, window %d)", oldest, want, finalEpoch, PastEpochWindow)
 	}
-	if got, want := len(held), PastEpochWindow+1; got != want {
+	if got, want := len(held), int(PastEpochWindow)+1; got != want {
 		t.Fatalf("%d epochs retained, want %d", got, want)
 	}
 	if slices.Contains(held, startingEpoch) && finalEpoch-startingEpoch > PastEpochWindow {
@@ -4734,9 +6553,10 @@ func TestValSem400_PastEpochBound(t *testing.T) {
 // GroupContext extension. The Update-proposal half is ValSem109.
 func TestErrata8745(t *testing.T) {
 	f := newForge(t, 3)
-	raw := f.commitBytes(0, []Proposal{{Update: &Update{}}}, nil, func(commit *Commit, path *UpdatePath) {
-		// 0xF001 (urmessage_group_policy) is in the GroupContext of every forged group.
-		path.LeafNode.Capabilities.Extensions = []uint16{0xF002}
+	raw := f.commitBytes(0, nil, nil, func(commit *Commit, path *UpdatePath) {
+		// urmessage_group_policy (0xF001) is in the GroupContext of every forged
+		// group, and the path leaf must therefore claim support for it.
+		path.LeafNode.Capabilities.Extensions = []ExtensionType{ExtensionTypeUrmessageLeafKeys}
 	})
 	requireValSem(t, f.deliver(1, raw), ValSemErrata8745)
 
@@ -4764,7 +6584,10 @@ func TestErrata8815(t *testing.T) {
 		t.Fatalf("key: %v", err)
 	}
 	leaf.EncryptionKey = encPub
-	known := f.reference(t, 1, Proposal{Update: &Update{LeafNode: leaf}})
+	known := f.reference(t, 1, Proposal{
+		ProposalType: ProposalTypeUpdate,
+		Update:       &Update{LeafNode: *leaf},
+	})
 	good := f.commitBytes(0, nil, []ProposalRef{known}, nil)
 	if err := f.deliver(2, good); err != nil {
 		t.Fatalf("a commit referencing a received proposal must be accepted: %v", err)
@@ -4781,28 +6604,33 @@ Expected: FAIL with `oldest retained epoch is 0, want 8` (nothing calls
 - [ ] **Step 3: Write minimal implementation**
 
 Three changes, in files the Group lifecycle plan owns; this task is what forces them and the diff
-belongs to whichever plan lands second:
+belongs to whichever plan lands second. All three names are in the canonical interface registry, so
+this task adds none:
 
 1. `Group.MergePendingCommit` and `Group.ApplyCommit` both call
-   `self.store.DeleteGroupStateBefore(self.groupId, self.epoch - PastEpochWindow)` after the new
-   epoch state is written, guarded by `self.epoch > PastEpochWindow`.
-2. `validation.go` gains `checkErrata8745(path *UpdatePath, context *GroupContext) error`, called
-   from the commit path, returning `ValSem(ValSemErrata8745, ...)` when the update-path leaf's
-   capabilities do not cover every GroupContext extension type.
-3. `validation.go` gains `checkErrata8815(commit *Commit, pending map[string]*Proposal) error`,
-   called **before** any other commit processing, returning `ValSem(ValSemErrata8815, ...)` for a
-   `ProposalRef` with no entry in the receiver's pending-proposal map.
+   `self.store.DeleteGroupStateBefore(self.groupId, self.epoch-PastEpochWindow)` after the new epoch
+   state is written, guarded by `self.epoch > PastEpochWindow`. `PastEpochWindow` is the key-schedule
+   plan's `uint64` constant, declared once.
+2. `validate_commit.go` gains
+   `func CheckErrata8745(path *UpdatePath, context *GroupContext) error`, called from the commit
+   path, returning `ValSem(ValSemErrata8745, ...)` when the update-path leaf's capabilities do not
+   cover every GroupContext extension type.
+3. `validate_commit.go` gains
+   `func CheckErrata8815(commit *Commit, pending *ProposalCache) error`, called **before** any other
+   commit processing, returning `ValSem(ValSemErrata8815, ...)` for a `ProposalRef` the cache cannot
+   resolve. It takes the `*ProposalCache` the lifecycle plan already owns, not a bare map, so there
+   is one answer to "did we receive this proposal" rather than two.
 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `go test ./connect/mls/... -run 'TestValSem400|TestErrata87|TestErrata88' -v && go test ./connect/mls/... -run TestValSemCoverageIsComplete -v`
-Expected: PASS for all three, and `TestValSemCoverageIsComplete` now PASSes with all 46 codes
-covered and `valsem-coverage.md` written.
+Expected: PASS for all three, and `TestValSemCoverageIsComplete` now PASSes with all 51 catalogue
+entries covered and `valsem-coverage.md` written.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git -C connect add mls/validation_epoch_test.go mls/errata_test.go mls/validation.go mls/group.go && git -C connect commit -m "test(mls): ValSem400 past-epoch bound and errata 8745/8815; ValSem coverage is complete"
+git -C connect add mls/validation_epoch_test.go mls/errata_test.go mls/validate_commit.go mls/group.go && git -C connect commit -m "test(mls): ValSem400 past-epoch bound and errata 8745/8815; ValSem coverage is complete"
 ```
 
 ---
@@ -4835,9 +6663,11 @@ func TestValSemJobIsBlocking(t *testing.T) {
 	if strings.Contains(text, "continue-on-error: true") {
 		t.Error("no gate in this workflow may be non-blocking")
 	}
-	// all 46 codes must be reachable by the -run pattern the job uses.
-	if !strings.Contains(text, "'TestValSem|TestErrata'") {
-		t.Error("the negative-test step must run every TestValSem* and TestErrata* function")
+	// all 51 catalogue entries must be reachable by the -run pattern the job uses,
+	// including the five narrow-profile refusals, whose tests are named by
+	// behaviour rather than by number.
+	if !strings.Contains(text, "'TestValSem|TestErrata|TestProfileRefuses'") {
+		t.Error("the negative-test step must run every TestValSem*, TestErrata* and TestProfileRefuses* function")
 	}
 }
 ```
@@ -4881,7 +6711,7 @@ git -C connect add .github/workflows/mls-vectors.yml mls/workflow_test.go && git
 
 **Interfaces:**
 - Consumes: nothing from other plans. The proto is vendored from the mlswg commit pinned in
-  `connect/mls/PINS.md`.
+  `connect/mls/interop/PINS.md`.
 - Produces: the `github.com/urnetwork/connect/mls/interop` module and
   `TestInteropIsNotInConnectsGraph`.
 
@@ -4973,7 +6803,7 @@ replace github.com/urnetwork/connect => ../..
 # Regenerating the mlswg stubs
 
 The proto is vendored from `mlswg/mls-implementations` at the commit pinned in
-`connect/mls/PINS.md`, so the client and the test runner are always the same generation.
+`connect/mls/interop/PINS.md`, so the client and the test runner are always the same generation.
 
 ```
 cp /tmp/mls-implementations/interop/proto/mls_client.proto proto/mls_client.proto
@@ -4998,6 +6828,275 @@ Expected: PASS
 
 ```bash
 git -C connect add mls/interop/go.mod mls/interop/go.sum mls/interop/proto mls/interop/GENERATE.md mls/interop/module_test.go layering_test.go && git -C connect commit -m "build(mls): interop as a separate module so gRPC never reaches connect"
+```
+
+---
+
+### Task 25a: Vendor the mlswg test runner, its 8 configs, and `merge-runner-output`
+
+Gate 2 is "the mlswg gRPC interop harness against OpenMLS in both roles". The harness is the mlswg
+**test runner**, not just the client: Task 33's CI job invokes `go run ./test-runner -config …` three
+times per peer and then unions the three outputs. Nothing in this plan created any of it, and a gate
+whose runner does not exist is a gate that never runs.
+
+The runner is vendored at the same `mlswg=` commit as the vector corpus, so the runner and the
+vectors can never disagree about the protocol they are testing.
+
+**Files:**
+- Create: `connect/mls/interop/test-runner/**` (vendored), `connect/mls/interop/configs/*.json`
+  (8 files), `connect/mls/interop/cmd/merge-runner-output/main.go`,
+  `connect/mls/interop/cmd/merge-runner-output/main_test.go`
+- Test: `connect/mls/interop/runner_test.go`,
+  `connect/mls/interop/cmd/merge-runner-output/main_test.go`
+
+**Interfaces:**
+- Consumes: the `mlswg=<sha>` line of `connect/mls/interop/PINS.md` (Task 6).
+- Produces: `func mergeRunnerOutput(paths []string) (map[string][]failure, error)`, the
+  `merge-runner-output` binary, `TestRunnerIsVendoredAtThePinnedCommit` and
+  `TestConfigSetIsClosed`.
+
+- [ ] **Step 1: Write the failing test**
+
+```go
+// connect/mls/interop/runner_test.go
+// the runner and the configs are vendored, at the same commit as the vectors. A
+// floating runner turns a red interop matrix into "probably upstream churn", which
+// is how a gate stops being one.
+package interop_test
+
+import (
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+)
+
+// runnerConfigs is Spec A §4.2.4: the eight scenario configs the matrix runs.
+var runnerConfigs = []string{
+	"application.json",
+	"branch.json",
+	"commit.json",
+	"external_join.json",
+	"external_proposals.json",
+	"psk.json",
+	"reinit.json",
+	"welcome_join.json",
+}
+
+func TestConfigSetIsClosed(t *testing.T) {
+	found, err := filepath.Glob(filepath.Join("configs", "*.json"))
+	if err != nil {
+		t.Fatalf("glob: %v", err)
+	}
+	names := make([]string, 0, len(found))
+	for _, path := range found {
+		names = append(names, filepath.Base(path))
+	}
+	slices.Sort(names)
+	if !slices.Equal(names, runnerConfigs) {
+		t.Fatalf("configs/ holds %v, spec A §4.2.4 names %v — a config that appears without a profile-reject.json row is a scenario nobody decided the fate of", names, runnerConfigs)
+	}
+}
+
+func TestRunnerIsVendoredAtThePinnedCommit(t *testing.T) {
+	pins, err := os.ReadFile("PINS.md")
+	if err != nil {
+		t.Fatalf("read PINS.md: %v", err)
+	}
+	index := strings.Index(string(pins), "mlswg=")
+	if index < 0 {
+		t.Fatal("PINS.md has no machine-readable mlswg= line")
+	}
+	pinned := strings.Fields(string(pins)[index:])[0]
+
+	stamp, err := os.ReadFile(filepath.Join("test-runner", "VENDORED"))
+	if err != nil {
+		t.Fatalf("read test-runner/VENDORED: %v — the runner must be vendored, not fetched at CI time", err)
+	}
+	if strings.TrimSpace(string(stamp)) != pinned {
+		t.Fatalf("test-runner is vendored at %q, PINS.md pins %q — the runner and the vector corpus must come from one commit", strings.TrimSpace(string(stamp)), pinned)
+	}
+}
+```
+
+```go
+// connect/mls/interop/cmd/merge-runner-output/main_test.go
+// the three runs of one config produce three outputs; the assertion is against
+// their union. A scenario that fails in the receiver role and passes in the
+// committer role has failed.
+package main
+
+import "testing"
+
+func TestUnionKeepsAFailureFromAnySingleRun(t *testing.T) {
+	first := map[string][]failure{"commit.json": {}}
+	second := map[string][]failure{
+		"commit.json": {{Scenario: "commit/3-member", Status: "INVALID_ARGUMENT", MessageContains: "path length"}},
+	}
+	merged := mergeFailureSets([]map[string][]failure{first, second})
+	if got := len(merged["commit.json"]); got != 1 {
+		t.Fatalf("merged commit.json holds %d failures, want 1", got)
+	}
+}
+
+func TestUnionDeduplicatesTheSameScenario(t *testing.T) {
+	one := map[string][]failure{
+		"branch.json": {{Scenario: "branch/2-member", Status: "UNIMPLEMENTED", MessageContains: "branching"}},
+	}
+	sets := []map[string][]failure{one, one, one}
+	merged := mergeFailureSets(sets)
+	if got := len(merged["branch.json"]); got != 1 {
+		t.Fatalf("three identical runs merged to %d failures, want 1", got)
+	}
+}
+
+func TestUnionKeepsBothWhenTheSameScenarioFailsDifferently(t *testing.T) {
+	committer := map[string][]failure{
+		"reinit.json": {{Scenario: "reinit/2-member", Status: "UNIMPLEMENTED", MessageContains: "ReInit"}},
+	}
+	receiver := map[string][]failure{
+		"reinit.json": {{Scenario: "reinit/2-member", Status: "INTERNAL", MessageContains: "panic"}},
+	}
+	merged := mergeFailureSets([]map[string][]failure{committer, receiver})
+	if got := len(merged["reinit.json"]); got != 2 {
+		t.Fatalf("two different failures for one scenario merged to %d, want 2 — collapsing them would hide the worse one", got)
+	}
+}
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `cd connect/mls/interop && go test . -run 'TestConfigSetIsClosed|TestRunnerIsVendored' -v && go test ./cmd/merge-runner-output/ -v`
+Expected: FAIL with `glob: configs/*.json` matching nothing, `read test-runner/VENDORED: no such
+file or directory`, and `undefined: mergeFailureSets`
+
+- [ ] **Step 3: Write minimal implementation**
+
+Vendor the runner and configs from the clone Task 6 already made, and stamp the commit:
+
+```bash
+MLSWG=$(grep -o 'mlswg=[0-9a-f]\{40\}' connect/mls/interop/PINS.md | cut -d= -f2)
+rm -rf /tmp/mls-implementations && git clone https://github.com/mlswg/mls-implementations.git /tmp/mls-implementations
+git -C /tmp/mls-implementations checkout "$MLSWG"
+mkdir -p connect/mls/interop/test-runner connect/mls/interop/configs
+cp -R /tmp/mls-implementations/interop/test-runner/. connect/mls/interop/test-runner/
+for c in application branch commit external_join external_proposals psk reinit welcome_join ; do
+  cp "/tmp/mls-implementations/interop/configs/${c}.json" "connect/mls/interop/configs/${c}.json"
+done
+echo "$MLSWG" > connect/mls/interop/test-runner/VENDORED
+```
+
+```go
+// connect/mls/interop/cmd/merge-runner-output/main.go
+// union the three runner outputs — ours-first, ours-last, three-party — into the
+// one observed-failure set assert-profile-rejects compares against
+// profile-reject.json.
+//
+// A scenario that fails in ANY role has failed: the receiver role is where the
+// validation logic lives, so an intersection would discard exactly the half this
+// harness exists to exercise.
+package main
+
+import (
+	"encoding/json"
+	"flag"
+	"fmt"
+	"os"
+	"sort"
+)
+
+// failure is one scenario the runner reported as failed. It is the same shape
+// profile-reject.json uses, so the two files are diffable by eye.
+type failure struct {
+	Scenario        string `json:"scenario"`
+	Status          string `json:"grpc_status"`
+	MessageContains string `json:"message_contains"`
+}
+
+func main() {
+	flag.Parse()
+	sets := make([]map[string][]failure, 0, flag.NArg())
+	for _, path := range flag.Args() {
+		set, err := readFailures(path)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "merge-runner-output: %v\n", err)
+			os.Exit(2)
+		}
+		sets = append(sets, set)
+	}
+	body, err := json.MarshalIndent(struct {
+		Configs map[string][]failure `json:"configs"`
+	}{Configs: mergeFailureSets(sets)}, "", "  ")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "merge-runner-output: %v\n", err)
+		os.Exit(2)
+	}
+	os.Stdout.Write(append(body, '\n'))
+}
+
+func readFailures(path string) (map[string][]failure, error) {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	wrapper := struct {
+		Configs map[string][]failure `json:"configs"`
+	}{}
+	if err := json.Unmarshal(body, &wrapper); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", path, err)
+	}
+	if wrapper.Configs == nil {
+		wrapper.Configs = map[string][]failure{}
+	}
+	return wrapper.Configs, nil
+}
+
+// mergeFailureSets unions by (scenario, status, message). Two runs that failed the
+// same scenario the same way collapse to one entry; two that failed it differently
+// keep both, because the difference is the interesting part.
+func mergeFailureSets(sets []map[string][]failure) map[string][]failure {
+	merged := map[string]map[failure]bool{}
+	for _, set := range sets {
+		for config, failures := range set {
+			if merged[config] == nil {
+				merged[config] = map[failure]bool{}
+			}
+			for _, entry := range failures {
+				merged[config][entry] = true
+			}
+		}
+	}
+	out := map[string][]failure{}
+	for config, entries := range merged {
+		list := make([]failure, 0, len(entries))
+		for entry := range entries {
+			list = append(list, entry)
+		}
+		sort.Slice(list, func(i, j int) bool {
+			if list[i].Scenario != list[j].Scenario {
+				return list[i].Scenario < list[j].Scenario
+			}
+			return list[i].Status < list[j].Status
+		})
+		out[config] = list
+	}
+	return out
+}
+```
+
+`failure` is a comparable struct of three strings, so it is a valid map key and the union needs no
+hand-written identity function.
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `cd connect/mls/interop && go test . -run 'TestConfigSetIsClosed|TestRunnerIsVendored' -v && go test ./cmd/merge-runner-output/ -v`
+Expected: PASS — 2 + 3 tests
+
+- [ ] **Step 5: Commit**
+
+```bash
+git -C connect add mls/interop/test-runner mls/interop/configs mls/interop/runner_test.go mls/interop/cmd/merge-runner-output && git -C connect commit -m "test(mls-interop): vendor the mlswg runner and configs at the pinned commit, and union the three runs"
 ```
 
 ---
@@ -5314,8 +7413,14 @@ git -C connect add mls/interop/client/wiredump.go mls/interop/client/wiredump_te
   `connect/mls/interop/client/rpc_core_test.go`
 
 **Interfaces:**
-- Consumes: `mls.NewGroup`, `mls.GroupConfig`, `mls.JoinFromWelcome`, `mls.NewKeyPackage`,
-  `mls.DefaultProfile` (Group lifecycle plan); `mls.NewCryptoProvider` (Crypto plan);
+- Consumes: `mls.NewGroup(cfg *GroupConfig, signer SignaturePrivateKey, cred Credential) (*Group, error)`,
+  `mls.GroupConfig`, `mls.JoinFromWelcome(cfg, welcome, ratchetTree []byte, keys *JoinKeyMaterial) (*Group, error)`,
+  `mls.JoinKeyMaterial{KeyPackage, InitPrivate, EncryptPrivate, SignPrivate}` (Group lifecycle plan);
+  `mls.NewKeyPackage(crypto, suite, cred, caps, exts) (kp, initPriv, encPriv, err)`,
+  `mls.BasicCredential`, `mls.Capabilities`, `mls.RequiredCapabilities`, `mls.ExtensionType` and its
+  constants, `mls.CredentialTypeBasic` (TreeKEM plan);
+  `mls.NewCryptoProvider`, `mls.CipherSuiteX25519ChaCha20Sha256Ed25519`, `mls.IsRegisteredSuite`
+  (Crypto plan); `mls.DefaultProfile`, `(*mls.Profile).CheckCiphersuiteForCreate` (Task 3a);
   `newRegistry` (Task 26), `newWireDump` (Task 27).
 - Produces: `type service struct{}` implementing the first five RPCs, and a `-port` flag.
 
@@ -5475,7 +7580,7 @@ func (self *service) Name(ctx context.Context, request *pb.NameRequest) (*pb.Nam
 // but refused at group creation by policy, so advertising it would invite the
 // runner to build a group we would then decline.
 func (self *service) SupportedCiphersuites(ctx context.Context, request *pb.SupportedCiphersuitesRequest) (*pb.SupportedCiphersuitesResponse, error) {
-	return &pb.SupportedCiphersuitesResponse{Ciphersuites: []uint32{uint32(mls.CipherSuiteX25519ChaCha20SHA256Ed25519)}}, nil
+	return &pb.SupportedCiphersuitesResponse{Ciphersuites: []uint32{uint32(mls.CipherSuiteX25519ChaCha20Sha256Ed25519)}}, nil
 }
 
 func (self *service) CreateGroup(ctx context.Context, request *pb.CreateGroupRequest) (*pb.CreateGroupResponse, error) {
@@ -5524,11 +7629,21 @@ func (self *service) JoinGroup(ctx context.Context, request *pb.JoinGroupRequest
 }
 ```
 
-`newGroupConfig` and `pendingKeyPackages` are small helpers in the same file: the first builds the
-v1 `mls.GroupConfig` (pinned suite, `required_capabilities = [0xF001, 0xF002]`, `DefaultProfile()`,
-an in-memory store) and refuses any suite but 0x0003 with
-`"group creation is pinned to 0x0003 by policy"`; the second is a mutex-guarded map from transaction
-id to minted key-package material, mirroring `mls.StateStore.PutKeyPackage`/`TakeKeyPackage`.
+`newGroupConfig` and `pendingKeyPackages` are small helpers in the same file.
+
+`newGroupConfig` builds the v1 `mls.GroupConfig`: `Suite:
+mls.CipherSuiteX25519ChaCha20Sha256Ed25519`, `RequiredCaps: mls.RequiredCapabilities{ExtensionTypes:
+[]mls.ExtensionType{mls.ExtensionTypeUrmessageGroupPolicy, mls.ExtensionTypeUrmessageLeafKeys},
+CredentialTypes: []mls.CredentialType{mls.CredentialTypeBasic}}`, `Profile: mls.DefaultProfile()`,
+and an in-memory store. It gates the requested suite through
+`mls.DefaultProfile().CheckCiphersuiteForCreate`, so the refusal message the interop matrix sees is
+the same `ErrProfileCiphersuite` the ValSem catalogue names rather than a second, hand-written
+string. `mls.IsRegisteredSuite` distinguishes "not a suite" from "a suite we refuse to create at".
+
+`pendingKeyPackages` is a mutex-guarded map from transaction id to minted key-package material —
+`mls.NewKeyPackage`'s `kp`, `initPriv` and `encPriv` plus the identity signer — mirroring
+`mls.StateStore.PutKeyPackage` / `TakeKeyPackage`. Its `joinKeys()` builds
+`&mls.JoinKeyMaterial{KeyPackage: kp, InitPrivate: initPriv, EncryptPrivate: encPriv, SignPrivate: signer}`.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -5549,9 +7664,14 @@ git -C connect add mls/interop/client/main.go mls/interop/client/rpc_core.go mls
 - Create: `connect/mls/interop/client/rpc_state.go`, `connect/mls/interop/client/rpc_state_test.go`
 
 **Interfaces:**
-- Consumes: `mls.Group.Export`, `mls.Group.EpochAuthenticator`, `mls.Group.Protect`,
-  `mls.Group.Unprotect`, `mls.Group.GroupContext`, `mls.Group.RatchetTree` (Key schedule and Framing
-  plans).
+- Consumes, all from the Group lifecycle plan and all verbatim from the canonical interface registry:
+  `(*mls.Group).Export(label string, context []byte, length int) ([]byte, error)`,
+  `(*mls.Group).EpochAuthenticator() []byte`,
+  `(*mls.Group).Protect(aad, plaintext []byte) ([]byte, error)`,
+  `(*mls.Group).Unprotect(privateMessage []byte) (*mls.ApplicationMessage, error)`,
+  `(*mls.Group).GroupContext() ([]byte, error)`,
+  `(*mls.Group).RatchetTree() ([]byte, error)`,
+  `mls.ApplicationMessage{SenderLeaf, AuthenticatedData, Plaintext}`.
 - Produces: the five state RPCs.
 
 - [ ] **Step 1: Write the failing test**
@@ -5739,9 +7859,17 @@ git -C connect add mls/interop/client/rpc_state.go mls/interop/client/rpc_state_
 - Create: `connect/mls/interop/client/rpc_commit.go`, `connect/mls/interop/client/rpc_commit_test.go`
 
 **Interfaces:**
-- Consumes: `mls.Group.ProposeAdd`, `ProposeUpdate`, `ProposeRemove`,
-  `ProposeGroupContextExtensions`, `Commit`, `ProcessMessage`, `ApplyCommit`, `MergePendingCommit`
-  (Group lifecycle plan); `registry.free` (Task 26).
+- Consumes, all from the Group lifecycle plan and all verbatim from the canonical interface registry:
+  `(*mls.Group).ProposeAdd(keyPackage []byte) ([]byte, error)`,
+  `(*mls.Group).ProposeUpdate() ([]byte, error)`,
+  `(*mls.Group).ProposeRemove(leaf mls.LeafIndex) ([]byte, error)`,
+  `(*mls.Group).ProposeGroupContextExtensions(exts []mls.Extension) ([]byte, error)`,
+  `(*mls.Group).Commit(byReference [][]byte, byValue []mls.Proposal, opts *mls.CommitOptions) (*mls.CommitResult, error)`,
+  `(*mls.Group).ProcessMessage(message []byte) (*mls.Processed, error)`,
+  `(*mls.Group).ApplyCommit(processed *mls.Processed) error`,
+  `(*mls.Group).MergePendingCommit() error`,
+  `mls.CommitResult{Commit, Welcome, RatchetTree}`;
+  `registry.free` (Task 26).
 - Produces: `AddProposal`, `UpdateProposal`, `RemoveProposal`,
   `GroupContextExtensionsProposal`, `Commit`, `HandleCommit`, `HandlePendingCommit`, `Free`.
 
@@ -5888,7 +8016,10 @@ func (self *service) GroupContextExtensionsProposal(ctx context.Context, request
 	}
 	extensions := make([]mls.Extension, 0, len(request.Extensions))
 	for _, extension := range request.Extensions {
-		extensions = append(extensions, mls.Extension{Type: uint16(extension.ExtensionType), Data: extension.ExtensionData})
+		extensions = append(extensions, mls.Extension{
+			ExtensionType: mls.ExtensionType(extension.ExtensionType),
+			ExtensionData: extension.ExtensionData,
+		})
 	}
 	proposal, err := group.ProposeGroupContextExtensions(extensions)
 	if err != nil {
@@ -5973,7 +8104,7 @@ git -C connect add mls/interop/client/rpc_commit.go mls/interop/client/rpc_commi
 
 **Interfaces:**
 - Consumes: the generated `pb.MLSClientServer` interface (Task 25).
-- Produces: the eleven refused RPCs with stable messages, and
+- Produces: the fourteen refused RPCs with stable messages, and
   `TestUnimplementedSetIsClosed` — the test that turns a silent capability expansion into a red build.
 
 - [ ] **Step 1: Write the failing test**
@@ -6392,6 +8523,10 @@ func indexByScenario(failures []failure) map[string]failure {
       {"scenario": "external_proposals/add", "grpc_status": "UNIMPLEMENTED", "message_contains": "urmessage: external senders are not implemented in the v1 profile"},
       {"scenario": "external_proposals/remove", "grpc_status": "UNIMPLEMENTED", "message_contains": "urmessage: external senders are not implemented in the v1 profile"}
     ],
+    "psk.json": [
+      {"scenario": "psk/external", "grpc_status": "UNIMPLEMENTED", "message_contains": "urmessage: pre-shared keys are not implemented in the v1 profile"},
+      {"scenario": "psk/resumption", "grpc_status": "UNIMPLEMENTED", "message_contains": "urmessage: pre-shared keys are not implemented in the v1 profile"}
+    ],
     "reinit.json": [
       {"scenario": "reinit/2-member", "grpc_status": "UNIMPLEMENTED", "message_contains": "urmessage: ReInit is not implemented in the v1 profile"},
       {"scenario": "reinit/3-member", "grpc_status": "UNIMPLEMENTED", "message_contains": "urmessage: ReInit is not implemented in the v1 profile"}
@@ -6422,7 +8557,7 @@ git -C connect add mls/interop/profile-reject.json mls/interop/cmd/assert-profil
 
 **Files:**
 - Create: `connect/mls/interop/docker-compose.yml`, `connect/.github/workflows/mls-interop.yml`
-- Modify: `connect/mls/PINS.md`
+- Modify: `connect/mls/interop/PINS.md` (the one pin file, created in Task 6)
 - Test: `connect/mls/interop/workflow_test.go`
 
 **Interfaces:**
@@ -6525,7 +8660,7 @@ jobs:
       fail-fast: false
       matrix:
         peer: [openmls, mlspp, mls-rs]
-        config: [welcome_join.json, commit.json, application.json, branch.json, external_join.json, external_proposals.json, reinit.json]
+        config: [welcome_join.json, commit.json, application.json, branch.json, external_join.json, external_proposals.json, psk.json, reinit.json]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -6539,15 +8674,15 @@ jobs:
         run: /tmp/urmessage-mls-client -port 50051 -wiredump mls/interop/out/wiredump &
       # run 1 — ours first: we are committer/creator
       - name: committer role
-        run: go run ./test-runner -config ${{ matrix.config }} -client ours:50051 -client ${{ matrix.peer }}:50052 -private -json-out out/run1.json
+        run: go run ./test-runner -config configs/${{ matrix.config }} -client ours:50051 -client ${{ matrix.peer }}:50052 -private -json-out out/run1.json
         working-directory: mls/interop
       # run 2 — ours last: we are receiver/joiner, where the validation logic lives
       - name: receiver role
-        run: go run ./test-runner -config ${{ matrix.config }} -client ${{ matrix.peer }}:50052 -client ours:50051 -private -json-out out/run2.json
+        run: go run ./test-runner -config configs/${{ matrix.config }} -client ${{ matrix.peer }}:50052 -client ours:50051 -private -json-out out/run2.json
         working-directory: mls/interop
       # run 3 — three-party: a commit we neither authored nor are the sole recipient of
       - name: three-party
-        run: go run ./test-runner -config ${{ matrix.config }} -client ours:50051 -client ${{ matrix.peer }}:50052 -client openmls:50053 -private -json-out out/run3.json
+        run: go run ./test-runner -config configs/${{ matrix.config }} -client ours:50051 -client ${{ matrix.peer }}:50052 -client openmls:50053 -private -json-out out/run3.json
         working-directory: mls/interop
       - name: assert documented failures
         run: |
@@ -6565,11 +8700,10 @@ jobs:
             mls/interop/out/wiredump/*.bin
 ```
 
-`cmd/merge-runner-output` is a 40-line program that reads the three runner outputs and emits the
-union in `profile-reject.json`'s shape; it is written as part of this task with a table test
-asserting the union of three files with overlapping scenarios is deduplicated.
-
-Record the three peer image digests and the pinned mlswg commit in `connect/mls/PINS.md`.
+`test-runner/`, `configs/` and `cmd/merge-runner-output` are Task 25a's; this task only wires them
+into CI. Record the three peer image digests in `connect/mls/interop/PINS.md` — the `mlswg=` and
+`openmls=` lines are already there from Task 6, and `TestRunnerIsVendoredAtThePinnedCommit` holds the
+vendored runner to the first of them.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -6579,47 +8713,68 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git -C connect add mls/interop/docker-compose.yml mls/interop/workflow_test.go mls/interop/cmd/merge-runner-output .github/workflows/mls-interop.yml mls/PINS.md && git -C connect commit -m "ci(mls-interop): both-role matrix against three peers, with documented failures asserted"
+git -C connect add mls/interop/docker-compose.yml mls/interop/workflow_test.go .github/workflows/mls-interop.yml mls/interop/PINS.md && git -C connect commit -m "ci(mls-interop): both-role matrix against three peers, with documented failures asserted"
 ```
 
 ---
 
 ## Execution order and gate mapping
 
-Tasks 1–16 are executable in wave 1 and depend on nothing outside `connect/mls/syntax`. Tasks 17–24
-need `group.go` and land at the end of slice A4. Tasks 25–33 need the same and land as slice A5.
+Tasks 1–9, 3a and 13–16 are executable in wave 1 and depend on nothing outside `connect/mls/syntax`
+and the wave-1 crypto plan. Tasks 10, 11, 12 and 12a are **Phase A′** and land in wave 4 with the
+codec table and the `StateStore` they are built on. Tasks 17–24 need `group.go` and land at the end
+of slice A4. Tasks 25–33 need the same and land as slice A5.
 
 | Spec A gate | Tasks | Slice |
 |---|---|---|
 | Gate 2, vector families | 6, 7, 8, 9, 13 | A1, then each family's own plan |
-| Gate 2, interop harness | 25, 26, 27, 28, 29, 30, 31, 32, 33 | A5 |
+| Gate 2, interop harness | 25, 25a, 26, 27, 28, 29, 30, 31, 32, 33 | A5 |
 | Gate 3, 43 ValSem codes | 2, 3, 17, 18, 19, 20, 21, 22, 24 | A4 |
+| Gate 3, the v1 narrow profile | 3a | A1 |
 | Gate 3, errata | 1, 23 | A4 |
-| Gate 4, fuzz properties 1–2 | 11, 12, 13 | A1 |
+| Gate 4, fuzz properties 1–2 | 11, 12, 12a | A4 (Phase A′) |
 | Gate 4, differential | 14, 15, 16 | A11 |
 | Layering (Spec A §2.3) | 4, 5, 25 | A1 |
 
 `TestValSemCoverageIsComplete` (Task 3) is the single test that proves Gate 3: it fails until every
-one of the 46 catalogue codes has a named test function, and Task 24 makes it blocking.
+one of the 51 catalogue entries has a named test function, and Task 24 makes it blocking.
+
+## What this plan owns that the registry moved here
+
+Three things arrived with the canonical interface registry and are produced by tasks above rather
+than consumed from anywhere.
+
+| Thing | Task | Why it landed here |
+|---|---|---|
+| `Profile`, `DefaultProfile`, the seven `Check*` | 3a | `profile.go` was attributed circularly and created by nobody, while `GroupConfig.Profile` is required by `NewGroup`; it belongs beside the `ErrProfile*` values the checks return |
+| the ten framing sentinels `ErrWrongGroupId`…`ErrNonZeroPadding`, and `ErrPskNonceLength`/`ErrPskType`/`ErrDuplicatePsk` | 2 | they are ValSem002–011 and ValSem401–403; declaring them in two files in one package is a redeclaration error, and this file is wave 1 |
+| `interop/test-runner/`, its 8 configs, `cmd/merge-runner-output`, `cmd/seedgen` and the committed corpus | 25a, 12a | Gate 2 and Gate 4 name them and no plan created them |
 
 ## Open asks on other plans
 
-Each is referenced by real code above and will not compile without it.
+Everything this plan calls is in the canonical interface registry with the signature used above. The
+list below is what other plans must **produce** for these tasks to compile — none of it is a new
+name, and each row cites the registry section that assigns it.
 
-| Ask | Plan | Why |
-|---|---|---|
-| `NewCryptoProviderWithRandom(suite, io.Reader)` | Crypto primitives and HPKE | a failing ValSem test must reproduce from a fixed seed |
-| `Group.sealFramedContentForTest(c, auth, wf, signer)` | Framing and message protection | there is no other way to frame a message the honest path refuses to build |
-| `Group.sealFramedContentWithPaddingForTest(c, signer, padding)` | Framing and message protection | ValSem011 |
-| `FramedContentAuthData.MembershipTag` | Framing and message protection | ValSem007, ValSem008 |
-| `FramedContent.RawProposal []byte` | Framing and message protection | ValSem401–403 carry proposal bytes the production encoder cannot produce |
-| `CommitOptions.SkipValidation` | Group lifecycle | half the commit-side codes need a commit the construction side already refuses |
-| `Commit.DropConfirmationTag`, `Commit.ConfirmationTagOverPreCommitTranscript` | Group lifecycle | ValSem009, ValSem205 |
-| `Group.OwnLeafNodeCopy()` | Group lifecycle | every Update-shaped mutation |
-| `Group.Close()` | Group lifecycle | the interop `Free` RPC asserts zero leaked states at exit |
-| `MakeProposalRef(CryptoProvider, []byte) (ProposalRef, error)` | Group lifecycle | ValSem111, errata 8815 |
-| `Proposal.UnknownType` / `Proposal.UnknownBody` | Group lifecycle | ValSem113 |
-| `Proposal.ExternalInit`, `ProposalOrRef` | Group lifecycle | ValSem240–246 |
-| `ParseRatchetTree` / `EncodeRatchetTree` / `ValidateRatchetTree`, `OptionalNode` | Tree math | ValSem300 |
-| every family's `Verify` **and** `Generate` | each family's owning plan | Spec A §4.2.1 requires both directions |
-| `protoc`, `protoc-gen-go`, `protoc-gen-go-grpc` as developer tools | repo tooling | Task 25 generates once and commits the stubs |
+| Ask | Plan | Registry | Why |
+|---|---|---|---|
+| `NewCryptoProviderWithRandom(suite CipherSuite, random io.Reader) (CryptoProvider, error)` | Crypto primitives and HPKE | §3.2 | a failing ValSem test must reproduce from a fixed seed |
+| `(*Group).sealFramedContentForTest(c, auth, wf, signer) ([]byte, error)` | Framing and message protection | §7.3 | there is no other way to frame a message the honest path refuses to build |
+| `(*Group).sealFramedContentWithPaddingForTest(c, auth, wf, signer, padding) ([]byte, error)` | Framing and message protection | §7.3 | ValSem011 |
+| `(*AuthenticatedContent).ProposalRef(crypto) (ProposalRef, error)` | Framing and message protection | §7.2 | ValSem111, ValSem201, ValSem244, erratum 8815 |
+| `CommitOptions.skipValidation` / `dropConfirmationTag` / `confirmationTagOverPreCommitTranscript` | Group lifecycle | §8.3 | half the commit-side codes need a commit the construction side already refuses; ValSem009 and ValSem205 need the other two |
+| `(*Group).OwnLeafNodeCopy() *LeafNode`, `(*Group).ClearPendingCommit()` | Group lifecycle | §8.3 | every Update-shaped mutation, and the forge's teardown |
+| `(*Group).Close() error` | Group lifecycle | §8.3 | the interop `Free` RPC asserts zero leaked states at exit |
+| `CheckErrata8745(path, context)`, `CheckErrata8815(commit, pending)` | Group lifecycle | §8.2 | Task 23 |
+| `KeyPackage`, `NewKeyPackage`, `(*KeyPackage).Ref`, and the codec | TreeKEM | §6.5 | the forge, the codec table, ValSem101–106 |
+| `(*RatchetTree).HasTrailingBlankNodes()`, `(*RatchetTree).Validate(ctx)`, `UnmarshalRatchetTree`, `OptionalNode` | TreeKEM | §6.6 | ValSem300 |
+| `syntax.VerifyDeserializationVector(t, raw)` | Syntax and codec | §9.2 | family 16 is implemented once, there; Task 8 is the shim |
+| `syntax.CheckRoundTrip[T, PT](bs) error` and the ten typed codec errors | Syntax and codec | §2.1, §2.4 | Gate 4 property 2 |
+| every family's `Verify` **and** `Generate`, registered from an `init()` and struck from `expectedPendingFamilies` in the same commit | each family's owning plan | §9.2 | Spec A §4.2.1 requires both directions, and without the registration `TestVectorFamiliesVerify` runs one family while Gate 1 stays green |
+| `protoc`, `protoc-gen-go`, `protoc-gen-go-grpc` as developer tools | repo tooling | — | Task 25 generates once and commits the stubs |
+
+Four asks this plan used to make are **refused** by the registry, and the substitutes are already in
+the code above: `FramedContentAuthData.MembershipTag` → `PublicMessage.MembershipTag`;
+`FramedContentAuthData.HasConfirmationTag` → presence derived from `ContentType`;
+`FramedContent.RawProposal` → `Proposal.UnknownType` / `Proposal.UnknownBody`;
+`RatchetTreeExtension` → `FindExtension(exts, ExtensionTypeRatchetTree)` + `UnmarshalRatchetTree`.
