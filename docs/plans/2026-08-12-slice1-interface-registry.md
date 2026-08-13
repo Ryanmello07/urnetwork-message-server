@@ -125,11 +125,37 @@ func (self *Writer) WriteVarint(v uint32)                                     //
 func (self *Writer) WriteOpaque(bs []byte)       // opaque x<V>; nil == empty  → p2,p4,p5,p6,p7
 func (self *Writer) WriteOpaqueLP(bs []byte)     // 32-bit prefix; connect/message only
 func (self *Writer) WriteOptional(present bool, encodeOne func(w *Writer) error) error  // → p5,p6
+func (self *Writer) WriteNested(encodeOne func(w *Writer) error) error   // → p5,p6,p7; see below
+func (self *Writer) WriteNestedLP(encodeOne func(w *Writer) error) error // connect/message records
 ```
 
 Every write after the first error is a no-op; one check at `Bytes()` suffices. `WriteBytes` (p4) is
 `WriteRaw`. `WriteOpaqueVec` (p5 task bodies) is `WriteOpaque`. `Bytes() []byte` (p6) does not
 exist — take the error.
+
+**⚠ p5-p8: encode a nested structure with `WriteNested`, never by hand-rolling a scratch writer.**
+Added in p1 Task 17b; the `Writer` previously had no counterpart to the `Reader`'s `ReadSub`, so
+nesting meant writing this out at every call site:
+
+```go
+scratch := NewWriterLimit(w.MaxVectorLength())   // ← the load-bearing line
+... encode into scratch ...
+nested, err := scratch.Bytes()
+w.WriteOpaque(nested)
+```
+
+**`NewWriter()` in place of that first line silently caps a nested field at `MaxVectorLength` even
+inside a ratchet-tree encode running at `MaxRatchetTreeLength`** — invisible on small inputs,
+appearing only on a large tree, which is the case hardest to test and likeliest to reach production.
+Measured in Task 17b: an outer writer at `MaxRatchetTreeLength` encoding a nested body of
+`MaxVectorLength+1` succeeds when the limit is inherited and gives `ErrLengthExceedsMax` when it is
+not. Note the asymmetry — **only a *raised* outer limit can separate the two**, for every input, not
+merely the ones tried, because the assembled region is never shorter than a field inside it, so the
+outer `WriteOpaque` check always fires first and masks the difference.
+
+The other hand-rolling hazard: **dropping the scratch `Bytes()` error frames `nil` as a zero-length
+region** — one prefix octet, or four LP zeros — a well-formed, canonical-looking encoding of a
+structure that was never encoded. `WriteNested` surfaces that error instead.
 
 ### 2.3 Reader
 
