@@ -57,6 +57,39 @@ no transport, no crypto and no third-party code in the graph.
   plan boundary is the registry's spelling; where this plan and that file disagreed, that file won
   and this plan was amended. §2 is this package's block, and §2.5 records the one override against
   it (O-1), which is adopted below.
+- **⚠ EVERY `Reader` CODE SAMPLE BELOW IS STALE ON ERROR HANDLING. `decode.go` GOVERNS, NOT THE
+  SAMPLE.** The samples in this plan were written before commit `3486cc3`, and they return bare
+  sentinels — `return 0, ErrTruncated` — with no `self.err` entry check and no `setErr`. The shipped
+  `Reader` does the opposite: **every failure latches into the sticky error with first-error-wins,
+  every method checks `self.err` first, and no failure path advances the cursor.** That retrofit was
+  made after review found a real vulnerability in Task 4: an ignored truncated `ReadUint32` left the
+  cursor unmoved, so a following smaller `ReadUint16` re-read the same bytes and **succeeded
+  silently**, returning `0x102, nil` — a structurally valid decode of the wrong fields, invisible to
+  round-trip tests, in a codec whose serialized forms MLS signs over.
+
+  So: when a sample and `decode.go` disagree, implement against `decode.go` and say so in your
+  report. Any new `Reader` method must check `self.err` on entry, route every failure through
+  `setErr`, and return `self.err` rather than the bare sentinel. Task 6's implementer hit this and
+  called it correctly; the sample was not amended in place because the samples are illustrative and
+  the shipped contract is the authority.
+
+- **⚠ THE TESTS IN THIS PLAN ARE STALE IN THE SAME WAY THE SAMPLES ARE, AND THAT IS THE MORE
+  DANGEROUS HALF.** They were specified in the same pass, so they encode the pre-`3486cc3` contract's
+  expectations too: they assert the returned sentinel and the cursor position, and nothing observes
+  whether a failure latched or whether the entry guard exists. Task 9 proved the consequence by
+  measurement — its implementer correctly rejected the plan's `ReadOpaqueLP` sample and implemented
+  against `decode.go`, and the controller then reverted the shipped method to the sample verbatim in
+  an isolated copy and ran the suite: **all 40 tests passed.** The correct implementation and the
+  vulnerable one were indistinguishable. The reproduction on the vulnerable version:
+  `ReadOpaqueLP` on `00 00 00 40 11` fails without latching, the following `ReadUint32` returns
+  `0x40` with a nil error, and `Done` reports `ErrTrailingBytes` — masking the real failure. The
+  Task 4 vulnerability, reborn in a new method, invisible to every test specified for it.
+
+  **So the rule, for every remaining task in this plan and for p2-p8: a deviation made on security
+  grounds requires a test that FAILS on the version you rejected. Otherwise it is a comment, not a
+  contract, and the next refactor deletes it.** Do not merely confirm your tests pass on your code;
+  confirm they fail on the code you refused to write. An isolated copy of the package is the
+  instrument — never patch a known-vulnerable version into the tracked tree to measure it.
 
 The registry's four conventions, carried here verbatim (registry §0):
 
@@ -175,10 +208,11 @@ import (
 
 const selfImportPath = "github.com/urnetwork/connect/mls/syntax"
 
+// Fails if go list -deps reports a dependency whose first path element is not stdlib.
 func TestSyntaxImportsStdlibOnly(t *testing.T) {
-	out, err := exec.Command("go", "list", "-deps", ".").Output()
+	out, err := exec.Command("go", "list", "-deps", ".").CombinedOutput()
 	if err != nil {
-		t.Fatalf("go list -deps failed: %v", err)
+		t.Fatalf("go list -deps failed: %v\n%s", err, out)
 	}
 	for _, line := range strings.Split(string(out), "\n") {
 		dep := strings.TrimSpace(line)
@@ -197,8 +231,19 @@ func TestSyntaxImportsStdlibOnly(t *testing.T) {
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `go test ./mls/syntax/... -run TestSyntaxImportsStdlibOnly -v`
-Expected: FAIL — `no Go files in ...\mls\syntax` (the directory holds only a `_test.go` file, so the
-package does not build).
+
+Expected: **PASS, and that is correct here** — this gate is the one task in the plan whose test
+cannot go red at its own scope, so do not spend time hunting for the failure. `go list -deps .`
+resolves a directory holding only a `_test.go` file without complaint in go1.26.5, and once `doc.go`
+exists it has no imports, so the dependency set is stdlib-only either way. `go build .` *would* fail
+on the test-only directory, which is what an earlier draft of this step described, but the test does
+not shell out to `go build`.
+
+The assertion is still sound and still load-bearing: it fires the moment any file in this package
+gains an import whose first path element contains a dot — `connect`, `connect/mls`,
+`golang.org/x/crypto`. Verify that claim once, by hand, rather than trusting it: temporarily add
+`_ "golang.org/x/crypto/chacha20poly1305"` to `doc.go`, re-run, confirm it fails naming that path,
+then remove it. That is this task's real red step.
 
 - [ ] **Step 3: Write minimal implementation**
 
@@ -207,7 +252,7 @@ package does not build).
 ```go
 // The TLS presentation language of RFC 8446 section 3 as MLS uses it: fixed width
 // integers, opaque V with the RFC 9420 section 2.1.2 variable length prefix,
-// optional T, and byte length prefixed vectors. MASTER's LP(x) 32 bit big endian
+// optional T, and byte length prefixed vectors. The master protocol design's LP(x) 32 bit big endian
 // prefix lives here too, because connect/message encodes records through this same
 // package and one length prefix implementation means one place for a length prefix
 // bug to be.
@@ -1659,7 +1704,7 @@ git add mls/syntax/encode.go mls/syntax/decode.go mls/syntax/encode_test.go mls/
 - Consumes: `takeLength` from Task 4, `WriteUint32` from Task 3.
 - Produces:
 ```go
-func (self *Writer) WriteOpaqueLP(bs []byte)      // LP(x) per MASTER's notation
+func (self *Writer) WriteOpaqueLP(bs []byte)      // LP(x) per the master protocol design
 func (self *Reader) ReadOpaqueLP() ([]byte, error) // a COPY, never nil
 ```
   **For the storage-layer plan (`connect/message`), not for any MLS structure.** MASTER writes every
@@ -1774,7 +1819,7 @@ Expected: FAIL — build error `w.WriteOpaqueLP undefined (type *Writer has no f
 Append to `connect/mls/syntax/encode.go`:
 
 ```go
-// LP(x) in MASTER's notation: a 32 bit big endian length, then the bytes. This is
+// LP(x) in the master protocol design's notation: a 32 bit big endian length, then the bytes. This is
 // the record layer's prefix, not MLS's — connect/message builds every record field
 // and every AAD and write_auth preimage with it. It never appears inside an MLS
 // structure, where the form is WriteOpaque.
