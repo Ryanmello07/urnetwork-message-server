@@ -184,20 +184,33 @@ const (
     CipherSuiteX25519ChaCha20Sha256Ed25519  CipherSuite = 0x0003
 )
 
-const (
-    HpkeKemX25519HkdfSha256  uint16 = 0x0020
-    HpkeKdfHkdfSha256        uint16 = 0x0001
-    HpkeAeadAes128Gcm        uint16 = 0x0001
-    HpkeAeadChaCha20Poly1305 uint16 = 0x0003
-    SignatureSchemeEd25519   uint16 = 0x0807
+// one named type per RFC 9180 registry. the kdf HKDF-SHA256 and the aead AES-128-GCM
+// are both 0x0001 in two different registries, so on a shared uint16 a transposed
+// declaration compiles and compares equal; declared distinct it is a compile error.
+// the encoder still takes uint16(...) for binary.BigEndian.AppendUint16, so these
+// close the registry declaration hole and not the encoder hole — the encoder stays
+// held by the appendix A vectors for both suites instead.
+type (
+    HpkeKemId  uint16
+    HpkeKdfId  uint16
+    HpkeAeadId uint16
 )
+
+const (
+    HpkeKemX25519HkdfSha256  HpkeKemId  = 0x0020
+    HpkeKdfHkdfSha256        HpkeKdfId  = 0x0001
+    HpkeAeadAes128Gcm        HpkeAeadId = 0x0001
+    HpkeAeadChaCha20Poly1305 HpkeAeadId = 0x0003
+)
+
+const SignatureSchemeEd25519 uint16 = 0x0807
 
 type SuiteParams struct {
     Suite       CipherSuite
     Name        string
-    KemId       uint16
-    KdfId       uint16
-    AeadId      uint16
+    KemId       HpkeKemId
+    KdfId       HpkeKdfId
+    AeadId      HpkeAeadId
     SignatureId uint16
     Nh          int // KDF output size
     Nk          int // AEAD key size
@@ -740,8 +753,9 @@ git commit -m "test(mls): gate forbidden crypto primitives and confine hkdf.Extr
   - `type CipherSuite uint16`
   - `const CipherSuiteX25519AesGcm128Sha256Ed25519 CipherSuite = 0x0001`
   - `const CipherSuiteX25519ChaCha20Sha256Ed25519 CipherSuite = 0x0003`
-  - `const HpkeKemX25519HkdfSha256, HpkeKdfHkdfSha256, HpkeAeadAes128Gcm, HpkeAeadChaCha20Poly1305, SignatureSchemeEd25519 uint16`
-  - `type SuiteParams struct{ Suite CipherSuite; Name string; KemId, KdfId, AeadId, SignatureId uint16; Nh, Nk, Nn, Nt, Nsecret, Nenc, Npk, Nsk, NsigPub, NsigPriv int }`
+  - `type HpkeKemId uint16`, `type HpkeKdfId uint16`, `type HpkeAeadId uint16` — one per RFC 9180 registry, distinct because the kdf and the aes-128-gcm aead are both 0x0001
+  - `const HpkeKemX25519HkdfSha256 HpkeKemId`, `const HpkeKdfHkdfSha256 HpkeKdfId`, `const HpkeAeadAes128Gcm, HpkeAeadChaCha20Poly1305 HpkeAeadId`, `const SignatureSchemeEd25519 uint16`
+  - `type SuiteParams struct{ Suite CipherSuite; Name string; KemId HpkeKemId; KdfId HpkeKdfId; AeadId HpkeAeadId; SignatureId uint16; Nh, Nk, Nn, Nt, Nsecret, Nenc, Npk, Nsk, NsigPub, NsigPriv int }`
   - `func Suites() []CipherSuite`
   - `func LookupSuite(suite CipherSuite) (*SuiteParams, error)`
   - `func IsRegisteredSuite(suite CipherSuite) bool`
@@ -878,12 +892,20 @@ const (
 	CipherSuiteX25519ChaCha20Sha256Ed25519  CipherSuite = 0x0003
 )
 
-// HPKE algorithm identifiers, RFC 9180 §7.1-7.3.
+// HPKE algorithm identifiers, RFC 9180 §7.1-7.3. three registries, three types: the
+// kdf HKDF-SHA256 and the aead AES-128-GCM are both 0x0001, so on a shared uint16 a
+// transposed declaration compiles and satisfies every value assertion.
+type (
+	HpkeKemId  uint16
+	HpkeKdfId  uint16
+	HpkeAeadId uint16
+)
+
 const (
-	HpkeKemX25519HkdfSha256  uint16 = 0x0020
-	HpkeKdfHkdfSha256        uint16 = 0x0001
-	HpkeAeadAes128Gcm        uint16 = 0x0001
-	HpkeAeadChaCha20Poly1305 uint16 = 0x0003
+	HpkeKemX25519HkdfSha256  HpkeKemId  = 0x0020
+	HpkeKdfHkdfSha256        HpkeKdfId  = 0x0001
+	HpkeAeadAes128Gcm        HpkeAeadId = 0x0001
+	HpkeAeadChaCha20Poly1305 HpkeAeadId = 0x0003
 )
 
 // signature scheme identifier as MLS carries it, RFC 8446 §4.2.3.
@@ -896,9 +918,9 @@ const SignatureSchemeEd25519 uint16 = 0x0807
 type SuiteParams struct {
 	Suite       CipherSuite
 	Name        string
-	KemId       uint16
-	KdfId       uint16
-	AeadId      uint16
+	KemId       HpkeKemId
+	KdfId       HpkeKdfId
+	AeadId      HpkeAeadId
 	SignatureId uint16
 	Nh          int
 	Nk          int
@@ -1292,15 +1314,19 @@ const (
 func hpkeKemSuiteId(params *SuiteParams) []byte {
 	suiteId := make([]byte, 0, 5)
 	suiteId = append(suiteId, "KEM"...)
-	return binary.BigEndian.AppendUint16(suiteId, params.KemId)
+	return binary.BigEndian.AppendUint16(suiteId, uint16(params.KemId))
 }
 
+// the uint16(...) conversions are where the named registry types stop protecting
+// anything: AppendUint16 takes a uint16, so uint16(params.AeadId) in the kdf slot
+// compiles. what catches that is the appendix A vector for suite 0x0003, whose aead
+// is 0x0003 and where the transposition moves every derived byte.
 func hpkeSuiteId(params *SuiteParams) []byte {
 	suiteId := make([]byte, 0, 10)
 	suiteId = append(suiteId, "HPKE"...)
-	suiteId = binary.BigEndian.AppendUint16(suiteId, params.KemId)
-	suiteId = binary.BigEndian.AppendUint16(suiteId, params.KdfId)
-	return binary.BigEndian.AppendUint16(suiteId, params.AeadId)
+	suiteId = binary.BigEndian.AppendUint16(suiteId, uint16(params.KemId))
+	suiteId = binary.BigEndian.AppendUint16(suiteId, uint16(params.KdfId))
+	return binary.BigEndian.AppendUint16(suiteId, uint16(params.AeadId))
 }
 
 // LabeledExtract, RFC 9180 §4. hkdf.Extract takes (ikm, salt) — the reverse of the
@@ -2097,9 +2123,9 @@ type hpkeVectorExport struct {
 
 type hpkeVector struct {
 	Mode               int                    `json:"mode"`
-	KemId              uint16                 `json:"kem_id"`
-	KdfId              uint16                 `json:"kdf_id"`
-	AeadId             uint16                 `json:"aead_id"`
+	KemId              HpkeKemId              `json:"kem_id"`
+	KdfId              HpkeKdfId              `json:"kdf_id"`
+	AeadId             HpkeAeadId             `json:"aead_id"`
 	Info               string                 `json:"info"`
 	IkmE               string                 `json:"ikmE"`
 	IkmR               string                 `json:"ikmR"`
