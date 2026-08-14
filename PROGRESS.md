@@ -164,3 +164,33 @@ Four commits, two of them beyond what was briefed, each isolated so either can b
   from, so an item stamped just before the cutoff is never *older* than it. Measured: of 4096 adds,
   1433 carried the cutoff's own timestamp and exactly 1433 were left behind. Fixed by making the
   boundary inclusive. Each fix verified independently load-bearing by reverting only that change.
+
+## Deployment targets available — owner, 2026-08-14
+
+The owner has: a **VPS** to host a Message Server, a **test Operator server** to assist, and this
+box for the **Windows client**. Their instruction: raise it when the time is right, not before.
+
+So the trigger needs to be stated rather than felt. There are two distinct "ready" moments and it
+is worth not confusing them.
+
+**Ready A — server infrastructure, honest and much closer.** Stand the message server on the VPS
+and have a harness exchange **opaque records** with it: authentication, the `write_auth` preimage,
+group rows, fan-out, retention clamping, capabilities advertisement. This is infrastructure
+testing, not a messenger — no real conversation exists, so nothing can be mistaken for a working
+private messenger. It de-risks the VPS, the operator integration and the record layer early, which
+is exactly what should not be discovered late.
+
+Needs: `connect/message` (the record layer, currently a doc stub) and the Spec B server skeleton.
+**Does not need the MLS core finished.**
+
+**Ready B — the real end-to-end test.** Windows client ↔ server ↔ Windows client, real MLS, a
+message typed on one and read on the other. Needs p2 through p7 complete.
+
+The sequencing rule from the checkpoint section still holds: **CP3 comes after the real MLS core**,
+and Ready A does not violate it precisely because it carries no message content. A build that
+looks like a messenger but is not protected is the thing being avoided; a server exchanging opaque
+bytes with a test harness is not that.
+
+**Current distance to Ready A:** p1 complete; p2 at 5 of 23; p3 at 2 of 14; `connect/message` is a
+doc stub; the server repo is greenfield. The record layer is the near-term unlock and does not
+depend on p2-p7 finishing.
