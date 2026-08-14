@@ -102,3 +102,63 @@ vacuous passes.
 Second time `core.autocrlf` has bitten this project — it also smudged the 16 vendored IETF vector
 files during p1, which would have invalidated the entire "our codec passes the IETF vectors"
 argument.
+
+## 2026-08-13 — CHECKPOINT 1: the Windows client builds, launches and renders
+
+`Ryanmello07/urmessage-windows`, **private**, 61 files, 3 commits. WinUI 3 / C++/WinRT, x64 Release
+clean in 41s with 0 errors. Opens at 480×760 DIPs; a second launch redirects under its own key
+`URmessage.Desktop` rather than into the VPN client's window.
+
+Brand, palette and pane model lifted from the VPN app: `#101010` page, `#151515` header strips, PP
+NeueBit wordmark, ABC Gravity for page titles, and the conversation list built from the VPN's own
+`kit::MakePaneTwoLineRowButton` + `MakePaneSearchRow` — no rounded islands, hairline separation,
+uniform row heights. The pane model rather than the card model, per the owner's "less random sized
+modules and more fit in".
+
+**The repo is private because it carries the four commercial font binaries** (ABC Gravity from
+Dinamo; PP Neue Montreal and PP NeueBit from Pangram Pangram), whose licence says they ship inside
+the app and must not be redistributed on their own. Whether that licence covers a second product is
+an open owner question. **Related and pre-existing: `Ryanmello07/urnetwork-windows` is public and
+contains the same four files.**
+
+Two corrections the scaffolder found in the brief, both worth keeping:
+
+- **The identity list was incomplete.** Beyond the five constants in `Ids.h`, three more `URnetwork`
+  values are hard-coded in files the survey called copy-clean — including
+  `HKCU\Software\URnetwork\Window`, whose placement blob carries a magic and version, so URmessage
+  would have *accepted the VPN app's saved window geometry*. Also the storage root and the log
+  filename. All now route through `Ids.h`.
+- **The font check cannot be done by eye, and the agent's first read of it was wrong.** It judged the
+  wordmark a fallback because it did not look pixelated, then measured: rendered ink 111×19 at a 30px
+  em, against PP NeueBit 114×19, Montreal 164×27, ABC Gravity 219×28, Segoe UI 160×28. A wrong font
+  family name produces **no error**, only silent fallback, so measurement is the only check that
+  works. Method recorded in the repo's `Assets/README.md`.
+
+Honest gaps: **ARM64 does not build here** (`MSB8020` — this box's VS18 Build Tools has x64 cross
+tools only; environment gap, unverified rather than known-good). Data is stubbed — ten sample rows,
+search filters nothing, rows have no click handler, no tray icon, placement is never saved. The app
+icon is still the VPN's globe.
+
+## 2026-08-13 — connect CI is green, and the data path picked up two real fixes
+
+All workflows pass on `beta/message` at `18e6bd7` and on `main` at `7167f3d`. `main` has had working
+CI for the first time since 2026-08-04.
+
+The `Test — connect` run passing on Linux with the same code that fails nine tests on this Windows
+box **demonstrates** the environmental diagnosis that was previously only argued.
+
+Four commits, two of them beyond what was briefed, each isolated so either can be dropped:
+
+- **My diagnosis of the extender failure was wrong**, and acting on it would have turned CI red. I
+  attributed it to the 1s listener race; the implementer pulled logs from four CI runs and found the
+  failure lands 0.15–0.27s *after* the sleep expired, with `listen tcp 1442` already up. The real
+  cause is the content server binding `:443` **inside** `ListenAndServeTLS` on a goroutine, which
+  discards the bind error. Fixed with a checked ephemeral port; the destination travels in the
+  extender header, so no production code changed. Now demonstrated by CI passing with extender
+  folded into the gate and `continue-on-error` removed.
+- **The `pumpQueue` tiebreak cannot fix two of the three trim tests**, because `combineQueue` has no
+  `pumpItem` and no `seq`, and `RemoveOlder` never reads `seq`. Their cause is the strict `Before`
+  cutoff: both queues stamp `updateTime` from the same coarse clock the caller samples the cutoff
+  from, so an item stamped just before the cutoff is never *older* than it. Measured: of 4096 adds,
+  1433 carried the cutoff's own timestamp and exactly 1433 were left behind. Fixed by making the
+  boundary inclusive. Each fix verified independently load-bearing by reverting only that change.
