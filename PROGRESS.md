@@ -16,9 +16,11 @@ colliding, and that has cost this project real work before.
 
 | Track | Repo | State |
 |---|---|---|
-| **A — protocol core** | `Ryanmello07/connect`, branch `beta/message` | p1 complete; p2–p8 to go |
-| **B — Windows client** | `Ryanmello07/urnetwork-windows` (brand source) → new `message-windows` | surveying the VPN app's brand and shell |
+| **A — protocol core** | `Ryanmello07/connect`, branch `beta/message` | p1 complete and green in CI; p2 started |
+| **B — Windows client** | `Ryanmello07/urmessage-windows` (private) | CP1 shipped — builds, launches, renders |
 | **C — message server** | `Ryanmello07/urnetwork-message-server` | greenfield; specs written, no code yet |
+
+Brand source for track B is `Ryanmello07/urnetwork-windows` at branch `beta/algorithm-dpi`, read-only.
 
 ## Checkpoints
 
