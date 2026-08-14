@@ -1890,6 +1890,19 @@ func (self *HpkeContext) Open(aad []byte, ciphertext []byte) ([]byte, error) {
 
 // the secret export interface of RFC 9180 §5.3. it does not consume a sequence
 // number, so exporting is safe to interleave with sealing.
+//
+// this is the first caller-supplied length to reach hpkeLabeledExpand's guard, and
+// that guard is load bearing: crypto/hkdf.Expand panics on a negative length (its
+// fips140 body opens with make([]byte, 0, keyLen)), so without the refusal Export(ctx,
+// -1) would kill the process. measured on go1.26.5 — -1 panics, 8160 returns, 8161
+// returns "requested key length too large".
+//
+// decide here what error a bad length is. task 5 returns ErrBadKeyLength, whose text
+// is "key length does not match the ciphersuite" and which reads wrong for an output
+// length request concerning neither a key nor a ciphersuite. task 5 left it rather than
+// adding a sentinel to task 1's crypto_errors.go, because the caller-facing semantics
+// belong to this signature. either keep it deliberately or add ErrBadExportLength (and
+// its entry in TestCryptoErrorsAreDistinct and in the task 1 contract above).
 func (self *HpkeContext) Export(exporterContext []byte, length int) ([]byte, error) {
 	return hpkeLabeledExpand(self.suiteId, self.exporterSecret, "sec", exporterContext, length)
 }
