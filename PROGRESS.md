@@ -194,3 +194,67 @@ bytes with a test harness is not that.
 **Current distance to Ready A:** p1 complete; p2 at 5 of 23; p3 at 2 of 14; `connect/message` is a
 doc stub; the server repo is greenfield. The record layer is the near-term unlock and does not
 depend on p2-p7 finishing.
+
+## 2026-08-14 — p2 through Task 6, p3 through Task 3, every task reviewed
+
+Both protocol tracks run in their own worktree of `connect`, so their git indexes cannot collide:
+p2 on `beta/message`, p3 on `beta/message-p3`. Each task now runs implement → adversarial review →
+fix, at the owner's instruction.
+
+**p2 crypto primitives — Tasks 1-6 done.** `b0142dd`, 55 tests. Package skeleton, the
+forbidden-primitive gate, the two-entry ciphersuite registry, the single X25519 call site, HPKE
+suite ids and the labelled KDF, and DHKEM X25519 derive/encap/decap.
+
+**p3 tree math — Tasks 1-3 done.** `27b070b`, 25 tests, every function in `tree_math.go` at 100%
+coverage. Vector loader and corpus tripwire, index types and node level, full-tree sizing,
+extension and truncation.
+
+### What the review pass keeps finding
+
+Every task in both plans has turned up a test that could not fail. The count is now well past the
+nine p1 produced. The sharpest of this batch:
+
+- **p2 Task 6: the plan's four tests could not fail on nine of the ten implementations they exist
+  to reject** — transposed `kem_context` on both sides, ephemeral key in the static slot, labels
+  respelled, `shared_secret` dropped, the raw DH returned **unhashed**. Only one asymmetric
+  transposition failed, and only because the round trip stopped round-tripping. That is the general
+  lesson for a KEM: *a round-trip test proves your encap agrees with your decap, not that either
+  matches the RFC.* Two implementations wrong in the same way agree perfectly.
+  `TestHpkeEncapDeterministicMatchesEncap` never called `hpkeEncap` at all.
+- **p2 Task 5: a test named `…Kat` asserted only a length**, over an ikm appearing nowhere in
+  RFC 9180, and its ceiling constant was asserted only against itself — so a value 255× too tight
+  passed the whole package.
+- **p3 Task 2: the plan's table stopped short of the range**, so three clamped implementations
+  passed. It also stopped short of the *middle*: levels 10-30 of `Level()` were asserted nowhere in
+  the entire plan.
+- **p3 Task 3: the plan's own test contradicted the plan's own implementation** on
+  `TreeDepth(MaxLeafCount+1)`. The implementation won, because 31 is only producible by clamping and
+  32 makes every downstream `1 << TreeDepth(n)` fail closed.
+
+### Vector provenance, checked rather than assumed
+
+A known-answer test derived from our own implementation is self-consistent and proves nothing. The
+HPKE vectors now arrive by three independent routes that agree: Task 5 hand-transcribed them from
+the RFC text, Task 6 read them from `GOROOT/src/crypto/hpke/testdata/rfc9180.json` (Go's own
+vendored CFRG corpus), and the controller grepped them straight out of RFC 9180. `skEm` is absent
+from Go's corpus, so it reaches the table only via Task 5's transcription — genuinely a third route.
+
+Separately, **all 16 vendored IETF vector files were re-vendored** (`aecb087`): they had been stored
+CRLF-smudged, with the manifest computed over the damage, so it verified 16/16 against bytes
+upstream never published. Content was always correct; only the provenance claim was broken.
+
+### One hazard converted into a compile error, one class closed by measurement
+
+`HpkeKdfHkdfSha256` and `HpkeAeadAes128Gcm` are both `0x0001` from different IANA registries, so a
+transposed registry declaration used to compile and pass every value assertion. Distinct named types
+made it a compile error for twelve lines and zero test changes. It closes the *declaration* hole,
+not the *encoder* hole — `AppendUint16` still needs an explicit conversion — and that limit is
+recorded rather than papered over.
+
+The related length-field hazard shows what the three-stage pattern is worth. Seven `SuiteParams`
+length fields are 32 in both registered suites, so every interchange among them is invisible. The
+implementer flagged one instance and called it unfixable, on the premise that a separating suite
+would have to be registered. The reviewer disproved the premise — no KEM function consults the
+registry, so a test can pass a bare literal — and put the class at eight. The fixer built the
+exhaustive catalogue and measured the class at **forty**, then closed all of it. Survivors: 40 at
+the implementer's commit, 18 under the reviewer's proposed fix, **0** as shipped.
