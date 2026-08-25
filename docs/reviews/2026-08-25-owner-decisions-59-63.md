@@ -1,0 +1,35 @@
+# Owner decisions 59–63
+
+Rounds 1–3 are in `2026-08-12-owner-decisions-1-45.md`, `-46-49.md`, and
+`2026-08-13-owner-decisions-50-58.md`.
+
+**59 and 62 are the owner's**, taken 2026-08-25. **60, 61 and 63 were taken by the
+controller** under the standing delegation of 2026-08-13 — *"the rest you can handle and
+decide on"* — and are recorded with their reasoning so they can be overturned on sight
+rather than by archaeology.
+
+| # | Decision | Affects |
+|---|---|---|
+| 59 | **Do not fork `connect` for URmessage. The messenger work stays on `beta/message` in the same repository.** The owner asked whether the URmessage connect systems should split to a fork, having noticed the branch was stale against an actively-developed upstream. Measured rather than guessed: the 110-commit gap between `origin/main` and `upstream/main` touches **282 files and zero of them are under `mls/` or `message/`**, and our 95 commits touch 66 files under `mls/` plus one under `message/` and nothing on the data path. The two workstreams are already disjoint in the file system. A fork would buy isolation that the directory layout already provides, at the cost of a permanent merge burden on every upstream sync — and Spec A §2.1 already states this work is not proposed upstream in v1, so there is no upstreaming pressure a fork would relieve. **Accepted cost:** `beta/message` must be merged forward from `origin/main` on a regular cadence, and the merge is only free for as long as the file sets stay disjoint. **Revisit trigger, not a vague intention:** the first merge that produces a conflict in a file *neither* side considers theirs. | branch strategy, Spec A §2.1 |
+| 60 | **The `record_bytes` wire layout is defined by `connect/message`, and this is it.** No normative byte layout exists in MASTER, Spec A or Spec B — searched, not assumed; Spec B carries `record_bytes` opaquely (§4.3.3) and only requires that one encoder and one parser exist. The layout, and the rule that generates it — **fixed-size Go fields encode raw at their natural width; variable-length fields encode as `LP(x)`** — are: `u8 format_version=0x01`, `raw[32] group_id`, `raw[16] sender_handle`, `u64 epoch`, `u64 stream_index`, `u8 is_commit`, `u8 retention_class_wire`, `u8 size_bucket`, `u64 expire_at`, `raw[32] body_hash`, `LP blob_id`, `LP server_attachment`, `LP ct_head`, `LP ct_body`, `raw[32] write_auth`. **`record_id` is not encoded at all** — it is server-assigned, never authenticated, and lives in the enclosing protobuf as field 13. The layout is pinned by a hand-built golden vector, not only by round-trip symmetry: round-trip alone cannot see two adjacent same-width fields being swapped in both directions at once, which is precisely how two implementations come to disagree. | `connect/message/codec.go`, Spec A §5.1, Spec B §4.3.3 |
+| 61 | **`ParseRecord` is deliberately more permissive about `ct_body` length than the server's submit check, and this is not a bug to be fixed later.** Spec B §5.1 check 3 requires `octet_length(ct_body)` to equal `SizeBucketCtBodyBytes(b)` **exactly** on submit. But the same parser sees records the server rebuilt with `ct_body` **nil** — when retention erased the body, or when `heads_only` is set on a fetch (Spec A §2.4). So `ParseRecord` accepts `{0, exact}` for buckets 0–4 and `{0}` for bucket 5, and the server enforces the stricter submit rule itself by calling the already-published `SizeBucketCtBodyBytes`. **No new exported surface is added for this**: §12.1 is restated character-for-character in Spec B §12.1 and adding to it silently breaks that guarantee. **Accepted cost:** a reader who sees only the submit rule will read the parser as too lax and may "fix" it into rejecting every retention-pruned fetch, so the reason is written at the call site rather than only here. | `connect/message/codec.go`, Spec B §5.1 |
+| 62 | **Font licence: resolved. Approved organization-wide.** This closes decision 53, which assumed coverage for beta and flagged verification as a GA gate needing a named owner and a date. It no longer needs either. **Remaining and unaffected:** the chosen faces are Latin-only. That was a cosmetic concern for a VPN dashboard and is a product concern for a messenger, where the glyphs are *user-typed message content* and a missing script renders as tofu in the one place the product exists to serve. Script coverage is now the open font question; the licence is not. | Spec C §2, §15; decision 53 |
+| 63 | **`origin/main` is 110 commits behind `upstream/main`. Not synced; that is the VPN project's call, not the messenger's.** Measured: 282 files, +109,453/−26,209, entirely the VPN data path (`transport_*`, `tun*`, `extender/`, `protocol/`, `connectctl/`). It touches `go.mod`/`go.sum` — including a real migration, `github.com/google/gopacket` → `github.com/gopacket/gopacket v1.7.1` — and `.github/workflows/test.yml`. It touches **nothing** under `mls/` or `message/`. Two findings worth the VPN side's attention: (a) **upstream independently arrived at the same extender CI fix we did** — ephemeral port bound up front with the error checked, in place of `ListenAndServeTLS` on a goroutine throwing away a privileged `:443` bind — plus a new `extender_seam_test.go`, so our fix is not a unique contribution and syncing would supersede it; (b) `origin/main`'s restored `test.yml` still runs extender in a `continue-on-error` step, which is a note and not a gate, and its last green run carries a swallowed `exit code 1` annotation from exactly that step. **Not forward-porting our extender fix to `main`**, because upstream's is more thorough and porting ours would only create a conflict at the next sync. | fork sync, `.github/workflows/test.yml` |
+
+## Application notes
+
+- Decision 59's revisit trigger is mechanical and should be checked at each forward merge:
+  a conflict in a file that is neither `mls/`, `message/`, nor data path means the disjointness
+  premise has failed and the fork question genuinely reopens.
+- Decision 60 is pending confirmation by the implementation now in flight. If the record layer
+  lands a different layout, this row is wrong and must be corrected rather than the code bent to
+  match it — but the *rule* (fixed raw, variable LP, no `record_id`) is the part that must hold.
+- Decision 62 retires decision 53. The Latin-only coverage question is **not** retired and needs
+  its own owner call before any script beyond Latin is promised.
+- Decision 63 explains a red `Provider Beta Release` run on `beta/message` dated 2026-08-25. It is
+  **not** caused by messenger work: every dependency change in that merge is a version bump that
+  arrived from `origin/main`, and `connect` on `beta/message` still adds zero new module
+  dependencies, as Spec A §2.1 requires. The workflow fires only on a `go.mod`/`go.sum` change —
+  its own restoration comment predicted this — and it failed because `sn`'s `beta/custom-server`
+  needs `go mod tidy` against the newer pins. That is pre-existing `sn` ↔ `connect` drift the
+  merge surfaced rather than created, and the fix belongs in `sn`.
