@@ -2565,7 +2565,12 @@ for f in tree-math crypto-basics secret-tree message-protection key-schedule psk
          passive-client-welcome passive-client-handling-commit passive-client-random deserialization ; do
   cp "/tmp/mls-implementations/test-vectors/${f}.json" "connect/mls/testdata/vectors/${f}.json"
 done
-mkdir -p connect/mls/testdata/vectors/rfc
+# Do NOT create testdata/vectors/rfc/ here — that directory belongs to the crypto plan (p2),
+# which vendors hpke-rfc9180-x25519.json and xwing-draft10.json into it from separate sources.
+# An earlier draft of this script created it, which contradicts this task's own stated scope
+# boundary. Git does not track empty directories, so creating it does no direct harm and the
+# sha256sum glob below would not have picked it up — but it muddies the invariant this task
+# exists to establish, that testdata/vectors/*.json is exactly the sixteen mlswg families.
 ( cd connect/mls/testdata/vectors && sha256sum *.json > VECTORS.sha256 )
 ```
 

@@ -39,6 +39,39 @@ hazard the moment it exists, because it looks exactly like the real thing to any
 The early visible checkpoint is CP1, which is honest — it is a shell and cannot be mistaken for
 a working messenger.
 
+**Amended 2026-08-25**, after the owner reprioritised: *"Get everything mostly ready enough to
+communicate with basic tests. A full working messager/group chats can be worked on along side.
+I want to make sure messages work first."*
+
+That reads at first like the vertical slice the note above rejects. It is not, and the difference
+is worth stating precisely so nobody has to re-litigate it later.
+
+The message path splits into two halves, and only one of them needs MLS:
+
+- **Everything up to the AEAD** — the record wire format, `write_auth`, `req_auth`, the protobuf
+  control plane, the server's accept-and-fan-out pipeline, the client transport. None of it takes a
+  group secret as input. All of it is real code that ships unchanged, and it is what "messages
+  travel" actually means.
+- **The AEAD keys themselves** — `storage_root`, the class keys, the record-key ratchet. These come
+  from the MLS key schedule, which is p4.
+
+So the reprioritisation is satisfied by building the first half **now and for real**, and it does
+not require faking the second. The rule that keeps this honest: **the key schedule is absent, not
+placeholder.** A test-only key source exists for the end-to-end test, it is named so nobody can
+mistake it for anything else, and a gate asserts it is unreachable from any non-test build. A
+missing key schedule fails closed and looks like what it is; a placeholder one fails open and looks
+like a working messenger, which is exactly the hazard the original note names.
+
+CP3 therefore splits:
+
+- **CP3a — a message travels.** Record → submit → accept → fan out → fetch → parse, authenticated
+  end to end by real `write_auth`/`req_auth`, with the AEAD under a test-only key source. Runs
+  in-process; needs no VPS. This is the owner's "make sure messages work first".
+- **CP3b — a message is private.** The same path with the real MLS key schedule underneath. This is
+  the original CP3, and it is the bar for anything a human is invited to send a real message through.
+
+Nothing is invited to CP3a but us.
+
 ---
 
 ## 2026-08-13 — Plan p1 complete: the TLS presentation-language codec
@@ -195,6 +228,26 @@ bytes with a test harness is not that.
 doc stub; the server repo is greenfield. The record layer is the near-term unlock and does not
 depend on p2-p7 finishing.
 
+**Updated 2026-08-25.** Ready A is the same thing this document now calls **CP3a**; the two names
+describe one milestone and CP3a is the one to use. Distance now: p1 complete, p2 at 16 of 23, p3 at
+13 of 14, the record layer and the wire protocol both in flight.
+
+**One architectural fact that changes what "host it on the VPS" means.** Spec B §4.1 puts the
+control plane *inside connect frames*, not on HTTP: requests reach the message server addressed to
+its `client_id` via `Send`/`SendWithTimeout`, and server-initiated pushes go back the same way
+reversed. Only the bulk plane — blobs — is TLS/HTTP, and it is deliberately ignorant of groups.
+
+So the message server is **a connect client that happens to be a server**, and standing it up needs
+a URnetwork client identity registered with the test Operator, not an open port and a DNS name. Two
+consequences worth having in advance rather than discovering on the VPS:
+
+1. **CP3a needs no VPS at all.** Two connect clients in one process exercise the entire path. The
+   VPS becomes a test of deployment and the Operator integration, which is a separate and later
+   thing from a test of whether messages work.
+2. The provider/Operator wiring is a real dependency with its own failure modes, and it is now on
+   the critical path for the VPS step rather than for the messaging step. Better to find that out
+   here than at the point of asking the owner for the VPS.
+
 ## 2026-08-14 — p2 through Task 6, p3 through Task 3, every task reviewed
 
 Both protocol tracks run in their own worktree of `connect`, so their git indexes cannot collide:
@@ -258,3 +311,84 @@ would have to be registered. The reviewer disproved the premise — no KEM funct
 registry, so a test can pass a bare literal — and put the class at eight. The fixer built the
 exhaustive catalogue and measured the class at **forty**, then closed all of it. Survivors: 40 at
 the implementer's commit, 18 under the reviewer's proposed fix, **0** as shipped.
+
+## 2026-08-25 — the branch is current, and the message path is under construction
+
+Three things the owner asked about, answered with measurements rather than impressions, plus the
+start of the work that makes a message travel.
+
+### The staleness question, and the fork question
+
+The owner noticed `beta/message` was stale against a `connect` that the VPN project develops daily,
+and asked whether the URmessage systems should split to a fork.
+
+Measured before answering. `beta/message` was 16 commits behind `origin/main` on a base 19 days old.
+The two change sets barely intersect: ours is 66 files under `mls/` plus one under `message/`;
+`main`'s is entirely the root data path. **Overlap: three files**, and `main` had touched neither
+`mls/` nor `message/` at all. The merge took one conflict — `test.yml`, add/add, resolved to ours
+because ours was strictly newer — and `beta/message` is now **zero commits behind `origin/main`**,
+verified green in CI at 9m39s rather than only locally.
+
+That measurement also answers the fork question, recorded as **decision 59: do not fork.** The gap
+to true upstream is larger — `origin/main` is **110 commits behind `upstream/main`**, 282 files,
++109,453/−26,209 — and it is *entirely* the VPN data path. Zero of those 282 files are under `mls/`
+or `message/`. The workstreams are already disjoint in the file system, so a fork would buy
+isolation the directory layout provides for free and charge a permanent merge burden for it. The
+revisit trigger is mechanical rather than a feeling: **the first merge that conflicts in a file
+neither side considers theirs.**
+
+Two things fell out of that comparison that belong to the VPN side rather than to us:
+
+- **Upstream independently made the same extender CI fix we did** — bind an ephemeral port up front
+  with the error checked, instead of `ListenAndServeTLS` on a goroutine discarding a privileged
+  `:443` bind — and went further with a new `extender_seam_test.go`. Our fix is therefore not a
+  unique contribution, and forward-porting it to `main` would only create a conflict at the next
+  sync. Not doing it.
+- `origin/main`'s restored `test.yml` still runs extender in a `continue-on-error` step. Its last
+  green run carries a swallowed `exit code 1` annotation from exactly that step: a step that cannot
+  fail the job is a note, not a gate.
+
+### A red release run that is not ours
+
+`Provider Beta Release` went red on `beta/message` for the first time. It is not caused by messenger
+work, and the workflow's own restoration comment predicted it: it fires only on a `go.mod`/`go.sum`
+change, and the merge changed both. Every one of those changes is a **version bump that arrived from
+`origin/main`** — pion, quic-go, x/crypto, x/net, x/sys, gvisor, tlshacks. `connect` on
+`beta/message` still adds **zero** new module dependencies, which is what Spec A §2.1 requires.
+
+It failed because `sn`'s `beta/custom-server` needs `go mod tidy` against the newer pins. That is
+pre-existing `sn` ↔ `connect` drift the merge surfaced rather than created, and the fix belongs in
+`sn`. Recorded as decision 63.
+
+### The protobuf toolchain, verified rather than assumed
+
+`protoc` was not on this box, which blocked the wire protocol. It now lives at
+`toolchain/protoc35/bin` alongside a `protoc-gen-go` built from the module's own
+`google.golang.org/protobuf v1.36.11`.
+
+Version 35.1 specifically, and the reason is worth recording: regenerating all six committed protos
+with it reproduces their `.pb.go` files **byte for byte, version stamp included**. protoc 29.3
+produces identical code but stamps a different version, which would show up as a spurious one-line
+diff in every regenerated file forever. Because 35.1 round-trips exactly, a diff in a regenerated
+file from here on means *someone changed something* — never that the toolchain drifted. That is the
+difference between a generated file you can review and one you have to trust.
+
+### What is being built now
+
+Two tracks, in separate worktrees so their git indexes cannot collide, each task gated by an
+adversarial reviewer whose primary output is a list of mutations that survived:
+
+- **The record layer**, `connect/message` — types and ladders, the wire codec, the AAD preimages,
+  `write_auth` and `req_auth`. Four tasks. This is the half of the message path that does not need
+  MLS.
+- **The wire protocol**, `connect/protocol/message.proto` — Spec B §4.3 transcribed, generated, and
+  gated.
+
+The second one carries a hazard sharp enough to name here. Spec A §5.7 defines `req_auth` as a MAC
+over `u8(op)`, where **`op` is the protobuf field number of the selected `oneof` arm**. So the field
+numbers are not an implementation detail; they are protocol constants inside a MAC. Transpose two and
+nothing fails to compile, nothing fails to parse, and nothing looks wrong — one operation returns
+the deliberately non-specific `REASON_REJECTED`, against one implementation, forever. The gate for it
+is a `protoreflect` walk of the compiled descriptor rather than a hand-typed table, and it asserts
+that the arm set **equals** the set with a declared auth status, so an arm added later without that
+decision fails the test instead of shipping.
