@@ -115,7 +115,7 @@ func TestCheckOneFailsClosedWhenItCannotSeeItsInput(t *testing.T) {
 	if reason := checks.FrameWithinLimits(context.Background(), &api.Connection{}); reason != protocol.Reason_REASON_INTERNAL {
 		t.Fatalf("check 1 with no measurement in the context answered %v, want REASON_INTERNAL", reason)
 	}
-	ctx := withInbound(context.Background(), &inbound{bytes: 10, fragments: 1})
+	ctx := withInbound(context.Background(), &inbound{bytes: 10})
 	if reason := checks.FrameWithinLimits(ctx, &api.Connection{}); reason != protocol.Reason_REASON_OK {
 		t.Fatalf("check 1 on a ten byte request against a %d byte cap answered %v", DefaultMaxRequestBytes, reason)
 	}
@@ -138,7 +138,7 @@ func TestCheckTwoRefusesANonceThatIsNotTheConnectionsOwn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	ctx := withInbound(context.Background(), &inbound{clientId: clientId, connection: connection, bytes: 10, fragments: 1})
+	ctx := withInbound(context.Background(), &inbound{clientId: clientId, connection: connection, bytes: 10})
 
 	if reason := checks.ConnectionAuthenticated(ctx, connection.ApiConnection()); reason != protocol.Reason_REASON_OK {
 		t.Fatalf("check 2 refused the connection's own nonce: %v", reason)

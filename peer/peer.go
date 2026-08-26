@@ -115,7 +115,6 @@ type Peer struct {
 	client      *connect.Client
 	handler     Handler
 	connections *Connections
-	checks      *Checks
 
 	capabilities *protocol.Capabilities
 	serverId     []byte
@@ -223,7 +222,6 @@ func New(config Config) (*Peer, error) {
 		client:            config.Client,
 		handler:           config.Handler,
 		connections:       config.Connections,
-		checks:            config.Checks,
 		capabilities:      capabilities,
 		serverId:          append([]byte(nil), config.ServerId...),
 		protocolVersion:   config.ProtocolVersion,
@@ -409,7 +407,7 @@ func decodeRequest(clientId connect.Id, frame *protocol.Frame) (*inbound, *proto
 	if frame.GetRaw() || proto.Unmarshal(frame.GetMessageBytes(), request) != nil {
 		return nil, nil, false
 	}
-	return &inbound{clientId: clientId, bytes: len(frame.GetMessageBytes()), fragments: 1}, request, true
+	return &inbound{clientId: clientId, bytes: len(frame.GetMessageBytes())}, request, true
 }
 
 // One fragment frame, decoded, or nothing.
@@ -451,7 +449,7 @@ func (self *Peer) arrivedFragment(clientId connect.Id, frame *protocol.Frame) {
 		return
 	}
 	self.enqueue(job{
-		arrived: &inbound{clientId: clientId, bytes: len(assembled), fragments: int(fragment.GetCount())},
+		arrived: &inbound{clientId: clientId, bytes: len(assembled)},
 		request: request,
 	})
 }

@@ -148,10 +148,11 @@ type inbound struct {
 
 	// The reassembled request's byte count: check 1's input, and §4.6's cap is over the
 	// reassembly rather than over any one frame.
+	//
+	// How many frames carried it is deliberately not here. Nothing would read it, and a
+	// measurement nothing reads is one that drifts from what it claims to measure while every
+	// test stays green — which is the failure this whole layer is written against.
 	bytes int
-
-	// How many frames carried it. One for an unfragmented request.
-	fragments int
 }
 
 type inboundKey struct{}

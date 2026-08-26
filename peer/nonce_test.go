@@ -208,7 +208,7 @@ func TestARequestWhoseConnectionWasReplacedInFlightIsRefused(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	arrived := &inbound{clientId: clientId, connection: first, bytes: 64, fragments: 1}
+	arrived := &inbound{clientId: clientId, connection: first, bytes: 64}
 	ctx := withInbound(context.Background(), arrived)
 
 	if reason := checks.ConnectionAuthenticated(ctx, first.ApiConnection()); reason != protocol.Reason_REASON_OK {

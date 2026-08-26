@@ -210,7 +210,12 @@ func TestEveryArmOfTheRequestOneofIsServedOrDeclared(t *testing.T) {
 	if len(arms) < 15 {
 		t.Fatalf("MessageServerRequest.body was read as having %d arms; §4.3 declares fifteen, so the descriptor walk has stopped finding them", len(arms))
 	}
-	t.Logf("§4.3's request oneof has %d arms; this build serves %d", len(arms), len(fixture.peer.routes))
+	served := []string{}
+	for _, current := range fixture.peer.routes {
+		served = append(served, current.name)
+	}
+	slices.Sort(served)
+	t.Logf("§4.3's request oneof has %d arms; this build serves %d: %v", len(arms), len(served), served)
 
 	declared := []string{}
 	for _, notBuilt := range fixture.peer.NotBuilt() {

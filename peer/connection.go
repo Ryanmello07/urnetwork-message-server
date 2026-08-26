@@ -92,10 +92,12 @@ type Connection struct {
 	// client apart when every byte connect handed it is identical.
 	generation uint64
 
-	opened time.Time
-
 	mutex sync.Mutex
-	seen  time.Time
+
+	// When this connection last carried a frame: the idle sweep's only input. When it was
+	// opened is deliberately not kept — nothing would read it, and the sweep is about silence
+	// rather than about age.
+	seen time.Time
 }
 
 func NewConnections(random io.Reader, now func() time.Time, idle time.Duration) (*Connections, error) {
@@ -133,13 +135,11 @@ func (self *Connections) Open(clientId connect.Id) (*Connection, error) {
 	if previous, found := self.live[clientId]; found {
 		generation = previous.generation + 1
 	}
-	now := self.now()
 	current := &Connection{
 		clientId:   clientId,
 		nonce:      nonce,
 		generation: generation,
-		opened:     now,
-		seen:       now,
+		seen:       self.now(),
 	}
 	self.live[clientId] = current
 	return current, nil
