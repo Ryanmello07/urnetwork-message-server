@@ -143,6 +143,10 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
 3. Owner succession residual risk: a colluding admin majority can displace a merely-offline owner.
 4. `OWNER_SUCCESSOR_SET` placement — group-context extension is likely right.
 5. Moderation recourse — deferred by decision; revisit with legal counsel before public launch.
+6. `SubscribeRequest` carries N `group_id`s but one `req_auth` and one `read_epoch`, while §5.1.1's
+   read-key lookup is written in the singular and does not say which group's key verifies the MAC.
+   Pre-existing, found 2026-08-25 while fixing the `UnsubscribeRequest` gap, and out of scope for
+   that fix. Needs a Spec B ruling before Subscribe is implemented.
 
 ## 6. Change process
 
@@ -276,3 +280,47 @@ the blocks were not self-contained — they carried the plan's own `BLOCK-xx` an
 cross-references, and 31 of them shipped into the documents. The rule now is that replacement text
 must read correctly to someone who has never seen the plan, and each applier greps its own file
 before finishing.
+
+### 2026-08-25 — First implementation feedback: four defects, three of them compile errors
+
+`connect/protocol/message.proto` was transcribed from Spec B §4.2–§4.6 and compiled for the first
+time. Compiling a spec is a different act from reviewing one, and it found four things that five
+review rounds did not.
+
+**Two of the four made the specs literally uncompilable.**
+
+- **The `MessageType` enum values collided with the message names.** Both specs named four enum values
+  `MessageServerRequest`/`Response`/`Push`/`Fragment` — the same names as four messages in the same
+  `package bringyour`. proto3 scopes an enum *value* name to the enum's **parent** scope, so both
+  claim `bringyour.MessageServerRequest` and `protoc` refuses the pair. Resolved on the enum side,
+  because the message names are the `oneof` arm types Spec A §5.7's op byte is defined over; the
+  convention is the one `MessageType` already uses against `ip.proto` (`IpIpPing` for `message
+  IpPing`). **The four numbers are unchanged.**
+- **`UnsubscribeRequest` was referenced but never declared.** Bound as arm 15, its `req_auth`
+  exemption stated in two places, and defined nowhere — so the arm had no type.
+
+The other two were a miscount ("Three additions" above a block of four) and an annotation naming a
+field, `retry_after_ms`, that existed nowhere.
+
+**The finding worth keeping is not any of the four.** It is what the diff review of the *fix* found:
+the fix's own reasoning contained a false generalisation. Resolving the `retry_after_ms` gap, the
+edit argued that response fields are safe to add late because *"a response field is never a MAC
+input"*. That is false, and the counterexample is in Spec B: `FetchAttestation` is an Ed25519
+signature over nine `FetchResponse` fields, and MASTER §9.4 requires client and server to agree on
+that preimage byte for byte. The narrow conclusion survived — the attestation preimage is an explicit
+named field list and the new envelope field is not on it — but the rule as stated would have licensed
+exactly the change the attestation exists to prevent. It is corrected in place rather than deleted,
+because the corrected version teaches something the deleted version would not.
+
+A second claim in the same fix was also wrong: that "unsubscribe from everything" was already
+expressible as `SubscribeRequest{subscriptions: [], replace: true}`. With an empty subscription list
+there is no `group_id` in the request, so there is no `read_key` to MAC under and none for §5.1.1 to
+look up — the request is not well formed. The empty-list-is-a-no-op ruling stands on its own merit
+(the most destructive outcome should not be what a client gets by forgetting to populate a repeated
+field), but it now carries an explicit `bool all` rather than a justification that was not true.
+
+**Process note.** The four defects were found by an implementer, and the two wrong claims by a
+reviewer reading only the diff. Neither would have been found by re-reading the specs, which is what
+the previous five rounds did. **Transcribe-and-compile is now part of the change process for any
+section that defines a wire format** — §6 already required a subagent diff review; this adds that a
+spec section containing a `proto` block is not done until that block has been through `protoc`.

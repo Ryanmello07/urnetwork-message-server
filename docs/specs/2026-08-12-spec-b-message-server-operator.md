@@ -45,7 +45,7 @@ Verified against the checked-out trees at `C:\Users\ryanm\Downloads\claude_sandb
 | **B5** | The retention sweep is driven by a server-computed `prune_after` = `LEAST(class_deadline, expire_at)`. **`expire_at` may only shorten retention, never extend it.** | That preserves the whole of B5's original reasoning — a member declaring `expire_at = 2999` cannot pin `MEDIA` forever — while satisfying MASTER §9.1 and Spec A S10, which both require pruning by class **and** `expire_at`. `expire_at` is inside `AAD_head` and the `write_auth` preimage, so **I6** is fully satisfied and there is no verification objection either. Discarding it entirely, as revision 1 did, silently ignored an authenticated, client-declared deletion time on every record. |
 | **B6** | **No client-initiated server-side erase in v1.** Bodies are removed by class expiry and by the sweep only. `TOMBSTONE` remains a purely client-side, MLS-authenticated construct. | `write_key` is group-wide (§9.2), so an erase request cannot be attributed to a device or to the original sender — any member could erase any body, a history-destroying DoS. §9.2 already defers per-device capabilities to V2 for precisely this reason, and §12.3 already tells users delete-for-everyone does not claw anything back. Early erase is therefore gated on the V2 per-device capability work. |
 | **B7** | **Split transport: protobuf request/response over the connect frame path for the control plane; TLS/HTTP over the mesh for the bulk (blob) plane.** Argued in §4.1. | A 100 MB upload driven through a 3 KiB-batched, ack-windowed client sequence head-of-line-blocks every message in that sequence. Ranged and resumable semantics already exist in HTTP and in MinIO multipart. Meanwhile subscribe needs *server-initiated* push, which the frame path gives free and HTTP does not. |
-| **B8** | **Four `MessageType` enum values only** (`MessageServerRequest`, `MessageServerResponse`, `MessageServerPush`, `MessageServerFragment`), reserved at **1000–1099**, with a `oneof` inside for every operation. Spec A owns `connect/protocol/message.proto`; Spec B owns the `oneof` arms and their semantics (§4.2). | `frame.proto` is shared with `beta/algorithm-dpi` and `beta/custom-server`. Adding one enum value per operation guarantees a merge conflict on every branch every time we add an operation. A reserved high block plus an internal `oneof` reduces the shared-file diff to four lines, permanently. Spec A's `MessageEnvelope` / `MessageOp` alternative is deleted (§4.2). |
+| **B8** | **Four `MessageType` enum values only** (`MessageMessageServerRequest`, `MessageMessageServerResponse`, `MessageMessageServerPush`, `MessageMessageServerFragment` — the doubled prefix is forced, see §4.2), reserved at **1000–1099**, with a `oneof` inside for every operation. Spec A owns `connect/protocol/message.proto`; Spec B owns the `oneof` arms and their semantics (§4.2). | `frame.proto` is shared with `beta/algorithm-dpi` and `beta/custom-server`. Adding one enum value per operation guarantees a merge conflict on every branch every time we add an operation. A reserved high block plus an internal `oneof` reduces the shared-file diff to four lines, permanently. Spec A's `MessageEnvelope` / `MessageOp` alternative is deleted (§4.2). |
 | **B9** | The server keeps the **current** epoch's `write_key` plus **one briefly-retired predecessor**, wrapped under a KEK loaded from the vault. Advancing an epoch sets `retire_time = now()` on the outgoing epoch instead of NULLing it; the 5-minute tidy loop (§7.4) NULLs `write_key_wrapped` where `retire_time < now() - interval '60 seconds'`. **This two-key window is why reads are not authenticated under an epoch *write* key**: `req_auth` uses the epoch's `read_key` instead (§5.3), which is retained for 90 days rather than 60 seconds, because a member offline across one commit would otherwise be locked out of every route back. | Destroying the superseded key immediately made `REASON_EPOCH_STALE` unreachable — check 6 would return the deliberately undiagnosable `REASON_REJECTED` for the single most common benign race in the system (a record submitted at epoch *n* while a commit to *n+1* lands), making `SubmitResult.current_epoch`'s "always set, so a stale client resynchronises in one round trip" a dead promise and §6.4's row for that race dead code. The blast-radius argument is unchanged at two keys. |
 | **B10** | The message server runs against a **separate Postgres cluster and separate credentials from the operator**, even though one organisation runs both. | Same operator, separate blast radius. An operator database compromise must not also yield message ciphertext and epoch write keys. Cheap; do it on day one, because retrofitting a database split after launch is not cheap. |
 | **B11** | Forbidden identifiers are made **structurally unprintable** in Go — `GroupId`, `SenderHandle`, `BlobId`, `RecoveryHandle`, `ClientId`, `RendezvousId`, `DepositId` are **opaque structs wrapping an unexported `[]byte`**, never named slice or array types, whose `String()`, `Format()`, `LogValue()`, `MarshalJSON()` and `MarshalText()` all return a redaction constant, with an explicit `.Unwrap()` at every store boundary. | §9.7 is a normative requirement, and a rule that depends on every future developer remembering it will be violated. Making an accidental `%v` physically incapable of printing the value is the only enforcement that survives contact with a team. The struct (rather than a named `[]byte`) is load-bearing: pgx v5 would otherwise encode such a type through its `TextMarshaler` and write the literal bytes `<redacted>` into a `bytea` column — see §11.2 item 1. |
@@ -195,6 +195,47 @@ corresponded — and the A-1 surface gains nine rendezvous functions and two typ
 C-12 added for Spec C (§12.2); tests 37–41 added (§13). One word corrected in §10.2: `backup_jurisdiction`
 became `hosting_jurisdiction`, which is what every other reference and startup validation reads. Ledger
 open item 10 added.
+
+---
+
+**Revision 7 — 2026-08-25 — implementation feedback.** Four defects, found by transcribing §4.2–§4.6 into
+`connect/protocol/message.proto` and compiling it. **Two of the four made the spec literally
+uncompilable** — the enum collision and the undeclared `UnsubscribeRequest` — and those two are not
+matters of taste. The other two are: the "Three additions" miscount is prose, the `retry_after_ms`
+annotation was a comment, and where each of those is now resolved was a judgement call rather than a
+forced move. An earlier draft of this entry called three of them uncompilable and presented the
+judgement calls as forced; both were overstatements.
+
+**§4.2's four `MessageType` value names collided with §4.3's message names.** proto3 scopes an enum *value*
+name to the enum's **parent** scope, so a value `MessageServerRequest` and a `message MessageServerRequest`
+in the same `package bringyour` claim one qualified name, and `protoc` refuses the pair outright
+(`"bringyour.MessageServerRequest" is already defined`). Corrected on the **enum** side, because the message
+names are the `oneof` arm types Spec A §5.7's op byte is defined over; the convention is the one
+`MessageType` already uses against `ip.proto` (`IpIpPing` for `message IpPing`). **The four numbers are
+unchanged** — only Go-visible spellings differ, and a spelling copied from the old text is now a compile
+error rather than a silent break. Spec A §10.1 carried the identical defect and is corrected identically.
+
+**§4.2 said "Three additions" above a block of four.** §4.6's fragmentation depends on 1003 existing, so
+four is correct. Small, but it is exactly the off-by-one that leads an implementer to drop
+`MessageServerFragment` and then find fragmentation has no code point.
+
+**`UnsubscribeRequest` was referenced but never declared.** It is bound as arm 15 of
+`MessageServerRequest.body` in §4.3 and its `req_auth` exemption is stated in §4.3.8 and again in Spec A
+§5.7 — and no `proto` block in either spec ever defined the message, so the arm could not compile. Now
+declared in §4.3.10 as `{repeated bytes group_ids = 1}`. **An empty list is a no-op, not "unsubscribe from
+everything"**: dropping every subscription is already `SubscribeRequest{subscriptions: [], replace: true}`
+per §4.3.5, and giving the empty list that meaning here would put the most destructive outcome behind the
+request a client sends when it forgets to populate a repeated field. Unknown group ids are ignored rather
+than refused, so this is not an existence oracle.
+
+**`REASON_RATE_LIMITED` was annotated "carries `retry_after_ms`" with no such field anywhere in the
+document.** Its two neighbouring annotations do have homes in a response body, but rate limiting can refuse
+**any** operation, including ones whose response body is empty, so no body could hold it. Now
+`MessageServerResponse.retry_after_ms`, field 3, on the envelope beside `reason`; `REASON_CARD_RATE_LIMITED`
+carries it too. This was safe to add late for a specific reason worth recording: **a response field is never
+a MAC input** — `req_auth` is computed over the request, and no response is authenticated by this layer at
+all (MASTER **I5**) — whereas a request field number is a protocol constant inside a MAC preimage. A missing
+*request* field would not have been cheap.
 
 ---
 
@@ -789,17 +830,47 @@ So: **request/response messages, not REST, for everything that touches group sta
 
 ### 4.2 Frame binding
 
-Three additions to `connect/protocol/frame.proto`, in a reserved block, per decision B8:
+**Four** additions to `connect/protocol/frame.proto`, in a reserved block, per decision B8. (Earlier
+revisions of this sentence said three while the block below listed four; §4.6's fragmentation depends
+on 1003 existing, so four is correct and the count is now stated to match.)
 
 ```proto
     // ── URmessage (beta/message). Block 1000-1099 reserved so parallel beta
     // branches do not collide. Every operation lives in a oneof inside
     // MessageServerRequest/Response/Push, NOT as its own MessageType.
-    MessageServerRequest  = 1000;
-    MessageServerResponse = 1001;
-    MessageServerPush     = 1002;
-    MessageServerFragment = 1003;
+    MessageMessageServerRequest  = 1000;
+    MessageMessageServerResponse = 1001;
+    MessageMessageServerPush     = 1002;
+    MessageMessageServerFragment = 1003;
 ```
+
+**On the spelling, corrected 2026-08-25 during implementation.** Earlier revisions of this document
+named these four values `MessageServerRequest`, `MessageServerResponse`, `MessageServerPush` and
+`MessageServerFragment` — the same names as the four *messages* of Spec B §4.3 and §4.6, in the same
+`package bringyour`. **That pair cannot be compiled.** proto3 scopes an enum *value* name to the
+enum's **parent** scope, not to the enum, so `MessageServerRequest` as a value of `MessageType` claims
+the qualified name `bringyour.MessageServerRequest` — which `message MessageServerRequest` already
+holds. `protoc` refuses it outright:
+
+```
+<file>: "bringyour.MessageServerRequest" is already defined in file "<other>".
+<file>: Note that enum values use C++ scoping rules, meaning that enum values are siblings
+        of their type, not children of it. Therefore, "MessageServerRequest" must be unique
+        within "bringyour", not just within "MessageType".
+```
+
+protoc's second line is the one that actually explains the rule, which is why it is quoted rather than
+elided. The pair fails the same way whether the two declarations are in one file or two.
+
+The collision is resolved on the **enum** side because the message names are the normative half: they
+are the `oneof` arm types that Spec B §4.3.8's op byte — and therefore the `req_auth` MAC of §5.7 — is
+defined over, and they appear across all three specs. The convention is the one `MessageType` already
+uses for exactly this collision with `ip.proto`: repeat the domain prefix, as in
+`IpIpPacketToProvider` for `message IpPacketToProvider` and `IpIpPing` for `message IpPing`.
+
+**The four numbers are unchanged and are the wire code points.** Only the Go-visible spellings differ,
+and a spelling copied from an older revision of this text is now a compile error rather than a silent
+break.
 
 > Spec A owns the file `connect/protocol/message.proto` and its codegen (it is generated by the existing
 > `connect/protocol/Makefile` and linked by both the client and the server). Spec B owns the set of `oneof`
@@ -840,6 +911,9 @@ message MessageServerRequest {
 message MessageServerResponse {
     uint64 request_id = 1;
     Reason reason = 2;                  // REASON_OK on success
+    uint32 retry_after_ms = 3;          // Added 2026-08-25. Meaningful ONLY when reason is
+                                        // REASON_RATE_LIMITED or REASON_CARD_RATE_LIMITED;
+                                        // zero and ignored otherwise. §4.5.
     oneof body {
         HelloResponse         hello           = 10;
         CreateGroupResponse   create_group    = 11;
@@ -1280,6 +1354,36 @@ Every message referenced above and not otherwise defined:
 ```proto
 enum Direction { DIRECTION_UNSPECIFIED = 0; DIRECTION_UPLOAD = 1; DIRECTION_DOWNLOAD = 2; }
 
+// Added 2026-08-25. UnsubscribeRequest was bound as arm 15 of MessageServerRequest.body in
+// §4.3 and exempted from req_auth in §4.3.8 and Spec A §5.7, but was never declared in any
+// proto block in either spec — so the arm could not compile. The arm number is unchanged.
+//
+// An EMPTY group_ids is a NO-OP, and `all` is how you drop everything. Making the empty
+// list mean "unsubscribe from everything" would put the most destructive outcome behind the
+// request a client sends when it forgets to populate a repeated field, which is a common
+// enough bug to be worth designing against.
+//
+// An earlier draft justified the no-op by saying "drop everything" was already expressible as
+// SubscribeRequest{subscriptions: [], replace: true}. IT IS NOT, and the reason is worth
+// recording because it is not obvious: SubscribeRequest carries a REQUIRED req_auth keyed on
+// read_key[read_epoch], and §5.1.1 verifies it with a read-key lookup on
+// (group_id, read_epoch). With an empty subscription list there is no group_id in the
+// request at all — the client has no key to MAC under and the server has none to look up —
+// so that request is not well formed. Hence the explicit `all` flag: unsubscribing is
+// req_auth-exempt by §4.3.8, and a client whose read key has aged past
+// read_key_window_seconds can still issue it when it can no longer subscribe at all.
+//
+// No req_auth and no read_epoch: per §4.3.8 this reads no group state and cancels only the
+// caller's own connection-scoped subscriptions, so there is nothing for a read key to
+// authorize. A group_id naming a group the caller never subscribed to is ignored, not
+// refused — refusing would make this an existence oracle for the price of one request.
+message UnsubscribeRequest {
+    repeated bytes group_ids = 1;   // cancel these subscriptions on THIS connection.
+                                    // Unknown ids are ignored, never refused.
+    bool           all       = 2;   // true = cancel every subscription on this connection.
+                                    // When true, group_ids MUST be empty and is ignored.
+}
+
 message GroupStatusRequest  { bytes group_id = 1; uint64 read_epoch = 14; bytes req_auth = 15; }
 message GroupStatusResponse {
     uint64 current_epoch        = 1;
@@ -1435,7 +1539,7 @@ enum Reason {
     REASON_STREAM_INDEX_REGRESSED   = 5;  // index <= last accepted
     REASON_OVERSIZE                 = 6;
     REASON_QUOTA_EXCEEDED           = 7;
-    REASON_RATE_LIMITED             = 8;  // carries retry_after_ms
+    REASON_RATE_LIMITED             = 8;  // carries MessageServerResponse.retry_after_ms
     REASON_RETENTION_CLAMPED        = 9;  // accepted; policy clamped DOWN to the advertised
                                           // cap OR floored UP to the advertised minimum —
                                           // see §7.3 and RetentionApplied
@@ -1449,9 +1553,38 @@ enum Reason {
     REASON_CARD_RETIRED             = 16;  // rendezvous retired, or never registered — the same
                                            // answer for both, deliberately (§4.3.11)
     REASON_CARD_RATE_LIMITED        = 17;  // per-rendezvous or per-client deposit limit, or the
-                                           // mailbox is at rendezvous_mailbox_depth
+                                           // mailbox is at rendezvous_mailbox_depth.
+                                           // Also carries MessageServerResponse.retry_after_ms.
 }
 ```
+
+**`retry_after_ms` lives on the envelope, not in a body — corrected 2026-08-25.** Earlier revisions
+annotated `REASON_RATE_LIMITED` as "carries `retry_after_ms`" while declaring no such field anywhere
+in this document. The two neighbouring "carries" annotations do have homes in a response body —
+`REASON_EPOCH_STALE` → `SubmitResult.current_epoch`, `REASON_COMMIT_LOST` → `SubmitResult.winning_commit`
+— but rate limiting is not like them: it can refuse **any** operation, including ones whose response
+body is empty or absent, so there is no single body it could live in. It is therefore
+`MessageServerResponse.retry_after_ms`, field 3, alongside `reason` itself.
+
+Adding it late is safe **here**, and the reason is narrower than it first looks. An earlier draft of
+this paragraph claimed that a response field is never a MAC input and that response fields are
+therefore purely additive. **That is false, and the counterexample is in this document.**
+`FetchResponse.attestation` (§4.3.4) carries a `FetchAttestation` whose `sig` is an Ed25519 signature
+by the fleet key over nine response fields — `group_id`, `since_record_id`, `until_record_id`,
+`high_water_record_id`, `record_ids[]`, `class_mask`, `heads_only` and `server_time_ms`. MASTER §9.4
+requires client and server to agree on that preimage byte for byte, so a field added to
+`FetchResponse` and folded into the attestation would break exactly the agreement the attestation
+exists to provide. Generalising "responses are additive" would license precisely that change.
+
+What actually makes **this** field safe is specific: the attestation preimage is an **explicit named
+field list**, not a marshal of the enclosing message, and `MessageServerResponse.retry_after_ms` is
+not on it and is not on any other signed list in this protocol. Nothing signs it, so nothing has to
+agree about it.
+
+The asymmetry with *request* fields still holds and is the point worth keeping: a request oneof arm's
+field number is `u8(op)` inside the `req_auth` preimage (§4.3.8), so it is a protocol constant that
+cannot be changed at all. A response field has to be checked against the signed lists rather than
+assumed innocent.
 
 **`REASON_REJECTED` deliberately merges "unknown group", "write_auth did not verify", and "epoch key unknown".** Distinguishing them would turn the submit path into an oracle for group existence: a party who holds no `write_key` could enumerate `group_id`s and learn which exist. The reject is the same code, the same response size, and the same timing envelope (the handler pads its response latency to a fixed floor on the reject path). A failed `req_auth` on the read path returns the same code with the same envelope (§5.1.1).
 

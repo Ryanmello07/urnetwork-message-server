@@ -87,6 +87,7 @@ Append-only. Newest last. One entry per commit that changes this spec. Every cha
 | 2026-08-12 | A-4 | Owner rulings applied. `modernc.org/sqlite` accepted and A-ASSUME-1 closed. Decision A9 replaced by per-row AEAD over a plaintext metadata index (§8.3a), with an optional PIN wrap and idle auto-lock (§8.6). `read_key` re-keyed from a group lifetime value to a per-epoch key with a 90-day server window and a `read_epoch` request field (§5.7, §5.11, §12.1). Delivery receipts added: `MessageEntry.State` gains `delivered`, `DeliveredTo`, a user preference, and an `EPH(0)` receipt record (§7.4). A second ciphersuite registered (§3.1). Extension `0xF003` accepted and owner succession specified (§3.4, §7.3a). Group size capped at 500 and devices at 10, both client-enforced (§3.1). `PastEpochWindow` raised to 32 (§4.3). Invite links, join requests, ownership transfer, balance-code redemption, directory listing, diagnostics and fork auto-resync added to the `sdk` surface (§7.3, §7.3a, §7.6, §7.9). Server key custody moved to a hardcoded fleet root with signed-silent rotation; `AcceptServerKey` deleted (§7.6). Delete-for-everyone bounded to 24 hours. Attachment auto-download restricted to known senders. Slices resequenced: A9 disappearing and multi-device, A10 attachments, A11 fuzz and audit prep, A12 push. |
 | 2026-08-12 | A-5 | Operator plurality reached every operator-facing value and every key-transparency artefact: `NetworkSpaceHost` became configuration with `NetworkSpaceHost()` / `SetNetworkSpaceHost()` and decision A13; `MessageServerInfo` gained `OperatorHost`, `KtGossipUsable`, `HostingJurisdiction` and `ReadKeyWindowMs`; `MessagePin`, `KeyChangeWarning` and `MessageDirectoryResult` each carry the operator they came from; `pin` and `kt_head` are keyed by operator (§8.1); §7.6a and §12.3 state that each operator runs its own directory and its own log. Directory lookups render `kt_unavailable` and proceed until the log is live: `ProofState` now separates a failed proof (fails closed) from an unreachable log (proceeds), §7.6b written, §12.3's fail-closed sentence struck. Contact cards added as §7.3b with rotation, the `out_of_band` evidence class, two `GroupResult.Reason` values and one security-log kind. The reaction body widened to arbitrary emoji against a pinned Unicode version (§5.1, §7.4a), `MessageReaction` split into `Emoji` and `EmojiRaw`, and `"malformed"` added to `GapReason`. Read receipts and typing indicators made reciprocal in the user-preference block (§7.2); delivery receipts explicitly not. Succession quorum restated as `max(2, ceil(2 × admins / 3))` and the owner warning removed from the validity table as a client obligation; admin removal given an enforcement point, a typed error and a profile row (§3.1, §3.4). Text retention split into two wire sentinels (§5.11) with `MessageRetentionApplied` gaining `DurableClampedDown` and `DurableDefaulted`. `MessageProtocolLimits` and `MessageBalance.FreeAllowanceBytesPerDay` added so the client renders no literal. The write-key custody block returned to three consequences with the read key stated outside it (§12.1). S17, A-16 and A-17 added; §14's preamble corrected; §4.6 and slice A11 separated the audit decision from its scheduling. |
 | 2026-08-12 | A-6 | The contact card got its transport. §5.14 added: `card_root` and the numbered capability generations, the 131-byte card encoding, the 5238-byte deposit sealed under X-Wing to the card's KEM key, and the five `server_nonce`-bound Ed25519 preimages (`register_auth`, `open_auth`, `deposit_auth`, `collect_auth`, `retire_auth`), with the client-side `request_sig` obligation and the rotation ordering. §12.1 gained the nine rendezvous functions and two types on the A-1 surface, requirement S18, interface row A-18 (and the A-1…A-17 range became A-1…A-18), and rendezvous cases on the A-8 vector file. §7.3b: `MessageContactCard` gained `Generation`, `State` and `ExpiresAtMs` and `TokenId` was defined; the card was stated to be per identity and not per device; redemption was rewritten onto the rendezvous with `StartDirectFromCard` returning a ticket rather than a conversation; the rate-limit paragraph took its values from `ServerInfo()` and merged retired with unknown; auto-accept now degrades to manual review after three requests in an hour, adding `"held_for_review"` to `MessageContactRequest.State` and `RefusedSinceLastCollect` to the struct; `MessageContactCard` lost its `*List`. `MessageServerInfo` gained `RendezvousTtlSeconds`, `RendezvousDepositTtlSeconds` and `RendezvousMailboxDepth`. §7.5's provisioning bundle carries the current generation number. `GroupResult.Reason` gained `"succession_floor_too_short"` and `"card_not_live"`. §5.7's recovery trust-on-first-use scoped per group. §7.2's duplicate `MessageClientSettings` deleted. §13 scheduled §7.3b in A7 and added the card encoding and preimages to A6. |
+| 2026-08-25 | A-7 | Implementation feedback, four defects found by transcribing this spec into `connect/protocol/message.proto`. **§10.1's four `MessageType` value names were uncompilable**: proto3 scopes an enum value name to the enum's parent scope, so `MessageServerRequest` collided with Spec B's `message MessageServerRequest` in the same package and `protoc` refused the pair. Resolved on the enum side — the message names are the `oneof` arm types the §5.7 op byte is defined over — following `MessageType`'s existing `IpIpPing` convention; the four numbers are unchanged. Recorded here because the old spelling now produces a compile error rather than a silent break. Spec B revision 7 of the same date records all four, including this one. Two knock-on corrections on this side: §7.2 vocabulary 2 said `"rate_limited"` carries `RetryAfterMs` **in `ReasonDetail`**, which cannot work because `ReasonDetail` is free text declared never to be parsed — so Spec C §9's `{RetryAfterMs}` interpolation had nothing to read. `RetryAfterMs` is now a typed `int64` on both `MessageSendability` and `MessageEntry` (`int64` because gomobile does not bind unsigned types). And the claim that a response field is never a MAC input, written while resolving Spec B's §4.5 gap, is **false** — `FetchAttestation` signs nine `FetchResponse` fields — and is corrected there rather than left to be generalised. |
 
 ---
 
@@ -2015,7 +2016,13 @@ type SyncState struct {
 //   every value of vocabulary 1, plus:
 //   "too_large"               exceeds ServerInfo().MaxBlobBytes
 //   "blob_incomplete"         the blob was not fully uploaded before bind
-//   "rate_limited"            carries RetryAfterMs in ReasonDetail
+//   "rate_limited"            carries RetryAfterMs, a TYPED field on both
+//                             MessageSendability and MessageEntry. Corrected 2026-08-25:
+//                             an earlier revision said "in ReasonDetail", which cannot
+//                             work — ReasonDetail is free text that is explicitly never
+//                             parsed, so Spec C §9's `{RetryAfterMs}` interpolation had
+//                             nothing to read. Sourced from
+//                             MessageServerResponse.retry_after_ms (Spec B §4.5).
 //   "oversize"                the record or request exceeded an advertised cap
 //   "quota_exceeded"
 //   "internal"
@@ -2048,6 +2055,11 @@ type MessageSendability struct {
     Allowed      bool
     Reason       string   // vocabulary 1
     ReasonDetail string   // free text for display only; never parsed
+    RetryAfterMs int64    // > 0 only when Reason is "rate_limited"; 0 otherwise.
+                          // The server's own backoff from MessageServerResponse.retry_after_ms
+                          // (Spec B §4.5), carried as a number because Spec C §9 renders it.
+                          // int64 rather than the wire's uint32 because gomobile does not
+                          // bind unsigned types (§9).
 }
 
 func (self *MessageClient) CanSend(groupId string) *MessageSendability
@@ -2614,6 +2626,9 @@ type MessageEntry struct {
     State            string   // "pending"|"sent"|"delivered"|"read"|"failed"|"expired"
     Reason           string   // set iff State == "failed"; §7.2 vocabulary 2
     ReasonDetail     string
+    RetryAfterMs     int64    // > 0 only when Reason == "rate_limited"; 0 otherwise. Same
+                              // source and same reason for the width as
+                              // MessageSendability.RetryAfterMs.
     ExpiresAtMs      int64    // 0 when not disappearing
     RetentionClass   string   // "permanent"|"durable"|"media"|"eph"
     EphBucket        int32
@@ -3904,11 +3919,39 @@ beta branches (`beta/algorithm-dpi`, `beta/custom-server`) do not collide on the
     // ── URmessage (beta/message). Block 1000-1099 reserved so parallel beta
     // branches do not collide. Every operation lives in a oneof inside
     // MessageServerRequest/Response/Push, NOT as its own MessageType.
-    MessageServerRequest  = 1000;
-    MessageServerResponse = 1001;
-    MessageServerPush     = 1002;
-    MessageServerFragment = 1003;
+    MessageMessageServerRequest  = 1000;
+    MessageMessageServerResponse = 1001;
+    MessageMessageServerPush     = 1002;
+    MessageMessageServerFragment = 1003;
 ```
+
+**On the spelling, corrected 2026-08-25 during implementation.** Earlier revisions of this document
+named these four values `MessageServerRequest`, `MessageServerResponse`, `MessageServerPush` and
+`MessageServerFragment` — the same names as the four *messages* of Spec B §4.3 and §4.6, in the same
+`package bringyour`. **That pair cannot be compiled.** proto3 scopes an enum *value* name to the
+enum's **parent** scope, not to the enum, so `MessageServerRequest` as a value of `MessageType` claims
+the qualified name `bringyour.MessageServerRequest` — which `message MessageServerRequest` already
+holds. `protoc` refuses it outright:
+
+```
+<file>: "bringyour.MessageServerRequest" is already defined in file "<other>".
+<file>: Note that enum values use C++ scoping rules, meaning that enum values are siblings
+        of their type, not children of it. Therefore, "MessageServerRequest" must be unique
+        within "bringyour", not just within "MessageType".
+```
+
+protoc's second line is the one that actually explains the rule, which is why it is quoted rather than
+elided. The pair fails the same way whether the two declarations are in one file or two.
+
+The collision is resolved on the **enum** side because the message names are the normative half: they
+are the `oneof` arm types that Spec B §4.3.8's op byte — and therefore the `req_auth` MAC of §5.7 — is
+defined over, and they appear across all three specs. The convention is the one `MessageType` already
+uses for exactly this collision with `ip.proto`: repeat the domain prefix, as in
+`IpIpPacketToProvider` for `message IpPacketToProvider` and `IpIpPing` for `message IpPing`.
+
+**The four numbers are unchanged and are the wire code points.** Only the Go-visible spellings differ,
+and a spelling copied from an older revision of this text is now a compile error rather than a silent
+break.
 
 Spec A owns the file `connect/protocol/message.proto` and its codegen (it is generated by the existing
 `connect/protocol/Makefile` and linked by both the client and the server). Spec B owns the set of `oneof`
