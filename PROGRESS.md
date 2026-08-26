@@ -392,3 +392,78 @@ the deliberately non-specific `REASON_REJECTED`, against one implementation, for
 is a `protoreflect` walk of the compiled descriptor rather than a hand-typed table, and it asserts
 that the arm set **equals** the set with a declared auth status, so an arm added later without that
 decision fails the test instead of shipping.
+
+## 2026-08-25 — CP3a's first half: a record can be built, framed, authenticated and parsed
+
+`connect/message` went from a doc stub to the whole pre-AEAD half of the message path, and
+`connect/protocol/message.proto` from nothing to the full control plane. Both are merged into
+`beta/message` at `197af90` and pushed: **2,521 assertions across the two packages, 0 failing**,
+`go vet` clean, index 440/440.
+
+| Landed | What |
+|---|---|
+| `message/record.go` | the types, the retention wire byte, the two ladders, and the one place class and bucket may be joined |
+| `message/codec.go` | `EncodeRecord` / `ParseRecord` / `ParseRecordHeader` over p1's `LP(x)` framing |
+| `message/aad.go` | `AAD_head` and `AAD_body`, with G4 enforced by a signature rather than by discipline |
+| `message/writeauth.go` | `write_auth` and `req_auth`, both key derivations, all three verifiers |
+| `protocol/message.proto` | Spec B §4.2–§4.6, 603 lines, generated and gated |
+
+p3 also closed at 14 of 14, so **tree math is done**: 5,981 assertions.
+
+### What the review gate actually cost, and what it bought
+
+Five reviewers returned **REJECT, REJECT, ACCEPT_WITH_FIXES, REJECT, ACCEPT** and **22 surviving
+mutants** between them. Three of the five rejected work that was green — which is the point: every
+one of those 22 is a change to production code that the implementer's own tests could not see.
+
+The single worst was in the authenticators. Deleting two `if err != nil` blocks so
+`tag, _ := authTag(...)` discards its error is a **total authentication bypass**: a wrong-length key
+makes `authTag` return the zero tag, and Spec A §2.4 makes an all-zero `write_auth` the *normal*
+state of every record on the read path. So every fetched record would have verified. **2,428 tests
+passed with that in place.**
+
+The most instructive was subtler. A variable-time fast path written as
+`bytes.HasPrefix(...) && subtle.ConstantTimeCompare(...)` is behaviourally identical, so no
+behavioural test can ever see it — and it passed the constant-time gate too, because that gate banned
+**six enumerated names** and `HasPrefix` was not one of them. The gate is now a walk of the package's
+imports that **derives** the comparator class: it finds **18**, `bytes.HasPrefix` and `hmac.Equal` and
+`fmt.Sscanf` among them. That is the eleventh and twelfth time on this project that a hand-written
+list understated the class it was standing in for.
+
+The same defect had a twin in `record.go`'s join gate, which exempted the one file allowed to join the
+class and the bucket **by base name** — so `connect/mls/record.go` could contain `class<<4 | bucket`
+and the gate waved it through — and whose matcher covered no table-indexed join
+(`table[class] + bucket`) and no split shape at all. Both closed; the gate now covers three roots and
+prints what it measured: *184 files under the gate, map[.:11 ../../sdk:132 ../mls:41]*.
+
+### Verified rather than reported
+
+The workflow's own reports are not evidence, so **13 of the 22 survivors were re-run by hand** against
+the shipped code — the two self-consistent table permutations, the size-bucket constants pointing at
+each other's rungs, the wiped file walk, both gate evasions, the discarded writer error, the truncated
+attachment hash, the masked size bucket, and five against the verifiers including truncating the tag
+comparison to one byte. All 13 now fail as they should, and the tree was clean afterwards.
+
+One survivor had had **no fix pass at all**, because its reviewer returned ACCEPT: `LeafIndex.NodeIndex`
+could be replaced with a `0xFFFFFFFF` sentinel and the whole `mls` package — 5,725 tests — still passed,
+even though the method's own doc comment is careful to say it wraps and that a zero from it is *not* an
+error signal. Closed in `c6ff660`, with the check multiplying in 64 bits and reducing afterwards rather
+than recomputing `2*uint32(self)`, which is the implementation's own expression and would pass for any
+mutation that kept the line.
+
+**A trap worth recording, because it inverts this project's main instrument.** One of those 13 first
+came back as *still surviving*. It had not survived: the mutation was applied with an exact-string
+replace whose search text was LF, against a file that is CRLF on this box, so nothing was edited at
+all. **A mutation that fails to apply is indistinguishable from a mutation that survived**, and both
+look like information. `sed -i` applied the same change and the test failed immediately. Confirming
+the edit landed — `git diff --numstat` on the mutated file — is now part of the loop.
+
+### Open, and small
+
+- `ClassIsPrunable` is exported and the server prunes, so it belongs in Spec A §12.1's published
+  surface and is not there yet.
+- The absent-attachment ruling — an ordinary record contributes `LP(SHA-256(""))`, 36 bytes, not four
+  zero octets — is pinned by a KAT and is **the first number to compare against the server team**. If
+  they implement the other reading, every ordinary record fails AEAD and no test on either side fails.
+- `AADBody` takes a `BodyBinding` rather than a `*RecordHeader`, which is what makes G4 structural
+  instead of advisory, but it is exported surface that appears in no spec.
