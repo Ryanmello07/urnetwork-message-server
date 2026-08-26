@@ -28,14 +28,22 @@ jobs:
         with:
           go-version-file: go.mod
 
-      # The root package holds every gate and imports nothing outside the standard library, so
-      # it is run whole. `-run` takes a pattern that matches every test rather than an
-      # alternation of their names on purpose: a hand-typed list of what to run understates
-      # what is there exactly the way a hand-typed list of what to ban understates what is
-      # banned, and the failure is the same one — a gate added tomorrow that this job silently
-      # does not run. -v so the run prints PASS, FAIL and SKIP per test and not just a total.
-      - name: dependency, layering and encoding gates
-        run: go test -v -run '.' -timeout 5m .
+      # Every package of this module, and every test in it.
+      #
+      # Both halves of that are the same rule and this job got the first half right and the
+      # second half wrong for one release. `-run` takes a pattern that matches every test
+      # rather than an alternation of their names, because a hand-typed list of what to run
+      # understates what is there exactly the way a hand-typed list of what to ban understates
+      # what is banned — and then the package argument was the single directory `.`, which is
+      # the same mistake one level up. The root package held every gate when this file was
+      # written; api/ and store/ now hold the §5.1 check-order gates, the no-second-
+      # implementation gates and the store contract, and this job ran none of them. A gate that
+      # is off reports the same green run as a gate that passed.
+      #
+      # -v so the run prints PASS, FAIL and SKIP per test and not just a total: a suite counted
+      # by its passes alone is how a failing test got committed here.
+      - name: every gate and every suite
+        run: go test -v -run '.' -timeout 5m ./...
 
       - name: gofmt
         run: |
