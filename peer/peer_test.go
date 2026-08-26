@@ -396,3 +396,66 @@ func TestTheRateLimitCheckIsStillDeclaredAbsent(t *testing.T) {
 		t.Fatalf("check 4 answered %v; the point of ChecksNotImplemented is that it passes and says so, not that it refuses", reason)
 	}
 }
+
+// ── shutdown ─────────────────────────────────────────────────────────────────────────────
+
+// Close returns with requests in flight, and nothing is dispatched after it.
+//
+// The hang this guards is specific. connect's Client.Send is SendWithTimeout(-1), which blocks
+// until the *client's* context is done — and a peer does not own its client's context, so a
+// worker parked in a send would still be parked when Close came to wait for it. What makes Close
+// terminate is that the send is bounded and carries this peer's own context.
+//
+// The second half matters as much: a Close that returned while workers went on answering would be
+// a drain of §2.3 that drained nothing.
+func TestCloseReturnsWithRequestsInFlightAndDispatchesNothingAfter(t *testing.T) {
+	fixture := newFixture(t)
+	fixture.hello(t)
+
+	entered := make(chan struct{}, 1)
+	release := make(chan struct{})
+	fixture.handler.onFetch = func(conn *api.Connection, request *protocol.FetchRequest) (protocol.Reason, *protocol.FetchResponse, error) {
+		select {
+		case entered <- struct{}{}:
+		default:
+		}
+		<-release
+		return protocol.Reason_REASON_OK, &protocol.FetchResponse{HighWaterRecordId: request.GetSinceRecordId()}, nil
+	}
+
+	// more requests than there are workers, so the queue is occupied as well as the workers
+	for index := range 32 {
+		fixture.sendRequest(t, fixture.request(&protocol.FetchRequest{
+			GroupId:       bytes.Repeat([]byte{0xC0}, 32),
+			SinceRecordId: uint64(index),
+		}))
+	}
+	select {
+	case <-entered:
+	case <-time.After(30 * time.Second):
+		t.Fatal("no request reached the handler")
+	}
+
+	done := make(chan struct{})
+	go func() {
+		close(release)
+		fixture.peer.Close()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("Close did not return with requests in flight")
+	}
+
+	before := len(fixture.handler.recorded())
+	fixture.sendRequest(t, fixture.request(&protocol.FetchRequest{GroupId: bytes.Repeat([]byte{0xC1}, 32)}))
+	time.Sleep(250 * time.Millisecond)
+	if after := len(fixture.handler.recorded()); after != before {
+		t.Fatalf("%d requests were served after Close returned", after-before)
+	}
+
+	// and closing again is not a second shutdown, because a peer is closed by whichever of a
+	// drain, a failed startup and a cleanup notices first
+	fixture.peer.Close()
+}

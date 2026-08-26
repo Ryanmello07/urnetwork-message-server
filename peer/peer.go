@@ -41,6 +41,14 @@ type Handler interface {
 
 var _ Handler = (*api.Handler)(nil)
 
+// How long a worker waits for connect's send path to take a response frame.
+//
+// No section names it: §4.6 bounds the reassembly buffer and §4.3.1 bounds the response, and
+// neither is about how long a send may block. It is a number here because the alternative is
+// connect's own default of "until the client's context is done", and that is not a bound this
+// package can end — see [Config.SendTimeout].
+const DefaultSendTimeout = 30 * time.Second
+
 // A peer's collaborators. Everything whose zero value would be a silent hole is refused by [New].
 type Config struct {
 	Client      *connect.Client
@@ -88,6 +96,12 @@ type Config struct {
 	// §4.6's per-client cap on concurrent reassemblies. Zero takes §4.6's 16.
 	ReassembliesPerClient int
 
+	// How long a worker waits for the send path to take a response frame. Zero takes
+	// [DefaultSendTimeout]. It is bounded rather than infinite because it is what [Peer.Close]
+	// waits behind: connect's own Send blocks on the *client's* context, and a peer that could
+	// not stop until its client did would be a peer no drain and no test could shut down.
+	SendTimeout time.Duration
+
 	Now func() time.Time
 }
 
@@ -110,6 +124,7 @@ type Peer struct {
 	maxRequestBytes   int
 	maxResponseBytes  int
 	fragmentPartBytes int
+	sendTimeout       time.Duration
 
 	now func() time.Time
 
@@ -124,6 +139,7 @@ type Peer struct {
 	unsubscribe func()
 	jobs        chan job
 	workers     sync.WaitGroup
+	closed      sync.Once
 
 	stats stats
 }
@@ -214,7 +230,11 @@ func New(config Config) (*Peer, error) {
 		maxRequestBytes:   int(capabilities.GetMaxRequestBytes()),
 		maxResponseBytes:  int(capabilities.GetMaxResponseBytes()),
 		fragmentPartBytes: config.FragmentPartBytes,
+		sendTimeout:       config.SendTimeout,
 		now:               config.Now,
+	}
+	if self.sendTimeout <= 0 {
+		self.sendTimeout = DefaultSendTimeout
 	}
 	if self.fragmentPartBytes <= 0 {
 		self.fragmentPartBytes = DefaultFragmentPartBytes
@@ -254,9 +274,16 @@ func New(config Config) (*Peer, error) {
 }
 
 // Stop dispatching. The connect client is the caller's and is not closed here.
+//
+// The order is the whole of it: unsubscribe first, so no further frame can be enqueued, then
+// cancel, which releases a receive callback parked on a full queue and every worker parked in a
+// send, and only then wait. Idempotent, because a peer is closed by whatever notices first — a
+// drain of §2.3, a failed startup, a test's cleanup — and twice is a normal number of times.
 func (self *Peer) Close() {
-	self.unsubscribe()
-	self.cancel()
+	self.closed.Do(func() {
+		self.unsubscribe()
+		self.cancel()
+	})
 	self.workers.Wait()
 }
 
@@ -616,13 +643,21 @@ func (self *Peer) send(clientId connect.Id, response *protocol.MessageServerResp
 		return
 	}
 	destination := connect.DestinationId(clientId)
-	for _, frame := range frames {
-		if !self.client.Send(frame, destination, self.acked) {
-			// the send did not take the frame, so no ack will ever fire and the bytes are ours
-			// to give back
-			connect.MessagePoolReturn(frame.MessageBytes)
+	for index, frame := range frames {
+		// Bounded, and tied to this peer's own context. connect.Client.Send is
+		// SendWithTimeout(-1), which blocks until the *client's* context is done — a context
+		// this package does not own — so a worker parked in it would still be parked when
+		// [Peer.Close] came to wait for it. The timeout bounds the wedge and connect.Ctx makes
+		// Close the thing that ends it.
+		if !self.client.SendWithTimeout(frame, destination, self.acked, self.sendTimeout, connect.Ctx(self.ctx)) {
+			// the send did not take the frame, so no ack will ever fire and these bytes and
+			// every later fragment's are ours to give back. The rest of a fragmented response
+			// does not follow a gap in it: §4.6 reassembles in order and a receiver aborts on
+			// the first index it did not expect, so the remaining frames would be bytes on the
+			// wire that could only be discarded
+			returnFrames(frames[index:])
 			self.stats.responsesFailed.Add(1)
-			continue
+			return
 		}
 		self.stats.responsesSent.Add(1)
 	}
