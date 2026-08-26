@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/urnetwork/connect/protocol"
 )
@@ -78,6 +79,7 @@ func RunContract(t *testing.T, newStore func(Limits) Store) {
 	t.Run("TheReadPathAllocatesNothing", func(t *testing.T) { contractFetch(t, newStore, seen) })
 	t.Run("TheClassFilterReturnsExactlyTheClassesAsked", func(t *testing.T) { contractClassMask(t, newStore, seen) })
 	t.Run("RecordsAreCopiedAtTheStoreBoundary", func(t *testing.T) { contractDefensiveCopy(t, newStore, seen) })
+	t.Run("APruneTimeIsComputedFromTheClassAndThePolicy", func(t *testing.T) { contractPruneAfter(t, newStore, seen) })
 	t.Run("ConcurrentSubmittersAtOneStreamIndex", func(t *testing.T) { contractConcurrentStreamIndex(t, newStore, seen) })
 	t.Run("ConcurrentCommittersAtOneEpoch", func(t *testing.T) { contractConcurrentCommitters(t, newStore, seen) })
 	t.Run("ACommitRacingOrdinaryWritesAtTheSameEpoch", func(t *testing.T) { contractConcurrentCommitAndWrite(t, newStore, seen) })
@@ -1763,6 +1765,138 @@ func recordById(t *testing.T, store Store, groupId []byte, id uint64) *Record {
 	}
 	t.Fatalf("record %d is not in the group", id)
 	return nil
+}
+
+// ── §7.1 ─────────────────────────────────────────────────────────────────────────────────
+
+// prune_after, which §7.1 computes in Go from the class and the group's policy at the moment
+// the row is written, and which §7.2's sweep is the only consumer of.
+//
+// It had no test and could not have had one: §3.2 has the column, the store had the arithmetic,
+// and no interface method handed it back — so the whole of it could be replaced by a nil and
+// every scenario stayed green, and the pgx implementation would have got no help from the
+// contract on the one calculation that decides when user data is destroyed.
+//
+// What is asserted is a relation and not an instant, because the contract cannot set anybody's
+// clock and §3.1 splits retention across a Go clock and a database clock: the submission is
+// bracketed by two wall-clock readings and the row's prune time has to land in that bracket
+// plus the class's own lifetime. The slack is for the skew between this process and whichever
+// clock the store used; it is far below the smallest gap in §3.1's ladder, so a prune time
+// computed from the wrong lifetime cannot hide inside it.
+func contractPruneAfter(t *testing.T, newStore func(Limits) Store, seen *recorder) {
+	t.Parallel()
+	const slack = 60 * time.Second
+
+	t.Run("EveryClassPrunesOnItsOwnLadder", func(t *testing.T) {
+		t.Parallel()
+		// the group's own policy, which is what DURABLE and MEDIA prune against, and which is
+		// deliberately not either default: a store reading its lifetimes out of the operator's
+		// configuration instead of out of the group's row would pass on the defaults
+		store, group := openGroup(t, newStore(Limits{
+			MediaTtlMaxSeconds:       2000,
+			MediaTtlDefaultSeconds:   2000,
+			DurableTtlDefaultSeconds: 31536000,
+		}))
+		state := stateOf(t, store, group)
+		if state.MediaTtlSeconds != 2000 || state.DurableTtlSeconds == nil {
+			t.Fatalf("the group's policy is media %d and text %v, and this scenario prunes against it", state.MediaTtlSeconds, state.DurableTtlSeconds)
+		}
+
+		lifetimes := map[uint8]*uint32{
+			// §7.1: PERMANENT never prunes, and it is the only class with no lifetime at all
+			ClassPermanent: nil,
+			ClassDurable:   state.DurableTtlSeconds,
+			ClassMedia:     ptr(state.MediaTtlSeconds),
+		}
+		// the eph ladder from the package's own table rather than from five numbers typed here,
+		// so a bucket whose lifetime moves is a bucket this scenario moves with it
+		for bucket := ClassEphBase + 1; bucket <= ClassEphMax; bucket++ {
+			lifetimes[bucket] = ptr(ephBucketSeconds[bucket-ClassEphBase])
+		}
+
+		index := uint64(0)
+		submitted := map[uint8]uint64{}
+		brackets := map[uint8][2]time.Time{}
+		for class := range lifetimes {
+			record := ordinaryRecord(testHandle(0x21), 1, index, byte(0x60+index))
+			record.RetentionClass = class
+			before := time.Now().UTC()
+			results := submit(t, store, seen, group, record)
+			wantReason(t, results[0], protocol.Reason_REASON_OK)
+			brackets[class] = [2]time.Time{before, time.Now().UTC()}
+			submitted[class] = results[0].RecordId
+			index++
+		}
+
+		for class, lifetime := range lifetimes {
+			stored := recordById(t, store, group, submitted[class])
+			if lifetime == nil {
+				if stored.PruneAfter != nil {
+					t.Errorf("a class-%#x record was given a prune time of %v; §7.1 is that PERMANENT never prunes, and a prune time on it is user data with a deletion date nobody asked for",
+						class, *stored.PruneAfter)
+				}
+				continue
+			}
+			if stored.PruneAfter == nil {
+				t.Errorf("a class-%#x record with a lifetime of %ds was given no prune time at all; §7.2's sweep has nothing to act on and the row is kept forever", class, *lifetime)
+				continue
+			}
+			window := time.Duration(*lifetime) * time.Second
+			earliest := brackets[class][0].Add(window - slack)
+			latest := brackets[class][1].Add(window + slack)
+			if stored.PruneAfter.Before(earliest) || stored.PruneAfter.After(latest) {
+				t.Errorf("a class-%#x record with a lifetime of %ds prunes at %v, want somewhere in [%v, %v]; §7.1 computes it from the class and the group's policy and from nothing else",
+					class, *lifetime, stored.PruneAfter.UTC(), earliest, latest)
+			}
+		}
+	})
+
+	t.Run("AnIndefiniteTextPolicyIsTheOtherClassThatNeverPrunes", func(t *testing.T) {
+		t.Parallel()
+		// the second of §7.1's two no-prune cases, and the one that is a property of the GROUP
+		// rather than of the record: DURABLE under a policy the server did not cap
+		store, group := openGroup(t, newStore(DefaultLimits()))
+		commit := commitRecord(testHandle(0x31), 1, 0, 2, 0x40)
+		commit.Attachment.Epoch.DurableTtlSeconds = DurableIndefinite
+		wantReason(t, submit(t, store, seen, group, commit)[0], protocol.Reason_REASON_OK)
+		wantReason(t, submit(t, store, seen, group, markerRecord(testHandle(0x31), 2, 1, 1))[0], protocol.Reason_REASON_OK)
+		if state := stateOf(t, store, group); state.DurableTtlSeconds != nil {
+			t.Fatalf("the group's text policy is %d, and this scenario needs the indefinite one", *state.DurableTtlSeconds)
+		}
+
+		results := submit(t, store, seen, group, ordinaryRecord(testHandle(0x21), 2, 0, 0x30))
+		wantReason(t, results[0], protocol.Reason_REASON_OK)
+		if stored := recordById(t, store, group, results[0].RecordId); stored.PruneAfter != nil {
+			t.Errorf("a DURABLE record under an indefinite policy prunes at %v; the group asked for indefinite and the server agreed to it", *stored.PruneAfter)
+		}
+	})
+
+	t.Run("APruneTimeIsFixedWhenTheRowIsWritten", func(t *testing.T) {
+		t.Parallel()
+		// §7.1 computes it against the policy in force AT WRITE TIME, so a later commit that
+		// shortens the policy does not retroactively bring forward the deletion of rows written
+		// under the old one. That is what recordRow.policy is for, and it is the difference
+		// between a policy change and a policy change applied backwards over a group's history.
+		store, group := openGroup(t, newStore(DefaultLimits()))
+		first := submit(t, store, seen, group, ordinaryRecord(testHandle(0x21), 1, 0, 0x30))
+		wantReason(t, first[0], protocol.Reason_REASON_OK)
+		before := recordById(t, store, group, first[0].RecordId)
+		if before.PruneAfter == nil {
+			t.Fatal("a DURABLE record under a bounded policy was given no prune time")
+		}
+		was := *before.PruneAfter
+
+		commit := commitRecord(testHandle(0x31), 1, 1, 2, 0x40)
+		commit.Attachment.Epoch.DurableTtlSeconds = 60
+		wantReason(t, submit(t, store, seen, group, commit)[0], protocol.Reason_REASON_OK)
+		wantReason(t, submit(t, store, seen, group, markerRecord(testHandle(0x31), 2, 2, 1))[0], protocol.Reason_REASON_OK)
+
+		after := recordById(t, store, group, first[0].RecordId)
+		if after.PruneAfter == nil || !after.PruneAfter.Equal(was) {
+			t.Errorf("a commit that shortened the text policy moved an already-written row's prune time from %v to %v; §7.1 fixes it at write time, and a policy applied backwards deletes history the group never agreed to lose",
+				was, after.PruneAfter)
+		}
+	})
 }
 
 // ── the derived gate: every refusal this package can name is exercised here ──────────────

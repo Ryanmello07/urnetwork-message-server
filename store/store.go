@@ -131,6 +131,17 @@ type Record struct {
 
 	// Server-assigned, and never authenticated. Zero on the way in.
 	RecordId uint64
+
+	// §3.2's `prune_after`, which §7.1 computes in Go from the class and the group's policy at
+	// the moment the row is written, and which §7.2's sweep acts on. Server-assigned like
+	// RecordId, nil on the way in, and nil on the way out for the two classes that never prune:
+	// PERMANENT, and DURABLE under an indefinite policy.
+	//
+	// It is on the way out because otherwise it is not on the way out anywhere: it is a column
+	// of §3.2 that no interface method returned, so §7.1's whole arithmetic was unobservable
+	// and could be replaced by a nil with every test still green. What the API layer does with
+	// it is not send it — §4.3.3 makes record_bytes authoritative and this is not in it.
+	PruneAfter *time.Time
 }
 
 // Which of §5.4's server-visible attachments a record carries. A record carries at most one.

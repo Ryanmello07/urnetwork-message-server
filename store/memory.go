@@ -319,6 +319,7 @@ func (self *MemoryStore) CreateGroup(ctx context.Context, request *CreateGroupRe
 	media, durable, applied := self.limits.apply(attachment)
 	record := cloneRecord(request.InitialCommit)
 	record.RecordId = firstRecordId
+	record.PruneAfter = nil
 
 	group := &memoryGroup{
 		groupId:           bytes.Clone(request.GroupId),
@@ -638,6 +639,7 @@ func (self *MemoryStore) commit(group *memoryGroup, state *GroupState, batch []*
 	for index, current := range accepted {
 		record := cloneRecord(current.record)
 		record.RecordId = first + uint64(index)
+		record.PruneAfter = nil
 
 		mediaTtl, durableTtl := group.mediaTtlSeconds, group.durableTtlSeconds
 		if record.IsCommit {
@@ -830,6 +832,11 @@ func (self *recordRow) read(headsOnly bool) *Record {
 	record := cloneRecord(self.record)
 	if headsOnly {
 		record.CtBody = nil
+	}
+	// a fresh instant rather than the row's own pointer, for the reason every other field on
+	// this record is copied: what leaves the store is the caller's
+	if self.pruneAfter != nil {
+		record.PruneAfter = ptr(*self.pruneAfter)
 	}
 	return record
 }
