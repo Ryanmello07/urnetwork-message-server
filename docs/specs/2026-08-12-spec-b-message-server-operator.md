@@ -275,6 +275,10 @@ tenth. Spec A §12.1 A-9 carries the same amendment and the reasoning.
 
 ---
 
+**Revision 10 — 2026-08-26 — implementation feedback from the api layer.** One amendment, in §13 item 8, and it changes no normative rule: §5.3's "the message server binary MUST NOT link an MLS implementation" stands untouched. What changes is the assertion under it. Item 8 asserted that `go list -deps ./... | grep connect/mls` is empty, and that grep is a prefix match: it also matches `github.com/urnetwork/connect/mls/syntax`, the TLS presentation-language codec that `connect/message` — a package §2.2 explicitly ALLOWS — encodes and parses every record with. The two sentences could not both hold: the first package of the message server that parses a record pulls the codec into the closure, so item 8 as written failed on the first build that satisfied §5.1 check 7. Item 8 now asserts the package rather than the prefix and says why the codec is not an MLS implementation: no MLS type, no key schedule, no validation semantic. Found by the api layer's first import of `connect/message`, which is exactly where the contradiction was predicted — the dependency gate in this repository carried the prediction in a comment, and it asked for the resolution to be made in the spec first and in the allow list second, which is the order it was made in.
+
+---
+
 ## 1. Scope
 
 **In scope.** The message server process: storage, ordering, single-commit agreement, `write_auth` verification, history serving, blob lifecycle, retention and pruning, capability advertisement, its own URnetwork account and transport wiring, deployment, configuration, migrations, backup, observability. Plus the operator-side surface the message server and clients depend on: the discovery directory and the key-transparency log.
@@ -3155,7 +3159,7 @@ Master spec §14 makes §9.7 an acceptance criterion for this slice. Concretely,
 5. **Retention matrix.** One record per class; advance a fake clock; assert the §7.2 table exactly — including that `EPH(0)` never produced a row, that a pruned `MEDIA` retained its head and `body_hash`, that an expired `EPH(1..5)` left its ~60-byte placeholder row, and that the `PERMANENT` blob and its row both survive.
 6. **Restore trap.** Restore a backup taken before a prune; assert the service refuses traffic until `sweep-now --until-clean` completes. Guards §10.4 trap 1.
 7. **No-log acceptance.** Full workload with logs, metrics, traces, database log, Redis log, and object-store log captured; assert no generated identifier appears in any byte of any of them. Guards §9.7 and §11.
-8. **No-MLS assertion.** `go list -deps ./... | grep connect/mls` is empty. Guards §5.3.
+8. **No-MLS assertion.** The binary links no MLS implementation, asserted over the **package** and not over the prefix: `go list -deps ./... | grep connect/mls` names `github.com/urnetwork/connect/mls` nowhere. That closure does name `github.com/urnetwork/connect/mls/syntax`, and that is correct rather than a violation — the TLS presentation-language codec is what `connect/message` encodes and parses every record with, §2.2 explicitly ALLOWS `connect/message`, and a length-prefix reader carries no MLS type, no key schedule and no validation semantic. The prefix form this item carried until 2026-08-26 could not be satisfied by any build of this module that parses a record at all, which is the condition §5.1 check 7 requires of every submit; §2.2's allow list carries `connect/mls/syntax` for that reason and for no wider one. Guards §5.3.
 9. **Dependency deny-list.** §2.2's `go list -deps` gate.
 10. **DoS ordering.** 10^5 submits with invalid `write_auth` against random group ids produce zero rows in `pg_stat_statements` beyond the epoch-key negative-cache reads. Guards §5.1's check order.
 11. **Migration-on-populated-database.** Every migration applied to a database restored from the previous release's schema with representative data.

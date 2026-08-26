@@ -168,6 +168,11 @@ type sealed struct {
 
 	// Overrides, for the tests that need a record that disagrees with itself.
 	groupId []byte
+	// A record with no body at all, which the record layer accepts because it also parses what
+	// the server rebuilds for a heads_only read, and which §5.1 check 3 refuses on submit.
+	emptyBody bool
+	// A body_hash taken over other bytes, for check 8.
+	bodyHashOf []byte
 }
 
 // The whole of what a sender does, in Spec A §5.2's construction order: the body is padded to its
@@ -189,6 +194,13 @@ func (self *fixture) seal(t *testing.T, spec sealed) *protocol.Record {
 		t.Fatalf("EncodeServerAttachment: %v", err)
 	}
 	body := padToRung(t, spec.bucket, spec.body)
+	if spec.emptyBody {
+		body = nil
+	}
+	bodyHash := blobd.ContentHash(body)
+	if spec.bodyHashOf != nil {
+		bodyHash = blobd.ContentHash(padToRung(t, spec.bucket, spec.bodyHashOf))
+	}
 	header := message.RecordHeader{
 		Epoch:            spec.epoch,
 		StreamIndex:      spec.streamIndex,
@@ -197,7 +209,7 @@ func (self *fixture) seal(t *testing.T, spec sealed) *protocol.Record {
 		EphBucket:        spec.ephBucket,
 		SizeBucket:       spec.bucket,
 		ExpireAt:         spec.expireAt,
-		BodyHash:         blobd.ContentHash(body),
+		BodyHash:         bodyHash,
 		ServerAttachment: attachmentBytes,
 	}
 	copy(header.GroupId[:], group)
@@ -288,6 +300,22 @@ func (self *fixture) submit(t *testing.T, records ...*protocol.Record) []*protoc
 	if len(response.GetResults()) != len(records) {
 		t.Fatalf("the submit answered %d results for %d records; §4.3.3 aligns them positionally",
 			len(response.GetResults()), len(records))
+	}
+	return response.GetResults()
+}
+
+// A submission to a group the caller names, for the tests that submit to one that does not exist.
+func (self *fixture) submitTo(t *testing.T, group []byte, records ...*protocol.Record) []*protocol.SubmitResult {
+	t.Helper()
+	reason, response, err := self.handler.Submit(context.Background(), self.conn, &protocol.SubmitRequest{
+		GroupId: group,
+		Records: records,
+	})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if reason != protocol.Reason_REASON_OK {
+		t.Fatalf("the submit envelope answered %v, want REASON_OK with a body", reason)
 	}
 	return response.GetResults()
 }

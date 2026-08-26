@@ -97,15 +97,18 @@ func (self rule) covers(path string) bool {
 // modules are deliberately absent — the day pgx lands, its dependencies fail this gate until
 // somebody looks at them and writes them down, which is the entire point.
 //
-// github.com/urnetwork/connect/mls/syntax is deliberately NOT here, and it is the entry the
-// next contributor will want to add. connect/message imports it — aad.go, attachment.go,
-// codec.go and writeauth.go all do — so the first package of this module that parses a record
-// will fail this gate. That failure is correct and is not a defect in this file: §2.2 allows
-// connect/message, while §5.3 and §13 item 8 say the binary must not link connect/mls and
-// assert it with a grep that also matches connect/mls/syntax. The two cannot both hold as
-// written. The resolution belongs in the spec — amend §13 item 8 to the package rather than
-// the prefix, since a TLS presentation-language codec is not an MLS implementation — and then
-// in this list, not in a quiet edit to whichever of the two is easier to change.
+// github.com/urnetwork/connect/mls/syntax is here as of spec B revision 10, and the paragraph
+// this replaces predicted the day it would have to be. connect/message imports it — aad.go,
+// attachment.go, codec.go and writeauth.go all do — so the first package of this module that
+// parses a record pulled it into the closure, and api did that on 2026-08-26. The failure was
+// correct and was never a defect in this file: §2.2 allows connect/message, while §5.3 and §13
+// item 8 said the binary must not link connect/mls and asserted it with a grep that also matches
+// connect/mls/syntax, and the two could not both hold as written. The resolution went where the
+// prediction said it belonged — §13 item 8 now asserts the package rather than the prefix, and
+// says why a TLS presentation-language codec carrying no MLS type, no key schedule and no
+// validation semantic is not an MLS implementation — and only then here. It is exact and not a
+// subtree: a second child of connect/mls entering this closure is a different question, and it
+// should fail this gate and be looked at rather than inherit an answer given to the codec.
 // google.golang.org/protobuf is the one entry here §2.2 does not print, and it is written down
 // rather than left to be discovered. §2.2 allows connect/protocol; connect/protocol is
 // protoc-gen-go output and does not compile without the runtime it was generated against, so
@@ -119,6 +122,7 @@ var allowedDependencies = []rule{
 	{path: "github.com/urnetwork/connect"},
 	{path: "github.com/urnetwork/connect/protocol", subtree: true},
 	{path: "github.com/urnetwork/connect/message", subtree: true},
+	{path: "github.com/urnetwork/connect/mls/syntax"},
 	{path: "github.com/urnetwork/glog", subtree: true},
 	{path: "github.com/jackc/pgx/v5", subtree: true},
 	{path: "github.com/redis/go-redis/v9", subtree: true},
