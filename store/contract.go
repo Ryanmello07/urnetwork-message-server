@@ -356,7 +356,14 @@ func contractAllocation(t *testing.T, newStore func(Limits) Store, seen *recorde
 		wantReason(t, results[0], protocol.Reason_REASON_OK)
 	}
 
-	// gapless, 1-based, and 0 never assigned — read back through the from-the-beginning cursor
+	// gapless, 1-based, and 0 never assigned — read back through the from-the-beginning cursor.
+	//
+	// FOR THE SECOND IMPLEMENTATION: this reads contiguity out of Fetch, which is only the same
+	// property while no row has been pruned. §7.2 replaces an expired ephemeral row with a
+	// placeholder rather than deleting it, exactly so that this stays true — a store that
+	// deleted the row instead would leave a hole here, and §12.2 C-4 tells clients to treat a
+	// hole as the server withholding. No scenario in this file ages a record out, so the day
+	// one does, this assertion is the one that states what §7.2 owes.
 	fetched, err := store.Fetch(ctx, &FetchRequest{GroupId: group, SinceRecordId: 0})
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
@@ -934,7 +941,14 @@ func contractEpochKeys(t *testing.T, newStore func(Limits) Store, seen *recorder
 		t.Error("read_key_install was not stamped, so the 90-day window of §5.3 has no start")
 	}
 
-	// the briefly-retired predecessor: still verifiable, and marked for the tidy loop
+	// the briefly-retired predecessor: still verifiable, and marked for the tidy loop.
+	//
+	// FOR THE SECOND IMPLEMENTATION: what is asserted below is that the retire_time is stamped
+	// inside the commit, NOT that the key is gone. §5.3's 60-second tidy is a loop and §7.4 puts
+	// it behind an advisory lock, so a store that takes the key later is still correct — the
+	// contract holds it only to leaving the loop something to act on. The `epoch < current_epoch`
+	// half further down is different: that one IS synchronous, because it is the predicate that
+	// decides whether the one predecessor §5.3 keeps survives the transaction at all.
 	retired, err := store.EpochKeys(ctx, group, 1)
 	if err != nil {
 		t.Fatalf("the superseded epoch's keys are already gone: %v", err)
@@ -981,6 +995,10 @@ func contractFetch(t *testing.T, newStore func(Limits) Store, seen *recorder) {
 		t.Fatalf("a fetch moved next_record_id from %d to %d; §5.1.1 opens no transaction and allocates no row", before, after)
 	}
 
+	// FOR THE SECOND IMPLEMENTATION: `since_record_id` is EXCLUSIVE and `next_record_id` on a
+	// page is the id of its last record, so a client resumes by handing the previous page's
+	// cursor straight back. §4.3.4 declares the cursor exclusive and never says which id the
+	// response carries; this is the half it left open, and the resume below is what pins it.
 	rest, err := store.Fetch(ctx, &FetchRequest{GroupId: group, SinceRecordId: page.NextRecordId})
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
@@ -1049,6 +1067,15 @@ func contractConcurrentStreamIndex(t *testing.T, newStore func(Limits) Store, se
 				// whether its step (0) probe ran before or after the winner committed. Both mean
 				// the same thing to the client and neither allocated anything
 			default:
+				// FOR THE SECOND IMPLEMENTATION: this arm DECIDES something §6.1 leaves open,
+				// and it is written down here because a constraint a second implementation
+				// learns from a red test is a constraint it learns too late. Step (5a)'s claim
+				// insert is `ON CONFLICT (group_id, sender_handle, stream_index) DO NOTHING`
+				// and the spec gives no answer for its 0-row case. A pgx store that surfaced
+				// that case as REASON_REJECTED would fail here, and §6.1 does not say it is
+				// wrong to — but the client cannot act on REASON_REJECTED, which §4.5 makes
+				// deliberately non-specific, and both of the codes above tell it exactly what
+				// happened. The 0-row case IS a reused index, so it is answered as one
 				t.Errorf("a loser at a contended stream_index was refused with %v, which is not one of the refusals §6.1 documents for it", result.Reason)
 			}
 		}

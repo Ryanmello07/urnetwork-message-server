@@ -33,6 +33,23 @@
 // together, which is what READ COMMITTED gives a concurrent reader. memory.go says where each
 // one stands in for what.
 //
+// # What the contract demands of a second implementation
+//
+// Two of its gates derive a class rather than checking a list, and both of them will have
+// something to say to the pgx store on its first run.
+//
+// Every [protocol.Reason] the implementation under test can name owes a scenario. The class is
+// walked from the AST — the reasons named by the functions reachable from the methods of the
+// concrete type RunContract was handed — so it is per implementation and not per directory: a
+// refusal only the pgx store can give, such as §6.4's REASON_RATE_LIMITED on `lock_timeout`,
+// belongs to the pgx run and is invisible to the memory one. It is not enough to answer the
+// refusal; there has to be a scenario, because the scenario is what asserts that the refusal
+// allocated nothing.
+//
+// Every error sentinel declared beside [Store] owes one too. That class is the interface's
+// rather than either implementation's, and it is read out of this package's own source, so a
+// sentinel added tomorrow fails the next run by name.
+//
 // May import: jackc/pgx/v5, this module's redact and metrics, and github.com/urnetwork/server
 // (root package only) for the vault and config resource loading of §10.2. Never
 // github.com/urnetwork/server/model: that package is the operator's account identity layer,
