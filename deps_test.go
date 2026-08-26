@@ -469,6 +469,100 @@ func parseBool(field string) (bool, error) {
 
 // ── the rule itself ──────────────────────────────────────────────────────────────────────
 
+const connectModulePath = "github.com/urnetwork/connect"
+
+// Whether §2.2 permits this dependency: the allow list, or the module closure connect brings
+// with it.
+//
+// The second half arrived with peer, and it is a consequence of the first. §2.2 allows
+// github.com/urnetwork/connect at its root package; peer imports that package, because §4.2's
+// frame binding *is* connect.Client, connect.Route and AddReceiveCallback. A root package cannot
+// be linked without the modules its own go.mod requires, so allowing it and refusing them allows
+// a package that cannot be built — which is word for word the argument go.mod already makes for
+// google.golang.org/protobuf, the other entry §2.2 does not print.
+//
+// What arrives with it is not small: quic-go, the whole of pion, gvisor's netstack, four
+// golang.org/x modules. Every one is now linked into the binary §2.3 deploys, and that is a real
+// widening, which is why it is derived from connect's own go.mod rather than typed here. A typed
+// list of those thirty modules would be thirty chances to widen the rule by one character, and it
+// would go on permitting gvisor for years after connect stopped requiring it. This one stops the
+// day connect does.
+//
+// Forbidden still wins. A module connect requires whose package §2.2 forbids by name is refused,
+// and TestTheConnectClosureIsAllowedOnlyThroughConnectsOwnGoMod holds that in both directions —
+// the derivation must widen the rule for a quic-go package and must not widen it for a banned one.
+func permitted(dep dependency, viaConnect map[string]bool) bool {
+	if isAllowed(dep.path) {
+		return true
+	}
+	return viaConnect[dep.module] && !isForbidden(dep.path)
+}
+
+// The modules github.com/urnetwork/connect declares it cannot be built without, read out of its
+// own go.mod.
+//
+// The directory comes from the go command rather than from ../connect typed here, because a
+// replace is what decides where that module's code is read from and the go command is the thing
+// that resolved it. Reading the path this file assumed would be reading a different go.mod than
+// the one that built the closure.
+func modulesRequiredByConnect(t *testing.T) map[string]bool {
+	t.Helper()
+	directory := strings.TrimSpace(strings.ReplaceAll(
+		goOutput(t, hostConfiguration(t).environment(), "list", "-m", "-f", "{{.Dir}}", connectModulePath),
+		"\r\n", "\n"))
+	if directory == "" {
+		t.Fatalf("the go command named no directory for %s, so this gate would derive its allowance from nothing", connectModulePath)
+	}
+	required := requiresDeclaredAt(t, directory)
+	if len(required) == 0 {
+		t.Fatalf("%s declares no module requirement at all, which is not the go.mod of the module this one reaches a QUIC stack, a WebRTC stack and a netstack through",
+			filepath.Join(directory, "go.mod"))
+	}
+	required[connectModulePath] = true
+	return required
+}
+
+// Every module path a go.mod requires, in either of the two forms a go.mod writes them.
+func requiresDeclaredAt(t *testing.T, directory string) map[string]bool {
+	t.Helper()
+	name := filepath.Join(directory, "go.mod")
+	text, err := os.ReadFile(name)
+	if err != nil {
+		t.Fatalf("reading %s: %v", name, err)
+	}
+	required, block := map[string]bool{}, false
+	for _, line := range strings.Split(strings.ReplaceAll(string(text), "\r\n", "\n"), "\n") {
+		line = strings.TrimSpace(strings.TrimSuffix(line, "\r"))
+		if index := strings.Index(line, "//"); index != -1 {
+			line = strings.TrimSpace(line[:index])
+		}
+		if line == "" {
+			continue
+		}
+		if block {
+			if line == ")" {
+				block = false
+				continue
+			}
+			required[strings.Fields(line)[0]] = true
+			continue
+		}
+		rest, found := strings.CutPrefix(line, "require")
+		// at a word boundary: a directive named requirements is not a require directive
+		if !found || (rest != "" && !strings.HasPrefix(rest, " ") && !strings.HasPrefix(rest, "\t")) {
+			continue
+		}
+		if rest = strings.TrimSpace(rest); rest == "(" {
+			block = true
+			continue
+		}
+		if fields := strings.Fields(rest); len(fields) != 0 {
+			required[fields[0]] = true
+		}
+	}
+	return required
+}
+
 // The dependencies of a set that the rule refuses, split by how they are refused.
 //
 // Allowedness decides. A path the allow list covers is not a violation whatever else it
@@ -479,12 +573,12 @@ func parseBool(field string) (bool, error) {
 // The standard library and this module's own packages are skipped, both of them from what the
 // go command reported rather than from a prefix typed here. What that skip discards is every
 // bit of intra-module structure, which is why the layering has a gate of its own below.
-func violations(deps []dependency) (forbidden []string, unlisted []string) {
+func violations(deps []dependency, viaConnect map[string]bool) (forbidden []string, unlisted []string) {
 	for _, dep := range deps {
 		if dep.standard || dep.main {
 			continue
 		}
-		if isAllowed(dep.path) {
+		if permitted(dep, viaConnect) {
 			continue
 		}
 		unlisted = append(unlisted, dep.path)
@@ -512,18 +606,18 @@ func violations(deps []dependency) (forbidden []string, unlisted []string) {
 // What this cannot see is a directory that declares itself to be the module it stands in for.
 // At that point the lie is inside a go.mod rather than inside the import graph, and it belongs
 // to go.sum and to a reviewer, not to a dependency gate.
-func substitutions(t *testing.T, deps []dependency) []string {
+func substitutions(t *testing.T, deps []dependency, viaConnect map[string]bool) []string {
 	t.Helper()
 	found := []string{}
 	for _, dep := range deps {
-		if dep.standard || dep.main || !isAllowed(dep.path) {
+		if dep.standard || dep.main || !permitted(dep, viaConnect) {
 			continue
 		}
 		origin := dep.module
 		if dep.replaceDir != "" {
 			origin = modulePathDeclaredAt(t, dep.replaceDir)
 		}
-		if isAllowed(origin) {
+		if isAllowed(origin) || viaConnect[origin] {
 			continue
 		}
 		found = append(found, fmt.Sprintf("%s, whose code the go command read from module %s", dep.path, origin))
@@ -887,7 +981,7 @@ func assertTheMatcherWorks(t *testing.T) {
 
 	block, wantForbidden, wantUnlisted := plantedControl()
 
-	forbidden, unlisted := violations(parseDependencies(t, "the planted control", block))
+	forbidden, unlisted := violations(parseDependencies(t, "the planted control", block), nil)
 	if !slices.Equal(forbidden, wantForbidden) {
 		t.Fatalf("the matcher called %v forbidden in the planted control, want %v", forbidden, wantForbidden)
 	}
@@ -899,13 +993,13 @@ func assertTheMatcherWorks(t *testing.T) {
 	// writes "\n", but the day somebody moves these controls into a testdata file this is the
 	// difference between a parser that reads every row and one that reads a single malformed
 	// line and reports the module clean
-	forbidden, unlisted = violations(parseDependencies(t, "the planted control in CRLF", strings.ReplaceAll(block, "\n", "\r\n")))
+	forbidden, unlisted = violations(parseDependencies(t, "the planted control in CRLF", strings.ReplaceAll(block, "\n", "\r\n")), nil)
 	if !slices.Equal(forbidden, wantForbidden) || !slices.Equal(unlisted, wantUnlisted) {
 		t.Fatalf("the matcher called %v forbidden and %v unlisted in the CRLF rendering of the planted control, want %v and %v",
 			forbidden, unlisted, wantForbidden, wantUnlisted)
 	}
 
-	forbidden, unlisted = violations(parseDependencies(t, "the clean control", cleanControl))
+	forbidden, unlisted = violations(parseDependencies(t, "the clean control", cleanControl), nil)
 	if len(forbidden) != 0 || len(unlisted) != 0 {
 		t.Fatalf("the matcher refused %v and %v in a control that holds only allowed dependencies", forbidden, unlisted)
 	}
@@ -945,20 +1039,20 @@ func TestAnAllowedPathWhoseCodeCameFromElsewhereIsRefused(t *testing.T) {
 
 	// the path half of the rule permits every one of these rows, so nothing but the directory
 	// decides — without this the check below could pass because the path had been refused
-	if forbidden, unlisted := violations(parseDependencies(t, "the substituted control", row(elsewhere))); len(forbidden) != 0 || len(unlisted) != 0 {
+	if forbidden, unlisted := violations(parseDependencies(t, "the substituted control", row(elsewhere)), nil); len(forbidden) != 0 || len(unlisted) != 0 {
 		t.Fatalf("the path half of the rule refused %v and %v, so this control is not testing what it claims", forbidden, unlisted)
 	}
 
-	substituted := substitutions(t, parseDependencies(t, "the substituted control", row(elsewhere)))
+	substituted := substitutions(t, parseDependencies(t, "the substituted control", row(elsewhere)), nil)
 	if len(substituted) != 1 {
 		t.Fatalf("connect/message replaced by a directory declaring module example.com/not-connect was reported as %v, want exactly one refusal", substituted)
 	}
 
-	if clean := substitutions(t, parseDependencies(t, "the sibling control", row(sibling))); len(clean) != 0 {
+	if clean := substitutions(t, parseDependencies(t, "the sibling control", row(sibling)), nil); len(clean) != 0 {
 		t.Fatalf("the sibling checkout §2.1's own workspace layout is built on was refused as %v", clean)
 	}
 
-	if clean := substitutions(t, parseDependencies(t, "the unreplaced control", row(""))); len(clean) != 0 {
+	if clean := substitutions(t, parseDependencies(t, "the unreplaced control", row("")), nil); len(clean) != 0 {
 		t.Fatalf("a dependency with no replace directive at all was refused as %v", clean)
 	}
 }
@@ -972,6 +1066,8 @@ func TestEveryDependencyOfThisModuleIsOneSpecB22Allows(t *testing.T) {
 
 	packages := packagesOfThisModule(t)
 	measurements := measureThisModule(t)
+	viaConnect := modulesRequiredByConnect(t)
+	t.Logf("%s requires %d modules, and §2.2's allowance of its root package carries every package of them", connectModulePath, len(viaConnect))
 	reached := map[string]bool{}
 
 	for _, measured := range measurements {
@@ -992,7 +1088,7 @@ func TestEveryDependencyOfThisModuleIsOneSpecB22Allows(t *testing.T) {
 			}
 		}
 
-		forbidden, unlisted := violations(measured.deps)
+		forbidden, unlisted := violations(measured.deps, viaConnect)
 		if len(forbidden) != 0 {
 			t.Errorf("%s.\nspec B §2.2 forbids these outright and this module reaches them:\n  %s\nthe operator's model package is the account identity layer and §4.2 forbids consulting it; connect/mls is forbidden by §5.3, because the moment an MLS parser is in this process \"just validate the commit\" is a one-line change",
 				measured, strings.Join(forbidden, "\n  "))
@@ -1001,7 +1097,7 @@ func TestEveryDependencyOfThisModuleIsOneSpecB22Allows(t *testing.T) {
 			t.Errorf("%s.\nthese are not in spec B §2.2's allow list:\n  %s\neither the import is wrong, or §2.2 has grown and allowedDependencies in this file has not; write it down deliberately — this gate is the only place a new dependency of this module is looked at",
 				measured, strings.Join(unlisted, "\n  "))
 		}
-		if substituted := substitutions(t, measured.deps); len(substituted) != 0 {
+		if substituted := substitutions(t, measured.deps, viaConnect); len(substituted) != 0 {
 			t.Errorf("%s.\nthese carry an import path §2.2 allows and code from a module it does not:\n  %s\na replace directive does not change an import path, so the allow list above cannot see this; §2.1's workspace layout replaces a sibling with the module of the same name and with nothing else",
 				measured, strings.Join(substituted, "\n  "))
 		}
@@ -1042,6 +1138,71 @@ func TestNoAllowedDependencyIsAlsoForbidden(t *testing.T) {
 			}
 		}
 	}
+}
+
+// The closure connect brings with it is permitted through connect's own go.mod, and through
+// nothing else.
+//
+// [permitted] is a widening of the rule, and a widening is the one edit that can turn a
+// dependency gate off. So it is held in both directions here rather than only exercised by the
+// module it was added for. A package of a module connect requires must be refused by the list
+// alone and permitted with the derivation — otherwise the derivation is doing nothing and the
+// real module is being let through by something else. And a package §2.2 forbids by name must
+// stay refused even when its module is in the derived set, which is what stops "connect requires
+// it" from becoming a way to import the operator's identity layer.
+//
+// The third half is that the derivation read a file at all. A go.mod parser that returned an
+// empty map would make [permitted] the allow list again, and the whole of this module's real
+// closure would then fail the gate — loudly, which is the good case. It would also make the
+// first assertion below pass for the wrong reason, which is not, so the count and one known
+// module are asserted directly.
+func TestTheConnectClosureIsAllowedOnlyThroughConnectsOwnGoMod(t *testing.T) {
+	viaConnect := modulesRequiredByConnect(t)
+	t.Logf("%s requires %d modules: %v", connectModulePath, len(viaConnect), sortedKeys(viaConnect))
+	if len(viaConnect) < 10 {
+		t.Fatalf("%s was read as requiring %d modules, and the go.mod that reaches quic-go, pion, gvisor and four golang.org/x modules requires more than that; the parser has stopped reading it",
+			connectModulePath, len(viaConnect))
+	}
+	if !viaConnect["github.com/quic-go/quic-go"] {
+		t.Fatalf("%s was read as not requiring github.com/quic-go/quic-go, which connect/transport.go imports directly", connectModulePath)
+	}
+
+	row := func(path string, module string) string {
+		return strings.Join([]string{path, "false", "", module, "false", ""}, "\t")
+	}
+
+	// the direction that must widen
+	quic := parseDependencies(t, "the quic control", row("github.com/quic-go/quic-go/internal/wire", "github.com/quic-go/quic-go"))
+	if _, unlisted := violations(quic, nil); len(unlisted) != 1 {
+		t.Fatalf("a quic-go package was already permitted by the allow list alone, so nothing below is testing the derivation")
+	}
+	if _, unlisted := violations(quic, viaConnect); len(unlisted) != 0 {
+		t.Fatalf("a quic-go package is refused with connect's own requirements in hand: %v", unlisted)
+	}
+
+	// the direction that must not, for every entry of the forbidden list rather than for one
+	// chosen example
+	for _, banned := range forbiddenDependencies {
+		module := moduleRootOf(banned.path)
+		planted := map[string]bool{module: true}
+		for required := range viaConnect {
+			planted[required] = true
+		}
+		forbidden, unlisted := violations(parseDependencies(t, "the forbidden control", row(banned.path, module)), planted)
+		if len(forbidden) != 1 || len(unlisted) != 1 {
+			t.Fatalf("%s, forbidden by §2.2 and required by a module in the derived set, was reported forbidden %v and unlisted %v; a derived allowance must not clear a named ban",
+				banned.path, forbidden, unlisted)
+		}
+	}
+}
+
+func sortedKeys(values map[string]bool) []string {
+	keys := []string{}
+	for key := range values {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	return keys
 }
 
 // Everything spec B §2.2 writes under FORBIDDEN is on the forbidden list in this file.
