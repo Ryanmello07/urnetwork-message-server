@@ -367,6 +367,13 @@ func TestAHelloCarriesNoKeyChainAndSaysSo(t *testing.T) {
 }
 
 // A peer with no connection idle bound declares the two things that costs.
+//
+// This test is about the declaration and only about the declaration. That a configured bound is
+// a bound rather than a way to make the declaration go away is a separate claim, and it is
+// asserted separately — see TestANonceDoesNotOutliveTheConnectionIdleBound and
+// TestTheLiveConnectionMapIsBoundedByTheIdleBound. The two used to be one: this test passed on
+// a build where Config.ConnectionIdle reached nothing but this branch, so setting it removed
+// the warning without creating the bound the warning was about.
 func TestAPeerWithNoConnectionIdleBoundDeclaresIt(t *testing.T) {
 	fixture := newFixture(t)
 	if !slices.ContainsFunc(fixture.peer.NotBuilt(), func(entry api.NotBuilt) bool { return entry.What == unsweptConnections.What }) {

@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -398,5 +399,124 @@ func TestTheSweepClosesAnIdleConnectionAndItsNonce(t *testing.T) {
 	}
 	if connections.IsLive(opened) {
 		t.Fatal("a swept connection still reports itself live")
+	}
+}
+
+// ── the idle bound ───────────────────────────────────────────────────────────────────────
+
+// A clock the test moves and the peer reads.
+//
+// Guarded, because the value is read by whichever worker is serving a request and written by
+// the test goroutine, and an injected clock that raced would turn every bound built on it into
+// a test that fails somewhere else.
+type testClock struct {
+	mutex sync.Mutex
+	now   time.Time
+}
+
+func newTestClock() *testClock {
+	return &testClock{now: time.Unix(1767225600, 0).UTC()}
+}
+
+func (self *testClock) time() time.Time {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	return self.now
+}
+
+func (self *testClock) advance(interval time.Duration) {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	self.now = self.now.Add(interval)
+}
+
+func submitting(record *protocol.Record) *protocol.SubmitRequest {
+	return &protocol.SubmitRequest{
+		GroupId: bytes.Repeat([]byte{0x21}, 32),
+		Records: []*protocol.Record{record},
+	}
+}
+
+// A nonce does not outlive the idle bound, on the path a client actually reaches it by.
+//
+// This is the half of spec A §5.7 that has no in-band event behind it. A client that reconnects
+// and says Hello destroys its own previous nonce, and
+// TestARecordSealedAgainstAClosedConnectionsNonceIsRefusedOnTheNext is that. A client that
+// disappears and comes back without announcing it — the case connect gives this server no way
+// to detect at all — leaves a connection nothing will ever replace, and the idle bound is the
+// entire limit on how long the nonce sealed against that session goes on verifying.
+//
+// So it is asserted through the frame path against the real MAC rather than against the
+// registry, and on an injected clock rather than by waiting: what a configured bound has to
+// produce is a refusal at the far end of a connect client, not a smaller number in a map.
+func TestANonceDoesNotOutliveTheConnectionIdleBound(t *testing.T) {
+	clock := newTestClock()
+	fixture := newFixtureWith(t, Config{ConnectionIdle: time.Minute, Now: clock.time})
+	writeKey := testWriteKey()
+	fixture.handler.onSubmit = verifyingSubmit(writeKey)
+
+	first := fixture.hello(t)
+	inside := fixture.call(t, submitting(sealRecord(t, writeKey, first.GetServerNonce(), 1)))
+	if reason := firstResult(t, inside); reason != protocol.Reason_REASON_OK {
+		t.Fatalf("a record sealed against a nonce seconds old was answered %v; the bound below would then be refusing everything rather than refusing what is past it", reason)
+	}
+
+	// an hour of silence, under a one-minute bound
+	clock.advance(time.Hour)
+
+	replayed := fixture.call(t, submitting(sealRecord(t, writeKey, first.GetServerNonce(), 2)))
+	if replayed.GetReason() != protocol.Reason_REASON_REJECTED {
+		t.Fatalf("a request an hour past a one-minute idle bound was answered %v on the envelope; the session it names ended an hour ago and its nonce was to have gone with it",
+			replayed.GetReason())
+	}
+	if calls := fixture.handler.recorded(); len(calls) != 1 {
+		t.Fatalf("the handler was reached %d times; a request past the idle bound must not reach one at all, so §5.1 check 2 is the thing that refused it", len(calls))
+	}
+	if count := fixture.connections.Count(); count != 0 {
+		t.Fatalf("%d connections are still live an hour past a one-minute idle bound", count)
+	}
+
+	// the control §5.7 names as the recovery: a new Hello, a new nonce, and the same record
+	// re-MAC'd against it. Without this, "the record was refused" is equally consistent with a
+	// peer that had simply stopped serving
+	second := fixture.hello(t)
+	if bytes.Equal(first.GetServerNonce(), second.GetServerNonce()) {
+		t.Fatal("the Hello after the bound issued the previous connection's nonce again")
+	}
+	resealed := fixture.call(t, submitting(sealRecord(t, writeKey, second.GetServerNonce(), 2)))
+	if reason := firstResult(t, resealed); reason != protocol.Reason_REASON_OK {
+		t.Fatalf("a record re-MAC'd against the new connection's nonce was answered %v, so the refusal above was not about the bound", reason)
+	}
+}
+
+// The live connection map is bounded by the idle bound, and a Hello is what collects it.
+//
+// The other half of what [unsweptConnections] declares: with no bound the map holds one entry
+// per client_id that ever said Hello and never shrinks, which is a memory bound chosen by
+// anyone who can address a frame. A Hello is the only thing that can add an entry, so a Hello
+// is where the collection has to happen for the bound to be one — see [Connections.Open].
+func TestTheLiveConnectionMapIsBoundedByTheIdleBound(t *testing.T) {
+	clock := newTestClock()
+	connections, err := NewConnections(rand.Reader, clock.time, time.Minute)
+	if err != nil {
+		t.Fatalf("NewConnections: %v", err)
+	}
+
+	// a hundred client_ids that say Hello once and are never heard from again
+	for range 100 {
+		if _, err := connections.Open(connect.NewId()); err != nil {
+			t.Fatalf("Open: %v", err)
+		}
+	}
+	if count := connections.Count(); count != 100 {
+		t.Fatalf("%d connections are live after a hundred Hellos from a hundred client_ids", count)
+	}
+
+	clock.advance(time.Hour)
+	if _, err := connections.Open(connect.NewId()); err != nil {
+		t.Fatalf("the hundred-and-first Open: %v", err)
+	}
+	if count := connections.Count(); count != 1 {
+		t.Fatalf("%d connections are live after a hundred said Hello an hour ago under a one-minute bound; the live map still grows one entry per client_id that ever said Hello", count)
 	}
 }

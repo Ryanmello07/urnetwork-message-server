@@ -61,8 +61,17 @@ var (
 //
 // What this cannot do is notice a reconnect the client does not announce. That gap is the
 // platform's rather than this file's, it is written down here beside the code that would close
-// it if connect ever grew a session identity, and [Connections.Sweep] is what bounds how long a
+// it if connect ever grew a session identity, and the idle bound is what limits how long a
 // nonce outlives a session the client ended without saying so.
+//
+// That bound is enforced on the request path and on the Hello path, by [Connections.expired],
+// and by nothing else — there is no sweeper goroutine here to start and therefore none to
+// forget to start. [Connections.Lookup] applies it to the one entry it resolves, so a nonce
+// stops verifying at the bound rather than at whenever something else happened to run; and
+// [Connections.Open] sweeps the whole map, so the map holds only client_ids that have said
+// Hello or carried a frame inside the bound. This is [reassembly.expire]'s arrangement for the
+// same reason: an expiry whose only trigger is a goroutine somebody has to remember to start
+// is an expiry that a build silently ships without.
 type Connections struct {
 	random io.Reader
 	now    func() time.Time
@@ -71,6 +80,10 @@ type Connections struct {
 	// disables it, which is what [Peer.NotBuilt] declares: without an idle bound the live map
 	// holds one entry per client_id that ever said Hello and never grows back down, and that
 	// is a memory bound anyone who can address a frame gets to choose.
+	//
+	// Read in exactly one place, [Connections.expired]. Three methods bound themselves by it
+	// and a fourth copy of `seen.Before(now.Add(-idle))` in any of them would be a build that
+	// enforces the bound where somebody last edited and not where they did not.
 	idle time.Duration
 
 	mutex sync.Mutex
@@ -131,10 +144,18 @@ func (self *Connections) Open(clientId connect.Id) (*Connection, error) {
 
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
+	// before the sweep, so that a client whose previous connection has just been swept is still
+	// on its second epoch rather than back on its first. The generation is on no wire and in no
+	// preimage, and the one thing it is for is telling two connections of one client_id apart
 	generation := uint64(1)
 	if previous, found := self.live[clientId]; found {
 		generation = previous.generation + 1
 	}
+	// every Hello sweeps, which is the whole of what bounds the live map. A Hello is the only
+	// thing that can add an entry, so sweeping here means the map holds only what has been
+	// heard from inside the bound plus the one being added — a bound rather than a hope that
+	// something calls Sweep
+	self.sweep()
 	current := &Connection{
 		clientId:   clientId,
 		nonce:      nonce,
@@ -150,6 +171,16 @@ func (self *Connections) Open(clientId connect.Id) (*Connection, error) {
 // This is §5.1 check 2's "the server knows its own connection's nonce and looks it up from the
 // connection": the only argument is the platform-authenticated `source.SourceId`, and there is
 // no overload of this that takes a request.
+//
+// The idle bound decides here as well as in the sweep, and this is where it becomes a bound
+// rather than a setting. A connection past it resolves to nothing, so its nonce stops verifying
+// at the bound itself rather than whenever the next Hello happens to sweep — the difference
+// between the two is the window in which a record sealed against a session the client ended
+// without saying so still verifies, and that window is the reason the bound exists.
+//
+// The expired entry is deleted rather than only refused: leaving it would leave the map holding
+// something nothing can resolve, and would let a later frame inside a fresh bound resurrect a
+// nonce that has already been declared gone.
 func (self *Connections) Lookup(clientId connect.Id) (*Connection, bool) {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
@@ -157,7 +188,12 @@ func (self *Connections) Lookup(clientId connect.Id) (*Connection, bool) {
 	if !found {
 		return nil, false
 	}
-	current.touch(self.now())
+	now := self.now()
+	if self.expired(current, now) {
+		delete(self.live, clientId)
+		return nil, false
+	}
+	current.touch(now)
 	return current, true
 }
 
@@ -173,29 +209,67 @@ func (self *Connections) IsLive(current *Connection) bool {
 	}
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
-	return self.live[current.clientId] == current
+	if self.live[current.clientId] != current {
+		return false
+	}
+	// and the bound again, so that "live" is one predicate rather than two that agree until an
+	// idle connection is asked about through this door instead of through Lookup
+	return !self.expired(current, self.now())
 }
 
 // Close every connection idle longer than the configured bound, and answer how many went.
 //
-// Zero disables it entirely, and [Peer.NotBuilt] says so: this is the only thing that bounds the
-// live map, and the only thing that bounds how long a nonce outlives a session whose client
-// stopped talking without saying so.
+// Zero disables it entirely, and [Peer.NotBuilt] says so: with no bound the live map has no
+// upper limit at all, and a nonce outlives a session whose client stopped talking without
+// saying so for as long as the process runs.
+//
+// Exported because an operator loop or a drain may want to run it early, but nothing in this
+// module depends on anything calling it: [Connections.Open] runs the same pass on every Hello
+// and [Connections.Lookup] applies the same bound to the entry it resolves, so the bound holds
+// in a build where this method is never called at all. It used to be the other way round, and
+// what that cost was that configuring the bound removed [unsweptConnections] from the list of
+// what this build does not do without creating the bound it declared missing.
 func (self *Connections) Sweep() int {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	return self.sweep()
+}
+
+// The sweep itself, under the caller's lock, so that [Connections.Open] can run it in the same
+// critical section it replaces a connection in.
+func (self *Connections) sweep() int {
 	if self.idle == 0 {
 		return 0
 	}
-	self.mutex.Lock()
-	defer self.mutex.Unlock()
+	now := self.now()
 	closed := 0
-	deadline := self.now().Add(-self.idle)
 	for clientId, current := range self.live {
-		if current.lastSeen().Before(deadline) {
+		if self.expired(current, now) {
 			delete(self.live, clientId)
 			closed++
 		}
 	}
 	return closed
+}
+
+// Whether this connection has been silent for longer than the idle bound.
+//
+// The only expression of the bound in this package. The sweep, the lookup and the liveness
+// predicate all ask here, so there is no arrangement of edits in which one of them enforces a
+// bound the others do not — a connection that is expired to the sweep and live to a lookup
+// would be a nonce that verifies for as long as nothing sweeps.
+//
+// A zero bound is no bound, and answers false rather than "everything is expired": zero is what
+// [Peer.NotBuilt] declares through [unsweptConnections], and a declaration of a missing bound
+// has to describe a build that actually has no bound.
+//
+// Takes `now` rather than reading the clock, because the sweep asks about every connection in
+// one pass and a clock read per entry would make the deadline drift down the map.
+func (self *Connections) expired(current *Connection, now time.Time) bool {
+	if self.idle == 0 {
+		return false
+	}
+	return current.lastSeen().Before(now.Add(-self.idle))
 }
 
 func (self *Connections) Count() int {
