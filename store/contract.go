@@ -221,9 +221,12 @@ func contractAllocation(t *testing.T, newStore func() Store, seen *recorder) {
 	if created.Reason != protocol.Reason_REASON_OK {
 		t.Fatalf("CreateGroup answered %v", created.Reason)
 	}
-	if created.RecordId != firstRecordId {
-		t.Fatalf("the founding commit was given record_id %d, want %d; §3.2 is 1-based so that since_record_id = 0 can mean from the beginning",
-			created.RecordId, firstRecordId)
+	// the literal 1, never the package's own constant: a contract that read the number out of
+	// the implementation would agree with an implementation that had changed it, which is the
+	// exact edit §3.2 spends a paragraph warning about
+	if created.RecordId != 1 {
+		t.Fatalf("the founding commit was given record_id %d, want 1; §3.2 is 1-based so that since_record_id = 0 can mean from the beginning",
+			created.RecordId)
 	}
 	if created.CurrentEpoch != 1 {
 		t.Fatalf("CreateGroup left current_epoch at %d, want 1", created.CurrentEpoch)
@@ -245,7 +248,7 @@ func contractAllocation(t *testing.T, newStore func() Store, seen *recorder) {
 		t.Fatalf("since_record_id = 0 returned %d records, want all 8; a 0-based allocator makes the founding commit unfetchable by everyone who did not create it", len(fetched.Records))
 	}
 	for index, record := range fetched.Records {
-		if want := uint64(index) + firstRecordId; record.RecordId != want {
+		if want := uint64(index) + 1; record.RecordId != want {
 			t.Fatalf("record %d of the group has record_id %d, want %d; the id sequence is gapless and a hole in it is what §12.2 C-4 tells clients to treat as a fault",
 				index, record.RecordId, want)
 		}
