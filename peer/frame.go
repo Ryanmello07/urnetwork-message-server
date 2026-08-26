@@ -81,12 +81,21 @@ func newReassembly(now func() time.Time, maxRequestBytes int, perClient int, idl
 
 // One fragment, applied.
 //
-// Answers the assembled request bytes once the last fragment lands, nil while more are expected,
-// and a refusal reason on any of §4.6's four abort conditions. Every abort frees the buffer
-// before returning, which is §4.6's "frees the buffer immediately" — an unbounded reassembly
-// buffer is the memory-exhaustion vector the rule exists for, and a buffer freed one stage later
-// is a buffer an attacker gets to hold open by never sending the last fragment.
-func (self *reassembly) accept(clientId connect.Id, fragment *protocol.MessageServerFragment) ([]byte, protocol.Reason) {
+// Answers the assembled request bytes, whether the request is now complete, and a refusal reason
+// on any of §4.6's four abort conditions. Every abort frees the buffer before returning, which is
+// §4.6's "frees the buffer immediately" — an unbounded reassembly buffer is the memory-exhaustion
+// vector the rule exists for, and a buffer freed one stage later is a buffer an attacker gets to
+// hold open by never sending the last fragment.
+//
+// Completion is its own return value and not a nil check on the bytes, because a request can be
+// zero bytes long: `proto.Marshal(&MessageServerRequest{})` is zero bytes, and nothing stops a
+// client fragmenting one. Signalled by a nil slice, that reassembly *completed* — its state
+// freed and its per-client count decremented — while answering the sentinel that means "more
+// fragments are expected", so the caller returned without sending anything and without counting
+// a drop: a well-formed frame carrying a request_id that was received, never served and never
+// answered. The unfragmented path decodes those same zero bytes and answers REASON_REJECTED,
+// and §4.6 is not a second opinion about what an empty request means.
+func (self *reassembly) accept(clientId connect.Id, fragment *protocol.MessageServerFragment) ([]byte, bool, protocol.Reason) {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 	self.expire()
@@ -97,18 +106,18 @@ func (self *reassembly) accept(clientId connect.Id, fragment *protocol.MessageSe
 		// a count of zero names no fragments at all, and an index past the count names a
 		// fragment of a request with fewer of them than the sender just claimed
 		if fragment.GetCount() == 0 || fragment.GetCount() <= fragment.GetIndex() {
-			return nil, protocol.Reason_REASON_REJECTED
+			return nil, false, protocol.Reason_REASON_REJECTED
 		}
 		// §4.6 delivers fragments in order, so a first fragment that is not index 0 is a request
 		// whose beginning is not coming
 		if fragment.GetIndex() != 0 {
-			return nil, protocol.Reason_REASON_REJECTED
+			return nil, false, protocol.Reason_REASON_REJECTED
 		}
 		// §4.6 names no reason code for the per-client cap, and §4.5's REASON_REJECTED is the
 		// non-specific refusal every unnamed one falls back to. REASON_RATE_LIMITED would be a
 		// claim that this build has the limiter of §4.7, and §5.1 check 4 is still absent
 		if self.perClient <= self.counts[clientId] {
-			return nil, protocol.Reason_REASON_REJECTED
+			return nil, false, protocol.Reason_REASON_REJECTED
 		}
 		current = &partial{count: fragment.GetCount(), started: self.now()}
 		self.inFlight[key] = current
@@ -117,21 +126,21 @@ func (self *reassembly) accept(clientId connect.Id, fragment *protocol.MessageSe
 
 	if fragment.GetCount() != current.count || fragment.GetIndex() != current.next {
 		self.drop(key, clientId)
-		return nil, protocol.Reason_REASON_REJECTED
+		return nil, false, protocol.Reason_REASON_REJECTED
 	}
 	if reason := withinLimits(len(current.bytes)+len(fragment.GetPart()), self.maxRequestBytes); reason != protocol.Reason_REASON_OK {
 		self.drop(key, clientId)
-		return nil, reason
+		return nil, false, reason
 	}
 
 	current.bytes = append(current.bytes, fragment.GetPart()...)
 	current.next++
 	if current.next < current.count {
-		return nil, protocol.Reason_REASON_OK
+		return nil, false, protocol.Reason_REASON_OK
 	}
 	assembled := current.bytes
 	self.drop(key, clientId)
-	return assembled, protocol.Reason_REASON_OK
+	return assembled, true, protocol.Reason_REASON_OK
 }
 
 // Everything past §4.6's 30 seconds, dropped. Called under the lock on every accept, which is

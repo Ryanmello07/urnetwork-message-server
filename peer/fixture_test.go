@@ -180,8 +180,8 @@ func (self *fixture) receive(source connect.TransferPath, frames []*protocol.Fra
 			if proto.Unmarshal(frame.GetMessageBytes(), fragment) != nil {
 				continue
 			}
-			assembled, reason := self.reassembly.accept(source.SourceId, fragment)
-			if reason != protocol.Reason_REASON_OK || assembled == nil {
+			assembled, complete, reason := self.reassembly.accept(source.SourceId, fragment)
+			if reason != protocol.Reason_REASON_OK || !complete {
 				continue
 			}
 			response := &protocol.MessageServerResponse{}
@@ -244,6 +244,19 @@ func (self *fixture) begin(t *testing.T, request *protocol.MessageServerRequest)
 	self.waiting[request.GetRequestId()] = waiter
 	self.mutex.Unlock()
 	self.sendRequest(t, request)
+	return waiter
+}
+
+// A waiter for a `request_id` this fixture did not mint.
+//
+// [fixture.begin] registers one for a request it built; the fragment tests below build the frame
+// themselves, and the request_id they have to correlate on is the one inside those bytes rather
+// than the one a helper chose.
+func (self *fixture) waitFor(requestId uint64) chan *protocol.MessageServerResponse {
+	waiter := make(chan *protocol.MessageServerResponse, 1)
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	self.waiting[requestId] = waiter
 	return waiter
 }
 
@@ -439,4 +452,36 @@ func (self *recordingHandler) Fetch(ctx context.Context, conn *api.Connection, r
 
 func (self *recordingHandler) NotBuilt() []api.NotBuilt {
 	return self.notBuilt
+}
+
+// Every response the client has received for one `request_id`, in the order its frames arrived,
+// once at least `wanted` of them have.
+//
+// Read out of the raw frames rather than through [fixture.deliver], because the correlator keeps
+// the first response for a request_id and files the rest as unmatched — and which one is first
+// is exactly what a test about ordering has to look at.
+func (self *fixture) responsesFor(t *testing.T, requestId uint64, wanted int) []*protocol.MessageServerResponse {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		found := []*protocol.MessageServerResponse{}
+		for _, frame := range self.frames() {
+			if frame.GetMessageType() != protocol.MessageType_MessageMessageServerResponse {
+				continue
+			}
+			response := &protocol.MessageServerResponse{}
+			if proto.Unmarshal(frame.GetMessageBytes(), response) != nil || response.GetRequestId() != requestId {
+				continue
+			}
+			found = append(found, response)
+		}
+		if wanted <= len(found) {
+			return found
+		}
+		if deadline.Before(time.Now()) {
+			t.Fatalf("%d of %d responses for request_id %d arrived within 30s", len(found), wanted, requestId)
+			return nil
+		}
+		time.Sleep(time.Millisecond)
+	}
 }

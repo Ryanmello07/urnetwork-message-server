@@ -2,6 +2,8 @@ package peer
 
 import (
 	"bytes"
+	"context"
+	"crypto/rand"
 	"errors"
 	"testing"
 	"time"
@@ -218,24 +220,24 @@ func TestEveryWaySpecB46AbortsAReassembly(t *testing.T) {
 
 	t.Run("a count of zero", func(t *testing.T) {
 		buffers := newReassembly(clock, 4096, 16, DefaultReassemblyIdle)
-		if _, reason := buffers.accept(clientId, &protocol.MessageServerFragment{RequestId: 1, Count: 0}); reason != protocol.Reason_REASON_REJECTED {
+		if _, _, reason := buffers.accept(clientId, &protocol.MessageServerFragment{RequestId: 1, Count: 0}); reason != protocol.Reason_REASON_REJECTED {
 			t.Fatalf("a fragment naming no fragments at all was answered %v", reason)
 		}
 	})
 
 	t.Run("an index past the count", func(t *testing.T) {
 		buffers := newReassembly(clock, 4096, 16, DefaultReassemblyIdle)
-		if _, reason := buffers.accept(clientId, &protocol.MessageServerFragment{RequestId: 1, Index: 3, Count: 2}); reason != protocol.Reason_REASON_REJECTED {
+		if _, _, reason := buffers.accept(clientId, &protocol.MessageServerFragment{RequestId: 1, Index: 3, Count: 2}); reason != protocol.Reason_REASON_REJECTED {
 			t.Fatalf("fragment 3 of 2 was answered %v", reason)
 		}
 	})
 
 	t.Run("out of order, which aborts rather than buffering a hole", func(t *testing.T) {
 		buffers := newReassembly(clock, 4096, 16, DefaultReassemblyIdle)
-		if _, reason := buffers.accept(clientId, &protocol.MessageServerFragment{RequestId: 1, Index: 0, Count: 3, Part: []byte("a")}); reason != protocol.Reason_REASON_OK {
+		if _, _, reason := buffers.accept(clientId, &protocol.MessageServerFragment{RequestId: 1, Index: 0, Count: 3, Part: []byte("a")}); reason != protocol.Reason_REASON_OK {
 			t.Fatalf("the first fragment was answered %v", reason)
 		}
-		if _, reason := buffers.accept(clientId, &protocol.MessageServerFragment{RequestId: 1, Index: 2, Count: 3, Part: []byte("c")}); reason != protocol.Reason_REASON_REJECTED {
+		if _, _, reason := buffers.accept(clientId, &protocol.MessageServerFragment{RequestId: 1, Index: 2, Count: 3, Part: []byte("c")}); reason != protocol.Reason_REASON_REJECTED {
 			t.Fatalf("fragment 2 arriving after fragment 0 was answered %v, want the request aborted", reason)
 		}
 		if left := buffers.inFlightCount(); left != 0 {
@@ -246,28 +248,28 @@ func TestEveryWaySpecB46AbortsAReassembly(t *testing.T) {
 	t.Run("past the concurrent cap for one client", func(t *testing.T) {
 		buffers := newReassembly(clock, 4096, 16, DefaultReassemblyIdle)
 		for index := range 16 {
-			if _, reason := buffers.accept(clientId, &protocol.MessageServerFragment{RequestId: uint64(index), Index: 0, Count: 2, Part: []byte("x")}); reason != protocol.Reason_REASON_OK {
+			if _, _, reason := buffers.accept(clientId, &protocol.MessageServerFragment{RequestId: uint64(index), Index: 0, Count: 2, Part: []byte("x")}); reason != protocol.Reason_REASON_OK {
 				t.Fatalf("in-flight reassembly %d was answered %v", index, reason)
 			}
 		}
-		if _, reason := buffers.accept(clientId, &protocol.MessageServerFragment{RequestId: 99, Index: 0, Count: 2, Part: []byte("x")}); reason != protocol.Reason_REASON_REJECTED {
+		if _, _, reason := buffers.accept(clientId, &protocol.MessageServerFragment{RequestId: 99, Index: 0, Count: 2, Part: []byte("x")}); reason != protocol.Reason_REASON_REJECTED {
 			t.Fatalf("the seventeenth concurrent reassembly was answered %v; §4.6 caps a client at sixteen", reason)
 		}
 		// another client is not affected by this one's cap
-		if _, reason := buffers.accept(connect.NewId(), &protocol.MessageServerFragment{RequestId: 99, Index: 0, Count: 2, Part: []byte("x")}); reason != protocol.Reason_REASON_OK {
+		if _, _, reason := buffers.accept(connect.NewId(), &protocol.MessageServerFragment{RequestId: 99, Index: 0, Count: 2, Part: []byte("x")}); reason != protocol.Reason_REASON_OK {
 			t.Fatalf("a second client was refused for the first client's in-flight reassemblies")
 		}
 	})
 
 	t.Run("past §4.6's thirty seconds", func(t *testing.T) {
 		buffers := newReassembly(clock, 4096, 16, DefaultReassemblyIdle)
-		if _, reason := buffers.accept(clientId, &protocol.MessageServerFragment{RequestId: 1, Index: 0, Count: 2, Part: []byte("a")}); reason != protocol.Reason_REASON_OK {
+		if _, _, reason := buffers.accept(clientId, &protocol.MessageServerFragment{RequestId: 1, Index: 0, Count: 2, Part: []byte("a")}); reason != protocol.Reason_REASON_OK {
 			t.Fatalf("the first fragment was answered %v", reason)
 		}
 		now = now.Add(DefaultReassemblyIdle + time.Second)
 		// the second fragment of an expired request opens a new reassembly, so it is refused as
 		// a first fragment with a non-zero index rather than appended to a buffer that is gone
-		if _, reason := buffers.accept(clientId, &protocol.MessageServerFragment{RequestId: 1, Index: 1, Count: 2, Part: []byte("b")}); reason != protocol.Reason_REASON_REJECTED {
+		if _, _, reason := buffers.accept(clientId, &protocol.MessageServerFragment{RequestId: 1, Index: 1, Count: 2, Part: []byte("b")}); reason != protocol.Reason_REASON_REJECTED {
 			t.Fatalf("a fragment arriving after the expiry was appended to the expired buffer: %v", reason)
 		}
 		if left := buffers.inFlightCount(); left != 0 {
@@ -397,5 +399,188 @@ func TestAResponsePastMaxResponseBytesIsRefusedWithItsOwnRequestId(t *testing.T)
 	}
 	if response.GetFetch() != nil {
 		t.Fatal("the refusal carried the body it was refusing to carry")
+	}
+}
+
+// A fragmented request that assembles to nothing is answered, and answered the same way the
+// unfragmented one is.
+//
+// `proto.Marshal(&MessageServerRequest{})` is zero bytes, so an empty request is a well-formed
+// thing a client can fragment without doing anything malformed at all. Reassembly used to report
+// completion by handing back a non-nil slice, and an empty request assembles to a nil one: the
+// reassembly *completed* — its state freed, its per-client count decremented — while answering
+// the sentinel that means "more fragments are expected". The frame was received, never served,
+// never answered and never counted as dropped, which is precisely what peer/doc.go says no path
+// through this package does.
+//
+// The unfragmented control is what makes it a comparison rather than an expectation: the same
+// zero bytes in a request frame decode and are refused REASON_REJECTED, and §4.6 is not entitled
+// to a second opinion about what an empty request means.
+func TestAFragmentedRequestThatAssemblesToNothingIsAnswered(t *testing.T) {
+	fixture := newFixture(t)
+
+	empty, err := proto.Marshal(&protocol.MessageServerRequest{})
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if len(empty) != 0 {
+		t.Fatalf("an empty MessageServerRequest marshals to %d bytes, so nothing below is about the case this test is named for", len(empty))
+	}
+
+	// the control, unfragmented. request_id 0 is what those zero bytes decode to, and it is what
+	// a response to them has to carry
+	control := fixture.waitFor(0)
+	fixture.sendFrame(t, &protocol.Frame{
+		MessageType:  protocol.MessageType_MessageMessageServerRequest,
+		MessageBytes: empty,
+	})
+	unfragmented := fixture.await(t, control)
+	if unfragmented.GetReason() != protocol.Reason_REASON_REJECTED {
+		t.Fatalf("zero bytes in a request frame were answered %v; §4.5's non-specific refusal is what a request with no body arm gets", unfragmented.GetReason())
+	}
+
+	for _, count := range []uint32{1, 2} {
+		before := fixture.peer.Stats()
+		waiter := fixture.waitFor(0)
+		for index := range count {
+			fixture.sendFragment(t, &protocol.MessageServerFragment{RequestId: 0, Index: index, Count: count})
+		}
+		fragmented := fixture.await(t, waiter)
+
+		if fragmented.GetReason() != unfragmented.GetReason() {
+			t.Fatalf("%d empty fragments assembled to a request answered %v, and the same zero bytes unfragmented were answered %v",
+				count, fragmented.GetReason(), unfragmented.GetReason())
+		}
+		after := fixture.peer.Stats()
+		if after.RequestsServed != before.RequestsServed+1 {
+			t.Fatalf("%d empty fragments assembled and %d requests were served; a completed reassembly is a request",
+				count, after.RequestsServed-before.RequestsServed)
+		}
+		if after.FramesDropped != before.FramesDropped {
+			t.Fatalf("%d empty fragments dropped %d frames; every one of them decoded, so nothing here is a frame this server could not read",
+				count, after.FramesDropped-before.FramesDropped)
+		}
+	}
+}
+
+// §4.6's refusals are not sent on connect's receive loop.
+//
+// connect invokes the receive callback inline on the single loop that reads every peer's frames
+// (transfer.go:1334), and [Peer.send] is a SendWithTimeout whose only bound is
+// [Config.SendTimeout] — thirty seconds by default, and ended by the *remote* peer's read rate.
+// A reassembly refusal sent from the callback therefore hands a client that reads nothing a
+// thirty-second hold on every other client's frames, repeatedly, for the price of one 2 KB
+// frame. [Config.Workers]' backpressure argument does not cover it: that argument is about a
+// queue an internal component drains, and this is a network send a remote peer drains.
+//
+// It is measured rather than argued. connect takes about thirty frames into its own send buffer
+// for a route nobody reads and then blocks for the whole timeout, so a callback that sent
+// inline would spend tens of timeouts here and one that queues spends none.
+func TestASpecB46RefusalIsNotSentOnConnectsReceiveLoop(t *testing.T) {
+	const sendTimeout = 300 * time.Millisecond
+	const frameCount = 64
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	serverClient := connect.NewClient(ctx, connect.NewId(), connect.NewNoContractClientOob(), connect.DefaultClientSettings())
+	t.Cleanup(serverClient.Close)
+
+	// a client whose read side has stopped: its route exists and nothing ever drains it
+	client := connect.NewId()
+	serverClient.ContractManager().AddNoContractPeer(client)
+	unread := make(connect.Route)
+	serverClient.RouteManager().UpdateTransport(
+		connect.NewSendClientTransport(connect.DestinationId(client)), []connect.Route{unread})
+
+	connections, err := NewConnections(rand.Reader, time.Now, 0)
+	if err != nil {
+		t.Fatalf("NewConnections: %v", err)
+	}
+	checks, err := NewChecks(connections, DefaultMaxRequestBytes)
+	if err != nil {
+		t.Fatalf("NewChecks: %v", err)
+	}
+	served, err := New(Config{
+		Client:          serverClient,
+		Handler:         &recordingHandler{},
+		Connections:     connections,
+		Checks:          checks,
+		Capabilities:    &protocol.Capabilities{},
+		ProtocolVersion: fixtureProtocolVersion,
+		ServerId:        make([]byte, 16),
+		SendTimeout:     sendTimeout,
+		QueueDepth:      4 * frameCount,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(served.Close)
+
+	// §4.6 aborts a reassembly whose `count` names no fragments at all, so every one of these
+	// is a refusal carrying a request_id of its own
+	frames := make([]*protocol.Frame, 0, frameCount)
+	for index := range frameCount {
+		body, err := connect.ProtoMarshal(&protocol.MessageServerFragment{RequestId: uint64(index) + 1})
+		if err != nil {
+			t.Fatalf("ProtoMarshal: %v", err)
+		}
+		frames = append(frames, &protocol.Frame{
+			MessageType:  protocol.MessageType_MessageMessageServerFragment,
+			MessageBytes: body,
+		})
+	}
+
+	// what connect does with a batch: this call, on the loop, with the frames borrowed for its
+	// duration (transfer.go:146)
+	start := time.Now()
+	served.receive(connect.TransferPath{SourceId: client}, frames, connect.Peer{})
+	elapsed := time.Since(start)
+
+	if received := served.Stats().FramesReceived; received != frameCount {
+		t.Fatalf("%d of %d fragment frames reached the receive path, so the timing below is about a shorter batch than this test sent", received, frameCount)
+	}
+	if budget := 4 * sendTimeout; budget < elapsed {
+		t.Fatalf("connect's receive loop spent %v on %d malformed fragments from a client that reads nothing; a refusal sent from the callback costs a whole SendTimeout (%v) once connect's send buffer is full, and every other peer's frames wait behind it",
+			elapsed, frameCount, sendTimeout)
+	}
+}
+
+// The refusals of one aborted reassembly reach the client in the order this server decided them.
+//
+// §4.6 abandons a reassembly the moment it would pass `max_request_bytes`, and every fragment of
+// that request which arrives afterwards names a reassembly that is gone — so it is answered with
+// §4.5's non-specific REASON_REJECTED, and all of them carry the request's own `request_id`. A
+// client correlating by `request_id` keeps the first one it sees.
+//
+// So the specific refusal must not be overtaken by the generic ones behind it. That is what
+// decides the shape of [Peer.refuseLoop]: one consumer of one FIFO, rather than the worker pool
+// that answers requests, where sixty refusals would be sixty goroutines racing to the send path
+// and the client would be told REASON_REJECTED for a request whose actual fault was a bound it
+// could have read out of Capabilities.
+func TestTheRefusalsOfOneAbortedReassemblyKeepTheirOrder(t *testing.T) {
+	fixture := newFixtureWith(t, Config{Capabilities: &protocol.Capabilities{MaxRequestBytes: 2048}})
+	fixture.hello(t)
+	fixture.forgetFrames()
+
+	// two fragments fit inside the cap, the third passes it and aborts, and every one after
+	// that is refused for naming a reassembly that no longer exists
+	request := fixture.request(filler(60000))
+	waiter := fixture.waitFor(request.GetRequestId())
+	fixture.sendFragments(t, request, 1024)
+
+	if response := fixture.await(t, waiter); response.GetReason() != protocol.Reason_REASON_OVERSIZE {
+		t.Fatalf("the first refusal the client correlated was %v; the fragment that broke the cap is what the client has to be told about", response.GetReason())
+	}
+
+	responses := fixture.responsesFor(t, request.GetRequestId(), 32)
+	if responses[0].GetReason() != protocol.Reason_REASON_OVERSIZE {
+		t.Fatalf("the first of %d responses for this request_id was %v; §4.6's specific refusal was overtaken by the generic ones behind it",
+			len(responses), responses[0].GetReason())
+	}
+	for index, response := range responses[1:] {
+		if response.GetReason() != protocol.Reason_REASON_REJECTED {
+			t.Fatalf("response %d of this aborted reassembly was %v; every fragment after the abort names a reassembly that is gone, and §4.5's non-specific refusal is what that gets",
+				index+1, response.GetReason())
+		}
 	}
 }

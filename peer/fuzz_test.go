@@ -108,9 +108,12 @@ func FuzzTheInboundFrameSurfaceRefusesRatherThanPanics(f *testing.F) {
 			if !decoded {
 				return
 			}
-			assembled, reason := served.reassembly.accept(clientId, fragment)
-			if reason != protocol.Reason_REASON_OK && assembled != nil {
-				t.Fatalf("a refused fragment answered %v and handed back %d bytes to dispatch anyway", reason, len(assembled))
+			assembled, complete, reason := served.reassembly.accept(clientId, fragment)
+			if reason != protocol.Reason_REASON_OK && complete {
+				t.Fatalf("a refused fragment answered %v and reported the request complete anyway, with %d bytes for dispatch", reason, len(assembled))
+			}
+			if complete != (assembled != nil) && len(assembled) != 0 {
+				t.Fatalf("a reassembly answered complete=%v with %d bytes; the two must not disagree about whether a request is there", complete, len(assembled))
 			}
 			if served.maxRequestBytes < len(assembled) {
 				t.Fatalf("reassembly answered %d bytes against a %d byte cap", len(assembled), served.maxRequestBytes)

@@ -137,6 +137,7 @@ type Peer struct {
 	cancel      context.CancelFunc
 	unsubscribe func()
 	jobs        chan job
+	refusals    chan refusal
 	workers     sync.WaitGroup
 	closed      sync.Once
 
@@ -165,6 +166,13 @@ type route struct {
 type job struct {
 	arrived *inbound
 	request *protocol.MessageServerRequest
+}
+
+// A §4.6 refusal the receive loop decided, waiting only for its send. See [Peer.refuseLoop] for
+// why it does not travel on [Peer.jobs].
+type refusal struct {
+	clientId connect.Id
+	response *protocol.MessageServerResponse
 }
 
 type stats struct {
@@ -260,11 +268,15 @@ func New(config Config) (*Peer, error) {
 		queueDepth = 64
 	}
 	self.jobs = make(chan job, queueDepth)
+	self.refusals = make(chan refusal, queueDepth)
 	self.ctx, self.cancel = context.WithCancel(config.Client.Ctx())
 	for range workers {
 		self.workers.Add(1)
 		go self.work()
 	}
+	// one, and [Peer.refuseLoop] is where the one is argued for
+	self.workers.Add(1)
+	go self.refuseLoop()
 	// registered last: a frame that arrives before the workers exist would block the receive
 	// loop on a channel nobody is reading
 	self.unsubscribe = config.Client.AddReceiveCallback(self.receive)
@@ -430,28 +442,76 @@ func (self *Peer) arrivedFragment(clientId connect.Id, frame *protocol.Frame) {
 		self.stats.framesDropped.Add(1)
 		return
 	}
-	assembled, reason := self.reassembly.accept(clientId, fragment)
+	assembled, complete, reason := self.reassembly.accept(clientId, fragment)
 	if reason != protocol.Reason_REASON_OK {
-		self.send(clientId, &protocol.MessageServerResponse{RequestId: fragment.GetRequestId(), Reason: reason})
+		self.refuse(clientId, fragment.GetRequestId(), reason)
 		return
 	}
-	if assembled == nil {
+	if !complete {
 		return
 	}
 	request := &protocol.MessageServerRequest{}
 	if proto.Unmarshal(assembled, request) != nil {
 		// the fragments arrived and the bytes they carried are not a request; §4.5's
 		// non-specific refusal is the answer, and it has a request_id to travel on
-		self.send(clientId, &protocol.MessageServerResponse{
-			RequestId: fragment.GetRequestId(),
-			Reason:    protocol.Reason_REASON_REJECTED,
-		})
+		self.refuse(clientId, fragment.GetRequestId(), protocol.Reason_REASON_REJECTED)
 		return
 	}
 	self.enqueue(job{
 		arrived: &inbound{clientId: clientId, bytes: len(assembled)},
 		request: request,
 	})
+}
+
+// A §4.6 refusal, queued for [Peer.refuseLoop] rather than sent from the receive loop.
+//
+// Blocking here is the same backpressure [Peer.enqueue] documents, and it ends on this peer's
+// own context so [Peer.Close] is not waiting behind a client.
+func (self *Peer) refuse(clientId connect.Id, requestId uint64, reason protocol.Reason) {
+	current := refusal{
+		clientId: clientId,
+		response: &protocol.MessageServerResponse{RequestId: requestId, Reason: reason},
+	}
+	select {
+	case self.refusals <- current:
+	case <-self.ctx.Done():
+	}
+}
+
+// §4.6's refusals, sent one at a time, in the order the receive loop decided them.
+//
+// A goroutine of its own rather than the worker pool or the callback, and two things it has to
+// hold at once are what decide that shape.
+//
+// The send must not happen on the receive callback. connect runs that callback inline on the
+// single loop reading every peer's frames (transfer.go:1334), and [Peer.send] is a
+// SendWithTimeout bounded by [Config.SendTimeout] — thirty seconds by default, and ended by the
+// *remote* peer's read rate rather than by anything this process owns. A client whose read side
+// is slow or stopped would otherwise hold that loop for thirty seconds per malformed fragment,
+// repeatedly, at the cost of one 2 KB frame, with every other client's frames waiting behind it.
+// [Config.Workers]' backpressure argument does not cover this: it is about a queue an internal
+// component drains, and this is a network send a remote peer drains.
+//
+// And the refusals of one request must keep their order. An oversize reassembly answers
+// REASON_OVERSIZE and every fragment that arrives after the abort answers §4.5's generic
+// REASON_REJECTED, all of them carrying the same `request_id`. On the worker pool the generic
+// refusal can overtake the specific one, and a client that correlates by `request_id` would
+// then never learn which bound it broke. One consumer of one FIFO is what keeps that from being
+// a scheduling accident.
+//
+// What it costs is that a client whose read side has stopped delays other clients' *refusals*
+// for up to [Config.SendTimeout]. It delays no request and no handler's response: those are the
+// pool's, and the pool is untouched by this.
+func (self *Peer) refuseLoop() {
+	defer self.workers.Done()
+	for {
+		select {
+		case <-self.ctx.Done():
+			return
+		case current := <-self.refusals:
+			self.send(current.clientId, current.response)
+		}
+	}
 }
 
 // Hand the request to a worker, or backpressure the receive loop until one is free.
