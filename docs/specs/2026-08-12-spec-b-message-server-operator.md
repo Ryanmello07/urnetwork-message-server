@@ -239,6 +239,29 @@ all (MASTER **I5**) — whereas a request field number is a protocol constant in
 
 ---
 
+**Revision 8 — 2026-08-25 — implementation feedback from the record codec.** One amendment, in §12.1,
+and it is an **arity change**: `RetentionClassWire` returns `(byte, error)` and not `byte`, so this
+server does not compile against the spelling revision 7 published. Spec A §12.1 A-8 carries the same
+amendment and the reasoning; the short version is that the function has two things to refuse — a
+non-eph class arriving with an eph bucket, and an eph bucket past 5 — and a function that cannot
+refuse has to normalise instead, storing a record as though the caller's belief about it had been
+right. The value returned beside the error is deliberately not a legal wire byte, so ignoring the
+error writes a record the split refuses rather than the `PERMANENT` record a returned `0x00` would
+have produced quietly.
+
+The same block gains the **nine `Err*` sentinels** `connect/message` exports. They were always on this
+surface in substance — Spec A §5.9 guardrail 7 makes every failure in that package a typed error —
+but the §12.1 block did not name them, so the allowlist test would have refused them and §5.1
+check 3 had nothing to match on but message text. Two of them are ones this server acts on directly:
+`ErrCtBodyLength` on submit is a client that did not pad to its rung, and `ErrBlobIdPresence` on a
+re-encode is a corrupted stored row.
+
+Found by a review of `connect/message`'s codec, not by re-reading the spec — the same source as
+revision 7, and the second time in two revisions that compiling the spec found what reading it did
+not.
+
+---
+
 ## 1. Scope
 
 **In scope.** The message server process: storage, ordering, single-commit agreement, `write_auth` verification, history serving, blob lifecycle, retention and pruning, capability advertisement, its own URnetwork account and transport wiring, deployment, configuration, migrations, backup, observability. Plus the operator-side surface the message server and clients depend on: the discovery directory and the key-transparency log.
@@ -3016,7 +3039,7 @@ func SizeBucketBytes(b SizeBucket) int          // body bytes EXCLUDING the 16-b
 func SizeBucketCtBodyBytes(b SizeBucket) int    // = SizeBucketBytes(b) + 16
 func EphBucketSeconds(bucket uint8) int
 func RetentionClassOf(wire byte) (RetentionClass, uint8, error)   // -> class, ephBucket
-func RetentionClassWire(c RetentionClass, ephBucket uint8) byte
+func RetentionClassWire(c RetentionClass, ephBucket uint8) (byte, error)  // refuses, see below
 func ClassIsPrunable(c RetentionClass) bool
 
 // ── server attachment ──────────────────────────────────────────────────────
@@ -3042,9 +3065,36 @@ func RendezvousDepositBytes() int                                              /
 type Record, RecordHeader, RetentionClass, SizeBucket,
      ServerAttachment, EpochAttachment, RecoveryTag, WrapTag, EpochComplete,
      RendezvousRegistration, RendezvousCollectParams
+
+// ── refusals ───────────────────────────────────────────────────────────────
+// Sentinels, wrapped with %w at each site that has a value worth naming, so
+// errors.Is holds for the server while the message still carries the byte or
+// the length that was refused. Every one is fatal by construction: Spec A §5.9
+// guardrail 7 says no path in connect/message reports one and carries on.
+var ErrRetentionClassUnknown  error   // a wire byte, or a class tag, off the table
+var ErrEphBucketOutOfRange    error   // an eph bucket past 5
+var ErrEphBucketOnNonEphClass error   // a non-eph class carrying a bucket
+var ErrRecordNil              error   // EncodeRecord(nil)
+var ErrRecordFormatVersion    error   // a leading version byte this build does not read
+var ErrIsCommitNotBoolean     error   // an is_commit byte that is neither 0 nor 1
+var ErrSizeBucketOutOfRange   error   // a size bucket past the top of the ladder
+var ErrBlobIdPresence         error   // blob_id presence disagrees with size_bucket
+var ErrCtBodyLength           error   // ct_body neither absent nor its rung's length
 ```
 
 The server may use **only** this surface. It gets no decryption function, no key-schedule function, and no MLS type. The rendezvous group is **verifiers only**: no signer and no function that opens a deposit, because a sealing or opening function on this surface would be a decryption capability in the process that holds the mailbox. A test in the message-server repo asserts the allowlist.
+
+**Two amendments from the implementation (B-8, 2026-08-25), restated from Spec A §12.1 A-8.**
+`RetentionClassWire` returns `(byte, error)` and not `byte`: it has two things to refuse — a non-eph
+class arriving with an eph bucket, and an eph bucket past 5 — and a function that cannot refuse has to
+normalise instead, which stores a record as though the caller's belief about it had been right. The
+value returned beside the error is not a legal wire byte, so a caller that ignores the error writes a
+record the split refuses rather than the `PERMANENT` record a returned `0x00` would have produced
+quietly. **This changes an arity, so the server does not compile against a `byte`-returning call.** The
+nine `Err*` sentinels are on the surface for the same reason they exist: Spec A §5.9 guardrail 7 makes
+every failure a typed error, and a typed error the server cannot name is one it can only match on
+message text. §5.1 check 3 acts on two of them directly — `ErrCtBodyLength` on submit is a client that
+did not pad to its rung, and `ErrBlobIdPresence` on a re-encode is a corrupted stored row.
 
 ### 12.2 What this component exposes to spec C (through `sdk`, never directly)
 

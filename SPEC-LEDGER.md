@@ -324,3 +324,43 @@ reviewer reading only the diff. Neither would have been found by re-reading the 
 the previous five rounds did. **Transcribe-and-compile is now part of the change process for any
 section that defines a wire format** — §6 already required a subagent diff review; this adds that a
 spec section containing a `proto` block is not done until that block has been through `protoc`.
+### 2026-08-25 — Second implementation feedback: the record codec, and a published surface that was not
+
+`connect/message`'s record codec landed and was reviewed against the specs. Three findings, all of
+them the same shape as the `protoc` round before it: the specs are wrong in ways only writing the code
+against them shows.
+
+**`RetentionClassWire`'s signature was uncompilable, not merely inconvenient.** Spec A §12.1 and Spec B
+§12.1 both published `func RetentionClassWire(c RetentionClass, ephBucket uint8) byte`. The
+implementation returns `(byte, error)`, and that is not a style preference: the function is one of the
+two places in the system where the retention class and the eph bucket are joined, and it has two things
+to refuse — a non-eph class arriving with a bucket, and a bucket past 5. **A function that cannot refuse
+has to normalise.** Dropping the bucket silently reclassifies a record the caller believed was
+something else; truncating it manufactures `0x16`, which no reader accepts. Both are the silent
+mis-storage the split exists to prevent. MASTER §8 gives no Go signature, so it did not settle it. It is
+settled now in both §12.1 blocks, as A-8 and B-8, and it is an **arity** change: Spec B's server does
+not compile against the old spelling, which is the good failure mode.
+
+**The published surface named no errors, and the package exports nine.** Spec A §5.9 guardrail 7 already
+required every failure in `connect/message` to be a typed error. §12.1 then published functions and types
+and no error names — so the allowlist test the same section describes would have rejected the sentinels
+the guardrail requires, and Spec B's check 3, which acts on two of them, had nothing to match on but
+message text. The nine names are now on the surface in both blocks. The implementation was right and the
+contract was incomplete; the codec's own comment claiming it added no exports was also corrected, since
+it was true of one file and false of the package.
+
+**MASTER §8 disagreed with Spec B §4.3.3 about `record_id`.** §8's `RECORD` block opened with `record_id`
+among fourteen fields that are all inside `record_bytes`; Spec B carries it as a sibling protobuf field.
+Under the MASTER-wins rule that is a conflict a reader resolves the wrong way, and a codec built from §8
+alone disagrees with the shipped one on every record. Resolved toward Spec B, because §8's own annotation
+settles it: an id assigned after acceptance is assigned after `write_auth` is computed, so an id inside
+those bytes is a value the MAC covers, which is what "NEVER authenticated" denies. §8 now says it in
+place. Recorded as an amendment to revision 9 rather than a revision 10, because no rule changed and
+three documents name revision 9 as their normative parent.
+
+**Process note, extending the one above.** The previous round added transcribe-and-compile for any
+section with a `proto` block. This round found the same class of defect in a section with a **Go**
+block, and by the same means: `§12.1`'s surface was never compiled against, so an arity that could not
+work sat in two documents through six review rounds. **A spec section that publishes a Go signature is
+not done until something compiles against it.** The three findings here were all found by the
+implementation or by a review of it; none was found by reading the specs again.

@@ -168,6 +168,18 @@ surface no component owned. Nothing in the cryptographic core changed.
   capability from everyone holding it, which is a real remedy and a blunt one, and saying so is
   better than letting a user discover the bluntness.
 
+**Amendment to revision 9 — 2026-08-25 — §8, `record_id`.** Not a new revision: no rule changed, and
+every document that names this one as its normative parent still names revision 9. §8's `RECORD` block
+listed `record_id` as its first field beside fourteen fields that are all inside `record_bytes`, while
+Spec B §4.3.3 carries it as a **sibling** of `record_bytes` — field 13 of the enclosing protobuf,
+ignored on submit and populated on read. The MASTER-wins rule made that a real conflict rather than a
+detail, and it resolves the way Spec B and the shipped codec already had it, because the block's own
+annotation settles it: an id assigned **after** acceptance is assigned after `write_auth` has been
+computed and verified, so an id inside those bytes would be a value the MAC covers, which is exactly
+what "NEVER authenticated" denies, and would make the id unassignable without invalidating the record.
+§8 now says so where a reader building a codec from that block would see it. Found by implementing the
+codec, not by re-reading the spec.
+
 ## 1. Purpose and product target
 
 URmessage is a private messenger built on the URnetwork mesh. It reuses URnetwork's transport and
@@ -622,7 +634,8 @@ be deleted, and lets the server order and prune without decrypting.
 ```
 RECORD
   record_id          u64  per-group, gapless, 1-based; server-assigned AFTER acceptance;
-                          pagination and hole detection only; NEVER authenticated
+                          pagination and hole detection only; NEVER authenticated.
+                          NOT inside record_bytes — it travels beside it. See below.
   group_id           32B
   sender_handle      16B  = HKDF-Expand(group_handle_key, "sh/v1" ‖ LP(leaf_index), 16)
                           stable per group; every member computes it; the server cannot invert it
@@ -643,6 +656,20 @@ RECORD
   ct_body            AEAD, erasable; the MLS PrivateMessage payload
   write_auth         MAC, computed last; see §9.2
 ```
+
+**`record_id` is a field of the record and not a field of `record_bytes`** (amended 2026-08-25,
+found by implementing the codec). The fourteen fields below it are the ones `connect/message`
+serialises; `record_id` is not one of them and never can be. It is assigned by the server *after*
+acceptance, which is after `write_auth` has been computed and verified, so a `record_id` inside those
+bytes would be a value the MAC covers — which is exactly what the line above says it is not, and
+would make the id unassignable without invalidating the record. It appears in neither AAD and in
+neither preimage for the same reason. Spec B §4.3.3 carries it as **field 13 of the enclosing
+protobuf, a sibling of `record_bytes`** — ignored on submit, populated on read — and Spec A §2.4 has
+the server call `EncodeRecord` and then set the id separately. `EncodeRecord` ignores `Record.RecordId`
+and `ParseRecord` always answers zero for it, so encoding a record, assigning it an id, and encoding it
+again produces identical bytes. A reader who took this block as the layout of `record_bytes` would build
+a codec that disagrees with the shipped one on every record; the block is a field listing, and the wire
+layout is `connect/message`'s, stated in `codec.go`.
 
 The `retention_class` and `size_bucket` bytes have exactly one encoding:
 
