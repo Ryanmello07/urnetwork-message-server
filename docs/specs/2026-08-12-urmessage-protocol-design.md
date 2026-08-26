@@ -180,6 +180,16 @@ what "NEVER authenticated" denies, and would make the id unassignable without in
 §8 now says so where a reader building a codec from that block would see it. Found by implementing the
 codec, not by re-reading the spec.
 
+**Amendment to revision 9 — 2026-08-25 — §8, the record AADs' `alg_id`.** Not a new revision: no rule
+changed, a value that was only inferable is now written down. §7.1 requires every AEAD to carry its
+algorithm identifier inside the authenticated bytes and §8 writes `u16(alg_id)` into both AAD blocks,
+but nothing said which of §7.1's identifiers a record's AADs carry. Both preimage builders take it as
+a parameter, so the divergence is not one either side's tests can see: two implementations that each
+read this document and chose differently would agree on the format, agree on the keys, and fail the
+AEAD on every record. §8's own key derivation settles it — a 24-octet nonce is XChaCha20-Poly1305's —
+so the answer was always `0x0021`, and §8 now says so rather than leaving it to be inferred from a
+nonce length. Found by building the two preimages, before the sealer that would have chosen.
+
 ## 1. Purpose and product target
 
 URmessage is a private messenger built on the URnetwork mesh. It reuses URnetwork's transport and
@@ -708,6 +718,18 @@ AAD_head = "URmessage/v1/aad/head" ‖ u16(alg_id) ‖ LP(group_id) ‖ LP(sende
 key_head ‖ nonce_head = HKDF-Expand(record_key[i], "rec/v1/head", 56)
 key_body ‖ nonce_body = HKDF-Expand(record_key[i], "rec/v1/body", 56)
 ```
+
+**`alg_id` in both record AADs is `0x0021`, XChaCha20-Poly1305** (amended 2026-08-25, found by
+building the preimages). §7.1 puts the identifier inside the authenticated bytes so it cannot be
+stripped or downgraded, and both blocks above write `u16(alg_id)` — but no line said *which*
+identifier a record's AADs carry, and a builder that takes it as a parameter cannot infer one. It is
+the record AEAD's own identifier and never the KDF's. The derivation above settles which: it hands out
+`key_head ‖ nonce_head` as 56 octets, a 32-octet key and a **24-octet nonce**, and a 24-octet nonce is
+XChaCha20-Poly1305's and no other v1 suite's. `0x0031` (HKDF-SHA-256) names the function that produced
+that key, not the one that consumes it, and a client that wrote it here would build a preimage that
+round-trips against itself and fails the AEAD against every other implementation, on every record it
+sends. Where a later ciphersuite changes the record AEAD this field carries that suite's AEAD
+identifier from §7.1's table, which is the agility the field is in the preimage for.
 
 `LP(blob_id)` is a **zero-length** prefix on every record whose `size_bucket` is not 5, so the
 preimage is defined for ordinary records without a special case. `blob_id` is absent from `AAD_body`,

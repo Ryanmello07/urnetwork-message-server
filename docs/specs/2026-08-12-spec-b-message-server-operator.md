@@ -262,6 +262,19 @@ not.
 
 ---
 
+**Revision 9 — 2026-08-25 — implementation feedback from the record AAD preimages.** One amendment, in
+§12.1, and it changes no signature: it says what the §12.1 refusals block is a list of. Revision 8
+published nine `Err*` sentinels and added that a tenth would be "a design discussion like any other
+addition"; read as a rule about the count, that gets the next sentinel wrong in either direction. The
+block is the allowlist of what this server may **reach**, not an inventory of what `connect/message`
+exports — that package also exports the sealing side, `AADBody` and `AADHead`, which build MASTER §8's
+record AEAD preimages and are deliberately on no line of §12.1 because this server never decrypts. So
+the allowlist test in this repo asserts the names in the block and not the package's export set, and a
+sentinel earns a line here by being reachable from a published function rather than by being the
+tenth. Spec A §12.1 A-9 carries the same amendment and the reasoning.
+
+---
+
 ## 1. Scope
 
 **In scope.** The message server process: storage, ordering, single-commit agreement, `write_auth` verification, history serving, blob lifecycle, retention and pruning, capability advertisement, its own URnetwork account and transport wiring, deployment, configuration, migrations, backup, observability. Plus the operator-side surface the message server and clients depend on: the discovery directory and the key-transparency log.
@@ -3095,6 +3108,20 @@ nine `Err*` sentinels are on the surface for the same reason they exist: Spec A 
 every failure a typed error, and a typed error the server cannot name is one it can only match on
 message text. §5.1 check 3 acts on two of them directly — `ErrCtBodyLength` on submit is a client that
 did not pad to its rung, and `ErrBlobIdPresence` on a re-encode is a corrupted stored row.
+
+**Amendment B-9, 2026-08-25, restated from Spec A §12.1 A-9 — what the refusals block is a list of.**
+The block above is the allowlist of what this server may **reach**, and not an inventory of what
+`connect/message` exports. It never was one: that package also exports the sealing side, which this
+server has no line for and must not have — `AADBody`, `AADHead` and `BodyBinding` build MASTER §8's two
+record AEAD preimages, and a preimage builder in the process that holds the mailbox is half of a
+decryption capability. So the allowlist test in this repo asserts the names in this block, which is
+what this server may use, and asserts nothing about the package's exported set. The refusals follow
+the same rule and not a count: a sentinel a function on this surface can return is owed a line here in
+the same commit that makes it reachable, since a typed error this server cannot name is one it can
+only match on message text; a sentinel only an unpublished function can return is not, and publishing
+it would widen this allowlist with a name no server can reach. `ErrRecordHeaderNil` and
+`ErrServerAttachmentMismatch` are the first two of that kind — both are `AADHead`'s — and both stay
+off this surface until something on it can return them.
 
 ### 12.2 What this component exposes to spec C (through `sdk`, never directly)
 

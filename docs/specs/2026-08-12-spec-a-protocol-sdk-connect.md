@@ -89,6 +89,7 @@ Append-only. Newest last. One entry per commit that changes this spec. Every cha
 | 2026-08-12 | A-6 | The contact card got its transport. §5.14 added: `card_root` and the numbered capability generations, the 131-byte card encoding, the 5238-byte deposit sealed under X-Wing to the card's KEM key, and the five `server_nonce`-bound Ed25519 preimages (`register_auth`, `open_auth`, `deposit_auth`, `collect_auth`, `retire_auth`), with the client-side `request_sig` obligation and the rotation ordering. §12.1 gained the nine rendezvous functions and two types on the A-1 surface, requirement S18, interface row A-18 (and the A-1…A-17 range became A-1…A-18), and rendezvous cases on the A-8 vector file. §7.3b: `MessageContactCard` gained `Generation`, `State` and `ExpiresAtMs` and `TokenId` was defined; the card was stated to be per identity and not per device; redemption was rewritten onto the rendezvous with `StartDirectFromCard` returning a ticket rather than a conversation; the rate-limit paragraph took its values from `ServerInfo()` and merged retired with unknown; auto-accept now degrades to manual review after three requests in an hour, adding `"held_for_review"` to `MessageContactRequest.State` and `RefusedSinceLastCollect` to the struct; `MessageContactCard` lost its `*List`. `MessageServerInfo` gained `RendezvousTtlSeconds`, `RendezvousDepositTtlSeconds` and `RendezvousMailboxDepth`. §7.5's provisioning bundle carries the current generation number. `GroupResult.Reason` gained `"succession_floor_too_short"` and `"card_not_live"`. §5.7's recovery trust-on-first-use scoped per group. §7.2's duplicate `MessageClientSettings` deleted. §13 scheduled §7.3b in A7 and added the card encoding and preimages to A6. |
 | 2026-08-25 | A-7 | Implementation feedback, four defects found by transcribing this spec into `connect/protocol/message.proto`. **§10.1's four `MessageType` value names were uncompilable**: proto3 scopes an enum value name to the enum's parent scope, so `MessageServerRequest` collided with Spec B's `message MessageServerRequest` in the same package and `protoc` refused the pair. Resolved on the enum side — the message names are the `oneof` arm types the §5.7 op byte is defined over — following `MessageType`'s existing `IpIpPing` convention; the four numbers are unchanged. Recorded here because the old spelling now produces a compile error rather than a silent break. Spec B revision 7 of the same date records all four, including this one. Two knock-on corrections on this side: §7.2 vocabulary 2 said `"rate_limited"` carries `RetryAfterMs` **in `ReasonDetail`**, which cannot work because `ReasonDetail` is free text declared never to be parsed — so Spec C §9's `{RetryAfterMs}` interpolation had nothing to read. `RetryAfterMs` is now a typed `int64` on both `MessageSendability` and `MessageEntry` (`int64` because gomobile does not bind unsigned types). And the claim that a response field is never a MAC input, written while resolving Spec B's §4.5 gap, is **false** — `FetchAttestation` signs nine `FetchResponse` fields — and is corrected there rather than left to be generalised. |
 | 2026-08-25 | A-8 | Implementation feedback from the record codec, both amendments in §12.1. **`RetentionClassWire` returns `(byte, error)`, not `byte`.** It is one of the two functions that cross between the retention class as Go carries it and the byte the wire carries it in, and it has two things to refuse — a non-eph class arriving with an eph bucket, and an eph bucket past 5. A function that cannot refuse has to **normalise**, and both normalisations store a record as though the caller's belief about it had been right: dropping the bucket silently reclassifies, truncating it manufactures `0x16`, a byte every reader refuses. MASTER §8 gives no Go signature, so this settles the arity. It is an arity change, so Spec B's server does not compile against the old spelling; Spec B §12.1 is amended identically as B-8. **The nine `Err*` sentinels are published on the A-1 surface.** §5.9 guardrail 7 already required every failure in `connect/message` to be a typed error; a typed error the server cannot name is one it can only match on message text, and §5.1 check 3 acts on two of them directly. The allowlist test in the message-server repo covers nine names and no more. |
+| 2026-08-25 | A-9 | Implementation feedback from the two record AAD preimages; one amendment, in §12.1, and it changes no signature. **The refusals block is an allowlist of what the server may reach, not an inventory of what `connect/message` exports.** A-8's "nine names, no more, and a tenth is a design discussion" reads as a rule about the count; the rule is reachability. §12.1 was never the package's export set — the package also exports the sealing side, `AADBody`, `AADHead` and `BodyBinding`, which build MASTER §8's two record AEAD preimages and are deliberately on no line of §12.1 because the server never decrypts — so the message-server allowlist test asserts the names in the block rather than what the package declares. A sentinel a published function can return is owed a line in the same commit that makes it reachable; one only an unpublished function can return is not, and publishing it would widen the server's allowlist with a name no server can use. `ErrRecordHeaderNil` and `ErrServerAttachmentMismatch` are the first two of that kind: both are `AADHead`'s, and both stay off the surface until something on it can return them. |
 
 ---
 
@@ -4207,8 +4208,32 @@ every failure in `connect/message` to be a typed error, and a typed error a call
 caller can only match on message text. The server acts on several of them directly — a submit refused for
 `ErrCtBodyLength` is a client that did not pad to its rung, and a fetch that will not re-encode for
 `ErrBlobIdPresence` is a corrupted stored row — so they are published rather than left implicit. The
-allowlist test in the message-server repo covers them: nine names, no more, and a tenth is a design
-discussion like any other addition here.
+allowlist test in the message-server repo covers them: these nine, which are the names a function on
+this surface can return.
+
+**Amendment A-9, 2026-08-25 — what the refusals block is a list of.** A-8 published the nine and added
+that "a tenth is a design discussion like any other addition here", which reads as a rule about the
+count. It is not one, and taken as one it gets the next sentinel wrong in whichever direction the
+reader leans: publish an unreachable name and the server's allowlist grows a name no server can use;
+leave a reachable one unpublished and §5.9 guardrail 7 is back to being matched on message text. The
+rule is reachability, and it follows from what this block has always been.
+
+This block is the allowlist of what the message server may **reach**, and not an inventory of what
+`connect/message` exports. It never could have been one: the package necessarily exports the sealing
+side as well — `AADBody`, `AADHead` and `BodyBinding` build the two record AEAD preimages of MASTER
+§8, and they appear on no line above because the server never decrypts and a preimage builder in the
+process that holds the mailbox is half of a capability it must not have. `AADBody`'s signature is
+itself guardrail G4 of §5.9. So the test in the message-server repo asserts the names in this block,
+which is what the server may use, and says nothing about what the package declares.
+
+The refusals follow the same rule. A sentinel a function **on this surface** can return is part of the
+surface and is owed a line here in the same commit that makes it reachable, because a typed error the
+server cannot name is one it can only match on message text. A sentinel only an unpublished function
+can return is not, and adding it would widen the server's allowlist with a name no server can reach.
+`ErrRecordHeaderNil` and `ErrServerAttachmentMismatch` are the first two of that kind: both are
+`AADHead`'s refusals, `AADHead` is on no line above, and neither is therefore on this surface. If
+either ever becomes reachable from a published function it stops being of that kind, and the
+amendment that publishes it lands with the change that made it reachable.
 
 **What we require of the server.**
 

@@ -364,3 +364,42 @@ block, and by the same means: `§12.1`'s surface was never compiled against, so 
 work sat in two documents through six review rounds. **A spec section that publishes a Go signature is
 not done until something compiles against it.** The three findings here were all found by the
 implementation or by a review of it; none was found by reading the specs again.
+
+### 2026-08-25 — Third implementation feedback: the two record AAD preimages
+
+`connect/message`'s `aad.go` landed and was reviewed. Two findings for the specs, and both are things
+the documents left to be inferred rather than things they got wrong.
+
+**Nothing said which `alg_id` a record's AADs carry.** MASTER §7.1 puts the algorithm identifier inside
+the authenticated bytes precisely so it cannot be stripped or downgraded, and §8 writes `u16(alg_id)`
+into both AAD blocks — but no line in MASTER, Spec A or Spec B binds those two fields to a value, and
+both preimage builders take it as a parameter. That is the worst shape a divergence can have: two
+implementations that each read this document and chose differently agree on the format, agree on the
+keys, and fail the AEAD on every record, with no test on either side failing first. §8's own key
+derivation settles it — `key_head ‖ nonce_head` is 56 octets, a 32-octet key and a 24-octet nonce, and
+a 24-octet nonce is XChaCha20-Poly1305's and no other v1 suite's — so the answer was always `0x0021`,
+and §8 now says so instead of leaving it to be inferred from a nonce length. Recorded as an amendment
+to revision 9, not a revision 10: no rule changed. Found before the sealer that would have had to
+choose.
+
+**"Nine names, no more" was read as a rule about the count.** Spec A §12.1 A-8 published the nine `Err*`
+sentinels and added that a tenth is "a design discussion like any other addition here". The AAD builders
+then produced two refusals of their own — a nil header, and an attachment argument that disagrees with
+the header's own field — and the implementation kept them off §12.1 and wrote the reasoning into the
+package instead, which is a self-granted exemption from a normative sentence. The reasoning was right
+and the place was wrong. §12.1 is the allowlist of what the message server may **reach**, not an
+inventory of what `connect/message` exports, and it never could have been one: the package necessarily
+exports the sealing side too, and `AADBody` and `AADHead` build MASTER §8's two record AEAD preimages
+and are deliberately on no line of §12.1, because a server that never decrypts never builds either. So
+the rule is reachability. A sentinel a published function can return is owed a line in the same commit
+that makes it reachable, since a typed error the server cannot name is one it can only match on message
+text; a sentinel only an unpublished function can return is not, and publishing it would widen the
+server's allowlist with a name no server can use. A-9 and B-9 say that in the two blocks the rule
+governs, and they also settle what the message-server allowlist test asserts: the names in the block,
+not the package's exported set.
+
+**Process note, a second half to the one above.** A spec section that publishes a Go signature is not
+done until something compiles against it. A spec section that publishes a **preimage** is not done
+until two implementations agree on every value inside it — because a preimage that round-trips against
+itself is exactly the defect that ships, and the `alg_id` here would have done it with both sides
+passing their own tests.
