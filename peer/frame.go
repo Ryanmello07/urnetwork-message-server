@@ -10,9 +10,13 @@ import (
 
 // §4.6's own numbers, as constants rather than as literals in the middle of a branch.
 const (
-	// "The sender chooses `part` size as min(peer_advertised_frame_budget, 2048) bytes." connect
-	// advertises no per-peer frame budget to a caller, so 2048 is the whole of the minimum.
-	DefaultFragmentPartBytes = 2048
+	// "The sender chooses `part` size as min(peer_advertised_frame_budget, 2048) bytes and MUST
+	// NOT exceed the negotiated budget." The 2048 is the ceiling of that min, so it is a bound no
+	// configuration reaches past rather than a default a configuration replaces — see [partSize].
+	// connect advertises no per-peer frame budget to a caller, so with nothing to be the smaller
+	// of, the ceiling is also the whole of the default.
+	MaxFragmentPartBytes     = 2048
+	DefaultFragmentPartBytes = MaxFragmentPartBytes
 
 	// "Reassembly state is per (source client_id, request_id), expires after 30 s, and is capped
 	// at 16 concurrent in-flight reassemblies per client."
@@ -38,6 +42,23 @@ func withinLimits(bytes int, max int) protocol.Reason {
 		return protocol.Reason_REASON_OVERSIZE
 	}
 	return protocol.Reason_REASON_OK
+}
+
+// §4.6's `part` size, decided in one function: min(peer_advertised_frame_budget, 2048).
+//
+// A budget of zero or less names no negotiation at all — and connect advertises none — so it
+// takes the ceiling. A budget above the ceiling is clamped rather than honoured, because §4.6's
+// rule is a MUST NOT: a build that could configure its way past it would put fragments on the
+// wire at a size a conforming receiver is entitled to refuse, chosen by whoever wrote the yml.
+//
+// Idempotent, which is what makes it safe to apply where the peer is built and again where the
+// frames are cut: two call sites of one rule rather than two expressions of it, which is the
+// arrangement that survives one of them being edited.
+func partSize(budget int) int {
+	if budget <= 0 || MaxFragmentPartBytes < budget {
+		return MaxFragmentPartBytes
+	}
+	return budget
 }
 
 // §4.6's inbound reassembly: the fragments of one request, per (source client_id, request_id).
@@ -143,19 +164,40 @@ func (self *reassembly) accept(clientId connect.Id, fragment *protocol.MessageSe
 	return assembled, true, protocol.Reason_REASON_OK
 }
 
-// Everything past §4.6's 30 seconds, dropped. Called under the lock on every accept, which is
-// what makes the expiry real without a goroutine: a client that opens fifteen reassemblies and
-// walks away has them collected by the sixteenth attempt rather than holding the cap forever.
-func (self *reassembly) expire() {
+// Everything past §4.6's 30 seconds, dropped, and how many went.
+//
+// Called under the caller's lock on every accept, so a client that opens fifteen reassemblies and
+// walks away has them collected by its own sixteenth attempt rather than holding its own cap. That
+// bounds a busy server and it does not bound a quiet one: nothing arrives to sweep, and every
+// buffer of every client that went silent is held for as long as the silence lasts. §4.6's thirty
+// seconds is a bound on an attacker rather than a courtesy, so [Peer.sweepLoop] applies it on a
+// clock of this process's own as well.
+//
+// The bound is on when the reassembly *began* and is not refreshed by a fragment, which is what
+// "reassembly state expires after 30 s" says: a sender that drips one byte every twenty seconds
+// would otherwise hold a buffer open for as long as it liked.
+func (self *reassembly) expire() int {
 	if self.idle == 0 {
-		return
+		return 0
 	}
+	dropped := 0
 	deadline := self.now().Add(-self.idle)
 	for key, current := range self.inFlight {
 		if current.started.Before(deadline) {
 			self.drop(key, key.clientId)
+			dropped++
 		}
 	}
+	return dropped
+}
+
+// §4.6's thirty seconds, applied with no fragment to hang them on. See [expire] for why the
+// expiry inside [reassembly.accept] is not the whole of the bound, and [Peer.sweepLoop] for what
+// runs this.
+func (self *reassembly) sweep() int {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	return self.expire()
 }
 
 func (self *reassembly) drop(key reassemblyKey, clientId connect.Id) {
@@ -170,17 +212,45 @@ func (self *reassembly) drop(key reassemblyKey, clientId connect.Id) {
 	self.counts[clientId]--
 }
 
-func (self *reassembly) inFlightCount() int {
+// What §4.6's reassembler is holding at this instant.
+//
+// It exists because "the buffer was freed" is not observable from a refusal. A receiver that
+// answers REASON_OVERSIZE and keeps the bytes and one that frees them answer a client
+// identically, and the difference between the two is precisely the memory-exhaustion vector the
+// rule is written against — so the freeing is asserted here rather than inferred from the code
+// that is supposed to do it.
+//
+// Three numbers rather than one, because §4.6 bounds three things: how many reassemblies are open,
+// how many clients hold one, and how many bytes are buffered under them. An accounting that
+// dropped a buffer and kept its per-client slot would leak the cap while every byte count stayed
+// honest, and one that did the reverse would leak the memory.
+type held struct {
+	reassemblies int
+	clients      int
+	bytes        int
+}
+
+func (self *reassembly) holding() held {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
-	return len(self.inFlight)
+	holding := held{reassemblies: len(self.inFlight), clients: len(self.counts)}
+	for _, buffered := range self.inFlight {
+		holding.bytes += len(buffered.bytes)
+	}
+	return holding
 }
 
 // The frames one response travels in: one response frame, or §4.6's fragments of it.
 //
 // `Frame.raw` is false on every one of them, which §4.2 states for the whole of this binding —
 // a raw frame carries bytes that are not a protobuf, and every frame here is one.
+//
+// §4.6's part size is applied here rather than trusted from the caller. [New] applies it too, and
+// [partSize] is idempotent so the second application changes nothing; what it buys is that this
+// function cannot be handed a part size at all — a zero would be a division by zero on the
+// fragment count, and anything past the ceiling would be a MUST NOT on the wire.
 func responseFrames(response *protocol.MessageServerResponse, partBytes int) ([]*protocol.Frame, error) {
+	partBytes = partSize(partBytes)
 	body, err := connect.ProtoMarshal(response)
 	if err != nil {
 		return nil, err

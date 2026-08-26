@@ -171,7 +171,7 @@ func TestAFragmentedRequestIsReassembledAndServed(t *testing.T) {
 	if response.GetFetch().GetHighWaterRecordId() != marker {
 		t.Fatalf("the reassembled request named record %d, want %d", response.GetFetch().GetHighWaterRecordId(), marker)
 	}
-	if left := fixture.peer.reassembly.inFlightCount(); left != 0 {
+	if left := fixture.peer.reassembly.holding().reassemblies; left != 0 {
 		t.Fatalf("%d reassemblies are still held after the request completed", left)
 	}
 }
@@ -203,7 +203,7 @@ func TestReassemblyPastTheCapIsRefusedAndTheBufferFreedAtOnce(t *testing.T) {
 	if calls := fixture.handler.recorded(); len(calls) != 0 {
 		t.Fatalf("an oversize reassembly reached the handler: %v", calls)
 	}
-	if left := fixture.peer.reassembly.inFlightCount(); left != 0 {
+	if left := fixture.peer.reassembly.holding().reassemblies; left != 0 {
 		t.Fatalf("%d reassembly buffers survive a refusal §4.6 says frees them immediately", left)
 	}
 }
@@ -240,7 +240,7 @@ func TestEveryWaySpecB46AbortsAReassembly(t *testing.T) {
 		if _, _, reason := buffers.accept(clientId, &protocol.MessageServerFragment{RequestId: 1, Index: 2, Count: 3, Part: []byte("c")}); reason != protocol.Reason_REASON_REJECTED {
 			t.Fatalf("fragment 2 arriving after fragment 0 was answered %v, want the request aborted", reason)
 		}
-		if left := buffers.inFlightCount(); left != 0 {
+		if left := buffers.holding().reassemblies; left != 0 {
 			t.Fatalf("%d buffers survive an out-of-order abort", left)
 		}
 	})
@@ -272,7 +272,7 @@ func TestEveryWaySpecB46AbortsAReassembly(t *testing.T) {
 		if _, _, reason := buffers.accept(clientId, &protocol.MessageServerFragment{RequestId: 1, Index: 1, Count: 2, Part: []byte("b")}); reason != protocol.Reason_REASON_REJECTED {
 			t.Fatalf("a fragment arriving after the expiry was appended to the expired buffer: %v", reason)
 		}
-		if left := buffers.inFlightCount(); left != 0 {
+		if left := buffers.holding().reassemblies; left != 0 {
 			t.Fatalf("%d expired buffers are still held", left)
 		}
 	})

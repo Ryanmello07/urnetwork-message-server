@@ -74,7 +74,10 @@ type Config struct {
 	// answered REASON_UNSUPPORTED_VERSION and opens no connection.
 	ProtocolVersion uint32
 
-	// §4.6's `part` size. Zero takes [DefaultFragmentPartBytes].
+	// The peer-advertised frame budget of §4.6, which is what the `part` size is decided from:
+	// min(this, [MaxFragmentPartBytes]). Zero — which is what it stays, connect having no
+	// per-peer budget to advertise to a caller — takes [DefaultFragmentPartBytes], and a value
+	// above §4.6's ceiling is clamped to it rather than honoured. See [partSize].
 	FragmentPartBytes int
 
 	// How many requests are served at once, and how many wait. Zero takes the defaults below.
@@ -242,9 +245,9 @@ func New(config Config) (*Peer, error) {
 	if self.sendTimeout <= 0 {
 		self.sendTimeout = DefaultSendTimeout
 	}
-	if self.fragmentPartBytes <= 0 {
-		self.fragmentPartBytes = DefaultFragmentPartBytes
-	}
+	// §4.6's min, applied once here so that this field is the size that actually goes on the
+	// wire rather than the budget somebody asked for
+	self.fragmentPartBytes = partSize(self.fragmentPartBytes)
 	if self.now == nil {
 		self.now = time.Now
 	}
@@ -253,7 +256,7 @@ func New(config Config) (*Peer, error) {
 		reassembliesPerClient = DefaultReassembliesPerClient
 	}
 	reassemblyIdle := config.ReassemblyIdle
-	if reassemblyIdle == 0 {
+	if reassemblyIdle <= 0 {
 		reassemblyIdle = DefaultReassemblyIdle
 	}
 	self.reassembly = newReassembly(self.now, self.maxRequestBytes, reassembliesPerClient, reassemblyIdle)
@@ -277,6 +280,10 @@ func New(config Config) (*Peer, error) {
 	// one, and [Peer.refuseLoop] is where the one is argued for
 	self.workers.Add(1)
 	go self.refuseLoop()
+	// §4.6's thirty seconds, on this process's own clock rather than on whether a fragment
+	// happens to arrive — see [Peer.sweepLoop]
+	self.workers.Add(1)
+	go self.sweepLoop(reassemblyIdle)
 	// registered last: a frame that arrives before the workers exist would block the receive
 	// loop on a channel nobody is reading
 	self.unsubscribe = config.Client.AddReceiveCallback(self.receive)
@@ -531,6 +538,34 @@ func (self *Peer) refuseLoop() {
 			return
 		case current := <-self.refusals:
 			self.send(current.clientId, current.response)
+		}
+	}
+}
+
+// §4.6's thirty seconds, on a clock this process owns.
+//
+// [reassembly.accept] expires under the lock it already holds, which bounds a server that is
+// being sent fragments. It bounds nothing on a server that is not: a client that opens sixteen
+// reassemblies and goes silent holds sixteen buffers of up to `max_request_bytes` each until
+// some other client's fragment happens to sweep them, and one client_id per authenticated
+// account is all that costs. §4.6 calls an unbounded reassembly buffer a trivial
+// memory-exhaustion vector, and a buffer whose release waits on the attacker sending more is
+// still one.
+//
+// The period is derived from the bound rather than chosen beside it. A sweep on a number of its
+// own would hold expired state for that number's worth of time no matter what
+// [Config.ReassemblyIdle] said, and the two would drift the first time either was tuned; half
+// the bound means nothing outlives it by more than half of it.
+func (self *Peer) sweepLoop(idle time.Duration) {
+	defer self.workers.Done()
+	ticker := time.NewTicker(max(idle/2, time.Millisecond))
+	defer ticker.Stop()
+	for {
+		select {
+		case <-self.ctx.Done():
+			return
+		case <-ticker.C:
+			self.reassembly.sweep()
 		}
 	}
 }
