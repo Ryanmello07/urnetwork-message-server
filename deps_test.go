@@ -1051,11 +1051,21 @@ func TestEverythingSpecB22ForbidsIsOnTheForbiddenList(t *testing.T) {
 		}
 	}
 
-	// the reverse direction is weaker on purpose. connect/mls is the one entry §2.2's block does
-	// not carry — it comes from §5.3, which writes it as connect/mls rather than as a full
-	// import path — so what is asked of an entry outside the block is that the document names it
-	// somewhere. That refuses a ban invented here with no section behind it, which is all this
-	// direction is for.
+	// connect/mls is the one entry §2.2's block does not carry — it comes from §5.3, and §13 item
+	// 8 is where §5.3 is given a shell line to assert it with. That line names the package, so it
+	// pins the entry the way the block pins the other six; with only the block parsed, deleting
+	// connect/mls from the list above left every test green.
+	for _, grepped := range specBGrepsForDependencies(t, name, document) {
+		if !slices.ContainsFunc(forbiddenDependencies, func(banned rule) bool {
+			return banned.path == grepped || strings.HasSuffix(banned.path, "/"+grepped)
+		}) {
+			t.Errorf("%s asserts a go list -deps closure never names %q, and forbiddenDependencies in this file carries no entry ending in it", name, grepped)
+		}
+	}
+
+	// the last direction is weaker on purpose: what is asked of an entry neither §2.2's block nor
+	// a §13 grep line names is that the document names it somewhere at all. That refuses a ban
+	// invented here with no section behind it, which is all this direction is for.
 	for _, banned := range forbiddenDependencies {
 		if slices.Contains(block, banned.path) {
 			continue
@@ -1225,6 +1235,57 @@ func forbiddenBlockOfSpecB22(t *testing.T, name string, document string) []strin
 		t.Fatalf("%s line %d begins a FORBIDDEN block with no import path under it", name, starts[0]+1)
 	}
 	return paths
+}
+
+var errNoDependencyGrep = errors.New("carries no §13 item asserting a go list -deps grep over an import path, so the half of §5.3 that §2.2's own block does not carry would be pinned by nothing")
+
+// The import paths §13's acceptance items assert are absent from a go list -deps closure.
+//
+// Item 8 is the only one today: "`go list -deps ./... | grep connect/mls` is empty. Guards
+// §5.3." It is read out of that backticked shell line rather than restated here, because the
+// entry it pins is the one §2.2's FORBIDDEN block does not carry, and until this existed it was
+// the one entry on the forbidden list whose deletion left every test green.
+//
+// §2.2's own CI gate is a similar line and is deliberately not matched: it is fenced rather than
+// backticked, and its grep takes -E and an alternation rather than a path. A flag or a bare word
+// is skipped for that reason, and matching nothing at all is fatal — reading nothing is this
+// whole file's failure mode, not a reason to pass.
+func specBGrepsForDependencies(t *testing.T, name string, document string) []string {
+	t.Helper()
+	found := []string{}
+	for _, line := range strings.Split(document, "\n") {
+		for _, span := range backtickedSpans(line) {
+			if !strings.Contains(span, "go list -deps") {
+				continue
+			}
+			_, after, piped := strings.Cut(span, "| grep ")
+			if !piped {
+				continue
+			}
+			fields := strings.Fields(after)
+			if len(fields) == 0 || strings.HasPrefix(fields[0], "-") || !strings.Contains(fields[0], "/") {
+				continue
+			}
+			found = append(found, fields[0])
+		}
+	}
+	slices.Sort(found)
+	found = slices.Compact(found)
+	if len(found) == 0 {
+		t.Fatalf("%s %v", name, errNoDependencyGrep)
+	}
+	return found
+}
+
+// The backtick-delimited spans of one line, in order. Odd-numbered pieces of a split on the
+// delimiter are the spans; a trailing unclosed one is not a span and is dropped.
+func backtickedSpans(line string) []string {
+	pieces := strings.Split(line, "`")
+	spans := []string{}
+	for index := 1; index < len(pieces); index += 2 {
+		spans = append(spans, pieces[index])
+	}
+	return spans
 }
 
 var errItem28NotFound = errors.New("carries no §13 item naming the .gitattributes line it requires, in the words \"contains the line\" followed by that line in backticks")
