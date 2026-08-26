@@ -139,7 +139,7 @@ func newFixtureWith(t *testing.T, config Config) *fixture {
 	current.peer = served
 	current.connections = config.Connections
 	current.checks = config.Checks
-	current.reassembly = newReassembly(config.Now, DefaultMaxResponseBytes, 64, DefaultReassemblyIdle)
+	current.reassembly = newReassembly(config.Now, DefaultMaxResponseBytes, 64, 0, DefaultReassemblyIdle)
 	current.handler.notBuilt = config.Checks.NotBuilt()
 	current.handler.front = config.Checks
 

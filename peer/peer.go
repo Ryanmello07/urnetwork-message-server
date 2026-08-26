@@ -99,6 +99,12 @@ type Config struct {
 	// §4.6's per-client cap on concurrent reassemblies. Zero takes §4.6's 16.
 	ReassembliesPerClient int
 
+	// The reassemblies this server holds at once, across every client. Zero takes
+	// [DefaultMaxReassemblies], which is this package's number rather than §4.6's — a per-client
+	// cap bounds nothing on its own, because the client_ids reassembly is keyed on are not
+	// this server's to count. See [DefaultMaxReassemblies] and [globalReassemblyBound].
+	MaxReassemblies int
+
 	// How long a worker waits for the send path to take a response frame. Zero takes
 	// [DefaultSendTimeout]. It is bounded rather than infinite because it is what [Peer.Close]
 	// waits behind: connect's own Send blocks on the *client's* context, and a peer that could
@@ -106,6 +112,19 @@ type Config struct {
 	SendTimeout time.Duration
 
 	Now func() time.Time
+
+	// Where [Peer.sweepLoop]'s ticks come from. Zero takes [time.Ticker].
+	//
+	// A seam rather than a setting. §4.6's thirty seconds are a bound a test has to be able to
+	// reach, and the two ways to reach it without one are both wrong: waiting thirty seconds is
+	// a test somebody deletes the first time the suite gets slow, and shortening the bound to
+	// something a test can wait for asserts a number no production build holds. The clock is
+	// injected for exactly this reason already ([Config.Now]) and the ticker is the other half
+	// of it — a clock a test advances is not observed by a ticker the runtime owns.
+	//
+	// Answers the channel the ticks arrive on and the stop that releases it, which is
+	// [time.Ticker] with its two fields named rather than its type.
+	NewTicker func(period time.Duration) (<-chan time.Time, func())
 }
 
 // The §4.2 frame binding: one connect client, one receive callback, and the dispatch of §4.3's
@@ -128,7 +147,8 @@ type Peer struct {
 	fragmentPartBytes int
 	sendTimeout       time.Duration
 
-	now func() time.Time
+	now       func() time.Time
+	newTicker func(period time.Duration) (<-chan time.Time, func())
 
 	reassembly *reassembly
 
@@ -184,6 +204,7 @@ type stats struct {
 	requestsServed  atomic.Uint64
 	responsesSent   atomic.Uint64
 	responsesFailed atomic.Uint64
+	refusalsDropped atomic.Uint64
 }
 
 // The aggregate counters of §11.3's shape: no identifier, no label, nothing a client chose.
@@ -193,6 +214,11 @@ type Stats struct {
 	RequestsServed  uint64
 	ResponsesSent   uint64
 	ResponsesFailed uint64
+
+	// The §4.6 refusals this server decided and did not queue, because the queue was full. See
+	// [Peer.refuse] for why that is a drop rather than a wait: the wait would be on connect's
+	// receive loop, which is every other client's frames.
+	RefusalsDropped uint64
 }
 
 func New(config Config) (*Peer, error) {
@@ -241,9 +267,13 @@ func New(config Config) (*Peer, error) {
 		fragmentPartBytes: config.FragmentPartBytes,
 		sendTimeout:       config.SendTimeout,
 		now:               config.Now,
+		newTicker:         config.NewTicker,
 	}
 	if self.sendTimeout <= 0 {
 		self.sendTimeout = DefaultSendTimeout
+	}
+	if self.newTicker == nil {
+		self.newTicker = realTicker
 	}
 	// §4.6's min, applied once here so that this field is the size that actually goes on the
 	// wire rather than the budget somebody asked for
@@ -259,7 +289,11 @@ func New(config Config) (*Peer, error) {
 	if reassemblyIdle <= 0 {
 		reassemblyIdle = DefaultReassemblyIdle
 	}
-	self.reassembly = newReassembly(self.now, self.maxRequestBytes, reassembliesPerClient, reassemblyIdle)
+	maxReassemblies := config.MaxReassemblies
+	if maxReassemblies <= 0 {
+		maxReassemblies = DefaultMaxReassemblies
+	}
+	self.reassembly = newReassembly(self.now, self.maxRequestBytes, reassembliesPerClient, maxReassemblies, reassemblyIdle)
 	self.routes = self.buildRoutes()
 
 	workers := config.Workers
@@ -311,6 +345,7 @@ func (self *Peer) Stats() Stats {
 		RequestsServed:  self.stats.requestsServed.Load(),
 		ResponsesSent:   self.stats.responsesSent.Load(),
 		ResponsesFailed: self.stats.responsesFailed.Load(),
+		RefusalsDropped: self.stats.refusalsDropped.Load(),
 	}
 }
 
@@ -320,7 +355,7 @@ func (self *Peer) Stats() Stats {
 func (self *Peer) NotBuilt() []api.NotBuilt {
 	notBuilt := append([]api.NotBuilt{}, self.handler.NotBuilt()...)
 	notBuilt = append(notBuilt, self.unservedArms()...)
-	notBuilt = append(notBuilt, unsignedHello, helloRotatesOnUnverifiedSourceId)
+	notBuilt = append(notBuilt, unsignedHello, helloRotatesOnUnverifiedSourceId, globalReassemblyBound)
 	if self.connections.idle == 0 {
 		notBuilt = append(notBuilt, unsweptConnections)
 	}
@@ -373,6 +408,27 @@ var unsweptConnections = api.NotBuilt{
 	Section: "§5.7, §4.3.1",
 	What:    "the connection idle bound: Config.ConnectionIdle is zero, so a connection is closed only by a later Hello from the same client_id, and a nonce outlives an unannounced reconnect without limit",
 	Owner:   "the operator's configuration",
+}
+
+// The reassembly bound §4.6 does not give, held to a number this package chose.
+//
+// §4.6 caps a client at sixteen concurrent reassemblies of `max_request_bytes` each and says
+// nothing about how many clients there are — and the client_id it keys on is the one connect
+// hands the receive callback, before §5.1 check 2 has resolved anything, so a client_id that
+// never said Hello opens buffers here as readily as one that did. Sixteen times ten thousand
+// client_ids is the memory-exhaustion vector §4.6 exists to close, reached around the cap rather
+// than through it, and no number in spec B stands in the way of it.
+//
+// So this build holds [DefaultMaxReassemblies] above the per-client cap and refuses past it with
+// §4.5's non-specific REASON_REJECTED. It is declared here because it is a refusal the protocol
+// does not describe: a conforming client inside every bound §4.6 publishes can still be refused
+// by this server when other clients are using the buffer, and the only place that is written
+// down is here and [Config.MaxReassemblies]. §4.6 should name the bound, or name what a server
+// answers when it has none left.
+var globalReassemblyBound = api.NotBuilt{
+	Section: "§4.6, §4.5",
+	What:    "a reassembly bound above §4.6's per-client cap: the spec names none, so this build chose Config.MaxReassemblies and refuses past it with REASON_REJECTED, which is a refusal no client can predict from Capabilities",
+	Owner:   "spec B §4.6, through this package's configuration",
 }
 
 // The one operation whose blast radius is somebody else's.
@@ -491,10 +547,26 @@ func (self *Peer) arrivedFragment(clientId connect.Id, frame *protocol.Frame) {
 	})
 }
 
-// A §4.6 refusal, queued for [Peer.refuseLoop] rather than sent from the receive loop.
+// A §4.6 refusal, queued for [Peer.refuseLoop] rather than sent from the receive loop — and
+// dropped rather than waited on when that queue is full.
 //
-// Blocking here is the same backpressure [Peer.enqueue] documents, and it ends on this peer's
-// own context so [Peer.Close] is not waiting behind a client.
+// This runs on connect's receive callback, which connect invokes inline on the single loop that
+// reads every peer's frames (transfer.go:1334). So the whole of what this function may cost is
+// bounded work: a wait of any length here is a wait every other client's frames sit behind.
+//
+// A queue alone does not give that. [Peer.refuseLoop] is one consumer by design — the ordering
+// argument there forces it — and it drains at one refusal per [Config.SendTimeout] against a
+// client that reads nothing, so a bounded queue in front of it is a delay of QueueDepth frames
+// and not a fix: after that, every further malformed fragment costs this server a whole send
+// timeout. The frames that buy it are two bytes each. Measured before this was written: 200
+// fragment frames at a queue depth of 64 held the receive path for exactly 100 send timeouts,
+// and 21 of 120 single-frame batches held it for a timeout apiece.
+//
+// So a refusal that cannot be queued now is not sent at all, and is counted as
+// [Stats.RefusalsDropped]. What that costs is the courtesy of §4.5's refusal to a client whose
+// own refusals are already backed up — the newest is what goes, so §4.6's specific refusal, which
+// is the first one decided for a request, is the one that survives the generic ones behind it.
+// What it buys is that nothing a client can send makes this server's receive loop wait.
 func (self *Peer) refuse(clientId connect.Id, requestId uint64, reason protocol.Reason) {
 	current := refusal{
 		clientId: clientId,
@@ -502,7 +574,8 @@ func (self *Peer) refuse(clientId connect.Id, requestId uint64, reason protocol.
 	}
 	select {
 	case self.refusals <- current:
-	case <-self.ctx.Done():
+	default:
+		self.stats.refusalsDropped.Add(1)
 	}
 }
 
@@ -528,7 +601,9 @@ func (self *Peer) refuse(clientId connect.Id, requestId uint64, reason protocol.
 // a scheduling accident.
 //
 // What it costs is that a client whose read side has stopped delays other clients' *refusals*
-// for up to [Config.SendTimeout]. It delays no request and no handler's response: those are the
+// for up to [Config.SendTimeout], and that refusals decided while this one consumer is parked in
+// such a send are dropped rather than queued behind it — see [Peer.refuse], which is where that
+// trade is made and counted. It delays no request and no handler's response: those are the
 // pool's, and the pool is untouched by this.
 func (self *Peer) refuseLoop() {
 	defer self.workers.Done()
@@ -552,22 +627,43 @@ func (self *Peer) refuseLoop() {
 // memory-exhaustion vector, and a buffer whose release waits on the attacker sending more is
 // still one.
 //
-// The period is derived from the bound rather than chosen beside it. A sweep on a number of its
-// own would hold expired state for that number's worth of time no matter what
-// [Config.ReassemblyIdle] said, and the two would drift the first time either was tuned; half
-// the bound means nothing outlives it by more than half of it.
+// The period is [sweepPeriod]'s, and the ticks are [Config.NewTicker]'s, so that a test can
+// assert both halves — which period this loop asked for, and that a tick sweeps — without
+// waiting for either.
 func (self *Peer) sweepLoop(idle time.Duration) {
 	defer self.workers.Done()
-	ticker := time.NewTicker(max(idle/2, time.Millisecond))
-	defer ticker.Stop()
+	ticks, stop := self.newTicker(sweepPeriod(idle))
+	defer stop()
 	for {
 		select {
 		case <-self.ctx.Done():
 			return
-		case <-ticker.C:
+		case <-ticks:
 			self.reassembly.sweep()
 		}
 	}
+}
+
+// How often [Peer.sweepLoop] applies §4.6's bound, derived from the bound itself.
+//
+// A sweep on a number of its own would hold expired state for that number's worth of time no
+// matter what [Config.ReassemblyIdle] said, and the two would drift the first time either was
+// tuned. Half the bound is the relation, and what it buys is the only claim this package is
+// entitled to make about the overshoot: nothing outlives §4.6's thirty seconds by more than half
+// of them. A period of a hundred times the bound satisfies every "eventually" a test can poll for
+// and leaves an abandoned buffer alive for fifty minutes, so the relation is asserted rather than
+// argued — see TestTheSweepPeriodIsHalfSpecB46sBoundAndATickIsWhatFreesTheBuffer.
+//
+// The floor is not a second opinion about the bound. It is [time.NewTicker]'s own requirement: a
+// period of zero panics, and a bound below two of these would round to one.
+func sweepPeriod(idle time.Duration) time.Duration {
+	return max(idle/2, time.Millisecond)
+}
+
+// [Config.NewTicker]'s default: the runtime's own ticker, with its channel and its stop.
+func realTicker(period time.Duration) (<-chan time.Time, func()) {
+	ticker := time.NewTicker(period)
+	return ticker.C, ticker.Stop
 }
 
 // Hand the request to a worker, or backpressure the receive loop until one is free.

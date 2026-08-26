@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"runtime"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -60,7 +61,7 @@ func TestTheConcurrentReassemblyCapIsTheConfiguredOneAndTheSlotComesBack(t *test
 	for _, configured := range []int{1, 3, DefaultReassembliesPerClient} {
 		t.Run(fmt.Sprintf("%d per client", configured), func(t *testing.T) {
 			clock := newTestClock()
-			buffers := newReassembly(clock.time, 4096, configured, DefaultReassemblyIdle)
+			buffers := newReassembly(clock.time, 4096, configured, DefaultMaxReassemblies, DefaultReassemblyIdle)
 			bound := buffers.perClient
 			if bound != configured {
 				t.Fatalf("a reassembler configured for %d concurrent reassemblies holds %d", configured, bound)
@@ -153,6 +154,76 @@ func TestAPeersReassemblyCapIsTheOneItsConfigNames(t *testing.T) {
 	}
 }
 
+// The reassemblies this server holds at once are bounded across clients, not only within one.
+//
+// §4.6's cap is per client, and the client_id it is per is the `source.SourceId` connect hands
+// the receive callback — before §5.1 check 2 has resolved a connection, which happens one stage
+// later inside the api pipeline. So a client_id that has never said Hello opens reassembly state
+// here as readily as one that has, and sixteen buffers of `max_request_bytes` multiplied by as
+// many client_ids as an attacker cares to mint is the memory-exhaustion vector §4.6 exists to
+// close, reached around the cap rather than through it. Ten thousand strangers were measured
+// holding ten thousand reassemblies and twenty megabytes with no refusal at all.
+//
+// Every client here is a stranger and every one of them is inside §4.6's own cap, so the per-
+// client rule cannot be what refuses: what refuses is the bound above it. And because that bound
+// is a number spec B does not give, this build declares it — a conforming client can be refused
+// by it, and §4.6 gives a client no way to predict that from Capabilities.
+func TestTheReassembliesThisServerHoldsAtOnceAreBoundedAcrossClients(t *testing.T) {
+	const maxReassemblies = 8
+	clock := newTestClock()
+	buffers := newReassembly(clock.time, 4096, DefaultReassembliesPerClient, maxReassemblies, DefaultReassemblyIdle)
+
+	opened := []connect.Id{}
+	refusedAt := -1
+	for index := range 4 * maxReassemblies {
+		// a stranger apiece, each opening one reassembly and so inside §4.6's sixteen
+		clientId := connect.NewId()
+		_, _, reason := buffers.accept(clientId, &protocol.MessageServerFragment{RequestId: 1, Index: 0, Count: 2, Part: []byte("ab")})
+		if reason == protocol.Reason_REASON_REJECTED {
+			refusedAt = index
+			break
+		}
+		if reason != protocol.Reason_REASON_OK {
+			t.Fatalf("stranger %d opening its first reassembly was answered %v", index, reason)
+		}
+		opened = append(opened, clientId)
+	}
+	if refusedAt != maxReassemblies {
+		t.Fatalf("the reassembler took %d reassemblies from %d strangers against a bound of %d; §4.6's per-client cap multiplies by every client_id there is, so a bound above it is the only one that holds",
+			len(opened), refusedAt, maxReassemblies)
+	}
+	if holding := buffers.holding(); holding.reassemblies != maxReassemblies || holding.clients != maxReassemblies {
+		t.Fatalf("at the bound the reassembler holds %+v, want %d reassemblies under %d clients", holding, maxReassemblies, maxReassemblies)
+	}
+
+	// and the bound is on what is held rather than on what has ever arrived: a reassembly that
+	// completes gives its slot back to whoever asks next
+	if _, complete, reason := buffers.accept(opened[0], &protocol.MessageServerFragment{RequestId: 1, Index: 1, Count: 2, Part: []byte("cd")}); !complete || reason != protocol.Reason_REASON_OK {
+		t.Fatalf("the last fragment of an open request answered complete=%v %v", complete, reason)
+	}
+	if _, _, reason := buffers.accept(connect.NewId(), &protocol.MessageServerFragment{RequestId: 1, Index: 0, Count: 2, Part: []byte("ab")}); reason != protocol.Reason_REASON_OK {
+		t.Fatalf("the slot of a completed reassembly was not given back: the next stranger was answered %v", reason)
+	}
+
+	// a peer holds the configured bound, and the default is a bound rather than none
+	for _, configured := range []int{0, 3} {
+		fixture := newFixtureWith(t, Config{MaxReassemblies: configured})
+		want := configured
+		if want == 0 {
+			want = DefaultMaxReassemblies
+		}
+		if got := fixture.peer.reassembly.maxReassemblies; got != want {
+			t.Fatalf("a peer configured with MaxReassemblies %d holds %d, want %d", configured, got, want)
+		}
+		// §4.6 names no bound here, so the one this build applies is declared rather than
+		// presented as the spec's
+		if !slices.ContainsFunc(fixture.peer.NotBuilt(), func(entry api.NotBuilt) bool { return entry.What == globalReassemblyBound.What }) {
+			t.Fatalf("this build refuses a conforming client for a bound §4.6 does not give and nothing declares it; §10.1's readiness endpoint would read the refusal as the spec's: %v",
+				fixture.peer.NotBuilt())
+		}
+	}
+}
+
 // ── the thirty seconds ───────────────────────────────────────────────────────────────────
 
 // §4.6's expiry happens at the bound, and not before it.
@@ -168,7 +239,7 @@ func TestAPeersReassemblyCapIsTheOneItsConfigNames(t *testing.T) {
 // to arrive, and only the "and not before" half tells the two apart.
 func TestReassemblyStateExpiresAtSpecB46sBoundAndNotBefore(t *testing.T) {
 	clock := newTestClock()
-	buffers := newReassembly(clock.time, 4096, DefaultReassembliesPerClient, DefaultReassemblyIdle)
+	buffers := newReassembly(clock.time, 4096, DefaultReassembliesPerClient, DefaultMaxReassemblies, DefaultReassemblyIdle)
 	idle := buffers.idle
 	clientId := connect.NewId()
 	fragments := fragmentsOf(1, []byte("aaaabbbbcccc"), 4)
@@ -254,6 +325,148 @@ func TestReassemblyStateIsFreedWithNoFurtherFragmentToSweepIt(t *testing.T) {
 	})
 }
 
+// The sweep's period is half §4.6's bound, and a tick is what frees the buffer.
+//
+// [Peer.sweepLoop]'s comment argues that the period is *derived* from the bound rather than
+// chosen beside it — "nothing outlives it by more than half of it" — and until this test nothing
+// held it to that. The period could be made a hundred times the bound with the whole suite green,
+// because the test that waits for the sweep polls for thirty seconds against a fifty-millisecond
+// bound: it observes "eventually" and every period under thirty seconds satisfies it. At the
+// production thirty seconds a hundredfold period leaves an abandoned buffer alive for fifty
+// minutes, which is §4.6's bound exceeded a hundredfold with nothing red.
+//
+// So the period the loop asks for is read back out of the ticker it asked, and the relation is
+// asserted against the bound rather than against a number. And the tick is delivered by the test
+// rather than waited for, on a clock the test also moves — which is the same reason [Config.Now]
+// exists: a bound a test can only observe by waiting for it is a bound the test has to shorten,
+// and a shortened bound is not the one production holds.
+func TestTheSweepPeriodIsHalfSpecB46sBoundAndATickIsWhatFreesTheBuffer(t *testing.T) {
+	t.Run("the period a peer asks for is at most half the bound it was configured with", func(t *testing.T) {
+		for _, idle := range []time.Duration{DefaultReassemblyIdle, time.Minute, time.Second, 50 * time.Millisecond, 4 * time.Millisecond} {
+			ticker := newTestTicker()
+			newFixtureWith(t, Config{ReassemblyIdle: idle, NewTicker: ticker.new})
+			period := ticker.asked(t)
+			if period <= 0 {
+				t.Fatalf("a peer bounded at %v asked for a ticker of %v, which is not a period at all", idle, period)
+			}
+			if idle < 2*period {
+				t.Fatalf("a peer bounded at %v sweeps every %v, so an abandoned buffer outlives §4.6's bound by up to %v; the period is derived from the bound precisely so that nothing outlives it by more than half of it",
+					idle, period, period-idle/2)
+			}
+		}
+	})
+
+	t.Run("a bound too short to halve takes the floor rather than a ticker of zero", func(t *testing.T) {
+		// time.NewTicker panics on a period of zero, and this is the only reason the derivation
+		// has a floor at all — so the floor is asserted as a floor and not as a second opinion
+		// about the bound
+		ticker := newTestTicker()
+		newFixtureWith(t, Config{ReassemblyIdle: time.Nanosecond, NewTicker: ticker.new})
+		if period := ticker.asked(t); period <= 0 || time.Millisecond < period {
+			t.Fatalf("a peer bounded at a nanosecond asked for a ticker of %v, want the floor of %v", period, time.Millisecond)
+		}
+	})
+
+	t.Run("a tick is what frees an abandoned buffer, on a clock this test moves", func(t *testing.T) {
+		clock := newTestClock()
+		ticker := newTestTicker()
+		fixture := newFixtureWith(t, Config{Now: clock.time, NewTicker: ticker.new})
+		ticker.asked(t)
+
+		// delivered by calling the receive callback the way connect calls it, so the fragment is
+		// buffered before the assertions below rather than in a race with them
+		part := bytes.Repeat([]byte{0x33}, 512)
+		body, err := connect.ProtoMarshal(&protocol.MessageServerFragment{RequestId: 77, Index: 0, Count: 4, Part: part})
+		if err != nil {
+			t.Fatalf("ProtoMarshal: %v", err)
+		}
+		fixture.peer.receive(
+			connect.TransferPath{SourceId: connect.NewId()},
+			[]*protocol.Frame{{MessageType: protocol.MessageType_MessageMessageServerFragment, MessageBytes: body}},
+			connect.Peer{},
+		)
+		if holding := fixture.peer.reassembly.holding(); holding.bytes != len(part) {
+			t.Fatalf("the fragment was buffered as %+v, want %d bytes; a release is not what the tick below would be observing", holding, len(part))
+		}
+
+		// a tick before the bound frees nothing — otherwise "the sweep runs" would be
+		// indistinguishable from a sweep that aborts every request that takes two round trips
+		ticker.tick(t)
+		if holding := fixture.peer.reassembly.holding(); holding.bytes != len(part) {
+			t.Fatalf("a sweep with the clock still at the instant the fragment arrived left %+v; §4.6 expires state *after* thirty seconds, and a sweep that drops on sight aborts every request that takes two round trips", holding)
+		}
+
+		clock.advance(DefaultReassemblyIdle + time.Nanosecond)
+		ticker.tick(t)
+		until(t, "§4.6's expiry on a tick, with the clock past the bound and no further fragment sent", func() bool {
+			return fixture.peer.reassembly.holding() == held{}
+		})
+	})
+}
+
+// The ticks [Peer.sweepLoop] runs on, and the period it asked for them at.
+//
+// Guarded for the reason [testClock] is: the period is written by the sweep goroutine as it
+// starts and read by the test, and a seam that raced would turn every bound built on it into a
+// test that fails somewhere else.
+type testTicker struct {
+	mutex   sync.Mutex
+	periods []time.Duration
+	ticks   chan time.Time
+}
+
+func newTestTicker() *testTicker {
+	return &testTicker{ticks: make(chan time.Time, 1)}
+}
+
+func (self *testTicker) new(period time.Duration) (<-chan time.Time, func()) {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	self.periods = append(self.periods, period)
+	return self.ticks, func() {}
+}
+
+// The period the loop asked for, once it has asked. The goroutine starts inside [New] and this
+// is read from the test's own goroutine, so the wait is for the start rather than for the bound.
+func (self *testTicker) asked(t *testing.T) time.Duration {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		self.mutex.Lock()
+		periods := append([]time.Duration{}, self.periods...)
+		self.mutex.Unlock()
+		if len(periods) == 1 {
+			return periods[0]
+		}
+		if 1 < len(periods) {
+			t.Fatalf("%d tickers were asked for; the sweep is one loop and a second one would sweep on a period nothing here asserts", len(periods))
+		}
+		if deadline.Before(time.Now()) {
+			t.Fatal("the sweep loop never asked for a ticker")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// One tick, delivered and taken. Delivery is not the sweep, so the tick is followed until the
+// loop has taken it off the channel — which is what makes the assertion after it about the sweep
+// rather than about the send.
+func (self *testTicker) tick(t *testing.T) {
+	t.Helper()
+	select {
+	case self.ticks <- time.Now():
+	case <-time.After(30 * time.Second):
+		t.Fatal("the sweep loop never took a tick")
+	}
+	deadline := time.Now().Add(30 * time.Second)
+	for len(self.ticks) != 0 {
+		if deadline.Before(time.Now()) {
+			t.Fatal("the sweep loop never took a tick off the channel")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
 // ── the buffer cap, and the freeing ──────────────────────────────────────────────────────
 
 // REASON_OVERSIZE frees every buffered byte at the moment it refuses.
@@ -270,7 +483,7 @@ func TestReassemblyStateIsFreedWithNoFurtherFragmentToSweepIt(t *testing.T) {
 func TestAnOversizeReassemblyFreesEveryByteAtTheMomentItRefuses(t *testing.T) {
 	const maxRequestBytes = 1024
 	clock := newTestClock()
-	buffers := newReassembly(clock.time, maxRequestBytes, DefaultReassembliesPerClient, DefaultReassemblyIdle)
+	buffers := newReassembly(clock.time, maxRequestBytes, DefaultReassembliesPerClient, DefaultMaxReassemblies, DefaultReassemblyIdle)
 	clientId := connect.NewId()
 
 	fragments := fragmentsOf(1, bytes.Repeat([]byte{0x5a}, 4*maxRequestBytes), 256)
@@ -333,7 +546,7 @@ func TestAnOversizeReassemblyFreesEveryByteAtTheMomentItRefuses(t *testing.T) {
 // on the front of it.
 func TestAnOutOfOrderIndexAbortsAndNoLaterFragmentResurrectsIt(t *testing.T) {
 	clock := newTestClock()
-	buffers := newReassembly(clock.time, 4096, DefaultReassembliesPerClient, DefaultReassemblyIdle)
+	buffers := newReassembly(clock.time, 4096, DefaultReassembliesPerClient, DefaultMaxReassemblies, DefaultReassemblyIdle)
 	clientId := connect.NewId()
 	fragments := fragmentsOf(1, []byte("aaabbbccc"), 3)
 
@@ -380,7 +593,7 @@ func TestAnOutOfOrderIndexAbortsAndNoLaterFragmentResurrectsIt(t *testing.T) {
 // scheduler's business; that each one gets back the bytes it sent, exactly once, is not.
 func TestConcurrentReassembliesDoNotContaminateEachOther(t *testing.T) {
 	clock := newTestClock()
-	buffers := newReassembly(clock.time, DefaultMaxRequestBytes, DefaultReassembliesPerClient, DefaultReassemblyIdle)
+	buffers := newReassembly(clock.time, DefaultMaxRequestBytes, DefaultReassembliesPerClient, DefaultMaxReassemblies, DefaultReassemblyIdle)
 
 	clients := []connect.Id{connect.NewId(), connect.NewId()}
 	requestIds := []uint64{7, 9}
@@ -602,6 +815,162 @@ func TestNoFragmentThisServerSendsExceedsSpecB46sPartSize(t *testing.T) {
 	})
 }
 
+// What §4.6's expiry costs does not grow with what is open.
+//
+// The expiry runs under the reassembler's mutex on every arriving fragment, which is the mutex
+// every client's fragments queue behind. A version of it that scanned the whole in-flight map
+// answered every refusal identically and cost 9 nanoseconds per open reassembly per fragment: at
+// fifty thousand open — which is reachable, because the client_ids reassembly is keyed on are not
+// this server's to count — every fragment frame from anybody cost 455µs of held mutex, and the
+// server's whole fragment throughput was two thousand a second. Linear per fragment is quadratic
+// in an attacker's total work, and it is §4.6's own enforcement paying it.
+//
+// Counted rather than timed. What is claimed is a complexity, a duration asserted on a shared
+// machine is a flake, and the count is exact: the walk looks at the oldest reassembly, finds it
+// inside the bound, and stops. Two orders of magnitude apart, so that "it did not grow" is a
+// measurement rather than a hope.
+func TestWhatSpecB46sExpiryCostsDoesNotGrowWithWhatIsOpen(t *testing.T) {
+	measure := func(t *testing.T, open int) uint64 {
+		t.Helper()
+		clock := newTestClock()
+		buffers := newReassembly(clock.time, 4096, open+1, open+1, DefaultReassemblyIdle)
+		clientId := connect.NewId()
+		for index := range open {
+			if _, _, reason := buffers.accept(clientId, &protocol.MessageServerFragment{
+				RequestId: uint64(index), Index: 0, Count: 2, Part: []byte("ab"),
+			}); reason != protocol.Reason_REASON_OK {
+				t.Fatalf("reassembly %d of %d was answered %v", index, open, reason)
+			}
+		}
+		if holding := buffers.holding(); holding.reassemblies != open {
+			t.Fatalf("%d reassemblies were opened and the reassembler holds %+v, so the cost below is about a smaller map than this test built", open, holding)
+		}
+
+		before := buffers.expiryReads()
+		if _, _, reason := buffers.accept(clientId, &protocol.MessageServerFragment{
+			RequestId: uint64(open), Index: 0, Count: 2, Part: []byte("ab"),
+		}); reason != protocol.Reason_REASON_OK {
+			t.Fatalf("the fragment being measured was answered %v", reason)
+		}
+		cost := buffers.expiryReads() - before
+
+		// cheap because it walks the expired ones, and not because it stopped expiring: the
+		// bound still ends everything that is open
+		clock.advance(buffers.idle + time.Nanosecond)
+		if dropped := buffers.sweep(); dropped != open+1 {
+			t.Fatalf("the sweep past the bound dropped %d of %d reassemblies", dropped, open+1)
+		}
+		if holding := buffers.holding(); holding != (held{}) {
+			t.Fatalf("an expiry that costs nothing left %+v behind", holding)
+		}
+		return cost
+	}
+
+	const few = 100
+	const many = 100 * few
+	small := measure(t, few)
+	large := measure(t, many)
+	t.Logf("one fragment against %d open reassemblies looked at %d of them; against %d it looked at %d", few, small, many, large)
+
+	// the walk reads the oldest entry, finds it inside the bound and stops, so one is the answer
+	// at every size; two is the slack for an implementation that also reads the entry it stops at
+	const constant = 2
+	if constant < small || constant < large {
+		t.Fatalf("one fragment cost %d buffer reads against %d open and %d against %d; §4.6's expiry must cost what it drops rather than what is open, or every client's fragment pays for every other client's buffer",
+			small, few, large, many)
+	}
+	if small < large {
+		t.Fatalf("one fragment cost %d buffer reads against %d open and %d against %d, so the cost grows with what is open",
+			small, few, large, many)
+	}
+}
+
+// §4.6's part-size ceiling holds across the whole window either side of it, not at two points.
+//
+// [TestNoFragmentThisServerSendsExceedsSpecB46sPartSize] picks 60000 and 512, and a ceiling that
+// had been doubled clamps the first and honours the second exactly as the real one does — so the
+// window where the rule actually breaks, (2048, 4096], is the window neither case is in. That
+// mutation was applied to the shipped build and the whole suite stayed green, and under it a peer
+// configured with FragmentPartBytes 3000 puts 3000-byte parts on the wire: a MUST NOT of §4.6,
+// which every conforming receiver is entitled to refuse.
+//
+// So the ceiling is asserted against §4.6's own formula — min(peer_advertised_frame_budget, 2048)
+// — at every budget from nothing to twice the ceiling, rather than at sizes chosen to be
+// obviously inside or obviously outside it.
+func TestNoConfiguredBudgetPutsAPartPastSpecB46sCeiling(t *testing.T) {
+	t.Run("the min itself, across the whole window", func(t *testing.T) {
+		for budget := -MaxFragmentPartBytes; budget <= 2*MaxFragmentPartBytes; budget++ {
+			// §4.6's rule as §4.6 writes it: the smaller of the negotiated budget and 2048, and
+			// a budget of zero or less is no negotiation at all, so there is nothing to be the
+			// smaller of
+			want := min(budget, MaxFragmentPartBytes)
+			if budget <= 0 {
+				want = MaxFragmentPartBytes
+			}
+			if got := partSize(budget); got != want {
+				t.Fatalf("a negotiated budget of %d cuts %d byte parts, want min(%d, %d) = %d",
+					budget, got, budget, MaxFragmentPartBytes, want)
+			}
+		}
+	})
+
+	t.Run("a budget one byte past the ceiling is clamped on the wire", func(t *testing.T) {
+		// one byte past, because that is the near edge of the window the two cases in the test
+		// beside this one skip over
+		fixture := newFixtureWith(t, Config{FragmentPartBytes: MaxFragmentPartBytes + 1})
+		if fixture.peer.fragmentPartBytes != MaxFragmentPartBytes {
+			t.Fatalf("a peer configured one byte past §4.6's ceiling cuts %d byte parts", fixture.peer.fragmentPartBytes)
+		}
+		parts := largeFetchParts(t, fixture)
+		if len(parts) < 2 {
+			t.Fatalf("a 9000 byte response travelled in %d fragments", len(parts))
+		}
+		for index, part := range parts {
+			if MaxFragmentPartBytes < part {
+				t.Fatalf("fragment %d carries %d bytes, past §4.6's %d", index, part, MaxFragmentPartBytes)
+			}
+		}
+	})
+}
+
+// §4.6's part size is a rule this server obeys as a sender and does not enforce as a receiver.
+//
+// The position is recorded rather than left to be inferred from what no test looks at. §4.6 says
+// "the sender chooses `part` size as min(peer_advertised_frame_budget, 2048)", and the bound it
+// gives the *receiver* is `max_request_bytes` over the reassembled request — so an inbound part
+// far past 2048 is accepted here as long as the reassembly stays inside that, and a part past
+// `max_request_bytes` is refused REASON_OVERSIZE like any other reassembly that would exceed it.
+//
+// It is a reading rather than an oversight: the budget is negotiated per peer, this server
+// advertises none, and a receiver that refused parts at its own sender ceiling would refuse
+// conforming senders that negotiated a larger one. What makes it worth a test is that the
+// alternative reading is equally defensible and nothing else in this package says which one is
+// built.
+func TestAnInboundPartPastSpecB46sSenderBudgetIsAcceptedAndTheReceiversOwnBoundIsNot(t *testing.T) {
+	clock := newTestClock()
+	buffers := newReassembly(clock.time, DefaultMaxRequestBytes, DefaultReassembliesPerClient, DefaultMaxReassemblies, DefaultReassemblyIdle)
+	clientId := connect.NewId()
+
+	past := bytes.Repeat([]byte{0x6c}, 32*MaxFragmentPartBytes)
+	if len(past) <= MaxFragmentPartBytes || DefaultMaxRequestBytes < len(past) {
+		t.Fatalf("a part of %d bytes is not past §4.6's %d and inside max_request_bytes %d", len(past), MaxFragmentPartBytes, DefaultMaxRequestBytes)
+	}
+	if _, _, reason := buffers.accept(clientId, &protocol.MessageServerFragment{RequestId: 1, Index: 0, Count: 2, Part: past}); reason != protocol.Reason_REASON_OK {
+		t.Fatalf("an inbound part of %d bytes, past §4.6's sender ceiling of %d and inside max_request_bytes, was answered %v; this receiver polices the reassembly and not the sender's budget",
+			len(past), MaxFragmentPartBytes, reason)
+	}
+	if holding := buffers.holding(); holding.bytes != len(past) {
+		t.Fatalf("the oversized part was answered REASON_OK and buffered as %+v", holding)
+	}
+
+	// and the bound this receiver does hold refuses at its own number
+	if _, _, reason := buffers.accept(connect.NewId(), &protocol.MessageServerFragment{
+		RequestId: 1, Index: 0, Count: 2, Part: bytes.Repeat([]byte{0x6d}, DefaultMaxRequestBytes+1),
+	}); reason != protocol.Reason_REASON_OVERSIZE {
+		t.Fatalf("a part one byte past max_request_bytes was answered %v", reason)
+	}
+}
+
 // ── the fuzz of the fragment path ────────────────────────────────────────────────────────
 
 // One fragment, as a fuzz input: eight bytes naming every field a client controls.
@@ -672,16 +1041,20 @@ func FuzzTheFragmentPathIsBoundedAndLeavesNothingBehind(f *testing.F) {
 		const maxRequestBytes = 512
 		const perClient = 4
 		clock := newTestClock()
-		buffers := newReassembly(clock.time, maxRequestBytes, perClient, DefaultReassemblyIdle)
 
 		clients := []connect.Id{}
 		for range int(clientCount%4) + 1 {
 			clients = append(clients, connect.NewId())
 		}
+		// tighter than the per-client caps add up to, so a script that spreads itself across
+		// clients reaches the bound above §4.6's cap as well as §4.6's own — and so the ceiling
+		// below is the smaller of the two rather than the one that is easier to satisfy
+		maxReassemblies := max(perClient*len(clients)/2, 1)
+		buffers := newReassembly(clock.time, maxRequestBytes, perClient, maxReassemblies, DefaultReassemblyIdle)
 		ceiling := held{
-			reassemblies: perClient * len(clients),
+			reassemblies: maxReassemblies,
 			clients:      len(clients),
-			bytes:        perClient * len(clients) * maxRequestBytes,
+			bytes:        maxReassemblies * maxRequestBytes,
 		}
 
 		for len(script) >= 8 {
@@ -723,12 +1096,19 @@ func FuzzTheFragmentPathIsBoundedAndLeavesNothingBehind(f *testing.F) {
 
 // ── the helpers ──────────────────────────────────────────────────────────────────────────
 
-// The two maps §4.6's state lives in, checked against each other.
+// The three structures §4.6's state lives in, checked against each other.
 //
-// `counts` is what the per-client cap is enforced from and `inFlight` is what the memory is held
-// in. A drop that forgot either one leaves the cap enforced against reassemblies that no longer
-// exist, or memory held under a client the cap believes is idle — and neither shows up in any
-// single accept's answer, which is why this is asserted after every one of them in the fuzz.
+// `counts` is what the per-client cap is enforced from, `inFlight` is what the memory is held in,
+// and `order` is what the expiry walks. A drop that forgot any one of them leaves the cap
+// enforced against reassemblies that no longer exist, or memory held under a client the cap
+// believes is idle, or an expiry that stops at a buffer nothing holds — and none of those shows
+// up in any single accept's answer, which is why this is asserted after every one of them in the
+// fuzz.
+//
+// The order's own invariant is the one [reassembly.expire] stops on: the queue is in the order
+// the reassemblies began, so the first entry inside the bound ends the walk. That is only true
+// while `started` is assigned at creation and never refreshed — the day a fragment renews it, the
+// walk starts missing expired buffers behind the renewed one, and this is what says so.
 func (self *reassembly) consistent() error {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
@@ -743,6 +1123,26 @@ func (self *reassembly) consistent() error {
 		if self.counts[clientId] != count {
 			return fmt.Errorf("a client holds %d buffers and is counted against §4.6's cap as holding %d", count, self.counts[clientId])
 		}
+	}
+
+	if self.order.Len() != len(self.inFlight) {
+		return fmt.Errorf("%d reassemblies are open and the expiry order holds %d entries", len(self.inFlight), self.order.Len())
+	}
+	var previous time.Time
+	for element := self.order.Front(); element != nil; element = element.Next() {
+		key, _ := element.Value.(reassemblyKey)
+		current, found := self.inFlight[key]
+		if !found {
+			return fmt.Errorf("the expiry order holds a reassembly that is not open, so the walk stops at a buffer nothing holds")
+		}
+		if current.element != element {
+			return fmt.Errorf("an open reassembly points at an entry of the expiry order that is not the one holding it, so dropping it would leave the other behind")
+		}
+		if current.started.Before(previous) {
+			return fmt.Errorf("the expiry order is not in the order the reassemblies began (%v after %v), so the walk stops before the expired ones behind it",
+				current.started, previous)
+		}
+		previous = current.started
 	}
 	return nil
 }
