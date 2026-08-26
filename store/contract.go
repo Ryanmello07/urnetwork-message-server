@@ -854,6 +854,34 @@ func contractRetention(t *testing.T, newStore func(Limits) Store, seen *recorder
 			}
 		})
 	}
+
+	// §7.3 has no carve-out for the founding commit, and it is the commit whose policy the group
+	// lives under until it commits again — so a store that clamped it silently would leave the
+	// creator's client rendering a retention notice for a policy the group never had
+	t.Run("TheFoundingCommitIsClampedTheSameWayAsAnyOther", func(t *testing.T) {
+		t.Parallel()
+		limits := Limits{MediaTtlMaxSeconds: 1800, MediaTtlDefaultSeconds: 1800, DurableTtlMaxSeconds: 1000, DurableTtlDefaultSeconds: 31536000}
+		store := newStore(limits)
+		groupId := testGroupId(0x11)
+		created, err := store.CreateGroup(context.Background(), &CreateGroupRequest{
+			GroupId:           groupId,
+			InitialCommit:     commitRecord(testHandle(0x20), 0, 0, 1, 0x40),
+			BootstrapWriteKey: testBytes(EpochKeyBytes, 0x50),
+		})
+		if err != nil {
+			t.Fatalf("CreateGroup: %v", err)
+		}
+		seen.observe(created.Reason)
+		if created.Reason != protocol.Reason_REASON_RETENTION_CLAMPED {
+			t.Fatalf("CreateGroup answered %v for a founding commit whose media and text policies were both clamped down", created.Reason)
+		}
+		if created.Applied == nil {
+			t.Fatal("a clamped CreateGroup carried no RetentionApplied, so the creator cannot name the effective value")
+		}
+		state := stateOf(t, store, groupId)
+		wantMedia(t, created.Applied, state, 1800)
+		wantDurable(t, created.Applied, state, 1000)
+	})
 }
 
 // What the commit was told it got, and what the group row actually holds, are the same number.
