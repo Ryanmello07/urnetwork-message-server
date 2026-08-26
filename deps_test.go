@@ -1442,6 +1442,59 @@ func TestNoPackageOfThisModuleImportsMoreOfItThanItSaysItMay(t *testing.T) {
 	}
 }
 
+// The directory of the test client this module's integration tests are written against.
+//
+// Named as a directory rather than as an import path, because the import path is the module's
+// and is read out of the tree by [packagesOfThisModule] — a gate that typed the whole path would
+// be a gate that stops finding the package the day the module is renamed, and stops finding it
+// silently.
+const harnessDirectory = "harness"
+
+// Nothing this module builds imports the harness. Only test binaries do.
+//
+// Its package document says it is a harness and not a product client, and a document is a claim.
+// What makes it a fact is the import graph: a package that reached for it would link a client of
+// this server into the server, which is how a test double becomes a dependency and then a
+// product surface nobody decided to ship. The class is the module's own graph under every
+// configuration measured here, not a list of packages that must not do it.
+//
+// The positive control is the other half and is why the count is asserted. A gate that finds no
+// importer at all reports the same clean run whether the rule holds or whether the measurement
+// resolved nothing, so this also asserts that the harness *is* imported once the test binaries
+// are in the closure — which is the only reason it exists.
+func TestTheHarnessIsReachedOnlyFromTests(t *testing.T) {
+	packages := packagesOfThisModule(t)
+	harness := ""
+	for importPath, directory := range packages {
+		if filepath.ToSlash(directory) == harnessDirectory {
+			harness = importPath
+		}
+	}
+	if harness == "" {
+		t.Fatalf("this module holds no %s/ directory, so this gate has nothing to read; it holds %v", harnessDirectory, packages)
+	}
+
+	underTest := []string{}
+	for _, measured := range measureThisModule(t) {
+		for _, dep := range measured.deps {
+			if !slices.Contains(dep.imports, harness) {
+				continue
+			}
+			if dep.variant {
+				underTest = append(underTest, fmt.Sprintf("%s, %s", measured.configuration, dep.path))
+				continue
+			}
+			t.Errorf("under %s, %s imports %s outside a test binary; %s is a test client of this server and its own package document is where the reason is written",
+				measured.configuration, dep.path, harness, harness)
+		}
+	}
+	if len(underTest) == 0 {
+		t.Fatalf("no test binary in this module imports %s, so this gate read nothing at all", harness)
+	}
+	slices.Sort(underTest)
+	t.Logf("%s is imported by %d test binaries: %v", harness, len(underTest), underTest)
+}
+
 // The .gitattributes line spec B §13 item 28 names, read back out of item 28.
 //
 // Item 28 prints the required line verbatim, so the required line is taken from there rather
