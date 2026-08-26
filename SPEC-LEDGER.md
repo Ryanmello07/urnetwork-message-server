@@ -411,3 +411,22 @@ The message server's api package landed: §5.1's check order, §6.1's submit pat
 **§13 item 8 asserted something no build of this module could satisfy.** Item 8 pinned §5.3's "MUST NOT link an MLS implementation" with `go list -deps ./... | grep connect/mls` being empty. That grep is a prefix match, and `connect/message` — the record parser §2.2 explicitly ALLOWS, and which §5.1 check 7 requires the server to recompute every preimage through — is built on `connect/mls/syntax`, the TLS presentation-language codec. So the first package of the message server that parsed a single record put connect/mls/syntax in the closure and failed item 8, and there was no way to write the api layer that did not. Item 8 now asserts the package and not the prefix, and states why the codec is not an MLS implementation: it is a length-prefix reader and writer with no MLS type, no key schedule and no validation semantic in it, and §5.3's actual hazard — "the moment an MLS parser is in this process, the temptation to 'just validate the commit' becomes a one-line change" — is untouched by a codec that cannot represent a commit. Spec B revision 10.
 
 **What made it cheap to find, and worth recording.** The dependency gate in the message-server repository had predicted this failure in a comment months before it fired, named the two sentences that could not both hold, and said where the resolution belonged: in the spec first, the allow list second, "not in a quiet edit to whichever of the two is easier to change". The failure arrived exactly as described and cost one reading. A gate that explains the failure it is going to produce is worth more than a gate that only produces it.
+
+### 2026-08-26 — Spec B revision 11: the second copy of the rule revision 10 amended
+
+Revision 10 rewrote §13 item 8's no-MLS assertion from the prefix form to the package form, because
+the prefix form could not be satisfied by any build of this module that parses a record. §5.3 states
+the same assertion beside the normative MUST NOT it belongs to, and it was not updated with it, so
+the document asserted the same CI check two incompatible ways for one day. §5.3 now states the
+package form and cross-references item 8 for the argument. No normative rule changed: "the message
+server binary MUST NOT link an MLS implementation" is untouched, and what moved is the sentence that
+says how it is asserted.
+
+**This is §6's own failure mode, and it happened to §6's own process.** The change process on this
+page says a subagent reviews the diff rather than the document because a diff review catches "§7
+changed and §5.2 was not updated" — and the revision-10 diff touched §13 item 8 and §2.2's allow
+list, both of which were reviewed, while the second copy of the same rule two thousand lines away
+was not in the diff to be looked at. A rule written down twice is a rule amended once. The cheap
+countermeasure is the cross-reference this revision adds: §5.3 now points at item 8 instead of
+restating it, so there is one place left to amend. Found by the review of the api layer's gates,
+which is the first thing to read the two copies against each other.
