@@ -348,7 +348,10 @@ func parseGoDir(t *testing.T, dir string, includeTests bool) (*token.FileSet, []
 		if !includeTests && strings.HasSuffix(entry.Name(), "_test.go") {
 			continue
 		}
-		file, err := parser.ParseFile(fileSet, filepath.Join(dir, entry.Name()), nil, parser.SkipObjectResolution)
+		// the documents come with the tree: a gate that reads a package's own contract — which
+		// §5.1 check number an interface method runs, say — reads it out of the document beside
+		// the declaration rather than out of a copy in a test file
+		file, err := parser.ParseFile(fileSet, filepath.Join(dir, entry.Name()), nil, parser.SkipObjectResolution|parser.ParseComments)
 		if err != nil {
 			t.Fatalf("parsing %s: %v", filepath.Join(dir, entry.Name()), err)
 		}
