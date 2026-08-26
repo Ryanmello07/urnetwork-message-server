@@ -147,7 +147,7 @@ func TestCheckTwoRefusesANonceThatIsNotTheConnectionsOwn(t *testing.T) {
 		nil,
 		{},
 		bytes.Repeat([]byte{0}, ServerNonceBytes),
-		append(connection.ServerNonce()[:ServerNonceBytes-1], 0x00),
+		flippedLastByte(connection.ServerNonce()),
 		append(connection.ServerNonce(), 0x00),
 	} {
 		if reason := checks.ConnectionAuthenticated(ctx, &api.Connection{ServerNonce: wrong, ClientId: clientId.Bytes()}); reason != protocol.Reason_REASON_REJECTED {
@@ -238,4 +238,16 @@ func specBDocument(t *testing.T) (string, string) {
 	// scope, and a parser anchored on "\n" reads a CRLF document as one malformed line — which is
 	// a gate reporting a clean run having read nothing
 	return matches[0], strings.ReplaceAll(string(text), "\r\n", "\n")
+}
+
+// The connection's own nonce with its last byte changed.
+//
+// Flipped, not overwritten with a constant. This list is of nonces that are *not* this
+// connection's, and setting the last byte to zero produces this connection's own nonce whenever
+// the CSPRNG's last byte was already zero — which is one run in every 256, and is what a
+// once-in-a-while red suite on this test turned out to be.
+func flippedLastByte(nonce []byte) []byte {
+	changed := append([]byte(nil), nonce...)
+	changed[len(changed)-1] ^= 0xFF
+	return changed
 }

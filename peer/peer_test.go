@@ -471,3 +471,147 @@ func TestCloseReturnsWithRequestsInFlightAndDispatchesNothingAfter(t *testing.T)
 	// drain, a failed startup and a cleanup notices first
 	fixture.peer.Close()
 }
+
+// ── §4.3.1's version, on every request that names one ────────────────────────────────────
+
+// Every arm §5.1's pipeline owns refuses a request that names a protocol version this server
+// does not speak, and serves one that names none.
+//
+// §4.3.1 negotiates the version once, at Hello, and `MessageServerRequest.protocol_version` is
+// on every request after it. A build that carried the field and ignored it would be serving
+// requests under a version neither side agreed on and answering them in a format the client is
+// not reading — which is a wire-compatibility break that presents as data corruption rather than
+// as a refusal.
+//
+// The class comes out of the dispatch table rather than out of a list here: which arms this gate
+// covers is exactly which arms run inside the pipeline, and an arm added to that table tomorrow
+// is covered by this loop the day it lands. Hello is deliberately outside it and is asserted
+// outside it — a connection is what Hello creates, so §4.3.1 negotiates there through
+// `supported_versions` instead, and the arm bodies are built from the descriptor so that adding
+// one needs no edit here.
+func TestEveryPipelineArmRefusesAProtocolVersionThisServerDoesNotSpeak(t *testing.T) {
+	fixture := newFixture(t)
+	fixture.hello(t)
+
+	// an arm of §4.3's oneof, filled in through the descriptor rather than by naming its type
+	inArm := func(arm protoreflect.FieldDescriptor, version uint32) *protocol.MessageServerRequest {
+		request := &protocol.MessageServerRequest{
+			RequestId:       fixture.nextRequestId.Add(1),
+			ProtocolVersion: version,
+		}
+		request.ProtoReflect().Mutable(arm)
+		return request
+	}
+
+	gated := 0
+	for _, arm := range bodyArmsOf((&protocol.MessageServerRequest{}).ProtoReflect().Descriptor()) {
+		current, served := fixture.peer.routes[arm.Message().FullName()]
+		if !served || !current.pipeline {
+			continue
+		}
+		gated++
+
+		fixture.handler.forget()
+		refused := fixture.await(t, fixture.begin(t, inArm(arm, fixtureProtocolVersion+1)))
+		if refused.GetReason() != protocol.Reason_REASON_UNSUPPORTED_VERSION {
+			t.Fatalf("a %s naming protocol version %d was answered %v; this server speaks %d and §4.3.1 negotiated that at Hello",
+				arm.Name(), fixtureProtocolVersion+1, refused.GetReason(), fixtureProtocolVersion)
+		}
+		if calls := fixture.handler.recorded(); len(calls) != 0 {
+			t.Fatalf("a %s naming a version this server does not speak reached the handler %d times", arm.Name(), len(calls))
+		}
+
+		// zero is a field the client did not set, and §4.3.1 does not require one on every
+		// request. It is the control that says the refusal above is about the value and not
+		// about the presence of the gate
+		unset := fixture.await(t, fixture.begin(t, inArm(arm, 0)))
+		if unset.GetReason() != protocol.Reason_REASON_OK {
+			t.Fatalf("a %s that named no protocol version at all was answered %v; an unset field is not a mismatch", arm.Name(), unset.GetReason())
+		}
+		matched := fixture.await(t, fixture.begin(t, inArm(arm, fixtureProtocolVersion)))
+		if matched.GetReason() != protocol.Reason_REASON_OK {
+			t.Fatalf("a %s naming this server's own version was answered %v", arm.Name(), matched.GetReason())
+		}
+	}
+	if gated == 0 {
+		t.Fatal("no arm of §4.3's oneof runs inside the pipeline in this build, so the loop above asserted nothing")
+	}
+	t.Logf("§4.3.1's per-request version gate covers %d pipeline arms", gated)
+
+	// and Hello, which is outside it: a connection is what Hello creates, so there is nothing for
+	// check 2 to resolve and nothing for this gate to have been negotiated against yet. §4.3.1
+	// negotiates there on supported_versions, which
+	// TestAHelloThatNamesNoSharedVersionIssuesNoNonce is about
+	hello := &protocol.MessageServerRequest{
+		RequestId:       fixture.nextRequestId.Add(1),
+		ProtocolVersion: fixtureProtocolVersion + 1,
+	}
+	if err := setRequestBody(hello, &protocol.HelloRequest{SupportedVersions: []uint32{fixtureProtocolVersion}}); err != nil {
+		t.Fatalf("setRequestBody: %v", err)
+	}
+	if response := fixture.await(t, fixture.begin(t, hello)); response.GetReason() != protocol.Reason_REASON_OK {
+		t.Fatalf("a Hello whose envelope named version %d and whose supported_versions named %d was answered %v; §4.3.1 negotiates on the list, and the envelope field is what the list has not agreed yet",
+			fixtureProtocolVersion+1, fixtureProtocolVersion, response.GetReason())
+	}
+}
+
+// The receive callback's backpressure ends when the peer does.
+//
+// [Peer.enqueue] blocks on a full queue on purpose — that is connect's own documented mechanism,
+// and it is what keeps this server from inventing a refusal §4.5 has no code for. What makes it
+// safe to block is that the wait also ends on this peer's context: without that escape the
+// callback is parked on a channel whose readers have all returned, and connect's single receive
+// loop — the one that reads every peer's frames — is wedged for the life of the process by a
+// shutdown, which is the moment a drain of §2.3 is supposed to be finishing.
+//
+// One worker, a queue of one, and a handler that does not return: real goroutines, real channels,
+// and the block is confirmed before Close is called, so a version of this that never blocked
+// would fail here rather than pass vacuously.
+func TestABlockedEnqueueIsReleasedWhenThePeerCloses(t *testing.T) {
+	fixture := newFixtureWith(t, Config{Workers: 1, QueueDepth: 1})
+	fixture.hello(t)
+
+	entered := make(chan struct{}, 1)
+	release := make(chan struct{})
+	var once sync.Once
+	t.Cleanup(func() { once.Do(func() { close(release) }) })
+	fixture.handler.onSubmit = func(conn *api.Connection, request *protocol.SubmitRequest) (protocol.Reason, *protocol.SubmitResponse, error) {
+		select {
+		case entered <- struct{}{}:
+		default:
+		}
+		<-release
+		return protocol.Reason_REASON_OK, &protocol.SubmitResponse{}, nil
+	}
+
+	// the one worker, occupied
+	fixture.sendRequest(t, fixture.request(&protocol.SubmitRequest{GroupId: bytes.Repeat([]byte{0x21}, 32)}))
+	select {
+	case <-entered:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the only worker never reached the handler, so the queue below is not full")
+	}
+
+	waiting := job{arrived: &inbound{clientId: fixture.clientClient.ClientId()}, request: &protocol.MessageServerRequest{}}
+	// the one queue slot, filled
+	fixture.peer.enqueue(waiting)
+
+	blocked := make(chan struct{})
+	go func() {
+		fixture.peer.enqueue(waiting)
+		close(blocked)
+	}()
+	select {
+	case <-blocked:
+		t.Fatal("an enqueue onto a full queue behind an occupied worker returned at once; nothing below is testing the escape from a wait that did not happen")
+	case <-time.After(250 * time.Millisecond):
+	}
+
+	go fixture.peer.Close()
+	select {
+	case <-blocked:
+	case <-time.After(30 * time.Second):
+		t.Fatal("an enqueue blocked on a full queue never returned after Close; connect's receive loop is wedged there for the life of the process, and it is the loop that reads every peer's frames")
+	}
+	once.Do(func() { close(release) })
+}

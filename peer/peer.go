@@ -313,7 +313,7 @@ func (self *Peer) Stats() Stats {
 func (self *Peer) NotBuilt() []api.NotBuilt {
 	notBuilt := append([]api.NotBuilt{}, self.handler.NotBuilt()...)
 	notBuilt = append(notBuilt, self.unservedArms()...)
-	notBuilt = append(notBuilt, unsignedHello)
+	notBuilt = append(notBuilt, unsignedHello, helloRotatesOnUnverifiedSourceId)
 	if self.connections.idle == 0 {
 		notBuilt = append(notBuilt, unsweptConnections)
 	}
@@ -366,6 +366,27 @@ var unsweptConnections = api.NotBuilt{
 	Section: "§5.7, §4.3.1",
 	What:    "the connection idle bound: Config.ConnectionIdle is zero, so a connection is closed only by a later Hello from the same client_id, and a nonce outlives an unannounced reconnect without limit",
 	Owner:   "the operator's configuration",
+}
+
+// The one operation whose blast radius is somebody else's.
+//
+// §5.1 check 2's ByJwt half is already declared, by [amendedNotBuilt], as a check this process
+// cannot run. This is the same dependency read from the other end: not a check that is skipped,
+// but a write whose target is chosen by an identifier nothing here can verify. Every other arm
+// §4.3 defines *resolves* a connection and refuses without one, so an unauthenticated frame at
+// those gets a refusal and nothing moves. Hello creates one, and [Connections.Open] replaces
+// unconditionally — see [Peer.hello] — so what an unauthenticated Hello destroys belongs to
+// whoever `source.SourceId` names.
+//
+// Declared unconditionally, because it is true of every build of this package and there is no
+// configuration here that changes it. It is the operator transport's to close, in the same place
+// and by the same means as check 2's other half — and it is stated separately because "check 2
+// does not run" reads as this server being less careful about *its own* refusals, which
+// understates it: what is exposed is a third party's outbox.
+var helloRotatesOnUnverifiedSourceId = api.NotBuilt{
+	Section: "§4.3.1, §5.7, §5.1 check 2, §9.1 decision B1",
+	What:    "Hello's connection replacement is keyed on source.SourceId and replaces unconditionally, so unless the platform authenticates that identifier, a Hello naming another client_id destroys that client's live connection and its server_nonce, and every record queued in that client's §5.7 outbox stops verifying",
+	Owner:   "the operator transport, through connect",
 }
 
 // ── the receive path ─────────────────────────────────────────────────────────────────────

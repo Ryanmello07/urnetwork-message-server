@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -191,9 +192,15 @@ func TestAClosedConnectionsNonceIsHeldNowhere(t *testing.T) {
 //
 // The window is real: peer resolves the connection when it dispatches and §5.1's check 2 runs
 // inside the pipeline, so a Hello arriving between the two leaves a request authenticated against
-// a nonce that no longer exists. It is asserted directly rather than through a race, because a
-// test that has to win a race to observe a refusal is a test that reports the refusal missing
+// a nonce that no longer exists. It is asserted directly here rather than through a race, because
+// a test that has to win a race to observe a refusal is a test that reports the refusal missing
 // whenever it loses.
+//
+// What a direct call cannot say is whether the frame path reaches this at all — whether the
+// connection [Peer.answer] resolved is the one check 2 is handed, and whether a Hello on the
+// same frame path can get between them. TestAHelloArrivingInsideTheCheckTwoWindowRefusesTheRequest
+// holds the window open on a worker and drives the Hello through connect, which is the half this
+// one is not.
 func TestARequestWhoseConnectionWasReplacedInFlightIsRefused(t *testing.T) {
 	connections, err := NewConnections(rand.Reader, time.Now, 0)
 	if err != nil {
@@ -518,5 +525,161 @@ func TestTheLiveConnectionMapIsBoundedByTheIdleBound(t *testing.T) {
 	}
 	if count := connections.Count(); count != 1 {
 		t.Fatalf("%d connections are live after a hundred said Hello an hour ago under a one-minute bound; the live map still grows one entry per client_id that ever said Hello", count)
+	}
+}
+
+// ── what an unauthenticated Hello reaches ────────────────────────────────────────────────
+
+// A Hello naming another client's client_id ends that client's connection, and this build says
+// so out loud.
+//
+// [Peer.hello] used to state its own bound as "can make this server mint nonces for its own
+// client_id and nothing else". The identity a Hello acts on is `source.SourceId` as connect
+// handed it to the receive callback, and [Connections.Open] replaces unconditionally, so what a
+// Hello carrying a victim's client_id does is destroy that victim's connection, its nonce, and
+// the verification of every record queued in the victim's spec A §5.7 outbox. The attacker does
+// not even receive what it minted: the HelloResponse is addressed to the client_id it named, so
+// the nonce goes to the victim while the damage stays.
+//
+// The forgery is the whole of the delivery: the receive callback is called with the victim's
+// client_id in the source path, which is exactly what an operator transport that does not
+// authenticate `source.SourceId` permits. Decision B1 forbids checking that here — see
+// [Checks.ConnectionAuthenticated] — so this drives the seam the check would sit at rather than
+// pretending this package has one. The declaration is asserted beside the behaviour, because a
+// dependency nobody wrote down is one §10.1's readiness endpoint reads as absent.
+func TestAHelloNamingAnotherClientEndsThatClientsConnection(t *testing.T) {
+	fixture := newFixture(t)
+	writeKey := testWriteKey()
+	fixture.handler.onSubmit = verifyingSubmit(writeKey)
+
+	victim := fixture.clientClient.ClientId()
+	first := fixture.hello(t)
+	accepted := fixture.call(t, submitting(sealRecord(t, writeKey, first.GetServerNonce(), 1)))
+	if reason := firstResult(t, accepted); reason != protocol.Reason_REASON_OK {
+		t.Fatalf("the victim's own record was answered %v on its own connection", reason)
+	}
+	before, found := fixture.connections.Lookup(victim)
+	if !found {
+		t.Fatal("the victim has no connection to lose")
+	}
+
+	forged := fixture.request(&protocol.HelloRequest{SupportedVersions: []uint32{fixtureProtocolVersion}})
+	body, err := connect.ProtoMarshal(forged)
+	if err != nil {
+		t.Fatalf("ProtoMarshal: %v", err)
+	}
+	waiter := fixture.waitFor(forged.GetRequestId())
+	fixture.peer.receive(
+		connect.TransferPath{SourceId: victim},
+		[]*protocol.Frame{{MessageType: protocol.MessageType_MessageMessageServerRequest, MessageBytes: body}},
+		connect.Peer{})
+	if response := fixture.await(t, waiter); response.GetReason() != protocol.Reason_REASON_OK {
+		t.Fatalf("the forged Hello was answered %v; this test is about what a Hello that succeeds costs somebody else", response.GetReason())
+	}
+
+	after, found := fixture.connections.Lookup(victim)
+	if !found {
+		t.Fatal("the victim has no connection at all after a Hello it did not send")
+	}
+	if after.Generation() != before.Generation()+1 {
+		t.Fatalf("the victim's connection went from generation %d to %d; a Hello somebody else sent opened a connection in the victim's name",
+			before.Generation(), after.Generation())
+	}
+	if after.Holds(first.GetServerNonce()) {
+		t.Fatalf("the victim kept its nonce across a Hello it did not send, so nothing below is measuring the loss this test is named for")
+	}
+
+	// the victim, which has been told nothing, sends the next record out of its outbox
+	replayed := fixture.call(t, submitting(sealRecord(t, writeKey, first.GetServerNonce(), 2)))
+	if reason := firstResult(t, replayed); reason != protocol.Reason_REASON_REJECTED {
+		t.Fatalf("a record the victim sealed against its own live connection was answered %v after somebody else said Hello in its name; if this is REASON_OK the replacement did not happen and this test proves nothing",
+			reason)
+	}
+
+	if !slices.ContainsFunc(fixture.peer.NotBuilt(), func(entry api.NotBuilt) bool {
+		return entry.What == helloRotatesOnUnverifiedSourceId.What
+	}) {
+		t.Fatalf("a Hello reaches another client's connection and nothing in this build's NotBuilt says so; §10.1's readiness endpoint would read the ByJwt dependency as costing this server its own refusals and not a third party's outbox: %v",
+			fixture.peer.NotBuilt())
+	}
+}
+
+// A Hello that arrives inside §5.1 check 2's window refuses the request that was already there.
+//
+// The window is between [Peer.answer]'s `Lookup`, which resolves the connection a request will be
+// served on, and the pipeline's [Checks.ConnectionAuthenticated], which is where that connection
+// is asked whether it is still live. Both happen on a worker, microseconds apart, so a test that
+// sent two frames and hoped would observe the window on some runs and report it missing on the
+// rest.
+//
+// So the window is held open rather than raced for: the front checks are wrapped, and the first
+// request through them parks after check 1 and before check 2, on the worker goroutine serving
+// it. Everything else is real — a real Hello, marshaled into a real frame, carried by connect to
+// the same dispatcher, served by a second worker while the first is parked. What is asserted is
+// the invariant and not an ordering: a request served on a connection that has been replaced is
+// refused, whatever the two goroutines did to each other.
+type gatedChecks struct {
+	api.FrontChecks
+
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+// §5.1 check 1, and then the window.
+//
+// Only the first request is held. The control that follows the refusal travels this same path,
+// and a gate that held every request would be a test that deadlocks rather than one that fails.
+func (self *gatedChecks) FrameWithinLimits(ctx context.Context, conn *api.Connection) protocol.Reason {
+	reason := self.FrontChecks.FrameWithinLimits(ctx, conn)
+	self.once.Do(func() {
+		close(self.entered)
+		<-self.release
+	})
+	return reason
+}
+
+func TestAHelloArrivingInsideTheCheckTwoWindowRefusesTheRequest(t *testing.T) {
+	fixture := newFixture(t)
+	first := fixture.hello(t)
+
+	gate := &gatedChecks{
+		FrontChecks: fixture.checks,
+		entered:     make(chan struct{}),
+		release:     make(chan struct{}),
+	}
+	fixture.handler.front = gate
+
+	held := submitting(&protocol.Record{RecordBytes: []byte("one record, whose bytes this test never reads")})
+	inFlight := fixture.begin(t, fixture.request(held))
+	select {
+	case <-gate.entered:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the request never reached §5.1's front checks, so there is no window open to arrive inside")
+	}
+
+	// a real Hello, on the frame path, while the request above sits on a worker between the
+	// dispatcher's lookup and check 2
+	second := fixture.hello(t)
+	if bytes.Equal(first.GetServerNonce(), second.GetServerNonce()) {
+		t.Fatal("the Hello that arrived mid-request issued the same nonce, so no connection was replaced")
+	}
+	close(gate.release)
+
+	response := fixture.await(t, inFlight)
+	if response.GetReason() != protocol.Reason_REASON_REJECTED {
+		t.Fatalf("a request whose connection was replaced while it sat between the dispatcher's lookup and §5.1 check 2 was answered %v; it was authenticated against a nonce that no longer exists in this process",
+			response.GetReason())
+	}
+	if calls := fixture.handler.recorded(); len(calls) != 0 {
+		t.Fatalf("the handler was reached %d times by a request check 2 refused; the front checks run in front of the operation, not beside it", len(calls))
+	}
+
+	// the control: the same request, on the connection that replaced it, is served. Without it
+	// "the request was refused" is equally consistent with a peer that stopped serving when the
+	// gate opened
+	control := fixture.call(t, held)
+	if control.GetReason() != protocol.Reason_REASON_OK {
+		t.Fatalf("the same request on the new connection was answered %v, so what refused the one above was not the replacement", control.GetReason())
 	}
 }

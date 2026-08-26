@@ -12,9 +12,26 @@ import (
 //
 // Hello is the only operation that carries no authenticator of any kind — spec A §5.7 lists it
 // first under "NOT used on", because it "names no group, and is where server_nonce is issued".
-// What bounds it is that it costs one CSPRNG read and one map write, touches no group state, and
-// reads no database: an unauthenticated party who can address a frame here can make this server
-// mint nonces for its own client_id and nothing else.
+// What is bounded is the *work*: one CSPRNG read and one map write, no group state and no
+// database.
+//
+// What is not bounded is who it acts on, and the sentence that used to stand here — that an
+// unauthenticated party can make this server mint nonces for its own client_id and nothing else
+// — was wrong. The connection is keyed on `arrived.clientId`, which is `source.SourceId` exactly
+// as connect handed it to the receive callback, and [Connections.Open] replaces unconditionally.
+// A Hello naming a victim's client_id therefore ends that victim's live connection, destroys the
+// nonce it was issued, and invalidates every record queued in that victim's spec A §5.7 outbox —
+// which the victim can only recover from by noticing and re-MAC'ing against a nonce nothing has
+// told it about. That is a targeted cross-client denial of service, not "nothing else".
+//
+// It is an amplification of a dependency this build already declares rather than a second one.
+// Whether `source.SourceId` was authenticated is exactly what §5.1 check 2's other half is, and
+// [Checks.ConnectionAuthenticated] is emphatic that decision B1 forbids this process from
+// verifying it. Where the platform does authenticate it, this reduces to a client resetting its
+// own connection, which is what §4.3.1 says Hello is for. Where it does not, this is the one
+// operation that turns "an unauthenticated party can address a frame" into "an unauthenticated
+// party can silence a chosen client", and [helloRotatesOnUnverifiedSourceId] is where an
+// operator reads that rather than inferring it from a check that is described as unrun.
 //
 // It opens a connection, which ends the previous one for this client_id. That is the whole of
 // the nonce rotation this design has, and [Connections] is where the argument for it is written.
