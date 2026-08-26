@@ -432,7 +432,8 @@ func TestARecordWhoseWriteAuthDoesNotVerifyIsRefusedAndAllocatesNothing(t *testi
 	}
 	before := stack.fetch(t)
 	if uint64(len(before.GetRecords()))+1 != allocated {
-		t.Fatalf("the group holds %d records and next_record_id is %d; the forgery is in the store", len(before.GetRecords()), allocated)
+		t.Fatalf("the group holds %d records and next_record_id is %d, so an id was allocated that no record stands behind — a refusal that took one and rolled its row back looks exactly like this",
+			len(before.GetRecords()), allocated)
 	}
 
 	// the id the forgery would have consumed is still the next one handed out

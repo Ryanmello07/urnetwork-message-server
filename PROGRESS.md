@@ -671,3 +671,88 @@ as the refusal path and eight times milder — eight workers rather than one con
 means dropping responses a client is not reading, which is a decision about §4.3 rather than about a
 queue. `-race` is still unavailable on this box: the toolchain has no cgo and the box has no C
 compiler, so the concurrency claims are held by `-count=2` and by the fuzz rather than by the detector.
+## CP3c — over the wire, and the assertion that it was
+
+A record now travels from a client to the message server and back over **two real
+`connect.Client`s** in one process: `harness` speaks §4.3's four operations over one of them, `peer`
+dispatches §4.2's frames on the other, `api` runs §5.1's checks and §6.1's transaction, and the
+memory store holds the rows. No Postgres, no Redis, no network space, no operator and no `ByJwt` —
+`NewNoContractClientOob` plus `AddNoContractPeer` is what removes the contract requirement, which is
+why `connect`'s own data-path tests run offline and why these do.
+
+### The assertion the milestone actually turns on
+
+A record that never left the process comes back with **exactly the same bytes** as one that crossed
+two connect clients. So "it came back" distinguishes this milestone from the previous one not at
+all, and every assertion about headers, ciphertexts and `write_auth` would pass on a test that
+called `api` directly. What distinguishes them is that one of them put frames on a route.
+
+So every journey is measured at both ends: the frames the client handed to `connect`, against
+`peer.Stats`'s own `frames_received`; the response frames that arrived, against the server's
+`responses_sent`; the requests made, against the dispatcher's `requests_served`. The equality is
+what makes it unfakeable from either side alone. It was confirmed by building a *successful* bypass
+— a second `api.Handler` over the same store, submitting the same record, with the fetch still over
+the transport — where every record-level assertion in the test passed and the only thing that failed
+was the witness: "2 requests were made and the server's dispatcher served 1".
+
+Two things fell out of writing that bypass. The api layer **cannot** be called successfully from
+outside the frame path in this wiring: check 1 reads the frame's byte measurement out of a context
+only `peer`'s dispatcher populates, and answers `REASON_INTERNAL` rather than `REASON_OK` when it is
+missing — so a careless bypass is refused rather than quietly served. And check 1's copy *inside*
+the api pipeline is reachable only from a request that arrives whole: any client that fragments has
+its bound enforced by the reassembler one stage earlier, so the test that is named for api running
+peer's front checks now sends its oversize request unfragmented on purpose.
+
+### The client is a harness, and that is a gate
+
+The two tests already in `cmd/message-server` were building §4.2 frames by hand, which is a client
+and a server that drift apart one file at a time. `harness` is now a package: Hello, CreateGroup,
+Submit, Fetch, §4.6's fragmentation in both directions, §4.3.8's `req_auth`, spec A §5.2's sealing
+order, and `request_id` correlation. It is **not** the sdk's `MessageClient` — no MLS, no key
+schedule, no cipher, no keys of its own, and no import of `testing`, so it cannot end a test from a
+goroutine the concurrency test owns. Its own reassembler is deliberately not `peer`'s: a client that
+reassembled with the server's code would be one implementation checking itself, and a mistake in the
+cutting would be undone by the same mistake in the joining.
+
+That it is test-only is a gate rather than a sentence in its document.
+`TestTheHarnessIsReachedOnlyFromTests` reads the module's own import graph under all three measured
+build configurations and fails on any importer that is not a test binary, with the importer count
+asserted so it cannot pass by reading nothing.
+
+### What only a real transport could show
+
+**Fragmentation, both ways.** A record whose head is a quarter of the budget `Capabilities`
+advertised — derived from the server's own number, not a constant — reaches the server in at least
+sixteen §4.6 fragments and comes back in at least sixteen more.
+
+**A wrong nonce, refused, twice, with a control.** Once against a nonce the server never issued, and
+once against the *previous connection's* nonce after a second Hello proved the two connections were
+issued different ones. Then the same record, re-MAC'd against the current nonce, accepted — without
+which "refused" is equally consistent with a server that simply broke.
+
+**Thirty-two concurrent submits, correlated twice over.** That a response carrying the right
+`request_id` arrived is the harness's own bookkeeping; what makes it *this request's* answer is that
+the record stored under the id it reported is the record this goroutine sealed. A dispatcher that
+swapped two in-flight responses passes the first check and fails the second. Each sender is its own
+`sender_handle`, because §6.1 step (3) is monotonic per `(group_id, sender_handle)` and one sender
+submitting concurrently would have the losers refused for the ordering rather than for anything the
+test is about.
+
+**A forged `write_auth` that allocates nothing.** Not observable from the refusal — a server that
+took an id and rolled the row back answers a client identically and answers a fetch identically. §3.2's
+`next_record_id` is what tells them apart, and the gapless record after the forgery is the second
+half of the same statement.
+
+### Verified rather than reported
+
+Seven mutations, each confirmed applied with `git diff --numstat` before its result was believed and
+reverted after. A nonce that is the same on every connection; a client that truncates instead of
+fragmenting; a client that never fragments at all, so that only the frame count can notice; a
+dispatcher that answers under its neighbour's `request_id` when another job is queued behind it; the
+concurrent pairing itself, broken on purpose; check 7 that passes whatever the MAC says; an id
+allocated with no row behind it; and the successful api bypass above. Every one failed, and each
+named the assertion it was aimed at.
+
+`-race` is still unavailable on this box — no cgo, no C compiler — so the concurrency claims are
+held by `-count=2` (558 passes, exactly double the 279 at `-count=1`, so nothing is order- or
+state-dependent) rather than by the detector.
