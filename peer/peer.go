@@ -364,15 +364,34 @@ func (self *Peer) receive(source connect.TransferPath, frames []*protocol.Frame,
 // too would leave the pipeline's copy of check 1 unreachable, and an unreachable check is one
 // nobody notices the deletion of.
 func (self *Peer) arrived(clientId connect.Id, frame *protocol.Frame) {
-	request := &protocol.MessageServerRequest{}
-	if frame.GetRaw() || proto.Unmarshal(frame.GetMessageBytes(), request) != nil {
+	arrived, request, decoded := decodeRequest(clientId, frame)
+	if !decoded {
 		self.stats.framesDropped.Add(1)
 		return
 	}
-	self.enqueue(job{
-		arrived: &inbound{clientId: clientId, bytes: len(frame.GetMessageBytes()), fragments: 1},
-		request: request,
-	})
+	self.enqueue(job{arrived: arrived, request: request})
+}
+
+// One request frame, decoded and measured, or nothing.
+//
+// Split out from [Peer.arrived] because it is the whole of what the fuzz target has to reach: a
+// target that decoded the bytes itself would be fuzzing its own copy of this, and the interesting
+// half is what the dispatcher does with what came out.
+func decodeRequest(clientId connect.Id, frame *protocol.Frame) (*inbound, *protocol.MessageServerRequest, bool) {
+	request := &protocol.MessageServerRequest{}
+	if frame.GetRaw() || proto.Unmarshal(frame.GetMessageBytes(), request) != nil {
+		return nil, nil, false
+	}
+	return &inbound{clientId: clientId, bytes: len(frame.GetMessageBytes()), fragments: 1}, request, true
+}
+
+// One fragment frame, decoded, or nothing.
+func decodeFragment(frame *protocol.Frame) (*protocol.MessageServerFragment, bool) {
+	fragment := &protocol.MessageServerFragment{}
+	if frame.GetRaw() || proto.Unmarshal(frame.GetMessageBytes(), fragment) != nil {
+		return nil, false
+	}
+	return fragment, true
 }
 
 // §4.6's reassembly, and check 1's other half.
@@ -381,8 +400,8 @@ func (self *Peer) arrived(clientId connect.Id, frame *protocol.Frame) {
 // unlike a malformed request frame every refusal on this path can be answered rather than
 // dropped — which is what makes REASON_OVERSIZE reach the client that caused it.
 func (self *Peer) arrivedFragment(clientId connect.Id, frame *protocol.Frame) {
-	fragment := &protocol.MessageServerFragment{}
-	if frame.GetRaw() || proto.Unmarshal(frame.GetMessageBytes(), fragment) != nil {
+	fragment, decoded := decodeFragment(frame)
+	if !decoded {
 		self.stats.framesDropped.Add(1)
 		return
 	}
