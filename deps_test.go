@@ -733,6 +733,7 @@ func measureThisModule(t *testing.T) []measurement {
 	t.Helper()
 	measurements := []measurement{}
 	for _, configuration := range measuredConfigurations(t) {
+		assertTheConfigurationTook(t, configuration)
 		for _, pattern := range []struct {
 			what      string
 			arguments []string
@@ -759,6 +760,27 @@ func measureThisModule(t *testing.T) []measurement {
 		}
 	}
 	return measurements
+}
+
+// The go command answered for the configuration it was handed.
+//
+// Without this the loop above is a loop over labels. environment() could stop overriding
+// anything at all — return the shell's own environment unchanged — and every closure would be
+// the host's while six log lines named three configurations, which is a gate reporting one
+// build as three and is worse than the single build it replaced. So the same environment that
+// resolves the closure is asked what it resolved for, and the answer has to be the question.
+func assertTheConfigurationTook(t *testing.T, configuration buildConfiguration) {
+	t.Helper()
+	answered := []string{}
+	for _, line := range strings.Split(strings.ReplaceAll(goOutput(t, configuration.environment(), "env", "GOOS", "GOARCH", "CGO_ENABLED"), "\r\n", "\n"), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			answered = append(answered, line)
+		}
+	}
+	wanted := []string{configuration.goos, configuration.goarch, configuration.cgo}
+	if !slices.Equal(answered, wanted) {
+		t.Fatalf("this gate asked the go command for %v and it answered for %v, so %s was measured under a configuration it does not name", wanted, answered, configuration)
+	}
 }
 
 // ── the controls ─────────────────────────────────────────────────────────────────────────
