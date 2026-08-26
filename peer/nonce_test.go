@@ -80,6 +80,22 @@ func verifyingSubmit(writeKey []byte) func(*api.Connection, *protocol.SubmitRequ
 	}
 }
 
+// The per-record answer of §4.3.3's positionally aligned batch.
+//
+// A helper rather than an index expression, because a submit refused on the envelope carries no
+// body at all — which is what every front-check refusal looks like — and indexing into the results
+// of one is a panicking test rather than a failing test. A test that panics reports its own bug
+// instead of the one it found.
+func firstResult(t *testing.T, response *protocol.MessageServerResponse) protocol.Reason {
+	t.Helper()
+	results := response.GetSubmit().GetResults()
+	if len(results) == 0 {
+		t.Fatalf("the submit was answered %v on the envelope with no per-record result at all; §4.3.3 aligns a result with every record",
+			response.GetReason())
+	}
+	return results[0].GetReason()
+}
+
 // ── the property the design has to make true ─────────────────────────────────────────────
 
 // A client that reconnects cannot replay a record sealed against the old connection's nonce.
@@ -103,7 +119,7 @@ func TestARecordSealedAgainstAClosedConnectionsNonceIsRefusedOnTheNext(t *testin
 		GroupId: bytes.Repeat([]byte{0x21}, 32),
 		Records: []*protocol.Record{sealRecord(t, writeKey, first.GetServerNonce(), 1)},
 	})
-	if reason := accepted.GetSubmit().GetResults()[0].GetReason(); reason != protocol.Reason_REASON_OK {
+	if reason := firstResult(t, accepted); reason != protocol.Reason_REASON_OK {
 		t.Fatalf("a record sealed against this connection's own nonce was answered %v", reason)
 	}
 
@@ -119,7 +135,7 @@ func TestARecordSealedAgainstAClosedConnectionsNonceIsRefusedOnTheNext(t *testin
 		GroupId: bytes.Repeat([]byte{0x21}, 32),
 		Records: []*protocol.Record{held},
 	})
-	if reason := replayed.GetSubmit().GetResults()[0].GetReason(); reason != protocol.Reason_REASON_REJECTED {
+	if reason := firstResult(t, replayed); reason != protocol.Reason_REASON_REJECTED {
 		t.Fatalf("a record sealed against the previous connection's nonce was answered %v on the next connection; §5.7's whole purpose is that this cannot verify", reason)
 	}
 
@@ -130,7 +146,7 @@ func TestARecordSealedAgainstAClosedConnectionsNonceIsRefusedOnTheNext(t *testin
 		GroupId: bytes.Repeat([]byte{0x21}, 32),
 		Records: []*protocol.Record{sealRecord(t, writeKey, second.GetServerNonce(), 2)},
 	})
-	if reason := resealed.GetSubmit().GetResults()[0].GetReason(); reason != protocol.Reason_REASON_OK {
+	if reason := firstResult(t, resealed); reason != protocol.Reason_REASON_OK {
 		t.Fatalf("a record re-MAC'd against the new connection's nonce was answered %v; §5.7's outbox rule says this is the recovery, so the refusal above was not about the nonce", reason)
 	}
 }
