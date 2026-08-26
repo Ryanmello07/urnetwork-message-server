@@ -501,3 +501,54 @@ connect's own `go.mod` rather than from a list of thirty modules, and a named ba
 The rule it implements is the one go.mod already states for `google.golang.org/protobuf`: allowing a
 package and refusing the runtime it cannot compile without allows a package that cannot be built.
 §2.2 should say so once instead of leaving it to be inferred twice.
+
+### 2026-08-26 — Sixth implementation feedback: the §4.6 bounds the spec does not give
+
+A review of the frame transport found that four of §4.6's bounds were arguments rather than bounds —
+each could be moved, doubled or deleted with the whole suite green — and that its refusal path was a
+denial of service costing an attacker two bytes a frame. The fixes are in `peer`; what belongs to the
+spec is below.
+
+**§4.6 bounds one client and nothing bounds the number of clients.** "Capped at 16 concurrent in-flight
+reassemblies per client" is the only reassembly bound in spec B, and the `client_id` it is per is
+`source.SourceId` as `connect` hands it to the receive callback — which is *before* §5.1 check 2 has
+resolved a connection, because check 2 runs inside the api pipeline one stage later. So a `client_id`
+that has never said Hello opens reassembly state exactly as readily as one that has, and the cap
+multiplies by however many identifiers an attacker cares to name: ten thousand of them were measured
+holding ten thousand reassemblies with no refusal at all, which at the default `max_request_bytes` is
+an allowance of about 20 GB. This is the memory-exhaustion vector §4.6 is written against, reached
+around its cap rather than through it. The implementation now holds `Config.MaxReassemblies` above the
+per-client cap, defaulting to 1024 — a count, so that it is comparable with §4.6's own, and one whose
+implied byte budget at §4.6's working assumption is 128 MiB. **It is a number this build chose, and it
+is declared in `NotBuilt` for that reason:** a conforming client inside every published bound can be
+refused by it, and §4.6 gives that client no way to predict the refusal from `Capabilities`. §4.6
+should name the bound, or name what a server answers when it has none left. `REASON_REJECTED` is used,
+by the same argument as for the per-client cap: `REASON_RATE_LIMITED` would claim the §4.7 limiter
+that §5.1 check 4 still declares absent.
+
+**§4.6's `part` size is a rule for the sender and says nothing about the receiver.** "The sender
+chooses `part` size as min(peer_advertised_frame_budget, 2048) bytes and MUST NOT exceed the negotiated
+budget" is enforced here outbound and deliberately not inbound: a fragment carrying a 100,000-byte
+part is accepted as long as the reassembly stays inside `max_request_bytes`, which is the bound §4.6
+gives the receiver. The reading is that the budget is negotiated per peer, that this server advertises
+none, and that a receiver refusing at its own sender ceiling would refuse conforming senders who
+negotiated a larger one. The opposite reading is equally available from the text, which is the
+problem: §4.6 should say whether a receiver may refuse a part for its size alone, and with what code.
+The position this build takes is now asserted by a test rather than left to be inferred from what
+nothing looks at.
+
+**§4.6's abort conditions are a class the spec never enumerates.** The prose names four — a `count` of
+zero, an out-of-order `index`, the per-client cap, and `max_request_bytes` — and a conforming
+implementation has at least two more that the text implies without stating: a `count` that changes
+mid-reassembly, and (per the gap above) whatever bounds the reassembler as a whole. The implementation
+now keeps them as a table its own enforcement reads, so the test that claims to cover "every way §4.6
+aborts a reassembly" iterates the enforcement instead of a list beside it. The list beside it held four
+of five, and the one it omitted could be deleted with the suite green — the fourteenth time on this
+project that a class typed out rather than derived has understated itself.
+
+**§4.5 still has no code for a server that is out of a resource it never advertised.** Two refusals in
+this build now mean "not now" rather than "not ever": the global reassembly bound above, and a §4.6
+refusal dropped rather than queued when the refusal queue is full. Both are `REASON_REJECTED`, which a
+client reading §4.5 will treat as a permanent verdict about its request. A `REASON_BUSY` — or a
+statement that `REASON_RATE_LIMITED` covers resource exhaustion as well as §4.7's limiter — would let a
+client tell "retry" from "do not".

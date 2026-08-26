@@ -189,8 +189,8 @@ func TestTheReassembliesThisServerHoldsAtOnceAreBoundedAcrossClients(t *testing.
 		opened = append(opened, clientId)
 	}
 	if refusedAt != maxReassemblies {
-		t.Fatalf("the reassembler took %d reassemblies from %d strangers against a bound of %d; §4.6's per-client cap multiplies by every client_id there is, so a bound above it is the only one that holds",
-			len(opened), refusedAt, maxReassemblies)
+		t.Fatalf("%d strangers each opened a reassembly inside §4.6's own per-client cap against a bound of %d, and the first refusal came at stranger %d (-1 being none at all); §4.6's cap multiplies by every client_id there is, so a bound above it is the only one that holds",
+			len(opened), maxReassemblies, refusedAt)
 	}
 	if holding := buffers.holding(); holding.reassemblies != maxReassemblies || holding.clients != maxReassemblies {
 		t.Fatalf("at the bound the reassembler holds %+v, want %d reassemblies under %d clients", holding, maxReassemblies, maxReassemblies)

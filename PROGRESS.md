@@ -611,3 +611,63 @@ front-check refusal carries no body at all; a test that panics reports its own b
 it found. And reviewing the send path found that `connect.Client.Send` is `SendWithTimeout(-1)`,
 which blocks until the **client's** context is done — a context this package does not own — so
 `Close` could hang until somebody closed the client.
+
+## CP3b review — the bounds that were arguments, and the queue that was only a delay
+
+A review of the above found one denial of service and four §4.6 bounds that could be moved, doubled
+or deleted with the whole suite green. Every one of them is now held by a test that fails when the
+bound moves, and each of those tests was confirmed by applying the mutation, watching it fail, and
+reverting — `git diff --numstat` before every result was believed.
+
+**The refusal path could hold `connect`'s receive loop for 240 bytes.** `Peer.refuse` blocked on a
+bounded channel, and it runs on the receive callback, which `connect` invokes inline on the single
+loop that reads *every* peer's frames. `refuseLoop` is one consumer by design — the ordering argument
+for it is real, and it is what keeps §4.6's specific `REASON_OVERSIZE` from being overtaken by the
+generic refusals behind it — so it drains at one refusal per `SendTimeout` against a client that reads
+nothing. A queue in front of one such consumer is a delay of `QueueDepth` frames and not a bound:
+measured, 200 fragment frames at the default depth held the receive path for exactly 100 send
+timeouts, and 21 of 120 *single-frame* batches held it for a timeout apiece. At the default
+`SendTimeout` those 240 bytes are ten and a half minutes of the whole server's receive loop.
+
+A refusal that cannot be queued is now dropped and counted (`Stats.RefusalsDropped`) rather than
+waited for. What that costs is the courtesy of §4.5's refusal to a client whose own refusals are
+already backed up, and the newest is what goes — so the specific refusal, decided first, is the one
+that survives. The test named for this DoS had sized its queue at four times its batch, which is the
+one arrangement in which the queue cannot fill; it now sends thirty-two times the queue and asserts
+that the queue did fill, so it cannot go back to passing vacuously.
+
+**The enforcement of §4.6's own bound cost the attacker's own work.** `expire` scanned the whole
+in-flight map on every arriving fragment, under the mutex every client's fragments queue behind: 9 ns
+per open reassembly per fragment, linear per fragment and therefore quadratic in an attacker's total
+work. At fifty thousand open, every fragment frame from anybody cost 455 µs of held mutex. Reassembly
+state expires on when it *began* and no fragment refreshes it, so the reassemblies expire in the order
+they were opened — they are now kept in that order and the walk stops at the first one inside the
+bound. Asserted by counting what the expiry looked at rather than by timing it: one buffer read
+against a hundred open, and one against ten thousand.
+
+**Three more bounds, and the two spec gaps they exposed.** There was no bound above §4.6's per-client
+cap and the `client_id` it is per is not this server's to count, so ten thousand strangers held ten
+thousand reassemblies with no refusal — `Config.MaxReassemblies` now bounds it, and because §4.6 gives
+no such number, `NotBuilt` declares it. `Peer.sweepLoop`'s period could be made a hundred times §4.6's
+bound with everything green, because the test that waited for the sweep polled for "eventually";
+`Config.NewTicker` makes the ticker a seam, so the period is read back out of it and the relation to
+the bound is asserted, and the tick is delivered by the test with the clock moved past the bound
+rather than waited for. And §5.1 check 1's comparison could be moved in either direction — a request
+of exactly the number `Capabilities` advertises refused, or one past it served — because every
+behavioural test was far from the boundary; it is now asserted at the number, on both call sites.
+
+**The abort conditions are a table the enforcement reads.** The test named for "every way §4.6 aborts
+a reassembly" listed four of five, and the one it left out — a `count` that changes mid-reassembly —
+could be deleted with every test in the repository green. That is the fourteenth time on this project
+that a class typed out rather than derived has understated itself. The rules are now values that
+`reassembly.accept` asks in order, the test iterates them, and each case proves it belongs to its own
+rule by rebuilding the reassembler with exactly that rule removed and watching the refusal disappear —
+because half of these conditions are caught by a neighbour if the fragment is chosen carelessly.
+
+**What is still open, and written into the code rather than left as an argument.** A worker's response
+send is bounded only by `Config.SendTimeout`, so a client that sends real requests and reads nothing
+can park every worker in a send and the receive loop then waits on the job queue. It is the same shape
+as the refusal path and eight times milder — eight workers rather than one consumer — and closing it
+means dropping responses a client is not reading, which is a decision about §4.3 rather than about a
+queue. `-race` is still unavailable on this box: the toolchain has no cgo and the box has no C
+compiler, so the concurrency claims are held by `-count=2` and by the fuzz rather than by the detector.

@@ -672,7 +672,24 @@ func realTicker(period time.Duration) (<-chan time.Time, func()) {
 // intentionally backpressures that path and preserves frame lifetime/order" (transfer.go:146).
 // The alternative would be to refuse a request for want of a worker, and §4.5 has no code for
 // that — REASON_RATE_LIMITED would claim the limiter of §4.7 that §5.1 check 4 still declares
-// absent.
+// absent. [TestABlockedEnqueueIsReleasedWhenThePeerCloses] is what holds the wait to this peer's
+// own context, which is the half of it that a shutdown depends on.
+//
+// This is the same shape [Peer.refuse] refuses to have, and what makes the two different is what
+// drains them. A refusal queue is drained by one goroutine doing a network send to the client
+// that caused the refusal, so a client that reads nothing stops the drain entirely and every
+// further two-byte fragment costs the receive loop a send timeout. This queue is drained by
+// [Config.Workers] workers doing the work §4.3 asked for, and a full one means this server is
+// busy rather than that one client is silent.
+//
+// What that argument does not cover, and what is not fixed here: a worker's *response* send is
+// bounded only by [Config.SendTimeout], so a client that sends real requests and reads nothing
+// can park every worker in a send for that long, and the receive loop then waits here. Eight
+// workers and thirty seconds is the exposure, against a refusal path where one consumer and
+// thirty seconds was eight times worse. Closing it means responses that a client is not reading
+// being dropped rather than waited for, which is a decision about §4.3's "every request is
+// answered" rather than about this queue, and it is written down here rather than left as an
+// argument that stops one line short.
 func (self *Peer) enqueue(current job) {
 	select {
 	case self.jobs <- current:
