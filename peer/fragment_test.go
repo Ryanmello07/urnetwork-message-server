@@ -458,14 +458,21 @@ func TestConcurrentReassembliesDoNotContaminateEachOther(t *testing.T) {
 	}
 }
 
-// Two connect clients fragmenting one request_id at the same instant, through the whole frame
-// path, are each answered their own request.
+// Two connect clients fragmenting one request_id at the same instant, through the frame path,
+// are each answered their own request.
 //
-// The unit test above holds the reassembler still and drives it directly. This one holds nothing
-// still: two real connect clients, two real routes, the receive loop connect actually calls, the
-// worker pool, and the send path back. Both use `request_id` 5150, which is legal — §4.6 keys on
-// (source client_id, request_id), and a client_id is not a client's to choose — and which is the
-// collision that a server keyed on the request_id alone would serve as one request.
+// Both use `request_id` 5150, which is legal — §4.6 keys on (source client_id, request_id), and
+// a client_id is not a client's to choose — and which is the collision a server keyed on the
+// request_id alone would serve as one request.
+//
+// The fragments are handed to the receive callback the way connect hands them, from two
+// goroutines, a round at a time: both clients' fragment *i* are delivered before either client's
+// fragment *i+1*. Sending them over the transport instead would leave the interleaving to
+// connect's send buffers, and a run in which one client's six fragments happened to arrive
+// before the other's is a sequential test wearing two goroutines — it would pass against a
+// reassembler with no client_id in its key, which is the one thing this arrangement is for.
+// Everything after the callback is untouched: the reassembler, the worker pool, and the send
+// path back to two real connect clients over two real routes.
 func TestTwoClientsFragmentingOneRequestIdAtOnceAreEachAnsweredTheirOwn(t *testing.T) {
 	const shared = uint64(5150)
 	const mineMarker = uint64(111)
@@ -500,17 +507,23 @@ func TestTwoClientsFragmentingOneRequestIdAtOnceAreEachAnsweredTheirOwn(t *testi
 	}
 	waiter := fixture.waitFor(shared)
 
-	running := sync.WaitGroup{}
-	running.Add(2)
-	go func() {
-		defer running.Done()
-		sendFragmentsFrom(t, fixture.clientClient, fixture.serverClient, requestOf(mineMarker), 1024)
-	}()
-	go func() {
-		defer running.Done()
-		sendFragmentsFrom(t, other, fixture.serverClient, requestOf(theirsMarker), 1024)
-	}()
-	running.Wait()
+	mineFragments := frameFragmentsOf(t, requestOf(mineMarker), 1024)
+	theirsFragments := frameFragmentsOf(t, requestOf(theirsMarker), 1024)
+	if len(mineFragments) < 2 || len(mineFragments) != len(theirsFragments) {
+		t.Fatalf("the two requests fragmented into %d and %d frames; this test needs both fragmented and both the same length",
+			len(mineFragments), len(theirsFragments))
+	}
+	for round := range mineFragments {
+		delivering := sync.WaitGroup{}
+		deliver := func(clientId connect.Id, frame *protocol.Frame) {
+			defer delivering.Done()
+			fixture.peer.receive(connect.TransferPath{SourceId: clientId}, []*protocol.Frame{frame}, connect.Peer{})
+		}
+		delivering.Add(2)
+		go deliver(fixture.clientClient.ClientId(), mineFragments[round])
+		go deliver(other.ClientId(), theirsFragments[round])
+		delivering.Wait()
+	}
 
 	mine := fixture.await(t, waiter)
 	theirs := awaitOn(t, otherResponses, shared)
@@ -877,23 +890,25 @@ func sendRequestFrom(t *testing.T, from *connect.Client, to *connect.Client, req
 	})
 }
 
-func sendFragmentsFrom(t *testing.T, from *connect.Client, to *connect.Client, request *protocol.MessageServerRequest, partBytes int) {
+// One request, as the §4.2 frames §4.6 fragments it into.
+func frameFragmentsOf(t *testing.T, request *protocol.MessageServerRequest, partBytes int) []*protocol.Frame {
+	t.Helper()
 	body, err := proto.Marshal(request)
 	if err != nil {
-		t.Errorf("Marshal: %v", err)
-		return
+		t.Fatalf("Marshal: %v", err)
 	}
+	frames := []*protocol.Frame{}
 	for _, fragment := range fragmentsOf(request.GetRequestId(), body, partBytes) {
-		encoded, err := connect.ProtoMarshal(fragment)
+		encoded, err := proto.Marshal(fragment)
 		if err != nil {
-			t.Errorf("ProtoMarshal: %v", err)
-			return
+			t.Fatalf("Marshal: %v", err)
 		}
-		sendFrom(t, from, to, &protocol.Frame{
+		frames = append(frames, &protocol.Frame{
 			MessageType:  protocol.MessageType_MessageMessageServerFragment,
 			MessageBytes: encoded,
 		})
 	}
+	return frames
 }
 
 // The response for one `request_id` on a client that keeps no correlator of its own.
