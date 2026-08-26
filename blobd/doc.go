@@ -8,4 +8,6 @@
 // this module's store, redact and metrics. It is the one package in this module that is
 // expected to bind a listener, and §10.1 puts it on a private port beside /healthz, /readyz
 // and /metrics, never on the public interface.
+//
+//urmsg:mayimport store redact metrics
 package blobd

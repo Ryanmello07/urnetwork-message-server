@@ -1,0 +1,33 @@
+# The build configurations this module is released for, and the only place they are written.
+#
+# This file exists because a dependency gate measures one build. GOOS and GOARCH decide which
+# files a build constraint admits, CGO_ENABLED decides it a second time for every package that
+# has a cgo half and a pure-Go half, and -tags decides it a third time. A gate that runs
+# `go list -deps ./...` and reads the answer has measured whichever of those the developer's
+# shell happened to carry, and an import behind `//go:build linux` is then invisible to every
+# developer on a Mac or a Windows box while linking perfectly well into the thing §2.3 deploys.
+# That is spec B §2.2's rule enumerating one configuration instead of deriving the set the
+# binary is actually built for, and it is the same shape as the hand-typed grep §2.2 prints.
+#
+# So both consumers read this file and neither carries its own list:
+#
+#   .github/workflows/gates.yml  builds every line here
+#   deps_test.go                 measures the dependency closure and the package layering of
+#                                every line here, plus the configuration the developer running
+#                                it is on, and takes the union
+#
+# A platform that ships and is not measured, or is measured and does not ship, is therefore an
+# edit to one file rather than a silent difference between two.
+#
+# Linux only, because §2.3 deploys N replicas as a StatefulSet and that is the whole of what
+# this repository releases; cmd/messagectl is run beside them. A developer box is covered
+# without being listed, because deps_test.go always adds the host it is running on. cgo=0
+# because the release image is a static binary, and because cgo changes which files `net` and
+# `os/user` compile — it is part of the configuration, not a build detail.
+#
+# format: <goos>/<goarch> [cgo=0|1] [tags=comma,separated]
+#         cgo defaults to 0; an unrecognised setting is a hard failure rather than a value
+#         the release build applies and the gate does not.
+
+linux/amd64 cgo=0
+linux/arm64 cgo=0

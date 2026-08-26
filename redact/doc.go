@@ -9,4 +9,6 @@
 // imports it, so an import here is an import everywhere, and the structural half of §11.1 —
 // that an accidental %v cannot leak because there is nothing to print — is only as strong as
 // this package's own import list.
+//
+//urmsg:mayimport
 package redact

@@ -6,6 +6,11 @@
 // command holding `pg_advisory_lock`, never by N replicas racing at startup, so the command
 // exists in the layout before the store does — otherwise the first person who needs a
 // migration runs it from a replica.
+//
+// May import: any package of this module, for the same reason as the server entrypoint — an
+// ops CLI that cannot reach store cannot run a migration.
+//
+//urmsg:mayimport *
 package main
 
 import (

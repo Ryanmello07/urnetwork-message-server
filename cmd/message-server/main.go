@@ -13,6 +13,12 @@
 //
 // Nothing here prints a secret, and nothing here can: the vault resources of §10.2 are named
 // in the output and read by neither this file nor anything it calls.
+//
+// May import: any package of this module. An entrypoint that cannot import a package cannot
+// start it, so the layering the other packages declare stops here — what this file may reach
+// outside the module is still spec B §2.2's list and nothing wider.
+//
+//urmsg:mayimport *
 package main
 
 import (

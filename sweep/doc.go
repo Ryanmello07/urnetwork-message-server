@@ -7,4 +7,6 @@
 // May import: this module's store and metrics. It never reads a record body and it never
 // learns what class a record is from anything but the single byte §7.2 sweeps on, so it needs
 // neither connect/message nor a decryption capability it must not have.
+//
+//urmsg:mayimport store metrics
 package sweep

@@ -13,4 +13,6 @@
 // this boundary is one of the opaque types in redact, and it is unwrapped here explicitly —
 // §11.2 gives the pgx encoding path that makes a named []byte type write the literal bytes
 // `<redacted>` into a primary key.
+//
+//urmsg:mayimport redact metrics
 package store

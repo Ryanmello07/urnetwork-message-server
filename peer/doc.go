@@ -12,4 +12,6 @@
 // session and the frame types, github.com/urnetwork/glog, this module's api, redact and
 // metrics. Never github.com/urnetwork/server/session — the frame's `client_id` is the whole
 // of the identity this process is entitled to, and §5.2 is the argument for why.
+//
+//urmsg:mayimport api redact metrics
 package peer

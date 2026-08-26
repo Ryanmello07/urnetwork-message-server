@@ -11,4 +11,6 @@
 // github.com/urnetwork/connect/mls: §5.3 is normative that this binary links no MLS
 // implementation, and the moment one is in the process "just validate the commit" is a
 // one-line change.
+//
+//urmsg:mayimport store blobd redact metrics
 package api

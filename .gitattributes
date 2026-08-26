@@ -16,3 +16,16 @@
 *.go text eol=lf
 go.mod text eol=lf
 go.sum text eol=lf
+
+# The documents go the same way, and this line is the one spec B §13 item 28 names verbatim —
+# TestGitattributesCarriesTheLineSpecB13Item28Names reads it back out of item 28 rather than
+# out of a copy here, so the two cannot drift. working-tree-encoding pins the documents to
+# UTF-8 in the working tree as well as in the index, which is the half that matters: the
+# mojibake item 28 hunts for is produced by an editor that read a UTF-8 file as cp1252 and
+# wrote it back, and git will now refuse the round trip instead of storing it.
+*.md text working-tree-encoding=UTF-8 eol=lf
+
+# release-platforms.txt is parsed by deps_test.go and by the release job, and gates.yml by
+# nothing that tolerates a stray carriage return either.
+*.txt text eol=lf
+*.yml text eol=lf

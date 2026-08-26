@@ -6,4 +6,6 @@
 // May import: prometheus/client_golang, and the standard library. Never this module's redact:
 // the point of a label type that cannot be printed is lost the moment a collector can accept
 // one, and a metric label is a sink §11.1 names explicitly alongside logs and traces.
+//
+//urmsg:mayimport
 package metrics

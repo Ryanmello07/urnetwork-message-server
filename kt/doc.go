@@ -9,4 +9,6 @@
 // puts the operator schema ahead of this client, and this client MUST tolerate the schema's
 // absence by disabling itself rather than by failing /readyz, or the wrong deploy order pages
 // on a metric indistinguishable from "not deployed yet".
+//
+//urmsg:mayimport metrics
 package kt

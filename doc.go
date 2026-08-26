@@ -4,4 +4,9 @@
 // property of the whole module rather than of any one package in it, and a gate that lived
 // inside api or store would be a gate that stops running the day somebody deletes that
 // package. It sits at the root, where ./... is the whole module by construction.
+//
+// It may import no package of this module, which is what the directive below says: the gate
+// is a reader of the tree, never a participant in it.
+//
+//urmsg:mayimport
 package messageserver

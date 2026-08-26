@@ -1,0 +1,80 @@
+# The gates of spec B §2.2, §11.1 and §13 item 28, given a runner.
+#
+# Until this file existed they had none. deps_test.go was written to replace §2.2's CI shell
+# line and argued, correctly, that a CI-only gate cannot tell a developer anything before the
+# push — but the repository carried no CI at all, so the gate it replaced ran on every commit
+# and the gate that replaced it ran only when somebody typed `go test` by hand. That is
+# strictly worse than the line it removed, and this is the half that was missing.
+#
+# There is no Postgres job here. Nothing in this module talks to one yet; §13's items 2, 4, 5
+# and the rest arrive with the store, and the service container arrives with them.
+
+name: gates
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # The root package holds every gate and imports nothing outside the standard library, so
+      # it is run whole. `-run` takes a pattern that matches every test rather than an
+      # alternation of their names on purpose: a hand-typed list of what to run understates
+      # what is there exactly the way a hand-typed list of what to ban understates what is
+      # banned, and the failure is the same one — a gate added tomorrow that this job silently
+      # does not run. -v so the run prints PASS, FAIL and SKIP per test and not just a total.
+      - name: dependency, layering and encoding gates
+        run: go test -v -run '.' -timeout 5m .
+
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            printf 'gofmt would rewrite:\n%s\n' "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      # Every configuration release-platforms.txt names, built from that file rather than from
+      # a matrix retyped here. deps_test.go measures the same file, so a platform this job
+      # builds is a platform the dependency rule was checked against.
+      - name: build every released platform
+        run: |
+          set -eu
+          built=0
+          while read -r platform settings; do
+            case "$platform" in ''|'#'*) continue ;; esac
+            goos="${platform%%/*}"
+            goarch="${platform##*/}"
+            cgo=0
+            tags=''
+            for setting in $settings; do
+              case "$setting" in
+                cgo=*)  cgo="${setting#cgo=}" ;;
+                tags=*) tags="${setting#tags=}" ;;
+                '#'*)   break ;;
+                *)      printf 'release-platforms.txt: %s is not a setting this job knows\n' "$setting"; exit 1 ;;
+              esac
+            done
+            printf '\n== %s/%s cgo=%s tags=%s ==\n' "$goos" "$goarch" "$cgo" "$tags"
+            GOOS="$goos" GOARCH="$goarch" CGO_ENABLED="$cgo" go build ${tags:+-tags "$tags"} ./...
+            built=$((built + 1))
+          done < release-platforms.txt
+          if [ "$built" -eq 0 ]; then
+            echo 'release-platforms.txt named no platform, so this job built nothing'
+            exit 1
+          fi
+          printf '\nbuilt %d released platforms\n' "$built"
