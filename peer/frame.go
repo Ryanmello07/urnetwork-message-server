@@ -146,11 +146,11 @@ func (self *reassembly) accept(clientId connect.Id, fragment *protocol.MessageSe
 	}
 
 	if fragment.GetCount() != current.count || fragment.GetIndex() != current.next {
-		self.drop(key, clientId)
+		self.drop(key)
 		return nil, false, protocol.Reason_REASON_REJECTED
 	}
 	if reason := withinLimits(len(current.bytes)+len(fragment.GetPart()), self.maxRequestBytes); reason != protocol.Reason_REASON_OK {
-		self.drop(key, clientId)
+		self.drop(key)
 		return nil, false, reason
 	}
 
@@ -160,7 +160,7 @@ func (self *reassembly) accept(clientId connect.Id, fragment *protocol.MessageSe
 		return nil, false, protocol.Reason_REASON_OK
 	}
 	assembled := current.bytes
-	self.drop(key, clientId)
+	self.drop(key)
 	return assembled, true, protocol.Reason_REASON_OK
 }
 
@@ -184,7 +184,7 @@ func (self *reassembly) expire() int {
 	deadline := self.now().Add(-self.idle)
 	for key, current := range self.inFlight {
 		if current.started.Before(deadline) {
-			self.drop(key, key.clientId)
+			self.drop(key)
 			dropped++
 		}
 	}
@@ -200,16 +200,23 @@ func (self *reassembly) sweep() int {
 	return self.expire()
 }
 
-func (self *reassembly) drop(key reassemblyKey, clientId connect.Id) {
+// One reassembly's state, released: the buffer and the per-client slot it was counted against.
+//
+// The client_id is read off the key rather than taken as a second argument. The two must name
+// the same client — the count that gates §4.6's per-client cap is the count of exactly these
+// entries — and an argument that can disagree with the key is an argument that eventually does:
+// a drop that decremented the wrong client would leave one client capped against buffers it does
+// not hold and another holding buffers nothing counts.
+func (self *reassembly) drop(key reassemblyKey) {
 	if _, found := self.inFlight[key]; !found {
 		return
 	}
 	delete(self.inFlight, key)
-	if self.counts[clientId] <= 1 {
-		delete(self.counts, clientId)
+	if self.counts[key.clientId] <= 1 {
+		delete(self.counts, key.clientId)
 		return
 	}
-	self.counts[clientId]--
+	self.counts[key.clientId]--
 }
 
 // What §4.6's reassembler is holding at this instant.
