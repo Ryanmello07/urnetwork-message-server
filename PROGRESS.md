@@ -551,3 +551,63 @@ discovered only by whoever fetched it. The test that should have caught it is na
 `TestEveryRuleOfTheCreateGroupCarveOutRefusesBeforeTheTransaction`; its table was five rules of six,
 hand-written, and the one it omitted was the MAC. That is the thirteenth time on this project that a
 class typed out rather than derived has understated itself.
+
+## CP3b — the frame transport, and the connection that had to be invented
+
+`peer` is the message server's connect client: §4.2's frame binding, §4.3's request oneof dispatched
+into api, §4.3.1's Hello, §4.6's fragmentation in both directions, and §5.1's check 1. A record now
+travels from one connect client through the dispatch, through §5.1's nine checks and §6.1's
+transaction, and comes back on a fetch — all of it in one process, with no Postgres, no Redis and no
+network space.
+
+### The design question, and what the platform turned out not to have
+
+Spec A §5.7 requires the `server_nonce` to be "scoped to that connection, valid for the life of that
+connection, and never rotated". **`connect` has no connection to scope it to.** The receive callback
+is handed a `SourceMask` whose `StreamId` is always zero for a client-addressed frame, a
+`connect.Peer` built from the contract rather than the session, and no sequence id at all; the
+per-peer encryption sessions have an event stream with no session identifier, no closed event, and a
+supported mode in which they do not exist. Every one of those was read out of `transfer.go` and
+`transfer_encrypt.go` rather than assumed.
+
+So a connection here is **one `Hello` epoch of a `client_id`**, and a Hello destroys the previous
+nonce outright. The property that buys is the one the task demanded and it is asserted with
+`connect/message`'s own `VerifyWriteAuth`: a record sealed on connection one is refused on connection
+two, and the same record re-MAC'd against the new nonce is accepted — the third step being the
+control, without which "refused" is equally consistent with a peer that simply broke.
+
+The half that is **not** true is written into the code and into the ledger: a client that reconnects
+without saying Hello keeps its nonce, and nothing `connect` exposes changes across a reconnect. That
+is a property of the platform, not of this package, and it is bounded by a configurable idle sweep
+whose absence the build declares out loud.
+
+### Checks 1 and 2, and the one that is still missing
+
+Check 1 is one function with two callers, because the reassembler needs it as a memory bound §4.6
+requires freed immediately and the pipeline needs it as the refusal that carries a `request_id` back
+to the client. It answers `REASON_INTERNAL` — never `REASON_OK` — when the request carries no
+measurement, because "not called" and "called and passed" are the same green test and a check that
+cannot see its input must not report a pass.
+
+Check 2 splits. The nonce half runs here; the `ByJwt` half is decision B1's named dependency and
+cannot run in this process, so check 2 stays **declared** with its text rewritten to say which half
+is which. **Check 4 is untouched**: still answered by the type api named for what it does not do,
+still on the list §10.1's readiness endpoint reads.
+
+### Verified rather than reported
+
+Ten mutations, each confirmed applied with `git diff --numstat` before its result was believed, each
+reverted after. Dropping `request_id`, one handler for every arm, a nonce read out of the request, a
+nonce reused across two connections, a panic on an unknown arm, two arms swapped in the dispatch
+table, check 1 always passing, check 2 always passing, the unserved arms undeclared, and a `Close`
+that does not cancel. All ten failed the suite.
+
+3.4 million fuzz executions over the inbound frame surface — request frames, raw frames and fragment
+frames — found no panic, and every request that decodes is answered under its own `request_id`.
+
+Two of the ten found a defect rather than confirming a test. The nonce-from-the-request mutation made
+the replay test *panic* on an empty result slice instead of failing on the reason, because a
+front-check refusal carries no body at all; a test that panics reports its own bug instead of the one
+it found. And reviewing the send path found that `connect.Client.Send` is `SendWithTimeout(-1)`,
+which blocks until the **client's** context is done — a context this package does not own — so
+`Close` could hang until somebody closed the client.

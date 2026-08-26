@@ -434,3 +434,70 @@ was not in the diff to be looked at. A rule written down twice is a rule amended
 countermeasure is the cross-reference this revision adds: §5.3 now points at item 8 instead of
 restating it, so there is one place left to amend. Found by the review of the api layer's gates,
 which is the first thing to read the two copies against each other.
+
+### 2026-08-26 — Fifth implementation feedback: the frame transport, and the connection `connect` does not have
+
+The message server's `peer` package landed: §4.2's frame binding, §4.3's request oneof dispatched
+into api, §4.3.1's Hello and nonce issuance, §4.6's fragmentation in both directions, and §5.1's
+check 1. Five findings, and the first is the one that matters.
+
+**Spec A §5.7's `server_nonce` is "scoped to that connection", and `connect` exposes no connection.**
+This was looked for rather than assumed, and this is the whole of what a message server can see about
+an arriving frame:
+
+- the receive callback's signature is `func(source TransferPath, frames []*protocol.Frame, peer Peer)`
+  (`transfer.go:152`), and `source` is `path.SourceMask()` (`transfer.go:1520`) — `{SourceId,
+  StreamId}`, with `StreamId` always zero, because a frame whose path `IsStream()` is dropped eight
+  lines earlier. So the arriving identity is the `client_id`, which survives a reconnect unchanged;
+- `connect.Peer` is `{ProvideMode, Roles, Principal}` (`transfer.go:140`) — the source's identity from
+  the active **contract**, not from the session;
+- a `ReceiveSequence` does hold a per-session `sequenceId` (`transfer.go:2629`), and it never reaches a
+  callback: it appears only as an *argument* to `ReceiveQueueSize(source, sequenceId)`;
+- `EncryptionSessionManager` has a per-peer session lifecycle and an event stream, and
+  `EncryptionEvent` is `{PeerId, Type, Reason}` — no session identifier, no closed event, keyed by
+  `(peerId, role, companion)` rather than by connection, and `EncryptionModeOff` is a supported
+  setting, so a deployment may have no sessions at all.
+
+Keying the nonce by `client_id` alone is therefore the failure §5.7 exists to prevent: a reconnecting
+client would keep the nonce it had, and cross-connection replay resistance is the entire point of the
+field. **What was adopted: a connection is one `Hello` epoch of a `client_id.`** Every Hello mints a
+fresh nonce and destroys the previous one outright — no history, no grace window — so a record sealed
+against the old connection stops verifying the instant the new one is issued, which is the direction
+§5.7 needs and which spec A §5.7's own outbox rule already assumes on the client side.
+
+**The residual gap is real and belongs in the spec rather than in the code.** A client that reconnects
+without saying Hello keeps its nonce, and this server has no way to know: nothing in the list above
+changes across a reconnect. So §5.7's guarantee holds against *the client protocol* rather than against
+*the transport*, and the honest statements are one of these two — either spec A §5.7 says that a
+connection is the interval between two `Hello`s from one `client_id` and that the outbox rule is
+therefore normative for the guarantee and not merely for correctness, or `connect` grows a session
+identity at the receive callback and §5.7 binds to that. The implementation bounds the window with a
+configurable connection idle sweep and declares the bound missing when nobody configures one, which is
+a mitigation and not the guarantee.
+
+**§4.5 has no code for "this build does not implement this operation".** Eleven of §4.3's fifteen arms
+are served by nothing yet. `REASON_REJECTED` was rejected for them: §4.5 gives it a specific normative
+meaning — the three-way merge on the write path, a failed `req_auth` on the read path — and a client
+reading it re-MACs and retries, which is the wrong behaviour for an operation that will never exist in
+this build. `REASON_INTERNAL` is used and every unserved arm is declared, derived from the compiled
+descriptor so a sixteenth arm arrives declared. §4.5 or §4.3 should name the code.
+
+**§4.6 names a reason code for one of its four abort conditions.** `REASON_OVERSIZE` is given for the
+reassembly cap. Out-of-order `index`, a `count` of zero, and the sixteen-per-client concurrency cap
+have none; `REASON_REJECTED` is used for all three, because `REASON_RATE_LIMITED` would claim the §4.7
+limiter that §5.1 check 4 still declares absent.
+
+**§4.3.1 gives a connection no lifetime.** §4.6 expires reassembly state after 30 s. A connection has
+no such number anywhere, and without one the live-connection map holds an entry per `client_id` that
+ever said Hello and never shrinks — a memory bound chosen by anyone who can address a frame. Also
+unstated: what an **empty** `supported_versions` means. It is refused here, on the grounds that a Hello
+that names nothing has not negotiated.
+
+**§2.2's allow list does not say whether allowing a package allows its module's requirements.** §2.2
+allows `github.com/urnetwork/connect` at its root, and §4.2's binding *is* that package — so the first
+import of it put quic-go, the whole of pion, gvisor's netstack and four `golang.org/x` modules into
+the binary §2.3 deploys, none of which §2.2 mentions. The gate now derives that allowance from
+connect's own `go.mod` rather than from a list of thirty modules, and a named ban still wins over it.
+The rule it implements is the one go.mod already states for `google.golang.org/protobuf`: allowing a
+package and refusing the runtime it cannot compile without allows a package that cannot be built.
+§2.2 should say so once instead of leaving it to be inferred twice.
