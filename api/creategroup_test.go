@@ -70,6 +70,30 @@ func TestEveryRuleOfTheCreateGroupCarveOutRefusesBeforeTheTransaction(t *testing
 			},
 		},
 		{
+			// Check 7 itself, which the five rules beside it left out. The commit below is
+			// well formed by every other rule of the carve-out — epoch 0, is_commit, an
+			// EpochAttachment opening epoch 1, a bootstrap key of the right width — and is
+			// sealed under a DIFFERENT key from the one the request supplies, so the only
+			// thing standing between it and Â§6.1's transaction is the MAC.
+			//
+			// It was missing, and its absence was not visible from here: replacing check 7's
+			// call with `if false` left every test in this package passing. The list above
+			// says "every rule of the carve-out" in the test's own name and was five of six,
+			// which is the shape a hand-written class takes on this project. A derived class
+			// would be better; the honest thing short of that is to say here that this list
+			// is hand-written, so the next person adding a refusal to CreateGroup knows the
+			// list does not maintain itself.
+			name: "an initial commit sealed under a key other than the bootstrap key",
+			commit: func(fixture *fixture, t *testing.T) *protocol.Record {
+				return fixture.seal(t, sealed{
+					sender: senderA, isCommit: true,
+					class: message.RetentionPermanent, bucket: message.SizeBucket256,
+					head: []byte("a founding commit under the wrong key"), body: []byte("a founding commit under the wrong key"),
+					attachment: fixture.epochAttachment(1, 1), writeKey: fixture.writeKey(1),
+				})
+			},
+		},
+		{
 			name: "an initial commit carrying a wrap instead of an epoch attachment",
 			commit: func(fixture *fixture, t *testing.T) *protocol.Record {
 				return fixture.seal(t, sealed{
