@@ -65,6 +65,55 @@ func RunContract(t *testing.T, newStore func() Store) {
 	t.Run("ConcurrentSubmittersAtOneStreamIndex", func(t *testing.T) { contractConcurrentStreamIndex(t, newStore, seen) })
 	t.Run("ConcurrentCommittersAtOneEpoch", func(t *testing.T) { contractConcurrentCommitters(t, newStore, seen) })
 	t.Run("ARetryArrivingWhileTheOriginalIsInFlight", func(t *testing.T) { contractConcurrentRetry(t, newStore, seen) })
+	t.Run("AnErrorIsForTheCallerAndNeverForTheClient", func(t *testing.T) { contractCallerErrors(t, newStore) })
+}
+
+// A refusal is a reason on a result; an error is the API layer having handed the store
+// something no client could have produced. The two are not interchangeable, and each of these
+// would otherwise arrive as a REASON_REJECTED that the operator could never tell from a bad MAC.
+func contractCallerErrors(t *testing.T, newStore func() Store) {
+	t.Parallel()
+	ctx := context.Background()
+
+	transient := ordinaryRecord(testHandle(0x21), 1, 0, 0x30)
+	transient.RetentionClass = ClassEphBase // EPH(0)
+	short := ordinaryRecord(testHandle(0x21), 1, 0, 0x30)
+	short.SenderHandle = testBytes(SenderHandleBytes-1, 0x21)
+
+	cases := []struct {
+		name    string
+		records []*Record
+		want    error
+	}{
+		// §7.6 is normative that an EPH(0) transient never touches disk: it is published and
+		// dropped, so it has no row here to be stored in and no record_id to be given
+		{name: "AnEph0TransientNeverReachesTheStore", records: []*Record{transient}, want: ErrTransientRecord},
+		{name: "AnEmptyBatchHasNoResultToAlignWith", records: []*Record{}, want: ErrEmptyBatch},
+		{name: "AnIdentifierOfTheWrongLength", records: []*Record{short}, want: ErrIdentifierShape},
+		// §4.3.3: mixing a commit with ordinary records makes partial-failure semantics
+		// ambiguous during an epoch change, and a commit is one record by construction
+		{name: "ACommitMixedIntoABatch", want: ErrCommitBatch, records: []*Record{
+			commitRecord(testHandle(0x31), 1, 0, 2, 0x40),
+			ordinaryRecord(testHandle(0x21), 1, 0, 0x30),
+		}},
+	}
+	for _, current := range cases {
+		t.Run(current.name, func(t *testing.T) {
+			t.Parallel()
+			store, group := openGroup(t, newStore())
+			before := nextRecordId(t, store, group)
+			response, err := store.Submit(ctx, &SubmitRequest{GroupId: group, Records: current.records})
+			if !errors.Is(err, current.want) {
+				t.Fatalf("Submit answered (%v, %v), want the error %v", response, err, current.want)
+			}
+			if response != nil {
+				t.Fatalf("Submit answered an error and a response; a caller that reads results on an error reads results nobody wrote")
+			}
+			if after := nextRecordId(t, store, group); after != before {
+				t.Fatalf("a refused-at-the-door submission moved next_record_id from %d to %d", before, after)
+			}
+		})
+	}
 }
 
 // ── step (0) ─────────────────────────────────────────────────────────────────────────────
