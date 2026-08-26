@@ -151,6 +151,32 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
    surface has now been widened twice by implementation feedback (A-9, A-10) with nothing mechanical
    holding the two documents and the code together, which is the same shape as every other gate on
    this project that turned out to be a sentence rather than a check. Found 2026-08-26.
+8. **§4.5 has no reason code for "this build does not implement this operation."** Eleven of §4.3's
+   fifteen `oneof` arms are served by nothing yet, and the two candidates are both wrong:
+   `REASON_REJECTED` has a specific normative meaning a client acts on by re-MACing and retrying, and
+   `REASON_RATE_LIMITED` would claim the §4.7 limiter that §5.1 check 4 declares absent.
+   `REASON_INTERNAL` is what shipped. §4.5 should name a code. Found 2026-08-26 by `peer/`.
+9. **§4.6 names a reason code for one of its four abort conditions.** The reassembly cap gets
+   `REASON_OVERSIZE`; a zero `count`, an out-of-order `index`, and the sixteen-per-client concurrency
+   cap get none. Found 2026-08-26 by `peer/`.
+10. **§4.3.1 gives a connection no lifetime**, so the live-connection map holds an entry per
+    `client_id` that ever said `Hello` and never shrinks — a memory bound chosen by anyone who can
+    address a frame. §4.6 bounds reassembly at 30 s; a connection has no equivalent number anywhere.
+    The implementation takes a configurable idle sweep and declares the bound missing when nobody
+    configures one, which is a mitigation rather than a default. Also unstated: what an **empty**
+    `supported_versions` in `HelloRequest` means. Found 2026-08-26 by `peer/`.
+11. **§2.2 does not say whether allowing a package allows the modules that package cannot compile
+    without.** Linking `connect`'s root — which §4.2's binding *is* — put ~204 packages from 31
+    modules into the binary §2.3 deploys: quic-go, all of pion, gvisor's netstack, gorilla/websocket
+    and four `golang.org/x` modules, none of which §2.2 mentions. `go.sum` went from 4 lines to 80.
+    The dependency gate now derives the permitted closure from `connect`'s own `go.mod` rather than
+    from thirty hand-typed paths, but §2.2 should state the rule instead of leaving it to be inferred
+    a second time. Found 2026-08-26 by `peer/`.
+12. **A spec-conformant client cannot connect to a server without §9.1's signing sidecar.** §4.3.1
+    requires `HelloResponse.server_keys` and requires a client to REFUSE a fleet whose first key does
+    not verify against the compiled-in root, while decision B13 keeps every signing key off every
+    replica. That is not a defect in B13; it is a gap in what §4.3.1 says a partial deployment can do.
+    Found 2026-08-26 by `peer/`.
 
 ## 6. Change process
 

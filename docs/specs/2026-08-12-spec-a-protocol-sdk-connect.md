@@ -91,6 +91,7 @@ Append-only. Newest last. One entry per commit that changes this spec. Every cha
 | 2026-08-25 | A-8 | Implementation feedback from the record codec, both amendments in §12.1. **`RetentionClassWire` returns `(byte, error)`, not `byte`.** It is one of the two functions that cross between the retention class as Go carries it and the byte the wire carries it in, and it has two things to refuse — a non-eph class arriving with an eph bucket, and an eph bucket past 5. A function that cannot refuse has to **normalise**, and both normalisations store a record as though the caller's belief about it had been right: dropping the bucket silently reclassifies, truncating it manufactures `0x16`, a byte every reader refuses. MASTER §8 gives no Go signature, so this settles the arity. It is an arity change, so Spec B's server does not compile against the old spelling; Spec B §12.1 is amended identically as B-8. **The nine `Err*` sentinels are published on the A-1 surface.** §5.9 guardrail 7 already required every failure in `connect/message` to be a typed error; a typed error the server cannot name is one it can only match on message text, and §5.1 check 3 acts on two of them directly. The allowlist test in the message-server repo covers nine names and no more. |
 | 2026-08-25 | A-9 | Implementation feedback from the two record AAD preimages; one amendment, in §12.1, and it changes no signature. **The refusals block is an allowlist of what the server may reach, not an inventory of what `connect/message` exports.** A-8's "nine names, no more, and a tenth is a design discussion" reads as a rule about the count; the rule is reachability. §12.1 was never the package's export set — the package also exports the sealing side, `AADBody`, `AADHead` and `BodyBinding`, which build MASTER §8's two record AEAD preimages and are deliberately on no line of §12.1 because the server never decrypts — so the message-server allowlist test asserts the names in the block rather than what the package declares. A sentinel a published function can return is owed a line in the same commit that makes it reachable; one only an unpublished function can return is not, and publishing it would widen the server's allowlist with a name no server can use. `ErrRecordHeaderNil` and `ErrServerAttachmentMismatch` are the first two of that kind: both are `AADHead`'s, and both stay off the surface until something on it can return them. |
 | 2026-08-26 | A-10 | Implementation feedback from `connect/message/attachment.go`, the codec Spec B §5.1 check 3 calls on every submit. Four amendments, none of which changes a wire byte. **§12.1 gains the six sentinels `ParseServerAttachment` can return**, under A-9's rule that a sentinel a published function can return is owed a line in the same commit that makes it reachable. **§12.1 gains `ServerAttachmentKind` and its five constants**: without them a server held to the published surface can tell an `EpochAttachment` from a `RecoveryTag` only by testing four body pointers for nil, never by the discriminator §5.11 defines, while check 3 requires exactly that discrimination. **§5.11 gains Go field types for `EpochAttachment`, `RecoveryTag`, `WrapTag` and `EpochComplete`** — it previously declared `ServerAttachment`'s and none of theirs, so a second implementation could reasonably read the wire table's "exactly 32 bytes" as `[32]byte`, at which point check 3's `write_key` exactly 32 bytes' is a question it can neither ask nor fail. **Kind `0x0000` on parse is RULED: a parser MUST refuse an encoded one.** The table forbade emitting it and said nothing about receiving it; accepting it would give one logical attachment two encodings with two different `H(server_attachment)`, which sits inside `AAD_head` and the `write_auth` preimage, so two peers choosing differently would disagree on the AEAD of every ordinary record with neither side's tests failing. |
+| 2026-08-26 | A-11 | Implementation feedback from `peer/`, the connect frame transport. **§5.7 said `server_nonce` is "scoped to that connection" while the transport supplies no connection identity**, verified in `connect`'s source rather than inferred: the receive callback gets `{SourceId, StreamId}` with `StreamId` always zero, `connect.Peer` is built from the contract rather than the session, a `ReceiveSequence`'s per-session id never reaches a callback, and `EncryptionModeOff` means a deployment may have no sessions at all — so the whole arriving identity is the `client_id`, which survives a reconnect. A connection is now defined as **one `Hello` epoch of a `client_id`**, and **the residual is stated rather than argued away**: a client that reconnects without saying `Hello` keeps its nonce and the server cannot tell, so cross-connection replay resistance rests on the client outbox rule rather than on the transport, and that rule is therefore normative for the guarantee. The §6.1 step (0) idempotency claim and stream-index monotonicity already refuse a replay without depending on the nonce, which bounds the residual without removing it. Removing it needs `connect` to expose a session identity at the receive callback — a change to a repository this work does not own, and therefore an owner decision. |
 
 ---
 
@@ -1385,6 +1386,33 @@ group still restores.
 **that connection**, valid for the life of that connection, and never rotated. It prevents
 cross-connection replay. It is **not** carried in requests — the server knows its own connection's nonce
 and looks it up from the connection, never from the request.
+
+**What "that connection" means, RULED 2026-08-26 — and the residual is stated rather than assumed
+away.** The paragraph above was written as though the transport supplies a connection identity.
+**It does not.** `connect`'s receive callback is handed `path.SourceMask()`, which is
+`{SourceId, StreamId}` with `StreamId` always zero because a frame whose path `IsStream()` is dropped
+before the callback; `connect.Peer` is `{ProvideMode, Roles, Principal}`, built from the active
+contract rather than from the session; a `ReceiveSequence` does hold a per-session `sequenceId` and it
+never reaches a callback; and `EncryptionModeOff` is a supported setting, so a deployment may have no
+sessions at all. **The whole of the arriving identity is the `client_id`, and a `client_id` survives a
+reconnect unchanged.** That was verified in the source, not inferred.
+
+So a connection is defined here as **one `Hello` epoch of a `client_id`**: every `Hello` mints a fresh
+nonce and destroys the previous one outright, with no history and no grace window, so a record sealed
+against the old connection stops verifying the instant a new one is issued.
+
+**The residual, named because it is the difference between what this section promises and what it
+delivers:** a client that reconnects *without* saying `Hello` keeps its nonce, and the server cannot
+tell. Cross-connection replay resistance therefore rests on **the client protocol** — the outbox rule
+below — and not on the transport. The outbox rule is consequently **normative for this guarantee**,
+not merely for correctness, and that is why it is stated as a MUST.
+
+Two things bound the residual rather than removing it. A replayed record is already refused by the
+§6.1 step (0) idempotency claim and by stream-index monotonicity, so the nonce is defence in depth
+over a check that does not depend on it. And a server SHOULD bound connection lifetime with an idle
+sweep. **Neither is the guarantee.** Removing the residual needs `connect` to expose a session
+identity at the receive callback, which is a change to a repository this work does not own and is
+therefore an owner decision rather than a spec edit.
 
 **Outbox rule (normative, client side).** On reconnect, every queued record MUST be re-MAC'd against the
 new connection's nonce before submission. On `REASON_EPOCH_STALE`, a queued record MUST be discarded and
