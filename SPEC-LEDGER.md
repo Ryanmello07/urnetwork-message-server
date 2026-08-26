@@ -147,6 +147,10 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
    read-key lookup is written in the singular and does not say which group's key verifies the MAC.
    Pre-existing, found 2026-08-25 while fixing the `UnsubscribeRequest` gap, and out of scope for
    that fix. Needs a Spec B ruling before Subscribe is implemented.
+7. §12.1 says "A test in the message-server repo asserts the allowlist" and no such test exists. The
+   surface has now been widened twice by implementation feedback (A-9, A-10) with nothing mechanical
+   holding the two documents and the code together, which is the same shape as every other gate on
+   this project that turned out to be a sentence rather than a check. Found 2026-08-26.
 
 ## 6. Change process
 

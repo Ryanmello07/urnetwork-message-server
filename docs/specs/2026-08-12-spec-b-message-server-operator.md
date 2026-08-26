@@ -281,6 +281,31 @@ tenth. Spec A §12.1 A-9 carries the same amendment and the reasoning.
 
 **Revision 11 — 2026-08-26 — the second copy of the rule revision 10 amended.** No amendment and no normative change: revision 10 rewrote §13 item 8's no-MLS assertion from the prefix form to the package form, and §5.3 — which states the same assertion beside the normative MUST NOT it belongs to — was left carrying the superseded prefix form, so the document asserted the same CI check two incompatible ways. §5.3 now states the package form and points at item 8 for the argument. Found by a review of the api layer's gates, which is where the two copies were read against each other for the first time; a rule written down twice is a rule amended once, and the fix for that shape is the cross-reference this entry adds rather than a third copy.
 
+
+---
+
+**Revision 12 — 2026-08-26 — the attachment codec's published surface.** Four amendments mirroring
+Spec A's A-10, three of them in §12.1's restatement of the imported surface — the six
+`ParseServerAttachment` sentinels, and `ServerAttachmentKind` with its five constants, without which
+a server held to this surface cannot discriminate an `EpochAttachment` from a `RecoveryTag` by the
+discriminator §5.11 defines and must test four body pointers for nil instead.
+
+The fourth is here rather than in Spec A. **§5.1 check 3 is billed as the "static shape" check and
+three of its clauses are not static shape at all**: `epoch == current_epoch + 1` and `EpochComplete`
+matching its epoch's `expected_wrap_count` both need group state the attachment does not carry, and
+`EpochAttachment` **iff** `is_commit` needs the record header beside the attachment. As written the
+list reads as though `message.ParseServerAttachment` answers all of them; it can answer none of the
+three. The clause now says so and says which side owns each. `connect/message` validates every clause
+that is a property of the attachment's own bytes and deliberately makes none of these three — a codec
+that reached for `current_epoch` would be a codec with a database — and the server makes them in
+check 3 from state it already holds, at no read.
+
+Not amended, and recorded so it is not amended later by someone reading the same report: §5.4 was
+flagged as dropping two sentences from Spec A §5.11's `durable_ttl_seconds` comment, about clamping
+being reported through `RetentionApplied.durable_clamped_down` and about refusal being forbidden.
+Both are already stated in §5.4's own prose, in the paragraph beginning "On the unset sentinel". The
+restatement is complete in substance and needed no edit.
+
 ---
 
 ## 1. Scope
@@ -1696,7 +1721,7 @@ Order matters for denial of service, not just correctness. Nothing that costs a 
 |---|---|---|---|
 | 1 | Frame decodes; fragment reassembly within `max_request_bytes` | CPU, bounded | `REASON_OVERSIZE`, free buffer |
 | 2 | Connection is authenticated at the connect layer (`ByJwt` validated by the platform; §4.3 master). The `server_nonce` is **not** carried in the request — the server knows its own connection's nonce and looks it up from the connection, never from the request | memory | `REASON_REJECTED` |
-| 3 | **Static shape.** `octet_length(sender_handle)==16`, `body_hash`==32, `retention_class` and `size_bucket` in range, `expire_at` parses, `ct_head` ≤ head cap, and **`octet_length(ct_body)` is exactly `size_bucket_bytes[b] + 16`** (the AEAD tag) — equality, not a range, because §9.5 pads into buckets. `size_bucket == 5` requires `ct_body` absent and a 32-byte `blob_id` present in the parsed header; any other `size_bucket` requires `blob_id` absent. Both are read from `message.ParseRecord`, never from the request's projection alone. And `server_attachment` parses via `message.ParseServerAttachment` and is well-formed for its record kind: `EpochAttachment` iff `is_commit`, with `epoch == current_epoch + 1`, `write_key` exactly 32 bytes, `read_key` exactly 32 bytes — **different in every epoch, and therefore never compared against a previously installed one** — known `alg_id`, retention fields in range — both `durable_ttl_seconds` sentinels, `0` and `4294967295`, are legal values here and are resolved at §6.1 step (6), never refused — and `expected_wrap_count > 0`; `RecoveryTag` with a 16-byte handle and a 32-byte Ed25519 pub; `WrapTag` with a 16-byte target; `EpochComplete` with a matching `wrap_count`. Every projection field of `Record` equals the corresponding field of `ParseRecord(record_bytes)` (§4.3.3) | CPU | `REASON_OVERSIZE` / `REASON_REJECTED` |
+| 3 | **Static shape.** `octet_length(sender_handle)==16`, `body_hash`==32, `retention_class` and `size_bucket` in range, `expire_at` parses, `ct_head` ≤ head cap, and **`octet_length(ct_body)` is exactly `size_bucket_bytes[b] + 16`** (the AEAD tag) — equality, not a range, because §9.5 pads into buckets. `size_bucket == 5` requires `ct_body` absent and a 32-byte `blob_id` present in the parsed header; any other `size_bucket` requires `blob_id` absent. Both are read from `message.ParseRecord`, never from the request's projection alone. And `server_attachment` parses via `message.ParseServerAttachment` and is well-formed for its record kind: `EpochAttachment` iff `is_commit`, with `epoch == current_epoch + 1`, `write_key` exactly 32 bytes, `read_key` exactly 32 bytes — **different in every epoch, and therefore never compared against a previously installed one** — known `alg_id`, retention fields in range — both `durable_ttl_seconds` sentinels, `0` and `4294967295`, are legal values here and are resolved at §6.1 step (6), never refused — and `expected_wrap_count > 0`; `RecoveryTag` with a 16-byte handle and a 32-byte Ed25519 pub; `WrapTag` with a 16-byte target; `EpochComplete` with a matching `wrap_count`. Every projection field of `Record` equals the corresponding field of `ParseRecord(record_bytes)` (§4.3.3). **Three of the clauses above are the SERVER's and not the parser's, stated 2026-08-26 because the list reads as though `message.ParseServerAttachment` answers all of them and it can answer none of these three:** `epoch == current_epoch + 1` and `EpochComplete` matching its epoch's `expected_wrap_count` both need group state the attachment does not carry, and `EpochAttachment` **iff** `is_commit` needs the record header beside the attachment. `connect/message` validates every clause that is a property of the attachment's own bytes and deliberately makes none of these three — a codec that reached for `current_epoch` would be a codec with a database. The server makes them here, in check 3, from state it already holds; none costs a read | CPU | `REASON_OVERSIZE` / `REASON_REJECTED` |
 | 4 | **Rate limits** (§4.7), including the §9.6 quarantine check | Redis / DB | `REASON_RATE_LIMITED` |
 | 5 | **Known-group filter.** An in-memory cuckoo filter of every `group_id`. An unknown group is rejected here with **no database read**. See the insert path below — the timer is a backstop only | memory | `REASON_REJECTED` |
 | 6 | **Epoch key lookup.** In-process LRU keyed `(group_id, epoch)`; miss reads `message_epoch` once, unwraps under the `kek_id` in the row, caches. Negative results cached 5 s with jitter. The **current** epoch's key and one briefly-retired predecessor both resolve (§5.3) | memory / 1 read | `REASON_REJECTED` |
@@ -3085,7 +3110,15 @@ func RendezvousDepositBytes() int                                              /
 // ── exported types ─────────────────────────────────────────────────────────
 type Record, RecordHeader, RetentionClass, SizeBucket,
      ServerAttachment, EpochAttachment, RecoveryTag, WrapTag, EpochComplete,
+     ServerAttachmentKind,
      RendezvousRegistration, RendezvousCollectParams
+
+// and the discriminator's five values. Added 2026-08-26: without them a server held to
+// this surface can tell an EpochAttachment from a RecoveryTag only by testing the four
+// body pointers for nil, never by the discriminator §5.11 itself defines — and §5.1
+// check 3 requires exactly that discrimination on every submit.
+const AttachmentNone, AttachmentEpoch, AttachmentRecovery,
+      AttachmentWrap, AttachmentComplete ServerAttachmentKind
 
 // ── refusals ───────────────────────────────────────────────────────────────
 // Sentinels, wrapped with %w at each site that has a value worth naming, so
@@ -3101,6 +3134,18 @@ var ErrIsCommitNotBoolean     error   // an is_commit byte that is neither 0 nor
 var ErrSizeBucketOutOfRange   error   // a size bucket past the top of the ladder
 var ErrBlobIdPresence         error   // blob_id presence disagrees with size_bucket
 var ErrCtBodyLength           error   // ct_body neither absent nor its rung's length
+
+// ParseServerAttachment's, added 2026-08-26 under A-9's rule: a sentinel a published
+// function can return is owed a line in the same commit that makes it reachable, and
+// §5.1 check 3 calls ParseServerAttachment on every submit.
+var ErrServerAttachmentKindUnknown error // a kind byte §5.11 does not define
+var ErrServerAttachmentBody        error // the kind and the body carried disagree, or
+                                         // more than one body is carried
+var ErrServerAttachmentNoneEncoded error // an encoded kind 0x0000 arrived; an absent
+                                         // attachment is the EMPTY FIELD, never a kind
+var ErrServerAttachmentFieldLength error // a field is not the exact width §5.11 gives it
+var ErrServerAttachmentAlgId       error // an alg_id the kind does not name
+var ErrExpectedWrapCountZero       error // an EpochAttachment expecting no wraps at all
 ```
 
 The server may use **only** this surface. It gets no decryption function, no key-schedule function, and no MLS type. The rendezvous group is **verifiers only**: no signer and no function that opens a deposit, because a sealing or opening function on this surface would be a decryption capability in the process that holds the mailbox. A test in the message-server repo asserts the allowlist.

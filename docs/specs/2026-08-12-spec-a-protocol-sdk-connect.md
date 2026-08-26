@@ -90,6 +90,7 @@ Append-only. Newest last. One entry per commit that changes this spec. Every cha
 | 2026-08-25 | A-7 | Implementation feedback, four defects found by transcribing this spec into `connect/protocol/message.proto`. **§10.1's four `MessageType` value names were uncompilable**: proto3 scopes an enum value name to the enum's parent scope, so `MessageServerRequest` collided with Spec B's `message MessageServerRequest` in the same package and `protoc` refused the pair. Resolved on the enum side — the message names are the `oneof` arm types the §5.7 op byte is defined over — following `MessageType`'s existing `IpIpPing` convention; the four numbers are unchanged. Recorded here because the old spelling now produces a compile error rather than a silent break. Spec B revision 7 of the same date records all four, including this one. Two knock-on corrections on this side: §7.2 vocabulary 2 said `"rate_limited"` carries `RetryAfterMs` **in `ReasonDetail`**, which cannot work because `ReasonDetail` is free text declared never to be parsed — so Spec C §9's `{RetryAfterMs}` interpolation had nothing to read. `RetryAfterMs` is now a typed `int64` on both `MessageSendability` and `MessageEntry` (`int64` because gomobile does not bind unsigned types). And the claim that a response field is never a MAC input, written while resolving Spec B's §4.5 gap, is **false** — `FetchAttestation` signs nine `FetchResponse` fields — and is corrected there rather than left to be generalised. |
 | 2026-08-25 | A-8 | Implementation feedback from the record codec, both amendments in §12.1. **`RetentionClassWire` returns `(byte, error)`, not `byte`.** It is one of the two functions that cross between the retention class as Go carries it and the byte the wire carries it in, and it has two things to refuse — a non-eph class arriving with an eph bucket, and an eph bucket past 5. A function that cannot refuse has to **normalise**, and both normalisations store a record as though the caller's belief about it had been right: dropping the bucket silently reclassifies, truncating it manufactures `0x16`, a byte every reader refuses. MASTER §8 gives no Go signature, so this settles the arity. It is an arity change, so Spec B's server does not compile against the old spelling; Spec B §12.1 is amended identically as B-8. **The nine `Err*` sentinels are published on the A-1 surface.** §5.9 guardrail 7 already required every failure in `connect/message` to be a typed error; a typed error the server cannot name is one it can only match on message text, and §5.1 check 3 acts on two of them directly. The allowlist test in the message-server repo covers nine names and no more. |
 | 2026-08-25 | A-9 | Implementation feedback from the two record AAD preimages; one amendment, in §12.1, and it changes no signature. **The refusals block is an allowlist of what the server may reach, not an inventory of what `connect/message` exports.** A-8's "nine names, no more, and a tenth is a design discussion" reads as a rule about the count; the rule is reachability. §12.1 was never the package's export set — the package also exports the sealing side, `AADBody`, `AADHead` and `BodyBinding`, which build MASTER §8's two record AEAD preimages and are deliberately on no line of §12.1 because the server never decrypts — so the message-server allowlist test asserts the names in the block rather than what the package declares. A sentinel a published function can return is owed a line in the same commit that makes it reachable; one only an unpublished function can return is not, and publishing it would widen the server's allowlist with a name no server can use. `ErrRecordHeaderNil` and `ErrServerAttachmentMismatch` are the first two of that kind: both are `AADHead`'s, and both stay off the surface until something on it can return them. |
+| 2026-08-26 | A-10 | Implementation feedback from `connect/message/attachment.go`, the codec Spec B §5.1 check 3 calls on every submit. Four amendments, none of which changes a wire byte. **§12.1 gains the six sentinels `ParseServerAttachment` can return**, under A-9's rule that a sentinel a published function can return is owed a line in the same commit that makes it reachable. **§12.1 gains `ServerAttachmentKind` and its five constants**: without them a server held to the published surface can tell an `EpochAttachment` from a `RecoveryTag` only by testing four body pointers for nil, never by the discriminator §5.11 defines, while check 3 requires exactly that discrimination. **§5.11 gains Go field types for `EpochAttachment`, `RecoveryTag`, `WrapTag` and `EpochComplete`** — it previously declared `ServerAttachment`'s and none of theirs, so a second implementation could reasonably read the wire table's "exactly 32 bytes" as `[32]byte`, at which point check 3's `write_key` exactly 32 bytes' is a question it can neither ask nor fail. **Kind `0x0000` on parse is RULED: a parser MUST refuse an encoded one.** The table forbade emitting it and said nothing about receiving it; accepting it would give one logical attachment two encodings with two different `H(server_attachment)`, which sits inside `AAD_head` and the `write_auth` preimage, so two peers choosing differently would disagree on the AEAD of every ordinary record with neither side's tests failing. |
 
 ---
 
@@ -1455,6 +1456,19 @@ server_attachment := u16(kind) ‖ LP(body)
 
   kind 0x0000  NONE            body is zero-length. Ordinary records carry a ZERO-LENGTH
                                server_attachment (the whole field is empty), NOT kind 0x0000.
+                               RULED 2026-08-26: a parser MUST REFUSE an encoded kind 0x0000
+                               (ErrServerAttachmentNoneEncoded), rather than accepting it as
+                               an absent attachment. Both readings were available and only
+                               one is safe: accepting it would give one logical attachment
+                               TWO encodings — the empty field, and two octets of zero — with
+                               two different H(server_attachment), and H(server_attachment) is
+                               inside both AAD_head and the write_auth preimage. Two peers that
+                               chose differently would disagree on the AEAD of every ordinary
+                               record, and neither side's tests would fail. 0x0000 therefore
+                               stays in this table as a RESERVED code that no conforming
+                               implementation ever emits and none ever accepts; it is here so
+                               the numbering is stable and so this paragraph has somewhere to
+                               live.
   kind 0x0001  EpochAttachment carried by, and only by, a record with is_commit = 1
   kind 0x0002  RecoveryTag     carried by RECOVERY_PUB records and by recovery wrap records
   kind 0x0003  WrapTag         carried by per-device epoch wrap records and by the epoch snapshot
@@ -1556,6 +1570,41 @@ type ServerAttachment struct {
     Recovery *RecoveryTag
     Wrap     *WrapTag
     Complete *EpochComplete
+}
+
+// The four bodies. Added 2026-08-26: this block previously declared ServerAttachment's
+// field types and none of theirs, leaving only the wire table's "exactly 32 bytes"
+// annotations to imply a Go type. A second implementation reading this surface could
+// reasonably choose [32]byte for write_key, at which point §5.1 check 3's "write_key
+// exactly 32 bytes" becomes a question that implementation cannot fail and cannot even
+// ask. Slices, matching the record codec's own rule that a variable-length wire field
+// is LP(x) and reaches Go as a slice whose length is then checked.
+type EpochAttachment struct {
+    Epoch                uint64   // the epoch this attachment OPENS
+    AlgId                uint16
+    WriteKey             []byte   // exactly 32; the server holds it (§5.3)
+    ReadKey              []byte   // exactly 32; different in EVERY epoch, so never
+                                  // compared against a previously installed one
+    MediaTtlSeconds      uint32
+    DurableTtlSeconds    uint32   // both sentinels legal here; resolved at §6.1 step (6)
+    GroupContextHash     []byte   // exactly 32
+    ExpectedWrapCount    uint32   // > 0
+}
+
+type RecoveryTag struct {
+    RecoveryHandle     []byte   // exactly 16
+    RecoveryVerifyPub  []byte   // exactly 32, Ed25519
+    AlgId              uint16
+}
+
+type WrapTag struct {
+    WrapTargetHandle []byte   // exactly 16
+    Epoch            uint64
+}
+
+type EpochComplete struct {
+    Epoch     uint64
+    WrapCount uint32   // must match the epoch's EpochAttachment.ExpectedWrapCount
 }
 
 func ParseServerAttachment(b []byte) (*ServerAttachment, error)   // empty input -> AttachmentNone
@@ -4163,7 +4212,15 @@ func RendezvousDepositBytes() int                                              /
 // ── exported types ─────────────────────────────────────────────────────────
 type Record, RecordHeader, RetentionClass, SizeBucket,
      ServerAttachment, EpochAttachment, RecoveryTag, WrapTag, EpochComplete,
+     ServerAttachmentKind,
      RendezvousRegistration, RendezvousCollectParams
+
+// and the discriminator's five values. Added 2026-08-26: without them a server held to
+// this surface can tell an EpochAttachment from a RecoveryTag only by testing the four
+// body pointers for nil, never by the discriminator §5.11 itself defines — and §5.1
+// check 3 requires exactly that discrimination on every submit.
+const AttachmentNone, AttachmentEpoch, AttachmentRecovery,
+      AttachmentWrap, AttachmentComplete ServerAttachmentKind
 
 // ── refusals ───────────────────────────────────────────────────────────────
 // Sentinels, wrapped with %w at each site that has a value worth naming, so
@@ -4179,6 +4236,18 @@ var ErrIsCommitNotBoolean     error   // an is_commit byte that is neither 0 nor
 var ErrSizeBucketOutOfRange   error   // a size bucket past the top of the ladder
 var ErrBlobIdPresence         error   // blob_id presence disagrees with size_bucket
 var ErrCtBodyLength           error   // ct_body neither absent nor its rung's length
+
+// ParseServerAttachment's, added 2026-08-26 under A-9's rule: a sentinel a published
+// function can return is owed a line in the same commit that makes it reachable, and
+// §5.1 check 3 calls ParseServerAttachment on every submit.
+var ErrServerAttachmentKindUnknown error // a kind byte §5.11 does not define
+var ErrServerAttachmentBody        error // the kind and the body carried disagree, or
+                                         // more than one body is carried
+var ErrServerAttachmentNoneEncoded error // an encoded kind 0x0000 arrived; an absent
+                                         // attachment is the EMPTY FIELD, never a kind
+var ErrServerAttachmentFieldLength error // a field is not the exact width §5.11 gives it
+var ErrServerAttachmentAlgId       error // an alg_id the kind does not name
+var ErrExpectedWrapCountZero       error // an EpochAttachment expecting no wraps at all
 ```
 
 The server gets verifiers and no signers, and no function that opens a deposit — a sealing or
