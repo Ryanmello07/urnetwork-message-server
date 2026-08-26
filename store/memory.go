@@ -120,6 +120,11 @@ type claimRow struct {
 type commitRow struct {
 	epoch    uint64
 	recordId uint64
+	// the winner itself, because §6.2 hands a loser the winner's exact bytes and the loser
+	// path must not have to find them. A slice index computed from record_id would be correct
+	// only while the id sequence is gapless, which is to say it would turn the one defect this
+	// package exists to prevent into a panic instead of into a refusal
+	record *Record
 }
 
 type senderRow struct {
@@ -364,7 +369,7 @@ func (self *MemoryStore) CreateGroup(ctx context.Context, request *CreateGroupRe
 		headHash:   headHash(record.CtHead),
 		createTime: now,
 	}
-	group.commits[record.Epoch] = &commitRow{epoch: record.Epoch, recordId: record.RecordId}
+	group.commits[record.Epoch] = &commitRow{epoch: record.Epoch, recordId: record.RecordId, record: record}
 	group.senders[string(record.SenderHandle)] = &senderRow{
 		lastStreamIndex: record.StreamIndex,
 		recordCount:     1,
@@ -668,7 +673,7 @@ func (self *MemoryStore) commit(group *memoryGroup, state *GroupState, batch []*
 			current.result.CurrentEpoch = group.currentEpoch
 
 			// (5b) the commit row itself
-			group.commits[record.Epoch] = &commitRow{epoch: record.Epoch, recordId: record.RecordId}
+			group.commits[record.Epoch] = &commitRow{epoch: record.Epoch, recordId: record.RecordId, record: record}
 		}
 
 		// (6b) the marker that closes the fan-out. Only a wrap_count equal to the epoch's
@@ -777,7 +782,7 @@ func (self *MemoryStore) fillCurrentEpoch(group *memoryGroup, batch []*pending) 
 			continue
 		}
 		if winner, found := group.commits[current.record.Epoch]; found {
-			current.result.WinningCommit = cloneRecord(group.records[winner.recordId-1].record)
+			current.result.WinningCommit = cloneRecord(winner.record)
 		}
 	}
 }
