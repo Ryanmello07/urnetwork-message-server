@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/urnetwork/connect/message"
@@ -133,7 +134,12 @@ func TestARecordTravelsEndToEnd(t *testing.T) {
 		bucket:      message.SizeBucket1K,
 		head:        []byte("an ordinary record's head"),
 		body:        []byte("an ordinary record's body"),
-		writeKey:    fixture.writeKey(1),
+		// §5.1's advisory upper bound, non-zero on purpose: a header field that is zero on
+		// both sides of a round trip is a field this test reports as travelling without
+		// having carried anything, and assertEveryHeaderFieldTravelled below holds the whole
+		// header to that rule rather than this one field
+		expireAt: 1798761600000,
+		writeKey: fixture.writeKey(1),
 	})
 	results = fixture.submit(t, ordinary)
 	if results[0].GetReason() != protocol.Reason_REASON_OK {
@@ -198,6 +204,103 @@ func TestARecordTravelsEndToEnd(t *testing.T) {
 	}
 	if results[0].GetRecordId() != 5 {
 		t.Fatalf("the record after the forgery was allocated record_id %d, want 5 — the forgery allocated one", results[0].GetRecordId())
+	}
+
+	// ── an EPH(1) record, so that every header field has carried something ────────────────
+	//
+	// §7.6's transient rung is EPH(0) and is never persisted; every other eph bucket is an
+	// ordinary durable-with-a-deadline record as far as this layer is concerned. It is here
+	// because `eph_bucket` is a header field, it is covered by write_auth like every other
+	// one, and without a record that sets it the round trip below would compare it at zero
+	// against zero.
+	transient := fixture.seal(t, sealed{
+		sender:      senderA,
+		epoch:       1,
+		streamIndex: 5,
+		class:       message.RetentionEph,
+		ephBucket:   1,
+		bucket:      message.SizeBucket256,
+		head:        []byte("an hour from now"),
+		body:        []byte("an hour from now"),
+		writeKey:    fixture.writeKey(1),
+	})
+	results = fixture.submit(t, transient)
+	if results[0].GetReason() != protocol.Reason_REASON_OK {
+		t.Fatalf("the EPH(1) record was answered %v, want REASON_OK", results[0].GetReason())
+	}
+
+	fetched = fixture.fetch(t)
+	if len(fetched.GetRecords()) != 6 {
+		t.Fatalf("the fetch answered %d records, want 6", len(fetched.GetRecords()))
+	}
+	for index, want := range []*protocol.Record{commit, wrap, marker, ordinary, next, transient} {
+		assertTravelled(t, fixture, want, fetched.GetRecords()[index], uint64(index+1))
+	}
+	assertEveryHeaderFieldTravelled(t, fixture, []*protocol.Record{commit, wrap, marker, ordinary, next, transient})
+}
+
+// Every field of the record header carried something in at least one of the records that
+// travelled.
+//
+// A field compared at its zero value on both sides is a field this test reports as travelling
+// without having carried anything, and it is a field the server can drop, zero or invent with
+// the whole milestone still green. `expire_at` was exactly that: a rebuildRecord that answered 0
+// for it passed CP3a, because no record this test sealed had ever set one.
+//
+// The field set is [message.RecordHeader]'s own, walked, so a field added to the header tomorrow
+// arrives uncovered and says so rather than being quietly compared at zero. The one field this
+// build cannot cover is named below with the capability that is missing, and the naming is a
+// tripwire rather than a shrug: it asserts that the capability really is declared unbuilt, so
+// the day blob binding lands this test fails until a blob-backed record travels here too.
+func assertEveryHeaderFieldTravelled(t *testing.T, fixture *fixture, records []*protocol.Record) {
+	t.Helper()
+	const blobRungIsUnbuilt = "blob binding"
+	unbuildable := map[string]string{"BlobId": blobRungIsUnbuilt}
+
+	declared := false
+	for _, notBuilt := range fixture.handler.NotBuilt() {
+		if strings.Contains(notBuilt.What, blobRungIsUnbuilt) {
+			declared = true
+		}
+	}
+	if !declared {
+		t.Fatalf("this test excuses %v from travelling because %q is declared unbuilt, and it is not declared any more; a header field excused for a reason that has expired is a field nothing checks",
+			unbuildable, blobRungIsUnbuilt)
+	}
+
+	headers := []reflect.Value{}
+	for _, record := range records {
+		parsed, err := message.ParseRecord(record.GetRecordBytes())
+		if err != nil {
+			t.Fatalf("a record this test sealed does not parse: %v", err)
+		}
+		headers = append(headers, reflect.ValueOf(parsed.Header))
+	}
+	fields := reflect.TypeOf(message.RecordHeader{})
+	uncovered := []string{}
+	for index := 0; index < fields.NumField(); index++ {
+		name := fields.Field(index).Name
+		carried := false
+		for _, header := range headers {
+			if !header.Field(index).IsZero() {
+				carried = true
+			}
+		}
+		if carried {
+			if _, excused := unbuildable[name]; excused {
+				t.Fatalf("RecordHeader.%s is excused from this test because %q is unbuilt, and a record here carried one anyway; the exemption is stale",
+					name, unbuildable[name])
+			}
+			continue
+		}
+		if _, excused := unbuildable[name]; excused {
+			continue
+		}
+		uncovered = append(uncovered, name)
+	}
+	if len(uncovered) != 0 {
+		t.Fatalf("%d header field(s) were zero in every record this test round-tripped, so nothing here would notice the server dropping them: %v",
+			len(uncovered), uncovered)
 	}
 }
 
