@@ -467,3 +467,87 @@ the edit landed — `git diff --numstat` on the mutated file — is now part of 
   they implement the other reading, every ordinary record fails AEAD and no test on either side fails.
 - `AADBody` takes a `BodyBinding` rather than a `*RecordHeader`, which is what makes G4 structural
   instead of advisory, but it is exported surface that appears in no spec.
+
+## 2026-08-26 — CP3a reached: a record travels end to end
+
+`TestARecordTravelsEndToEnd` passes. A group is created from a founding commit, the commit is
+allocated `record_id` 1, a second sender's wrap lands at 2, an `EpochComplete` marker closes the
+fan-out, and an ordinary record — which `REASON_EPOCH_INCOMPLETE` would have refused a moment
+earlier — lands at 4. All four fetch back and are asserted **byte-identical**: both ciphertexts
+compared octet for octet, the whole header compared after a real `ParseRecord`, `write_auth`
+confirmed zero on read per §2.4, and the projections compared field by field.
+
+The message server is a Go module for the first time: `github.com/urnetwork/message-server`,
+**155 assertions, 0 failing**, `go vet` clean, index 69/69. `connect` is at **5,135**.
+
+| Landed | What |
+|---|---|
+| `connect/message/attachment.go` | the `server_attachment` codec §5.1 check 3 calls on every submit |
+| `msgrepo/deps_test.go` | §2.2's dependency rule, as a test rather than a shell line |
+| `msgrepo/store/` | the interface, a memory implementation, and a contract suite |
+| `msgrepo/api/` | §5.1's check order, §6.1's submit, and the record that travels |
+
+**What is honestly not here.** Nothing is encrypted. `ct_head` and `ct_body` are opaque bytes to
+every layer built so far, the server cannot open them and never will, and the MLS key schedule that
+produces real content keys is p4 and remains **absent rather than stubbed**. This is an
+authenticated, addressed, durable transport for opaque bytes. That is exactly what CP3a claims and
+no more, and the brief for it forbade adding a placeholder cipher to make the milestone test look
+more like a messenger.
+
+### The dependency rule was a sentence; it is a check now
+
+Spec B §2.2 gave its rule as a shell grep. Three things were wrong with it and the implementation
+found all three. It is a substring match, so it also matches `urnetwork/server/modelling`. It only
+**bans**, never checking that what you *do* depend on was ever written down. And it measures **one
+build configuration** — whatever `GOOS` the developer's shell carries — so an import behind
+`//go:build linux` for the deployment platform is invisible on a Windows box. That last one was
+demonstrated, not argued: a forbidden import behind a linux constraint left the host closure clean.
+
+The gate now runs the closure per platform from `release-platforms.txt`, checks the **subset**
+direction so an unlisted dependency fails until somebody writes it down, and fails rather than skips
+when `go list` cannot run.
+
+It also found a contradiction the specs could not both satisfy. §2.2 **allows** `connect/message`;
+`connect/message` frames every record with `connect/mls/syntax`; and §13 item 8 asserted
+`grep connect/mls` finds nothing — a prefix that matches the codec. **The first build that satisfied
+§5.1 check 7 made §13 item 8 fail.** Spec B revisions 10 and 11 narrow the assertion from the prefix
+to the exact package, with the argument for why a length-prefix reader is not an MLS implementation.
+
+### Four spec amendments, and one deliberate non-amendment
+
+Building the attachment codec found four things in Spec A §5.11 and §12.1 — recorded as A-10 and
+Spec B revision 12, none of them changing a wire byte:
+
+- §12.1 lists the sentinels the server may reach and had none of the six `ParseServerAttachment`
+  can return.
+- §12.1 omitted `ServerAttachmentKind` and its five constants, so a server held to the published
+  surface could discriminate an `EpochAttachment` from a `RecoveryTag` only by testing four body
+  pointers for nil — while check 3 requires exactly that discrimination on every submit.
+- §5.11 declared `ServerAttachment`'s Go field types and **none of the four bodies'**. A second
+  implementation could reasonably read the wire table's "exactly 32 bytes" as `[32]byte`, at which
+  point check 3's "`write_key` exactly 32 bytes" is a question it can neither ask nor fail.
+- **Kind `0x0000` on parse is now ruled: refuse it.** The table forbade *emitting* one and said
+  nothing about *receiving* one. Accepting it gives one logical attachment two encodings with two
+  different `H(server_attachment)` — which is inside `AAD_head` and the `write_auth` preimage — so
+  two peers choosing differently disagree on the AEAD of every ordinary record and neither side's
+  tests fail.
+
+One flagged gap was **not** fixed, and the ledger says why: §5.4 was reported as dropping two
+sentences about `durable_ttl` clamping, and both are already stated in its own prose. A report is a
+claim, not a finding.
+
+### Verified rather than reported, again
+
+Five reviewers, **44 surviving mutants** between them. The sharpest were re-run by hand against the
+shipped code: check 3's `group_id` binding, the memory store's write lock, a second MAC
+implementation dropped into a *sibling* package (the no-reimplementation gate had hand-written its
+scope as one directory), the attachment multi-body refusal, `VerifyWriteAuth` on the submit path,
+projection equality, and the `ct_body` length rule. All now fail as they should.
+
+**One survivor was found by the controller rather than by any reviewer.** Replacing check 7's call
+in `CreateGroup` with `if false` left every test in the package passing — so a group could be created
+whose founding commit does not verify under the key installed as epoch 0's, born inconsistent and
+discovered only by whoever fetched it. The test that should have caught it is named
+`TestEveryRuleOfTheCreateGroupCarveOutRefusesBeforeTheTransaction`; its table was five rules of six,
+hand-written, and the one it omitted was the MAC. That is the thirteenth time on this project that a
+class typed out rather than derived has understated itself.
