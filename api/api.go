@@ -281,7 +281,28 @@ func New(config Config) (*Handler, error) {
 // passes eight checks and knows which one it did not.
 func (self *Handler) NotBuilt() []NotBuilt {
 	notBuilt := append([]NotBuilt{}, self.front.NotBuilt()...)
-	return append(notBuilt, unbuiltCapabilities...)
+	notBuilt = append(notBuilt, unbuiltCapabilities...)
+	if self.rejectFloor == 0 {
+		notBuilt = append(notBuilt, unpaddedRejectPath)
+	}
+	return notBuilt
+}
+
+// §4.5's timing envelope, when nobody configured a floor for it.
+//
+// The other three bounds this package takes from [Config] have defaults, and this one deliberately
+// does not: §4.5 requires the envelope and no section of the spec gives it a number, so a default
+// here would be an invented latency published as though the spec had named it. What a missing
+// number must not be is silent. Two of §4.5's three properties — the same code and the same
+// response size — are properties of what this package builds and hold in every deployment; the
+// third is a property of when it answers, and a build with no floor loses it while still passing
+// every test that asserts the other two. §10.1's readiness endpoint is the intended reader, and
+// the asymmetry with the three defaulted bounds is the whole reason this is a value rather than a
+// sentence in [Config.RejectFloor]'s comment.
+var unpaddedRejectPath = NotBuilt{
+	Section: "§4.5",
+	What:    "the reject path's fixed latency floor: Config.RejectFloor is zero, so every refusal answers as fast as its own path allows and the timing envelope of a merged REASON_REJECTED is not held",
+	Owner:   "the operator's configuration",
 }
 
 // What this layer refuses, or omits, rather than half-serving.

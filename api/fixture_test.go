@@ -101,6 +101,15 @@ func groupId(seed byte) []byte {
 	return value
 }
 
+// §3.1's `blob_id`, at its own width, for the blob rung of §8.3.
+func blobId(seed byte) []byte {
+	value := make([]byte, store.BlobIdBytes)
+	for index := range value {
+		value[index] = seed ^ byte(index*11)
+	}
+	return value
+}
+
 func nonce(seed byte) []byte {
 	value := make([]byte, 32)
 	for index := range value {
@@ -166,6 +175,11 @@ type sealed struct {
 	attachment  *message.ServerAttachment
 	writeKey    []byte
 
+	// §8.3's blob rung: the body lives in an object this names and `ct_body` is absent, which is
+	// the one rung the server binds rather than stores. Set alongside bucket SizeBucketBlob; the
+	// record layer refuses a blob id on any other rung and a blob rung without one.
+	blobId []byte
+
 	// Overrides, for the tests that need a record that disagrees with itself.
 	groupId []byte
 	// A record with no body at all, which the record layer accepts because it also parses what
@@ -193,7 +207,11 @@ func (self *fixture) seal(t *testing.T, spec sealed) *protocol.Record {
 	if err != nil {
 		t.Fatalf("EncodeServerAttachment: %v", err)
 	}
-	body := padToRung(t, spec.bucket, spec.body)
+	var body []byte
+	if spec.bucket != message.SizeBucketBlob {
+		// the blob rung has no inline body at all, so there is no rung to pad to
+		body = padToRung(t, spec.bucket, spec.body)
+	}
 	if spec.emptyBody {
 		body = nil
 	}
@@ -211,6 +229,9 @@ func (self *fixture) seal(t *testing.T, spec sealed) *protocol.Record {
 		ExpireAt:         spec.expireAt,
 		BodyHash:         bodyHash,
 		ServerAttachment: attachmentBytes,
+	}
+	if spec.blobId != nil {
+		header.BlobId = append([]byte{}, spec.blobId...)
 	}
 	copy(header.GroupId[:], group)
 	copy(header.SenderHandle[:], spec.sender[:])

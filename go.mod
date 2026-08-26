@@ -8,9 +8,14 @@ go 1.26.5
 // lives in connect/protocol, so that the refusal vocabulary the API layer hands to clients and
 // the one the store answers with are one enum rather than two that have to be translated.
 //
-// google.golang.org/protobuf comes with it and is indirect. Nothing in this module names it;
-// connect/protocol is generated code and does not compile without the runtime it is generated
-// against, which is why §2.2's allow list gains it in deps_test.go rather than here.
+// google.golang.org/protobuf arrived with connect as an indirect dependency and is now a direct
+// one. api names it: §4.3.8's `canonical_request_bytes` is a deterministic marshal, §4.3.8's `op`
+// is a field number read out of the compiled descriptor rather than written down, and §5.1
+// check 3 compares the request's projection with the parse as one message rather than as a list
+// of fields to forget one from. §2.2 does not print it and deps_test.go writes it down with the
+// reason: §2.2 allows connect/protocol, connect/protocol is protoc-gen-go output, and allowing
+// generated code while refusing the runtime it was generated against allows a package that
+// cannot be built.
 //
 // glog is replaced even though this module never names it, because connect requires
 // github.com/urnetwork/glog v0.0.0 — a version no proxy serves — and a replace in a
@@ -20,6 +25,7 @@ replace github.com/urnetwork/connect => ../connect
 
 replace github.com/urnetwork/glog => ../glog
 
-require github.com/urnetwork/connect v0.0.0
-
-require google.golang.org/protobuf v1.36.11 // indirect
+require (
+	github.com/urnetwork/connect v0.0.0
+	google.golang.org/protobuf v1.36.11
+)

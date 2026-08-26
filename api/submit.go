@@ -420,13 +420,14 @@ func (self *Handler) checkKnownGroup(ctx context.Context, pass *submitPass) refu
 // lookup per distinct epoch in one batch, which is what "reads message_epoch once" means for a
 // batch that names one epoch 256 times.
 func (self *Handler) checkEpochKey(ctx context.Context, pass *submitPass) refusal {
+	// Only a resolved key is memoed, and there is no negative entry beside it. A lookup that
+	// fails refuses the submission on the spot, so no second record ever asks about an epoch
+	// this loop has already failed on, and an entry nothing can read back is a comment that
+	// reads like a mechanism.
 	seen := map[uint64][]byte{}
 	for index, record := range pass.records {
 		epoch := record.parsed.Header.Epoch
 		if key, found := seen[epoch]; found {
-			if key == nil {
-				return refuse(protocol.Reason_REASON_REJECTED, index)
-			}
 			record.writeKey = key
 			continue
 		}
@@ -434,7 +435,6 @@ func (self *Handler) checkEpochKey(ctx context.Context, pass *submitPass) refusa
 		if err != nil || keys.WriteKey == nil {
 			// an epoch that never existed, one whose write key the 60-second tidy has taken, and
 			// a group the filter was wrong about are one answer here on purpose
-			seen[epoch] = nil
 			return refuse(protocol.Reason_REASON_REJECTED, index)
 		}
 		seen[epoch] = keys.WriteKey

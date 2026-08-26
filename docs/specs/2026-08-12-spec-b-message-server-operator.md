@@ -279,6 +279,10 @@ tenth. Spec A §12.1 A-9 carries the same amendment and the reasoning.
 
 ---
 
+**Revision 11 — 2026-08-26 — the second copy of the rule revision 10 amended.** No amendment and no normative change: revision 10 rewrote §13 item 8's no-MLS assertion from the prefix form to the package form, and §5.3 — which states the same assertion beside the normative MUST NOT it belongs to — was left carrying the superseded prefix form, so the document asserted the same CI check two incompatible ways. §5.3 now states the package form and points at item 8 for the argument. Found by a review of the api layer's gates, which is where the two copies were read against each other for the first time; a rule written down twice is a rule amended once, and the fix for that shape is the cross-reference this entry adds rather than a third copy.
+
+---
+
 ## 1. Scope
 
 **In scope.** The message server process: storage, ordering, single-commit agreement, `write_auth` verification, history serving, blob lifecycle, retention and pruning, capability advertisement, its own URnetwork account and transport wiring, deployment, configuration, migrations, backup, observability. Plus the operator-side surface the message server and clients depend on: the discovery directory and the key-transparency log.
@@ -1777,7 +1781,7 @@ This is not symmetry for its own sake. `req_auth` under an epoch *write* key wou
 
 The server never derives a read key. It receives one per epoch, installs it against that epoch, and serves reads authenticated under any it still retains. It no longer compares a commit's read key against a previously installed one — a differing value is now the normal case, once per epoch.
 
-**Normative:** the message server binary MUST NOT link an MLS implementation. A CI check asserts `connect/mls` does not appear in `go list -deps`. This is not fussiness — the moment an MLS parser is in this process, the temptation to "just validate the commit" becomes a one-line change, and I5 dies quietly.
+**Normative:** the message server binary MUST NOT link an MLS implementation. A CI check asserts it, over the **package** and not over the prefix: `github.com/urnetwork/connect/mls` appears nowhere in `go list -deps`, while `github.com/urnetwork/connect/mls/syntax` — the TLS presentation-language codec `connect/message` frames every record with, which carries no MLS type, no key schedule and no validation semantic — does appear and is correct. §13 item 8 states the assertion in full and revision 10 argues why the prefix form could not be satisfied by any build that parses a record. This is not fussiness — the moment an MLS parser is in this process, the temptation to "just validate the commit" becomes a one-line change, and I5 dies quietly.
 
 ### 5.4 The `server_attachment` amendment to master spec §9.2 — RULED, adopted
 
