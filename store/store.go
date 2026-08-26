@@ -88,6 +88,11 @@ var (
 	ErrRetentionClass  = errors.New("store: not a retention-class wire byte of §3.1")
 	ErrSizeBucket      = errors.New("store: size_bucket is outside 0..5")
 
+	// §3.2: a record's body is inline or it is a blob, never both. It has its own sentinel
+	// because it used to answer ErrSizeBucket, and "size_bucket is outside 0..5" is an
+	// operator log line that sends the reader to the wrong field of the wrong record.
+	ErrInlineOrBlob = errors.New("store: a record carries an inline body or a blob_id, never both")
+
 	// §4.3.3: a batch carrying a commit carries exactly one record, because partial-failure
 	// semantics during an epoch change would otherwise be ambiguous.
 	ErrCommitBatch = errors.New("store: a batch containing a commit contains exactly one record")
@@ -225,6 +230,35 @@ type RetentionApplied struct {
 	RequestedDurableTtlSeconds uint32
 }
 
+// Whether §7.3's warn-and-proceed fired, in any of its three directions. It is derived from
+// the flags rather than set beside them, because a fourth direction added to [Limits.apply]
+// tomorrow would otherwise be a clamp the client is never told about.
+//
+// `DurableDefaulted` is deliberately not one of them: §7.3 is explicit that a group which sent
+// the unset sentinel asked for nothing, so nothing was refused, and it is REASON_OK.
+func (self *RetentionApplied) clamped() bool {
+	return self.MediaClampedDown || self.DurableFlooredUp || self.DurableClampedDown
+}
+
+// §7.3's answer to a commit whose policy was clamped down or floored up: the commit is
+// ACCEPTED — it has a record id and it opened its epoch — and the reason names the clamp so
+// the client can render §12.2 C-2's one-time notice against the effective value. Refusing is
+// not an option in any of the three cases, because an operator config change would otherwise
+// stop a group committing at all.
+func acceptanceReason(applied *RetentionApplied) protocol.Reason {
+	if applied != nil && applied.clamped() {
+		return protocol.Reason_REASON_RETENTION_CLAMPED
+	}
+	return protocol.Reason_REASON_OK
+}
+
+// The two answers §6.1 gives a record that landed. Everything else in §4.5 is a refusal, and a
+// caller that tested for REASON_OK alone would read §7.3's clamp — an acceptance carrying a
+// notice, with a record id and an opened epoch behind it — as a rejected commit.
+func accepted(reason protocol.Reason) bool {
+	return reason == protocol.Reason_REASON_OK || reason == protocol.Reason_REASON_RETENTION_CLAMPED
+}
+
 // The group state §6.1 step (1) reads under the row lock, and the same values §4.3.10 serves
 // without one.
 type GroupState struct {
@@ -331,6 +365,16 @@ type Store interface {
 	//
 	// A refusal is a [protocol.Reason] on a [SubmitResult] and never an error. An error means
 	// the caller handed this package something no client could have produced.
+	//
+	// The id allocator is IN the transaction, and that rules out a Postgres SEQUENCE. §6.1
+	// step (3b) makes "a refusal allocates nothing" normative, and `nextval()` is
+	// non-transactional: it does not roll back, so every refusal in §6.1 would leave a
+	// permanent hole in a sequence-allocated id space and break the gapless property §4.3.4
+	// sells to clients and §12.2 C-4 tells them to treat a hole in as a fault. The pgx
+	// implementation therefore allocates with an `UPDATE message_group SET next_record_id =
+	// next_record_id + k RETURNING`, under the same row lock step (1) already holds. This is
+	// written here rather than only asserted in the contract suite, because a constraint a
+	// second implementation learns from a red test is a constraint it learns too late.
 	Submit(ctx context.Context, request *SubmitRequest) (*SubmitResponse, error)
 
 	// Step (1)'s read without step (1)'s lock: §4.3.10's group status. Answers

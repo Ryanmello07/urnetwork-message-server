@@ -386,7 +386,9 @@ func (self *MemoryStore) CreateGroup(ctx context.Context, request *CreateGroupRe
 
 	self.groups[string(group.groupId)] = group
 	return &CreateGroupResult{
-		Reason:       protocol.Reason_REASON_OK,
+		// §7.3 applies to the founding commit exactly as it does to every later one, and this
+		// is the commit whose policy the group will live under until it commits again
+		Reason:       acceptanceReason(applied),
 		CurrentEpoch: group.currentEpoch,
 		RecordId:     record.RecordId,
 		Applied:      applied,
@@ -726,7 +728,10 @@ func (self *MemoryStore) commit(group *memoryGroup, state *GroupState, batch []*
 		sender.byteCount += recordBytes(record)
 		sender.lastTime = now
 
-		current.result.Reason = protocol.Reason_REASON_OK
+		// REASON_OK, or §7.3's REASON_RETENTION_CLAMPED when step (6) clamped the policy down
+		// or floored it up. Both are acceptances: the record has an id and the commit opened
+		// its epoch, and the difference is only what the client is told to render
+		current.result.Reason = acceptanceReason(current.result.Applied)
 		current.result.RecordId = record.RecordId
 	}
 	currentEpoch := group.currentEpoch
@@ -778,7 +783,7 @@ func (self *MemoryStore) fillCurrentEpoch(group *memoryGroup, batch []*pending) 
 		if current.result.CurrentEpoch == 0 {
 			current.result.CurrentEpoch = group.currentEpoch
 		}
-		if !current.record.IsCommit || current.result.Reason == protocol.Reason_REASON_OK {
+		if !current.record.IsCommit || accepted(current.result.Reason) {
 			continue
 		}
 		if winner, found := group.commits[current.record.Epoch]; found {
@@ -945,7 +950,7 @@ func validateRecord(record *Record) error {
 	}
 	// inline XOR blob, never both (§3.2)
 	if record.CtBody != nil && record.BlobId != nil {
-		return ErrSizeBucket
+		return ErrInlineOrBlob
 	}
 	if record.BlobId != nil {
 		if err := checkLength(record.BlobId, BlobIdBytes); err != nil {
