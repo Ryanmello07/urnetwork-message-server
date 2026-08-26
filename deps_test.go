@@ -106,6 +106,14 @@ func (self rule) covers(path string) bool {
 // written. The resolution belongs in the spec — amend §13 item 8 to the package rather than
 // the prefix, since a TLS presentation-language codec is not an MLS implementation — and then
 // in this list, not in a quiet edit to whichever of the two is easier to change.
+// google.golang.org/protobuf is the one entry here §2.2 does not print, and it is written down
+// rather than left to be discovered. §2.2 allows connect/protocol; connect/protocol is
+// protoc-gen-go output and does not compile without the runtime it was generated against, so
+// allowing the one and refusing the other allows a package that cannot be built. It is a
+// subtree because the generated code reaches protobuf's internal packages by design — twenty-six
+// of them for one enum — and a list of those would be a list of somebody else's implementation
+// detail. It arrived with store naming the Reason codes of §4.5, which is the first import of
+// connect this module has.
 var allowedDependencies = []rule{
 	{path: "github.com/urnetwork/server"},
 	{path: "github.com/urnetwork/connect"},
@@ -116,6 +124,7 @@ var allowedDependencies = []rule{
 	{path: "github.com/redis/go-redis/v9", subtree: true},
 	{path: "github.com/minio/minio-go/v7", subtree: true},
 	{path: "github.com/prometheus/client_golang", subtree: true},
+	{path: "google.golang.org/protobuf", subtree: true},
 }
 
 // What §2.2 FORBIDS by name, plus the one §5.3 forbids by name. Redundant against the allow
