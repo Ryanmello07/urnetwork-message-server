@@ -1,0 +1,18 @@
+# core.autocrlf=true is set at system scope on the Windows boxes this repository is
+# developed on, so a plain checkout writes CRLF into every file git touches. Two things
+# then break, both quietly.
+#
+# gofmt reports every Go file as unformatted, because a carriage return is not what it
+# would have written — so `gofmt -l` stops distinguishing a real formatting error from a
+# fresh clone, and the usual response is to stop running it.
+#
+# And a gate that matches on the text of a source file matches nothing at all. That is
+# not a gate failing; it is a gate reporting the clean run of a complete gate having read
+# nothing, which is the single most expensive failure mode this project has. It has
+# already happened here once, to 84 source anchors that passed vacuously on Windows.
+#
+# connect pins its protobuf inputs and their generated Go for the same reason. Here it is
+# the whole of the Go source and the module files beside it.
+*.go text eol=lf
+go.mod text eol=lf
+go.sum text eol=lf

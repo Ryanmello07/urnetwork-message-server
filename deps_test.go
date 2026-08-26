@@ -257,6 +257,12 @@ func violations(deps []dependency) (forbidden []string, unlisted []string) {
 // that flags everything passes the planted one, and either of them reports the green run of a
 // working gate on the real module. Composed from escapes rather than written as a raw string
 // literal, so the fixture is the same bytes whatever this file's line endings are.
+//
+// The last two rows are the segment boundary, one on each side of it, and they are here
+// because that boundary is the whole difference between this matcher and the grep §2.2 prints.
+// server/modelling is not the account identity layer and must come back merely unlisted;
+// connect/messagex is not connect/message and must not inherit its permission. A matcher that
+// compared bare prefixes agrees with every other row in this block.
 var forbiddenControl = strings.Join([]string{
 	"fmt\ttrue",
 	"github.com/urnetwork/message-server/api\tfalse\tgithub.com/urnetwork/message-server\ttrue",
@@ -264,6 +270,8 @@ var forbiddenControl = strings.Join([]string{
 	"github.com/urnetwork/server/model/counters\tfalse\tgithub.com/urnetwork/server\tfalse",
 	"github.com/urnetwork/sdk\tfalse\tgithub.com/urnetwork/sdk\tfalse",
 	"golang.org/x/crypto/chacha20poly1305\tfalse\tgolang.org/x/crypto\tfalse",
+	"github.com/urnetwork/server/modelling\tfalse\tgithub.com/urnetwork/server\tfalse",
+	"github.com/urnetwork/connect/messagex\tfalse\tgithub.com/urnetwork/connect\tfalse",
 }, "\n")
 
 var cleanControl = strings.Join([]string{
@@ -283,10 +291,23 @@ func assertTheMatcherWorks(t *testing.T) {
 	if !slices.Equal(forbidden, wantForbidden) {
 		t.Fatalf("the matcher called %v forbidden in the planted control, want %v", forbidden, wantForbidden)
 	}
-	wantUnlisted := append(slices.Clone(wantForbidden), "golang.org/x/crypto/chacha20poly1305")
+	wantUnlisted := append(slices.Clone(wantForbidden),
+		"golang.org/x/crypto/chacha20poly1305",
+		"github.com/urnetwork/server/modelling",
+		"github.com/urnetwork/connect/messagex")
 	slices.Sort(wantUnlisted)
 	if !slices.Equal(unlisted, wantUnlisted) {
 		t.Fatalf("the matcher called %v unlisted in the planted control, want %v", unlisted, wantUnlisted)
+	}
+
+	// the same block with the line endings this platform's git hands a checkout. go list
+	// itself writes "\n", but the day somebody moves these controls into a testdata file this
+	// is the difference between a parser that reads eight rows and one that reads a single
+	// malformed line and reports the module clean
+	forbidden, unlisted = violations(parseDependencies(t, "the planted control in CRLF", strings.ReplaceAll(forbiddenControl, "\n", "\r\n")))
+	if !slices.Equal(forbidden, wantForbidden) || !slices.Equal(unlisted, wantUnlisted) {
+		t.Fatalf("the matcher called %v forbidden and %v unlisted in the CRLF rendering of the planted control, want %v and %v",
+			forbidden, unlisted, wantForbidden, wantUnlisted)
 	}
 
 	forbidden, unlisted = violations(parseDependencies(t, "the clean control", cleanControl))
