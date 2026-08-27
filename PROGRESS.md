@@ -756,3 +756,71 @@ named the assertion it was aimed at.
 `-race` is still unavailable on this box — no cgo, no C compiler — so the concurrency claims are
 held by `-count=2` (558 passes, exactly double the 279 at `-count=1`, so nothing is order- or
 state-dependent) rather than by the detector.
+
+## 2026-08-26 — p4 through Task 9, and the plan's own tests audited
+
+The key schedule is 10 of 30 tasks in: `GroupContext` and its codec both directions, the nine epoch
+secrets, both constructors, the joiner path, `MLS-Exporter`, and the external key pair. `connect` is
+at **5,152 assertions, 0 failing**, index 484/484, cross-platform gate green on all nine platforms.
+
+### The plan's tests were audited before they were trusted, and most of them could not run
+
+p1 found nine consecutive tasks whose plan-supplied test could not fail, so every p4 brief asked the
+implementer to mutation-test the plan's own tests and report which ones were vacuous. The answer is
+worse than "some":
+
+**Every one of Task 8's six tests could not compile.** So could none of Task 6's five, and neither of
+Task 7's two. They call `MustHex`, `ksTestCrypto` and half a dozen `ksVector*` constants that exist
+nowhere in the tree — `MustHex` is a **p8** symbol, and `key_schedule_deps_test.go` already lists it
+among the cross-plan names that have not landed. The plan's Step 2 for those tasks says *"Expected:
+PASS immediately"*, and it could never have been run as written.
+
+That is a finding about the plan, not about any task, and it is why Task 1's pending-pin gate earns
+its place: it names every cross-plan symbol that has not landed, so the day p8 arrives the gate fails
+and asks for the pins rather than leaving a stale reference to be discovered by the next reader.
+
+### The joiner-path test was a tautology, and that was measured rather than argued
+
+Task 7's plan test compares the committer's epoch against the joiner's. But `NewKeySchedule` **is**
+`DeriveJoinerSecret` followed by `NewKeyScheduleFromJoiner`, so feeding the joiner path the
+committer's own `joiner_secret` runs one deterministic function twice on one argument. The equality is
+`x == x`.
+
+The implementer did not assert this. They transposed the plan's test onto the helpers Task 6 landed
+and ran it against **seven separate breaking mutations** of `NewKeyScheduleFromJoiner` — a different
+parent secret, the PSK contribution dropped, the `Extract` arguments transposed, eight of the nine
+secrets replaced with garbage, the committer half transposed — and **it reported PASS against every
+one of them**.
+
+The replacement hands the joiner a `joiner_secret` produced by a hand-written RFC 9420 §8 derivation
+using `crypto/hmac` alone, anchored first against all **110 published mlswg answers**, and then
+compares committer-vs-joiner, joiner-vs-reference and committer-vs-reference over 48 generated
+epochs. **It failed on all seven.**
+
+This is the clearest instance yet of the defect this project keeps finding — a test that names a
+property and observes something weaker — and it is the first time the vacuity was established by
+measurement against a numbered mutation set rather than by reading.
+
+### Guardrail G6 escaped twice, in two different shapes
+
+`epoch_secret` must never be returned by any exported symbol. Both escapes passed everything:
+
+- a free exported function, `func EpochSecretOf(schedule *KeySchedule) []byte` — **5,132 tests
+  green**;
+- an **argument-conditioned** breach inside `Export`: `if label == "recovery" { return
+  epochSecret }`, which hands the secret to any caller who names the label — **560 tests green**.
+
+The second is the harder one, because no signature-level check sees it: the method's type is
+unchanged and only one path through it leaks. The gate is now two derived tests —
+`TestNoExportedFunctionOfThisPackageHandsOutTheEpochSecret` and
+`TestNoExportedMethodOfThisPackageCanReachTheEpochSecret` — and the second walks reachability rather
+than signatures. Both were re-run by hand against the original mutations after the fix.
+
+### Also closed
+
+A second erase helper declared outside `secret_zeroize.go` with no `//go:noinline`, carrying the
+one-line exemption a contributor would copy verbatim from the existing helper's own row. `KDF.Nh`
+hardcoded to 32, which is correct for both registered suites and therefore invisible. `Secrets()`
+handing back a copy rather than the schedule's own storage. `PastEpochWindow` silently reduced from
+32 to 8. And `Export` dropping the `zeroizeSecret` of its own derived secret — the exact behaviour
+that method's doc comment asserts does not happen.
