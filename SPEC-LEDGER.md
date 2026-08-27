@@ -172,7 +172,21 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     The dependency gate now derives the permitted closure from `connect`'s own `go.mod` rather than
     from thirty hand-typed paths, but §2.2 should state the rule instead of leaving it to be inferred
     a second time. Found 2026-08-26 by `peer/`.
-12. **A spec-conformant client cannot connect to a server without §9.1's signing sidecar.** §4.3.1
+12a. **The secret tree's forward secrecy is gated at type scope, and a package-scope copy escapes
+    it.** `TestSecretTreeParentSecretIsGoneOnceBothChildrenExist` asks what remains reachable through
+    `*SecretTree`, which is the right question about the type and only about the type. A copy taken on
+    the way past and parked in a package-level variable answers it exactly as a correct tree does.
+    **Measured on the shipped code, not supposed:** a two-line archive beside the `zeroize`, declared
+    at package scope, passes all 750 tests of `connect/mls`. The fix is to point G6's derived escape
+    analysis — now generalised over its storage field in `13ffff4` — at the tree's `nodes` and
+    `ratchets` maps. It is not landed because that analysis treats *any* foreign callee as an escape,
+    which is right for `KeySchedule` (which calls nothing foreign) and wrong for `SecretTree` (which
+    holds a `sync.Mutex`), so it reports eight false positives on correct code. Refining "calls
+    something foreign" to "hands something foreign what it reaches" changes the analysis that the
+    epoch-secret control validates, and doing that quickly enough to weaken a working gate is worse
+    than a recorded gap. Found 2026-08-27 by the controller. **Owner of the fix: p4's remainder or
+    p5, whichever touches `secret_tree.go` next.**
+13. **A spec-conformant client cannot connect to a server without §9.1's signing sidecar.** §4.3.1
     requires `HelloResponse.server_keys` and requires a client to REFUSE a fleet whose first key does
     not verify against the compiled-in root, while decision B13 keeps every signing key off every
     replica. That is not a defect in B13; it is a gap in what §4.3.1 says a partial deployment can do.
