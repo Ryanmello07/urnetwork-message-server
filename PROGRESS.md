@@ -824,3 +824,69 @@ hardcoded to 32, which is correct for both registered suites and therefore invis
 handing back a copy rather than the schedule's own storage. `PastEpochWindow` silently reduced from
 32 to 8. And `Export` dropping the `zeroizeSecret` of its own derived secret — the exact behaviour
 that method's doc comment asserts does not happen.
+
+## 2026-08-26 — p4 through Task 12: the tags, and three gates that were not gates
+
+13 of 30 tasks. **5,173 assertions, 0 failing**, index 484/484, cross-platform green on all nine
+platforms.
+
+### A total authentication bypass, and the shape it took
+
+Task 10's two tag verifiers came back with a mutation that rewrites the tag to the correct MAC when
+the *data* carries a chosen suffix, and then calls the sanctioned `MacVerify` — so every check the
+package makes about routing is satisfied, and the verifier accepts anything an attacker who knows the
+suffix presents. **5,162 tests stayed green.** It is the third total-authentication bypass this
+project has produced and the first that goes *through* the correct comparison rather than around it.
+
+Beside it, a variable-time byte-by-byte comparison placed **ahead** of the sanctioned call:
+behaviourally identical, leaks the index of the first differing octet, and invisible to a router gate
+that only asks whether every return is `false` or the sanctioned call — because every return is.
+
+### The gate that could not detect being broken
+
+The third survivor is the one worth remembering. Killing half the rule inside the comparator gate
+itself — `offending = append(...)` replaced with `_ = result` — left **the gate's own positive
+control still matching, and the gate passing.** A control fixture that a half-disabled gate still
+satisfies is a control that checks the gate compiles, not that it discriminates. It now discriminates,
+and that was verified by re-running the same sabotage.
+
+### What the plan's tag tests were measured to be
+
+All three failed to compile. Ported onto the helpers that do exist and run against seven mutations:
+
+- `TestVerifyConfirmationTagAcceptsAndRejects` — the plan's only test whose whole subject is the
+  verifier — **passes against a verifier that compares one byte of a 32-byte tag and ignores the
+  other 31.** It samples bit 0 of byte 0, so a comparison that reads byte zero and stops satisfies it
+  exactly.
+- `TestConfirmationTagKAT` is not a known-answer test: its `want` is computed by the package under
+  test from a constant the plan never defines.
+- `TestMembershipTagUsesTheMembershipKey` carries no length case at all and passed the truncated-tag
+  mutation.
+
+The replacements derive every refusal over the **length** of what they alter — all `8×len` bits of
+the tag, all `8×len` bits of the data, every truncation from empty upwards — and take their answers
+from mlswg's published `confirmation_tag` inside `transcript-hashes.json` and the `membership_tag`
+inside `message-protection.json`, rather than from anything this package computed.
+
+### Task 11 found the same coincidence twice
+
+`TestWelcomeKeyNonceShape` asserts `len(key) != 32` and `len(nonce) != 12`. Both **pass with `Nn` and
+`Nk` hardcoded**, because those literals *are* the registry's values — the same invisibility that let
+`KDF.Nh = 32` survive Task 6. Worse in the other direction: `len(key) != 32` would **fail a correct
+implementation on suite 0x0001**, whose `Nk` is 16. The test is only writable against the one suite
+where `Nk == KDF.Nh == 32`, which is the coincidence the task exists to guard.
+
+The replacement hands the derivation a synthetic suite at `Nk=20, Nn=7, Nh=48`, with a table asserting
+that none of those coincides with any registry value.
+
+And `TestWelcomeKeyNonceDiffersFromEachOther` cannot fail for the defect its own comment names: it
+passed the same-label mutation, the one-byte-overlap mutation, and both hardcodes. `ExpandWithLabel`
+binds the requested **length** into the KDFLabel preimage, so two collapsed labels still answer values
+that are not each other's prefix, and two independent 12-byte values collide at 2⁻⁹⁶.
+
+### G6 had two more shapes
+
+Task 12 was **rejected**: `copy()` into package-level storage, and a callback through a package-level
+`func` variable, both escaped all three existing gates — including the reachability one. The gate now
+derives the escape class rather than enumerating shapes of it, and a single test catches both. Verified
+by hand afterwards, along with the tag bypass and the gate sabotage.
