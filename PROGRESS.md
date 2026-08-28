@@ -890,3 +890,62 @@ Task 12 was **rejected**: `copy()` into package-level storage, and a callback th
 `func` variable, both escaped all three existing gates — including the reachability one. The gate now
 derives the escape class rather than enumerating shapes of it, and a single test catches both. Verified
 by hand afterwards, along with the tag bypass and the gate sabotage.
+
+## 2026-08-27 — p4 complete: the key schedule and the secret tree
+
+**30 of 30 tasks.** `connect/mls` is 17 production files and 29 test files carrying **3,220
+assertions**, with a 315-file seed corpus checked in for p8. The whole tree — `mls`, `mls/syntax`,
+`message`, `protocol` — is green, `go vet` clean, index 790/790, and the nine-platform cross-compile
+gate passes.
+
+CP3b is now reachable: the AEAD keys a message needs exist. What is left before a message can be
+*private* is p5 (TreeKEM), p6 (framing) and p7 (group lifecycle).
+
+### The gap the controller found, and the trade that did not happen
+
+Batch F's reviewer found that keeping an un-zeroized copy of every destroyed node secret in a
+**struct field** escaped the forward-secrecy test; that was fixed by scoping the gate to the type.
+The controller then tried the same escape from **package scope** — a two-line archive beside the
+`zeroize`, declared as a package-level `var` — and **it survived all 750 tests of the package.**
+
+It was deliberately not fixed at speed. The enabling refactor landed alone (`13ffff4`), the gap was
+recorded as ledger open item 12a with its fix direction, and the reason for stopping was written into
+the commit: the analysis treats *any* foreign callee as an escape, which is right for `KeySchedule`
+(which calls nothing it does not declare) and wrong for `SecretTree` (which holds a `sync.Mutex`), so
+the gate as written reported eight false positives on correct code. Refining it meant changing the
+analysis that G6's control fixture validates, and **a security gate written quickly enough to weaken
+the one that currently works is worse than a documented gap.**
+
+Batch G closed it properly. The refinement went in, and the check that mattered was run afterwards:
+G6's two batch-C escapes — `copy()` into package storage, and a callback through a package-level
+`func` variable — were re-applied to `epochSecret` and **both still fail**. The tree gained a gate
+without the schedule losing one. Both were verified by hand rather than accepted from a report.
+
+### The plan's round-trip tests, run verbatim against a broken codec
+
+Task 26's two plan tests were not argued to be vacuous; they were **executed**. The plan's
+`TestGroupContextRoundTripIsByteExact` was run unmodified against a `GroupContext` codec with
+`epoch` deleted from both halves: **PASS**. Two independent reasons — it generates its seeds
+in-memory with the same `syntax.Marshal` it then checks, so `encode(decode(encode(v))) == encode(v)`
+holds for any field the encoder omits; and its only value comparison is decoded-against-decoded,
+never decoded-against-original, over 2 of 7 fields.
+
+Its `PreSharedKeyId` sibling is worse: it makes **no value comparison at all**, only encoded against
+re-encoded, over seeds it generated from the encoder under test.
+
+The replacements split one claim into three that can each fail on their own, and run the truncation
+sweep over the **287 committed seeds** — 62,063 prefixes and 287 extensions refused — rather than
+over five values generated in memory.
+
+### What the fourth vector runner taught that the first three had not
+
+The plan's `TestVectorSecretTree` counts `ran++` after a call to a verifier that returns nothing —
+**the identical defect Task 17 shipped one task after Task 16 shipped it.** By now the shared
+machinery answers it, and the runner asserts 1,324 comparisons against **668 distinct** published
+answers over exactly 82 leaves.
+
+Two survivors were accepted with their reason stated rather than closed, and the reason is worth
+keeping: **a tree that keeps every parent secret forever answers every published question
+identically.** No known-answer test can see a missing deletion, because the corpus records what the
+values *are* and never what is no longer reachable. Those two are covered by the behavioural gates
+in `secret_tree_test.go` instead, and the vector runner's own limitation is written into its header.

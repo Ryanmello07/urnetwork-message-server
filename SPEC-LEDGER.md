@@ -172,7 +172,16 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     The dependency gate now derives the permitted closure from `connect`'s own `go.mod` rather than
     from thirty hand-typed paths, but §2.2 should state the rule instead of leaving it to be inferred
     a second time. Found 2026-08-26 by `peer/`.
-12a. **The secret tree's forward secrecy is gated at type scope, and a package-scope copy escapes
+12a. **CLOSED 2026-08-27.** The escape analysis was refined from "calls something foreign" to "hands
+    something foreign what it reaches" and pointed at the tree's `nodes` and `ratchets` maps, as
+    `TestNoDeclarationReachingTheSecretTreeStoragePutsItBeyondTheCall`. Both package-scope archive
+    shapes now fail it — the one at the descent's zeroize and the one at `(*ratchet).step` — and the
+    trade this fix risked did **not** happen: G6's two batch-C escapes, `copy()` into package storage
+    and a callback through a package-level `func` variable, were re-applied to `epochSecret` after
+    the refinement and both still fail. Verified by the controller by hand, not by report. The
+    original finding follows.
+
+    **The secret tree's forward secrecy was gated at type scope, and a package-scope copy escaped
     it.** `TestSecretTreeParentSecretIsGoneOnceBothChildrenExist` asks what remains reachable through
     `*SecretTree`, which is the right question about the type and only about the type. A copy taken on
     the way past and parked in a package-level variable answers it exactly as a correct tree does.
