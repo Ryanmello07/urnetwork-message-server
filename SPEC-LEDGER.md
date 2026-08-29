@@ -209,7 +209,18 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     templates. **Not done and not needed yet:** parallelising the suite itself. If wall clock becomes
     a problem again, that is the next lever, and it should be done deliberately with a flake budget
     rather than opportunistically.
-14. **p6 owes the UpdatePath leaf's SIGNATURE check, and `MergeUpdatePath` cannot make it.** The merge
+14. **CORRECTED 2026-08-29: this is p7's, not p6's.** The original entry said p6 owed it, on the Task 21
+    agent's inference. **p6 is pure framing** — twenty tasks of codecs, preimages and vector families —
+    and it never processes a Commit against group state, so it has no tree and no sender-leaf binding
+    and structurally cannot make this check either. The owner is **p7 Task 10 (commit validation,
+    ValSem200–209) or p7 Task 18 (commit processing, RFC 9420 §12.4.2)**, whichever holds the sender's
+    leaf index at the point the UpdatePath is verified. Verified by reading both plans' task lists
+    rather than by taking the entry at its word — an obligation filed against the wrong plan is one
+    that gets skipped, because the named plan finishes without it and everyone assumes it was done.
+    **p7's plan does not mention it either**, so this record is the only thing carrying it.
+
+    **The obligation itself, unchanged: the UpdatePath leaf's SIGNATURE must be verified, and
+    `MergeUpdatePath` cannot do it.** The merge
     compares the recomputed parent-hash chain against the leaf's `parent_hash` field, and **that
     comparison is only worth anything because the leaf's signature covers the field**. Verifying that
     signature needs the group id and the sender index, which live in the commit-processing layer, so
