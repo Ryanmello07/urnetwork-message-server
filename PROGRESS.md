@@ -949,3 +949,61 @@ keeping: **a tree that keeps every parent secret forever answers every published
 identically.** No known-answer test can see a missing deletion, because the corpus records what the
 values *are* and never what is no longer reachable. Those two are covered by the behavioural gates
 in `secret_tree_test.go` instead, and the vector runner's own limitation is written into its header.
+
+## 2026-08-28 — p5 through Task 18: two entropy substitutions that passed 963 tests
+
+18 of 29. The two worst defects this project has produced landed in the same task, and neither is a
+logic error — both are **entropy substitutions**, which no correctness test can see.
+
+### Every committer in every group would have installed the same key
+
+`connect/mls/treekem.go` draws two things from entropy: the sender's leaf HPKE key pair, and the seed
+of the path-secret ladder. Replacing either `crypto.Random(crypto.HashSize())` with
+`make([]byte, crypto.HashSize())` left **963 tests passing**.
+
+The reviewer did not argue it — they verified it behaviourally: two independent commits over two
+independent trees both installed the identical leaf key
+`70a736978971281065765948fb66006c898c25acd789169223ca7336cf62146f`. Under the second mutation
+`path_secret[0]` is thirty-two zero bytes, so the commit secret and every node key on the direct path
+are the same in every group on earth.
+
+**This is the third entropy defect on this project**, after a SHA-256 counter substituted for
+`crypto/rand` (113 tests green) and `NewCryptoProviderWithRandom` having no gate over it (2,284
+green). The pattern is now unmistakable and worth stating as a rule: **deterministic keys still
+encrypt, still decrypt, still round-trip, and still match every published vector that does not depend
+on the randomness.** Correctness testing cannot reach this class at all; only a gate that asks where
+a published octet string came from can.
+
+The gate that now covers it —
+`TestCreateUpdatePathSecretsDrawsEveryOctetStringItPublishesFromFreshEntropy` — derives its class
+from what the function publishes rather than naming the two sites, so a third draw added later is
+inside it by existing. Both mutations were re-run by hand after the fix; both fail.
+
+### A guardrail route-around through a helper function
+
+G8 says every comparison goes through `subtle.ConstantTimeCompare`. The mutation replaced one with a
+locally-declared `bytesEqualProbe` — not `bytes.Equal`, so a name-based ban list would not see it.
+It is caught, by two gates, one of which is derived over *every key question the ratchet tree
+answers* rather than over a list of comparator names.
+
+### Four plan tests that could not fail, each measured rather than argued
+
+- `TestAddLeafFillsTheLeftmostBlankAndMarksUnmerged` blanks exactly **one** leaf on a four-leaf tree,
+  so leftmost, rightmost and any-blank are the same node. Taking the rightmost blank passes it.
+- `TestRemoveLeafBlanksAndTruncates` runs on a tree whose parents are **all blank**, so a Remove that
+  touches only the leaf leaves an identical tree; its direct path is also outside the truncated array
+  afterwards, where `IsBlank` answers yes for an index that is merely absent. A `RemoveLeaf` that
+  never calls `BlankDirectPath` passes it.
+- `TestRemoveLeafDropsItFromUnmergedLeaves` puts its one stale entry at node 1 — the **first** odd
+  index the sweep visits — so a sweep bounded at `x < 2` passes it.
+- `TestUpdateLeafBlanksTheDirectPath` uses a four-leaf tree whose direct path is `[1, 3]`: two
+  assertions about the two **ends** of a loop, saying nothing about anything between them.
+
+### On wall clock, measured because the owner asked
+
+`mls` is 774 tests at ~57 s with **zero `t.Parallel()` on a 24-core box**; compile and link are 1.8 s
+of that. **Parallelising is not the fix and was tried**: Go holds parallel tests until the serial ones
+finish, so parallelising the 54 tree-math tests moved 57.2 s to 57.7 s. The fix is that a targeted
+`-run` costs **1.8 s** against the full suite's **56.6 s**, so briefs now mandate two-phase mutation
+testing — targeted first, full suite only for survivor candidates. Twenty mutations: ~3 minutes
+instead of ~20. Ledger item 12b carries the numbers.
