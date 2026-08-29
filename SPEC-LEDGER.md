@@ -195,6 +195,20 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     epoch-secret control validates, and doing that quickly enough to weaken a working gate is worse
     than a recorded gap. Found 2026-08-27 by the controller. **Owner of the fix: p4's remainder or
     p5, whichever touches `secret_tree.go` next.**
+12b. **Measured 2026-08-28, on the owner's question about workflow wall clock.** The `mls` package is
+    **774 test functions, ~57 s per full run, with zero `t.Parallel()` calls on a 24-core box** — it
+    uses one core. Compile and link account for only 1.8 s of that, so it is genuinely execution.
+    **Parallelising is not the fix**: `t.Parallel()` tests are held until every serial test finishes,
+    so parallelising a subset changes nothing (measured: 57.7 s after parallelising the 54 tree-math
+    tests, against 57.2 s before), and parallelising all 774 is a large, flake-prone change to a suite
+    whose green runs are the project's primary evidence. **The fix is how mutations are run.** A
+    targeted `-run` costs **1.8 s** against the full suite's **56.6 s** — 31×, and 1.8 s is the
+    compile floor, so a targeted run is nearly free. Briefs now mandate two-phase mutation testing:
+    a targeted run first, the full suite only when the targeted run passes and the mutation is a
+    survivor candidate. Twenty mutations go from ~20 minutes to ~3. Applied to all twelve brief
+    templates. **Not done and not needed yet:** parallelising the suite itself. If wall clock becomes
+    a problem again, that is the next lever, and it should be done deliberately with a flake budget
+    rather than opportunistically.
 13. **A spec-conformant client cannot connect to a server without §9.1's signing sidecar.** §4.3.1
     requires `HelloResponse.server_keys` and requires a client to REFUSE a fleet whose first key does
     not verify against the compiled-in root, while decision B13 keeps every signing key off every
