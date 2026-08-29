@@ -217,7 +217,24 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     a cross-layer check both sides assume the other makes is a check nobody makes — a shape this
     project has already hit once, on §5.1's front checks. **p6 must verify it before calling merge.**
     Found 2026-08-29 by p5 Task 21.
-15. **Every merge now runs a whole-tree §7.9.2 sweep, and its cost at the design target is unmeasured.**
+15. **MEASURED 2026-08-29, and the time is fine while the allocation is not obviously fine.** At the
+    real design target — 500 members x 2 devices, which is a **thousand-leaf** tree, not the 500 the
+    plan benchmarked — `MergeUpdatePath` costs **17.1 ms, 56 MB and 307,744 allocations** per merge;
+    the `VerifyParentHashes` sweep inside it is **14.9 ms, 49 MB, 264,535 allocations** over 999
+    parents. **17 ms is affordable.** 56 MB of allocation per commit is a mobile memory-pressure
+    question rather than a latency one, and it is the number to watch when the Android and iOS clients
+    land — decision 64 makes those a commitment. The plan's own Task 28 Step 3 proposed memoising the
+    sweep on the grounds it would exceed a 2-second bound; it does not, by two orders of magnitude, so
+    that optimisation is **not** taken and the rule stays whole. If allocation later forces a change,
+    open item 15's original constraint still binds: any narrowing must be **derived from what the
+    merge touched**, never a hand-written node list, or decision 68's hole returns. Original finding
+    follows.
+
+    **The sweep was unmeasured, and the plan's own benchmark could not have measured it.** Its fixture
+    was `newTestTree` plus ONE commit — **nine** non-blank parents out of 511 — so it reported 1.36 ms
+    where the tree a running group actually has reports 7.34 ms, and it used 500 leaves where the
+    design cap is 1000. Its bound assertion was `elapsed > 2*time.Second` and nothing else, so a
+    `VerifyParentHashes` returning nil unconditionally would have passed it.
     One `ParentHash` and one original-subtree tree hash per arm of every non-blank parent — roughly
     1,000 nodes with two arms each at the 500-member target. p5 Task 28's benchmarks are where this
     gets measured. **If it must be narrowed, the narrowing has to be DERIVED from what the merge
