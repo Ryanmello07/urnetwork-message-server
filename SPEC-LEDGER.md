@@ -209,6 +209,20 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     templates. **Not done and not needed yet:** parallelising the suite itself. If wall clock becomes
     a problem again, that is the next lever, and it should be done deliberately with a flake budget
     rather than opportunistically.
+14. **p6 owes the UpdatePath leaf's SIGNATURE check, and `MergeUpdatePath` cannot make it.** The merge
+    compares the recomputed parent-hash chain against the leaf's `parent_hash` field, and **that
+    comparison is only worth anything because the leaf's signature covers the field**. Verifying that
+    signature needs the group id and the sender index, which live in the commit-processing layer, so
+    the merge cannot do it. It is written into the method's own doc comment as well as here, because
+    a cross-layer check both sides assume the other makes is a check nobody makes — a shape this
+    project has already hit once, on §5.1's front checks. **p6 must verify it before calling merge.**
+    Found 2026-08-29 by p5 Task 21.
+15. **Every merge now runs a whole-tree §7.9.2 sweep, and its cost at the design target is unmeasured.**
+    One `ParentHash` and one original-subtree tree hash per arm of every non-blank parent — roughly
+    1,000 nodes with two arms each at the 500-member target. p5 Task 28's benchmarks are where this
+    gets measured. **If it must be narrowed, the narrowing has to be DERIVED from what the merge
+    touched, never written as a list of node indices**, or decision 68's hole comes straight back.
+    Found 2026-08-29 by p5 Task 21.
 13. **A spec-conformant client cannot connect to a server without §9.1's signing sidecar.** §4.3.1
     requires `HelloResponse.server_keys` and requires a client to REFUSE a fleet whose first key does
     not verify against the compiled-in root, while decision B13 keeps every signing key off every

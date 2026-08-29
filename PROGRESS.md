@@ -975,7 +975,7 @@ on the randomness.** Correctness testing cannot reach this class at all; only a 
 a published octet string came from can.
 
 The gate that now covers it —
-`TestCreateUpdatePathSecretsDrawsEveryOctetStringItPublishesFromFreshEntropy` — derives its class
+`TestTheUpdatePathDrawsEveryOctetStringItPublishesFromFreshEntropy` — derives its class
 from what the function publishes rather than naming the two sites, so a third draw added later is
 inside it by existing. Both mutations were re-run by hand after the fix; both fail.
 
