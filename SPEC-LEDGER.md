@@ -318,6 +318,23 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     and `NewKeyPackage` had no counterpart. **An exemption row is a debt, and the gate family should
     refuse one that names no replacement.** Found 2026-08-30 by the p5 Task 7A reviewer, confirmed
     independently against the committed tree.
+23. **ValSem209 is not implemented, and the branch briefly held both positions on what that means.**
+    RFC 9420 forbids duplicate extension types and this build assigns the refusal to ValSem209,
+    which exists only as a comment. Five production sites name it. A fix commit corrected two --
+    `leaf_keys.go` and `group_policy.go` now REFUSE a repeat, each saying in as many words that they
+    do so because ValSem209 is unimplemented -- and left three delegating the same refusal TO that
+    rule, including `tree_sync.go:497` above `reconcileRequiredCapabilities`. That one is
+    wire-reachable: `FindExtension` -> `reconcileWithGroupContext` ->
+    `(*RatchetTree).ValidateAgainstContext(ctx, gc)`, exported, `gc` off the wire -- so a peer
+    sending two `required_capabilities` entries chooses which one the client reconciles against, at
+    the validation entry point whose job is to refuse that. **The spec owes a decision:** is a
+    repeated extension type refused at the lookup, or at validation with lookups answering by
+    position? Until ValSem209 exists the second answer refuses nothing. Verified 2026-08-30 by the
+    batch-A verification pass and independently by the owner.
+24. **Nothing in `mls` derives the class "a lookup that selects an extension by type",** so each new
+    accessor lands uncovered and is fixed only when someone points at it. p7 has nineteen tasks
+    left, several of which read an extension off a group context. This is ledger 21 in its concrete
+    form and is the reason 21 is worth stating as a rule rather than as three bugs.
 13. **A spec-conformant client cannot connect to a server without §9.1's signing sidecar.** §4.3.1
     requires `HelloResponse.server_keys` and requires a client to REFUSE a fleet whose first key does
     not verify against the compiled-in root, while decision B13 keeps every signing key off every
