@@ -295,6 +295,29 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     so it is not re-litigated: the plan passes `padding []byte` to the unexported
     `sealPrivateMessage`, and that is the signature that exists (only the exported
     `SealPrivateMessage` takes `paddingSize int`), so ValSem011 non-zero padding is expressible.
+21. **Rule 5 has a second half nobody had written down: a gate that DERIVES its class and
+    ENUMERATES its scope is not a derived gate.** p7 batch A produced this defect three times, in
+    three files, from three independent agents, and every instance passed the full suite:
+    `TestTheKeyPackageSignaturePreimageIsAssembledExactlyOnce` derives its emitter class off
+    `*syntax.Writer`'s method set with four anchors guarding the scan -- and then hands it ONE FILE
+    NAME, so a second assembly of the signed preimage escapes by living one file over in the same
+    package. `TestNoExcuseAwaitingAFirstCallerNamesAnExpiryThatCannotArrive` derives the property an
+    excuse must satisfy -- and then reads ONE of the two roots the table is keyed for, so a
+    `../message` entry bypasses it while the gate LOGS the promise it did not check.
+    `groupPolicyRefusalIn` derives its sweep off the AST -- and then decides what counts as a
+    refusal with a two-spelling pattern that cannot see an unexported sentinel, which is this
+    package's dominant convention. **The fix for each is a wider derivation, never a longer list**,
+    and future gate review must ask the scope question separately from the class question. Found
+    2026-08-30 by the p7 batch A reviewers.
+22. **`NewKeyPackage` mints under whatever credential it likes and nothing sees it.** Measured on the
+    committed tree: replace the `cred` argument with `BasicCredential([]byte("mallory"))` inside
+    `NewKeyPackage` and all 6604 tests pass; do the same to `suite` and store a hardcoded
+    ciphersuite, same result. The cause is a switched-off gate whose replacement was never written --
+    Task 7A took the `providerConstructionsAnsweringOffTheWallClock` exemption that `NewLeafNode`
+    also takes, but `NewLeafNode` pays for it with `TestNewLeafNodeReadsEveryArgumentItWasHanded`
+    and `NewKeyPackage` had no counterpart. **An exemption row is a debt, and the gate family should
+    refuse one that names no replacement.** Found 2026-08-30 by the p5 Task 7A reviewer, confirmed
+    independently against the committed tree.
 13. **A spec-conformant client cannot connect to a server without §9.1's signing sidecar.** §4.3.1
     requires `HelloResponse.server_keys` and requires a client to REFUSE a fleet whose first key does
     not verify against the compiled-in root, while decision B13 keeps every signing key off every
