@@ -79,6 +79,7 @@ func RunContract(t *testing.T, newStore func(Limits) Store) {
 	t.Run("TheReadPathAllocatesNothing", func(t *testing.T) { contractFetch(t, newStore, seen) })
 	t.Run("TheClassFilterReturnsExactlyTheClassesAsked", func(t *testing.T) { contractClassMask(t, newStore, seen) })
 	t.Run("RecordsAreCopiedAtTheStoreBoundary", func(t *testing.T) { contractDefensiveCopy(t, newStore, seen) })
+	t.Run("EveryColumnOfARecordSurvivesTheRoundTrip", func(t *testing.T) { contractRecordColumns(t, newStore, seen) })
 	t.Run("APruneTimeIsComputedFromTheClassAndThePolicy", func(t *testing.T) { contractPruneAfter(t, newStore, seen) })
 	t.Run("ConcurrentSubmittersAtOneStreamIndex", func(t *testing.T) { contractConcurrentStreamIndex(t, newStore, seen) })
 	t.Run("ConcurrentCommittersAtOneEpoch", func(t *testing.T) { contractConcurrentCommitters(t, newStore, seen) })
@@ -134,7 +135,85 @@ func contractCallerErrors(t *testing.T, newStore func(Limits) Store, seen *recor
 		"ABodyThatIsInlineAndABlobAtOnce": {want: ErrInlineOrBlob, damage: func(record *Record) {
 			record.BlobId = testBytes(BlobIdBytes, 0x33)
 		}},
+		"ABodyHashOfTheWrongLength": {want: ErrIdentifierShape, damage: func(record *Record) {
+			record.BodyHash = testBytes(BodyHashBytes+1, 0x22)
+		}},
+		// §5.1 check 3 bounds ct_head; a record with no head at all has nothing for §6.3's
+		// probe to hash, and a claim carrying H("") is a claim every other headless record of
+		// that sender matches — which turns the idempotency probe into a collision
+		"ARecordWithNoHeadAtAll": {want: ErrIdentifierShape, damage: func(record *Record) {
+			record.CtHead = nil
+		}},
+		"AWrapTargetHandleOfTheWrongLength": {want: ErrIdentifierShape, damage: func(record *Record) {
+			record.Attachment = &Attachment{
+				Kind: AttachmentWrap,
+				Wrap: &WrapTag{TargetHandle: testBytes(WrapTargetHandleBytes-1, 0x24), LeafIndex: 0},
+			}
+		}},
+		"ARecoveryHandleOfTheWrongLength": {want: ErrIdentifierShape, damage: func(record *Record) {
+			record.Attachment = &Attachment{
+				Kind:     AttachmentRecovery,
+				Recovery: &RecoveryTag{Handle: testBytes(RecoveryHandleBytes+1, 0x25), VerifyPub: testBytes(VerifyPubBytes, 0x26), AlgId: 1},
+			}
+		}},
+		"ARecoveryVerifyPubOfTheWrongLength": {want: ErrIdentifierShape, damage: func(record *Record) {
+			record.Attachment = &Attachment{
+				Kind:     AttachmentRecovery,
+				Recovery: &RecoveryTag{Handle: testBytes(RecoveryHandleBytes, 0x27), VerifyPub: testBytes(VerifyPubBytes-1, 0x28), AlgId: 1},
+			}
+		}},
+		// §5.4 pairs the kind with its tag, and a store that read the kind and dereferenced the
+		// tag panics on this rather than refusing it
+		"AnAttachmentKindWithNoTagBehindIt": {want: ErrIdentifierShape, damage: func(record *Record) {
+			record.Attachment = &Attachment{Kind: AttachmentEpochComplete}
+		}},
 	}
+
+	// the two shapes that are not a field of a [Record] and so cannot be damaged by the table
+	// above: one belongs to the request and one to §5.1's CreateGroup carve-out. They are
+	// declared beside the table because the derived gate below counts them as scenarios.
+	requestShapes := map[string]func(*testing.T){
+		"AGroupIdOfTheWrongLength": func(t *testing.T) {
+			store := newStore(DefaultLimits())
+			response, err := store.Submit(ctx, &SubmitRequest{
+				GroupId: testBytes(GroupIdBytes-1, 0x11),
+				Records: []*Record{ordinaryRecord(testHandle(0x21), 1, 0, 0x30)},
+			})
+			wantError(t, seen, err, ErrIdentifierShape)
+			if response != nil {
+				t.Fatal("Submit answered an error and a response; a caller that reads results on an error reads results nobody wrote")
+			}
+		},
+		"ABootstrapWriteKeyOfTheWrongLength": func(t *testing.T) {
+			// §5.1's carve-out verifies the founding commit against this key and against
+			// nothing else, so a key that is not 32 bytes is a key no MAC was computed under
+			store := newStore(DefaultLimits())
+			created, err := store.CreateGroup(ctx, &CreateGroupRequest{
+				GroupId:           testGroupId(0x11),
+				InitialCommit:     commitRecord(testHandle(0x20), 0, 0, 1, 0x40),
+				BootstrapWriteKey: testBytes(EpochKeyBytes-1, 0x50),
+			})
+			wantError(t, seen, err, ErrIdentifierShape)
+			if created != nil {
+				t.Fatal("CreateGroup answered an error and a result; a caller that reads a reason on an error reads a reason nobody wrote")
+			}
+		},
+	}
+
+	scenarios := map[string]bool{}
+	for name := range damage {
+		scenarios[name] = true
+	}
+	for name := range requestShapes {
+		scenarios[name] = true
+	}
+	// §5.1 check 3 answers a malformed attachment with a REFUSAL and not with an error, so the
+	// shapes that live inside an EpochAttachment are covered from that table instead. Both are
+	// §4.5's vocabulary and the gate below accepts either
+	for name := range malformedEpochAttachments {
+		scenarios[name] = true
+	}
+	assertEveryDeclaredShapeIsDamaged(t, scenarios)
 
 	for name, current := range damage {
 		t.Run(name, func(t *testing.T) {
@@ -142,6 +221,12 @@ func contractCallerErrors(t *testing.T, newStore func(Limits) Store, seen *recor
 			record := ordinaryRecord(testHandle(0x21), 1, 0, 0x30)
 			current.damage(record)
 			assertTheCallersError(t, newStore, seen, []*Record{record}, current.want)
+		})
+	}
+	for name, scenario := range requestShapes {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			scenario(t)
 		})
 	}
 
@@ -163,10 +248,28 @@ func contractCallerErrors(t *testing.T, newStore func(Limits) Store, seen *recor
 	t.Run("AnEpochWithNoRetainedKey", func(t *testing.T) {
 		t.Parallel()
 		// §5.1 check 6 and §5.1.1: an epoch that never existed and one whose keys have both been
-		// discarded answer identically, which is §5.1.1 refusing to be an oracle for either
+		// discarded answer identically, which is §5.1.1 refusing to be an oracle for either.
+		//
+		// The third call is the half that had no scenario, and it is the only one of the three
+		// that reaches a ROW: epoch 0 exists — §6.1's CreateGroup transaction inserts it with
+		// write_key[0] — and step (6)'s `epoch < current_epoch` predicate NULLs its write key on
+		// the first steady-state commit, leaving a row with nothing retained in it. Without this
+		// call a store could answer that row, keys and all, and be caught by nothing: an epoch
+		// that never existed refuses, and the discarded one hands back an EpochKeys naming the
+		// epoch, its alg_id, its accept time and the record that opened it — which is exactly
+		// the oracle §5.1.1 says the read path may not be.
 		store, group := openGroup(t, newStore(DefaultLimits()))
 		wantError(t, seen, errorOf(store.EpochKeys(ctx, group, 9)), ErrEpochKeyUnknown)
 		wantError(t, seen, errorOf(store.EpochKeys(ctx, testGroupId(0xEE), 1)), ErrEpochKeyUnknown)
+
+		wantReason(t, submit(t, store, seen, group, commitRecord(testHandle(0x31), 1, 0, 2, 0x40))[0], protocol.Reason_REASON_OK)
+		discarded := errorOf(store.EpochKeys(ctx, group, 0))
+		neverExisted := errorOf(store.EpochKeys(ctx, group, 9))
+		if discarded == nil || neverExisted == nil || !errors.Is(discarded, neverExisted) {
+			t.Fatalf("an epoch whose keys were discarded answered %v and one that never existed %v; §5.1.1 fails identically for both, and a store that distinguishes them tells a party holding no key which epochs this group has had",
+				discarded, neverExisted)
+		}
+		wantError(t, seen, discarded, ErrEpochKeyUnknown)
 	})
 }
 
@@ -182,6 +285,87 @@ func assertTheCallersError(t *testing.T, newStore func(Limits) Store, seen *reco
 	if after := nextRecordId(t, store, group); after != before {
 		t.Fatalf("a refused-at-the-door submission moved next_record_id from %d to %d", before, after)
 	}
+}
+
+// §3.1's exact-length shapes are a CLASS, and the class is read out of the package's own const
+// block rather than typed into a table here.
+//
+// It was a table of two — a sender_handle and a blob_id — out of nine, and the seven with no
+// scenario could each be deleted from the store in silence. Rule 5's failure mode exactly: the
+// hand-written list understated the class, so five length checks that decide whether a
+// 15-byte recovery handle reaches a primary key were held by nothing at all. A shape added to
+// §3.1 tomorrow now fails here by name, and it fails whether its answer is an error or §5.1
+// check 3's refusal, because those two are the whole of §4.5's vocabulary and a shape may be
+// covered from either side.
+func assertEveryDeclaredShapeIsDamaged(t *testing.T, scenarios map[string]bool) {
+	t.Helper()
+
+	// which scenario damages which shape. The NAMES are typed; the CLASS is not, and this map
+	// is held against the class in both directions below
+	damaged := map[string]string{
+		"GroupIdBytes":          "AGroupIdOfTheWrongLength",
+		"SenderHandleBytes":     "AnIdentifierOfTheWrongLength",
+		"BodyHashBytes":         "ABodyHashOfTheWrongLength",
+		"BlobIdBytes":           "ABlobIdOfTheWrongLength",
+		"WrapTargetHandleBytes": "AWrapTargetHandleOfTheWrongLength",
+		"RecoveryHandleBytes":   "ARecoveryHandleOfTheWrongLength",
+		"VerifyPubBytes":        "ARecoveryVerifyPubOfTheWrongLength",
+		"EpochKeyBytes":         "ABootstrapWriteKeyOfTheWrongLength",
+		"GroupContextHashBytes": "AGroupContextHashThatIsNot32Bytes",
+		// §6.3: the store computes head_hash from ct_head itself and stores it on the claim, so
+		// no caller ever hands one over and there is no wrong length for one to have. The empty
+		// string is the damage this shape can actually take, and ARecordWithNoHeadAtAll is it
+		"HeadHashBytes": "",
+	}
+
+	declared := lengthShapesDeclared(t)
+	if len(declared) == 0 {
+		t.Fatal("no exact-length shape constant was found in the package, so this gate is being held against nothing at all")
+	}
+	for _, name := range declared {
+		scenario, covered := damaged[name]
+		if !covered {
+			t.Fatalf("%s is an exact-length shape §3.1 declares and no scenario hands the store a value of the wrong length for it; a length check with no scenario is a length check that can be deleted in silence", name)
+		}
+		if scenario != "" && !scenarios[scenario] {
+			t.Fatalf("%s names the scenario %q and no scenario by that name exists; the map and the table have drifted, which is the same as having no gate", name, scenario)
+		}
+	}
+	for name := range damaged {
+		if !slices.Contains(declared, name) {
+			t.Fatalf("this gate names the shape %s and the package no longer declares it; a scenario for a shape that no longer exists is a scenario that stopped meaning anything", name)
+		}
+	}
+}
+
+// Every exact-length shape constant the package declares, by name, read out of its const
+// blocks. The suffix is the whole selector because §3.1's shapes are the only constants named
+// for a byte count, and a constant that joins them tomorrow joins the class automatically.
+func lengthShapesDeclared(t *testing.T) []string {
+	t.Helper()
+	_, here, _, _ := runtime.Caller(0)
+	names := []string{}
+	for _, file := range parseDirectories(t, []string{filepath.Dir(here)}) {
+		for _, declaration := range file.parsed.Decls {
+			general, isGeneral := declaration.(*ast.GenDecl)
+			if !isGeneral || general.Tok != token.CONST {
+				continue
+			}
+			for _, specification := range general.Specs {
+				value, isValue := specification.(*ast.ValueSpec)
+				if !isValue {
+					continue
+				}
+				for _, name := range value.Names {
+					if strings.HasSuffix(name.Name, "Bytes") {
+						names = append(names, name.Name)
+					}
+				}
+			}
+		}
+	}
+	slices.Sort(names)
+	return names
 }
 
 // ── step (0) ─────────────────────────────────────────────────────────────────────────────
@@ -536,7 +720,15 @@ func contractGroupAvailability(t *testing.T, newStore func(Limits) Store, seen *
 		results := submit(t, store, seen, unknown, ordinaryRecord(testHandle(0x21), 1, 0, 0x30))
 		wantReason(t, results[0], protocol.Reason_REASON_REJECTED)
 
+		// every method, and not GroupState alone. Fetch had no scenario for an unknown group at
+		// all and CloseGroup had none either, so both could answer a group that does not exist
+		// with a success — an empty page and a silent no-op — and the contract said nothing.
+		// §5.1 check 5 refuses an unknown group before any read, and an empty page from a
+		// group_id that was never created is the enumeration answer §4.5 exists to withhold
 		wantError(t, seen, errorOf(store.GroupState(ctx, unknown)), ErrGroupUnavailable)
+		wantError(t, seen, errorOf(store.Fetch(ctx, &FetchRequest{GroupId: unknown})), ErrGroupUnavailable)
+		wantError(t, seen, errorOf(store.EpochKeys(ctx, unknown, 1)), ErrEpochKeyUnknown)
+		wantError(t, seen, store.CloseGroup(ctx, unknown), ErrGroupUnavailable)
 	})
 
 	t.Run("AClosedGroupIsTheSameAnswerAsAnUnknownOne", func(t *testing.T) {
@@ -550,15 +742,28 @@ func contractGroupAvailability(t *testing.T, newStore func(Limits) Store, seen *
 		results := submit(t, store, seen, group, ordinaryRecord(testHandle(0x21), 1, 0, 0x30))
 		wantReason(t, results[0], protocol.Reason_REASON_REJECTED)
 
-		closed := errorOf(store.GroupState(ctx, group))
-		unknown := errorOf(store.GroupState(ctx, testGroupId(0xEE)))
-		if closed == nil || unknown == nil || !errors.Is(closed, unknown) {
-			t.Fatalf("a closed group answered %v and an unknown one %v; §6.1 step (1) reads zero rows for both and §4.5 refuses to tell them apart", closed, unknown)
+		// every method that can answer at all, held against the unknown group's answer to the
+		// same call. One method agreeing is not the property: a store that told them apart on
+		// Fetch alone would be an oracle for group existence to a party holding no write_key,
+		// exactly as one that told them apart on GroupState would be
+		missing := testGroupId(0xEE)
+		answers := map[string][2]error{
+			"GroupState": {errorOf(store.GroupState(ctx, group)), errorOf(store.GroupState(ctx, missing))},
+			"Fetch": {
+				errorOf(store.Fetch(ctx, &FetchRequest{GroupId: group})),
+				errorOf(store.Fetch(ctx, &FetchRequest{GroupId: missing})),
+			},
+			// §7.5: a group closed twice is a group that is already unavailable, which is the
+			// same answer an unknown one gives
+			"CloseGroup": {store.CloseGroup(ctx, group), store.CloseGroup(ctx, missing)},
 		}
-		wantError(t, seen, errorOf(store.Fetch(ctx, &FetchRequest{GroupId: group})), ErrGroupUnavailable)
-		// §7.5: a group closed twice is a group that is already unavailable, which is the same
-		// answer an unknown one gives to everything else
-		wantError(t, seen, store.CloseGroup(ctx, group), ErrGroupUnavailable)
+		for method, pair := range answers {
+			closed, unknown := pair[0], pair[1]
+			if closed == nil || unknown == nil || !errors.Is(closed, unknown) {
+				t.Fatalf("%s answered %v for a closed group and %v for an unknown one; §6.1 step (1) reads zero rows for both and §4.5 refuses to tell them apart", method, closed, unknown)
+			}
+			wantError(t, seen, closed, ErrGroupUnavailable)
+		}
 	})
 
 	t.Run("ASecondCreateOfTheSameIdIsRejected", func(t *testing.T) {
@@ -579,6 +784,29 @@ func contractGroupAvailability(t *testing.T, newStore func(Limits) Store, seen *
 		}
 		if after := nextRecordId(t, store, group); after != before {
 			t.Fatalf("a refused CreateGroup moved the existing group's next_record_id from %d to %d", before, after)
+		}
+
+		// §4.5, and the half the reason code alone does not hold: the RESULT is the same result,
+		// field for field, as the one a group that does not exist gets for a malformed founding
+		// commit. Matching on the reason code left every other field of CreateGroupResult free,
+		// and a store that filled current_epoch and record_id from the row it found would answer
+		// REASON_REJECTED while telling a party holding no write_key that the group exists AND
+		// how many records it holds. That is the enumeration oracle §4.5 spends a paragraph on
+		fresh := newStore(DefaultLimits())
+		malformed := commitRecord(testHandle(0x29), 0, 0, 1, 0x44)
+		malformed.Attachment.Epoch.ExpectedWrapCount = 0
+		badMac, err := fresh.CreateGroup(ctx, &CreateGroupRequest{
+			GroupId:           testGroupId(0x77),
+			InitialCommit:     malformed,
+			BootstrapWriteKey: testBytes(EpochKeyBytes, 0x55),
+		})
+		if err != nil {
+			t.Fatalf("CreateGroup: %v", err)
+		}
+		seen.observe(badMac.Reason)
+		if !reflect.DeepEqual(again, badMac) {
+			t.Fatalf("a CreateGroup refused because the group already exists answered %+v and one refused for its own attachment answered %+v; §4.5 makes the two indistinguishable, and every field that differs is a field an enumerator reads",
+				again, badMac)
 		}
 	})
 }
@@ -635,37 +863,116 @@ func contractAttachment(t *testing.T, newStore func(Limits) Store, seen *recorde
 
 func contractBatch(t *testing.T, newStore func(Limits) Store, seen *recorder) {
 	t.Parallel()
-	store, group := openGroup(t, newStore(DefaultLimits()))
-	sender := testHandle(0x21)
-	submit(t, store, seen, group, ordinaryRecord(sender, 1, 5, 0x30))
 
-	before := nextRecordId(t, store, group)
-	results := submit(t, store, seen, group,
-		ordinaryRecord(sender, 1, 6, 0x31),
-		ordinaryRecord(sender, 1, 7, 0x32),
-		ordinaryRecord(sender, 1, 2, 0x33), // regresses, and takes the batch with it
-	)
-	if len(results) != 3 {
-		t.Fatalf("a batch of 3 answered %d results; they are positionally aligned with the request", len(results))
-	}
-	for index, result := range results {
-		if result.Reason == protocol.Reason_REASON_OK {
-			t.Fatalf("result %d of a refused batch is REASON_OK; §6.1 step (3b) rolls the WHOLE batch back with a reason on every result", index)
+	t.Run("ARegressionTakesTheInnocentRecordsWithIt", func(t *testing.T) {
+		t.Parallel()
+		store, group := openGroup(t, newStore(DefaultLimits()))
+		sender := testHandle(0x21)
+		submit(t, store, seen, group, ordinaryRecord(sender, 1, 5, 0x30))
+
+		before := nextRecordId(t, store, group)
+		results := submit(t, store, seen, group,
+			ordinaryRecord(sender, 1, 6, 0x31),
+			ordinaryRecord(sender, 1, 7, 0x32),
+			ordinaryRecord(sender, 1, 2, 0x33), // regresses, and takes the batch with it
+		)
+		if len(results) != 3 {
+			t.Fatalf("a batch of 3 answered %d results; they are positionally aligned with the request", len(results))
 		}
-	}
-	wantReason(t, results[2], protocol.Reason_REASON_STREAM_INDEX_REGRESSED)
-	if after := nextRecordId(t, store, group); after != before {
-		t.Fatalf("a refused batch moved next_record_id from %d to %d; an allocated block larger than the rows written gives the group a permanent record_id gap",
-			before, after)
-	}
+		for index, result := range results {
+			if result.Reason == protocol.Reason_REASON_OK {
+				t.Fatalf("result %d of a refused batch is REASON_OK; §6.1 step (3b) rolls the WHOLE batch back with a reason on every result", index)
+			}
+		}
+		wantReason(t, results[2], protocol.Reason_REASON_STREAM_INDEX_REGRESSED)
 
-	// and the two innocent indexes are still free, because nothing was written
-	accepted := submit(t, store, seen, group,
-		ordinaryRecord(sender, 1, 6, 0x31),
-		ordinaryRecord(sender, 1, 7, 0x32),
-	)
-	wantReason(t, accepted[0], protocol.Reason_REASON_OK)
-	wantReason(t, accepted[1], protocol.Reason_REASON_OK)
+		// FOR THE SECOND IMPLEMENTATION: the OFFENDER carries the specific refusal and every
+		// other record of the batch carries §4.5's deliberately non-specific REASON_REJECTED.
+		// §6.1 step (3b) says only "a reason on every SubmitResult" and leaves which one open;
+		// this is the answer, and it is written down because "every result is not REASON_OK"
+		// was the whole assertion and a store that gave all three REASON_STREAM_INDEX_REGRESSED
+		// passed it. Two records that regressed against nothing would then be told they had,
+		// and §12.2 C-4's client acts on the code: it would rewind two streams that were fine
+		for index, result := range results[:2] {
+			if result.Reason != protocol.Reason_REASON_REJECTED {
+				t.Fatalf("record %d of the batch was refused with %v and it was not itself refused for anything; the offender's own code on an innocent record tells the client something untrue about its stream",
+					index, result.Reason)
+			}
+		}
+		if after := nextRecordId(t, store, group); after != before {
+			t.Fatalf("a refused batch moved next_record_id from %d to %d; an allocated block larger than the rows written gives the group a permanent record_id gap",
+				before, after)
+		}
+
+		// and the two innocent indexes are still free, because nothing was written
+		accepted := submit(t, store, seen, group,
+			ordinaryRecord(sender, 1, 6, 0x31),
+			ordinaryRecord(sender, 1, 7, 0x32),
+		)
+		wantReason(t, accepted[0], protocol.Reason_REASON_OK)
+		wantReason(t, accepted[1], protocol.Reason_REASON_OK)
+	})
+
+	// §6.1 step (4) allocates exactly k ids "where k is the verified accepted count", and a
+	// record step (0) answered is not in it. No batch in this file mixed the two, so k could be
+	// the batch LENGTH instead — which over-allocates by one for every idempotent record in a
+	// batch and leaves the group a permanent record_id gap, the one thing decision B4 exists to
+	// prevent and the one §12.2 C-4 tells clients to treat as the server withholding.
+	t.Run("AStep0AnswerIsNotAllocatedForAgain", func(t *testing.T) {
+		t.Parallel()
+		store, group := openGroup(t, newStore(DefaultLimits()))
+		sender := testHandle(0x21)
+		landed := submit(t, store, seen, group, ordinaryRecord(sender, 1, 3, 0x30))
+		wantReason(t, landed[0], protocol.Reason_REASON_OK)
+
+		before := nextRecordId(t, store, group)
+		results := submit(t, store, seen, group,
+			ordinaryRecord(sender, 1, 3, 0x30), // byte for byte the one that landed
+			ordinaryRecord(sender, 1, 8, 0x31), // the only record in this batch that needs an id
+		)
+		wantReason(t, results[0], protocol.Reason_REASON_OK)
+		if results[0].RecordId != landed[0].RecordId {
+			t.Fatalf("the retried record in a mixed batch answered record_id %d and the row that landed is %d", results[0].RecordId, landed[0].RecordId)
+		}
+		wantReason(t, results[1], protocol.Reason_REASON_OK)
+		if results[1].RecordId != before {
+			t.Fatalf("the one fresh record of the batch was given record_id %d, want %d", results[1].RecordId, before)
+		}
+		if after := nextRecordId(t, store, group); after != before+1 {
+			t.Fatalf("a batch of one retry and one fresh record moved next_record_id by %d, want 1; the block allocated and the rows written are the same k or the group's id sequence acquires a permanent gap",
+				after-before)
+		}
+	})
+
+	// and the same record inside a batch that is then rolled back. A step (0) answer names a row
+	// that landed in an EARLIER transaction, and no rollback of this one can unland it — so it
+	// keeps its REASON_OK and its record id while everything beside it is refused. A store that
+	// swept the whole batch into the refusal would tell a client its record had not landed when
+	// the row is there, and §6.3's client then retries at a consumed index forever.
+	t.Run("ARollbackDoesNotUnlandAStep0Answer", func(t *testing.T) {
+		t.Parallel()
+		store, group := openGroup(t, newStore(DefaultLimits()))
+		sender := testHandle(0x21)
+		landed := submit(t, store, seen, group, ordinaryRecord(sender, 1, 3, 0x30))
+		wantReason(t, landed[0], protocol.Reason_REASON_OK)
+		wantReason(t, submit(t, store, seen, group, ordinaryRecord(sender, 1, 9, 0x31))[0], protocol.Reason_REASON_OK)
+
+		before := nextRecordId(t, store, group)
+		results := submit(t, store, seen, group,
+			ordinaryRecord(sender, 1, 3, 0x30),  // step (0) answered this one before any gate ran
+			ordinaryRecord(sender, 1, 10, 0x32), // innocent
+			ordinaryRecord(sender, 1, 4, 0x33),  // regresses against the batch's own high water
+		)
+		wantReason(t, results[0], protocol.Reason_REASON_OK)
+		if results[0].RecordId != landed[0].RecordId {
+			t.Fatalf("the step (0) answer in a rolled-back batch named record_id %d, want the row that landed, %d", results[0].RecordId, landed[0].RecordId)
+		}
+		wantReason(t, results[1], protocol.Reason_REASON_REJECTED)
+		wantReason(t, results[2], protocol.Reason_REASON_STREAM_INDEX_REGRESSED)
+		if after := nextRecordId(t, store, group); after != before {
+			t.Fatalf("a rolled-back batch carrying a step (0) answer moved next_record_id from %d to %d", before, after)
+		}
+	})
 }
 
 // ── step (6) ─────────────────────────────────────────────────────────────────────────────
@@ -702,6 +1009,67 @@ func contractRetention(t *testing.T, newStore func(Limits) Store, seen *recorder
 					t.Error("a defaulted policy was reported as clamped")
 				}
 				wantDurable(t, applied, state, 31536000)
+			},
+		},
+		{
+			// §6.1 step (6)'s unset-sentinel CASE has four arms and DefaultLimits reaches ONE of
+			// them — the `$server_durable_max = 0` arm — so the other three were arithmetic no
+			// scenario could observe and each could be replaced by any of the others. These are
+			// the three, and each is a different sentence a server tells a group that asked for
+			// nothing. This one: a server that advertises neither a default nor a cap keeps text
+			// indefinitely, which is the NULL of §3.2 and not a number
+			name:    "TheUnsetSentinelOnAServerWithNoDefaultAndNoCapIsIndefinite",
+			limits:  Limits{MediaTtlDefaultSeconds: 3600},
+			media:   3600,
+			durable: DurableUnset,
+			reason:  protocol.Reason_REASON_OK,
+			expected: func(t *testing.T, applied *RetentionApplied, state *GroupState) {
+				if !applied.DurableDefaulted {
+					t.Error("durable_defaulted is false for a group that sent the unset sentinel")
+				}
+				if applied.clamped() {
+					t.Error("a defaulted policy was reported as clamped; §7.3 is explicit that the unset sentinel asked for nothing, so nothing was refused")
+				}
+				if applied.DurableTtlSeconds != DurableIndefinite {
+					t.Errorf("a server advertising neither a text default nor a text cap stored %d for a group that asked for nothing, want the indefinite sentinel", applied.DurableTtlSeconds)
+				}
+				if state.DurableTtlSeconds != nil {
+					t.Errorf("the group row holds a text ttl of %d, and §3.2 writes indefinite as NULL", *state.DurableTtlSeconds)
+				}
+			},
+		},
+		{
+			// the arm where the server advertises a cap and no default: the cap IS the default,
+			// because storing more than the cap would be storing more than the server advertises
+			name:    "TheUnsetSentinelOnAServerWithACapAndNoDefaultTakesTheCap",
+			limits:  Limits{MediaTtlDefaultSeconds: 3600, DurableTtlMaxSeconds: 5000},
+			media:   3600,
+			durable: DurableUnset,
+			reason:  protocol.Reason_REASON_OK,
+			expected: func(t *testing.T, applied *RetentionApplied, state *GroupState) {
+				if !applied.DurableDefaulted {
+					t.Error("durable_defaulted is false for a group that sent the unset sentinel")
+				}
+				if applied.clamped() {
+					t.Error("a group that asked for nothing was told its policy was clamped")
+				}
+				wantDurable(t, applied, state, 5000)
+			},
+		},
+		{
+			// and the arm where both are advertised: the LESSER of the two, because a default
+			// above the cap would be a default this server cannot honour. A store that took the
+			// cap here passes every other case in this table
+			name:    "TheUnsetSentinelOnAServerWithBothTakesTheLesser",
+			limits:  Limits{MediaTtlDefaultSeconds: 3600, DurableTtlDefaultSeconds: 3000, DurableTtlMaxSeconds: 9000},
+			media:   3600,
+			durable: DurableUnset,
+			reason:  protocol.Reason_REASON_OK,
+			expected: func(t *testing.T, applied *RetentionApplied, state *GroupState) {
+				if !applied.DurableDefaulted {
+					t.Error("durable_defaulted is false for a group that sent the unset sentinel")
+				}
+				wantDurable(t, applied, state, 3000)
 			},
 		},
 		{
@@ -848,6 +1216,14 @@ func contractRetention(t *testing.T, newStore func(Limits) Store, seen *recorder
 			if results[0].Applied.RequestedDurableTtlSeconds != current.durable {
 				t.Fatalf("RetentionApplied reported the text request as %d, want %d", results[0].Applied.RequestedDurableTtlSeconds, current.durable)
 			}
+			// the media side of the same field, which was asserted in one case out of nine. §7.3
+			// has the client render "you asked for X and got Y", so the requested value is what
+			// the ATTACHMENT carried and never what the server resolved it to — a store that
+			// reported the post-default value would have the client tell a group that asked for
+			// nothing that it asked for this server's default
+			if results[0].Applied.RequestedMediaTtlSeconds != current.media {
+				t.Fatalf("RetentionApplied reported the media request as %d, want %d", results[0].Applied.RequestedMediaTtlSeconds, current.media)
+			}
 
 			after := stateOf(t, store, group)
 			current.expected(t, results[0].Applied, after)
@@ -860,6 +1236,14 @@ func contractRetention(t *testing.T, newStore func(Limits) Store, seen *recorder
 			}
 			if after.CurrentEpoch != before.CurrentEpoch+1 {
 				t.Fatalf("an accepted commit moved current_epoch from %d to %d", before.CurrentEpoch, after.CurrentEpoch)
+			}
+			// §6.1 step (6) sets group_context_hash from the attachment, in the same UPDATE as
+			// the epoch and the policy. It was nil in every fixture, so the assignment could be
+			// replaced by a nil and the whole suite stayed green — and the value it carries is
+			// what §5.4 makes the server's copy of the transcript-covered group context
+			if !slices.Equal(after.GroupContextHash, record.Attachment.Epoch.GroupContextHash) {
+				t.Fatalf("the group row holds a group_context_hash of %x and the accepted commit's attachment named %x; §6.1 step (6) copies it across in the same UPDATE that moves the epoch",
+					after.GroupContextHash, record.Attachment.Epoch.GroupContextHash)
 			}
 		})
 	}
@@ -927,18 +1311,66 @@ func contractEpochKeys(t *testing.T, newStore func(Limits) Store, seen *recorder
 	ctx := context.Background()
 	store, group := openGroup(t, newStore(DefaultLimits()))
 
-	wantReason(t, submit(t, store, seen, group, commitRecord(testHandle(0x31), 1, 0, 2, 0x40))[0], protocol.Reason_REASON_OK)
+	commit := commitRecord(testHandle(0x31), 1, 0, 2, 0x40)
+	attachment := commit.Attachment.Epoch
+	before := time.Now().UTC()
+	accepted := submit(t, store, seen, group, commit)
+	wantReason(t, accepted[0], protocol.Reason_REASON_OK)
+	after := time.Now().UTC()
 
 	opened, err := store.EpochKeys(ctx, group, 2)
 	if err != nil {
 		t.Fatalf("no keys installed for the epoch the commit opened: %v", err)
 	}
-	if len(opened.WriteKey) != EpochKeyBytes || len(opened.ReadKey) != EpochKeyBytes {
-		t.Fatalf("epoch 2 holds a %d-byte write key and a %d-byte read key, want %d of each",
-			len(opened.WriteKey), len(opened.ReadKey), EpochKeyBytes)
+	// what was installed is the ATTACHMENT's, byte for byte, and not merely something of the
+	// right length. Length alone was the whole assertion, and under it a store could install
+	// 32 zero bytes, or install the read key twice, and be caught by nothing here — §5.3 makes
+	// write_key the credential every later record of the epoch is verified against and
+	// read_key the one every read is authorized under, so installing the wrong 32 bytes either
+	// bricks the epoch or opens it to a key nobody holds
+	if !slices.Equal(opened.WriteKey, attachment.WriteKey) {
+		t.Errorf("epoch 2 holds the write key %x and its commit's attachment carried %x; §5.3 delivers the key IN the attachment and the server installs that one",
+			opened.WriteKey, attachment.WriteKey)
+	}
+	if !slices.Equal(opened.ReadKey, attachment.ReadKey) {
+		t.Errorf("epoch 2 holds the read key %x and its commit's attachment carried %x; §5.3 makes them two keys with two lifetimes and a store that installed one of them twice would serve reads under a key no member derived",
+			opened.ReadKey, attachment.ReadKey)
+	}
+	// the row is the one that was asked for. EpochKeys takes the epoch as an argument and
+	// §5.1.1 says the server "selects exactly one key and never trials a set", so a store that
+	// answered a neighbouring epoch's row would hand a reader a key the request never named —
+	// and every assertion about the key's SHAPE is satisfied by the wrong epoch's key
+	if opened.Epoch != 2 {
+		t.Errorf("EpochKeys was asked for epoch 2 and answered a row for epoch %d", opened.Epoch)
+	}
+	if opened.AlgId != attachment.AlgId {
+		t.Errorf("epoch 2 holds alg_id %d and its commit's attachment carried %d; §5.1.1 selects the key by epoch and unwraps it under the algorithm the row names",
+			opened.AlgId, attachment.AlgId)
+	}
+	// §3.2's opened_by_record, which is what ties an epoch to the commit that opened it and is
+	// the only thing that answers "which record moved this group to epoch n"
+	if opened.OpenedByRecord != accepted[0].RecordId {
+		t.Errorf("epoch 2 says it was opened by record %d and the commit that opened it is record %d", opened.OpenedByRecord, accepted[0].RecordId)
 	}
 	if opened.ReadKeyInstall.IsZero() {
 		t.Error("read_key_install was not stamped, so the 90-day window of §5.3 has no start")
+	}
+	// and the epoch that was just opened is NOT retired: §6.1 step (6) stamps retire_time on
+	// `epoch = current_epoch`, which is the one being superseded, and §7.4's tidy loop takes
+	// the write key of everything it finds a retire_time on. A current epoch that arrived
+	// already stamped is a current epoch whose write key the next sweep removes, and the group
+	// then cannot submit at all
+	if !opened.RetireTime.IsZero() {
+		t.Errorf("the epoch the commit opened is already stamped retired at %v; §7.4's tidy loop takes the write key of every epoch carrying one, and this is the epoch every record after it is verified under", opened.RetireTime)
+	}
+	// both stamps are inside the transaction, so both land inside the bracket the submission
+	// was made in. §5.3's ninety-day window and §7.4's sixty-second tidy both measure from a
+	// stamp, and a stamp taken at some later moment measures a different window
+	for name, stamp := range map[string]time.Time{"read_key_install": opened.ReadKeyInstall, "accept_time": opened.AcceptTime} {
+		if stamp.Before(before.Add(-epochStampSlack)) || stamp.After(after.Add(epochStampSlack)) {
+			t.Errorf("epoch 2's %s is %v and the commit that opened it ran between %v and %v; §6.1 step (6) stamps it inside the transaction",
+				name, stamp.UTC(), before, after)
+		}
 	}
 
 	// the briefly-retired predecessor: still verifiable, and marked for the tidy loop.
@@ -953,24 +1385,51 @@ func contractEpochKeys(t *testing.T, newStore func(Limits) Store, seen *recorder
 	if err != nil {
 		t.Fatalf("the superseded epoch's keys are already gone: %v", err)
 	}
+	if retired.Epoch != 1 {
+		t.Errorf("EpochKeys was asked for epoch 1 and answered a row for epoch %d", retired.Epoch)
+	}
 	if retired.WriteKey == nil {
 		t.Error("the superseded epoch's write key was discarded in the same transaction; decision B9 keeps one predecessor so a record in flight still verifies")
 	}
 	if retired.RetireTime.IsZero() {
 		t.Error("the superseded epoch was not stamped with a retire_time, so the tidy loop has nothing to act on")
 	}
+	// and the superseded epoch keeps its READ key, which is the half §5.3 separates the two
+	// columns for: write keys retire after 60 seconds, read keys live for the 90-day window,
+	// and a store that let the write-key tidy take both would lock out exactly the member §5.3
+	// added the read key for — the one offline across a commit, which cannot call GroupStatus,
+	// Fetch or WrapFetch to recover, because all three are reads
+	if retired.ReadKey == nil {
+		t.Error("the superseded epoch's READ key went with its write key; §5.3 gives the two different lifetimes on purpose and puts them in separate columns so a change to one cannot silently move the other, and a member away across one commit can no longer read at all")
+	}
+	// it is still the epoch-1 key that survives, and not the epoch-2 one written into the
+	// epoch-1 row: the whole point of the briefly-retired predecessor is that a record in
+	// flight, MAC'd under write_key[1], still verifies
+	if founding := commitRecord(testHandle(0x20), 0, 0, 1, 0x40).Attachment.Epoch; !slices.Equal(retired.WriteKey, founding.WriteKey) {
+		t.Errorf("the retired predecessor holds the write key %x and epoch 1 was opened with %x; a record in flight under the old key no longer verifies against what the store kept",
+			retired.WriteKey, founding.WriteKey)
+	}
 
 	// and everything strictly older loses its write key, which is the load-bearing half of
-	// §6.1's predicate: without the `epoch < current_epoch` the retired predecessor goes too
-	older, err := store.EpochKeys(ctx, group, 0)
-	if err == nil && older.WriteKey != nil {
-		t.Error("an epoch two behind the current one still holds a write key; §5.3 retains the current epoch's and one predecessor, and nothing older")
-	}
+	// §6.1's predicate: without the `epoch < current_epoch` the retired predecessor goes too.
+	//
+	// Epoch 0 held write_key[0] and never held a read key, so once step (6) NULLs its write key
+	// there is nothing retained in it at all — and §5.1.1 makes a row with nothing retained the
+	// SAME answer as an epoch that never existed. Asserting only that its write key is nil left
+	// a store free to hand the row back, alg_id and opened_by_record and all, which is the
+	// oracle §5.1.1 closes. [contractCallerErrors] holds the two answers against each other
+	wantError(t, seen, errorOf(store.EpochKeys(ctx, group, 0)), ErrEpochKeyUnknown)
 
 	// an epoch this group has never opened is the same answer as one whose keys are gone, which
 	// is §5.1.1 refusing to be an oracle for either
 	wantError(t, seen, errorOf(store.EpochKeys(ctx, group, 99)), ErrEpochKeyUnknown)
 }
+
+// How far a stamp taken inside the store's own transaction may sit outside the bracket this
+// process measured around the call. §3.1 splits retention across a Go clock and a database
+// clock, so the two are not the same clock and the contract cannot set either; the slack is far
+// below anything §5.3 or §7.4 measures, so a stamp taken at the wrong moment cannot hide in it.
+const epochStampSlack = 60 * time.Second
 
 // ── §5.1.1 ───────────────────────────────────────────────────────────────────────────────
 
@@ -1017,9 +1476,58 @@ func contractFetch(t *testing.T, newStore func(Limits) Store, seen *recorder) {
 		}
 	}
 
+	// A page that found nothing still tells the client where to carry on from, and that is the
+	// cursor it was given. Nothing asserted it, and the value a store gets wrong here is not a
+	// detail: a client polling for new records hands the cursor back on every tick, so an empty
+	// page answering 0 rewinds it to §4.3.4's from-the-beginning cursor and the client
+	// re-downloads the group's whole history on every poll that found nothing.
+	//
+	// The class filter reaches the same page by another route, and it is the one that matters
+	// operationally — a restore fetching one class polls a group that is busy in every other.
+	caughtUp := rest.NextRecordId
+	for name, request := range map[string]*FetchRequest{
+		"NothingNewerThanTheCursor": {GroupId: group, SinceRecordId: caughtUp},
+		"NothingOfThatClass":        {GroupId: group, SinceRecordId: 0, ClassMask: uint32(1) << ClassMedia},
+	} {
+		empty, err := store.Fetch(ctx, request)
+		if err != nil {
+			t.Fatalf("Fetch(%s): %v", name, err)
+		}
+		if len(empty.Records) != 0 {
+			t.Fatalf("Fetch(%s) returned %d records and this scenario needs none", name, len(empty.Records))
+		}
+		if !empty.Complete {
+			t.Fatalf("Fetch(%s) answered complete=false for a page nothing truncated", name)
+		}
+		if empty.NextRecordId != request.SinceRecordId {
+			t.Fatalf("Fetch(%s) answered next_record_id %d for an empty page and was asked from %d; a poll that found nothing is repeated from the cursor it answers, and one that rewinds re-reads the group's whole history on every empty tick",
+				name, empty.NextRecordId, request.SinceRecordId)
+		}
+	}
+
 	// the class filter has its own scenario: what a mask returns is a statement about WHICH
 	// records came back, and "everything that came back is PERMANENT" is satisfied by an empty
 	// answer, which is what an off-by-one in the mask produces for every class
+
+	// FOR THE SECOND IMPLEMENTATION: §5.1.1's other half — that the read path takes no row lock
+	// and is never serialised behind a submit — is NOT held anywhere in this file, and a
+	// mutation that makes Fetch take the group's row lock survives the whole suite. It is not
+	// an oversight: the interface gives no way to hold a transaction open, so there is no way
+	// to observe a reader queueing behind one except by timing, and a timing assertion here
+	// would be a flake in CI rather than a property. Postgres gives it for free — a SELECT does
+	// not queue behind a row lock it did not ask for — so what is actually at risk is a pgx
+	// implementation that reaches for `FOR UPDATE` or opens a transaction on the read path, and
+	// what stands against that is §5.1.1's own sentence and the review that reads the SQL.
+
+	// FOR THE SECOND IMPLEMENTATION: what `complete` means when the limit and the number of
+	// remaining records are EQUAL is deliberately not pinned here, and a mutation that makes
+	// such a page answer complete = false survives this file on purpose. §4.3.4 says only that
+	// false means "truncated by limit OR by max_response_bytes; both are NORMAL", and the
+	// obvious pgx shape — `LIMIT $n`, then complete = (rows < n) — answers false for the exact
+	// boundary while withholding nothing. The client pays one extra empty round trip and reads
+	// nothing untrue, so pinning it either way would be this file inventing a requirement.
+	// What IS pinned, above and in [contractConcurrentReader], is the direction that can lie:
+	// a page that withheld records is never complete, and an unlimited page always is.
 }
 
 // ── the racy half of §6.1 ────────────────────────────────────────────────────────────────
@@ -1453,6 +1961,115 @@ func contractCreateGroup(t *testing.T, newStore func(Limits) Store, seen *record
 			t.Fatal("CreateGroup answered an error and a result; a caller that reads a reason on an error reads a reason nobody wrote")
 		}
 	})
+
+	// Every row §6.1's "CreateGroup, written out" inserts, observed through the interface.
+	//
+	// Only two of them had a scenario — the group row and the record — so the rest could be
+	// dropped one at a time and nothing said so. Each one is load-bearing on its own: the
+	// epoch-0 row is what verifies the founding commit under §5.1's carve-out; the epoch-1 row
+	// is what verifies everything after it; the stream claim is what makes the creator's retry
+	// idempotent instead of a fork; the sender row is what stops the creator's next record
+	// regressing; and the commit row at epoch 0 is what makes a second founding commit a
+	// documented loser instead of a second group state.
+	t.Run("TheFoundingTransactionWritesEveryRowTheSectionLists", func(t *testing.T) {
+		t.Parallel()
+		store := newStore(DefaultLimits())
+		groupId := testGroupId(0x11)
+		creator := testHandle(0x20)
+		bootstrap := testBytes(EpochKeyBytes, 0x50)
+		// the founding commit sits above stream_index 0 so that the claim it writes and the
+		// sender high-water it sets are two separately observable rows: a record AT its index
+		// is answered by the claim and one BELOW it only by the sender row
+		founding := commitRecord(creator, 0, 5, 1, 0x40)
+		attachment := founding.Attachment.Epoch
+
+		created, err := store.CreateGroup(ctx, &CreateGroupRequest{
+			GroupId:           groupId,
+			InitialCommit:     founding,
+			BootstrapWriteKey: bootstrap,
+		})
+		if err != nil {
+			t.Fatalf("CreateGroup: %v", err)
+		}
+		seen.observe(created.Reason)
+		if !accepted(created.Reason) {
+			t.Fatalf("CreateGroup answered %v", created.Reason)
+		}
+
+		// message_group{current_epoch = 1, next_record_id = 2, epoch_complete = false}, and the
+		// policy the attachment named. policy_version starts at 1: §6.1 step (6) advances it on
+		// every accepted commit and the founding commit IS one, so a group that started at 0
+		// would be a group whose first policy is version 0 and whose clients cannot tell the
+		// founding policy from no policy at all
+		state := stateOf(t, store, groupId)
+		if state.CurrentEpoch != 1 || state.NextRecordId != 2 {
+			t.Fatalf("the new group row holds current_epoch %d and next_record_id %d, want 1 and 2", state.CurrentEpoch, state.NextRecordId)
+		}
+		if state.PolicyVersion != 1 {
+			t.Fatalf("the new group row holds policy_version %d, want 1; the founding commit is an accepted commit and §6.1 step (6) advances it on every one", state.PolicyVersion)
+		}
+		if !slices.Equal(state.GroupContextHash, attachment.GroupContextHash) {
+			t.Fatalf("the new group row holds a group_context_hash of %x and the founding attachment carried %x", state.GroupContextHash, attachment.GroupContextHash)
+		}
+
+		// message_epoch{epoch 0, wrap(write_key[0])}: the key §5.1's carve-out verified the
+		// founding commit against, and the ONE key in this design that the server was handed
+		// outside a commit. A group missing it is a group whose founding commit was verified
+		// against nothing
+		zero, err := store.EpochKeys(ctx, groupId, 0)
+		if err != nil {
+			t.Fatalf("no key installed for epoch 0, which is the bootstrap_write_key §5.1's carve-out verified the founding commit against: %v", err)
+		}
+		if !slices.Equal(zero.WriteKey, bootstrap) {
+			t.Errorf("epoch 0 holds the write key %x and the request carried the bootstrap key %x", zero.WriteKey, bootstrap)
+		}
+		if zero.ReadKey != nil {
+			t.Errorf("epoch 0 holds a read key; §6.1 installs the attachment's read key against epoch 1 and epoch 0 has none, and a read key on it authorizes reads under a key no commit ever published")
+		}
+
+		// message_epoch{epoch 1, wrap(write_key[1]), wrap(attachment.read_key), read_key_install}
+		one, err := store.EpochKeys(ctx, groupId, 1)
+		if err != nil {
+			t.Fatalf("no keys installed for epoch 1, which the founding attachment opens: %v", err)
+		}
+		if one.Epoch != 1 {
+			t.Errorf("EpochKeys was asked for epoch 1 and answered a row for epoch %d", one.Epoch)
+		}
+		if !slices.Equal(one.WriteKey, attachment.WriteKey) || !slices.Equal(one.ReadKey, attachment.ReadKey) {
+			t.Errorf("epoch 1 holds write key %x and read key %x; the founding attachment carried %x and %x",
+				one.WriteKey, one.ReadKey, attachment.WriteKey, attachment.ReadKey)
+		}
+		if one.AlgId != attachment.AlgId {
+			t.Errorf("epoch 1 holds alg_id %d and the founding attachment carried %d", one.AlgId, attachment.AlgId)
+		}
+		if one.OpenedByRecord != created.RecordId {
+			t.Errorf("epoch 1 says it was opened by record %d and the founding commit is record %d", one.OpenedByRecord, created.RecordId)
+		}
+		if one.ReadKeyInstall.IsZero() {
+			t.Error("epoch 1's read_key_install was not stamped, so the 90-day window of §5.3 has no start")
+		}
+
+		// message_stream_claim{stream_index, record_id 1, body_hash, head_hash}: without it the
+		// creator's own retry of CreateGroup's commit reaches the gates as a fresh record
+		reused := submit(t, store, seen, groupId, ordinaryRecord(creator, 1, 5, 0x30))
+		wantReason(t, reused[0], protocol.Reason_REASON_STREAM_INDEX_REUSED)
+
+		// the creator's message_sender row, which is a different row and answers a different
+		// question: an index the founding commit did not claim, but which it is above
+		wantReason(t, submit(t, store, seen, groupId, markerRecord(testHandle(0x99), 1, 0, 1))[0], protocol.Reason_REASON_OK)
+		regressed := submit(t, store, seen, groupId, ordinaryRecord(creator, 1, 3, 0x31))
+		wantReason(t, regressed[0], protocol.Reason_REASON_STREAM_INDEX_REGRESSED)
+
+		// message_commit{group_id, epoch 0, record_id 1}: the founding commit consumed epoch
+		// 0's commit slot, so a second commit at epoch 0 is a §6.2 loser and is handed the
+		// founding record as the winner. Without the row it would be measured against the epoch
+		// instead and answered EPOCH_STALE, which §6.4 says a losing committer is never given
+		lost := submit(t, store, seen, groupId, commitRecord(testHandle(0x21), 0, 0, 1, 0x41))
+		wantReason(t, lost[0], protocol.Reason_REASON_COMMIT_LOST)
+		if lost[0].WinningCommit == nil || lost[0].WinningCommit.RecordId != created.RecordId {
+			t.Fatalf("a second commit at epoch 0 was not handed the founding commit as the winner; §6.2 steps 3 to 5 have nothing to apply")
+		}
+	})
 }
 
 // ── §6.1 step (6c), the recovery handle ──────────────────────────────────────────────────
@@ -1562,6 +2179,34 @@ func contractEpochComplete(t *testing.T, newStore func(Limits) Store, seen *reco
 			wantReason(t, submit(t, store, seen, group, ordinaryRecord(testHandle(0x21), 1, 0, 0x30))[0], protocol.Reason_REASON_OK)
 		})
 	}
+
+	// §6.1's epoch publication step 3: the marker's wrap_count MUST equal the ATTACHMENT's
+	// expected_wrap_count, and every fixture in this file names 1 — so the field could be
+	// ignored on the way in and hard-coded on the way out with both halves of step (6b)'s
+	// condition still passing. A group whose commit announced three wraps would then be opened
+	// by a marker claiming one, and §6.1 step 4's member that finds no wrap for its target at
+	// the new epoch surfaces a `no_wrap` gap for a fan-out the server called complete.
+	t.Run("TheWrapCountAMarkerMustMatchIsTheEpochsOwn", func(t *testing.T) {
+		t.Parallel()
+		store, group := openGroup(t, newStore(DefaultLimits()))
+		committer := testHandle(0x31)
+		commit := commitRecord(committer, 1, 0, 2, 0x40)
+		commit.Attachment.Epoch.ExpectedWrapCount = 3
+		wantReason(t, submit(t, store, seen, group, commit)[0], protocol.Reason_REASON_OK)
+
+		// the count every other scenario uses, against an epoch that asked for three
+		wantReason(t, submit(t, store, seen, group, markerRecord(committer, 2, 1, 1))[0], protocol.Reason_REASON_OK)
+		if stateOf(t, store, group).EpochComplete {
+			t.Fatal("a marker claiming one wrap opened an epoch whose commit announced three; the members with no wrap cannot read what is written into the window the marker opened")
+		}
+		wantReason(t, submit(t, store, seen, group, ordinaryRecord(testHandle(0x21), 2, 0, 0x30))[0], protocol.Reason_REASON_EPOCH_INCOMPLETE)
+
+		wantReason(t, submit(t, store, seen, group, markerRecord(committer, 2, 2, 3))[0], protocol.Reason_REASON_OK)
+		if !stateOf(t, store, group).EpochComplete {
+			t.Fatal("the marker carrying the attachment's own expected_wrap_count landed and the group is still not open")
+		}
+		wantReason(t, submit(t, store, seen, group, ordinaryRecord(testHandle(0x21), 2, 0, 0x30))[0], protocol.Reason_REASON_OK)
+	})
 
 	t.Run("OnlyTheExemptKindsPassTheGateWhileTheFanOutIsOpen", func(t *testing.T) {
 		t.Parallel()
@@ -1731,55 +2376,289 @@ func contractClassMask(t *testing.T, newStore func(Limits) Store, seen *recorder
 func contractDefensiveCopy(t *testing.T, newStore func(Limits) Store, seen *recorder) {
 	t.Parallel()
 	ctx := context.Background()
+
+	// Which record makes each of [Record]'s own byte-slice columns present and distinctive.
+	//
+	// The three that were covered — body_hash, ct_head, ct_body — were typed into one scenario,
+	// and the three that were not could each stop being copied in silence: a caller that still
+	// holds the sender_handle it submitted holds the column §6.1 step (3) keys monotonicity on,
+	// and one that still holds server_attachment holds the bytes §5.1 check 3 re-verifies the
+	// projection against. So the NAMES here are typed and the CLASS is not: it is read off the
+	// struct below, and a byte column added to Record tomorrow fails this gate by name.
+	present := map[string]func(*Record){
+		"SenderHandle": func(record *Record) {},
+		"BodyHash":     func(record *Record) {},
+		"CtHead":       func(record *Record) {},
+		"CtBody":       func(record *Record) {},
+		"BlobId": func(record *Record) {
+			// inline XOR blob (§3.2), so the body goes when the blob id arrives
+			record.CtBody = nil
+			record.SizeBucket = 5
+			record.BlobId = testBytes(BlobIdBytes, 0x33)
+		},
+		"ServerAttachment": func(record *Record) {
+			record.ServerAttachment = testBytes(64, 0x44)
+		},
+	}
+	declared := byteColumnsOf(t, reflect.TypeOf(Record{}))
+	for _, name := range declared {
+		if _, covered := present[name]; !covered {
+			t.Fatalf("%s is a byte column of Record and no scenario submits one and then rewrites the caller's copy of it; a column the store aliases is a column its callers can rewrite from outside the transaction", name)
+		}
+	}
+	if len(present) != len(declared) {
+		t.Fatalf("this table names %d byte columns and Record declares %d (%v)", len(present), len(declared), declared)
+	}
+
+	for _, name := range declared {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			store, group := openGroup(t, newStore(DefaultLimits()))
+			record := ordinaryRecord(testHandle(0x21), 1, 0, 0x30)
+			present[name](record)
+
+			held := byteColumn(t, record, name)
+			was := slices.Clone(held)
+			if len(was) == 0 {
+				t.Fatalf("the scenario for %s submitted an empty column, so scribbling on it observes nothing", name)
+			}
+			results := submit(t, store, seen, group, record)
+			wantReason(t, results[0], protocol.Reason_REASON_OK)
+
+			// the caller still holds the slice it handed over. body_hash is the one that matters
+			// most — it is what §6.1 step (0) probes against, so a caller that could rewrite it
+			// could turn somebody else's retry into a REASON_OK naming its own record
+			held[0] ^= 0xff
+			stored := recordById(t, store, group, results[0].RecordId)
+			if !slices.Equal(byteColumn(t, stored, name), was) {
+				t.Fatalf("a caller rewrote a stored record's %s by rewriting the slice it submitted; the store took the caller's memory rather than a copy of it, which is not something the pgx implementation could do even by accident", name)
+			}
+
+			// and what Fetch hands out is the caller's to scribble on
+			byteColumn(t, stored, name)[0] ^= 0xff
+			if !slices.Equal(byteColumn(t, recordById(t, store, group, results[0].RecordId), name), was) {
+				t.Fatalf("a reader rewrote a stored record's %s by rewriting what Fetch handed it", name)
+			}
+		})
+	}
+
+	// The attachment is not a byte column and so is not in the class above, but every byte
+	// inside it crosses the same boundary — and §5.4's whole point is that the server ACTS on
+	// these: a caller still holding the RecoveryTag it submitted holds the verify_pub the TOFU
+	// gate compares against, and could rebind a handle it had already lost.
+	t.Run("Attachment", func(t *testing.T) {
+		t.Parallel()
+		store, group := openGroup(t, newStore(DefaultLimits()))
+		handle := testBytes(RecoveryHandleBytes, 0x60)
+		pub := testBytes(VerifyPubBytes, 0x70)
+		record := recoveryRecord(testHandle(0x21), 1, 0, handle, pub)
+		// the fixture hands the tag the caller's own slices, so what the row must still hold is
+		// compared against a copy taken before anything is scribbled on
+		wasPub, wasHandle := slices.Clone(pub), slices.Clone(handle)
+		results := submit(t, store, seen, group, record)
+		wantReason(t, results[0], protocol.Reason_REASON_OK)
+
+		record.Attachment.Recovery.VerifyPub[0] ^= 0xff
+		record.Attachment.Recovery.Handle[0] ^= 0xff
+		stored := recordById(t, store, group, results[0].RecordId)
+		if !slices.Equal(stored.Attachment.Recovery.VerifyPub, wasPub) || !slices.Equal(stored.Attachment.Recovery.Handle, wasHandle) {
+			t.Fatal("a caller rewrote a stored record's attachment by rewriting the tag it submitted; §5.4's attachment is what the server acts on, and a verify_pub the caller still owns is a recovery handle it can rebind after the fact")
+		}
+		stored.Attachment.Recovery.VerifyPub[0] ^= 0xff
+		if !slices.Equal(recordById(t, store, group, results[0].RecordId).Attachment.Recovery.VerifyPub, wasPub) {
+			t.Fatal("a reader rewrote a stored record's attachment by rewriting what Fetch handed it")
+		}
+	})
+
+	// [GroupState] and [SubmitResult] hand out bytes of their own, and neither had a scenario.
+	// A group row's group_context_hash is what §5.4 makes the server's copy of the
+	// transcript-covered context; a winner handed out by reference is a row any loser can
+	// rewrite, and §6.2 step 3 has every OTHER loser verify that same record through MLS.
+	t.Run("GroupState", func(t *testing.T) {
+		t.Parallel()
+		store, group := openGroup(t, newStore(DefaultLimits()))
+		state := stateOf(t, store, group)
+		was := slices.Clone(state.GroupContextHash)
+		if len(was) == 0 {
+			t.Fatal("the group row holds no group_context_hash, so scribbling on it observes nothing")
+		}
+		state.GroupContextHash[0] ^= 0xff
+		if !slices.Equal(stateOf(t, store, group).GroupContextHash, was) {
+			t.Fatal("a caller rewrote the group row's group_context_hash by rewriting what GroupState handed it")
+		}
+	})
+
+	t.Run("WinningCommit", func(t *testing.T) {
+		t.Parallel()
+		store, group := openGroup(t, newStore(DefaultLimits()))
+		won := submit(t, store, seen, group, commitRecord(testHandle(0x31), 1, 0, 2, 0x40))
+		wantReason(t, won[0], protocol.Reason_REASON_OK)
+
+		first := submit(t, store, seen, group, commitRecord(testHandle(0x32), 1, 0, 2, 0x41))
+		wantReason(t, first[0], protocol.Reason_REASON_COMMIT_LOST)
+		handed := first[0].WinningCommit
+		if handed == nil {
+			t.Fatal("a losing committer was not handed the winner")
+		}
+		was := slices.Clone(handed.BodyHash)
+		wasKey := slices.Clone(handed.Attachment.Epoch.WriteKey)
+		handed.BodyHash[0] ^= 0xff
+		handed.Attachment.Epoch.WriteKey[0] ^= 0xff
+
+		stored := recordById(t, store, group, won[0].RecordId)
+		if !slices.Equal(stored.BodyHash, was) || !slices.Equal(stored.Attachment.Epoch.WriteKey, wasKey) {
+			t.Fatal("a losing committer rewrote the winning commit's row by rewriting what §6.2 handed it")
+		}
+		second := submit(t, store, seen, group, commitRecord(testHandle(0x33), 1, 0, 2, 0x42))
+		wantReason(t, second[0], protocol.Reason_REASON_COMMIT_LOST)
+		if second[0].WinningCommit == nil || !slices.Equal(second[0].WinningCommit.BodyHash, was) {
+			t.Fatal("the second loser was handed a winning commit the first loser had rewritten; §6.2 step 3 has every loser verify these exact bytes through MLS")
+		}
+	})
+
+	t.Run("HeadsOnlyDropsTheBodyFromTheAnswerAndNotFromTheRow", func(t *testing.T) {
+		t.Parallel()
+		store, group := openGroup(t, newStore(DefaultLimits()))
+		record := ordinaryRecord(testHandle(0x21), 1, 0, 0x30)
+		body := slices.Clone(record.CtBody)
+		results := submit(t, store, seen, group, record)
+		wantReason(t, results[0], protocol.Reason_REASON_OK)
+
+		// §4.3.4 uses heads_only for fast catch-up and for hole scans, over the same rows the
+		// next full read serves
+		heads, err := store.Fetch(ctx, &FetchRequest{GroupId: group, SinceRecordId: 0, HeadsOnly: true})
+		if err != nil {
+			t.Fatalf("Fetch: %v", err)
+		}
+		for _, one := range heads.Records {
+			if one.CtBody != nil {
+				t.Fatalf("heads_only returned a body for record %d", one.RecordId)
+			}
+		}
+		if after := recordById(t, store, group, results[0].RecordId); !slices.Equal(after.CtBody, body) {
+			t.Fatalf("after a heads_only fetch the full read returns a %d-byte body, want the %d bytes that were stored; one catch-up read had erased every body in the group",
+				len(after.CtBody), len(body))
+		}
+	})
+}
+
+// Every byte-slice column of a struct, by name, read off the type rather than typed into the
+// scenario that exercises it.
+func byteColumnsOf(t *testing.T, kind reflect.Type) []string {
+	t.Helper()
+	names := []string{}
+	for index := range kind.NumField() {
+		field := kind.Field(index)
+		if field.Type.Kind() == reflect.Slice && field.Type.Elem().Kind() == reflect.Uint8 {
+			names = append(names, field.Name)
+		}
+	}
+	if len(names) == 0 {
+		t.Fatalf("%s declares no byte column, so the gate over them is being held against nothing at all", kind.Name())
+	}
+	slices.Sort(names)
+	return names
+}
+
+func byteColumn(t *testing.T, record *Record, name string) []byte {
+	t.Helper()
+	field := reflect.ValueOf(record).Elem().FieldByName(name)
+	if !field.IsValid() {
+		t.Fatalf("Record has no column named %s", name)
+	}
+	return field.Bytes()
+}
+
+// ── §3.2, the columns themselves ─────────────────────────────────────────────────────────
+
+// Every column of §3.2's `message_record` comes back the way it went in.
+//
+// Nothing asserted this, and the consequence is not subtle. Four of the columns were read back
+// by no scenario at all — `server_attachment`, `size_bucket`, `expire_at` and `blob_id` — so a
+// store could drop each of them on the way to the row and stay green. `server_attachment` is
+// the worst of the four: §3.2 keeps the authenticated bytes precisely so that §5.1 check 3 can
+// re-verify the projection against them, and a store that silently returned nothing for that
+// column would take the check's second input away from every reader of the group's history.
+// `size_bucket` and `blob_id` together are how a client knows whether a body is inline at all.
+//
+// The class is DERIVED from the struct: every field of [Record] except the two the server
+// assigns owes a fixture that sets it to something a zero value can be told from, and a column
+// added tomorrow fails here by name rather than being carried untested.
+func contractRecordColumns(t *testing.T, newStore func(Limits) Store, seen *recorder) {
+	t.Parallel()
 	store, group := openGroup(t, newStore(DefaultLimits()))
+	sender := testHandle(0x21)
 
-	record := ordinaryRecord(testHandle(0x21), 1, 0, 0x30)
-	bodyHash := slices.Clone(record.BodyHash)
-	body := slices.Clone(record.CtBody)
-	head := slices.Clone(record.CtHead)
-	results := submit(t, store, seen, group, record)
-	wantReason(t, results[0], protocol.Reason_REASON_OK)
-	id := results[0].RecordId
+	// the two the SERVER assigns. They are the only two a round trip may legitimately differ
+	// in, and each has its own scenario: [contractAllocation] for the id and
+	// [contractPruneAfter] for the prune time
+	assigned := map[string]bool{"RecordId": true, "PruneAfter": true}
 
-	// the caller still holds the slices it handed over, and rewriting them must not rewrite the
-	// row. body_hash is the one that matters most: it is what §6.1 step (0) probes against, so a
-	// caller that could rewrite it could turn somebody else's retry into a REASON_OK naming its
-	// own record
-	record.BodyHash[0] ^= 0xff
-	record.CtBody[0] ^= 0xff
-	record.CtHead[0] ^= 0xff
-	stored := recordById(t, store, group, id)
-	if !slices.Equal(stored.BodyHash, bodyHash) || !slices.Equal(stored.CtBody, body) || !slices.Equal(stored.CtHead, head) {
-		t.Fatal("a caller rewrote a stored record by rewriting the slice it submitted; the store took the caller's memory rather than a copy of it, which is not something the pgx implementation could do even by accident")
+	// three records, because §3.2's columns are not all reachable on one: inline XOR blob is a
+	// CHECK, and is_commit brings an EpochAttachment with it
+	inline := ordinaryRecord(sender, 1, 1, 0x60)
+	inline.RetentionClass = ClassMedia
+	inline.SizeBucket = 3
+	inline.ExpireAtMs = 1893456000000
+	inline.ServerAttachment = testBytes(64, 0x61)
+	inline.Attachment = &Attachment{
+		Kind:     AttachmentRecovery,
+		Recovery: &RecoveryTag{Handle: testBytes(RecoveryHandleBytes, 0x62), VerifyPub: testBytes(VerifyPubBytes, 0x63), AlgId: 9},
 	}
+	blob := ordinaryRecord(sender, 1, 2, 0x64)
+	blob.CtBody = nil
+	blob.SizeBucket = 5
+	blob.BlobId = testBytes(BlobIdBytes, 0x65)
+	// last, because it moves the group's epoch out from under everything after it
+	commit := commitRecord(sender, 1, 3, 2, 0x66)
+	fixtures := []*Record{inline, blob, commit}
 
-	// heads_only drops the body from what is RETURNED and not from what is stored. §4.3.4 uses
-	// it for fast catch-up and for hole scans, over the same rows the next full read serves
-	heads, err := store.Fetch(ctx, &FetchRequest{GroupId: group, SinceRecordId: 0, HeadsOnly: true})
-	if err != nil {
-		t.Fatalf("Fetch: %v", err)
-	}
-	for _, one := range heads.Records {
-		if one.CtBody != nil {
-			t.Fatalf("heads_only returned a body for record %d", one.RecordId)
+	covered := map[string]bool{}
+	for _, fixture := range fixtures {
+		value := reflect.ValueOf(fixture).Elem()
+		for index := range value.NumField() {
+			if !value.Field(index).IsZero() {
+				covered[value.Type().Field(index).Name] = true
+			}
 		}
 	}
-	if after := recordById(t, store, group, id); !slices.Equal(after.CtBody, body) {
-		t.Fatalf("after a heads_only fetch the full read returns a %d-byte body, want the %d bytes that were stored; one catch-up read had erased every body in the group",
-			len(after.CtBody), len(body))
+	kind := reflect.TypeOf(Record{})
+	for index := range kind.NumField() {
+		name := kind.Field(index).Name
+		if assigned[name] || covered[name] {
+			continue
+		}
+		t.Fatalf("%s is a column of Record that no fixture here sets, so a store that dropped it on the way to the row would be told by nothing; add a fixture that carries it or name it as one the server assigns", name)
 	}
 
-	// and what Fetch hands out is the caller's to scribble on
-	for _, one := range allRecords(t, store, group) {
-		if len(one.CtBody) != 0 {
-			one.CtBody[0] ^= 0xff
+	for _, fixture := range fixtures {
+		sent := cloneRecord(fixture)
+		results := submit(t, store, seen, group, fixture)
+		if !accepted(results[0].Reason) {
+			t.Fatalf("a fixture carrying %s was answered %v", describeRecord(fixture), results[0].Reason)
 		}
-		if len(one.BodyHash) != 0 {
-			one.BodyHash[0] ^= 0xff
+		stored := recordById(t, store, group, results[0].RecordId)
+
+		got := reflect.ValueOf(stored).Elem()
+		want := reflect.ValueOf(sent).Elem()
+		for index := range kind.NumField() {
+			name := kind.Field(index).Name
+			if assigned[name] {
+				continue
+			}
+			// a byte column is compared with bytes.Equal and not with DeepEqual, because nil
+			// and empty are the same column to §3.2 and a store that round-trips through a wire
+			// may hand back either
+			if kind.Field(index).Type.Kind() == reflect.Slice {
+				if !slices.Equal(got.Field(index).Bytes(), want.Field(index).Bytes()) {
+					t.Errorf("%s came back as %x and was submitted as %x", name, got.Field(index).Bytes(), want.Field(index).Bytes())
+				}
+				continue
+			}
+			if !reflect.DeepEqual(got.Field(index).Interface(), want.Field(index).Interface()) {
+				t.Errorf("%s came back as %v and was submitted as %v", name, got.Field(index).Interface(), want.Field(index).Interface())
+			}
 		}
-	}
-	if after := recordById(t, store, group, id); !slices.Equal(after.CtBody, body) || !slices.Equal(after.BodyHash, bodyHash) {
-		t.Fatal("a reader rewrote a stored record by rewriting what Fetch handed it")
 	}
 }
 
@@ -1818,10 +2697,17 @@ func contractPruneAfter(t *testing.T, newStore func(Limits) Store, seen *recorde
 		t.Parallel()
 		// the group's own policy, which is what DURABLE and MEDIA prune against, and which is
 		// deliberately not either default: a store reading its lifetimes out of the operator's
-		// configuration instead of out of the group's row would pass on the defaults
+		// configuration instead of out of the group's row would pass on the defaults.
+		//
+		// media_ttl_default_seconds is separated from media_ttl_max_seconds here, and that is
+		// the whole of what makes the media half of this scenario mean anything: while the two
+		// were the same number the group's clamped policy and this server's default were the
+		// same number too, so a store that pruned media against `$server_media_default` instead
+		// of against `message_group.media_ttl_seconds` produced identical prune times and was
+		// caught by nothing
 		store, group := openGroup(t, newStore(Limits{
 			MediaTtlMaxSeconds:       2000,
-			MediaTtlDefaultSeconds:   2000,
+			MediaTtlDefaultSeconds:   900,
 			DurableTtlDefaultSeconds: 31536000,
 		}))
 		state := stateOf(t, store, group)
@@ -2501,13 +3387,29 @@ func submit(t *testing.T, store Store, seen *recorder, groupId []byte, records .
 	after, _ := readNextRecordId(store, groupId)
 
 	refused := false
-	for _, result := range response.Results {
+	for index, result := range response.Results {
 		seen.observe(result.Reason)
 		if !accepted(result.Reason) {
 			refused = true
 		}
+		// §6.2 binds the loser protocol to a rejection of a COMMIT submission and to that
+		// alone. A winning_commit on an ordinary record's refusal is a record handed to a
+		// submitter that did not ask for one, cannot act on it, and — because winning_commit
+		// carries the winner's whole Record — is one more copy of somebody else's row on the
+		// wire for every refused write in the group
+		if !records[index].IsCommit && result.WinningCommit != nil {
+			t.Fatalf("result %d was a refusal of an ordinary record and it carried a winning_commit; §6.2 sets it on rejections of a COMMIT submission and on nothing else", index)
+		}
 		if accepted(result.Reason) && result.RecordId == 0 {
 			t.Fatalf("an accepted record was given record_id 0, which Spec A §5.1 reserves as the from-the-beginning cursor")
+		}
+		// and the other direction, which nothing asserted: a refusal allocated nothing, so it
+		// has no id to name. A refusal that carried one would hand a party whose record was
+		// rejected — REASON_REJECTED is what §4.5 gives an unknown group and a bad MAC alike —
+		// the group's own allocation counter, which is the enumeration answer §5.1 withholds
+		if !accepted(result.Reason) && result.RecordId != 0 {
+			t.Fatalf("a record refused with %v was handed record_id %d; a refusal allocates nothing and so has no id to name, and the id it named is the group's own counter",
+				result.Reason, result.RecordId)
 		}
 	}
 	if !known {
@@ -2676,6 +3578,12 @@ var malformedEpochAttachments = map[string]func(*EpochAttachment){
 	"AnEpochThatIsNotTheNextOne": func(attachment *EpochAttachment) {
 		attachment.Epoch = 9
 	},
+	// §3.1's shape on the one attachment field §6.1 step (6) copies straight into the group
+	// row. It had no case, so the length check on it could be deleted and a group_context_hash
+	// of any length at all would reach `message_group`
+	"AGroupContextHashThatIsNot32Bytes": func(attachment *EpochAttachment) {
+		attachment.GroupContextHash = testBytes(GroupContextHashBytes-1, 0x42)
+	},
 }
 
 func testBytes(length int, seed byte) []byte {
@@ -2715,13 +3623,22 @@ func commitRecord(sender []byte, epoch uint64, index uint64, opens uint64, seed 
 	record.Attachment = &Attachment{
 		Kind: AttachmentEpoch,
 		Epoch: &EpochAttachment{
-			Epoch:             opens,
-			WriteKey:          testBytes(EpochKeyBytes, seed),
-			ReadKey:           testBytes(EpochKeyBytes, seed+1),
-			AlgId:             1,
+			Epoch:    opens,
+			WriteKey: testBytes(EpochKeyBytes, seed),
+			// distinct from the write key by construction: §5.3 makes them two keys with two
+			// lifetimes, and a fixture that gave them the same bytes could not tell a store
+			// that installed one of them twice from a store that installed both
+			ReadKey: testBytes(EpochKeyBytes, seed+1),
+			// not 1, because 1 is what an implementation that ignored the attachment and
+			// hard-coded the field would also produce
+			AlgId:             uint32(seed) + 7,
 			MediaTtlSeconds:   3600,
 			DurableTtlSeconds: 86400,
 			ExpectedWrapCount: 1,
+			// §6.1 step (6) copies this straight into the group row, and it was nil in every
+			// fixture — so `group_context_hash = attachment.group_context_hash` was an
+			// assignment no scenario could tell from a nil
+			GroupContextHash: testBytes(GroupContextHashBytes, seed+2),
 		},
 	}
 	return record
