@@ -1488,6 +1488,15 @@ func contractFetch(t *testing.T, newStore func(Limits) Store, seen *recorder) {
 	for name, request := range map[string]*FetchRequest{
 		"NothingNewerThanTheCursor": {GroupId: group, SinceRecordId: caughtUp},
 		"NothingOfThatClass":        {GroupId: group, SinceRecordId: 0, ClassMask: uint32(1) << ClassMedia},
+		// §4.3.4's cursor is a u64 on the wire and §3.2's record_id is a signed bigint, so
+		// there are cursors the wire can carry that the column cannot hold. Every one of them
+		// names a record no group can ever have allocated, so every one of them is an empty
+		// page — and the direction that matters is which empty: a store that converted this
+		// to a signed column value would send a NEGATIVE cursor to `since_record_id <
+		// record_id`, which is true of every row, and answer the group's whole history to a
+		// client whose cursor then never advances. That is not a refusal a client could
+		// diagnose; it is the same page forever, on every poll
+		"ACursorTheColumnCannotHold": {GroupId: group, SinceRecordId: uint64(1) << 63},
 	} {
 		empty, err := store.Fetch(ctx, request)
 		if err != nil {

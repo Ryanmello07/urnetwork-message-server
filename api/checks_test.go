@@ -484,6 +484,64 @@ func TestTheReadPathRefusesEveryCauseIdentically(t *testing.T) {
 	}
 }
 
+// §5.1.1's "the server selects exactly one key and never trials a set", from the side that shows
+// when it stops being true.
+//
+// Check 6 has two halves and only one of them had a scenario. A `read_epoch` that never existed
+// fails on the lookup itself, and [TestTheReadPathRefusesEveryCauseIdentically] covers it. A
+// `read_epoch` whose ROW is there and whose read key is not is the other half, and it is not
+// hypothetical: §6.1's CreateGroup installs epoch 0 with `write_key[0]` and deliberately no read
+// key, and §7.4's tidy loop NULLs every epoch's read key at the end of §5.3's ninety-day window
+// while leaving the row. Nothing in this package reached that state, so a check 6 that fell back
+// to another epoch when the named one had no key would have been told by no test at all.
+//
+// The request below is the strongest form of that attack, which is why it is MAC'd under the key
+// the group actually uses: everything about it verifies except the epoch it names. If check 6
+// resolves anything other than exactly epoch 0, check 7 passes and the caller is handed the
+// group's whole ciphertext history — and a member removed at epoch 0 would keep read access for
+// the life of the group, which is the defect §5.3's window exists to close.
+func TestAFetchNamingAnEpochThatRetainsNoReadKeyResolvesNoOtherEpochsKey(t *testing.T) {
+	fixture := newFixtureWith(t, Config{RejectFloor: 25 * time.Millisecond})
+	fixture.createOpenGroup(t)
+
+	// epoch 0 is the row §6.1's CreateGroup writes with write_key[0] and no read key at all, so
+	// this scenario needs neither a clock nor a ninety-day wait to reach the state it is about
+	keys, err := fixture.store.EpochKeys(context.Background(), fixture.groupId, 0)
+	if err != nil {
+		t.Fatalf("epoch 0 is the bootstrap row §6.1 installs and this scenario reads it: %v", err)
+	}
+	if keys.ReadKey != nil {
+		t.Fatal("epoch 0 holds a read key, so this scenario is no longer about an epoch that retains none")
+	}
+
+	request := &protocol.FetchRequest{GroupId: fixture.groupId, ReadEpoch: 0}
+	op, err := opOf(request)
+	if err != nil {
+		t.Fatalf("opOf: %v", err)
+	}
+	canonical, err := canonicalRequestBytes(request)
+	if err != nil {
+		t.Fatalf("canonicalRequestBytes: %v", err)
+	}
+	// the read key of epoch 1, which is the epoch the group is at and the key every legitimate
+	// read of it is authorized under. The request names epoch 0 and nothing else about it is wrong
+	auth := message.ComputeRequestAuth(fixture.readKey(1), fixture.conn.ServerNonce, op, canonical)
+	request.ReqAuth = auth[:]
+
+	reason, response, err := fixture.handler.Fetch(context.Background(), fixture.conn, request)
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if reason != protocol.Reason_REASON_REJECTED {
+		t.Fatalf("a fetch naming an epoch whose row retains no read key was answered %v, want REASON_REJECTED; check 6 resolved a key the request did not name",
+			reason)
+	}
+	if response != nil {
+		t.Fatalf("a fetch naming an epoch that retains no read key came back with %d records",
+			len(response.GetRecords()))
+	}
+}
+
 // §4.3.8's op byte comes from the compiled descriptor and is the arm number the spec gives.
 func TestTheOpByteIsTheArmNumberOfTheRequest(t *testing.T) {
 	op, err := opOf(&protocol.FetchRequest{})

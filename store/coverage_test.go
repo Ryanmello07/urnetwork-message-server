@@ -77,28 +77,64 @@ func recordContractOutcome(t *testing.T, store Store, outcome contractOutcome) {
 	contractOutcomes[name] = outcome
 }
 
+// What a job sets to say that a partial run is a failure.
+//
+// The default is the other way round and stays that way: a developer with no PostgreSQL runs the
+// suite, the pgx contract skips, and the run is green. What that developer must not be able to do
+// is mistake it for a complete one, and the banner is what stops them — under `-v`, which this
+// project's rules require and which CI passes, and on any failure.
+//
+// This exists because of the one invocation where the banner is not enough. Under a plain
+// `go test ./store/` the go command prints exactly one line — `ok …/store 0.9s` — and DISCARDS
+// everything the binary wrote, banner included. On that invocation the only signal `go test` will
+// carry out of the package is the exit code, and this is how the exit code gets to say it. A job
+// that means to cover both implementations sets this, and a DSN that went missing then turns the
+// run red rather than green with a paragraph nobody printed.
+const requireCoverageVariable = "URMESSAGE_REQUIRE_CONTRACT_COVERAGE"
+
 func TestMain(m *testing.M) {
 	code := m.Run()
 	releasePgxHarness()
-	fmt.Fprint(os.Stderr, contractCoverage())
+	report, complete := contractCoverage()
+	fmt.Fprint(os.Stderr, report)
+	if code == 0 && !complete && os.Getenv(requireCoverageVariable) != "" {
+		fmt.Fprintf(os.Stderr, "%s is set and this run did not hold every implementation of Store to RunContract, so it is a failure rather than a pass. Unset it to run a filtered or database-less suite.\n",
+			requireCoverageVariable)
+		code = 1
+	}
 	os.Exit(code)
 }
 
 // The banner. It is a string rather than a print so that the test below can hold it to saying
 // what it claims.
-func contractCoverage() string {
+func contractCoverage() (string, bool) {
 	implementations, err := storeImplementations(".")
 	if err != nil {
-		return fmt.Sprintf("\nCONTRACT COVERAGE: unknown — %v\nthe class of Store implementations could not be read out of this package, so nothing below states what this run covered.\n\n", err)
+		// a derivation that could not read the class has not established that anything was
+		// covered, so it is not a complete run either
+		return fmt.Sprintf("\nCONTRACT COVERAGE: unknown — %v\nthe class of Store implementations could not be read out of this package, so nothing below states what this run covered.\n\n", err), false
 	}
 
 	contractMutex.Lock()
 	defer contractMutex.Unlock()
+	return renderContractCoverage(implementations, contractOutcomes)
+}
+
+// The banner itself, as a function of a class and a set of outcomes rather than of whatever this
+// process happened to record.
+//
+// It is separated for one reason, and the reason is a mutation that survived: the HEADLINE is the
+// whole of what this banner is for — a reader scanning a log for whether the run covered anything
+// reads one word — and while it could only be produced from the live map, no test could construct
+// a partial run and a complete one and hold the two apart. "PARTIAL RUN" could be pinned to "FULL
+// RUN" in one line, every run would then report a clean sweep, and the suite stayed green. Which
+// is this project's own central failure applied to the thing that exists to announce it.
+func renderContractCoverage(implementations []string, outcomes map[string]contractOutcome) (string, bool) {
 	report := &strings.Builder{}
 	ran := 0
 	rows := []string{}
 	for _, name := range implementations {
-		outcome, found := contractOutcomes[name]
+		outcome, found := outcomes[name]
 		switch {
 		case outcome.ran:
 			ran++
@@ -119,7 +155,72 @@ func contractCoverage() string {
 		report.WriteString("a passing result below covers only the implementations marked \"ran the contract\".\n")
 	}
 	report.WriteString("\n")
-	return report.String()
+	return report.String(), ran == len(implementations)
+}
+
+// The banner's headline, in both of the sentences it can say.
+//
+// Held against outcome sets this test supplies rather than against the live map, because the live
+// map says whatever this run happened to record — which is one of the two sentences, never both,
+// and never the one that matters most on the run where it would have been wrong.
+func TestTheBannerTellsAPartialRunFromACompleteOne(t *testing.T) {
+	implementations, err := storeImplementations(".")
+	if err != nil {
+		t.Fatalf("the class of Store implementations: %v", err)
+	}
+	if len(implementations) < 2 {
+		t.Fatal("the headline is being held against a package with fewer than two implementations, where partial and complete cannot be told apart")
+	}
+
+	every := map[string]contractOutcome{}
+	for _, name := range implementations {
+		every[name] = contractOutcome{ran: true}
+	}
+	complete, everyRan := renderContractCoverage(implementations, every)
+	if !everyRan {
+		t.Error("every implementation was recorded as having run the contract and the banner does not call the run complete")
+	}
+	if !strings.Contains(complete, "FULL RUN") || strings.Contains(complete, "PARTIAL RUN") {
+		t.Errorf("every implementation ran the contract and the banner does not say FULL RUN:\n%s", complete)
+	}
+	if strings.Contains(complete, "DID NOT RUN") {
+		t.Errorf("every implementation ran the contract and the banner names one that did not:\n%s", complete)
+	}
+
+	// one short of the class, which is exactly the shape of a run with no database: the pgx
+	// contract skipped, the suite green, and this banner the only thing that says so
+	short := map[string]contractOutcome{}
+	for _, name := range implementations[1:] {
+		short[name] = contractOutcome{ran: true}
+	}
+	partial, allRan := renderContractCoverage(implementations, short)
+	// the boolean and the headline are the same fact, and they are asserted together because
+	// TestMain acts on the boolean while a reader acts on the word: the two disagreeing is a job
+	// that passes while its own banner says the run was partial
+	if allRan {
+		t.Errorf("%s was not held to the contract and the banner calls the run complete:\n%s", implementations[0], partial)
+	}
+	if !strings.Contains(partial, "PARTIAL RUN") || strings.Contains(partial, "FULL RUN") {
+		t.Errorf("%s was not held to the contract and the banner does not say PARTIAL RUN:\n%s", implementations[0], partial)
+	}
+	if !strings.Contains(partial, implementations[0]+" ") || !strings.Contains(partial, "DID NOT RUN") {
+		t.Errorf("the banner does not name %s as the implementation that did not run:\n%s", implementations[0], partial)
+	}
+	// the sentence that tells a reader what the `ok` line underneath it is worth
+	if !strings.Contains(partial, "a passing result below covers only") {
+		t.Errorf("a partial run's banner does not say what a passing result below it covers:\n%s", partial)
+	}
+	// and a run that recorded a REASON for not reaching an implementation says the reason rather
+	// than the generic line, because "no test held it to RunContract" and "there was no database"
+	// send an operator to two different places
+	explained := map[string]contractOutcome{implementations[0]: {reason: "no URMESSAGE_TEST_DSN in the environment"}}
+	for _, name := range implementations[1:] {
+		explained[name] = contractOutcome{ran: true}
+	}
+	explanation, _ := renderContractCoverage(implementations, explained)
+	if !strings.Contains(explanation, "no URMESSAGE_TEST_DSN in the environment") {
+		t.Errorf("the banner dropped the reason the implementation could not be held to the contract:\n%s", explanation)
+	}
 }
 
 // Every named type in this package whose method set covers every method of `type Store
@@ -243,7 +344,7 @@ func TestTheContractCoverageBannerReadsThisPackage(t *testing.T) {
 	if len(implementations) < 2 {
 		t.Fatal("the banner is being held against a package with fewer than two implementations, where partial and complete cannot be told apart")
 	}
-	coverage := contractCoverage()
+	coverage, _ := contractCoverage()
 	if !strings.Contains(coverage, fmt.Sprintf("of %d implementations", len(implementations))) {
 		t.Errorf("the banner does not count the derived class:\n%s", coverage)
 	}

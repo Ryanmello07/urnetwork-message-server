@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"errors"
+	"math"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -377,8 +378,18 @@ func (self *PgxStore) Fetch(ctx context.Context, request *FetchRequest) (*FetchR
 	if request.Limit != 0 {
 		limit = ptr(int64(request.Limit) + 1)
 	}
+	// §4.3.4's cursor is a u64 off the wire and §3.2's `record_id` is a signed bigint, so the
+	// conversion has a value the wire can carry and the column cannot. It is CLAMPED and not
+	// cast: `int64(1 << 63)` is negative, `$2 < record_id` is then true of every row, and a
+	// client that sent one would be handed the group's whole history under a cursor that never
+	// advances — on every poll, forever. A group's allocator cannot reach 2^63, so clamping to
+	// the largest id the column can hold answers the empty page the request actually asked for.
+	since := request.SinceRecordId
+	if since > math.MaxInt64 {
+		since = math.MaxInt64
+	}
 	rows, err := self.pool.Query(ctx, fetchQuery(request.HeadsOnly), request.GroupId,
-		int64(request.SinceRecordId), limit, int64(request.ClassMask))
+		int64(since), limit, int64(request.ClassMask))
 	if err != nil {
 		return nil, err
 	}

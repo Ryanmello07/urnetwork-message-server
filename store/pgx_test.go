@@ -14,8 +14,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-
-	"github.com/urnetwork/connect/protocol"
 )
 
 // The pgx implementation, against the contract every implementation of [Store] owes.
@@ -33,6 +31,11 @@ import (
 // silently did not run. Two things answer it: the skip message below says what did not happen
 // rather than what is missing, and the banner in coverage_test.go prints, after every run in
 // every mode, which implementations of [Store] were held to [RunContract] and which were not.
+//
+// The banner's own headline is what a reader actually scans for, and it is now held to saying
+// both of its sentences by TestTheBannerTellsAPartialRunFromACompleteOne. It was not: pinning
+// the word to "FULL RUN" in one line made every run report a clean sweep and left the suite
+// green, which is the failure the banner exists to announce, wearing the banner's own clothes.
 //
 // # Isolation
 //
@@ -62,94 +65,6 @@ func TestThePgxStoreMeetsTheContract(t *testing.T) {
 			pgxDsnVariable, pgxDsnVariable)
 	}
 	heldToTheContract(t, func(limits Limits) Store { return pgxSchemaStore(dsn, limits) })
-}
-
-// ── the two properties the interface's own comments decide, held while Submit is a stub ──
-
-// §4.3.2 and §4.5: a `group_id` that already exists is REASON_REJECTED, and is deliberately not
-// distinguished from a bad MAC.
-//
-// [RunContract] owns this property — TheFoundingCommitIsCheckedBeforeTheGroupExists and
-// AnUnavailableGroupIsOneAnswer/ASecondCreateOfTheSameIdIsRejected are where it lives — and
-// cannot reach it against this store yet, because both of those reach a second CreateGroup only
-// after a Submit, and [PgxStore.Submit] is not written. So the property this half of the store
-// is most able to get wrong is, for now, observed by nothing at all: a store that let the unique
-// violation out as a `23505` error would be told by no test in this package. This is that test,
-// and it comes out when the contract can run it.
-func TestAPgxGroupIdThatAlreadyExistsIsRefusedTheWayABadMacIs(t *testing.T) {
-	store := pgxTestStore(t, DefaultLimits())
-	ctx := context.Background()
-	group := testGroupId(0x11)
-	createGroup(t, store, group, testHandle(0x20))
-
-	again, err := store.CreateGroup(ctx, &CreateGroupRequest{
-		GroupId:           group,
-		InitialCommit:     commitRecord(testHandle(0x29), 0, 0, 1, 0x44),
-		BootstrapWriteKey: testBytes(EpochKeyBytes, 0x55),
-	})
-	// the error is the whole point. `INSERT` without `ON CONFLICT DO NOTHING` answers here with
-	// PostgreSQL's own text — the constraint's name, the table's name, and often the key's value
-	// — to a party that has just learned from the difference that the group exists
-	if err != nil {
-		t.Fatalf("CreateGroup on an existing group_id answered the error %v; §4.5 makes this a refusal a client could have caused, and the driver's own message names the constraint that fired", err)
-	}
-	if again.Reason != protocol.Reason_REASON_REJECTED {
-		t.Fatalf("CreateGroup on an existing id answered %v, want REASON_REJECTED", again.Reason)
-	}
-
-	// and the half the reason code alone does not hold: field for field the same result a group
-	// that does not exist gets for a malformed founding commit
-	malformed := commitRecord(testHandle(0x29), 0, 0, 1, 0x44)
-	malformed.Attachment.Epoch.ExpectedWrapCount = 0
-	badMac, err := store.CreateGroup(ctx, &CreateGroupRequest{
-		GroupId:           testGroupId(0x77),
-		InitialCommit:     malformed,
-		BootstrapWriteKey: testBytes(EpochKeyBytes, 0x55),
-	})
-	if err != nil {
-		t.Fatalf("CreateGroup: %v", err)
-	}
-	if !reflect.DeepEqual(again, badMac) {
-		t.Fatalf("a CreateGroup refused because the group already exists answered %+v and one refused for its own attachment answered %+v; every field that differs is a field an enumerator reads",
-			again, badMac)
-	}
-
-	// the refused create wrote nothing: the existing group is where it was
-	state := stateOf(t, store, group)
-	if state.CurrentEpoch != 1 || state.NextRecordId != firstRecordId+1 {
-		t.Fatalf("after a refused CreateGroup the group is at epoch %d and next_record_id %d, want 1 and %d", state.CurrentEpoch, state.NextRecordId, firstRecordId+1)
-	}
-}
-
-// §7.5 and §4.5: a closed group answers exactly as an unknown one does, everywhere.
-//
-// [RunContract]'s AnUnavailableGroupIsOneAnswer owns this too, and cannot reach it here for the
-// same reason — it opens its group with a Submit. What is held below is the part this half
-// implements: [PgxStore.GroupState] and [PgxStore.CloseGroup]. Fetch is the other half's.
-func TestAPgxGroupThatIsClosedAnswersLikeOneThatNeverExisted(t *testing.T) {
-	store := pgxTestStore(t, DefaultLimits())
-	ctx := context.Background()
-	group := createGroup(t, store, testGroupId(0x11), testHandle(0x20))
-	missing := testGroupId(0xEE)
-
-	if err := store.CloseGroup(ctx, group); err != nil {
-		t.Fatalf("CloseGroup: %v", err)
-	}
-	answers := map[string][2]error{
-		"GroupState": {errorOf(store.GroupState(ctx, group)), errorOf(store.GroupState(ctx, missing))},
-		// §7.5: a group closed twice is a group that is already unavailable, which is the same
-		// answer an unknown one gives
-		"CloseGroup": {store.CloseGroup(ctx, group), store.CloseGroup(ctx, missing)},
-	}
-	for method, pair := range answers {
-		closed, unknown := pair[0], pair[1]
-		if closed == nil || unknown == nil || !errors.Is(closed, unknown) {
-			t.Errorf("%s answered %v for a closed group and %v for an unknown one; §6.1 step (1) reads zero rows for both and §4.5 refuses to tell them apart", method, closed, unknown)
-		}
-		if !errors.Is(closed, ErrGroupUnavailable) {
-			t.Errorf("%s answered %v for a closed group, want %v", method, closed, ErrGroupUnavailable)
-		}
-	}
 }
 
 // ── the code this half adds that the contract does not own at all ────────────────────────

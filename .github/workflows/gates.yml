@@ -6,8 +6,12 @@
 # and the gate that replaced it ran only when somebody typed `go test` by hand. That is
 # strictly worse than the line it removed, and this is the half that was missing.
 #
-# There is no Postgres job here. Nothing in this module talks to one yet; §13's items 2, 4, 5
-# and the rest arrive with the store, and the service container arrives with them.
+# The Postgres service is here because the store arrived. §13's items 2, 4 and 5 are the store
+# contract, and half of it — [store.RunContract] against the pgx implementation — needs a real
+# database and skips without one. A skip contributes nothing to the `ok` line, so before this
+# service existed the job would have reported a green suite that executed §6.1's transaction
+# against PostgreSQL exactly zero times, with store/coverage_test.go's PARTIAL RUN banner
+# printing into a log nobody opens on a passing job.
 
 name: gates
 
@@ -21,6 +25,27 @@ permissions:
 jobs:
   gates:
     runs-on: ubuntu-latest
+
+    services:
+      # §3.1 makes the cluster's timezone normative and store.CheckClock asserts it at every
+      # pool, so the image matters less than the fact that there IS one. 17 is what the store
+      # is developed against.
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: urmessage_ci
+          POSTGRES_DB: urmessage_test
+        ports:
+          - 5432:5432
+        # the suite creates and drops a schema per contract scenario, so the job must not start
+        # until the cluster accepts connections; without the health check the first store built
+        # panics on a refused connection and the failure names the pool rather than the race
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
     steps:
       - uses: actions/checkout@v4
 
@@ -42,8 +67,21 @@ jobs:
       #
       # -v so the run prints PASS, FAIL and SKIP per test and not just a total: a suite counted
       # by its passes alone is how a failing test got committed here.
+      #
+      # The two variables are the same rule as -v, one level up. URMESSAGE_TEST_DSN is what makes
+      # the pgx half of the store contract RUN; URMESSAGE_REQUIRE_CONTRACT_COVERAGE is what makes
+      # this job fail if it somehow did not — a DSN typo, a service that never came up, a
+      # migration that panicked the harness — instead of passing with a banner saying so. A job
+      # that only sets the first one is a job whose most expensive coverage can vanish silently.
+      #
+      # The timeout is minutes rather than the five this job used to allow because the contract
+      # builds a schema per scenario and §3.4 puts 64 partitions on two of its tables, so the
+      # store package alone is several minutes of DDL before it asserts anything.
       - name: every gate and every suite
-        run: go test -v -run '.' -timeout 5m ./...
+        env:
+          URMESSAGE_TEST_DSN: postgres://postgres:urmessage_ci@127.0.0.1:5432/urmessage_test
+          URMESSAGE_REQUIRE_CONTRACT_COVERAGE: "1"
+        run: go test -v -run '.' -timeout 30m ./...
 
       - name: gofmt
         run: |
