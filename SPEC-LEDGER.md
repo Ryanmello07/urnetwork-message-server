@@ -370,6 +370,30 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     new plan -- and it is the piece that makes a message survive a restart, which the intermediate
     build in item 27 depends on. The sdk plan (~135 declarations, no plan yet) and the Windows
     client that is blocked on it come after.
+29. **CRITICAL: the proposal cache fails OPEN on replay, and the plan cannot close it.**
+    `(*ProposalCache).Resolve` reads neither `self.epoch` nor `self.groupId` -- verified by reading
+    the body, not inferred -- so a proposal cached in epoch N resolves in epoch N+1
+    unconditionally. `CheckEpoch` exists and has **exactly one caller in the whole tree**: `Store`,
+    on the content's OWN epoch, which is self-referential for the first entry. So the cache binds to
+    whatever is stored FIRST, and what is stored first is attacker-supplied: one replayed genuine
+    proposal from a closed epoch, delivered to a freshly cleared cache, seizes the binding.
+    **`grep CheckEpoch` over the p7 plan returns ZERO** -- no later task calls the method the task
+    invented to close the hole -- and the plan's own mitigation is `proposals.Clear()` at exactly
+    two hand-written call sites, which is an enumeration of the epoch-advancing paths rather than a
+    derived class. `Clear` itself is sound (a no-op is caught by
+    `TestCheckEpochAnswersTheBindingAndClearReleasesIt`); what is unheld is that anyone calls it.
+    **The fix requires changing a pinned signature** -- `Resolve` must be given an epoch to observe
+    -- so it must land before p7 Task 7, which compiles against it. Found 2026-08-30 by the p7 Task
+    6 reviewer, confirmed structurally by the owner.
+30. **Four distinct rules in the v1 profile gate all answer `errUnsupportedProposalType`, and the
+    file's own doc comment forbids exactly that.** The comment reads "One value per rule and never
+    one value shared by two ... a set of refusals that all reduce to one comparison is this
+    project's most repeated defect." The four are: a reserved code point, a code point not in the
+    registry, a nil proposal, and a forged wire discriminant. It is not cosmetic -- Task 6's
+    `ProposalCache.Store` and Task 7's ValSem113 are both named as this gate's first callers, and
+    they **cannot separate "a peer sent an unregistered type, drop the message" from "our own commit
+    builder produced a value whose ProposalRef every receiver will read differently".** Those need
+    opposite handling. Found 2026-08-30 by the p7 Task 4-5 reviewer.
 13. **A spec-conformant client cannot connect to a server without §9.1's signing sidecar.** §4.3.1
     requires `HelloResponse.server_keys` and requires a client to REFUSE a fleet whose first key does
     not verify against the compiled-in root, while decision B13 keeps every signing key off every
