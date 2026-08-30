@@ -335,6 +335,26 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     accessor lands uncovered and is fixed only when someone points at it. p7 has nineteen tasks
     left, several of which read an extension off a group context. This is ledger 21 in its concrete
     form and is the reason 21 is worth stating as a rule rather than as three bugs.
+25. **`FindExtension` changed shape and seven plan call sites still spell the old one.** Resolving
+    ledger 23 made the refusal live at the lookup, so `FindExtension` is now
+    `([]byte, bool, error)` and a new `FindExtensionEntry(exts, t) (Extension, bool, error)` sits
+    under it. In-tree blast radius was zero outside `mls`. **The plans are a different matter:**
+    `grep` finds ten references in p7, nine in p5, three each in the interface registry and p8, and
+    seven of them are written `x, ok := FindExtension(...)`. Any task that copies the plan literal
+    will not compile. The registry section that fixes the signature should be amended, and every
+    p7/p8 brief must say to read the signature from source. Found 2026-08-30.
+26. **ValSem209 is owed and now has a scope, so it is not re-derived later.** It is one clause over
+    a whole extensions vector -- no two entries share an `extension_type` -- and it must run at
+    THREE doors, not one: `GroupContext` validation (which is what `tree_sync`'s reconciliation
+    sits under), `LeafNode.Validate`'s extensions vector, and `KeyPackage` validation. It belongs
+    in the validation plan's catalogue beside ValSem106/109 and should be declared where
+    `ErrMissingRequiredCapability` is declared rather than in `mls`;
+    `TestNoValidationOwnedNameHasLandedBesideItsStandIn` already fails on the commit that lands the
+    real name. **When it lands, the lookup's refusal does not become dead and must not be deleted:**
+    `LeafKeysOf` and `GroupPolicyOf` are reached from paths whole-context validation does not sit in
+    front of -- a `LeafNode` read out of a `Welcome`, a `KeyPackage` validated on its own -- so
+    ValSem209 subsumes some of these calls and not all. Scoped 2026-08-30 by the p7 fix agent, which
+    deliberately did not implement a validation code point inside a fix commit.
 13. **A spec-conformant client cannot connect to a server without §9.1's signing sidecar.** §4.3.1
     requires `HelloResponse.server_keys` and requires a client to REFUSE a fleet whose first key does
     not verify against the compiled-in root, while decision B13 keeps every signing key off every
