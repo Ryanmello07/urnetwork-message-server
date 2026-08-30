@@ -394,6 +394,30 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     they **cannot separate "a peer sent an unregistered type, drop the message" from "our own commit
     builder produced a value whose ProposalRef every receiver will read differently".** Those need
     opposite handling. Found 2026-08-30 by the p7 Task 4-5 reviewer.
+31. **The cache replay fix traded integrity for availability, because binding-by-first-entry
+    survived it.** Item 29's fix put a door on `Resolve` and the replay is no longer APPLIED -- but
+    `Store` still takes the binding from whatever is cached first, and that is attacker-supplied.
+    Verified structurally: `Store` calls `CheckEpoch(content's own epoch)` and then assigns
+    `self.groupId`/`self.epoch` from that same content, and the ONLY release is `Clear`.
+    So one replayed GENUINE proposal from a closed epoch, delivered to a freshly cleared cache,
+    binds the cache to the closed epoch. The member can then neither cache the live epoch's
+    proposals (`Store` answers `errProposalCacheEpoch`) nor process any commit naming one (`Resolve`
+    answers `errProposalResolvedOutOfEpoch`), **and the binding never recovers**: `Clear` is the only
+    release and its only planned caller is `MergePendingCommit`, which needs a commit this member
+    can no longer resolve. **A permanent self-inflicted denial of service from one replayed genuine
+    message.** The root cause is the design: a cache's epoch must come from the GROUP'S
+    authoritative state, not from its first entry. Also unfixed: `Get` and `Pending` consult neither
+    field, and `CheckErrata8815` calls `Get` and reports "not cached for this epoch" -- a claim `Get`
+    cannot make. Found 2026-08-30 by the cache reviewer, confirmed structurally by the owner.
+32. **A derived gate that finds a call with `ast.Inspect` measures the TOKEN, not the discipline.**
+    The new epoch-mover gate sets its "ends the binding" finding from any `*ast.CallExpr` anywhere in
+    a body, never asking reachability -- so `if false { self.proposals.Clear() }` is a full-suite
+    survivor, and so is a `Clear()` placed after an early `return err`. **The plan itself has that
+    shape at line 8364**: `self.proposals.Clear()` immediately followed by
+    `if err := self.persist(); err != nil { return err }`, and swapping those two statements is a
+    one-line reorder the gate cannot see. The gate is also resolved by the receiver's TYPE and not
+    its IDENTITY, so clearing a DIFFERENT `*ProposalCache` satisfies it -- latent while `Group` has
+    one, live the moment Task 19 adds a past-epoch or staged cache. Found 2026-08-30.
 13. **A spec-conformant client cannot connect to a server without §9.1's signing sidecar.** §4.3.1
     requires `HelloResponse.server_keys` and requires a client to REFUSE a fleet whose first key does
     not verify against the compiled-in root, while decision B13 keeps every signing key off every
