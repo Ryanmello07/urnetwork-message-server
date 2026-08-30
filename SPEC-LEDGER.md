@@ -355,6 +355,21 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     front of -- a `LeafNode` read out of a `Welcome`, a `KeyPackage` validated on its own -- so
     ValSem209 subsumes some of these calls and not all. Scoped 2026-08-30 by the p7 fix agent, which
     deliberately did not implement a validation code point inside a fix commit.
+27. **DECIDED by the owner 2026-08-30: an intermediate internal-only build, before p7/p8 finish.**
+    The record layer and transport already carry a record end to end over two real
+    `connect.Client`s (CP3a, reached twice). Once the pgx store lands, that is enough to carry real
+    messages between two people -- encrypted in transit by connect's existing hybrid PQ, but
+    **without the MLS group ratchet underneath**. The owner wants that build, internal only, to
+    surface product problems no test finds. **The constraint that comes with it: the build itself
+    must make its own status unmissable** -- not a README, not release notes. A user of it must not
+    be able to mistake it for the secure product, and "we told them in the docs" is not a design.
+    The app's shape is NOT to be set by this layer; MLS slots underneath as p7/p8 land.
+28. **DECIDED by the owner 2026-08-30: the pgx store runs in parallel with p7, and comes before the
+    sdk plan.** The rationale accepted: the store has a designed schema (SS3.2), a 51-subtest
+    contract suite any implementation must pass, and an api layer to test against -- so it needs no
+    new plan -- and it is the piece that makes a message survive a restart, which the intermediate
+    build in item 27 depends on. The sdk plan (~135 declarations, no plan yet) and the Windows
+    client that is blocked on it come after.
 13. **A spec-conformant client cannot connect to a server without §9.1's signing sidecar.** §4.3.1
     requires `HelloResponse.server_keys` and requires a client to REFUSE a fleet whose first key does
     not verify against the compiled-in root, while decision B13 keeps every signing key off every
