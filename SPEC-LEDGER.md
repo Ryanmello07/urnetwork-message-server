@@ -251,6 +251,28 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     gets measured. **If it must be narrowed, the narrowing has to be DERIVED from what the merge
     touched, never written as a list of node indices**, or decision 68's hole comes straight back.
     Found 2026-08-29 by p5 Task 21.
+16. **p8's landing commit must swap 21 sentinel names across at least nine files, at once.** Since p4
+    Task 13, tasks have been landing error sentinels **unexported** because p8's plan declares their
+    exported spellings — `errDuplicatePsk` waiting for `ErrDuplicatePsk`, and so on. Each task recorded
+    the count it knew about: three after p4, five after p5 Task 21. **Derived on 2026-08-30 rather than
+    counted, the real figure is 21** of the 46 unexported `err*` sentinels in `mls` non-test source:
+    errApplicationMustBeCiphertext, errBadMembershipTag, errBadSignature, errBlankSenderLeaf,
+    errDecryptFailed, errDuplicateEncryptionKey, errDuplicatePsk, errDuplicateSignatureKey,
+    errMissingConfirmationTag, errMissingMembershipTag, errMissingRequiredCapability,
+    errNonZeroPadding, errPathDecrypt, errPathKeyMismatch, errPathLength,
+    errProfileCredentialType, errPskNonceLength, errPskType, errTrailingBlankNodes, errWrongEpoch,
+    errWrongGroupId. **`errNilLeafOccupancyTest` is NOT one of them** — it is an internal argument
+    guard with no exported twin and must not be swapped. p8 should plan for a single mechanical
+    commit across nine-plus files rather than discovering the list one compile error at a time.
+    Found 2026-08-30 by p6 Task 16.
+17. **The framing refusal roster is package-wide, not framing-scoped, and that is deliberate.** Every
+    way of fencing "framing" off is a file list or a type list — the exact shape rule 5 exists to
+    refuse — so the roster watches all of `mls`. It holds today with room to spare (103 of 103
+    refusals named by a test), but **p7 and p8 each add refusals and each will owe a test that names
+    the sentinel**, or `TestEveryRefusalThisPackageShipsIsNamedByATest` fails. Its naming rule is also
+    one hop deep, calibrated to the package as it stands; a sentinel driven from a table reached
+    through a second table reads as unnamed, and the fix is to lengthen the hop deliberately rather
+    than to add an exemption. Found 2026-08-30 by p6 Task 16.
 13. **A spec-conformant client cannot connect to a server without §9.1's signing sidecar.** §4.3.1
     requires `HelloResponse.server_keys` and requires a client to REFUSE a fleet whose first key does
     not verify against the compiled-in root, while decision B13 keeps every signing key off every
