@@ -273,6 +273,28 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     one hop deep, calibrated to the package as it stands; a sentinel driven from a table reached
     through a second table reads as unnamed, and the fix is to lengthen the hop deliberately rather
     than to add an exemption. Found 2026-08-30 by p6 Task 16.
+18. **p6 Task 20 is blocked on p7, so p6 closes at 19 of 20.** The plan files Task 20 as its only
+    wave-4 task and both construction-bypass seams take a `*Group`, which p7 declares. p6 is done
+    at 19; Task 20 runs after p7 lands the struct. Found 2026-08-30 by the p6 Task 20 agent, which
+    committed nothing rather than improvise a `Group` to build against.
+19. **The seam plan puts a test-only hole in a shipped file, and the gate hatch would pass it.** The
+    plan names `connect/mls/framing_group_seams.go` -- a NON-test file, so both seams compile into
+    every binary that imports `mls`. The uncalled-declaration gate does catch them, but the
+    documented way to quiet that gate is an entry in `packageDeclarationsAwaitingTheirFirstCaller`,
+    and that map's whole safety argument is expiry-by-failure: an entry dies on the commit that
+    gives its declaration a production caller. **A seam has no such commit, ever.** So the one entry
+    that must never be written is also the only kind the map cannot expire. The file must be
+    `framing_group_seams_test.go` -- same package, same two signatures, p8 compiles unchanged -- and
+    the hatch should be closed before Task 20 runs, so the wrong path FAILS rather than being
+    discouraged by a comment. Pin `errNilLeafOccupancyTest` in both directions when closing it: it
+    is named like a test seam and is a genuine internal guard. Found 2026-08-30 by p6 Task 20.
+20. **p6 Task 20's literal code does not compile against p7's struct.** It calls
+    `self.keySchedule.Secrets()`; p7 declares the field as `schedule *KeySchedule`. p7 owns the
+    struct, so Task 20 moves. The other three coupling points were checked and are correct as
+    written: `self.crypto`, `self.secretTree`, and `EpochSecrets.Membership`/`.SenderData`. Recorded
+    so it is not re-litigated: the plan passes `padding []byte` to the unexported
+    `sealPrivateMessage`, and that is the signature that exists (only the exported
+    `SealPrivateMessage` takes `paddingSize int`), so ValSem011 non-zero padding is expressible.
 13. **A spec-conformant client cannot connect to a server without §9.1's signing sidecar.** §4.3.1
     requires `HelloResponse.server_keys` and requires a client to REFUSE a fleet whose first key does
     not verify against the compiled-in root, while decision B13 keeps every signing key off every
