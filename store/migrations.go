@@ -15,17 +15,16 @@ import (
 //
 // # Which of §3.2's fourteen tables are here
 //
-// Seven: the ones a method of [Store] reads or writes. §3.2 also defines `message_blob`,
-// `message_group_usage`, `message_kt_gossip`, `message_recovery`, `message_diagnostic_session`,
+// Eight: the ones a method of [Store] reads or writes. §3.2 also defines `message_blob`,
+// `message_group_usage`, `message_kt_gossip`, `message_diagnostic_session`,
 // `message_rendezvous` and `message_rendezvous_deposit`, and every one of them belongs to a
 // subsystem this interface does not reach — the blob lifecycle of §8, the sweep's soft rollups
-// of §7.4, the gossip cache of §9.5, the seed-only restore of §4.3.7, §11.5's diagnostic
-// sessions and §4.3.11's rendezvous. Creating them now would ship schema that nothing in this
-// module reads, writes or tests, and the list is append-only precisely so each one can arrive
-// with the code that uses it.
+// of §7.4, the gossip cache of §9.5, §11.5's diagnostic sessions and §4.3.11's rendezvous.
+// Creating them now would ship schema that nothing in this module reads, writes or tests, and
+// the list is append-only precisely so each one can arrive with the code that uses it.
 //
-// The one that will arrive soonest is `message_recovery`: §6.1 step (6c) writes it inside the
-// submit transaction, so it lands with [Store.Submit] rather than with this half.
+// `message_recovery` is the eighth, and it arrived with [Store.Submit]: §6.1 step (6c) writes it
+// inside the submit transaction, so it could not land with the half that had no Submit.
 //
 // # Append-only, and how that is held
 //
@@ -277,6 +276,89 @@ CREATE TABLE message_sender (
     PRIMARY KEY (group_id, sender_handle),
     CHECK (octet_length(group_id) = 32),
     CHECK (octet_length(sender_handle) = 16)
+);
+`),
+
+	// ── 005b  the number a marker is held to ─────────────────────────────────────────
+	//
+	// §6.1 step (6b) opens a group only on a marker "whose wrap_count equals THAT EPOCH's
+	// expected_wrap_count", and §3.2's `message_epoch` has no column for it — the number arrives
+	// in the commit's `EpochAttachment` and §3.2 stores that attachment's two keys and nothing
+	// else of it. Without the column the condition has no second operand, and the shape a store
+	// reaches for instead is the marker's own `wrap_count` compared against itself, which is an
+	// unconditional open: any committer could then declare the fan-out complete at any count, and
+	// §6.1's epoch publication step 4 has every member with no wrap surface a `no_wrap` gap
+	// against an epoch the server called finished.
+	//
+	// It is on `message_epoch` rather than derived from `opened_by_record` because that is where
+	// §6.1 puts it in words — an epoch's expected count — and because a derivation through the
+	// commit record would make step (6b) depend on a record row surviving §7.2 rather than on the
+	// epoch row §5.3 already keys custody on.
+	newSqlMigration("005b message_epoch expected_wrap_count", `
+ALTER TABLE message_epoch
+    ADD COLUMN expected_wrap_count bigint NOT NULL DEFAULT 0;
+`),
+
+	// ── 005c  the rest of §5.4's attachment projection ───────────────────────────────
+	//
+	// §3.2 gives `message_record` two extracted projections of `server_attachment` —
+	// `recovery_handle` and `wrap_target_handle` — because those two are the ones it INDEXES
+	// (Q6 and Q10). They are not the whole projection, and store.go's [Record] says so in the
+	// same breath: "§3.2 keeps both: the bytes are what was authenticated and the projections are
+	// what the server acts on". §6.1 steps (6), (6b) and (6c) act on fields neither indexed column
+	// carries — the retention policy a commit published, the `expected_wrap_count` it announced,
+	// the `verify_pub` the TOFU gate pins, the `leaf_index` that tells a snapshot from a device
+	// wrap — and [Store.Fetch] hands the parsed attachment back to its caller.
+	//
+	// They cannot be re-derived from the bytes here. §4.3.3 makes `connect/message` the only
+	// parser of `server_attachment` and the API layer the only caller of it; a store that
+	// re-parsed would be the second parser store.go's missing `record_bytes` field exists to
+	// prevent, and it would be parsing bytes this package never validated.
+	//
+	// The two KEYS of an `EpochAttachment` are deliberately NOT here. §5.3 keeps write and read
+	// keys wrapped under §5.5's KEK on `message_epoch`, and retains the current epoch's write key
+	// plus one briefly-retired predecessor and nothing older; an unwrapped copy on every commit
+	// record would defeat the wrap and would retain every epoch's key for the life of the group.
+	// They are read back from `message_epoch` under the epoch the attachment names, which is the
+	// one place §5.3 puts them.
+	newSqlMigration("005c message_record attachment projection", `
+ALTER TABLE message_record
+    ADD COLUMN attachment_kind                smallint NOT NULL DEFAULT 0,
+    ADD COLUMN attachment_epoch               bigint   NULL,
+    ADD COLUMN attachment_alg_id              bigint   NULL,
+    ADD COLUMN attachment_media_ttl_seconds   bigint   NULL,
+    ADD COLUMN attachment_durable_ttl_seconds bigint   NULL,
+    ADD COLUMN attachment_group_context_hash  bytea    NULL,
+    ADD COLUMN attachment_expected_wrap_count bigint   NULL,
+    ADD COLUMN attachment_leaf_index          bigint   NULL,
+    ADD COLUMN attachment_verify_pub          bytea    NULL,
+    ADD COLUMN attachment_wrap_count          bigint   NULL;
+
+ALTER TABLE message_record
+    ADD CONSTRAINT message_record_attachment_verify_pub
+        CHECK (attachment_verify_pub IS NULL OR octet_length(attachment_verify_pub) = 32),
+    ADD CONSTRAINT message_record_attachment_context_hash
+        CHECK (attachment_group_context_hash IS NULL OR octet_length(attachment_group_context_hash) = 32);
+`),
+
+	// ── 009  recovery verification keys (§4.3.7) ─────────────────────────────────────
+	//
+	// §3.2's own table and its own label. It is the pin §6.1 step (6c) compares a `RecoveryTag`
+	// against: trust on first use, scoped to one group, so a handle a member archived under one
+	// group's key cannot be rebound by an attacker who knows the handle. Unpartitioned, as §3.2
+	// leaves it — it holds one row per (group, recovery handle) rather than one per record.
+	newSqlMigration("009 message_recovery", `
+CREATE TABLE message_recovery (
+    group_id        bytea NOT NULL,
+    recovery_handle bytea NOT NULL,
+    verify_pub      bytea NOT NULL,
+    alg_id          int   NOT NULL,
+    first_seen      timestamp NOT NULL DEFAULT now(),
+
+    PRIMARY KEY (group_id, recovery_handle),
+    CHECK (octet_length(group_id) = 32),
+    CHECK (octet_length(recovery_handle) = 16),
+    CHECK (octet_length(verify_pub) = 32)
 );
 `),
 }
