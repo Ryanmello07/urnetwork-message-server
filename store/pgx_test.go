@@ -183,6 +183,49 @@ func TestThePgxMigrationsRunOnceAndAreAppendOnly(t *testing.T) {
 	}
 }
 
+// §3.4's 64 partitions, all of them, on every partitioned table the migrations built.
+//
+// [partitionsOf] generates them in a loop, and the failure mode of a generated loop is not a
+// migration that fails: MODULUS 64 with 63 partitions is legal DDL, and what it produces is one
+// INSERT in sixty-four failing at runtime with "no partition of relation found for row", on
+// whichever groups happen to hash into the missing remainder. Nothing else in this package would
+// notice — the contract's fixtures are a handful of fixed group ids and they land where they land.
+//
+// The class is the catalog's: every partitioned table (relkind 'p') in the schema the migrations
+// just built, rather than the two this file could name. A third one added by a later migration is
+// held to the same count without anybody remembering to add it here.
+func TestEveryPartitionedTableGetsAllOfItsPartitions(t *testing.T) {
+	store := pgxTestStore(t, DefaultLimits())
+	rows, err := store.pool.Query(context.Background(), `
+        SELECT parent.relname, (SELECT count(*) FROM pg_inherits WHERE inhparent = parent.oid)
+          FROM pg_class parent
+          JOIN pg_namespace space ON space.oid = parent.relnamespace
+         WHERE space.nspname = current_schema() AND parent.relkind = 'p'`)
+	if err != nil {
+		t.Fatalf("pg_class: %v", err)
+	}
+	defer rows.Close()
+	counted := 0
+	for rows.Next() {
+		var table string
+		var partitions int
+		if err := rows.Scan(&table, &partitions); err != nil {
+			t.Fatalf("pg_class: %v", err)
+		}
+		counted++
+		if partitions != recordPartitions {
+			t.Errorf("%s has %d partitions and §3.4 creates %d unconditionally; the missing remainders are the groups whose every INSERT fails at runtime", table, partitions, recordPartitions)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("pg_class: %v", err)
+	}
+	if counted == 0 {
+		t.Fatal("the migrated schema holds no partitioned table at all, so this gate counted nothing; §3.4 partitions message_record and message_stream_claim from day one")
+	}
+	t.Logf("%d partitioned tables, each with %d partitions", counted, recordPartitions)
+}
+
 // §5.5's wrap format, and what it is bound to.
 //
 // No database: this is arithmetic over bytes, and it is the one piece of this store a stolen
