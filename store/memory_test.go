@@ -12,6 +12,12 @@ import "testing"
 // for, so a contract that could only build a store one way could not reach the clamp, the
 // floor, or REASON_RETENTION_CLAMPED at all — the whole of §6.1 step (6) was arithmetic no
 // scenario could observe.
+//
+// It goes through [heldToTheContract] rather than calling RunContract directly so that the
+// banner in coverage_test.go can say which implementations this run covered. That is not
+// bookkeeping for its own sake: the pgx contract skips without a database, a skip contributes
+// nothing to the `ok` line, and without the banner a run that exercised one of the two
+// implementations reads exactly like a run that exercised both.
 func TestTheMemoryStoreMeetsTheContract(t *testing.T) {
-	RunContract(t, func(limits Limits) Store { return NewMemoryStore(limits) })
+	heldToTheContract(t, func(limits Limits) Store { return NewMemoryStore(limits) })
 }

@@ -117,6 +117,27 @@ func (self rule) covers(path string) bool {
 // of them for one enum — and a list of those would be a list of somebody else's implementation
 // detail. It arrived with store naming the Reason codes of §4.5, which is the first import of
 // connect this module has.
+//
+// The last four are the day the paragraph above predicted. pgx landed on 2026-08-30 with the
+// store's §3.2 schema and §4.3.2 transaction, and it does not link alone: `pgx/v5/pgconn` imports
+// pgpassfile and pgservicefile — a libpq-compatible DSN resolves `~/.pgpass` and `pg_service.conf`
+// whether or not this module's configuration uses either — and `pgx/v5/pgxpool` imports puddle,
+// which is jackc's own generic resource pool split into its own module, which imports
+// golang.org/x/sync/semaphore. So this is the linking argument google.golang.org/protobuf is
+// already here on: §2.2 allows pgx, a package cannot be linked without the packages it imports,
+// and allowing pgx while refusing these allows a package that cannot be built.
+//
+// pgxpool rather than a bare connection is §3.1's own instruction, verbatim — "the pgx pool MUST
+// set it explicitly: pool_config.ConnConfig.RuntimeParams[\"timezone\"] = \"UTC\"" — so puddle
+// and x/sync arrive with the normative half of §3.1 and not with a convenience.
+//
+// They are written down here, one at a time with the reason, rather than derived the way
+// connect's closure is. connect's is derived because it is thirty modules of somebody else's
+// implementation detail — quic-go, the whole of pion, gvisor's netstack — and a typed list of
+// those would be thirty chances to widen the rule by one character. This is four, all four are
+// on the critical path of every query this module makes, and each of them being looked at
+// individually is what §2.2's rule is for. If a fifth arrives, it fails this gate and is looked
+// at, which is the behaviour a derivation over pgx would have removed.
 var allowedDependencies = []rule{
 	{path: "github.com/urnetwork/server"},
 	{path: "github.com/urnetwork/connect"},
@@ -129,6 +150,10 @@ var allowedDependencies = []rule{
 	{path: "github.com/minio/minio-go/v7", subtree: true},
 	{path: "github.com/prometheus/client_golang", subtree: true},
 	{path: "google.golang.org/protobuf", subtree: true},
+	{path: "github.com/jackc/pgpassfile"},
+	{path: "github.com/jackc/pgservicefile"},
+	{path: "github.com/jackc/puddle/v2", subtree: true},
+	{path: "golang.org/x/sync", subtree: true},
 }
 
 // What §2.2 FORBIDS by name, plus the one §5.3 forbids by name. Redundant against the allow
