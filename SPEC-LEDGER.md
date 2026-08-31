@@ -492,6 +492,62 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     on purpose -- those are the row lock and `complete` at the exact limit boundary -- so it was
     missing coverage rather than a decision. Found 2026-08-30 by the pgx Submit/Fetch reviewer.
 
+37. **A closed group told you its epoch and an unknown one did not — and the gate's TYPE forbade
+    the method that showed it.** Measured against both live implementations: `MemoryStore` answered
+    a submit to a closed group `reason=REASON_REJECTED current_epoch=1` where `PgxStore` answered
+    `current_epoch=0`, because `MemoryStore` refused through `refuseBatch`, which calls
+    `fillCurrentEpoch`, while `PgxStore` reads the group row with `AND NOT closed` and so had
+    nothing to fill from. §4.5 and §7.5 require the two to be indistinguishable, so the merged
+    reason code was doing its job and the field beside it was undoing it. **This is the second time
+    the reference model has been the permissive one** (item 35 was the first) and **the second time
+    a fix has been scoped to a FIELD rather than to the class** — item 34 closed exactly this for
+    `record_id`, and `current_epoch` survived in the next field along. The fix is therefore the
+    class: `refuseUnavailable` now replaces the WHOLE `SubmitResult` with a zero value carrying
+    only the code, so a sixth field added tomorrow is empty on that path by construction, and both
+    implementations refuse through that one function. `EpochKeys` was the other half — both
+    implementations read the epoch row without joining `message_group`, so a closed group served
+    the keys an unknown one refused; it now joins, in the statement rather than in a second one.
+    **Reachability, stated precisely:** the leak reaches the wire (`api/submit.go`'s `resultOf`
+    copies `current_epoch` unconditionally, and must — §4.5 gives `REASON_EPOCH_STALE` that field)
+    but only for a party that already holds the group's write key, since §5.1 check 6 runs first.
+    It is a normative divergence and a state disclosure, **not** an existence oracle to an
+    outsider. **The gate that could not see it is the more interesting half.** `contract.go`'s
+    `AClosedGroupIsTheSameAnswerAsAnUnknownOne` held `map[string][2]error` over three of `Store`'s
+    six methods; `EpochKeys` was absent and `Submit` was *unrepresentable*, because Submit answers
+    with a struct and not an error. **That is worse than an enumeration — an enumeration can be
+    extended, and this one's TYPE excluded the failing member** — and the line above it submitted to
+    the closed group and asserted the reason code alone. 118 contract subtests per implementation,
+    and the divergence sailed through. It now derives its class from `type Store interface` at run
+    time, calls all six, and compares the whole answer against the partner's and against the answer
+    both owe. **CLOSED 2026-08-30.** Found 2026-08-30 by the closed-group reviewer.
+38. **§7.5 says a closed group still serves `Fetch` and this build refuses it, so it now refuses
+    epoch keys too.** §7.5's definition is "submits are rejected with `REASON_REJECTED`; fetch is
+    still served, so members can read what they have." Both implementations refuse `Fetch` for a
+    closed group, `contract.go` asserts that they do, and `store.go`'s interface doc states the
+    stricter rule in as many words: "a closed group answers `ErrGroupUnavailable` everywhere
+    afterwards, exactly as an unknown one does." The stricter reading is the one item 37's fix
+    extends to `EpochKeys`, and it has to be extended somewhere: a build that refuses fetch while
+    serving the read key that authorizes it serves a key for a page nothing will return, and the
+    difference between the two answers is the existence answer §4.5 withholds. **§7.5 and the
+    interface cannot both be right.** The spec should say which, and if fetch is genuinely still
+    served then §5.1.1's check 6 has to be served with it and the indistinguishability of §4.5 has
+    to be restated for the methods it does not cover. Found 2026-08-30 by the closed-group reviewer.
+39. **§6.1's step (0) runs in front of §7.5's sentence, so a closed group still answers a retry
+    with `REASON_OK` and a record id.** §6.1 is explicit that the idempotency probe is "before any
+    gate, before any allocation, and before the row lock of step (1)", and both implementations read
+    it that way — `MemoryStore` from its claim map and `PgxStore` from `message_stream_claim` on the
+    pool, neither joining the group row. So a record that landed before the close is answered
+    `REASON_OK{record_id}` on retry, and a stream index reused with different content is answered
+    `REASON_STREAM_INDEX_REUSED`, where §7.5 says a closed group's submits are rejected with
+    `REASON_REJECTED`. This is **not** a divergence — the two implementations agree, and the
+    behaviour follows from §6.1's stated step order — so it is left alone and pinned by
+    `ACloseDoesNotReachTheTwoAnswersInFrontOfTheRowLock` rather than changed under a brief that did
+    not ask for it. Closing it costs a `message_group` read inside step (0), which §6.1 put the
+    probe in front of the lock precisely to avoid; the cheap form is an `EXISTS` in the same
+    statement, not a second round trip. **The field beside the code was not left alone**: both
+    answers now carry no `current_epoch`, which is item 37's rule reaching the two paths a fix
+    scoped to step (1) does not. §7.5 should say whether its sentence outranks §6.1's step order.
+    Found 2026-08-30 by the closed-group reviewer.
 13. **A spec-conformant client cannot connect to a server without §9.1's signing sidecar.** §4.3.1
     requires `HelloResponse.server_keys` and requires a client to REFUSE a fleet whose first key does
     not verify against the compiled-in root, while decision B13 keeps every signing key off every
