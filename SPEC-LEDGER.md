@@ -560,6 +560,22 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     replica. That is not a defect in B13; it is a gap in what §4.3.1 says a partial deployment can do.
     Found 2026-08-26 by `peer/`.
 
+40. **The `sdk` surface has seventeen open questions and three of them are schema decisions that
+    must be ruled before the plan after next starts.** The full list is the Open items section of
+    `docs/plans/2026-08-30-slice2-s1-sdk-surface.md`, which is the durable copy; it is not restated
+    here, because a second copy with nothing holding the two together is the ungated-agreement shape
+    item 7 already records. The three that cannot wait: **the pin primary key collapses** — §8.1 keys
+    `pin` by `(principal, operator_host)` while §7.3b leaves `Principal` empty for a card-added
+    contact and §7.6 leaves `OperatorHost` empty for a card-provided key, so two card-added contacts
+    share the key `("", "")` and the second silently overwrites the first, which is exactly the state
+    in which no `KeyChangeWarning` fires; **`StoredEntry` is undefined** and §8.2's "fourteen methods,
+    that bound is the point" omits every table §8.1 itself lists, five of which are read directly by
+    §7 declarations; and **no JSON field naming is specified anywhere**, while every value struct
+    crosses the ABI as JSON, Spec C parses it with nlohmann and §9.3's `settings_json` documents
+    snake_case. The first two are schema decisions and ruling either after rows exist is a migration.
+    The third must be ruled before the ABI baseline is committed, or every later correction becomes a
+    baseline-break ceremony. Found 2026-08-30 while writing the s1 plan.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
@@ -960,3 +976,77 @@ refusal dropped rather than queued when the refusal queue is full. Both are `REA
 client reading §4.5 will treat as a permanent verdict about its request. A `REASON_BUSY` — or a
 statement that `REASON_RATE_LIMITED` covers resource exhaustion as well as §4.7's limiter — would let a
 client tell "retry" from "do not".
+
+---
+
+### 2026-08-30 — The first `sdk` plan: s1, the messaging surface and its shape
+
+**Change:** Added `docs/plans/2026-08-30-slice2-s1-sdk-surface.md` (2,021 lines, 16 tasks) — the first
+plan for Spec A §7, §8 and §9, none of which had one. It declares the whole §7 surface: 212 pinned
+declarations, 44 value structs, 16 `*List` wrappers, 21 listener interfaces, three behavioural
+handles, the closed vocabularies, and the exportability gate. Added open item 40 above.
+
+**Why:** Every other component of this project has a plan — `docs/plans/` holds p1 through p8 for the
+MLS core — and the `sdk`, which is the product surface and the thing Spec C builds against, had none.
+The surface is also the one piece that must land in a single wave: §7.8's gate operates over the whole
+type graph, and a half-declared graph fails for reasons that look like unrelated breakage.
+
+**Written under three rules taken from this ledger, and this is the part worth keeping.**
+
+*It supplies no test code.* Across p1–p7 the implementers found roughly thirty plan-supplied tests
+that could not fail — nine consecutive p1 tasks, three `CheckRoundTrip` tests against a version that
+discarded its own comparison, and p6 Task 23's five tests that as a set could not fail against 16 of
+26 mutations. Every task in this plan states the property, the refusal that property owes, and a
+numbered mutation set the implementer must run two-phase (ledger 12b). The implementer derives the
+test.
+
+*Signatures are read from source, never from the plan* (ledger 25), stated at the top and repeated in
+the source file the plan creates.
+
+*Every gate derives its class AND its scope* (ledger 21). The plan carries a live instance of the
+failure it is written against: the decomposition it was given said the surface has "16 closed
+vocabularies", §9.5 rule 7 names seventeen, and measuring against §7's own declarations found **at
+least eighteen more**, over 36 distinct value sets. The vocabulary task is therefore written as a
+derivation with an explicit *unclassified is a failure* third bucket, and the count is offered only as
+evidence that counting is what produced §9.5's seventeen.
+
+**Five things measured rather than assumed**, each of which changed a task:
+
+1. `) *Sub` occurs **zero** times in the existing `sdk` and every `Add*Listener` returns `Sub` by
+   value, while §7 spells `*Sub` on all **ten** of its listener declarations (the brief said ~21;
+   the measured number is 10). The cgo generator will not catch it: `classify` unwraps the pointer to
+   the named `Sub`, which is in `gen.go`'s `behavioralTypes` allowlist, so a pointer-to-interface
+   classifies as a handle and the ABI gate passes.
+2. An **empty but non-nil** `*List` marshals as `null`, not `[]`, because `exportedList.values` is a
+   nil slice — so even a freshly constructed list breaks an nlohmann parse expecting an array. A
+   `*List` held as a value marshals as `{}`. Both verified by running, along with the fix: a
+   shadowing `MarshalJSON` on each wrapper, because changing `exportedList` itself would alter the
+   shipped VPN DLL's JSON.
+3. `sdk/dependency_graph_test.go`'s helper `t.Fatal`s on a `go.mod` with no pion lines, so the new
+   `sdk/surface` module must require `github.com/urnetwork/sdk` to have any — a trap that would have
+   fired the moment the module joined the hardcoded artifact list.
+4. §7.8's `TestMessageSurfaceIsExportable` cannot run the generator's walk (it is `package main` in a
+   separate module) and would be **weaker** than advertised if it could, because `gen.go:406` returns
+   json for any named struct without walking its fields. The plan builds a stronger re-derivation plus
+   an AST drift gate, and says so rather than repeating §7.8's sentence.
+5. The `sdk` repository has **no** `.github` directory, no `.gitattributes` and no CI of any kind, and
+   the root module does not currently build in this workspace at all — `../goidenticons` is absent.
+   Both are stated as preconditions rather than discovered by the implementer.
+
+**Positions taken where the spec is silent, labelled as positions and not as readings:**
+`MessageSendTicket` declares `Cancel()` and **not** `Await()` (its return type is specified nowhere
+and gomobile has no exclusion list, so a blocking `Await` would bind into the AAR and the Apple
+framework irreversibly); `GroupListener` has one method, not the second one §7.2 adds in prose;
+snake_case JSON tags with no `omitempty`; and `Seq`/`Dropped` are transcribed exactly as §7 declares
+them rather than added to the four payloads §9.5 rule 6 claims carry them. Each is recorded in the
+plan's Open items with the alternative it rejected.
+
+**Reviewed by:** the author, against source in three repositories rather than against the brief. Four
+claims inherited from the decomposition were checked and one was wrong (the `*Sub` count); the other
+three — 15 proto request arms with no key-package transport, `extension_types = [0xF001, 0xF002]`, and
+`mls.MaxGroupMembers`/`MaxDeviceLeavesPerIdentity` existing today — were confirmed.
+
+**Notes:** The plan carries one deliverable that is not a task's code: `Task 16` writes the slice-2
+interface registry, the analogue of `2026-08-12-slice1-interface-registry.md`, and puts its
+machine-readable pending-pin table in `sdk` rather than in this repository — because a markdown table
+here and a Go gate there that must "agree" is precisely the ungated claim item 7 records.
