@@ -355,15 +355,21 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     front of -- a `LeafNode` read out of a `Welcome`, a `KeyPackage` validated on its own -- so
     ValSem209 subsumes some of these calls and not all. Scoped 2026-08-30 by the p7 fix agent, which
     deliberately did not implement a validation code point inside a fix commit.
-27. **DECIDED by the owner 2026-08-30: an intermediate internal-only build, before p7/p8 finish.**
-    The record layer and transport already carry a record end to end over two real
-    `connect.Client`s (CP3a, reached twice). Once the pgx store lands, that is enough to carry real
-    messages between two people -- encrypted in transit by connect's existing hybrid PQ, but
-    **without the MLS group ratchet underneath**. The owner wants that build, internal only, to
-    surface product problems no test finds. **The constraint that comes with it: the build itself
-    must make its own status unmissable** -- not a README, not release notes. A user of it must not
-    be able to mistake it for the secure product, and "we told them in the docs" is not a design.
-    The app's shape is NOT to be set by this layer; MLS slots underneath as p7/p8 land.
+27. **REVERSED, same day. There is no intermediate build; CP3b remains the bar.** This item first
+    recorded a decision to build an internal-only messenger before p7/p8 finished. **The question
+    that produced it was put to the owner without checking `PROGRESS.md`, which had already ruled
+    on it** -- the checkpoint section and its restatements distinguish **CP3a** (a record travels
+    end to end, opaque bytes, test-only key source, in process; *"Nothing is invited to CP3a but
+    us"*) from **CP3b** (the same path with the real MLS key schedule underneath; *"the bar for
+    anything a human is invited to send a real message through"*). The rejection of a quicker
+    vertical slice is recorded there with its reason: *"in a privacy product a build that sends
+    unprotected traffic is a hazard the moment it exists, because it looks exactly like the real
+    thing to anyone testing it."* That objection already answers the mitigation this item proposed
+    -- "unmissable in-product status" does not help when the whole complaint is that testers cannot
+    tell. On being shown the conflict the owner reversed to **"Drop it -- CP3b is the bar."**
+    Nothing had been built on it. **The process lesson, which is the durable part: a ruling in
+    `PROGRESS.md` outranks a fresh answer to a question framed without it, and the honest move is
+    to surface the conflict rather than bank the answer.**
 28. **DECIDED by the owner 2026-08-30: the pgx store runs in parallel with p7, and comes before the
     sdk plan.** The rationale accepted: the store has a designed schema (SS3.2), a 51-subtest
     contract suite any implementation must pass, and an api layer to test against -- so it needs no
