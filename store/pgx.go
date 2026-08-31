@@ -279,12 +279,19 @@ func (self *PgxStore) GroupState(ctx context.Context, groupId []byte) (*GroupSta
 // §5.1 check 6 on the submit path and §5.1.1's read-key lookup on the read path (Q9, Q15): a
 // primary-key lookup on the epoch the caller named, and never a scan over the ones it did not.
 //
-// Three different histories reach the one `ErrEpochKeyUnknown` here — an epoch that never
-// existed, one whose write key the 60-second tidy took and whose read key aged out, and a group
-// that does not exist at all — and §5.1.1 is why they are not told apart. A row that has been
-// emptied of both keys is not a row this method has anything to return: its `alg_id` and
-// `opened_by_record` would confirm that the epoch once existed, which is the fact the caller
-// holding no key is not entitled to.
+// FOUR different histories reach the one `ErrEpochKeyUnknown` here — an epoch that never
+// existed, one whose write key the 60-second tidy took and whose read key aged out, a group that
+// does not exist at all, and a group that is closed — and §5.1.1 is why they are not told apart.
+// A row that has been emptied of both keys is not a row this method has anything to return: its
+// `alg_id` and `opened_by_record` would confirm that the epoch once existed, which is the fact
+// the caller holding no key is not entitled to.
+//
+// The fourth is why `message_group` is joined rather than the epoch row read on its own. §7.5
+// makes a closed group unavailable and every other method here reads it through `AND NOT
+// closed`; this one did not, so a closed group served its keys while an unknown one refused —
+// the difference between the two answers being the existence answer §4.5 withholds. It is a
+// join and not a second statement because two statements are two snapshots, and a group closed
+// between them would answer with keys it no longer owes.
 func (self *PgxStore) EpochKeys(ctx context.Context, groupId []byte, epoch uint64) (*EpochKeys, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -300,10 +307,11 @@ func (self *PgxStore) EpochKeys(ctx context.Context, groupId []byte, epoch uint6
 	var openedByRecord *int64
 	var acceptTime time.Time
 	err := self.pool.QueryRow(ctx, `
-        SELECT epoch, write_key_wrapped, read_key_wrapped, read_key_install,
-               alg_id, opened_by_record, accept_time, retire_time
-          FROM message_epoch
-         WHERE group_id = $1 AND epoch = $2`, groupId, int64(epoch)).
+        SELECT e.epoch, e.write_key_wrapped, e.read_key_wrapped, e.read_key_install,
+               e.alg_id, e.opened_by_record, e.accept_time, e.retire_time
+          FROM message_epoch e
+          JOIN message_group g ON g.group_id = e.group_id
+         WHERE e.group_id = $1 AND e.epoch = $2 AND NOT g.closed`, groupId, int64(epoch)).
 		Scan(&stored, &writeWrapped, &readWrapped, &readKeyInstall,
 			&algId, &openedByRecord, &acceptTime, &retireTime)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -1454,6 +1462,10 @@ func pinRecoveryHandle(ctx context.Context, transaction pgx.Tx, groupId []byte, 
 //
 // The record_id is not touched here. [resultsOf] takes it off every result this leaves refused,
 // once, for both implementations and for whatever refuses next.
+//
+// There is always an offender. The one refusal that has none is §6.1 step (1)'s, where nothing
+// about the batch was wrong and the group row was simply not there, and that one answers through
+// [refuseUnavailable] rather than through this.
 func (self *PgxStore) refuse(ctx context.Context, q queryer, groupId []byte, batch []*pending,
 	offender *pending, reason protocol.Reason, currentEpoch uint64) (*SubmitResponse, error) {
 
@@ -1461,7 +1473,7 @@ func (self *PgxStore) refuse(ctx context.Context, q queryer, groupId []byte, bat
 		if current.probe == probeIdentical {
 			continue
 		}
-		if offender == nil || current == offender {
+		if current == offender {
 			current.result.Reason = reason
 			continue
 		}
@@ -1471,22 +1483,6 @@ func (self *PgxStore) refuse(ctx context.Context, q queryer, groupId []byte, bat
 		return nil, err
 	}
 	return &SubmitResponse{Results: resultsOf(batch)}, nil
-}
-
-// The refusal of §6.1 step (1), which says nothing at all beyond the code.
-//
-// A group that is unknown and one that is closed reach this together (§4.5, §7.5), and neither
-// gets a current_epoch or a winning_commit — both would be answers about a group the caller has
-// just been told nothing about, and the difference between the two fields being filled and empty
-// is itself the existence oracle §4.5 spends a paragraph closing.
-func refuseUnavailable(batch []*pending) *SubmitResponse {
-	for _, current := range batch {
-		if current.probe == probeIdentical {
-			continue
-		}
-		current.result.Reason = protocol.Reason_REASON_REJECTED
-	}
-	return &SubmitResponse{Results: resultsOf(batch)}
 }
 
 // current_epoch on every result, and the winner on every rejection of a commit.

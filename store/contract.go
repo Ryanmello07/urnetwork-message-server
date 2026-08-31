@@ -740,31 +740,189 @@ func contractGroupAvailability(t *testing.T, newStore func(Limits) Store, seen *
 		if err := store.CloseGroup(ctx, group); err != nil {
 			t.Fatalf("CloseGroup: %v", err)
 		}
-		results := submit(t, store, seen, group, ordinaryRecord(testHandle(0x21), 1, 0, 0x30))
-		wantReason(t, results[0], protocol.Reason_REASON_REJECTED)
-
-		// every method that can answer at all, held against the unknown group's answer to the
-		// same call. One method agreeing is not the property: a store that told them apart on
-		// Fetch alone would be an oracle for group existence to a party holding no write_key,
-		// exactly as one that told them apart on GroupState would be
 		missing := testGroupId(0xEE)
-		answers := map[string][2]error{
-			"GroupState": {errorOf(store.GroupState(ctx, group)), errorOf(store.GroupState(ctx, missing))},
-			"Fetch": {
-				errorOf(store.Fetch(ctx, &FetchRequest{GroupId: group})),
-				errorOf(store.Fetch(ctx, &FetchRequest{GroupId: missing})),
+		// CreateGroup's partner, below. It is created before the table so that both of
+		// CreateGroup's two calls are made against an id that is already taken
+		occupied := createGroup(t, store, testGroupId(0x12), testHandle(0x22))
+
+		// EVERY method of [Store], derived from the interface below rather than typed out here,
+		// and the WHOLE answer compared rather than the error beside it.
+		//
+		// What this replaced was a `map[string][2]error` holding three of the six, and that is
+		// worse than an enumeration: an enumeration can be extended, and the `[2]error` made
+		// [Store.Submit] UNREPRESENTABLE — Submit answers with a struct and not an error, so
+		// the one method the two implementations actually disagreed on could not be added to
+		// the table without changing its type. The line above the table submitted to the closed
+		// group and asserted the reason code alone; [Store.EpochKeys] was simply absent. 118
+		// subtests per implementation, and MemoryStore stamping the closed group's current_epoch
+		// onto the refusal went through all of them.
+		//
+		// The whole answer, because what diverged was neither the error nor the reason code.
+		// Both implementations said REASON_REJECTED, and one of them put the group's epoch on
+		// the result beside it — which told a closed group from an unknown one by the field
+		// rather than by the code.
+		type availability struct {
+			call func(groupId []byte) storeAnswer
+			// the group the closed group's answer is held against. `missing` for every method
+			// whose answer to a group that does not exist is a refusal, and a group that DOES
+			// exist for CreateGroup — whose answer to an unknown group is to create it, so an
+			// unknown group is the one partner it cannot have. §4.5's requirement there is the
+			// one the next scenario states: the refusal for a taken id is the refusal for a bad
+			// MAC, field for field.
+			against []byte
+			// the answer BOTH of them owe, written out rather than taken from one of the two
+			// calls. Two implementations agreeing on a wrong answer is what this scenario
+			// exists to catch, and they agreed on every field of it but one.
+			want storeAnswer
+		}
+		calls := map[string]availability{
+			"GroupState": {
+				call:    func(id []byte) storeAnswer { return answerOf(store.GroupState(ctx, id)) },
+				against: missing,
+				want:    answerOf[*GroupState](nil, ErrGroupUnavailable),
 			},
-			// §7.5: a group closed twice is a group that is already unavailable, which is the
-			// same answer an unknown one gives
-			"CloseGroup": {store.CloseGroup(ctx, group), store.CloseGroup(ctx, missing)},
+			"Fetch": {
+				call: func(id []byte) storeAnswer {
+					return answerOf(store.Fetch(ctx, &FetchRequest{GroupId: id}))
+				},
+				against: missing,
+				want:    answerOf[*FetchResult](nil, ErrGroupUnavailable),
+			},
+			// §5.1.1 merges every history that has no key to serve into this one sentinel, and
+			// a group that is no longer available is one of them. This method is the reason the
+			// finding was reachable at all: it reads the epoch row and not the group's, so a
+			// closed group went on serving the write_key that gets a caller past §5.1 check 6
+			"EpochKeys": {
+				call:    func(id []byte) storeAnswer { return answerOf(store.EpochKeys(ctx, id, 1)) },
+				against: missing,
+				want:    answerOf[*EpochKeys](nil, ErrEpochKeyUnknown),
+			},
+			// §7.5: a group closed twice is a group that is already unavailable
+			"CloseGroup": {
+				call:    func(id []byte) storeAnswer { return storeAnswer{Err: store.CloseGroup(ctx, id)} },
+				against: missing,
+				want:    storeAnswer{Err: ErrGroupUnavailable},
+			},
+			"Submit": {
+				call: func(id []byte) storeAnswer {
+					return answerOf(store.Submit(ctx, &SubmitRequest{
+						GroupId: id,
+						Records: []*Record{ordinaryRecord(testHandle(0x21), 1, 0, 0x30)},
+					}))
+				},
+				against: missing,
+				// no record_id, no current_epoch, no winning_commit and no applied retention.
+				// Every one of them is an answer about a group the caller has just been told
+				// nothing about, and the difference between a field filled and a field empty is
+				// itself the oracle §4.5 spends a paragraph closing
+				want: answerOf(&SubmitResponse{
+					Results: []*SubmitResult{{Reason: protocol.Reason_REASON_REJECTED}},
+				}, nil),
+			},
+			"CreateGroup": {
+				call: func(id []byte) storeAnswer {
+					return answerOf(store.CreateGroup(ctx, &CreateGroupRequest{
+						GroupId:           id,
+						InitialCommit:     commitRecord(testHandle(0x29), 0, 0, 1, 0x44),
+						BootstrapWriteKey: testBytes(EpochKeyBytes, 0x55),
+					}))
+				},
+				against: occupied,
+				want:    answerOf(&CreateGroupResult{Reason: protocol.Reason_REASON_REJECTED}, nil),
+			},
 		}
-		for method, pair := range answers {
-			closed, unknown := pair[0], pair[1]
-			if closed == nil || unknown == nil || !errors.Is(closed, unknown) {
-				t.Fatalf("%s answered %v for a closed group and %v for an unknown one; §6.1 step (1) reads zero rows for both and §4.5 refuses to tell them apart", method, closed, unknown)
+
+		// the class itself: read off `type Store interface` at run time, so a seventh method
+		// added tomorrow fails here by name instead of quietly not being one of the six
+		declared := reflect.TypeOf((*Store)(nil)).Elem()
+		for index := range declared.NumMethod() {
+			name := declared.Method(index).Name
+			if _, found := calls[name]; !found {
+				t.Fatalf("%s is a method of Store and this scenario never calls it; §4.5 holds for every method that can answer at all, and a table holding three of six is how a divergence lives through 118 subtests",
+					name)
 			}
-			wantError(t, seen, closed, ErrGroupUnavailable)
 		}
+		// and the other direction, so that a call surviving a method's removal from the
+		// interface cannot stand in for one of the six
+		if len(calls) != declared.NumMethod() {
+			t.Fatalf("this scenario calls %d methods and Store declares %d; a call for a method the interface no longer has holds nobody to anything",
+				len(calls), declared.NumMethod())
+		}
+		for index := range declared.NumMethod() {
+			name := declared.Method(index).Name
+			method := calls[name]
+			closed := method.call(group)
+			partner := method.call(method.against)
+			if !reflect.DeepEqual(closed, partner) {
+				t.Fatalf("%s answered %s for a closed group and %s for the group it is held against; §6.1 step (1) reads zero rows for both and §4.5 refuses to tell them apart — and what tells them apart is not the reason code, it is whichever field beside it got filled in",
+					name, closed, partner)
+			}
+			if !reflect.DeepEqual(closed, method.want) {
+				t.Fatalf("%s answered %s for a closed group and for the group it is held against alike, and the answer both of them owe is %s; two implementations agreeing is not the property",
+					name, closed, method.want)
+			}
+			if method.want.Err != nil {
+				wantError(t, seen, closed.Err, method.want.Err)
+			}
+			if reason, carried := reasonOf(closed.Value); carried {
+				seen.observe(reason)
+			}
+		}
+	})
+
+	t.Run("ACloseDoesNotReachTheTwoAnswersInFrontOfTheRowLock", func(t *testing.T) {
+		t.Parallel()
+		// §6.1 puts step (0) BEFORE step (1), so two of a closed group's answers are produced
+		// before `closed` has been read at all: a retry of a record that landed before the
+		// close, and a stream index reused with different content. Both implementations answer
+		// them out of `message_stream_claim` alone — MemoryStore reads its claim map and
+		// PgxStore reads the table on the pool, neither joining the group row — so both say
+		// REASON_OK and REASON_STREAM_INDEX_REUSED where §7.5's sentence says a closed group's
+		// submits are rejected with REASON_REJECTED. That is §6.1's step order against §7.5's
+		// sentence; the two implementations read it identically, so it is a question for the
+		// spec and it is in the ledger rather than being decided here. The codes are asserted so
+		// that whoever does decide it has to do so deliberately.
+		//
+		// What is NOT under-specified is the field beside the code. A current_epoch on either of
+		// these is the closed group's own state, produced by a path that never consulted the
+		// group row, and it is the same leak §6.1 step (1)'s refusal had — in the two places a
+		// fix scoped to step (1) does not reach. MemoryStore filled it in on both.
+		store, group := openGroup(t, newStore(DefaultLimits()))
+		landed := submit(t, store, seen, group, ordinaryRecord(testHandle(0x21), 1, 0, 0x30))
+		if err := store.CloseGroup(ctx, group); err != nil {
+			t.Fatalf("CloseGroup: %v", err)
+		}
+		afterClose := func(record *Record) *SubmitResult {
+			t.Helper()
+			response, err := store.Submit(ctx, &SubmitRequest{GroupId: group, Records: []*Record{record}})
+			if err != nil {
+				t.Fatalf("Submit: %v", err)
+			}
+			seen.observe(response.Results[0].Reason)
+			return response.Results[0]
+		}
+
+		// identical content at a consumed index: step (0) answers from the claim
+		retry := afterClose(ordinaryRecord(testHandle(0x21), 1, 0, 0x30))
+		// the same index with different content: step (0) answers, and returns in front of the
+		// lock precisely so that the batch takes no lock at all
+		reused := afterClose(ordinaryRecord(testHandle(0x21), 1, 0, 0x31))
+
+		for name, result := range map[string]*SubmitResult{"the retry": retry, "the reused index": reused} {
+			if result.CurrentEpoch != 0 {
+				t.Fatalf("%s of a closed group was answered current_epoch %d; the answer came from step (0), which never read the group row, and the epoch on it is the closed group's own state — the same field, on the same method, that §6.1 step (1)'s refusal had to have taken off it",
+					name, result.CurrentEpoch)
+			}
+			if result.WinningCommit != nil {
+				t.Fatalf("%s of a closed group was answered a winning_commit, which is one more stored record of a group the caller has been told nothing about", name)
+			}
+		}
+		wantReason(t, retry, protocol.Reason_REASON_OK)
+		if retry.RecordId != landed[0].RecordId {
+			t.Fatalf("a step (0) retry after the close named record %d and the original landed at %d; the claim is what answers here and it names one row",
+				retry.RecordId, landed[0].RecordId)
+		}
+		wantReason(t, reused, protocol.Reason_REASON_STREAM_INDEX_REUSED)
 	})
 
 	t.Run("ASecondCreateOfTheSameIdIsRejected", func(t *testing.T) {
@@ -810,6 +968,68 @@ func contractGroupAvailability(t *testing.T, newStore func(Limits) Store, seen *
 				again, badMac)
 		}
 	})
+}
+
+// What one method of [Store] answered, whole: the value it returned and the error beside it.
+//
+// It is a struct and not an error because [Store.Submit] does not answer with an error at all —
+// which is why the table it replaces could not hold Submit, and why the one field that diverged
+// between the two implementations was in the half no assertion was looking at.
+type storeAnswer struct {
+	Value any
+	Err   error
+}
+
+// A method's two return values as one answer. The value keeps its own type, so a nil
+// *FetchResult and a nil *GroupState are not the same answer and neither is a bare nil.
+func answerOf[T any](value T, err error) storeAnswer {
+	return storeAnswer{Value: value, Err: err}
+}
+
+// The answer as a failure message rather than as a set of addresses. Nothing asserts on this:
+// the assertion is [reflect.DeepEqual] over the answer itself, and this is what the reader of a
+// red run has to work from.
+func (self storeAnswer) String() string {
+	return fmt.Sprintf("value %s, error %v", renderedValue(self.Value), self.Err)
+}
+
+func renderedValue(value any) string {
+	if response, isResponse := value.(*SubmitResponse); isResponse && response != nil {
+		rendered := []string{}
+		for _, result := range response.Results {
+			rendered = append(rendered, fmt.Sprintf("%+v", *result))
+		}
+		return "[" + strings.Join(rendered, " ") + "]"
+	}
+	reflected := reflect.ValueOf(value)
+	if !reflected.IsValid() {
+		return "nil"
+	}
+	if reflected.Kind() == reflect.Pointer {
+		if reflected.IsNil() {
+			return "nil"
+		}
+		return fmt.Sprintf("&%+v", reflected.Elem().Interface())
+	}
+	return fmt.Sprintf("%+v", value)
+}
+
+// The reason an answer carries, if it carries one, for the recorder behind
+// [assertEveryRefusalIsExercised]. Two of [Store]'s methods answer with a §4.5 reason and the
+// rest answer with a sentinel, so the second return says which this was rather than letting
+// REASON_OK — a real answer — stand in for "there was no reason here".
+func reasonOf(value any) (protocol.Reason, bool) {
+	switch typed := value.(type) {
+	case *SubmitResponse:
+		if typed != nil && len(typed.Results) != 0 {
+			return typed.Results[0].Reason, true
+		}
+	case *CreateGroupResult:
+		if typed != nil {
+			return typed.Reason, true
+		}
+	}
+	return protocol.Reason_REASON_OK, false
 }
 
 // ── the attachment, before the CAS ───────────────────────────────────────────────────────

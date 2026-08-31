@@ -278,6 +278,16 @@ func accepted(reason protocol.Reason) bool {
 	return reason == protocol.Reason_REASON_OK || reason == protocol.Reason_REASON_RETENTION_CLAMPED
 }
 
+// [accepted], for the wire boundary, which is outside this package.
+//
+// §6.1's answer to "did this record land" has one implementation and the API layer holds the
+// protocol message to it. A second copy of the list is how the two drift apart, and the way a
+// copy of THIS list goes wrong is already known: written against REASON_OK alone it erases the
+// record id of every commit §7.3 clamped, because a clamp is an acceptance carrying a notice.
+func Accepted(reason protocol.Reason) bool {
+	return accepted(reason)
+}
+
 // The group state §6.1 step (1) reads under the row lock, and the same values §4.3.10 serves
 // without one.
 type GroupState struct {
@@ -489,4 +499,88 @@ func (self Limits) apply(attachment *EpochAttachment) (uint32, *uint32, *Retenti
 
 func ptr[T any](value T) *T {
 	return &value
+}
+
+// ── the batch machinery both implementations share ───────────────────────────────────────
+//
+// It sits beside the interface rather than inside either implementation, because every
+// statement below is about what a [SubmitResponse] may contain and none of it is about how a
+// store is built. Both implementations reach all three, and a third one will.
+
+// What step (0) found for one record of the batch.
+type probeOutcome uint8
+
+const (
+	probeAbsent probeOutcome = iota
+	probeIdentical
+	probeDiffers
+)
+
+// One record's place in the batch as the checks run.
+type pending struct {
+	record  *Record
+	result  *SubmitResult
+	probe   probeOutcome
+	settled bool // step (0) answered it, or a gate refused it; either way it allocates nothing
+}
+
+// The refusal of §6.1 step (1), which says nothing at all beyond the code.
+//
+// A group that is unknown and one that is closed reach this together (§4.5, §7.5), and neither
+// gets a current_epoch or a winning_commit — both would be answers about a group the caller has
+// just been told nothing about, and the difference between the two fields being filled and empty
+// is itself the existence oracle §4.5 spends a paragraph closing.
+//
+// The WHOLE result is replaced rather than those two fields left unset, and that is the
+// difference between this and the version it replaces. The field that leaked here was
+// `current_epoch` and the field that leaked before it was `record_id`; both were fixed by naming
+// the field, and the class is not a field — it is everything a result can carry. A result built
+// from the zero value cannot acquire a fifth field tomorrow that this path forgets to clear.
+//
+// A record step (0) already answered keeps its REASON_OK and its id. It names a row that landed
+// in an earlier transaction, against a group that was open when it did, and no later close
+// unlands it.
+func refuseUnavailable(batch []*pending) *SubmitResponse {
+	for _, current := range batch {
+		if current.probe == probeIdentical {
+			continue
+		}
+		*current.result = SubmitResult{Reason: protocol.Reason_REASON_REJECTED}
+	}
+	return &SubmitResponse{Results: resultsOf(batch)}
+}
+
+// Every [SubmitResponse] either implementation returns is built here, which is why the
+// invariant that a REFUSAL NAMES NO RECORD ID is enforced here rather than at each of the
+// three places that refuse one.
+//
+// §6.1 step (3b) makes "a refusal allocates nothing" normative, and the two halves of that are
+// not the same statement: the rollback undoes the row, and nothing undoes the id already
+// stamped onto the result struct beside it. [PgxStore.write] stamps `result.RecordId` on every
+// record as it writes it, and §6.1 step (6c) can refuse the batch after an earlier record of it
+// was stamped — so the offender's neighbours went out carrying ids naming rows the rollback had
+// just removed, and `api.resultOf` copied record_id onto the protocol message unconditionally.
+// An id on a refusal is the group's own allocation counter handed to a party whose record was
+// rejected, and REASON_REJECTED is what §4.5 gives an unknown group and a bad MAC alike: it is
+// the enumeration answer §5.1 withholds, arriving by the one field nobody was watching.
+//
+// `api.resultOf` now applies the same condition again at the wire, and that duplication is
+// deliberate: [Store] is exported and this function is not, so a mock or a third implementation
+// crosses that boundary and never this one. It is safe to hold in two places only because it is
+// blanket — no code in §4.5 carries a record_id on a refusal — which `current_epoch` and
+// `winning_commit` are not, and which is why neither of those is copied there.
+//
+// The condition is [accepted] rather than a list of refusing codes, for the reason Rule 5 gives
+// and for one more: §7.3's REASON_RETENTION_CLAMPED is an ACCEPTANCE carrying a notice, with a
+// record id and an opened epoch behind it, and a check written against REASON_OK alone would
+// erase the id of every clamped commit in the project.
+func resultsOf(batch []*pending) []*SubmitResult {
+	results := make([]*SubmitResult, len(batch))
+	for index, current := range batch {
+		if !accepted(current.result.Reason) {
+			current.result.RecordId = 0
+		}
+		results[index] = current.result
+	}
+	return results
 }

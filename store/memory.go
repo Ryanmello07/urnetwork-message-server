@@ -186,6 +186,16 @@ func (self *MemoryStore) EpochKeys(ctx context.Context, groupId []byte, epoch ui
 	}
 	group.data.RLock()
 	defer group.data.RUnlock()
+	if group.closed {
+		// §7.5 makes a closed group unavailable and this was the one method that went on
+		// answering: it reads the epoch row and never the group's, so a closed group served
+		// both of its keys while an unknown one answered ErrEpochKeyUnknown — the two told
+		// apart by any caller that could reach either, and a write key handed out for a group
+		// nothing can be submitted to. §5.1.1 already merges "the epoch never existed" with
+		// "its keys were discarded" into this one sentinel; "the group is no longer available"
+		// joins them.
+		return nil, ErrEpochKeyUnknown
+	}
 	row, found := group.epochs[epoch]
 	// an epoch that never existed and one whose keys have both been discarded answer
 	// identically, which is §5.1.1 refusing to be an oracle for either
@@ -398,23 +408,6 @@ func (self *MemoryStore) CreateGroup(ctx context.Context, request *CreateGroupRe
 
 // ── §6.1, the transaction ────────────────────────────────────────────────────────────────
 
-// What step (0) found for one record of the batch.
-type probeOutcome uint8
-
-const (
-	probeAbsent probeOutcome = iota
-	probeIdentical
-	probeDiffers
-)
-
-// One record's place in the batch as the checks run.
-type pending struct {
-	record  *Record
-	result  *SubmitResult
-	probe   probeOutcome
-	settled bool // step (0) answered it, or a gate refused it; either way it allocates nothing
-}
-
 func (self *MemoryStore) Submit(ctx context.Context, request *SubmitRequest) (*SubmitResponse, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -475,7 +468,10 @@ func (self *MemoryStore) Submit(ctx context.Context, request *SubmitRequest) (*S
 	}
 
 	if group == nil {
-		return self.refuseBatch(group, batch, nil, protocol.Reason_REASON_REJECTED), nil
+		// §6.1 step (1) reads zero rows for a group that does not exist. [refuseUnavailable]
+		// is the whole of the answer, and it is the same function the closed group below
+		// answers through
+		return refuseUnavailable(batch), nil
 	}
 
 	// (1) Lock the group. Read state; DO NOT allocate ids yet.
@@ -488,8 +484,15 @@ func (self *MemoryStore) Submit(ctx context.Context, request *SubmitRequest) (*S
 	group.data.RUnlock()
 
 	// 0 rows -> REASON_REJECTED (unknown or closed; indistinguishable, §4.5)
+	//
+	// The SAME function the unknown group above answers through, and it used to be
+	// refuseBatch, which fills current_epoch in from the row it has just found. So a closed
+	// group answered REASON_REJECTED carrying its epoch and an unknown one answered
+	// REASON_REJECTED carrying a zero: the code was merged and the field beside it told them
+	// apart, which is the oracle §4.5 spends a paragraph closing, arriving by the field rather
+	// than by the code. PgxStore reads the row with `AND NOT closed` and so never had it.
 	if closed {
-		return self.refuseBatch(group, batch, nil, protocol.Reason_REASON_REJECTED), nil
+		return refuseUnavailable(batch), nil
 	}
 	for _, current := range batch {
 		current.result.CurrentEpoch = state.CurrentEpoch
@@ -784,12 +787,17 @@ func (self *MemoryStore) commit(group *memoryGroup, state *GroupState, batch []*
 // anything and inventing a per-record reason for them would say something untrue. A record
 // step (0) already answered keeps its REASON_OK: it names a row that landed in an earlier
 // transaction, and no rollback of this one can unland it.
+//
+// There is always an offender. The one refusal that has none is §6.1 step (1)'s, where nothing
+// about the batch was wrong and the group was simply not there, and that one answers through
+// [refuseUnavailable] — which says nothing beyond the code, where this fills current_epoch in
+// from the row it has just read.
 func (self *MemoryStore) refuseBatch(group *memoryGroup, batch []*pending, offender *pending, reason protocol.Reason) *SubmitResponse {
 	for _, current := range batch {
 		if current.probe == probeIdentical {
 			continue
 		}
-		if offender == nil || current == offender {
+		if current == offender {
 			current.result.Reason = reason
 			continue
 		}
@@ -811,6 +819,15 @@ func (self *MemoryStore) fillCurrentEpoch(group *memoryGroup, batch []*pending) 
 	}
 	group.data.RLock()
 	defer group.data.RUnlock()
+	if group.closed {
+		// [PgxStore.fill] reads current_epoch with `AND NOT closed` and answers nothing when the
+		// row is not there, and this is that clause. Two refusals reach here without step (1)
+		// having read `closed` at all, because both return in front of the row lock: step (0)'s
+		// REASON_STREAM_INDEX_REUSED, and the batch every record of which step (0) already
+		// answered. Filling either in would put a closed group's epoch on a result, which is the
+		// same oracle by the same field as the one step (1) closes above.
+		return
+	}
 	for _, current := range batch {
 		if current.result.CurrentEpoch == 0 {
 			current.result.CurrentEpoch = group.currentEpoch
@@ -822,35 +839,6 @@ func (self *MemoryStore) fillCurrentEpoch(group *memoryGroup, batch []*pending) 
 			current.result.WinningCommit = cloneRecord(winner.record)
 		}
 	}
-}
-
-// Every [SubmitResponse] either implementation returns is built here, which is why the
-// invariant that a REFUSAL NAMES NO RECORD ID is enforced here rather than at each of the
-// three places that refuse one.
-//
-// §6.1 step (3b) makes "a refusal allocates nothing" normative, and the two halves of that are
-// not the same statement: the rollback undoes the row, and nothing undoes the id already
-// stamped onto the result struct beside it. [PgxStore.write] stamps `result.RecordId` on every
-// record as it writes it, and §6.1 step (6c) can refuse the batch after an earlier record of it
-// was stamped — so the offender's neighbours went out carrying ids naming rows the rollback had
-// just removed, and `api.resultOf` copies record_id onto the protocol message unconditionally.
-// An id on a refusal is the group's own allocation counter handed to a party whose record was
-// rejected, and REASON_REJECTED is what §4.5 gives an unknown group and a bad MAC alike: it is
-// the enumeration answer §5.1 withholds, arriving by the one field nobody was watching.
-//
-// The condition is [accepted] rather than a list of refusing codes, for the reason Rule 5 gives
-// and for one more: §7.3's REASON_RETENTION_CLAMPED is an ACCEPTANCE carrying a notice, with a
-// record id and an opened epoch behind it, and a check written against REASON_OK alone would
-// erase the id of every clamped commit in the project.
-func resultsOf(batch []*pending) []*SubmitResult {
-	results := make([]*SubmitResult, len(batch))
-	for index, current := range batch {
-		if !accepted(current.result.Reason) {
-			current.result.RecordId = 0
-		}
-		results[index] = current.result
-	}
-	return results
 }
 
 func (self *MemoryStore) group(groupId []byte) *memoryGroup {

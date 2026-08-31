@@ -646,12 +646,31 @@ func refuseBatch(pass *submitPass, refused refusal) *protocol.SubmitResponse {
 }
 
 // The store's result on the wire, including §6.2's winner.
+//
+// `record_id` is copied only onto an acceptance, and that is a second enforcement of a rule the
+// store already enforces in `resultsOf`. It is deliberate, and the reason it is safe to hold in
+// two places is that it is BLANKET: §6.1 step (3b) makes "a refusal allocates nothing" normative
+// and no reason code in §4.5 carries a record_id, so there is no judgement here to drift from
+// the store's. [store.Store] is an exported interface, `resultsOf` is not, and a mock or a
+// future implementation that stamped an id onto a refusal reaches the wire through this function
+// and nothing else — the id being the group's own allocation counter, handed to a party
+// REASON_REJECTED tells nothing apart from a bad MAC.
+//
+// `current_epoch` and `winning_commit` are deliberately NOT filtered the same way, and the
+// difference is the point. §4.5 gives REASON_EPOCH_STALE a current_epoch and §6.2 gives any
+// rejected commit its winning_commit, so whether a refusal owes either one is a JUDGEMENT about
+// what the caller has already proved it holds — the store makes it, past check 7, and a second
+// copy of a judgement is exactly how two halves of one rule drift apart. What arrives here
+// unset stays unset: `api.refuseBatch` builds every refusal from in front of check 7 and fills
+// in neither.
 func resultOf(groupId []byte, result *store.SubmitResult) *protocol.SubmitResult {
 	answer := &protocol.SubmitResult{
 		Reason:       result.Reason,
-		RecordId:     result.RecordId,
 		CurrentEpoch: result.CurrentEpoch,
 		Applied:      appliedOf(result.Applied),
+	}
+	if store.Accepted(result.Reason) {
+		answer.RecordId = result.RecordId
 	}
 	if result.WinningCommit != nil {
 		// §6.2 binds the loser protocol to ANY rejection of a commit submission, so the winner
