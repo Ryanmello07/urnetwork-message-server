@@ -576,6 +576,44 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     The third must be ruled before the ABI baseline is committed, or every later correction becomes a
     baseline-break ceremony. Found 2026-08-30 while writing the s1 plan.
 
+40. **CRITICAL -- a group member can crash every other member with one valid proposal.**
+    `ProposalCache.Store` computes the proposal reference BEFORE every ceiling (its own doc pins
+    that order: *"THE CEILINGS COME AFTER THE REFERENCE AND NOT BEFORE IT"*), and that path reaches
+    `RefHash` -> `mlsLabelBytes`, which **panics**. Verified by the owner: `syntax.MaxVectorLength`
+    is 1048576 and `RefHash` on one octet past it panics with *"a labelled preimage could not be
+    encoded"*; `grep -rn recover() mls/ message/` over production source is **EMPTY**.
+    The reviewer measured the reachable input: an Add whose KeyPackage carries a
+    `BasicCredential` of `MaxVectorLength-64` marshals to 1,048,619 octets, **`syntax.Unmarshal`
+    accepts it back** (so it is a message a decoder produces, not a hand-built value), and
+    `FramedContentTBSBytes` returns a valid preimage -- so it **signs and verifies as an authentic
+    member message**. Signature verification before `Store` is no protection.
+    **Root cause, and it generalises:** the premise is written twice in `crypto_labels.go` --
+    *"every value that reaches a labelled construction arrived through a decode or an encode
+    already bounded by syntax.MaxVectorLength. A panic here is therefore unreachable"* -- and it is
+    true FIELD BY FIELD and false for a COMPOSITION. `RefHash` wraps the whole serialized
+    `AuthenticatedContent` in ONE `WriteOpaque`, and that structure's group_id, authenticated_data,
+    proposal arms and signature are each <= 1 MiB with an **unbounded sum**. So the fix is not this
+    call site: it is every place a composition is wrapped in a single length-prefixed field.
+    The safe shape already exists at `owner_successor.go:332`, which pre-checks the length and
+    returns `syntax.ErrLengthExceedsMax`.
+    **The suite could not see it**: the one fixture that probes size, `testEnormousProposal()`,
+    lands about 6 octets UNDER the threshold -- it exercises the largest proposal that does not
+    panic. Found 2026-08-30 by the cap/authority reviewer; confirmed by the owner.
+41. **The proposal-cache ceilings admit a set no valid commit can name, so round 2's availability
+    failure is still live, merely bounded to 500.** One sender stored 500 distinct Removes ALL
+    naming leaf 4; RFC 9420 SS12.2 invalidates a list carrying multiple Removes for one leaf, so
+    `Pending` hands a committer an invalid list and the commit built from it is refused by every
+    receiver. **The cache offers no way out**: nothing removes a single entry, `Pending` is a
+    committer's only accessor, and the only release is `Rebind` at an epoch boundary that only a
+    SUCCESSFUL commit produces. The doc states the right rule twice -- the bound is per-TARGET --
+    and the code counts per (sender, TYPE), so 500 is not the number the argument produces.
+42. **The octet ceiling has no per-sender column, and one sender is cheaper than two.** Measured:
+    leaf 1 alone reached 8,388,605 of 8,388,608 octets using **27 messages**, 15 of its own 500-entry
+    Add quota; leaf 2, which had cached nothing, was then refused a 6-octet Remove. This is verbatim
+    the starvation the per-sender ENTRY column was added to prevent, left open in the dimension
+    where one message is worth half a mebibyte -- and strictly cheaper, since the entry total needs
+    two senders and the octet total needs one.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
