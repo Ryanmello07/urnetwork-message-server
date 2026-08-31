@@ -77,6 +77,7 @@ func RunContract(t *testing.T, newStore func(Limits) Store) {
 	t.Run("ARecoveryHandleIsTrustedOnFirstUse", func(t *testing.T) { contractRecovery(t, newStore, seen) })
 	t.Run("TheMarkerIsTheOnlyThingThatOpensAnEpoch", func(t *testing.T) { contractEpochComplete(t, newStore, seen) })
 	t.Run("TheReadPathAllocatesNothing", func(t *testing.T) { contractFetch(t, newStore, seen) })
+	t.Run("EpochKeyCustodyDoesNotGateWhichRecordsComeBack", func(t *testing.T) { contractFetchAcrossEpochs(t, newStore, seen) })
 	t.Run("TheClassFilterReturnsExactlyTheClassesAsked", func(t *testing.T) { contractClassMask(t, newStore, seen) })
 	t.Run("RecordsAreCopiedAtTheStoreBoundary", func(t *testing.T) { contractDefensiveCopy(t, newStore, seen) })
 	t.Run("EveryColumnOfARecordSurvivesTheRoundTrip", func(t *testing.T) { contractRecordColumns(t, newStore, seen) })
@@ -1539,6 +1540,91 @@ func contractFetch(t *testing.T, newStore func(Limits) Store, seen *recorder) {
 	// a page that withheld records is never complete, and an unlimited page always is.
 }
 
+// The records a fetch returns are decided by the cursor, the class mask and the limit, and by
+// NOTHING about epoch key custody.
+//
+// [PgxStore.Fetch]'s doc comment argues that at length — §5.1.1's check 6 is a lookup on the one
+// `(group_id, read_epoch)` the request names and its MAC covers, what it authorizes is the
+// REQUEST, and [Store.EpochKeys] answers it before Fetch is reached at all — and nothing held any
+// implementation to it. Every other fetch scenario in this file reads a group that sits at epoch 1
+// and never commits, so no epoch key is ever retired inside one, and adding
+//
+//	AND EXISTS (SELECT 1 FROM message_epoch k WHERE k.group_id = r.group_id
+//	            AND k.epoch = r.epoch AND k.write_key_wrapped IS NOT NULL)
+//
+// to the page predicate passed the entire suite with output byte-identical to the baseline, while
+// the group built below returns half of itself.
+//
+// What such a predicate withholds is not a smaller page, it is the OLDEST end of the id sequence,
+// permanently: §6.1 step (6) empties the write key of every epoch strictly older than the one being
+// superseded, and the founding commit sits at epoch 0, which has no `message_epoch` row in any
+// implementation. A client fetching from §4.3.4's from-the-beginning cursor is then handed a page
+// whose first id is not 1 while `high_water_record_id` goes on naming the id at the top — which is
+// the hole in the gapless sequence §4.3.4 sells as the withholding detector and §12.2 C-4 tells
+// clients to treat as a fault, manufactured by the server against itself.
+//
+// The scenario therefore owes its own precondition as much as its assertion: an epoch that has
+// genuinely lost its write key, and a page that is EVERY id the group allocated. Without the
+// first, a store that retired nothing would satisfy the second for the wrong reason.
+func contractFetchAcrossEpochs(t *testing.T, newStore func(Limits) Store, seen *recorder) {
+	t.Parallel()
+	ctx := context.Background()
+	store, group := openGroup(t, newStore(DefaultLimits()))
+	sender := testHandle(0x21)
+	committer := testHandle(0x20)
+
+	// records at epoch 1, then two epoch changes on top of them, with records at each new epoch.
+	// Two changes and not one: the first only stamps epoch 1 for the tidy loop and the second is
+	// what empties its write key, and §5.3's one briefly-retired predecessor is the difference
+	submit(t, store, seen, group, ordinaryRecord(sender, 1, 0, 0x60))
+	submit(t, store, seen, group, ordinaryRecord(sender, 1, 1, 0x61))
+	advanceEpoch(t, store, seen, group, committer, 2)
+	submit(t, store, seen, group, ordinaryRecord(sender, 2, 2, 0x62))
+	advanceEpoch(t, store, seen, group, committer, 4)
+	submit(t, store, seen, group, ordinaryRecord(sender, 3, 3, 0x63))
+
+	keys, err := store.EpochKeys(ctx, group, 1)
+	if err != nil {
+		t.Fatalf("EpochKeys(1): %v", err)
+	}
+	if keys.WriteKey != nil {
+		t.Fatal("epoch 1 still holds a write key after two commits superseded it, so this scenario is not reading through a retired epoch at all and everything below it would hold for a store that gated on one")
+	}
+
+	allocated := stateOf(t, store, group).NextRecordId
+	want := []uint64{}
+	for id := firstRecordId; id < allocated; id++ {
+		want = append(want, id)
+	}
+
+	page, err := store.Fetch(ctx, &FetchRequest{GroupId: group, SinceRecordId: 0})
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if got := recordIdsOf(page.Records); !slices.Equal(got, want) {
+		t.Fatalf("a group that allocated %v answered the from-the-beginning cursor with %v; nothing here was refused, expired or pruned, so the page is every id the group allocated — and what is missing from it is every record whose own epoch no longer retains a key, which is §5.3's key custody deciding what a reader may see",
+			want, got)
+	}
+	if page.HighWaterRecordId != allocated-1 {
+		t.Fatalf("the page answered high_water_record_id %d and the group has allocated up to %d; the counter and the rows it counted come out of one snapshot (§4.3.4)",
+			page.HighWaterRecordId, allocated-1)
+	}
+	if !page.Complete {
+		t.Fatal("an unlimited page that withheld nothing answered complete=false")
+	}
+
+	// and again under the cursor a caught-up client actually polls with, because the direction
+	// that hides a withheld record is the one where the client never asks for it again
+	resumed, err := store.Fetch(ctx, &FetchRequest{GroupId: group, SinceRecordId: page.NextRecordId})
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if len(resumed.Records) != 0 || resumed.HighWaterRecordId != allocated-1 {
+		t.Fatalf("a client caught up at %d was answered %d records with high water %d; a caught-up cursor and a high water that disagree is §12.2 C-4's withholding signal",
+			page.NextRecordId, len(resumed.Records), resumed.HighWaterRecordId)
+	}
+}
+
 // ── the racy half of §6.1 ────────────────────────────────────────────────────────────────
 
 func contractConcurrentStreamIndex(t *testing.T, newStore func(Limits) Store, seen *recorder) {
@@ -2115,6 +2201,35 @@ func contractRecovery(t *testing.T, newStore func(Limits) Store, seen *recorder)
 	// a handle nobody has claimed is not refused, so the gate is a gate and not a wall
 	fresh := submit(t, store, seen, group, recoveryRecord(attacker, 1, 1, testBytes(RecoveryHandleBytes, 0x90), other))
 	wantReason(t, fresh[0], protocol.Reason_REASON_OK)
+
+	// §4.3.7 again, and the half a store gets wrong while passing everything above: the rebinding
+	// arrives INSIDE ONE BATCH. The rule is "stores the public half on first sight WITHIN THAT
+	// GROUP and REFUSES any later differing recovery_verify_pub for the same recovery_handle in
+	// the same group", and a record two positions along in one submission is later than the record
+	// that claimed the handle — §6.1 step (6c) runs per record, so a batch has a first sight of its
+	// own. This is where the two implementations disagreed and neither was covered: the memory
+	// store accepted the rebinding, because its gate read the group's pins once for the whole
+	// batch and the batch's own claim was not in them; the pgx store refused it, because step (6c)
+	// re-verifies against the row it has just written.
+	//
+	// It is also the one refusal in this package that fires AFTER an earlier record of the same
+	// batch was written and stamped with its id, which is what [submit]'s "a refusal names no id"
+	// assertion is here to reach: the rollback takes the row away and nothing was taking the id off
+	// the result beside it, so a rejected submitter was handed the group's own allocation counter.
+	pair := testHandle(0x24)
+	shared := testBytes(RecoveryHandleBytes, 0xA0)
+	rebound := submit(t, store, seen, group,
+		recoveryRecord(pair, 1, 0, shared, pub),
+		recoveryRecord(pair, 1, 1, shared, other))
+	wantReason(t, rebound[0], protocol.Reason_REASON_REJECTED)
+	wantReason(t, rebound[1], protocol.Reason_REASON_REJECTED)
+
+	// and the batch left NOTHING behind, the recovery row included. A store that rolled the records
+	// back and kept the pin would have let a refused submission decide, permanently, which key a
+	// seed-only restore of that handle proves possession against — the rebinding landing by the
+	// half of the batch that was not the one refused.
+	unclaimed := submit(t, store, seen, group, recoveryRecord(pair, 1, 2, shared, other))
+	wantReason(t, unclaimed[0], protocol.Reason_REASON_OK)
 
 	// §3.2 scopes the recovery row to one group, so the same handle in another group is another
 	// row and takes its own first pub. A store that pinned handles globally would let one

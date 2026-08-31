@@ -189,6 +189,14 @@ type WrapTag struct {
 
 // A recovery wrap, indexed by handle for the seed-only restore of §4.3.7. The server keeps the
 // first `verify_pub` it sees for a handle within one group and refuses a later differing one.
+//
+// LATER includes later in the same batch. §4.3.7 refuses "any later differing
+// recovery_verify_pub for the same recovery_handle in the same group" and §6.1 step (6c) runs
+// per record, so a submission carrying two records that claim one handle under two pubs is
+// refused whole — the first record of it is the first sight, and the second is a rebinding. It
+// is written here rather than only in the contract because the two implementations answered it
+// differently until it was: one gated on the group's stored pins, read once for the batch, and
+// so could not see the claim the batch itself was making.
 type RecoveryTag struct {
 	Handle    []byte
 	VerifyPub []byte

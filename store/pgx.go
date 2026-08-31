@@ -1271,10 +1271,18 @@ func (self *PgxStore) write(ctx context.Context, transaction pgx.Tx, groupId []b
 			return nil, err
 		}
 
-		// (6c) TOFU, scoped to this group: insert, then verify what is stored is the tag's.
-		// The gate refused a differing pub already, and this is the half that also answers a
-		// batch which claims a handle and rebinds it in the same transaction — the gate read
-		// its pins before either record was written and cannot see the first one
+		// (6c) TOFU, scoped to this group: insert, then verify what is stored is the tag's,
+		// which is §6.1 step (6c) written out and is deliberately still a post-allocation check
+		// here. The gate refused a differing pub already, and this is the half that also answers
+		// a batch which claims a handle and rebinds it in the same transaction — the gate read
+		// its pins in one statement before any record was written and cannot see the first one,
+		// and the stored row rather than a Go-side map carried across the batch is what §4.3.7
+		// pins a handle against. The refusal costs the group nothing because the transaction
+		// rolls back, which is what §6.1's own SQL says it does.
+		//
+		// It is also the only refusal in this file that fires after an earlier record of the
+		// same batch reached the stamp at the bottom of this loop, which is why [resultsOf]
+		// clears the id off a refusal rather than each refusal path clearing its own.
 		if tag := recoveryTagOf(record); tag != nil {
 			rebound, err := pinRecoveryHandle(ctx, transaction, groupId, tag, now)
 			if err != nil {
@@ -1443,6 +1451,9 @@ func pinRecoveryHandle(ctx context.Context, transaction pgx.Tx, groupId []byte, 
 // anything and inventing a per-record reason for them would say something untrue. A record step
 // (0) already answered keeps its REASON_OK: it names a row that landed in an earlier
 // transaction, and no rollback of this one can unland it.
+//
+// The record_id is not touched here. [resultsOf] takes it off every result this leaves refused,
+// once, for both implementations and for whatever refuses next.
 func (self *PgxStore) refuse(ctx context.Context, q queryer, groupId []byte, batch []*pending,
 	offender *pending, reason protocol.Reason, currentEpoch uint64) (*SubmitResponse, error) {
 

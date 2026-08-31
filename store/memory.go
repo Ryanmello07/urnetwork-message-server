@@ -500,14 +500,24 @@ func (self *MemoryStore) Submit(ctx context.Context, request *SubmitRequest) (*S
 	// gives the group a permanent record_id gap, which destroys the property decision B4
 	// exists to create and which §12.2 C-4 tells clients to treat as a fault.
 	highWater := map[string]uint64{}
+	// the batch's own recovery pins, which `group.recovery` will not carry until step (6c):
+	// two records of one batch claiming one handle under two verify_pubs are otherwise both
+	// accepted, and the handle a seed-only restore proves possession against is whichever of
+	// them the write loop happened to store first (§4.3.7)
+	pinned := map[string][]byte{}
 	for _, current := range batch {
 		if current.settled {
 			continue
 		}
-		if refusal := self.gate(group, state, current.record, highWater); refusal != protocol.Reason_REASON_OK {
+		if refusal := self.gate(group, state, current.record, highWater, pinned); refusal != protocol.Reason_REASON_OK {
 			return self.refuseBatch(group, batch, current, refusal), nil
 		}
 		highWater[string(current.record.SenderHandle)] = current.record.StreamIndex
+		if tag := recoveryTagOf(current.record); tag != nil {
+			if _, found := pinned[string(tag.Handle)]; !found {
+				pinned[string(tag.Handle)] = tag.VerifyPub
+			}
+		}
 	}
 
 	return self.commit(group, state, batch), nil
@@ -543,7 +553,12 @@ func (self *MemoryStore) probe(group *memoryGroup, batch []*pending) {
 }
 
 // Steps (2), (2b) and (3) for one record. REASON_OK means every gate passed.
-func (self *MemoryStore) gate(group *memoryGroup, state *GroupState, record *Record, highWater map[string]uint64) protocol.Reason {
+//
+// `highWater` and `pinned` are what the BATCH has established so far and the group's own rows
+// have not yet been given: step (7) writes the sender's index and step (6c) writes the recovery
+// pin, and both of those happen after every record of the batch has been through here.
+func (self *MemoryStore) gate(group *memoryGroup, state *GroupState, record *Record,
+	highWater map[string]uint64, pinned map[string][]byte) protocol.Reason {
 	group.data.RLock()
 	defer group.data.RUnlock()
 
@@ -595,8 +610,23 @@ func (self *MemoryStore) gate(group *memoryGroup, state *GroupState, record *Rec
 	// (6c) as a gate rather than as a write. §6.1 writes the recovery row after allocation and
 	// rolls the batch back on a mismatch, which writes nothing either way; checking it here
 	// keeps "a refusal allocates nothing" a property of the code path and not of an unwind.
+	//
+	// `pinned` is the BATCH's own first sight of a handle, and it is consulted before the
+	// group's stored rows for the same reason step (3) above consults the batch's own high water
+	// before `group.senders`: §4.3.7 refuses "any later differing recovery_verify_pub for the
+	// same recovery_handle in the same group", and a record two positions along in one batch is
+	// later than the record that claimed the handle. Without it this store accepted the
+	// rebinding §4.3.7 exists to refuse whenever the attacker put both records in one
+	// submission, and the pgx store — which re-verifies against the stored row after writing it,
+	// where §6.1 step (6c) puts the check — refused the same batch.
 	if tag := recoveryTagOf(record); tag != nil {
-		if known, found := group.recovery[string(tag.Handle)]; found && !bytes.Equal(known.verifyPub, tag.VerifyPub) {
+		known, found := pinned[string(tag.Handle)]
+		if !found {
+			if row, stored := group.recovery[string(tag.Handle)]; stored {
+				known, found = row.verifyPub, true
+			}
+		}
+		if found && !bytes.Equal(known, tag.VerifyPub) {
 			return protocol.Reason_REASON_REJECTED
 		}
 	}
@@ -794,9 +824,30 @@ func (self *MemoryStore) fillCurrentEpoch(group *memoryGroup, batch []*pending) 
 	}
 }
 
+// Every [SubmitResponse] either implementation returns is built here, which is why the
+// invariant that a REFUSAL NAMES NO RECORD ID is enforced here rather than at each of the
+// three places that refuse one.
+//
+// §6.1 step (3b) makes "a refusal allocates nothing" normative, and the two halves of that are
+// not the same statement: the rollback undoes the row, and nothing undoes the id already
+// stamped onto the result struct beside it. [PgxStore.write] stamps `result.RecordId` on every
+// record as it writes it, and §6.1 step (6c) can refuse the batch after an earlier record of it
+// was stamped — so the offender's neighbours went out carrying ids naming rows the rollback had
+// just removed, and `api.resultOf` copies record_id onto the protocol message unconditionally.
+// An id on a refusal is the group's own allocation counter handed to a party whose record was
+// rejected, and REASON_REJECTED is what §4.5 gives an unknown group and a bad MAC alike: it is
+// the enumeration answer §5.1 withholds, arriving by the one field nobody was watching.
+//
+// The condition is [accepted] rather than a list of refusing codes, for the reason Rule 5 gives
+// and for one more: §7.3's REASON_RETENTION_CLAMPED is an ACCEPTANCE carrying a notice, with a
+// record id and an opened epoch behind it, and a check written against REASON_OK alone would
+// erase the id of every clamped commit in the project.
 func resultsOf(batch []*pending) []*SubmitResult {
 	results := make([]*SubmitResult, len(batch))
 	for index, current := range batch {
+		if !accepted(current.result.Reason) {
+			current.result.RecordId = 0
+		}
 		results[index] = current.result
 	}
 	return results
