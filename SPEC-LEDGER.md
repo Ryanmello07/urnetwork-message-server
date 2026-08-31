@@ -418,6 +418,31 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     one-line reorder the gate cannot see. The gate is also resolved by the receiver's TYPE and not
     its IDENTITY, so clearing a DIFFERENT `*ProposalCache` satisfies it -- latent while `Group` has
     one, live the moment Task 19 adds a past-epoch or staged cache. Found 2026-08-30.
+33. **MILESTONE: the pgx store passes the hardened contract against real PostgreSQL.** 241 passing,
+    0 failing, 0 skipped, ~240 s, both implementations reporting "ran the contract". PostgreSQL
+    17.6 runs portable and service-free at `127.0.0.1:55432`; the DSN comes from
+    `URMESSAGE_TEST_DSN` and **without it the suite is green having never touched a database**
+    (it prints `PgxStore DID NOT RUN`, which is deliberate and loud, but it is still green).
+    Hardening the contract BEFORE writing the second implementation was decisive: against its only
+    implementation the suite could not see epoch keys installed as 32 zero bytes or the read key
+    written into both columns, `EpochKeys` answering a neighbouring epoch, four of the six rows the
+    founding transaction writes, three of four retention arms, or a duplicate `CreateGroup`
+    answering `REASON_REJECTED` while disclosing that the group exists and how many records it
+    holds -- SS4.5's most-cited paragraph.
+34. **A refused `SubmitResult` carries a record id that names no row, and the api forwards it.**
+    `refuse()` rewrites `Reason` and never clears `RecordId`, which `write()` has already stamped
+    for records processed earlier in the same batch; `api/submit.go:652` copies it unconditionally.
+    Measured against live PostgreSQL: `reason=REASON_REJECTED record_id=3` with `next_record_id`
+    unchanged at 3 across the call. The contract already declares this illegal at `contract.go:3419`
+    -- **the assertion is right and simply never fires**, because no scenario drives a refusal that
+    lands after an earlier record was stamped. So the guard existed and the hole shipped anyway.
+35. **The two Store implementations disagree on SS4.3.7, and the reference model is the permissive
+    one.** `MemoryStore` ACCEPTS a batch that claims a recovery handle and rebinds it to a different
+    `verify_pub` in the same batch; `PgxStore` refuses. This is the differential the second
+    implementation was worth building for. It is a spec question before it is a bug: SS4.3.7 must
+    say which is right, and if it does not, that is a gap to close rather than a coin flip. **The
+    reference model must not simply be relaxed to match**, which is how a hole becomes expected
+    behaviour. Found 2026-08-30 by the pgx Submit/Fetch reviewer.
 13. **A spec-conformant client cannot connect to a server without §9.1's signing sidecar.** §4.3.1
     requires `HelloResponse.server_keys` and requires a client to REFUSE a fleet whose first key does
     not verify against the compiled-in root, while decision B13 keeps every signing key off every
