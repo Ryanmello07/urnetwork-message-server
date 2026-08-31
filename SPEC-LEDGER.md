@@ -443,6 +443,55 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     say which is right, and if it does not, that is a gap to close rather than a coin flip. **The
     reference model must not simply be relaxed to match**, which is how a hole becomes expected
     behaviour. Found 2026-08-30 by the pgx Submit/Fetch reviewer.
+34a. **CLOSED 2026-08-30.** The id is taken off in `resultsOf`, which is the single function both
+    implementations build every `SubmitResponse` through, and the condition is `accepted()` rather
+    than a list of the three refusal sites -- Rule 5, and one more reason: SS7.3's
+    `REASON_RETENTION_CLAMPED` is an acceptance carrying a notice, so a check written against
+    `REASON_OK` alone would have erased the id of every clamped commit. The scenario the assertion
+    was missing is now in `contractRecovery`: a batch of two recovery records claiming one handle
+    under two `verify_pub`s, which is the only refusal in the package that fires after an earlier
+    record of the same batch reached the stamp. Restoring the defect fails
+    `TestThePgxStoreMeetsTheContract/ARecoveryHandleIsTrustedOnFirstUse` with
+    `contract.go:3419` naming `record_id 6`; `MemoryStore` passes the same mutation, because it
+    refuses this batch at the gate and never stamps anything -- the defect only ever existed on the
+    path that writes before it refuses.
+
+35a. **CLOSED 2026-08-30. SS4.3.7 settles it and `MemoryStore` was wrong.** The text is "stores the
+    public half on first sight WITHIN THAT GROUP and REFUSES any later differing
+    recovery_verify_pub for the same recovery_handle in the same group", and SS6.1 step (6c) --
+    "INSERT ... ON CONFLICT DO NOTHING, then verify the stored verify_pub equals the tag's. A
+    mismatch is REASON_REJECTED and rolls the batch back" -- runs per record. A record two positions
+    along in one submission is therefore later than the record that claimed the handle, and the
+    batch has a first sight of its own. **No spec gap and no ledger decision is owed**; the reading
+    is now written down at `store.RecoveryTag` rather than left to be inferred, because it is the
+    half of SS4.3.7 the prose states only by implication. `MemoryStore` now carries the batch's own
+    first sight through the gate, exactly as it already carried the batch's own stream high water --
+    its gate read `group.recovery` once and so could not see the claim the batch itself was making.
+    `PgxStore` keeps the check where SS6.1's SQL puts it, after allocation and rolling back: the
+    stored row is what SS4.3.7 pins a handle against, the rollback is what makes the refusal cost
+    nothing, and it is also what keeps item 34's path reachable for a scenario to reach. The two
+    inversions are separate mutations and each is caught only by its own implementation's run.
+
+36. **`Fetch`'s central decision was pinned by nothing, and the mutation that breaks it manufactures
+    the withholding signal the protocol sells to clients.** `Fetch`'s doc comment argues at length
+    that the read key does not gate which records come back -- SS5.1.1's check 6 authorizes the
+    REQUEST and `EpochKeys` answers it upstream -- and no test held any implementation to it. Adding
+    `AND EXISTS (SELECT 1 FROM message_epoch k WHERE k.group_id = r.group_id AND k.epoch = r.epoch
+    AND k.write_key_wrapped IS NOT NULL)` to the page predicate passed the entire suite with output
+    byte-identical to the baseline. Root cause: every fetch scenario read a group sitting at epoch 1
+    that never commits, so no key was ever retired inside one, and nothing anywhere asserted that
+    the records returned equal the records submitted. What it withholds is the OLDEST end of the id
+    sequence, permanently, in every group that has committed twice -- SS6.1 step (6) empties the
+    write key of every epoch strictly older than the superseded one, and the founding commit sits at
+    epoch 0, which has no `message_epoch` row at all -- while `high_water_record_id` goes on naming
+    the top. That is SS4.3.4's withholding detector and SS12.2 C-4's fault, produced by the server
+    against itself. **CLOSED 2026-08-30** by `EpochKeyCustodyDoesNotGateWhichRecordsComeBack`, which
+    establishes its own precondition (epoch 1 has genuinely lost its write key) before asserting
+    that the page is every id the group allocated; under the mutation a group that allocated
+    1..10 answers 6..10. It is not one of the two `Fetch` properties `contract.go` leaves unpinned
+    on purpose -- those are the row lock and `complete` at the exact limit boundary -- so it was
+    missing coverage rather than a decision. Found 2026-08-30 by the pgx Submit/Fetch reviewer.
+
 13. **A spec-conformant client cannot connect to a server without §9.1's signing sidecar.** §4.3.1
     requires `HelloResponse.server_keys` and requires a client to REFUSE a fleet whose first key does
     not verify against the compiled-in root, while decision B13 keeps every signing key off every
