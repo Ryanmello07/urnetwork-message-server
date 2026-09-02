@@ -591,7 +591,7 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     replica. That is not a defect in B13; it is a gap in what §4.3.1 says a partial deployment can do.
     Found 2026-08-26 by `peer/`.
 
-40. **The `sdk` surface has twenty-four open questions and four of them must be ruled before the
+48. **The `sdk` surface has twenty-four open questions and four of them must be ruled before the
     plan after next starts.** (Seventeen when first filed on 2026-08-30; S1-18 to S1-24 were added
     by the 2026-09-02 repair below, which found four properties in that plan no correct
     transcription could satisfy.) The full list is the Open items section of
@@ -775,6 +775,17 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     wraps and the snapshot passes the server while diverging from the spec — a deferral the system
     cannot detect, and therefore one m1 must gate rather than leave to an implementer. Found
     2026-09-02 by the CP3b-chain review.
+
+49. **Findings from a workflow review are NOT visible to the next agent, and a brief that says
+    "read the review" sends it looking for a file that does not exist.** A reviewer's findings are
+    the workflow's RETURN VALUE, held in the orchestrator's context and nowhere on disk. On
+    2026-09-02 an s1 repair brief carried CRITICAL 1 inline and then said "read the review for
+    CRITICAL 2 and the rest"; the agent searched `docs/reviews/`, the scratchpad, the artifact
+    gallery and the whole sandbox, correctly reported the document does not exist, and re-derived
+    the class itself -- finding five more instances, which is a good outcome from a bad brief.
+    **The rule: paste findings inline, or write them to a file first.** Nothing else reaches the
+    agent. This is the owner's error, recorded because every "close the findings from commit X"
+    brief on this project has the same shape.
 
 ## 6. Change process
 
@@ -1184,7 +1195,7 @@ client tell "retry" from "do not".
 **Change:** Added `docs/plans/2026-08-30-slice2-s1-sdk-surface.md` (2,021 lines, 16 tasks) — the first
 plan for Spec A §7, §8 and §9, none of which had one. It declares the whole §7 surface: 212 pinned
 declarations, 44 value structs, 16 `*List` wrappers, 21 listener interfaces, three behavioural
-handles, the closed vocabularies, and the exportability gate. Added open item 40 above.
+handles, the closed vocabularies, and the exportability gate. Added open item 48 above.
 
 **Why:** Every other component of this project has a plan — `docs/plans/` holds p1 through p8 for the
 MLS core — and the `sdk`, which is the product surface and the thing Spec C builds against, had none.
@@ -1258,7 +1269,7 @@ here and a Go gate there that must "agree" is precisely the ungated claim item 7
 **Change:** Amended `docs/plans/2026-08-30-slice2-s1-sdk-surface.md` (2,021 → 2,448 lines) against an
 adversarial review. Thirteen findings closed, plus one the repair found in the same class (§7.7's
 interface block is 10 listeners and 11 callbacks, not the 7/14 the plan carried); seven open items
-added (S1-18 to S1-24); item 40 above amended for the new count and for S1-23, which joins the set
+added (S1-18 to S1-24); item 48 above amended for the new count and for S1-23, which joins the set
 that cannot wait. No task was removed
 and no property was weakened to make the current tree pass.
 
