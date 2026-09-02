@@ -864,6 +864,32 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     the door's use of `effectiveExtensions()` is unobserved, dropping the erratum-8745 case its own
     header claims to own.
 
+57. **The door class is now genuinely derived, and the proof is a fourth source.** Adding a fourth
+    `LeafNodeSource` to the enum with no door **fails** the new gate -- which is the property three
+    earlier rounds could not claim. It also distinguishes *"no door"* from *"an expectation that
+    cannot fire"*: restoring `tree_sync.go`'s `ExpectedSource: leaf.LeafNodeSource` self-comparison
+    is caught by name (*"passes an ExpectedSource this gate cannot read as a constant ... x != x"*).
+    **The commit door is built and deliberately unwired.** `ValidateUpdatePathLeafNode` is declared
+    at `treekem.go:1096`; every other production mention is a comment and every caller is a test.
+    Verified by the owner. **p7 Task 18 wires it**, and `rulesThisPackageExportsAndNothingApplies`
+    pins the awaiting-a-caller state, so this is sequencing rather than a hole -- but until Task 18
+    lands, a received UpdatePath leaf is validated by nothing on any production path.
+58. **The gate written to close the base-name-exemption class exempts by base name.**
+    `leafValidationPositionsThatDoNotJudgeTheSource` is keyed by **file**, and `waivers[door.file]
+    = door.position` is last-write-wins, so a SECOND waiving call of `(*LeafNode).Validate` inside
+    an already-admitted file is admitted **with no reason of its own** -- while the map's own header
+    claims call-site granularity in as many words (*"a call site that waives and is not named here
+    fails"*). Measured: a second waiving call in `tree_sync.go` runs 1741/0/0; the identical call in
+    `validate_proposals.go` fails immediately. `tree_sync.go` is precisely the file a later
+    per-position tree door would be written in. This is the fourth instance of the base-name shape
+    on this project, and the first inside the gate written to close it.
+59. **Two residual limits worth knowing rather than fixing now.** The door gate's reading is
+    syntactic, so a door made UNREACHABLE -- `if true { return nil }` in front of it -- leaves it
+    green; every door happens to have behavioural backing today and nothing makes that a property
+    of the class. And comment claims about WHO CALLS a door are ungated: a false header saying
+    `MergeUpdatePath` calls the commit door survives the suite. All of that residual risk sits on
+    the one door nothing calls, which is separately pinned.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
