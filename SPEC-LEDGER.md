@@ -622,6 +622,34 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     where one message is worth half a mebibyte -- and strictly cheaper, since the entry total needs
     two senders and the octet total needs one.
 
+43. **The proposal cache's provenance question is not answerable until `GroupInfo.Verify` exists,
+    and four rounds were spent before that was seen.** Rounds 1-3 tried an AST walk and each was
+    defeated by one line (an argument type; a local struct; an accessor method, and separately
+    embedding). Round 4 replaced the walk with a type -- `VerifiedGroupContext`, unexported field,
+    one constructor -- which is the right SHAPE and was still **REJECTED**, for a reason that
+    settles the whole line:
+    - `ConfirmGroupContext` is **self-confirming**. The context enters through the `KeySchedule`
+      constructor and `ConfirmationTag` is exported on the same type, so
+      `s.ConfirmGroupContext(s.ConfirmationTag(h))` is a tautology. Demonstrated from an EXTERNAL
+      package in three lines: a decoded `GroupInfo` naming `"ATTACKER-CHOSEN-GROUP"` at epoch
+      1<<40 was accepted, and `NewProposalCache` took it.
+    - **Even the honest joiner flow confers no authority**, because the party that chose the
+      `joiner_secret` is the same unauthenticated party that chose the group context -- a Welcome
+      is HPKE-sealed to a PUBLISHED init key, so anyone holding the victim's KeyPackage supplies
+      both. Verified by running the prescribed flow: it accepted a context naming a group that
+      does not exist.
+    **Root cause, verified by the owner: `GroupInfo` has NO signature verification in this build.**
+    It declares only `toBeSigned`, `MarshalMLS` and `UnmarshalMLS`; `VerifyWithLabel` has callers
+    for FramedContentTBS, KeyPackage and LeafNode and **none for GroupInfoTBS**, and
+    `welcome_wire.go`'s own header says so: *"nothing here decides whether a GroupInfo's signature
+    is good."* So four rounds tried to establish the AUTHORITY of a value whose AUTHENTICITY is
+    never checked. **p7 Task 14 is the missing piece** -- it produces
+    `func (self *GroupInfo) Verify(crypto CryptoProvider, tree *RatchetTree) error` -- and every
+    interface it consumes has landed, so it is dispatchable out of order and is being pulled
+    forward. The verified-context constructor should be that verification, not a confirmation tag.
+    **Process lesson: when a gate is bypassed twice, stop hardening it and ask what it is standing
+    in for.** Three of these four rounds were avoidable.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
