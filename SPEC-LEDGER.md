@@ -538,6 +538,23 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     interface cannot both be right.** The spec should say which, and if fetch is genuinely still
     served then §5.1.1's check 6 has to be served with it and the indistinguishability of §4.5 has
     to be restated for the methods it does not cover. Found 2026-08-30 by the closed-group reviewer.
+
+    **READING PROPOSED 2026-09-02, and it is a reading rather than a ruling.** Take §7.5: a closed
+    group still serves reads, and `store.go`'s *"everywhere afterwards"* sentence is the one that
+    goes. §4.5's indistinguishability exists to deny an OUTSIDER an existence oracle, and on the read
+    path §5.1.1's check 6 (the read-key lookup) and check 7 (the `req_auth` MAC under that key) both
+    run before the closed state is consulted, so the only party that can observe the difference has
+    already proved possession of that epoch's read key — while EXISTENCE is answered earlier and by
+    something else entirely, §5.1 check 5's known-group cuckoo filter, which closing does not remove
+    an id from. Merging the two answers for a key-holding member protects nobody and costs them their
+    history. The costs are stated rather than discovered: `EpochKeys`'s join
+    loosens from "not closed" to "exists"; and §4.5 has to be restated as a **derived partition over
+    `type Store interface`** — the read methods answer a closed group as they answer an open one, the
+    write methods as they answer an unknown one — never as a hand-written list of method names, which
+    is the rule-5 failure this repository has recorded fourteen times. Argument, alternative
+    amendment, and the interlock with 39 are in
+    `docs/reviews/2026-09-02-cp3b-chain-and-three-amendment-proposals.md` Part 3, which is the
+    durable copy and is not restated here (item 7's shape). **38 and 39 must be ruled together.**
 39. **§6.1's step (0) runs in front of §7.5's sentence, so a closed group still answers a retry
     with `REASON_OK` and a record id.** §6.1 is explicit that the idempotency probe is "before any
     gate, before any allocation, and before the row lock of step (1)", and both implementations read
@@ -554,6 +571,20 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     answers now carry no `current_epoch`, which is item 37's rule reaching the two paths a fix
     scoped to step (1) does not. §7.5 should say whether its sentence outranks §6.1's step order.
     Found 2026-08-30 by the closed-group reviewer.
+
+    **READING PROPOSED 2026-09-02, and it is a reading rather than a ruling.** §6.1's step order
+    outranks §7.5's sentence, and §7.5 should say so. Step (0) allocates nothing, writes nothing and
+    creates no state, so it is not the "submit" §7.5 rejects; and answering `REASON_REJECTED` to a
+    retried commit fires the loser protocol, whose step 2 is the hard `MUST NOT` on reusing
+    `pq_secret[n+1]` that §12.1 A-6 calls a silent-corruption failure invisible in functional tests —
+    which is the expensive path the probe was put in front of the lock to avoid. Nobody learns
+    anything new either: reaching step (0) means passing §5.1 checks 1–8, and check 7 is the
+    `write_auth` MAC, so the party answered holds that epoch's WRITE key and is a member retrying a
+    record it already sent. One principle answers this and 38 —
+    **`closed` withdraws the ability to write new content, not a member's ability to learn what is
+    already there** — and if the owner takes the strict reading on 38 instead, this must flip with
+    it, at the `EXISTS` price this item already names. Reasoning in
+    `docs/reviews/2026-09-02-cp3b-chain-and-three-amendment-proposals.md` Part 3.
 13. **A spec-conformant client cannot connect to a server without §9.1's signing sidecar.** §4.3.1
     requires `HelloResponse.server_keys` and requires a client to REFUSE a fleet whose first key does
     not verify against the compiled-in root, while decision B13 keeps every signing key off every
@@ -656,6 +687,94 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     forward. The verified-context constructor should be that verification, not a confirmation tag.
     **Process lesson: when a gate is bypassed twice, stop hardening it and ask what it is standing
     in for.** Three of these four rounds were avoidable.
+
+44. **No key-package fetch by principal exists, and four §7 declarations cannot be written without
+    one.** `CreateGroupWithMembers`, `CreateDirect`, `InviteMember` and `AcceptJoinRequest` must each
+    issue an MLS `Add`, which carries a KeyPackage. `connect/protocol/` holds **zero** occurrences of
+    `key_package` across all seven `.proto` files, and §12.3's directory maps `principal → identity
+    master key` and nothing more — a fingerprint, not a key package — while directory listing is off
+    by default. **One path exists and it runs the other way:** §5.14's sealed contact-request deposit
+    carries `LP key_package`, *"the MLS KeyPackage the card's owner will Add"*, which requires the
+    party BEING ADDED to act first, at a rendezvous IT chose. So the four split 3+1: nothing serves
+    `CreateDirect`, `CreateGroupWithMembers` or `InviteMember`, and `AcceptJoinRequest` serves itself
+    **only if** item 45's join-request deposit is specified to carry a key package — which is why 44
+    and 45 should be ruled together. Three options (an operator directory endpoint, a key-package
+    store on the message server addressed by an identity handle, deposit-only), their metadata costs,
+    and a recommendation are in
+    `docs/reviews/2026-09-02-cp3b-chain-and-three-amendment-proposals.md` Part 2 proposal 1, which is
+    the durable copy and is not restated here (item 7's shape). **Blocks:** the four declarations in
+    whichever slice-2 plan owns the group flows; Spec B's schema; Spec C's add-member screens. **Does
+    not block:** s1, which is declaration-only, or m1's record-format freeze — a key-package channel
+    is control-plane, not a record. Found 2026-09-02 by the CP3b-chain review.
+
+44a. **And neither has the `Welcome`, which nothing had filed.** The same absence blocks the reverse
+    direction. Spec A annotates `CommitResult.RatchetTree` *"for out-of-band Welcome delivery"* and
+    then names no band. Every server operation is keyed by `group_id` and gated on possession of that
+    group's epoch key, which a joiner does not have by definition; the only identity-adjacent channel
+    in the protocol is §5.14's rendezvous, addressed by a **card token** rather than by an identity,
+    whose only body is `CONTACT_REQUEST`. §7.3's `PendingInvites()` and `AcceptInvite()` are declared
+    over this same absent channel. It is filed under 44 rather than beside it because one mechanism
+    closes both directions and splitting them invites two incompatible answers. **On the CP3b path**,
+    where it is short-circuited by a named, gated test-only hand-off — of a public KeyPackage and a
+    `Welcome` already sealed to the joiner's init key — under the same absent-not-placeholder rule
+    that made CP3a's key source safe. Found 2026-09-02 by the CP3b-chain review.
+
+45. **§7.3a invite links have no wire, no derivation and no server operation — and §13's sentence
+    scheduling them is false.** §5.14 derives all rendezvous material from
+    `card_root = HKDF-Expand(master_key, "card/v1", 32)`, which is **per identity**. A group invite
+    link needs a rendezvous per LINK with a per-link `collect_verify_pub`, and a reusable published
+    address needs a collect key **any admin** can hold, which a group has no shared secret of that
+    shape for: `group_handle_key` is *"FIXED at group creation"* and computable by every member who
+    has ever been one, including removed ones. Missing: the per-link derivation, a link encoding
+    (§5.14 encodes the card and nothing else), a join-request deposit body (`CONTACT_REQUEST` is the
+    only body, and the server asserts an exact 5238-byte equality), and the authorization model for a
+    reusable address. **§13's claim that these are *"an sdk-level flow over mechanisms A6 already
+    froze"* is false**: A6 froze the rendezvous transport and the five preimages, both genuinely
+    group-agnostic, and froze none of the four things above. The sentence is true of §7.3b and was
+    extended to §7.3a without the check, so **A7 cannot deliver §7.3a as the table stands.** Three
+    options and a recommendation — including one that is the obvious design and is rejected for
+    handing a removed member a permanent collect key — are in
+    `docs/reviews/2026-09-02-cp3b-chain-and-three-amendment-proposals.md` Part 2 proposal 2.
+    **Blocks:** all eight §7.3a declarations (already in s1 Task 11's blocked set), item 44's
+    `AcceptJoinRequest`, §13's A7 row, and Spec C's join-request screens. Found 2026-09-02 by the
+    CP3b-chain review.
+
+46. **`GrantHistory` has no mechanism anywhere, and the gap is load-bearing in three places.** §5.11
+    wraps the CURRENT epoch to CURRENT members — device wraps carry `pq_secret[n]` and `eph_root[n]`,
+    recovery wraps carry `storage_root[n]` and `archive_secret[n]` — and there is no
+    wrap-to-past-epochs primitive, no record class, no server operation and no extension (v1's
+    `RequiredCapabilities` is fixed to `[0xF001, 0xF002]`). The three places: `GrantHistory` and
+    `HistoryGrants` in §7.3; `"history_granted"` in `GroupEvent.Kind`'s **closed** set, which nothing
+    can ever emit — the reachability half of s1 Task 9 Property 2, already carried there as an
+    accepted survivor; and Spec C screen 15's banner. **A review already found this and its fix was
+    never applied**: r3 finding 5 (2026-08-12) prescribes *"A history grant conveys
+    `storage_root[m..n]` and nothing else… It never conveys `eph_root` for any epoch"* plus a fourth
+    item on MASTER's `eph_root` exclusion list, and neither sentence is in any spec today —
+    `grep "conveys" docs/specs/*.md` returns nothing and the exclusion list still has three items.
+    Three options, a recommendation (a fifth `server_attachment` kind wrapping the contiguous range
+    as one `PERMANENT` blob-ref record), and the two rejected alternatives with their reasons are in
+    `docs/reviews/2026-09-02-cp3b-chain-and-three-amendment-proposals.md` Part 2 proposal 3.
+    **Urgency is not the feature's:** it is a `server_attachment` kind, so ruling it AFTER A6 freezes
+    the wire makes it a format break rather than an addition. Found 2026-09-02 by the CP3b-chain
+    review.
+
+47. **The `connect/message` plan does not exist, and it is on the CP3b critical path in front of the
+    sdk.** The 2026-08-29 re-orientation named three unplanned workstreams — the sdk, server
+    persistence, Windows wiring. There is a fourth. `docs/plans/` holds p1–p8, all `connect/mls`, and
+    s1, `sdk`. Nothing owns `connect/message`'s second half: §5.2's construction order, §5.3's key
+    schedule, §5.5's ratchet, the record seal and open, and the client half of §5.11's epoch wrap
+    set. The s1 plan already names that plan **m1** and records `StorageRoot` and the
+    delete-for-everyone constant as **pending pins with no producer**; `message/doc.go` says *"The
+    key schedule lands beside them"* in the future tense; and `grep 'func StorageRoot'` over the tree
+    returns nothing. This is exactly the CP3a/CP3b delta — CP3a's harness states in its own header
+    that *"It does not encrypt"* — so **CP3b cannot be reached without it and it has no plan, no
+    estimate and no owner.** The chain, with the tasks each leg forces and the ones it does not, is
+    in `docs/reviews/2026-09-02-cp3b-chain-and-three-amendment-proposals.md` Part 1. One trap it
+    names: §5.11 defines `expected_wrap_count` as *"device wraps + recovery wraps + 1 snapshot"* and
+    the server checks only that the marker matches the attachment, so a client that defers recovery
+    wraps and the snapshot passes the server while diverging from the spec — a deferral the system
+    cannot detect, and therefore one m1 must gate rather than leave to an implementer. Found
+    2026-09-02 by the CP3b-chain review.
 
 ## 6. Change process
 
@@ -1227,3 +1346,75 @@ Separately, the plan's rejection of unknown `settings_json` keys is a forward-co
 Every anchor cited in the amendment was re-run: `gen.go:50`, `:92`, `:107`; the four replaces in
 `cgo`, `build` and `js`; `connect`'s two branches; the 22-value and 10/11 counts; and the reflection
 probe, which is the one that changed a task rather than a sentence.
+
+---
+
+### 2026-09-02 — the CP3b chain, and three gaps written up as proposals rather than resolved
+
+**Change:** Added `docs/reviews/2026-09-02-cp3b-chain-and-three-amendment-proposals.md` (759 lines).
+Open items 44, 44a, 45, 46 and 47 added. Items 38 and 39 each gained a proposed reading, labelled as
+a reading. No spec and no plan was edited.
+
+**Why:** The s1 reviewer's finding — *"The plan does not trace a chain to CP3b and does not answer
+the sequencing question that commissioned it"* — plus three gaps the s1 and store readers found that
+Spec A promises and no mechanism delivers.
+
+**The sequencing answer, in one line.** p2 Tasks 19–20 → p7 Tasks 7–13, 15, 16, 18, 19, 22 → **m1, a
+plan that does not exist** → s1 → two to four sdk plans that do not exist → CP3b. Everything else in
+p2, p6, p7 and p8 is off it, and so is about 85 per cent of Spec A §7: measured per subsection, CP3b
+needs roughly 21 of §7's functions and a dozen of its types — identity, one group, one send, one
+receive, and the engine seam — and none of §7.3a, §7.3b, §7.4a, §7.5, §7.6 or §7.9.
+
+**What the chain found that no item had.** The re-orientation named three unplanned workstreams;
+there is a fourth, and it sits in front of two of them. **`connect/message` has no plan.** The s1
+plan already calls it m1 and already records `StorageRoot` as a pending pin with no producer; nobody
+had noticed that the pin's absence is the CP3a/CP3b delta itself. Filed as item 47. And **the
+`Welcome` has no delivery channel** — `CommitResult.RatchetTree` is annotated *"for out-of-band
+Welcome delivery"* and no document names the band, while every server operation is keyed by
+`group_id` and gated on an epoch key a joiner does not have. Filed as 44a, beside the key-package
+gap, because one mechanism closes both directions and splitting them invites two incompatible
+answers.
+
+**Three proposals, and the discipline they were written under.** This project has twice had an
+implementer discover that a plan resolved an ambiguity the spec never settled, so each of 44, 45 and
+46 is options-and-a-recommendation rather than a position: what the spec promises, what exists, what
+is missing, two or three options with what each costs in metadata exposure, a recommendation labelled
+as one, and what stays blocked. Two alternatives are rejected outright with their reasons recorded so
+they are not re-invented: deriving invite-link material from `group_handle_key`, which is fixed at
+group creation and would hand a **removed** member a permanent collect key over every published
+address; and a chained history secret, which would silently give a member added at epoch *n* every
+epoch before it — the exact opposite of MASTER §11's stated default.
+
+**One false sentence in a spec, named as the deliverable asked.** §13 schedules §7.3a as *"an
+sdk-level flow over mechanisms A6 already froze."* Measured against what §7.3a needs, A6 froze the
+rendezvous transport and the five preimages — both genuinely group-agnostic — and froze no per-link
+derivation, no link encoding, no join-request deposit body and no authorization model for a reusable
+address. Three of the four are missing, so **A7 cannot deliver §7.3a as the table stands.** The
+sentence is true of §7.3b and was extended to §7.3a without the check.
+
+**Items 38 and 39 get one principle, not two rulings.** *`closed` withdraws the ability to write new
+content; it does not withdraw a member's ability to learn what is already there.* On 38 that means
+taking §7.5 and striking `store.go`'s *"everywhere afterwards"* — §4.5's indistinguishability denies
+an OUTSIDER an existence oracle, and on the read path §5.1.1's check 6 and check 7 both run before
+the closed state is consulted, so the only party that can see the difference has already proved
+possession of the read key, while existence is answered earlier by §5.1 check 5's known-group filter,
+which closing does not touch. On 39 it means §6.1's step order outranks §7.5, because step (0)
+writes nothing and because `REASON_REJECTED` on a retried commit fires the loser protocol and burns a
+`pq_secret`, which Spec B itself calls silent corruption. The cost of the 38 reading is stated rather
+than discovered, and it is a **derived** partition over `type Store interface` — read methods answer
+as an open group, write methods as an unknown one — never a hand-written list of method names.
+Ruling one of the two without the other produces a build that refuses a member's `Fetch` and answers
+their `Submit` retry with a record id.
+
+**Verified rather than reported.** Every claim of absence in the document was re-run rather than
+inherited: `key_package` across all seven `connect/protocol/*.proto` files (zero); `Encapsulate`,
+`Decapsulate` and `mlkem` across `mls/` and `message/` non-test source (one hit, a comment);
+`func StorageRoot` across the tree (0); `conveys` across all five `docs/specs/` documents (0, so r3
+finding 5 is still unapplied); `connect/message`'s seven non-test files (no key schedule, no AEAD, no
+ratchet, no X-Wing, no wraps);
+`Store`'s six methods and the four served api operations. §7's per-subsection counts were measured on
+a stated rule — top-level `func` and `type X struct|interface` lines between `### 7.1` and `## 8.`,
+giving 191 — and labelled as counting something different from s1's 212, so the two cannot be read as
+contradicting.
+
+**Reviewed by:** the author, as a diff. No code changed, so no mutation testing applies.
