@@ -599,6 +599,14 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     **The suite could not see it**: the one fixture that probes size, `testEnormousProposal()`,
     lands about 6 octets UNDER the threshold -- it exercises the largest proposal that does not
     panic. Found 2026-08-30 by the cap/authority reviewer; confirmed by the owner.
+40a. **The crash is on the SIGNATURE path, not just the proposal cache -- five call sites, not**
+    **one.** Measured on the tree 2026-09-01 by driving one oversized-but-valid value at each:
+    `ProposalCache.Store`, `(*KeyPackage).Ref`, `FramedContentTBSBytes` + `SignWithLabel`,
+    `DeriveJoinerSecret` and `EncryptWithLabel` **all panic**. The fifth matters most and was
+    missed by the original report: the same panic is reachable through `VerifyWithLabel`, which
+    runs **before any application-level check a caller could make**. So the crash is not confined
+    to a proposal that reaches a cache -- it is on the path every incoming signed message crosses,
+    and no ordering of application checks can get in front of it.
 41. **The proposal-cache ceilings admit a set no valid commit can name, so round 2's availability
     failure is still live, merely bounded to 500.** One sender stored 500 distinct Removes ALL
     naming leaf 4; RFC 9420 SS12.2 invalidates a list carrying multiple Removes for one leaf, so
