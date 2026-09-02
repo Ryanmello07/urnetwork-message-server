@@ -4,10 +4,17 @@
 > (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use
 > checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Declare the whole of Spec A §7 — 212 pinned declarations over 1,675 lines — as compiling,
-gomobile-legal, ABI-legal Go in `sdk`, in one wave, so that every other plan in slice 2 has a type
-graph to compile against. Nothing in this plan sends a message, opens a store, or touches MLS. It
-produces the shape that s2 through s10 fill in.
+**Goal:** Declare Spec A §7's type graph — 44 value structs, 16 `*List` wrappers, 21 listener
+interfaces, three behavioural handles and the closed vocabularies — and the callable shape that pins
+it: construction, the ten `Add*Listener`s, and an ABI-stable typed refusal for every §7 declaration
+no slice-2 plan implements before CP3b. All of it compiling, gomobile-legal, ABI-legal Go in `sdk`, in
+one wave, so that every other plan in slice 2 has a type graph to compile against. §7 is **212 pinned
+declarations over 1,675 lines** and this plan emits Go for a **subset** of them, handing the rest to
+the owning plan through Task 16's registry. Which subset, and what follows from it, is
+*What s1 declares, and what "the surface" means in this tree* below — that is not a footnote, it is
+the scope eight properties across seven of this plan's tasks are written against. Nothing in this
+plan sends a message, opens a store, or touches MLS. It produces the shape that s2 through s10
+fill in.
 
 **Architecture:** Three layers, and the split is what makes the wave safe. **Declarations** — value
 structs, `*List` wrappers, listener interfaces, the three behavioural handles — live in `package sdk`
@@ -154,6 +161,65 @@ anyway. The rules this plan leans on:
   package run's ~57 s. Run the targeted form for every mutation; run the full package only for a
   mutation that survives the targeted run. Twenty mutations is then about three minutes, not twenty.
 
+### What s1 declares, and what "the surface" means in this tree
+
+**§7 is 212 declarations and this plan emits Go for some of them.** Task 11 Property 1 partitions
+§7's declarations on `MessageClient` three ways — *implemented by a named plan*, *stubbed here*,
+*unrefusable* — and **only the stubbed bucket becomes Go in s1**, beside the three behavioural
+handles, `MessageClientSettings`, `NewMessageClient` / `Close`, the ten `Add*Listener`s,
+`MessageProtocolLimitsValues`, and every value struct, `*List` wrapper, listener interface and
+vocabulary of Tasks 3–7, 9 and 10. A bucket-1 declaration lands with the plan that implements it; a
+bucket-3 declaration lands when Open item S1-23 is ruled. **So `MessageClient`'s method set in this
+tree is a proper subset of §7's, and every type whose only §7 naming site is a bucket-1 or bucket-3
+declaration is declared here and reached from nothing.** That is the normal state of a
+declarations-first plan, not a defect in it — the type graph has to exist before the calls that name
+it, which is the whole reason this plan is wave 0.
+
+**It has one consequence, and it is stated once here because it was otherwise discovered five
+times.** §9.2 says the generator walks *"only types reachable from `MessageClient`"* and §7.7 opens
+with *"Every payload type reachable from `MessageClient` has its fields defined here"* — both
+describing the **finished** surface. In s1's tree the same phrase names a strictly smaller set, so a
+gate scoped to it is either **red** (it demands that a declared type be reached, and eleven `*List`
+wrappers and six element structs cannot be) or **hollow** (it walks past exactly those types).
+
+*Measured 2026-09-02 against §7, and bucket 3 alone accounts for seventeen types.* Eleven of Task 7's
+sixteen wrappers are named in §7 at **exactly one site each**, and every one of those sites is one of
+the twelve `*List`-returning methods bucket 3 leaves undeclared: `MessageGroupList` (§7.3 `Groups`),
+`MessageMemberList` (`Members`), `MessageHistoryGrantList` (`HistoryGrants`), `MessageInviteList`
+(`PendingInvites`), `MessageInviteLinkList` (`InviteLinks`), `MessageJoinRequestList`
+(`JoinRequests`), `MessageContactRequestList` (`ContactRequests`), `MessageSearchResultList`
+(`Search`), `MessageDeviceList` (`Devices`), `MessagePinList` (`Pins`),
+`MessageSecurityLogEntryList` (`SecurityLog`). The prose sentences at the end of §7.7 and §7.3a that
+also spell those names are prose; they are not declarations and no type-graph walk sees them. Five
+wrappers survive on something else: `MessageEntryList` on `GroupEvent.Entries`,
+`MessageAttachmentList`, `MessageReactionList` and `MessageReceiptList` on `MessageEntry`'s fields,
+and `MessageDirectoryResultList` on `DirectoryCallback`'s parameter. And **six element structs are
+named in §7 only as their own list's element** — `MessageMember`, `MessageDevice`, `MessageInvite`,
+`MessageHistoryGrant`, `MessageSecurityLogEntry`, `MessageSearchResult` — so they leave with their
+wrappers. Eleven plus six is seventeen. Whatever Task 16's registry puts in bucket 1 adds to that
+set; the seventeen are the part fixed by this plan rather than by the next one.
+
+**So no gate in this plan is scoped to "reachable from `MessageClient`".** They are scoped to **the
+s1 surface**, defined once and derived:
+
+> the **s1 surface** is every exported named type declared by a `message_*.go` file in `package sdk`,
+> plus `MessageClient` and every exported package-level function declared by such a file, plus
+> everything reachable from those over the type graph — through method parameters and results,
+> struct fields, `*List` element types, and the method signatures of listener interfaces.
+
+The rule is the scope; the derived set is the content, and Task 12 Property 2 owns its manifest and
+reports its size. This is a **superset** of "reachable from `MessageClient`" and never a subset, so
+no gate loses reach: a messaging struct declared in `sdk/sdk.go` is still caught the moment anything
+on the surface names it, which is the case Task 8's scope was written for. What it adds is the
+seventeen — and, with them, the ability of Task 6 mutation 4 and Task 14 mutation 4 to fail at all.
+
+**What it deliberately does not do is make "declared but unreached" invisible.** Two properties ask
+that question directly — Task 7 Property 1 and Task 10 Property 3 — and both answer it from the
+**transcription** rather than from reachability: a declared type with no manifest entry naming the
+§7 declaration that names it is dead surface and fails; a declared type whose manifest entry names a
+§7 declaration this plan defers is deferred, not dead, and the entry carries the owning plan so the
+set empties itself as those plans land.
+
 ---
 
 ## Interfaces consumed from other plans
@@ -296,6 +362,8 @@ Every file created or modified by this plan, and its single responsibility.
 | `sdk/message_vocab.go` | The closed vocabularies, their values, and the string-field classification |
 | `sdk/message_listeners.go` | The 21 listener/callback interfaces and the 10 `Add*Listener` declarations |
 | `sdk/message_stubs.go` | The ABI-stable typed refusals for every call this slice does not implement |
+| `sdk/message_handles_test.go` | The handle opacity, method-set and gomobile-legality gates |
+| `sdk/message_types_session_test.go`, `sdk/message_types_group_test.go`, `sdk/message_types_entry_test.go`, `sdk/message_types_trust_test.go` | The field manifests of Tasks 3–6 and the gates over them |
 | `sdk/message_lists_test.go` | The `*List` derivation and its JSON shape |
 | `sdk/message_json_test.go` | JSON naming totality, round trip, and the three measured `*List` behaviours |
 | `sdk/message_vocab_test.go` | `TestVocabulariesAreClosed` and the classification's totality |
@@ -312,7 +380,10 @@ Every file created or modified by this plan, and its single responsibility.
 | `sdk/surface/generator_drift_test.go` | The AST gate holding `surface` and `sdk/cgo/gen/gen.go` together |
 | `sdk/.gitattributes` | `eol=lf` for Go and module files; the `working-tree-encoding` line for `.md` |
 | `sdk/.github/workflows/messaging-surface.yml` | The jobs that run this plan's gates; the repo has **no** `.github` directory today |
-| `msgrepo/docs/plans/2026-08-30-slice2-interface-registry.md` | The slice-2 cross-plan registry and its pending-pin gate |
+| `sdk/slice2-pending-pins.txt` | The machine-readable pending-pin table; the registry cites it rather than restating it |
+| `sdk/slice2-ownership.txt` | The machine-readable §7 ownership map — the source Task 11 Property 1 derives its partition from, in `sdk` because a Go gate cannot read a table in `msgrepo` |
+| `sdk/message_registry_test.go` | The pending-pin gate and the ownership map's totality over §7 |
+| `msgrepo/docs/plans/2026-08-30-slice2-interface-registry.md` | The slice-2 cross-plan registry; it cites the two tables above by path and restates neither |
 
 ---
 ## How to read a task
@@ -602,11 +673,41 @@ because the alternative is a hundred structs whose only check is that they compi
   from the package, not a list of six names. The gate must fail if a struct in one of those files is
   absent from the manifest.
 
-  **Property 2 — every time-valued field is `int64` unix milliseconds and is named `...Ms`.** §7.8
-  forbids `time.Time` crossing, and §7.2 makes the millisecond convention total.
+  **Property 2 — no time crosses as a time, every time-valued field is `int64`, and its name ends in
+  the suffix that names its unit.** §7.8 forbids `time.Time` crossing; the width is `int64` because
+  gomobile binds `int32` to Java `int`; and an unsuffixed time field is a number whose unit lives
+  only in a comment.
+  **The suffix is `Ms` or `Seconds`, and writing this property as "every time-valued field is
+  milliseconds and is named `...Ms`" makes it red against a correct transcription.** Measured across
+  §7's declaration blocks on 2026-09-02, over distinct field-name spellings: **six** end `Seconds` —
+  `MessageRetentionApplied`'s `MediaTtlSeconds`, `DurableTtlSeconds`, `RequestedMediaTtlSeconds` and
+  `RequestedDurableTtlSeconds`, which mirror a wire message field for field, and
+  `MessageServerInfo`'s `RendezvousTtlSeconds` and `RendezvousDepositTtlSeconds`, which revision A-6
+  added — and every other time-valued field on the surface ends `Ms`. No third unit appears anywhere
+  on it: no `Days`, no `Minutes`, no `Nanos`. A universal `...Ms` property here contradicts
+  **Property 3 of this task** (`a RendezvousTtlMs fails`) and **Property 1 of Task 4** (`a field on
+  MessageRetentionApplied ending Ms fails`) — three properties in one plan, two of them demanding the
+  opposite of the third, which is the shape that gets resolved by renaming a field and silently
+  changing a unit.
+  So the universal this property carries is the one that is true of every time-valued field on the
+  surface: **the suffix set is exactly `{Ms, Seconds}`, an instant is always `Ms`, and which of the
+  two a given duration takes is Property 3's transcription question, not this one's.**
+  *And "time-valued" must be derived from the declaration, not guessed from the name, because §7 has
+  three fields whose names read like times and are not.* Measured 2026-09-02:
+  `MessageHistoryState.JoinedAtEpoch int64` is an MLS epoch number,
+  `IntegrityEvent.CoveredSinceRecordId int64` is a record id, and
+  `MessageContactRequest.RefusedSinceLastCollect int32` is a count. All three
+  carry `At` or `Since`, none is a time, and a gate that derives its class from *"the name contains
+  `At` or `Since`"* is red on all three against a correct transcription — the same failure this
+  property is being rewritten out of, one level down. Derive the class from the unit suffix the field
+  actually carries and refuse a time field that carries none; say in the header which three are the
+  near misses, so the next reader does not widen the pattern to catch them.
   *Refusal owed:* a field named `SentAt` of type `int64` fails; a field of type `*Time` or
-  `time.Time` fails; a field named `TimeoutMs` of type `int32` fails.
-  *Scope:* every field of every struct on the surface, derived — not the ones this task happens to
+  `time.Time` fails; a field named `TimeoutMs` of type `int32` fails; a field named `TimeoutDays`,
+  `TimeoutMinutes` or `TimeoutNanos` fails, because the suffix set is closed at two; and a field
+  named `CreatedAtSeconds` fails, because an instant on this surface is milliseconds without
+  exception.
+  *Scope:* every field of every struct on the s1 surface, derived — not the ones this task happens to
   declare. State that scope in the gate's header, because this is the property most likely to be
   scoped to one file and then quietly bypassed by the next task's file.
 
@@ -675,6 +776,19 @@ because the alternative is a hundred structs whose only check is that they compi
   5. Add a struct to `message_types_session.go` with no manifest entry. Property 1 must fail on
      scope. A gate keyed to six names survives this.
   6. Rename `SyncState.LastRecordReceivedMs` to `LastRecordReceived`. Property 2 must fail.
+  6a. Rename `MessageServerInfo.ReadKeyWindowMs` to `ReadKeyWindowMinutes`. Property 2 must fail on
+     the **closed suffix set**. A gate that only refuses an unsuffixed name, or only refuses
+     `time.Time`, passes this.
+  6b. Rename `MessageEntry.SentAtMs` to `SentAtSeconds`. Property 2 must fail: the suffix is in the
+     set and the field is an instant, and an instant on this surface is milliseconds without
+     exception. This is the mutation that separates the closed-suffix half of the property from the
+     instant half.
+  6c. Rename `MessageRetentionApplied.MediaTtlSeconds` to `MediaTtlMs`, and separately rename
+     `MessageServerInfo.RendezvousTtlSeconds` to `RendezvousTtlMs`. Property 2 must **not** be what
+     fails — Property 3 and Task 4 Property 1 are, on the transcription. Run both and check which
+     gate reports them: if Property 2 fires, it was written as a universal `...Ms` rule and is red
+     against six declared fields before any mutation. That is the defect this revision removes and
+     the cheapest check that it is gone.
   7. Change `MessageHealthEvent.Seq` to `float64`. Property 1 must fail.
   8. Add `MessageServerInfo.MediaTtlMaxSeconds` beside the `Ms` field. Property 3 must fail.
   8a. Rename `MessageServerInfo.RendezvousTtlSeconds` to `RendezvousTtlMs`. Property 3 must fail —
@@ -963,7 +1077,11 @@ because the alternative is a hundred structs whose only check is that they compi
   2. Drop `"out_of_band"` from one of the two sites. Property 1 must fail.
   3. Declare `MessageMember.IdentityPublicKey` as `string`. Property 4 must fail.
   4. Declare it as `[]string`. Task 12's exportability walk must fail; if this task's gate also
-     fails, good, but the walk is the one that must.
+     fails, good, but the walk is the one that must. **Check that it does.** `MessageMember` is
+     reached in this tree only as `MessageMemberList`'s element and that wrapper is named in §7 only
+     by `Members()`, which Task 11 Property 1's third bucket leaves undeclared — so this mutation
+     survives against any walk rooted at `MessageClient` alone, and survives silently. It is the
+     cheapest check that Task 12 Property 2's part (b) exists.
   5. Add `Seq`/`Dropped` to `MessageBalance`. Property 5 must fail.
   6. Delete the `OperatorHost` doc comment naming S1-4. Property 2 must fail.
   7. Change `MessageContactCard.Generation` from `int32` to `int64`. Task 3 Property 1 must fail.
@@ -995,15 +1113,38 @@ because the alternative is a hundred structs whose only check is that they compi
 
 - [ ] **Step 1: Derive the property and write the failing test**
 
-  **Property 1 — the set of declared `*List` types equals the set the surface names.** Derive it:
-  every type name of the form `X` such that `*XList` appears as a result type or a field type
-  anywhere in the exported surface must have a declaration, and every declared `*List` must be
-  named somewhere. A list declared and never used is dead ABI; a list used and never declared does
-  not compile, which the build already catches — but the gate is written in both directions anyway,
-  because the compiler only catches one of them and the plan must not rely on that asymmetry.
-  *Refusal owed:* declaring `MessageFooList` that nothing names fails.
-  *Scope:* the whole exported surface reachable from `MessageClient`, from the type graph. Sixteen
-  is the measured count today, not the gate's input.
+  **Property 1 — the set of declared `*List` types equals the set §7 names, and the test for
+  "names" is the transcription and not reachability.** Two directions, and they have different
+  sources:
+  - *Used but not declared.* Every `*XList` appearing as a result type, a field type or a parameter
+    type anywhere on the s1 surface has a declaration. The compiler already catches this one; the
+    gate is written anyway, because the plan must not rely on an asymmetry it did not choose.
+  - *Declared but not named.* Every declared wrapper carries a **manifest entry naming the §7
+    declaration that names it** — a result type, a field type or a callback parameter — transcribed
+    exactly as Task 3's field manifest transcribes the line that declares each field, plus the plan
+    that owns that declaration. A wrapper with no manifest entry is dead ABI and fails; a manifest
+    entry with no wrapper fails.
+  **Reachability is not the test, and writing it as one made an earlier revision of this property red
+  before a single mutation.** Eleven of the sixteen wrappers are named in §7 at exactly one site
+  each, every one of those sites is a `*List`-returning method on `MessageClient` that this plan does
+  not declare (Property 4 lists the twelve; Task 11 Property 1's third bucket is why), and the prose
+  sentences in §7.3a and §7.7 that also spell those names are prose rather than declarations. A
+  property demanding that every declared `*List` be reached from `MessageClient` is therefore red
+  against a correct transcription of this plan for **eleven of its sixteen wrappers** — and the
+  cheapest way out of a red gate is to delete the eleven, which deletes the type graph s5 through s9
+  compile against, one commit before the commit that needs it. See *What s1 declares* in Global
+  Constraints for the measured seventeen types this covers.
+  *Refusal owed:* declaring `MessageBalanceList`, which no §7 declaration names, fails on the missing
+  manifest entry. Deleting `MessageReceiptList`, which `MessageEntry` names twice, fails. A manifest
+  entry citing a §7 line that does not name that wrapper is caught by a human reading the manifest
+  against §7 at commit time and by nothing else — record that as the manifest's stated limit, exactly
+  as Task 3 mutation 4 records the same limit for the field manifest, rather than inventing a gate
+  that pretends to read the spec.
+  *Scope:* the s1 surface (Global Constraints), derived, for the first direction; the manifest, whose
+  own scope is *every declared `*List` in `package sdk` whose element type is declared by a
+  `message_*.go` file*, for the second. Sixteen is the measured count today and not the gate's input;
+  **eleven-of-sixteen-unnamed-in-this-tree is the measured state of this plan's own output**, it is
+  what the gate reports beside the count, and it shrinks to zero as the owning plans land.
 
   **Property 2 — every `*List` embeds the existing `exportedList[T]` and adds no state.** The
   wrapper exists because gomobile exports neither generics nor `[]T`, not because a list needs
@@ -1053,6 +1194,15 @@ because the alternative is a hundred structs whose only check is that they compi
     empty in this condition — Spec C would then render 'No conversations yet' to a user whose entire
     history is intact on the server"* — and `null` is refused by Property 3's own premise, which says
     the consumer throws on it. The third, an error, the signature cannot express.
+  **What the return case costs this plan's own type graph, because it is not free and was not
+  counted.** Because those twelve are undeclared, eleven of Task 7's sixteen wrappers and six of
+  Tasks 4–6's element structs are named by nothing in this tree — seventeen types, listed and
+  measured under *What s1 declares* in Global Constraints. That is why Property 1 above is written
+  against the transcription rather than against reachability, why Task 10 Property 3's dead-surface
+  half carries the same carve-out, and why the s1 surface rather than `MessageClient` is what Tasks
+  3, 8, 9, 12 and 14 walk. A revision of this plan that leaves the twelve undeclared **and** scopes
+  those gates to `MessageClient` is red or hollow in eight properties before anybody writes a line
+  of Go.
   *Refusal owed in s1:* none, and **recording either case as covered would be the exact failure this
   plan exists to avoid.** What s1 owes instead is that Task 11 does not claim to have solved the
   return case by picking `null` — see Task 11 Property 1's third bucket. Filed as **Open item S1-23**:
@@ -1077,7 +1227,22 @@ because the alternative is a hundred structs whose only check is that they compi
 - [ ] **Step 5: Mutation-test**
 
   1. Delete `MessageReceiptList`. Property 1 must fail (it is named twice on `MessageEntry`).
-  2. Declare `MessageBalanceList`, which nothing names. Property 1 must fail.
+  1a. Delete `MessageGroupList` instead — the wrapper whose only §7 site is a method this plan does
+     not declare. Property 1 must fail on the **manifest** direction, and it must fail for that
+     reason and not for a reachability one. A gate that asks "is every declared list reached from
+     `MessageClient`" produces **no new failure** here: it was already red on this wrapper before the
+     mutation, so deleting the wrapper makes it one failure quieter rather than one louder. Run 1 and
+     1a adjacently; the pair is what distinguishes the repaired property from the one that was red on
+     arrival.
+  1b. Delete `MessageGroupList` **and** its manifest entry, so the two agree. Property 1 now passes,
+     and that is correct: the manifest is the transcription, and a human reads it against §7 at
+     commit time. **Record it as an accepted survivor with that reason**, exactly as Task 3
+     mutation 4 is recorded; do not invent a gate that pretends to read the spec.
+  2. Declare `MessageBalanceList`, which nothing names. Property 1 must fail on the missing manifest
+     entry.
+  2a. Declare `MessageBalanceList` **and** give it a manifest entry citing a §7 line that does not
+     name it. Property 1 must pass, and that is the same accepted survivor as 1b, from the other
+     direction. Both belong in the commit message.
   3. Add a `total int32` field to `MessageEntryList`. Property 2 must fail.
   4. Delete one wrapper's `MarshalJSON`. Property 3 must fail for that wrapper.
   5. Delete *all* the wrappers' `MarshalJSON`. Property 3 must fail sixteen times, not once — a gate
@@ -1127,10 +1292,16 @@ edits to a hundred structs — which is what the gate below buys.
   snake_case of the field name.** No exceptions without an entry in a declared exception table, and
   an unused exception entry fails too.
   *Refusal owed:* a field with no tag fails; a tag whose key is not the derived snake_case fails.
-  *Scope to derive:* every exported field of every named struct **reachable from `MessageClient`**,
-  walked over the type graph — not "the structs in `message_types_*.go`". Those two sets are the same
-  today and will not be after s2 adds `StoredEntry`'s projection or s9 adds anything. State the
-  scope in the gate's header, in the reachability form, and say why it is not the file form.
+  *Scope to derive:* every exported field of every named struct on **the s1 surface** (Global
+  Constraints), walked over the type graph. Two halves, and both are load-bearing. It is not
+  "reachable from `MessageClient`", because seventeen types this plan declares are reached from
+  nothing in this tree — the eleven wrappers and six element structs whose only §7 site is a
+  `*List`-returning method Task 11 Property 1's third bucket leaves undeclared — and a gate scoped
+  that way silently exempts every one of their fields from carrying a `json:` tag at all. And it is
+  not "the structs in `message_types_*.go`", because that set will not hold after s2 adds
+  `StoredEntry`'s projection or s9 adds anything; the file rule seeds the **roots** and reachability
+  does the rest, so the scope is a superset of the reachable one and never a subset. State both
+  halves in the gate's header, and say why neither alone is the scope.
 
   **Property 2 — `omitempty` appears nowhere on the messaging surface.** Spec C parses a fixed
   schema; an absent key is an exception in nlohmann, not a default. Concretely,
@@ -1139,9 +1310,14 @@ edits to a hundred structs — which is what the gate below buys.
   from "the DLL did not send it".
   *Refusal owed:* any `omitempty` on a messaging struct fails.
   *Scope:* explicitly **not** the whole `sdk` package. The pre-existing VPN structs use `omitempty`
-  and are a shipped ABI. Derive the exclusion — a struct whose declaration is reachable from
-  `MessageClient` — rather than excluding by file name, because a messaging struct declared in an
-  older file must still be caught.
+  and are a shipped ABI. Derive the exclusion — a struct on **the s1 surface** — rather than
+  excluding by file name, because a messaging struct declared in an older file must still be caught,
+  and rather than by reachability from `MessageClient` alone, because that exempts the seventeen
+  types nothing reaches yet. `MessageServerInfo` is this property's own worked example and it is one
+  of the structs at risk from the narrow reading: §7 names it from `ServerInfo()` and from nothing
+  else, and Task 16's registry assigns `ServerInfo()` to another plan — so under a
+  reachability-from-`MessageClient` scope the example the property is written around sits outside the
+  gate the property writes.
 
   **Property 3 — every struct on the surface round-trips.** Marshal a value with **every** field set
   to a distinguishable non-zero value, unmarshal, re-marshal: byte-identical, and the unmarshalled
@@ -1238,22 +1414,37 @@ list.** It is offered as evidence that copying is what produced §9.5's seventee
   a **failure**, not a default.
   *Refusal owed:* a string field added tomorrow with no classification fails the build's test run,
   naming the field.
-  *Scope to derive:* every `string`-typed exported field of every struct reachable from
-  `MessageClient`, plus the string **return values** of exported methods that §7 declares closed —
-  `ByJwtState()` is one and it is on no struct at all. A gate scoped to struct fields misses it, and
-  that omission is exactly the class this project has paid for fourteen times.
+  *Scope to derive:* every `string`-typed exported field of every struct on **the s1 surface**
+  (Global Constraints), plus the string **return values** of exported methods that §7 declares
+  closed — `ByJwtState()` is one and it is on no struct at all. A gate scoped to struct fields misses
+  it, and that omission is exactly the class this project has paid for fourteen times. **And not
+  "reachable from `MessageClient`":** `MessageInvite.State` and `MessageSecurityLogEntry.Kind` are
+  two of the nineteen vocabularies named above, and both sit on structs nothing in this tree
+  reaches — so the narrow scope exempts from classification the very fields this task cites as its
+  evidence that §9.5's seventeen is an undercount.
 
   **Property 2 — a closed vocabulary is closed in both directions.** Every declared value is
   reachable from the surface, and no value outside the declared set may be written to a field
-  classified `closed`. The second half is the one that gets forgotten. The spec makes three
-  **negative** claims that must be asserted as absences, because a value quietly re-added is
-  invisible otherwise:
+  classified `closed`. The second half is the one that gets forgotten. §7.2's vocabulary block makes
+  its **negative** claims in the source text, and they must be asserted as absences because a value
+  quietly re-added is invisible otherwise. **Derive the class; do not copy the list below.** The
+  class is *every value §7.2's block names as not being a member of a named set*, and it is
+  recognisable in the source by the two forms the block uses: a parenthesised *"there is no … value"*
+  and a *"NOT a value"* or *"LOSES"* line. Measured against §7.2 on 2026-09-02 the class has **five**
+  members over **four** distinct values, because one value is refused by two different vocabularies:
   - vocabulary 1 has **no** `"fork_detected"` — a transcript-hash divergence triggers an automatic
     resync and only surfaces as `"fork_unresolved"`;
   - vocabulary 3's reasons have **no** `"server_key_change_unresolved"` — a server key that does not
     chain to the pinned fleet root is refused outright and reported `"server_key_untrusted"`;
+  - **vocabulary 3's reasons also have no `"fork_detected"`** — §7.2 says *"It also loses
+    `fork_detected`, for the reason vocabulary 1 gives"*. This is the pair an earlier revision of
+    this property omitted while its own refusal counted five, and it is the ledger-5 shape at its
+    most literal: the count said five, the list held four, and the missing member was the **second
+    site** of a value the list already carried under the other vocabulary, so nothing looked absent;
   - vocabulary 2 has **no** `"commit_lost"` and no `"retention_refused"`.
-  *Refusal owed:* adding any of those five values fails.
+  *Refusal owed:* adding any of those five `(vocabulary, value)` pairs fails. The gate reports how
+  many pairs it derived — five today — and a sixth appearing in §7.2 must move that number rather
+  than pass unnoticed.
 
   **Property 3 — vocabulary 2 is a superset of vocabulary 1.** §7.2 defines the send-failure set as
   "every value of vocabulary 1, plus" seven more. That relation is checkable and it is the thing
@@ -1294,7 +1485,13 @@ list.** It is offered as evidence that copying is what produced §9.5's seventee
 - [ ] **Step 5: Mutation-test**
 
   1. Add `"fork_detected"` to vocabulary 1. Property 2 must fail.
+  1a. Add `"fork_detected"` to vocabulary 3's **reasons** instead, leaving vocabulary 1 alone.
+     Property 2 must fail on the second pair. A gate holding four pairs rather than five passes this,
+     and the value is already in its table under the other vocabulary, so nothing reads as missing.
   2. Add `"server_key_change_unresolved"` to vocabulary 3's reasons. Property 2 must fail.
+  2a. Add `"commit_lost"` to vocabulary 2, then `"retention_refused"`. Property 2 must fail both
+     times. Run all five pairs: five mutations against a five-member class is the only way to find
+     out that the table holds four.
   3. Add a new string field to `MessageGroup` with no classification. Property 1 must fail.
   4. Add a new exported method returning a closed string — a second `ByJwtState`-shaped one — with
      no classification. Property 1 must fail; if it passes, the scope was struct fields.
@@ -1370,9 +1567,21 @@ list.** It is offered as evidence that copying is what produced §9.5's seventee
   **Property 3 — every payload type a listener method names is declared on this surface.** §7.7 says
   it plainly: a callback payload that is named but not defined is what makes Spec C unbuildable.
   *Refusal owed:* an interface whose method takes an undeclared type fails to compile, which is the
-  build. The gate that earns its keep is the other direction: a **declared** payload struct that no
-  listener, callback or accessor reaches is dead surface, and it fails.
-  *Scope:* reachability from `MessageClient`, derived.
+  build. The gate that earns its keep is the other direction: a **declared** payload struct that
+  nothing on the s1 surface reaches **and that no manifest entry attributes to a §7 declaration this
+  plan defers** is dead surface, and it fails.
+  **The carve-out is not a softening, it is what stops the property being red on arrival.** Six
+  declared structs are reached only as their own `*List`'s element — `MessageMember`,
+  `MessageDevice`, `MessageInvite`, `MessageHistoryGrant`, `MessageSecurityLogEntry`,
+  `MessageSearchResult` — and each of those wrappers is named in §7 only by a `*List`-returning
+  method Task 11 Property 1's third bucket leaves undeclared. A gate that calls those six dead
+  surface is red against a correct transcription of this plan and invites their deletion; a gate with
+  no second direction at all lets a genuinely dead struct through. The manifest entry is what
+  separates the two: it names the §7 declaration that will reach the struct and the plan that owns
+  it, so the deferred set is visible, countable, and empties itself as those plans land. Six is the
+  measured size today, reported by the gate and not given to it.
+  *Scope:* the s1 surface (Global Constraints), derived — **not** "reachable from `MessageClient`",
+  for the reason stated there.
 
   **Property 4 — a callback carries `(payload, err error)`; a listener carries `(payload)` alone.**
   Measured from §7.7's declaration block on 2026-09-02: **ten** `*Listener` types take one argument
@@ -1410,6 +1619,12 @@ list.** It is offered as evidence that copying is what produced §9.5's seventee
      interface on the surface, not the seven listeners.
   5. Declare `MessagePendingPolicy` and reach it from nothing. Property 3 must fail. (It is reached
      from `GroupEvent`, so remove that field for the mutation.)
+  5a. Do the same to `MessageMember` — remove nothing, simply run the gate. Property 3 must **pass**,
+     because `MessageMember` is in the deferred set with a manifest entry naming `Members()` and its
+     owning plan. If it fails, the property was written as reachability and is red against a correct
+     transcription for six structs before any mutation.
+  5b. Delete `MessageMember`'s manifest entry, leaving the struct. Property 3 must now fail. The pair
+     5a/5b is what distinguishes "deferred" from "dead", and neither mutation alone shows it.
   6. Drop the `err error` parameter from `GroupCallback`. Property 4 must fail.
   7. Add an `err error` parameter to `SyncListener`. Property 4 must fail.
   8. Rename `BalanceRedeemCallback` to `BalanceRedeemHandler`. Property 4's totality must fail —
@@ -1425,14 +1640,19 @@ list.** It is offered as evidence that copying is what produced §9.5's seventee
 ### Task 11: The ABI-stable typed refusals
 
 **Files:**
-- Create: `sdk/message_stubs.go`, `sdk/message_stubs_test.go`
+- Create: `sdk/message_stubs.go`, `sdk/message_stubs_test.go`, `sdk/slice2-ownership.txt`
 - Modify: `sdk/message_errors.go`
 
 **Interfaces:**
 - Consumes: `ErrMessageNotImplemented` (Task 1); the callbacks of Task 10; the handles of Task 1;
   the lists of Task 7.
 - Produces: a declaration for every §7 method on `MessageClient` that no slice-2 plan implements
-  before CP3b, at its final signature.
+  before CP3b **and that can be refused honestly**, at its final signature; and the machine-readable
+  ownership map, `sdk/slice2-ownership.txt`, that Property 1 partitions against. The three-way
+  partition below is what the second half of that first clause means, and the twelve declarations it
+  excludes are named there — with what their exclusion costs this plan's type graph, which is
+  seventeen types and is stated under *What s1 declares* in Global Constraints rather than left to be
+  found by whoever writes Task 7's gate.
 
 **Why they exist.** §7 is 135 function and method declarations. Spec C builds against the header s10
 generates from them, and §9.2's ABI baseline fails on any symbol change. A call that appears in
@@ -1451,8 +1671,18 @@ surface.
 **`HistoryGrants` is blocked for the same reason and is nonetheless NOT in this set**, because it
 returns a `*MessageHistoryGrantList` and Property 1's third bucket takes every `*List`-returning
 declaration: there is no answer it can give that this plan is willing to write down. It is listed in
-Task 16's registry against s6 with Open item S1-23, and Task 11 declares nothing for it. The same
+the ownership map against s6 with Open item S1-23, and Task 11 declares nothing for it. The same
 applies to the eleven other `*List` returns of §7, whichever plan owns them.
+
+**§7's four package-level functions are not this task's, and saying so is not a formality.** Task 11
+partitions the **method set** of `MessageClient`; §7 also declares `NewMessageClient` (Task 2),
+`MessageProtocolLimitsValues` (Task 3), `GenerateMessageSeedphrase` and `ValidateMessageSeedphrase`.
+The last two are BIP39 over key material, they are CP3b path, and the ownership map assigns them to
+**s3** — so this plan declares neither, and neither is a root of Task 12's walk until s3 lands. That
+sentence is here because Task 12's root manifest was written on the assumption that it is, and a
+manifest that names a function no task creates is a gate that is red before anybody mutates
+anything. All four are in the ownership map; Property 1's partition covers the twelve `*List`
+returns and the method set, and the map is what covers the rest.
 
 - [ ] **Step 1: Derive the property and write the failing test**
 
@@ -1465,17 +1695,38 @@ applies to the eleven other `*List` returns of §7, whichever plan owns them.
     Property 4 lists them; not one has an error return): `[]` is the answer §8.2 forbids — *"Spec C
     would then render 'No conversations yet' to a user whose entire history is intact on the
     server"* — and `null` is the answer Task 7 Property 3's own premise says the consumer throws on.
-    **A member of this bucket is not stubbed.** It is listed in Task 16's registry with the plan that
+    **A member of this bucket is not stubbed.** It is listed in the ownership map with the plan that
     implements it and with Open item S1-23 against it, and Task 11 declares nothing for it. Picking
     one of the two wrong answers and calling it "the honest answer to 'this build cannot tell you'"
     is what this bucket replaces.
-  *Refusal owed:* a §7 method in none of the three buckets fails — and, crucially, so does one in
-  **two**. A method in the third bucket that acquires a stub fails, which is what stops the bucket
-  from quietly emptying itself back into bucket two.
-  *Scope to derive:* the method set of `MessageClient` from the type graph, partitioned against the
-  ownership table in Task 16's registry. This is the loop that closes: the registry is the scope
-  source, so a method nobody claimed cannot be silently absent. A gate reading a list in this file
-  instead is the ledger-21 shape and must be rejected in review.
+    **And it costs the type graph seventeen types, which is this bucket's price and is paid here
+    rather than discovered in Task 7.** Undeclared methods name no types: eleven of Task 7's sixteen
+    `*List` wrappers are named in §7 at exactly one site each and every one of those sites is one of
+    these twelve, and six element structs are named only as those wrappers' elements. Measured and
+    listed under *What s1 declares* in Global Constraints. **Eight properties across seven tasks are
+    written against that fact** rather than against `MessageClient`'s method set — Task 3
+    Property 2, Task 7 Property 1, Task 8 Properties 1 and 2, Task 9 Property 1, Task 10 Property 3,
+    Task 12 Property 2 and Task 14 Property 2 — and a revision that reinstates this bucket while
+    leaving any of them scoped to reachability from `MessageClient` puts the plan back into the state
+    this one repairs.
+  *Refusal owed:* a §7 declaration in none of the three buckets fails — and, crucially, so does one
+  in **two**. A declaration in the third bucket that acquires a stub fails, which is what stops the
+  bucket from quietly emptying itself back into bucket two.
+  *Scope to derive, and it has two sides that must not be confused.* The **domain** of the partition
+  is the §7 declaration set, which is not derivable from this tree's type graph — a bucket-1 or
+  bucket-3 declaration is by definition absent from it, so a gate that starts from
+  `MessageClient`'s method set cannot see the very members it must refuse a stub for. The domain is
+  therefore read from the ownership map, and the type graph is compared **against** it in both
+  directions: a map row with no declaration and no bucket that permits its absence fails, and a
+  declaration with no map row fails.
+  **The map is `sdk/slice2-ownership.txt` and it lives in `sdk`, not in the registry markdown, for
+  the reason Task 16 gives one task later:** *a markdown table in `msgrepo` and a Go gate in `sdk`
+  that must "agree" is an ungated agreement claim*, and this project already carries one (ledger open
+  item 7). An earlier revision of this property named the registry document as its scope source,
+  which no Go test in `sdk` can open — `msgrepo` is a different repository and is not checked out by
+  Task 15's workflow. The registry cites the file by path and restates none of it, exactly as it does
+  for `slice2-pending-pins.txt`. A gate reading a list in `message_stubs_test.go` instead is the
+  ledger-21 shape and must be rejected in review.
 
   **Property 2 — a stub refuses; it never succeeds emptily.** §8.2 already states the principle for
   a different case: `Groups()` and `History()` **must not** return empty when the store could not be
@@ -1549,9 +1800,19 @@ applies to the eleven other `*List` returns of §7, whichever plan owns them.
 - [ ] **Step 4: Run to verify it passes**
 - [ ] **Step 5: Mutation-test**
 
-  1. Delete one stub. Property 1 must fail, naming the method.
-  2. Add a stub for a method the registry says s4 implements. Property 1 must fail on the "both"
-     half; a gate checking only "every method has an owner" survives this.
+  1. Delete one stub. Property 1 must fail, naming the method — from the map row that has no
+     declaration, which is the direction the type graph alone cannot supply.
+  1a. Delete `sdk/slice2-ownership.txt`, then empty it, then corrupt one row's column count. Property
+     1 must fail as a **broken gate** all three times, never pass as clean. The domain of the
+     partition is that file; a gate that reads nothing and reports every declaration owned is the
+     exact vacuous shape this project has paid for, and it is the same anti-vacuity Task 16
+     Property 2 owes for the pins file.
+  1b. Point the gate at `msgrepo/docs/plans/2026-08-30-slice2-interface-registry.md` instead.
+     It must fail to open it and say so. That path is in another repository, Task 15's workflow does
+     not check it out, and an earlier revision of this property named it as the scope source — so a
+     gate that shrugs and continues is the one that ships.
+  2. Add a stub for a method the map says s4 implements. Property 1 must fail on the "both"
+     half; a gate checking only "every declaration has an owner" survives this.
   3. Give `HistoryGrants` a stub of any shape. Property 1 must fail on the third bucket: a
      `*List`-returning declaration is listed as unrefusable and a stub for it is the "in two buckets"
      half of the refusal. A gate that only asks "is every method owned or stubbed" survives this.
@@ -1669,15 +1930,39 @@ reading it.
   all three return or take `*StringList`, and under the enumerated root set all three fall outside
   the plan's own exportability walk. That is ledger 21 committed inside the task written to prevent
   it, and the fix is the one the ledger gives every time: a wider derivation, not a longer list.
-  *The derivation:* a root is `MessageClient`, **plus every exported package-level function declared
-  by a `message_*.go` file in `package sdk`**, obtained from the loaded package. A free function
-  added by a later task is a root by existing. Measured on this plan's own output that set is eight —
-  the five above plus the three vocabulary functions — and eight is the count the gate reports, never
-  the count it is given.
-  *Scope, stated separately per R3:* the derivation rule is the scope; the eight names are the
-  content, and they are committed as a root manifest so an addition is a visible diff, exactly as
-  Task 3's field manifest is. The gate fails if the derived set and the manifest disagree in either
-  direction.
+  *The derivation, in two parts, and both are derived rather than listed:*
+  **(a) the entry points.** A root is `MessageClient`, **plus every exported package-level function
+  declared by a `message_*.go` file in `package sdk`**, obtained from the loaded package. A free
+  function added by a later task is a root by existing.
+  **(b) the declared type graph.** Also a root: **every exported named type declared by a
+  `message_*.go` file in `package sdk`**. Part (b) is what makes the walk cover a type this plan
+  declares ahead of the declaration that will name it, which is the ordinary state of eleven of
+  Task 7's sixteen wrappers and six of Tasks 4–6's element structs — seventeen types, measured and
+  listed under *What s1 declares* in Global Constraints. Without part (b) the walk is scoped to
+  `MessageClient`'s method set **in this tree**, which is a proper subset of §7's, and Task 6
+  mutation 4 and Task 14 mutation 4 cannot fail: the structs they mutate are outside the walk. Part
+  (b) only ever adds roots, so nothing the reachability walk caught before stops being caught.
+  *The count, and it was wrong in the revision that introduced this manifest.* The first draft
+  enumerated **five** entries — `MessageClient` and four functions: `NewMessageClient`,
+  `GenerateMessageSeedphrase`, `ValidateMessageSeedphrase`, `MessageProtocolLimitsValues` — and
+  omitted the three exported free functions this plan creates in `sdk/message_vocab.go`. The repair
+  that added them recorded the derived set as **eight**, which is five plus three and is wrong for a
+  different reason: **`GenerateMessageSeedphrase` and `ValidateMessageSeedphrase` are declared by no
+  task in this plan.** They are §7.2 package-level functions over BIP39 key material, CP3b needs
+  them, and the ownership map assigns them to **s3** (Task 11 says so at its own head). A manifest
+  naming two functions the plan never creates makes this gate — whose stated refusal is *"fails if
+  the derived set and the manifest disagree in either direction"* — **red before a single mutation**.
+  Measured on this plan's actual output the set is **six**: `MessageClient`, `NewMessageClient`,
+  `MessageProtocolLimitsValues`, `MessageVocabularies`, `MessageVocabularyValues`,
+  `MessageVocabularyContains`. Six is the count the gate reports, never the count it is given, and
+  the day s3 declares the two seedphrase functions the manifest gate fails and asks for them — which
+  is the behaviour wanted, and the reason the two are named here rather than quietly dropped.
+  *Scope, stated separately per R3:* the derivation rule is the scope. Part (a)'s six names are the
+  content and are committed as a **root manifest**, because a free function appearing without one is
+  the failure that produced this rule; the gate fails if the derived set and the manifest disagree in
+  either direction. Part (b) needs no manifest — Task 3's field manifest already makes a new declared
+  type a visible diff — but the gate reports its size beside part (a)'s, because a part (b) that
+  reads zero is a walk that found no messaging types at all.
   *Refusal owed:* a struct reachable only as a field of a field of a root must be walked. A walk that
   stops at depth one passes a surface with a `map[string]string` two levels down.
   *Scope, stated separately:* the roots are enumerated (that is the content); the reachable set is
@@ -1705,13 +1990,27 @@ reading it.
      a coverage report entry with no reason, which §9.2 calls a generator error.
   3. Stop the walk at depth 1. Property 2 must fail on a type reachable only at depth 3.
   4. Stop the walk at struct fields but not at interface method signatures. Property 2 must fail.
-  5. Remove `MessageProtocolLimitsValues` from the roots. Property 2 must fail — `MessageProtocolLimits`
-     is reachable from nothing else.
+  5. Remove `MessageProtocolLimitsValues` from part (a)'s roots. Property 2 must fail on the
+     manifest disagreement. Note what it must **not** fail on: `MessageProtocolLimits` stays
+     reachable, because part (b) makes every exported named type in a `message_*.go` file a root in
+     its own right. An earlier revision of this mutation expected the type to disappear, which was
+     true only while the walk started at `MessageClient`; check that the failure names the manifest
+     and not the reachable set.
   5a. Add a new exported free function to `sdk/message_vocab.go` and leave the root manifest alone.
      Property 2 must fail on the derivation half. A gate whose roots are enumerated survives this,
      and surviving it is how the three vocabulary functions fell outside this plan's own walk.
   5b. Delete `MessageVocabularyValues` from the root manifest while leaving the function. Property 2
      must fail on the other direction.
+  5c. Add `GenerateMessageSeedphrase` to the root manifest without declaring it. Property 2 must fail
+     on the same direction as 5b, and this is the mutation the manifest shipped **already applied**:
+     the revision that introduced it named that function and `ValidateMessageSeedphrase`, neither of
+     which any task in this plan creates. Run it, watch it fail, and remove it — it is the cheapest
+     check that the manifest is six and derived rather than eight and copied.
+  5d. Drop part (b) from the root derivation, so the roots are `MessageClient` and part (a)'s
+     functions alone. Task 6 mutation 4 and Task 14 mutation 4 must then survive — `MessageMember` is
+     outside the walk — and Property 2's reported part (b) size must go to zero. Both are the signal;
+     a gate that reports a clean run here is one that walked the surface with seventeen types missing
+     and said nothing.
   6. Return after the first finding. Property 3 must fail.
   7. Delete `surface/go.mod` from `dependency_graph_test.go`'s list. Property 5 must fail. **If it
      passes, that is the trap:** the test's own shape is to iterate a list, so a missing entry is
@@ -1908,6 +2207,11 @@ func MarkerDerivedHandles() []string  // DERIVED from the marker method, not mai
   depth.
   *Refusal owed:* `MessageEntry` gaining a `map[string]string` fails; gaining a `*MessageClient`
   fails; gaining a `func()` fails.
+  *Scope:* Task 12 Property 2's roots — **both parts**, so the walk covers the seventeen types this
+  plan declares that nothing in this tree reaches yet (Global Constraints, *What s1 declares*).
+  Mutation 4 below and Task 6 mutation 4 both land on `MessageMember`, which is one of the six; under
+  a walk rooted at `MessageClient` alone neither can fail, and the run still reports clean. Say in
+  the header which part of the root set each half of the reached count came from.
 
   **Property 3 — no exported declaration returns a pointer to an interface.** Task 10's Property 1
   states it for the ten `Add*Listener`s; here it is stated over the reachable surface, because the
@@ -1933,7 +2237,11 @@ func MarkerDerivedHandles() []string  // DERIVED from the marker method, not mai
      struct is the exact case `gen.go:406` waves through.
   3. Add `OnDone func()` to `SendResult`. Property 2 must fail.
   4. Add `Tags []string` to `MessageMember`. Property 2 must fail; `[]byte` is the only permitted
-     slice.
+     slice. **`MessageMember` is deliberately the target:** it is reached in this tree only as
+     `MessageMemberList`'s element and that wrapper is named in §7 only by `Members()`, which Task 11
+     Property 1's third bucket leaves undeclared. If this mutation survives, the walk is rooted at
+     `MessageClient` and part (b) of Task 12 Property 2's derivation is missing — which is the state
+     this revision of the plan exists to fix, and it is invisible from a green run.
   5. Add the same `map` field to a struct reachable only at depth three. Property 2 must still fail.
   6. Change `AddSyncListener` to return `*Sub`. Property 3 must fail here as well as in Task 10 —
      two independent gates over the same rule is deliberate, because Task 10's is scoped to `sdk`
@@ -2053,6 +2361,7 @@ func MarkerDerivedHandles() []string  // DERIVED from the marker method, not mai
 **Files:**
 - Create: `msgrepo/docs/plans/2026-08-30-slice2-interface-registry.md`
 - Create: `sdk/slice2-pending-pins.txt`, `sdk/message_registry_test.go`
+- Consume: `sdk/slice2-ownership.txt` (Task 11 creates it; this task makes it normative)
 
 **Interfaces:**
 - Consumes: everything this plan produced.
@@ -2065,21 +2374,35 @@ amended* — and it is what let eight plans compile against each other for month
 plans and no registry. Writing it after s1 means eleven plans are drafted against eleven readings of
 §7.
 
-**Where the pending-pin table lives, and why it is not in the registry.** A markdown table in
-`msgrepo` and a Go gate in `sdk` that must "agree" is an ungated agreement claim, and this project
-already carries one: ledger open item 7 records that §12.1 says "a test in the message-server repo
-asserts the allowlist" and no such test exists. So the machine-readable table is
-`sdk/slice2-pending-pins.txt`, that file is the **source**, and the registry cites it by path
-instead of restating it. One copy, one gate, nothing to drift.
+**Where the tables live, and why neither is in the registry.** A markdown table in `msgrepo` and a
+Go gate in `sdk` that must "agree" is an ungated agreement claim, and this project already carries
+one: ledger open item 7 records that §12.1 says "a test in the message-server repo asserts the
+allowlist" and no such test exists. So the machine-readable tables are `sdk/slice2-pending-pins.txt`
+and `sdk/slice2-ownership.txt`, those files are the **source**, and the registry cites both by path
+instead of restating either. One copy, one gate, nothing to drift.
+**The ownership map is the second table, and it was very nearly the ungated claim this paragraph is
+about.** Task 11 Property 1 derives the domain of its three-way partition from it, and an earlier
+revision named *"the ownership table in Task 16's registry"* — a markdown file in `msgrepo`, which
+no Go test in `sdk` can open, which Task 15's workflow does not check out, and which is the shape
+this very paragraph rejects one task later. It is `sdk/slice2-ownership.txt`, created in the commit
+that needs it (Task 11) and made normative here.
 
 - [ ] **Step 1: Derive the property and write the failing test**
 
-  **Property 1 — the registry's ownership map is total over §7.** Every one of §7's 135 function and
+  **Property 1 — the ownership map is total over §7.** Every one of §7's 135 function and
   method declarations, and every one of its 77 type declarations, has exactly one owning plan or is
-  listed as deferred with the reason. Measured: 212 declarations.
+  listed as deferred with the reason. Measured 2026-08-30: 212 declarations — this plan's
+  measurement, like every count in it, and no gate takes it as an input; the gate reports the row
+  count it parsed and the count moves only with a §7 citation beside it.
+  **Every row carries a bucket**, because Task 11 Property 1's partition reads its domain here:
+  *implemented by a named plan*, *stubbed by s1*, or *unrefusable* (Open item S1-23). A row's bucket
+  is what says whether the absence of a Go declaration for it is expected or is a defect, and it is
+  the only place that fact is written down.
   *Refusal owed:* Task 11's Property 1 derives its scope from this map, so a declaration with no
   owner and no stub already fails there. What this task adds is the other direction — a map entry
-  naming a declaration §7 does not contain fails.
+  naming a declaration §7 does not contain fails — and the anti-vacuity Property 2 owes for the pins
+  file, which this map owes identically: missing, empty, or zero rows is a broken gate, never a clean
+  one.
 
   **Property 2 — every pending pin is still pending, and the gate says so by looking.** For each row
   in `sdk/slice2-pending-pins.txt`, the named symbol must be **absent** from the named package.
@@ -2106,15 +2429,34 @@ instead of restating it. One copy, one gate, nothing to drift.
     which writes the first projection.
   - A `free`-classified string field is never parsed or compared against a vocabulary.
   - A closed vocabulary has one name and one value set, however many fields carry it.
+  - **"The messaging surface" means the s1 surface, not "reachable from `MessageClient`"**, for as
+    long as any §7 declaration is unwritten. The definition is in this plan's Global Constraints and
+    every consuming plan inherits it. A plan that adds a §7 declaration removes its rows from the
+    deferred sets of Task 7 Property 1 and Task 10 Property 3 in the same commit, and those two sets
+    reaching zero is what says the transcription is complete.
   - Signatures are read from source (R2), and every plan in slice 2 repeats that line in its own
     Global Constraints.
 
   **Property 4 — the registry records what s1 chose where the spec was silent, marked as choices.**
-  Not as readings. Each of Open items S1-1, S1-6, S1-7, S1-11, S1-14, S1-18, S1-21 and S1-23 is a
-  position this plan took
-  because something had to compile, and each is listed with the alternative it rejected. Twice on
-  this project an implementer has discovered that a plan resolved an ambiguity the spec never
-  settled; the difference between that and this is that these are labelled.
+  Not as readings. Twice on this project an implementer has discovered that a plan resolved an
+  ambiguity the spec never settled; the difference between that and this is that these are labelled.
+  *Derive the set, do not list it.* The class is **every open item in this plan whose text carries a
+  *Position taken:* line**, and the registry row for each names the alternative that item records as
+  rejected. Measured 2026-09-02 the class has **fourteen** members — S1-1, S1-2, S1-3, S1-5, S1-6,
+  S1-7, S1-8, S1-10, S1-14, S1-18, S1-19, S1-20, S1-21, S1-23 — and fourteen is the count the gate
+  reports, never the count it is given.
+  **An earlier revision listed eight, and it is worth saying which eight and why the list was wrong
+  in both directions.** It named S1-1, S1-6, S1-7, S1-11, S1-14, S1-18, S1-21 and S1-23: seven of
+  the fourteen, omitting S1-2, S1-3, S1-5, S1-8, S1-10, S1-19 and S1-20 — the `*Sub` correction, the
+  `GroupListener` second method, the `Seq`/`Dropped` transcription, the sender-identity denormalisation,
+  the §7.8 re-derivation, the `MessageServerInfo` suffix rule and the `GroupResult.Reason` count, every
+  one of which is a position taken where the spec was silent or self-contradictory. And it named
+  **S1-11**, whose text is *"Not resolved here"* and which records **no** position and no rejected
+  alternative — so a gate written to *"each is listed with the alternative it rejected"* is red on
+  that row against a correct transcription. That is rule 5 in its most literal form: a table headed
+  with a class, holding some of it, and containing one member that is not in the class at all.
+  *Refusal owed:* an open item carrying a *Position taken:* line with no registry row fails; a
+  registry row for an item that carries none fails; and a row with no rejected alternative fails.
 
 - [ ] **Step 2: Run to verify it fails**
 - [ ] **Step 3: Write the registry and the gate**
@@ -2128,7 +2470,13 @@ instead of restating it. One copy, one gate, nothing to drift.
      fail, naming m1 and the consuming plan.
   5. Add a map entry for a method §7 does not declare. Property 1 must fail.
   6. Remove one §7 method from the map. Task 11's Property 1 must fail; confirm the two gates
-     compose rather than both being satisfied by the same list.
+     compose rather than both being satisfied by the same list. Run this one against
+     `sdk/slice2-ownership.txt`, not against the registry markdown: if the gate can be satisfied
+     without opening that file, its scope source is a list in a test and the loop does not close.
+  6a. Add a *Position taken:* line to S1-11 without a registry row, then delete the *Position taken:*
+     line from S1-2 and leave its row. Property 4 must fail in both directions. A gate holding the
+     eight names an earlier revision carried passes the first and fails the second for the wrong
+     reason; run both and check which side reports.
   7. Convert the pins file to CRLF. The gate must still parse it — or `.gitattributes` must pin it,
      and Task 15's Property 1 must cover the extension. Check which; do not assume.
 
@@ -2151,7 +2499,7 @@ look like unrelated breakage.
 | 5 | 10, 11 | The interfaces and the refusals, which name the payloads and the lists. |
 | 6 | 12, 13, 14 | The `surface` module, the drift gate, the exportability walk. |
 | 7 | 15 | CI. It runs everything above, so it goes last and is verified by pushing, not by reading. |
-| 8 | 16 | The registry, whose ownership map Task 11's scope derives from — so 11 lands with a provisional map and 16 makes it normative. |
+| 8 | 16 | The registry. Task 11 creates `sdk/slice2-ownership.txt` because its own Property 1 cannot be written without it, so 11 lands with a provisional map and 16 makes it normative, adds the pins file and writes the markdown that cites both. |
 
 **This plan lands as one commit set on one branch.** §7.8's gate operates over the whole type graph;
 a half-declared graph fails for reasons that look like unrelated breakage, and a reviewer chasing
@@ -2179,7 +2527,9 @@ can be run until it is there.
 | The vocabularies are closed | `go test . -run TestVocabulariesAreClosed -v` | PASS — this name and `TestMessageSurfaceIsExportable` are the two §11.2 pins; every other gate above is named by its task, because naming a test is the plan supplying one (R1) |
 | The JSON surface is total | Task 8's gate, by whatever name the implementer gave it | PASS |
 | No pointer-to-interface crosses the surface | Task 10's and Task 14's gates | PASS in both; and `grep -rn ') \*Sub' *.go` returns no matches |
-| Every §7 method is owned, stubbed, or declared unrefusable | Task 11's gate | PASS, and the run reports the size of each of the three buckets — a third bucket that has silently emptied into the second is the failure this reports rather than the total being right |
+| Every §7 declaration is owned, stubbed, or declared unrefusable | Task 11's gate | PASS, and the run reports the size of each of the three buckets **and the row count it parsed from `sdk/slice2-ownership.txt`** — a third bucket that has silently emptied into the second, and a gate that read no map at all, are the two failures this row reports rather than the total being right |
+| The surface the gates walk is the s1 surface | Task 12's gate | PASS, and the run reports both halves of the root set: six part-(a) roots against the committed manifest, and the part-(b) count of exported named types in the `message_*.go` files. A part-(b) count of zero is a broken gate |
+| Nothing declared is dead, and what is deferred says so | Tasks 7 and 10's gates | PASS, and each run reports the size of its deferred set — eleven wrappers and six element structs today. Both shrink as the owning plans land; neither may grow without a manifest entry naming the §7 declaration and the plan |
 | The pending pins are still pending | Task 16's gate | PASS, and the run reports the row count it parsed |
 | The generator has not drifted | Task 13's gate | PASS, and the run reports the table sizes it read |
 | The artifact modules agree | `go test . -run TestSdkArtifactModulePionVersionsMatchRoot -v` | PASS, with `surface/go.mod` among the four checked |
@@ -2197,6 +2547,22 @@ fail; the mutation record is the only thing that distinguishes a test from a tes
 
 ## What this plan does not close
 
+- **Part of §7's 135 function and method declarations, and this is the entry the plan's Goal used to
+  contradict.** s1 emits Go for the *stubbed* bucket of Task 11 Property 1's partition,
+  for construction, for the ten `Add*Listener`s and for `MessageProtocolLimitsValues`. It emits none
+  for a declaration another slice-2 plan implements before CP3b (bucket 1, which includes §7.2's two
+  seedphrase functions, assigned to s3), and none for the **twelve** `*List`-returning declarations
+  of bucket 3, which have no answer this plan is willing to write down (Open item S1-23). The
+  measured consequence is that **seventeen declared types are reached from nothing in this tree** —
+  eleven `*List` wrappers and six element structs, named under *What s1 declares* in Global
+  Constraints — and it is a consequence rather than a gap, because the type graph has to exist
+  before the calls that name it. **How many declarations bucket 1 holds is Task 16's registry to say
+  and this plan does not guess it**; twelve is the measured size of bucket 3 and seventeen the
+  measured size of what it costs the type graph, and no count here is offered as anything but a
+  measurement with its date. What would be a gap is a gate that pretends otherwise: Tasks 3, 7, 8,
+  9, 10, 12 and 14 are scoped to the s1 surface for exactly this reason, and Tasks 7 and 10 report
+  the size of the deferred set on every run so it cannot grow unnoticed or be mistaken for dead
+  surface.
 - **No behaviour.** Nothing here opens a store, reaches a network, derives a key, or delivers an
   event. `MessageClient` is a shell with a `stateLock` and a `closed` flag.
 - **The event bus.** `Seq` and `Dropped` are declared as fields; the bounded 256-event queue, the
@@ -2413,7 +2779,19 @@ premise makes `null` a consumer crash. §8.2 therefore states a requirement the 
 cannot express. *Position taken:* Task 11 Property 1 gives these a third bucket and stubs none of
 them; s1 declares no answer rather than picking a wrong one. *Rejected:* returning nil and calling
 `null` "the honest answer", which an earlier revision of this plan did while Task 7 was simultaneously
-calling `null` unparseable. **Blocks:** Task 11's coverage of those twelve; s9's and s6's first real
+calling `null` unparseable; and **declaring the twelve anyway with whichever body reads best**, which
+is the same choice wearing a different hat — `[]` is refused by §8.2 and `null` only by S1-22's
+premise, so picking `null` would be resolving S1-22 by assertion rather than by measurement.
+**What the position costs, stated because it is not free and an earlier revision did not count it.**
+Undeclared methods name no types. Eleven of the sixteen `*List` wrappers are named in §7 at exactly
+one site each and every one of those sites is one of these twelve, and six element structs
+(`MessageMember`, `MessageDevice`, `MessageInvite`, `MessageHistoryGrant`,
+`MessageSecurityLogEntry`, `MessageSearchResult`) are named only as those wrappers' elements — so
+**seventeen declared types are reached from nothing in this tree**. That is why this plan's gates are
+scoped to the s1 surface rather than to reachability from `MessageClient`, why Task 7 Property 1 and
+Task 10 Property 3 answer "is this dead?" from the transcription, and why both report the size of
+their deferred set. The seventeen shrink to zero when this item is ruled and the twelve are written.
+**Blocks:** Task 11's coverage of those twelve; s9's and s6's first real
 implementations; s10's baseline, which must not be frozen before the answer exists. **Needs:** either
 an error channel on those declarations or a specified `null` tolerance in Spec C's wrapper.
 
@@ -2442,7 +2820,9 @@ what this plan **hands over**, and what the receiving plan owes back.
 | `MessageProtocolLimits.DeleteForEveryoneWindowMs`'s producer | m1 | Recorded as a pending pin with no producer; `connect/message` declares no such constant. |
 | `SuccessionQuorum(adminCount)` called, never reimplemented, by `MessageSuccessionState.CountersignsRequired` | p7 Task 21 + s8 | A quorum formula that exists twice disagrees with itself exactly once, at the moment it matters. |
 | Ratification of S1-7's snake_case-and-no-`omitempty` position before the ABI baseline is committed | s10 | Freezing the baseline against the wrong convention makes every later correction a baseline-break ceremony. |
-| An answer for the twelve `*List`-returning declarations that have no error channel | s9, s6, s10 | Open item S1-23. `[]` is refused by §8.2 and `null` by S1-22's premise; s1 leaves them unstubbed rather than picking one. Whoever implements each owes the ruling, and s10 must not freeze the baseline before it. |
+| An answer for the twelve `*List`-returning declarations that have no error channel | s9, s6, s10 | Open item S1-23. `[]` is refused by §8.2 and `null` by S1-22's premise; s1 leaves them unstubbed rather than picking one. Whoever implements each owes the ruling, and s10 must not freeze the baseline before it. Each ruling also removes rows from Task 7 Property 1's and Task 10 Property 3's deferred sets — eleven wrappers and six element structs today — and those two sets reaching zero is what says §7's transcription is complete. |
+| A manifest entry, in the same commit, for every §7 declaration a plan lands | every slice-2 plan | Task 7 Property 1 and Task 10 Property 3 answer *"is this declared type dead?"* from the transcription, because reachability cannot answer it while §7 is partly unwritten. A plan that declares `Groups()` and does not clear `MessageGroupList`'s deferred row leaves the gate reporting a deferral that no longer exists. |
+| `sdk/slice2-ownership.txt` kept current as the single source of §7 ownership | every slice-2 plan | Task 11 Property 1 reads the domain of its partition from that file and Task 16 makes it normative. A plan that takes a declaration without moving its row leaves two gates agreeing with a stale table. |
 | A measurement of what Spec C's nlohmann wrapper does with a JSON `null` where an array is expected | s10 | Open item S1-22. Sixteen shadowing `MarshalJSON` methods and the whole of S1-23 rest on it, and it is the one load-bearing claim in this plan that was asserted rather than run. |
 | Release semantics for a `*MessageSendTicket` whose callback is in flight | s10 | Open item S1-24. §9.5 rule 4 states it for `Sub` and §9.2 makes the ticket the same kind of handle. |
 | Re-taking `connect`'s `beta/message` pin when the messaging work reaches `main` | s10, and whoever merges `connect` | Task 15 Property 2 and the pending-pin row. `connect/mls` and `connect/message` exist on no other ref today; the CI ref and this plan's cross-repository claims both move when that changes. |

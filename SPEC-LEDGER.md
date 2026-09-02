@@ -1418,3 +1418,140 @@ giving 191 — and labelled as counting something different from s1's 212, so th
 contradicting.
 
 **Reviewed by:** the author, as a diff. No code changed, so no mutation testing applies.
+
+---
+
+### 2026-09-02 — s1 repaired again: the repair's own largest construct was an instance of its class
+
+**Change:** Amended `docs/plans/2026-08-30-slice2-s1-sdk-surface.md` (2,448 → 2,828 lines) against
+the review of commit `2ac145b`. Six findings closed. No new open item: every one of these was the
+document disagreeing with itself, not the spec failing to say something. S1-22 is deliberately left
+open and unresolved, because it cannot be measured until Spec C's wrapper exists.
+
+**The class is the one the previous repair named, and the previous repair's largest new construct
+was an instance of it.** *A property no correct transcription can satisfy* — a gate red before a
+single mutation, whose cheapest resolution is to change the code until it passes.
+
+- **Task 11's new third bucket, and the seventeen types nobody counted.** The repair introduced an
+  *unrefusable* bucket — a `*List`-returning §7 declaration with no error channel is neither
+  implemented nor stubbed, because `[]` is refused by §8.2 and `null` by the plan's own premise. That
+  is the right call and it stands. What it did not count is that an undeclared method names no
+  types. Measured against §7: **eleven of the sixteen `*List` wrappers are named in §7 at exactly one
+  site each and every one of those sites is one of the twelve** — `MessageGroupList` at `Groups()`,
+  `MessageMemberList` at `Members()`, and so on through `MessagePinList` and
+  `MessageSecurityLogEntryList` — while five survive on a field or a callback parameter; and **six
+  element structs** (`MessageMember`, `MessageDevice`, `MessageInvite`, `MessageHistoryGrant`,
+  `MessageSecurityLogEntry`, `MessageSearchResult`) are named only as those wrappers' elements. So
+  seventeen declared types are reached from nothing, and **Task 7 Property 1** (*"every declared
+  `*List` must be named somewhere"*, scoped to *"the whole exported surface reachable from
+  `MessageClient`"*) was red against a correct transcription for eleven of its sixteen wrappers, with
+  **Task 10 Property 3**'s dead-surface half red for the six structs and Tasks 8, 9, 12 and 14
+  silently narrowed. Meanwhile the plan's Goal, Task 11's Produces line and *What this plan does not
+  close* all still said the plan declared the whole of §7 — the document saying one thing in three
+  places and another in a fourth.
+  *Repaired* by taking the second of the two defensible routes and taking it everywhere: the bucket
+  is kept, the Goal now says what s1 emits and what it hands over, and **"reachable from
+  `MessageClient`" is retired as a gate scope** in favour of **the s1 surface**, defined once and
+  derived — every exported named type and package-level function declared by a `message_*.go` file,
+  plus everything reachable from those. It is a superset of the old scope, so no gate loses reach.
+  The two properties that genuinely ask *"is this declared type dead?"* — Task 7 Property 1 and
+  Task 10 Property 3 — now answer it from the **transcription**: a manifest entry naming the §7
+  declaration that names the type and the plan that owns it, which distinguishes *deferred* from
+  *dead* and empties itself as those plans land. §9.2's and §7.7's *"reachable from `MessageClient`"*
+  describe the **finished** surface; borrowing the phrase for a tree that holds part of §7 is what
+  produced this.
+- **Task 3 Property 2 required every time field to be milliseconds; six declared fields are
+  seconds.** *"Every time-valued field is `int64` unix milliseconds and is named `...Ms`"*, scoped to
+  the whole surface — against `MessageRetentionApplied`'s `MediaTtlSeconds`, `DurableTtlSeconds`,
+  `RequestedMediaTtlSeconds` and `RequestedDurableTtlSeconds`, and `MessageServerInfo`'s
+  `RendezvousTtlSeconds` and `RendezvousDepositTtlSeconds`. The previous repair rewrote **Property 3**
+  to transcription-not-normalisation for exactly this reason and left the universal Property 3 is a
+  refinement of asserting the opposite — so the plan carried three properties, two of them demanding
+  the opposite of the third about the same struct, which is the Task 11 Properties 2-and-4 shape that
+  repair fixed elsewhere. *Repaired* to the universal that is actually true of the surface: the
+  suffix set is exactly `{Ms, Seconds}`, an instant is always `Ms`, and which of the two a duration
+  takes is Property 3's transcription question. Three mutations added, one of which asserts that
+  Property 2 is **not** what fires when a `Seconds` field is renamed.
+- **Task 12's root manifest names two functions this plan does not declare.** The repair fixed the
+  enumerated-roots defect and committed a manifest whose stated refusal is *"fails if the derived set
+  and the manifest disagree in either direction"* — then recorded the derived set as **eight**,
+  counting `GenerateMessageSeedphrase` and `ValidateMessageSeedphrase`. Those are §7.2 package-level
+  functions over BIP39 key material; no task in this plan creates them, and Task 11 partitions the
+  **method set** of `MessageClient`, so §7's four package-level functions fell in no bucket at all.
+  The derived set on this plan's actual output is **six**. A manifest gate that compares in both
+  directions against a manifest with two phantom entries is red before anybody mutates anything.
+  *Repaired*: the count is six, the two functions are assigned to s3 in the ownership map and named
+  in Task 11 as not this plan's, and the day s3 lands them the manifest gate fails and asks for them.
+  The roots gain a second derived part — every exported named type declared by a `message_*.go`
+  file — without which Task 6 mutation 4 and Task 14 mutation 4 (both of which mutate
+  `MessageMember`) cannot fail at all.
+- **Task 11 Property 1's scope source was a markdown file in another repository.** *"Partitioned
+  against the ownership table in Task 16's registry"* — which is
+  `msgrepo/docs/plans/…-interface-registry.md`, while the gate is a Go test in `sdk` that Task 15's
+  workflow never checks `msgrepo` out for. Task 16 rejects that exact shape **one task later** —
+  *"a markdown table in `msgrepo` and a Go gate in `sdk` that must agree is an ungated agreement
+  claim"* — and solves it for the pending pins with a file in `sdk`. The ownership map got no such
+  file, so the gate could not be written as scoped and Task 16 mutation 6 could not run. *Repaired:*
+  `sdk/slice2-ownership.txt`, created by Task 11 because its own property needs it, made normative by
+  Task 16, cited by the registry and restated nowhere. The scope statement now separates the
+  partition's **domain** (the map, because a bucket-1 or bucket-3 declaration is by definition absent
+  from the type graph) from the comparison against the type graph, which runs in both directions.
+- **Task 9 Property 2's refusal counted five negative claims and its table held four.** §7.2's
+  vocabulary block refuses `"fork_detected"` **twice** — from vocabulary 1 and, in the sentence *"It
+  also loses `fork_detected`, for the reason vocabulary 1 gives"*, from vocabulary 3's reason set.
+  The plan listed the first, `"server_key_change_unresolved"`, `"commit_lost"` and
+  `"retention_refused"`, and then said *"adding any of those five values fails"*. That is rule 5 at
+  its most literal: a table headed with a class, holding four of its five members, and the missing
+  member is the second site of a value the table already carried — so nothing looked absent.
+  *Repaired* by deriving the class from the two forms §7.2's source uses to state an absence, with
+  five `(vocabulary, value)` pairs as the measured content and a mutation per pair.
+- **Task 16 Property 4's list of positions taken held seven of fourteen, plus one that is not a
+  position.** It named eight open items as *"a position this plan took … listed with the alternative
+  it rejected"*. Measured: **fourteen** open items carry a *Position taken:* line — the list omitted
+  S1-2, S1-3, S1-5, S1-8, S1-10, S1-19 and S1-20 — and it named **S1-11**, whose text is *"Not
+  resolved here"* and which records no position and no rejected alternative, so the property is red
+  on that row. *Repaired* by deriving the class (*every open item whose text carries a `Position
+  taken:` line*) with fourteen as the reported measurement, and by refusing in both directions.
+
+**Also corrected:** the File Structure table, which claims to list every file the plan creates and
+omitted five per-task test files and the two machine-readable tables; the Definition of Done, which
+gains rows for the s1 surface's two-part root set and for the deferred sets of Tasks 7 and 10; and
+Task 12's own account of the first draft's roots, which said *"enumerated four"* beside a list of
+five.
+
+**What was deliberately not done.** S1-22 — that Spec C's nlohmann parse throws reading JSON `null`
+as an array — is an **assumption, not a measurement**, and sixteen shadowing `MarshalJSON` methods
+and all of S1-23 rest on it. It stays filed as a premise. The obvious way to close the first finding
+above is to declare the twelve after all, which requires choosing `null` or `[]` for their bodies:
+`[]` is refused by §8.2 outright and `null` only by S1-22's premise, so picking `null` would resolve
+S1-22 by assertion rather than by measurement. Neither is available, and S1-23 now records the
+rejection explicitly. Nor was any property weakened until the tree passed: Task 7 Property 1 and
+Task 10 Property 3 both keep a refusal for a genuinely dead type, and both now report the size of
+their deferred set on every run so it cannot grow unnoticed.
+
+**Rule 11, applied to this diff.** The class this commit was sent to close is *a property no correct
+transcription can satisfy*, and the diff was re-read looking only for it. One instance was found in
+the new text and removed before commit: the *What this plan does not close* entry opened by asserting
+that s1 leaves **thirty-three** of §7's 135 declarations undeclared — a count nothing in this project
+has measured, since bucket 1's size is Task 16's registry to fix and s2–s10 do not exist. It now says
+that bucket 1's size is the registry's to state, and carries only the two numbers that were measured:
+twelve for bucket 3 and seventeen for what it costs the type graph. Two further count inconsistencies
+introduced by the same pass were caught the same way — *"five of this plan's gates"* against a list of
+eight properties, and a task list of four against a list of six — and both are now the same number in
+both places.
+
+**Verified by running, not by reading.** Every count in this entry was measured against the documents
+in this repository and the source in `sdk`, on 2026-09-02: the eleven single-site `*List` wrappers and
+the five that survive, over §7 lines 1868–3542; the six element structs, one grep per type; §7's
+**four** package-level `func` declarations, which is what makes the seedphrase pair findable; the six
+`Seconds` field names and the absence of any third unit suffix; the two `fork_detected` refusals in
+§7.2's block; the fourteen open items carrying a *Position taken:* line; `MessageServerInfo` named as
+a type at `ServerInfo()` and its own declaration and nowhere else; and, in `sdk` on `main`,
+`gen.go:50`, `:92` and `:107`, `sub.go`'s `Sub` and `simpleSub`, `gomobile.go`'s pointer-receiver
+`MarshalJSON`, the three `replace ../` lines in `sdk/go.mod` and the four in each of `cgo`, `build`
+and `js`. The encoding guard was run by hand over both edited files: no double-encoded sequences, LF
+throughout.
+
+**Reviewed by:** the author, as a diff, against §7's text and against `sdk` source. No code changed,
+so no mutation testing applies; what stands in its place is the rule-11 pass above, which is this
+document's equivalent and which found one defect of the class in this commit's own new text.
