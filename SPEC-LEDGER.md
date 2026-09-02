@@ -834,6 +834,36 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     three tests. Recorded so the next reader knows the stopping point was chosen rather than
     reached.
 
+54. **The missing-door defect is a family of three, not one, and the third door checks a value
+    against itself.** Item 52 closed the UPDATE door. Verified by the owner on the tree after that
+    fix, the three production `ExpectedSource` call sites are:
+    `key_package.go:381` -> `LeafNodeSourceKeyPackage`; `validate_proposals.go:690` ->
+    `LeafNodeSourceUpdate` (the new door); and **`tree_sync.go:232` -> `leaf.LeafNodeSource`, the
+    leaf's OWN source.** That last one compares a value against itself, so
+    `ErrLeafNodeSourceMismatch` **can never fire from the tree door** -- a check that reports clean
+    having compared nothing.
+    **There is no COMMIT door.** `treekem.go:372` SETS `LeafNodeSourceCommit` on a leaf it builds
+    (the sending side); nothing validates a received UpdatePath leaf against that expectation. And
+    `treekem.go:595-599` says *"its door is already built ... what was missing was the sentence
+    saying so"*, with `treekem_test.go:2809` repeating it -- **the identical false-comment shape as
+    item 52, one door over, left standing by the commit that fixed item 52.**
+55. **Rule 11 refined: search the class PACKAGE-WIDE, not only in the diff.** The item-52 fix ran
+    its rule-11 self-check, scoped it to its own changes, and therefore could not see the two
+    comments in `treekem.go` making the same false claim about the commit door. The class is the
+    defect; the diff is only where the author happened to be standing. Added to the brief template
+    as rule 11a.
+56. **The gate written to enforce rule 5 enumerated its own scope.** Item 52's flagship test bounds
+    *"every refusal `(*LeafNode).Validate` can answer"* with three hand-named bodies
+    (`Validate`, `VerifySignature`, `validateLifetime`) while `Validate` delegates to five, so
+    `errProfileCredentialType` and `errMissingRequiredCapability` escape the class entirely --
+    both measured reachable through the new door with real inputs. The commit's summary claims
+    *"Nine names"*; the class is at least eleven.
+    Two further measured survivors from the same commit: both new rules can be narrowed to
+    `updates[0]` with the suite green, because **every fixture carries exactly one Update** -- the
+    p4 ValSem401 shape this file's own comments cite three times as what they guard against -- and
+    the door's use of `effectiveExtensions()` is unobserved, dropping the erratum-8745 case its own
+    header claims to own.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
