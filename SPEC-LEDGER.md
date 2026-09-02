@@ -890,6 +890,38 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     `MergeUpdatePath` calls the commit door survives the suite. All of that residual risk sits on
     the one door nothing calls, which is separately pinned.
 
+60. **`ValidateCommit` decides SS12.4's path rule off a different field than the RFC names, and the
+    two are never joined.** RFC 9420 SS12.4: `if len(commit.proposals) == 0 || pathRequired:
+    assert(commit.path != null)`. The implementation is
+    `if CommitPathRequired(in.List) && in.Commit.Path == nil` -- decided off `List`, while erratum
+    8815 is decided off `Commit.Proposals`. Verified by the owner: `ValidateCommit`'s body never
+    mentions the two together, and no invariant is stated between them. **So a commit whose
+    proposals vector is EMPTY and whose path is nil -- the exact input SS12.4 asserts against -- is
+    ACCEPTED whenever the caller hands over a non-empty `List`.**
+61. **`ValidateCommit` panics on a malformed proposal instead of refusing it.** A `Remove` entry
+    with a nil `Remove` arm reaches `validate_proposals.go:801`
+    (`in.List.Removes[i].Proposal.Remove.Removed`), `:816`, and `proposal_list.go:393`
+    (`self.GCE[0].Proposal.GroupContextExtensions.Extensions`) -- all unguarded arm reads, verified.
+    The file's own `check()` doctrine is *"refused rather than dereferenced, so a missing argument
+    cannot read as 'nothing collided'"*, and the newly EXPORTED aggregate is the first door that
+    exposes those reads to a caller. Same class as item 40: a panic on peer-shaped input, reachable
+    through an exported door. The precondition is stated in prose in ValSem200's header and
+    enforced nowhere; `ValidateCommit` does not call `ValidateProposalList`.
+62. **Neither erratum observably runs, and the extension-set preference is unobserved.**
+    `validateCommitErrata` can be neutered to `return nil` with the full 6961-test suite green --
+    the `Pending *ProposalCache` field the task added is **never set by any test**. Proven
+    non-equivalent by probe (an uncached reference; a GCE installing an extension the path leaf does
+    not support). Separately, deleting `effectiveExtensions`' preference for the commit's OWN
+    GroupContextExtensions proposal also leaves the suite green -- and that branch buys the
+    security-relevant property, a commit that installs an extension while publishing a path leaf
+    that does not support it. **ValSem209 cannot cover it**: it walks `PostTree`'s members and the
+    path leaf is not in `PostTree`, because the merge has not happened.
+63. **`commitRefusalRoster` derives its owned half and hand-lists its borrowed half**, missing at
+    least eight reachable sentinels. Measured: ValSem205's nil-provider refusal changed from
+    `ErrNilCryptoProvider` to `ErrTreeMalformed` leaves the full suite green -- a rule about a
+    missing provider reporting a malformed tree, invisible to both exclusivity sweeps. Rule 5,
+    inside a gate written to enforce it, for the fifth time.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
