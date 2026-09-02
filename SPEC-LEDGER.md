@@ -787,6 +787,27 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     agent. This is the owner's error, recorded because every "close the findings from commit X"
     brief on this project has the same shape.
 
+50. **The `VerifiedGroupContext` boundary holds in SAFE Go, and the file says it holds absolutely.**
+    Verified by the owner from `package mls_test`:
+    `(*mls.VerifiedGroupContext)(unsafe.Pointer(&shadow{inner: attackerContext}))` forges one, and
+    `NewProposalCache` accepts it -- `cache=true err=<nil>`, group `ATTACKER-CHOSEN-GROUP` at epoch
+    1099511627776. Two sentences are therefore false as written: *"no declaration outside this
+    package can build one carrying a context however it is spelled"* and *"a struct whose only field
+    is unexported cannot be built carrying a value from any other package"*.
+    **This is not a defect worth a gate.** `unsafe` defeats every type-safety guarantee Go makes,
+    not this one in particular, and an attacker who can run `unsafe` in the process can rewrite the
+    context after any check whatsoever. The fix is the qualifier -- **"in safe Go"** -- and a test
+    name that stops asserting a universal it does not establish
+    (`TestEveryExternalSpellingOf...IsRefusedByTheCompiler` enumerates four spellings and its own
+    doc says it does not enumerate them).
+51. **Rule 11 helps and is not sufficient.** The commit that asserted the boundary ran the rule-11
+    self-check, said so, and still shipped a fresh instance of the class it was sent to close: its
+    new gate's doc claims it will notice *"a constructor added that hands the inner pointer out"*,
+    and measured, it does not -- both an added exported constructor and `Context()` returning the
+    inner pointer leave the new gate GREEN (each is caught by older, unrelated tests). A paragraph
+    25 lines below then says exactly ONE neighbouring case is outside its reach; there are at least
+    three. Rule 11 catches what an author can see; it does not make an author see further.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
