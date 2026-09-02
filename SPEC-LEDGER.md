@@ -560,20 +560,27 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     replica. That is not a defect in B13; it is a gap in what §4.3.1 says a partial deployment can do.
     Found 2026-08-26 by `peer/`.
 
-40. **The `sdk` surface has seventeen open questions and three of them are schema decisions that
-    must be ruled before the plan after next starts.** The full list is the Open items section of
+40. **The `sdk` surface has twenty-four open questions and four of them must be ruled before the
+    plan after next starts.** (Seventeen when first filed on 2026-08-30; S1-18 to S1-24 were added
+    by the 2026-09-02 repair below, which found four properties in that plan no correct
+    transcription could satisfy.) The full list is the Open items section of
     `docs/plans/2026-08-30-slice2-s1-sdk-surface.md`, which is the durable copy; it is not restated
     here, because a second copy with nothing holding the two together is the ungated-agreement shape
-    item 7 already records. The three that cannot wait: **the pin primary key collapses** — §8.1 keys
-    `pin` by `(principal, operator_host)` while §7.3b leaves `Principal` empty for a card-added
-    contact and §7.6 leaves `OperatorHost` empty for a card-provided key, so two card-added contacts
-    share the key `("", "")` and the second silently overwrites the first, which is exactly the state
-    in which no `KeyChangeWarning` fires; **`StoredEntry` is undefined** and §8.2's "fourteen methods,
-    that bound is the point" omits every table §8.1 itself lists, five of which are read directly by
-    §7 declarations; and **no JSON field naming is specified anywhere**, while every value struct
-    crosses the ABI as JSON, Spec C parses it with nlohmann and §9.3's `settings_json` documents
-    snake_case. The first two are schema decisions and ruling either after rows exist is a migration.
-    The third must be ruled before the ABI baseline is committed, or every later correction becomes a
+    item 7 already records. The fourth that cannot wait is **S1-23**: §7 declares twelve
+    `*List`-returning methods on `MessageClient` with no error return, §8.2 forbids the empty answer
+    in the failure case, and the plan's own premise makes `null` a consumer crash — so §8.2 states a
+    requirement the signatures it names cannot express, and s10 must not freeze the ABI baseline
+    before it is ruled. The three schema decisions that cannot wait: **the pin primary key collapses** —
+    §8.1 keys `pin` by `(principal, operator_host)` while §7.3b leaves `Principal` empty for a
+    card-added contact and §7.6 leaves `OperatorHost` empty for a card-provided key, so two
+    card-added contacts share the key `("", "")` and the second silently overwrites the first, which
+    is exactly the state in which no `KeyChangeWarning` fires; **`StoredEntry` is undefined** and
+    §8.2's "fourteen methods, that bound is the point" omits every table §8.1 itself lists, five of
+    which are read directly by §7 declarations; and **no JSON field naming is specified anywhere**,
+    while every value struct crosses the ABI as JSON, Spec C parses it with nlohmann and §9.3's
+    `settings_json` documents snake_case. The first two are schema decisions and ruling either after
+    rows exist is a migration. The third must be ruled before the ABI baseline is committed, or
+    every later correction becomes a
     baseline-break ceremony. Found 2026-08-30 while writing the s1 plan.
 
 40. **CRITICAL -- a group member can crash every other member with one valid proposal.**
@@ -1124,3 +1131,99 @@ three — 15 proto request arms with no key-package transport, `extension_types 
 interface registry, the analogue of `2026-08-12-slice1-interface-registry.md`, and puts its
 machine-readable pending-pin table in `sdk` rather than in this repository — because a markdown table
 here and a Go gate there that must "agree" is precisely the ungated claim item 7 records.
+
+---
+
+### 2026-09-02 — s1 repaired: the mirror image of a test that cannot fail
+
+**Change:** Amended `docs/plans/2026-08-30-slice2-s1-sdk-surface.md` (2,021 → 2,448 lines) against an
+adversarial review. Thirteen findings closed, plus one the repair found in the same class (§7.7's
+interface block is 10 listeners and 11 callbacks, not the 7/14 the plan carried); seven open items
+added (S1-18 to S1-24); item 40 above amended for the new count and for S1-23, which joins the set
+that cannot wait. No task was removed
+and no property was weakened to make the current tree pass.
+
+**The defect class, because it is the one this repository has not had a name for.** This project's
+most expensive recurring defect is *a test that cannot fail*. The s1 plan shipped its mirror image:
+**a property no correct transcription can satisfy**, so a gate written to it is red before a single
+mutation. Four instances, and what makes them expensive is not the red gate — it is that the cheapest
+way out of a red gate is to change the *code* until it passes:
+
+- **Task 5 Property 4** required `GapReason` and `MessageAttachment.State` to share no value. Both
+  contain `"expired"` (§7.4's block and §7.4's attachment block). §7.4's actual claim is narrower —
+  *"Attachment outcomes are not gap reasons"*, naming `pruned` and `failed` — and never claims
+  disjointness. The likely resolution is deleting `"expired"` from one side, losing either the
+  expired-record gap or the expired-attachment state, **frozen into s10's ABI baseline**. Repaired to
+  an exact-set assertion: the intersection is exactly `{"expired"}`, which refuses a new collision
+  *and* a deletion. Open item S1-21; a §7.4 correction is owed.
+- **Task 3 Property 3** required every duration on `MessageServerInfo` to end `Ms`. The struct
+  carries `RendezvousTtlSeconds` and `RendezvousDepositTtlSeconds`, which revision A-6 added to it.
+  Repaired to transcription-not-normalisation. Open item S1-19; §7.2's *"every other duration on this
+  API surface is milliseconds"* is false of the struct it appears in.
+- **Task 13 Property 1** failed on reading zero entries from any of six named generator tables.
+  `keepTypes` is `map[string]bool{}` at `gen.go:92` and legitimately empty, so the gate was red on
+  arrival. Repaired to *did-not-find*, not *found-nothing*: locate all seven declarations, report each
+  size, assert a non-zero aggregate, and record an empty table as a dated fact. Truncation moved to
+  Property 3, which now asserts its comparison was non-vacuous. The seventh table is
+  **`skipFuncPatterns`**, omitted before and the only one Task 7 Property 5's reasoning rests on.
+- **Task 11 Properties 2 and 4** contradicted each other: 2 required a stub ticket to invoke its
+  callback, 4 forbade starting a goroutine, and the only construct satisfying both — inline
+  delivery — violates §9.5 rule 2, *"Callbacks arrive on an arbitrary Go goroutine, never the UI
+  thread"*. Repaired by deriving Property 4's class correctly as **retained state** rather than
+  goroutines, with the single bounded delivery goroutine carved out as required rather than
+  tolerated. Open item S1-24: §9.5 rule 4 states release semantics for a `Sub` and not for a ticket.
+
+**Counts the plan attributed to the spec that the spec does not state.** `GroupResult.Reason` has
+**22** values, not the 21 the plan said in three places; §7.7 declares the set and states no count at
+all. §7.7's interface block is **10** `*Listener` and **11** `*Callback`, not the 7/14 the plan
+carried. Both are now labelled as this plan's measurements with their date, no gate takes either as
+an input, and the missing count is filed as S1-20 — because a closed vocabulary whose size no
+document states is one a reader can undercount with nothing to contradict them.
+
+**Two claims the plan made that its own other tasks refuted.** Task 11 said a `*List` stub returns
+nil, marshalling to JSON `null`, and called that "the honest answer"; Task 7 justified sixteen
+shadowing `MarshalJSON` methods on the premise that Spec C's nlohmann **throws** reading `null` as an
+array. The plan cannot have both. And §8.2 forbids the other candidate — *"Spec C would then render
+'No conversations yet' to a user whose entire history is intact on the server"* — while §7 gives all
+twelve `*List`-returning declarations no error return. Task 11's partition is now **three-way**: a
+declaration that cannot be refused honestly is neither implemented nor stubbed, it is declared
+unrefusable and assigned. S1-22 records that the nlohmann premise is asserted rather than measured —
+the one load-bearing claim in the plan that was never run.
+
+**Verified by running, not by reading.** Task 8 Property 3's reflective fixture cannot be built as it
+was described: the `*List` wrappers embed `exportedList[T]` **by value** and its `values` field is
+unexported, so `reflect.Value.Set` panics with *"using value obtained using unexported field"*, and a
+builder that skips what it cannot set leaves every list empty — which makes Property 4's three
+assertions vacuous. The same run found the mechanism that does work: the promoted `Add` is reachable
+as `reflect.Value.MethodByName("Add")` on the addressable wrapper. Set what is settable, call `Add`
+for what is not.
+
+**Three scope errors of the ledger-21 shape, one of them inside the task written to prevent it.**
+Task 12's declared walk roots **omitted the three exported free functions this plan itself creates**
+(`MessageVocabularies`, `MessageVocabularyValues`, `MessageVocabularyContains`), so they fell outside
+the plan's own exportability walk; the roots are now derived, with a manifest. Task 12 specified
+**one** `replace` directive for the new nested module; verified 2026-09-02 that `cgo`, `build` and
+`js` each carry **four**, because a nested module inherits none of its parent's. And Task 15's CI job
+named no sibling repository and no ref — measured 2026-09-02, `connect/mls` is 636 files on
+`beta/message` and **0** on `main`, so a workflow checking out `connect` at its default branch cannot
+build. That branch is now a pending-pin row, because it expires rather than merely going stale.
+
+**`Sub` is the fourth handle and cannot carry the marker.** §9.2's table gives the messaging generator
+four behavioural types and §7.1 lists `Sub` among them, but `Sub` is an *interface* in `sdk/sub.go`
+and is already in `sdk/cgo/gen/gen.go`'s `behavioralTypes` at line 50 — so a marker on it is a method
+added to a shipped interface's method set. Task 14's handle set is now "marker-derived, plus one
+size-gated exception", and Task 13's *"no messaging name in the VPN table"* refusal is scoped to the
+marker-derived three, which is what makes it true rather than red.
+
+**One position corrected because it contradicted a locked decision.** Task 2 Property 3 forbade any
+literal used as a default for `network_space_host`. Decision A13 requires exactly that construct —
+*"no operator hostname literal appears **outside the default-value declaration**"* — and §7.2 and
+§9.3 place the sanctioned build-time default in the **host application**, with the key **required**
+in `sdk`. The gate is rewritten to that distinction rather than to the sentence that reads well.
+Separately, the plan's rejection of unknown `settings_json` keys is a forward-compatibility decision
+§9.3 never takes; it is kept, and filed as S1-18 with what it costs.
+
+**Reviewed by:** the author, as a diff, against spec text and against source in three repositories.
+Every anchor cited in the amendment was re-run: `gen.go:50`, `:92`, `:107`; the four replaces in
+`cgo`, `build` and `js`; `connect`'s two branches; the 22-value and 10/11 counts; and the reflection
+probe, which is the one that changed a task rather than a sentence.

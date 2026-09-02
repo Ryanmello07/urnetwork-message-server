@@ -129,7 +129,10 @@ anyway. The rules this plan leans on:
   **zero** times in the tree. §7 spells `*Sub` on **10** declarations, all of them `Add*Listener` on
   `MessageClient`. A pointer to an interface is neither gomobile-bindable nor idiomatic Go, and
   §7.1's own object-model table says `Sub` with no star. **This plan declares `Sub`, by value, in all
-  ten places**, and Task 10 owns the gate. The cgo generator will not catch the error: `classify`
+  ten places**, and Task 10 owns the gate. `Sub` is also §9.2's **fourth** messaging behavioural
+  type and §7.1's — a handle this plan does not declare and cannot mark, which is why Task 14's
+  handle set is "marker-derived, plus one gated exception" rather than "whatever carries the
+  marker". The cgo generator will not catch the error: `classify`
   unwraps `*types.Pointer` to the named `Sub`, `Sub` is in `gen.go`'s hand-maintained
   `behavioralTypes` allowlist, and the pointer classifies as a handle. Verified by reading
   `sdk/cgo/gen/gen.go` lines 330–411.
@@ -267,7 +270,8 @@ type Info struct {
     Reason string   // set iff Kind is bad
 }
 
-func BehavioralTypes() []string                     // the declaration site; s10's generator reads it
+func BehavioralTypes() []string                      // §9.2's four; s10's generator reads it
+func MarkerDerivedHandles() []string                 // the three this plan declares, from the marker
 func Classify(t types.Type) Info
 func WalkReachable(pkg *packages.Package, roots []string) ([]Finding, error)
 ```
@@ -301,7 +305,7 @@ Every file created or modified by this plan, and its single responsibility.
 | `sdk/message_limits_test.go` | The agreement between `MessageProtocolLimits` and `connect/mls` — the only test-only import edge |
 | `sdk/dependency_graph_test.go` | **modify:** add `surface/go.mod` to the artifact-module list |
 | `sdk/surface/go.mod`, `go.sum` | The nested module; `golang.org/x/tools` lives here and nowhere else |
-| `sdk/surface/behavioral.go` | `BehavioralTypes()` — the one declaration site for what crosses as a handle |
+| `sdk/surface/behavioral.go` | `MarkerDerivedHandles()` — the three handles this plan declares, derived; and `BehavioralTypes()`, which adds §9.2's fourth, `Sub`, as the one gated exception |
 | `sdk/surface/surface.go` | `Kind`, `Info`, `Classify`, `WalkReachable` |
 | `sdk/surface/surface_test.go` | The walk's own properties, against fixtures inside the module |
 | `sdk/surface/message_surface_test.go` | `TestMessageSurfaceIsExportable` |
@@ -351,9 +355,15 @@ type MessageSendTicket struct{ /* unexported */ }
 type MessageDeviceLinkSession struct{ /* unexported */ }
 
 // the marker. Unexported, so it crosses neither gomobile nor the ABI, and present on
-// exactly the types that must cross as opaque uint64_t handles. This is what lets
-// Task 14 DERIVE the behavioural-type set instead of maintaining a second allowlist
-// beside gen.go's.
+// exactly the types THIS PLAN declares that must cross as opaque uint64_t handles.
+// This is what lets Task 14 DERIVE the behavioural-type set instead of maintaining a
+// second allowlist beside gen.go's.
+//
+// it reaches THREE of the FOUR handles 9.2 names. the fourth is Sub, which is an
+// INTERFACE declared in sdk/sub.go and already in sdk/cgo/gen/gen.go's behavioralTypes
+// -- so a marker on it would be a method added to a shipped interface's method set,
+// breaking every implementor and moving the VPN ABI. Sub is a declared, size-gated
+// exception in Task 14 Property 1, never a marker-carrier and never an omission.
 func (self *MessageClient) messageBehavioralHandle()
 func (self *MessageSendTicket) messageBehavioralHandle()
 func (self *MessageDeviceLinkSession) messageBehavioralHandle()
@@ -390,6 +400,12 @@ the day somebody adds `Await` the gate fails and asks for the ruling. **Open ite
   *Scope to derive, separately from the class:* not "these three type names". The scope is **every
   named type in `package sdk` that carries the marker method**, obtained from the type graph. A
   fourth handle added later is inside the gate by existing, which is the whole point of the marker.
+  *And the scope is not the whole of §9.2's handle set.* §9.2 names four messaging behavioural types
+  and the fourth is `Sub`, which is an interface and cannot carry the marker (Task 14 Property 1).
+  This property is about **opacity**, and an interface has no fields to expose, so `Sub` being
+  outside this gate costs nothing here. State that in the header rather than leaving a reader to
+  discover that "every handle" means three; the two gates that *do* need all four — Task 13's drift
+  check and Task 14's walk — say so at their own headers.
 
   **Property 2 — the method set of each handle is exactly what is declared, and nothing else.**
   This gate exists to make an addition visible, not to prove the methods work. Its header must say
@@ -469,9 +485,17 @@ func (self *MessageClient) Close()
   JSON key, or a JSON key with no Go field, is a call `urmsg_client_open` rejects at runtime with no
   compile-time warning anywhere.
   *Refusal owed:* a settings JSON carrying an unknown key is refused with
-  `ErrMessageSettingsInvalid` naming the key — not ignored. An unknown key is far more likely to be
-  a caller's typo for a required one than a forward-compatible extension, and silently ignoring it
-  means the client runs with the default for the key the caller thought they set.
+  `ErrMessageSettingsInvalid` naming the key — not ignored.
+  **This is a forward-compatibility decision and the spec does not take it.** §9.3 says exactly one
+  thing about the key set — *"All keys required unless marked optional"* — and says nothing about a
+  key it does not know. Rejecting is the position this plan takes, because an unknown key is far more
+  likely to be a caller's typo for a required one than a forward-compatible extension, and silently
+  ignoring it means the client runs with the default for the key the caller thought they set. What
+  it costs is stated rather than hidden: the DLL and the host application are separately versioned
+  binaries (§9.6 ships the DLL; Spec C is its own build), so a newer host passing a key an older DLL
+  does not know fails to open the client **at all** rather than degrading. *Rejected alternative:*
+  ignore-and-log, which makes every typo a silent misconfiguration. Filed as **Open item S1-18**;
+  the gate records the position taken, so a reversal is one edit to a rule.
   *Scope to derive:* every exported field of `MessageClientSettings`, from the type, paired against
   every key in the schema. Not a list of five.
 
@@ -480,13 +504,30 @@ func (self *MessageClient) Close()
   *Refusal owed:* an empty required key fails construction with an error that names that key. Three
   separate failures, not one "invalid settings".
 
-  **Property 3 — `network_space_host` is configuration, never a compile-time constant.** §7.2 and
-  MASTER §2 both make a build that hardcodes one operator's host as its only source a defect: two
-  operators run today, and a client, a message server and a contact may each be on a different one.
-  *Refusal owed:* the gate must fail if any **non-test** file in `package sdk` contains a string
-  literal that is used as a default for this field. Derive the class — "a literal reaching
-  `NetworkSpaceHost` without passing through the settings" — rather than banning a spelling like
-  `"ur.network"`, which a rename defeats.
+  **Property 3 — `network_space_host` is a required settings key in `sdk`, and the build-time
+  default the spec sanctions belongs to the host application, not to this package.** Read the spec
+  text before writing this gate, because the obvious phrasing forbids the exact construct the spec
+  permits. §7.2 and §9.3 both say the key comes *"from the host application's per-user
+  configuration, with a build-time value used only when nothing is configured. Never a compile-time
+  constant **as its only source**"*, and decision A13 says *"A CI grep asserts that no operator
+  hostname literal appears **outside the default-value declaration**"*. So a build-time default is
+  **sanctioned**; what A13 and MASTER §2 forbid is a compiled-in constant that is the *only* source.
+  A gate written as "no literal may be used as a default for this field" bans what A13 requires.
+  The distinction that makes both true at once, and it is the whole content of this property: in
+  `sdk` the key is **required** — §9.3 marks only `enable_cover` and `media_cache_bytes` optional,
+  and Property 2 already refuses an empty one by name — so within `package sdk` there is no
+  sanctioned default at all, and A13's "default-value declaration" is the **host application's**,
+  which §7.2 and §9.3 both place there in the same sentence. §9.3 puts `message_server_id` in the
+  same shape: its value comes *"from the build-time constant `kMessageServerClientId`"*, and that
+  constant is likewise the caller's, not this package's.
+  *Refusal owed:* an operator hostname literal in any **non-test** file of `package sdk` that can
+  reach `NetworkSpaceHost` fails. Derive the class — *a value reaching `NetworkSpaceHost` by a path
+  the settings key cannot override* — rather than banning a spelling like `"ur.network"`, which a
+  rename defeats.
+  *What the gate must NOT refuse, stated because a gate that overreaches here contradicts a locked
+  decision:* a host supplied **through** the settings, at any value; `MessageServerInfo.OperatorHost`
+  carrying a hostname at runtime; and a literal in a test. This gate is scoped to `package sdk` and
+  must not be exported to Spec C's side, where the build-time default is **required**.
 
   **Property 4 — the two optional keys default, and the defaults are the spec's.** `enable_cover`
   false; `media_cache_bytes` 1 GiB, written `1024 * 1024 * 1024` per CODESTYLE, never `1 << 30`.
@@ -519,6 +560,9 @@ func (self *MessageClient) Close()
      settings value is empty. Property 3 must fail.
   8. Do the same but read the literal from a differently named constant in a second file. Property 3
      must still fail; if it does not, the gate enumerated a name instead of deriving the class.
+  8a. Supply `"ur.network"` as the settings **value** from a test. Property 3 must **pass** — this is
+     the path §7.2 and A13 sanction, and a gate that bans the string has banned configuration. Run
+     this one; it is the cheapest check that the gate derived the class rather than the spelling.
   9. Change the media cache default to `1 << 30`. The value is identical, so a value assertion
      passes: this mutation exists to check the CODESTYLE gate, not the arithmetic. If nothing fails,
      record that the style rule is unenforced rather than pretending it is covered.
@@ -566,16 +610,33 @@ because the alternative is a hundred structs whose only check is that they compi
   declare. State that scope in the gate's header, because this is the property most likely to be
   scoped to one file and then quietly bypassed by the next task's file.
 
-  **Property 3 — the seconds/milliseconds boundary is stated on the two structs that straddle it.**
-  `MessageServerInfo`'s five retention fields are **milliseconds** and `sdk` converts them from the
-  server's seconds exactly once, on receipt of `Capabilities` (that conversion is s4's).
-  `MessageRetentionApplied` (Task 4) is **seconds**, because it mirrors a wire message field for
-  field. A gate here can only assert the naming, and it must: every field on `MessageServerInfo`
-  carrying a duration ends `Ms`, every field on `MessageRetentionApplied` ends `Seconds`.
-  *Refusal owed:* a `MediaTtlMaxSeconds` on `MessageServerInfo` fails; a `DurableTtlMs` on
-  `MessageRetentionApplied` fails. This is the cheapest available guard against the single most
-  likely arithmetic error in the whole surface, and it is worth stating that it is a naming gate and
-  not a units gate — the units gate is s4's, at the one conversion site.
+  **Property 3 — the suffix names the unit, field by field, and `MessageServerInfo` carries both
+  units.** §7.2 says of `MessageServerInfo` that *"`MediaTtlMaxMs`, `MediaTtlDefaultMs`,
+  `DurableTtlMaxMs`, `DurableTtlDefaultMs` and `DurableRetentionMinMs` are milliseconds because every
+  other duration on this API surface is milliseconds"* and that `sdk` *"converts them from the
+  server's seconds once, on receipt of `Capabilities`"* (that conversion is s4's); and that
+  *"`MessageRetentionApplied` does **not** convert — it is a mirror of a wire message and stays in
+  seconds."*
+  **Do not read that as "every duration on `MessageServerInfo` ends `Ms`", because the struct itself
+  contradicts it.** Measured against §7.2's declaration on 2026-09-02, `MessageServerInfo` carries
+  **two** duration fields spelled `Seconds` — `RendezvousTtlSeconds` and `RendezvousDepositTtlSeconds`,
+  both `int64`, both added by revision A-6 together with §7.3b — alongside `ReadKeyWindowMs`,
+  `KeyVerifiedAtMs` and the five retention fields. A property written as "every duration on this
+  struct ends `Ms`" is red against a correct transcription, and an implementer's likely resolution is
+  renaming the two rendezvous fields, which silently changes the unit of a value §7.3b's rate-limit
+  paragraph reads straight out of `ServerInfo()` and formats for the user.
+  So the rule the gate carries is **transcription, not normalisation**: for every duration field on
+  either struct, the suffix in the type matches the suffix in the manifest, and the manifest is
+  transcribed from the §7 line that declares the field. `MessageRetentionApplied` is `Seconds`
+  throughout, field for field.
+  *Refusal owed:* a `MediaTtlMaxSeconds` on `MessageServerInfo` fails, because §7.2 declares that
+  field `MediaTtlMaxMs`; a `RendezvousTtlMs` fails, because §7.2 declares it `RendezvousTtlSeconds`;
+  a `DurableTtlMs` on `MessageRetentionApplied` fails. It is a naming gate and not a units gate —
+  the units gate is s4's, at the one conversion site.
+  *Residual, and it is a spec defect rather than a transcription question:* §7.2's clause *"because
+  every other duration on this API surface is milliseconds"* is false of the very struct it appears
+  in, because A-6 added the two rendezvous seconds fields to that struct afterwards. Transcribe what
+  is declared and file **Open item S1-19**; do not reconcile the sentence by renaming a field.
 
   **Property 4 — `MessageProtocolLimitsValues()` agrees with `connect/mls` and does not restate
   it.** `mls.MaxGroupMembers` is 500 and `mls.MaxDeviceLeavesPerIdentity` is 10 today, in
@@ -616,6 +677,10 @@ because the alternative is a hundred structs whose only check is that they compi
   6. Rename `SyncState.LastRecordReceivedMs` to `LastRecordReceived`. Property 2 must fail.
   7. Change `MessageHealthEvent.Seq` to `float64`. Property 1 must fail.
   8. Add `MessageServerInfo.MediaTtlMaxSeconds` beside the `Ms` field. Property 3 must fail.
+  8a. Rename `MessageServerInfo.RendezvousTtlSeconds` to `RendezvousTtlMs`. Property 3 must fail —
+     the rule is transcription, and a gate that normalised every duration on this struct to `Ms`
+     passes this mutation while being red against the unmutated tree. Run this one before writing the
+     implementation; it is what distinguishes the property from the version it replaced.
   9. Change the sdk `MaxGroupMembers` value to 501. Property 4 must fail.
   10. Change `mls.MaxGroupMembers` to 501 instead. Property 4 must fail in the same test — the
       agreement is symmetric.
@@ -673,7 +738,19 @@ because the alternative is a hundred structs whose only check is that they compi
   once, at the moment it matters.
 
   **Property 4 — `GroupResult.Reason` is its own closed vocabulary and is not §7.2's.** §7.7 says
-  so explicitly: 21 values, separate from vocabularies 1, 2 and 3. The vocabulary itself is Task 9's;
+  so explicitly — *"`GroupResult.Reason` is CLOSED and is its own vocabulary, separate from §7.2's
+  three"* — and then lists the values. **§7.7 states no count.** Counted from that block on
+  2026-09-02 the set has **22** members: `ok`, `not_permitted`, `owner_must_transfer`,
+  `admin_removal_is_owner_only`, `awaiting_other_party`, `durable_override_not_permitted`,
+  `group_size_exceeded`, `device_limit_exceeded`, `succession_disabled`, `succession_not_nominee`,
+  `succession_quorum`, `succession_floor`, `succession_floor_too_short`, `link_expired`,
+  `link_revoked`, `link_already_redeemed`, `card_retired`, `card_rate_limited`, `card_not_live`,
+  `rate_limited`, `offline`, `internal`. That number is **this plan's measurement, not the spec's**,
+  and no gate may take it as an input: the vocabulary is derived from the constants, and 22 is a
+  tripwire that moves only with a §7.7 citation beside it. Filed as **Open item S1-20**, because a
+  closed vocabulary whose size the spec never states is one a reader can undercount without any
+  document contradicting them — which is what produced the "21" this repair replaced. The vocabulary
+  itself is Task 9's;
   what belongs here is that `GroupResult.Reason` and `MessageSendability.Reason` must not be typed
   as the same named type, and neither may be an `int` enum — §7.3's reason for strings is that
   gomobile enums are nameless ints in Java and Swift and a mis-set role is a security-relevant bug.
@@ -751,13 +828,33 @@ because the alternative is a hundred structs whose only check is that they compi
   *Scope:* every field on the whole surface whose type is one of the list wrappers, derived from the
   type graph — not the four fields on `MessageEntry`.
 
-  **Property 4 — `MessageEntry.Kind == "gap"` and `GapReason` are paired, and the pairing is
-  declared.** `GapReason` is set **iff** `Kind == "gap"`. Attachment outcomes are **not** gap
-  reasons: a pruned or failed attachment is an `AttachmentState`, because "kept for a month and then
-  pruned" and "the download failed" are different sentences to a user.
-  *Refusal owed:* the field-level invariant is s9's to enforce at construction; here the obligation
-  is that `GapReason`'s vocabulary (Task 9) and `MessageAttachment.State`'s vocabulary share **no
-  value**. That is checkable now, and it is the thing that stops the two collapsing later.
+  **Property 4 — `MessageEntry.Kind == "gap"` and `GapReason` are paired, and the two vocabularies
+  overlap on exactly one value.** `GapReason` is set **iff** `Kind == "gap"`. §7.4 then makes a
+  narrower claim than it looks: *"Attachment outcomes are **not** gap reasons — a pruned or failed
+  attachment is an `AttachmentState`, so the client can tell 'kept for a month and then pruned' from
+  'the download failed', which are different sentences to a user."* It names two outcomes. **It does
+  not claim the two sets are disjoint, and they are not.**
+  Measured against §7 on 2026-09-02: `MessageAttachment.State` is
+  `"available" | "not_downloaded" | "downloading" | "pruned" | "expired" | "failed"`, and `GapReason`
+  is `"expired" | "out_of_window" | "not_a_member_yet" | "withheld" | "no_wrap" | "malformed"`.
+  **Both contain `"expired"`.** A property demanding they share no value is red against a correct
+  transcription, and the resolution an implementer reaches for is deleting `"expired"` from one
+  side — which loses either the expired-record gap or the expired-attachment state, and freezes that
+  loss into s10's ABI baseline. Neither is available to delete: an expired **record** is one the
+  server no longer holds past its retention window, and an expired **attachment** is a body past its
+  media TTL under an entry that is still there. They are different sentences to a user, which is
+  §7.4's own test.
+  *Refusal owed, and it is an exact-set assertion rather than a disjointness one:* the intersection of
+  the two declared value sets is exactly `{"expired"}`. That refuses in both directions — adding
+  `"pruned"` or `"failed"` to `GapReason` fails (which is §7.4's actual claim), and **deleting**
+  `"expired"` from either side fails too, which a disjointness property would have rewarded. The
+  overlap is declared once, in a comment at both declaration sites, naming what the value means at
+  each. It is checkable now and it is the thing that stops the two collapsing later.
+  *Residual:* §7.4's sentence reads as set disjointness while the block eleven lines above it and
+  the block sixty lines below it share a value. Transcribe both, assert the intersection, and file
+  **Open item S1-21**; a spec correction narrowing §7.4's sentence to the attachment-only values is
+  owed. The field-level invariant — `GapReason` set iff `Kind == "gap"` — is s9's to enforce at
+  construction, and this task's header must say so rather than implying it is covered here.
 
   **Property 5 — `MessageEntry.RetryAfterMs` is a typed `int64` field on both `MessageEntry` and
   `MessageSendability`, and appears in no `ReasonDetail`.** §7.2 corrected an earlier revision that
@@ -779,7 +876,13 @@ because the alternative is a hundred structs whose only check is that they compi
   3. Assign `Edited = true` in a non-test file. Property 2 must fail.
   4. Assign it through a local alias variable instead of directly. Property 2 must still fail; a gate
      matching the literal field access survives this, and that is the ledger-21 shape again.
-  5. Add `"pruned"` to `GapReason`'s value set. Property 4 must fail on the disjointness.
+  5. Add `"pruned"` to `GapReason`'s value set. Property 4 must fail — the intersection is then
+     `{"expired", "pruned"}` and §7.4's claim about attachment outcomes is what breaks.
+  5a. Delete `"expired"` from `MessageAttachment.State`. Property 4 must **also** fail: the
+     intersection shrinks to the empty set. This is the mutation that separates the exact-set
+     assertion from the disjointness one it replaced — a disjointness property passes this mutation
+     while being red on the unmutated tree, which is the wrong outcome in both directions.
+  5b. Delete `"expired"` from `GapReason` instead. Property 4 must fail identically.
   6. Change `RetryAfterMs` to `int32`. Property 5 must fail.
   7. Change `ReasonDetail` to a named string type. Property 5 must fail.
   8. Delete the `SenderRoleAtSend` doc comment. Property 1 must fail — the comment is the whole
@@ -911,8 +1014,18 @@ because the alternative is a hundred structs whose only check is that they compi
   **Property 3 — an empty `*List` marshals as `[]`, never as `null`.** Measured 2026-08-30 on the
   existing pattern: `exportedList.MarshalJSON` calls `json.Marshal(self.values)`, `values` is a nil
   slice until something is added, and `json.Marshal` of a nil slice is `null`. So even a freshly
-  constructed, non-nil list emits `null`. Spec C parses these with nlohmann, where reading `null` as
-  an array throws.
+  constructed, non-nil list emits `null`.
+  **The Go half of that is measured; the consumer half is a premise, and the spec is silent on it.**
+  The premise is that Spec C parses these with nlohmann and that reading `null` as an array throws
+  there. Nothing in Spec A or Spec C states what a `*List` valued `null` does on the C++ side: Spec A
+  §9.2 says only *"Data structs, lists and maps cross as JSON strings"*, and Spec C's one mention of
+  the library is a note about a UTF-8 `dump()` throw path. This premise is load-bearing for sixteen
+  shadowing `MarshalJSON` methods, so it is named as a premise and filed as **Open item S1-22**
+  rather than cited as a reading. It is also the premise Task 11's `*List` refusal must not
+  contradict — see Property 4 and Task 11's Property 2, which this plan previously allowed to
+  disagree.
+  Whatever the C++ side does with `null`, the empty-list case is worth fixing on its own: an empty
+  list is a real and common answer — every screen hits it on first run — and `[]` is what it means.
   The fix is a `MarshalJSON` **on each wrapper**, shadowing the promoted one, over a shared
   unexported generic helper. Verified 2026-08-30 that the shadow wins, that an empty list then emits
   `[]`, and that a populated list round-trips byte-identically.
@@ -926,18 +1039,34 @@ because the alternative is a hundred structs whose only check is that they compi
   pre-existing VPN lists, which the gate must exclude by derivation (element type declared in a
   `message_*.go` file) rather than by name.
 
-  **Property 4 — a `*List` field left nil still emits `null`, and s1 cannot fix that here.** The
-  shadow only helps a non-nil list. The rule — *no surface struct is handed to a caller with a nil
-  `*List` field* — is a construction obligation on every plan that builds one. Declare it in the
-  registry (Task 16) with the gate assigned to s9, which writes the first projection.
-  *Refusal owed:* none in s1. Recording it as covered would be the exact failure this plan exists to
-  avoid.
+  **Property 4 — a nil `*List` still emits `null`, in a field and in a return, and s1 cannot fix
+  either here.** The shadow only helps a non-nil list. Two cases, and the plan previously answered
+  them inconsistently:
+  - *As a field.* The rule — *no surface struct is handed to a caller with a nil `*List` field* — is
+    a construction obligation on every plan that builds one. Declare it in the registry (Task 16)
+    with the gate assigned to s9, which writes the first projection.
+  - *As a return.* §7 declares **twelve** methods on `MessageClient` returning a `*List`
+    (`Groups`, `Members`, `HistoryGrants`, `PendingInvites`, `InviteLinks`, `JoinRequests`,
+    `ContactRequests`, `History`, `Search`, `Devices`, `Pins`, `SecurityLog`) and **not one of them
+    has an error return**. So a call that cannot answer has three available answers and the spec
+    rules out two of them: `[]` is refused by §8.2 — *"`Groups()` and `History()` MUST NOT return
+    empty in this condition — Spec C would then render 'No conversations yet' to a user whose entire
+    history is intact on the server"* — and `null` is refused by Property 3's own premise, which says
+    the consumer throws on it. The third, an error, the signature cannot express.
+  *Refusal owed in s1:* none, and **recording either case as covered would be the exact failure this
+  plan exists to avoid.** What s1 owes instead is that Task 11 does not claim to have solved the
+  return case by picking `null` — see Task 11 Property 1's third bucket. Filed as **Open item S1-23**:
+  §8.2 states a requirement that the signatures it names cannot express, and either those twelve
+  declarations gain an error channel or Spec C's wrapper is specified to tolerate `null`. One of
+  those two must be ruled before s10 freezes the baseline.
 
   **Property 5 — exported constructors exist for exactly the lists that are input parameters, and
   today that is none.** `NewStringList` already covers the only list-typed parameter on the surface
-  (`CreateGroupWithMembers`). The generator skips `^New[A-Za-z0-9]*List$` by pattern (verified in
-  `sdk/cgo/gen/gen.go`), so a constructor is invisible to the ABI and exists only for gomobile
-  callers building an input.
+  (`CreateGroupWithMembers`). The generator skips `^New[A-Za-z0-9]*List$` by pattern — verified
+  2026-09-02 at `sdk/cgo/gen/gen.go:107`, in **`skipFuncPatterns`**, which is why Task 13's drift
+  gate reads that table and an earlier revision of Task 13 that omitted it left this reasoning
+  ungated — so a constructor is invisible to the ABI and exists only for gomobile callers building
+  an input.
   *Refusal owed:* if a later plan makes one of these a parameter type, the gate must fail and ask
   for the constructor. Write the gate so that happens; a gate asserting "zero constructors" is a
   gate that will be deleted the first time one is needed.
@@ -1023,6 +1152,21 @@ edits to a hundred structs — which is what the gate below buys.
   *Derivation, not literals:* the fixture value must be built by **reflection over the type**, so a
   field added tomorrow is covered by existing. A hand-written fixture per struct is 44 fixtures that
   will each be one field behind, which is the vacuous-coverage shape this plan is written against.
+  *And the obvious way to build it does not work — verified by running it, 2026-09-02.* A reflective
+  builder that walks fields and sets them cannot populate a `*List`. The wrappers embed
+  `exportedList[T]` **by value** and its only state is the unexported `values` field, so
+  `reflect.Value.Set` on it panics with *"reflect: reflect.Value.Set using value obtained using
+  unexported field"*, and a builder that skips what it cannot set leaves every list empty or nil.
+  That is not a cosmetic gap: it makes Property 4's three assertions vacuous, because a fixture whose
+  lists are all empty never exercises the populated case at all.
+  The mechanism that does work, verified in the same run: reach the list through its **promoted
+  exported method set**. `reflect.Value.MethodByName("Add")` is valid on an addressable
+  `*MessageAttachmentList`, `Add` takes the element type, and the element is built by the same
+  recursive builder. So the rule is: **set what is settable, and call `Add` for what is not.** State
+  it in the gate's header, because the next person to write this reaches for `Set` first.
+  The equality half is unaffected — `reflect.DeepEqual` reads unexported state fine, which is why
+  Property 3's "an unexported field carrying data fails" refusal still holds even though the builder
+  cannot construct that case; the case is constructed by the mutation, not by the fixture.
 
   **Property 4 — the three measured `*List` behaviours hold end to end.** With Task 7's shadows in
   place: an empty non-nil list field emits `[]`; a populated one emits an array; a nil field emits
@@ -1046,6 +1190,10 @@ edits to a hundred structs — which is what the gate below buys.
      equality half; a test asserting only byte-identity of re-marshal survives this.
   8. Replace the reflective fixture with a hand-written one for `MessageEntry`. Add a new field.
      Property 3 must fail; if it passes, the fixture is not derived.
+  8a. Make the fixture builder skip any field it cannot `Set` — which is every `*List`, per the note
+     above. Property 4 must fail: with every list left empty, the populated-array assertion has
+     nothing to assert. If Property 4 passes, the fixture never reached a list and the three
+     measured behaviours are being claimed rather than checked.
   9. Delete `MessageEntryList.MarshalJSON`. Property 4 must fail.
 
 - [ ] **Step 6: Commit**
@@ -1227,9 +1375,17 @@ list.** It is offered as evidence that copying is what produced §9.5's seventee
   *Scope:* reachability from `MessageClient`, derived.
 
   **Property 4 — a callback carries `(payload, err error)`; a listener carries `(payload)` alone.**
-  Measured from §7.7: the seven `*Listener` types take one argument; the fourteen `*Callback` types
-  take two, the second an `error`. That is not a naming coincidence — it is what makes a stub in
-  Task 11 able to refuse through a ticket at all.
+  Measured from §7.7's declaration block on 2026-09-02: **ten** `*Listener` types take one argument
+  (`SyncListener`, `HealthListener`, `GroupListener`, `MessageListener`, `KeyChangeListener`,
+  `IntegrityListener`, `RecordLifecycleListener`, `JoinRequestListener`, `ContactRequestListener`,
+  `BalanceListener`) and **eleven** `*Callback` types take two, the second an `error`
+  (`SendCallback`, `UploadCallback`, `GroupCallback`, `RestoreCallback`, `DownloadCallback`,
+  `DeviceLinkCallback`, `DeviceRemovalCallback`, `SyncCallback`, `DirectoryCallback`,
+  `InviteLinkCallback`, `BalanceRedeemCallback`) — 10 + 11 = the 21 above, and the split is 10/11 and
+  not the 7/14 an earlier revision of this plan carried. Like every other count in this plan the two
+  numbers are measurements and not gate inputs; the gate derives the partition from the suffix. That
+  is not a naming coincidence — it is what makes a stub in Task 11 able to refuse through a ticket at
+  all.
   *Refusal owed:* a `*Callback` with no error parameter fails; a `*Listener` with one fails.
   *Scope:* derive from the suffix **and** assert the partition is total — every interface on the
   surface is one or the other, and a third naming ends the run.
@@ -1287,17 +1443,35 @@ The blocked set includes `RegisterPushChannel` / `UnregisterPushChannel` (§14 i
 `DirectoryListed` / `SetDirectoryListed` and `LookupPrincipal` (the operator directory is out of
 scope per §12.3, and Spec B §9.4 defines only KT proof endpoints, not a name search),
 `SetCoverTraffic` (there is no COVER generator in `connect/message`), `StartDiagnosticSession` /
-`StopDiagnosticSession` / `DiagnosticSessionEndsAtMs` (no proto arm), `GrantHistory` /
-`HistoryGrants` (no extension — v1 `RequiredCapabilities` is fixed to `[0xF001, 0xF002]` — no record
-class, no server op, no wrap-to-past-epochs primitive), all eight declarations of §7.3a, and the
-whole §7.5 device-link surface.
+`StopDiagnosticSession` / `DiagnosticSessionEndsAtMs` (no proto arm), `GrantHistory` (no extension —
+v1 `RequiredCapabilities` is fixed to `[0xF001, 0xF002]` — no record class, no server op, no
+wrap-to-past-epochs primitive), all eight declarations of §7.3a, and the whole §7.5 device-link
+surface.
+
+**`HistoryGrants` is blocked for the same reason and is nonetheless NOT in this set**, because it
+returns a `*MessageHistoryGrantList` and Property 1's third bucket takes every `*List`-returning
+declaration: there is no answer it can give that this plan is willing to write down. It is listed in
+Task 16's registry against s6 with Open item S1-23, and Task 11 declares nothing for it. The same
+applies to the eleven other `*List` returns of §7, whichever plan owns them.
 
 - [ ] **Step 1: Derive the property and write the failing test**
 
-  **Property 1 — every §7 declaration on `MessageClient` is either implemented by a named plan or
-  stubbed here, and the partition is total.**
-  *Refusal owed:* a §7 method that is neither implemented nor stubbed fails — and, crucially, so
-  does one that is **both**.
+  **Property 1 — every §7 declaration on `MessageClient` falls in exactly one of three buckets, and
+  the partition is total.** Two buckets are the obvious ones — *implemented by a named plan* and
+  *stubbed here*. The third exists because the first draft of this task did not have it and answered
+  a question the spec never settled in order to avoid it:
+  - **Cannot be refused honestly.** A declaration whose signature has no error channel and whose two
+    available answers are both wrong. Concretely, the twelve `*List`-returning methods of §7 (Task 7
+    Property 4 lists them; not one has an error return): `[]` is the answer §8.2 forbids — *"Spec C
+    would then render 'No conversations yet' to a user whose entire history is intact on the
+    server"* — and `null` is the answer Task 7 Property 3's own premise says the consumer throws on.
+    **A member of this bucket is not stubbed.** It is listed in Task 16's registry with the plan that
+    implements it and with Open item S1-23 against it, and Task 11 declares nothing for it. Picking
+    one of the two wrong answers and calling it "the honest answer to 'this build cannot tell you'"
+    is what this bucket replaces.
+  *Refusal owed:* a §7 method in none of the three buckets fails — and, crucially, so does one in
+  **two**. A method in the third bucket that acquires a stub fails, which is what stops the bucket
+  from quietly emptying itself back into bucket two.
   *Scope to derive:* the method set of `MessageClient` from the type graph, partitioned against the
   ownership table in Task 16's registry. This is the loop that closes: the registry is the scope
   source, so a method nobody claimed cannot be silently absent. A gate reading a list in this file
@@ -1310,13 +1484,25 @@ whole §7.5 device-link surface.
   *The refusal each signature shape owes:*
   - returns `error` → `ErrMessageNotImplemented`, wrapped with the call's own name.
   - returns `(T, error)` → the zero `T` and the same error.
-  - returns `*MessageSendTicket` → a ticket that completes immediately by invoking the supplied
-    callback with a nil payload and `err = ErrMessageNotImplemented`. Every `*Callback` interface
-    carries an `error` second parameter (Task 10, Property 4), so this needs no new vocabulary value
-    and tells no lie.
-  - returns a `*List` → **nil**, not an empty list. Measured 2026-08-30: a nil `*List` field crosses
-    as JSON `null` while an empty one crosses as `[]`, so the two are distinguishable to Spec C, and
-    `null` is the honest answer to "this build cannot tell you".
+  - returns `*MessageSendTicket` → a ticket that completes by invoking the supplied callback with a
+    nil payload and `err = ErrMessageNotImplemented`. Every `*Callback` interface carries an `error`
+    second parameter (Task 10, Property 4), so this needs no new vocabulary value and tells no lie.
+    **The delivery happens on a goroutine, and that is required rather than tolerated.** §9.5 rule 2
+    is *"Callbacks arrive on an arbitrary Go goroutine, never the UI thread"*; a stub that invokes
+    the callback inline delivers it on the caller's thread, which through the C ABI is the thread
+    that called `urmsg_client_*` — the UI thread on Windows. So the inline form is not the safe
+    version of this stub, it is the one that violates §9.5. Property 4 carves the goroutine out
+    explicitly and bounds it; read the two together, because as first written they contradicted each
+    other and the only reading that satisfied both broke rule 2.
+  - returns a `*List` → **no stub at all.** This is Property 1's third bucket, and the reason is
+    that the plan cannot have both halves of what it previously asserted. Task 7 Property 3 justifies
+    sixteen shadowing `MarshalJSON` methods on the premise that the consumer **throws** when it reads
+    `null` as an array; a `*List` stub returning nil marshals to exactly that `null`. `null` is
+    therefore not "the honest answer to 'this build cannot tell you'" — under this plan's own premise
+    it is a crash — and `[]` is the lie §8.2 names. §7 gives these twelve declarations no third
+    answer, and **the spec is silent on which of the two it wants**: §9.2 says only that lists cross
+    as JSON strings, and neither Spec A nor Spec C says what `null` does on the C++ side. Open item
+    S1-23. Do not resolve it by picking one and writing it down as a reading.
   - returns `bool` → `false` **only where `false` is a true statement**. `DirectoryListed()` is:
     nothing is listed. `HasIdentity()` is not this task's.
   - returns `string` → the empty string is a lie for `ThisDeviceId()`, and there is no channel to say
@@ -1327,14 +1513,32 @@ whole §7.5 device-link surface.
   *Refusal owed:* a stub returning `error` where §7 declares `*MessageSendTicket` fails.
 
   **Property 4 — a stub refuses the same way twice, and never partially.** Calling a stub must not
-  mutate any client state, must not register anything, and must be safe concurrently.
-  *Refusal owed:* a stub that increments a counter, opens a file or starts a goroutine fails.
-  Derive the class over the AST — *a stub body reaching package or receiver state* — rather than
-  reading the bodies.
+  mutate any state that outlives the call or is observable to another call, must not register
+  anything, and must be safe concurrently.
+  *The class, derived:* **state reachable after the call returns.** Package-level variables, fields
+  on the receiver, an entry in a `CallbackList`, an open file or socket, a retained reference to the
+  caller's callback. Derive it over the AST — *a stub body writing to package or receiver state, or
+  retaining a reference beyond the call* — rather than reading the bodies.
+  *The one carve-out, and it is required rather than tolerated:* **the single delivery goroutine of
+  Property 2's ticket refusal.** §9.5 rule 2 forbids delivering a callback on the caller's thread, so
+  a ticket stub that refuses inline is the version that breaks the spec; the goroutine is what makes
+  it legal. As first written this property banned every goroutine and Property 2 required one, and
+  the only construct satisfying both — inline delivery — violates §9.5 rule 2. The carve-out is
+  bounded so it cannot become a loophole: **exactly one** goroutine per call, which performs one
+  callback invocation and exits, retains no reference to the client, is reachable from no field on
+  the client or the ticket, and holds no lock. A gate asserting "no goroutine" is wrong; a gate
+  asserting "no *retained* state" is the one that catches both a counter and a leaked worker.
+  *Residual:* §9.5 rule 4 makes unregister synchronous and final for a `Sub` — *"`urmsg_release(sub)`
+  does not return until no callback is executing and none will start"* — and says nothing about
+  releasing a `*MessageSendTicket` whose refusal is in flight, though §9.2 makes the ticket a handle
+  released by the same `urmsg_release`. Filed as **Open item S1-24**, assigned to s10, which writes
+  the release path. In s1 the window is one callback long and touches no shared state, which is why
+  the plan can proceed without ruling it; it will not stay that way once s9 sends anything.
 
   **Property 5 — the closed vocabularies have no value for "this build does not implement this".**
-  `GroupResult.Reason`'s 21 values include `"internal"`, and answering `"internal"` to
-  `CreateInviteLink` is a false statement about what happened. This is the same gap Spec B has at
+  `GroupResult.Reason`'s 22 values — counted from §7.7's block, which states no count (Task 4
+  Property 4) — include `"internal"`, and answering `"internal"` to `CreateInviteLink` is a false
+  statement about what happened. This is the same gap Spec B has at
   §4.5 (ledger open item 8), and it has the same two wrong candidates. **Do not add a value.**
   Because Property 2 routes every ticket refusal through the callback's `err` rather than through a
   `GroupResult`, no stub needs the missing value today — but the moment a real implementation must
@@ -1348,7 +1552,11 @@ whole §7.5 device-link surface.
   1. Delete one stub. Property 1 must fail, naming the method.
   2. Add a stub for a method the registry says s4 implements. Property 1 must fail on the "both"
      half; a gate checking only "every method has an owner" survives this.
-  3. Make `HistoryGrants` return an empty `*MessageHistoryGrantList`. Property 2 must fail.
+  3. Give `HistoryGrants` a stub of any shape. Property 1 must fail on the third bucket: a
+     `*List`-returning declaration is listed as unrefusable and a stub for it is the "in two buckets"
+     half of the refusal. A gate that only asks "is every method owned or stubbed" survives this.
+  3a. Make that stub return an empty `*MessageHistoryGrantList`. Property 1 must still fail, and for
+     the same reason — the point is that neither answer is available, not that one of them is worse.
   4. Make `RegisterPushChannel` return `nil`. Property 2 must fail.
   5. Make `CreateInviteLink` return a nil ticket without invoking the callback. Property 2 must
      fail — a caller waiting on a callback that never fires is worse than an error.
@@ -1358,6 +1566,12 @@ whole §7.5 device-link surface.
   8. Have a stub record its call count in a package variable. Property 4 must fail.
   9. Have it record the count on the receiver instead. Property 4 must still fail; if it does not,
      the class was "package state" and the scope should have been "any state".
+  9a. Make the ticket stub invoke the callback **inline** instead of on the delivery goroutine.
+     Property 2 must fail, naming §9.5 rule 2. A gate written as "a stub starts no goroutine" rewards
+     this mutation, which is why Property 4's class is retained state and not goroutines.
+  9b. Have the delivery goroutine park instead of exiting, or store the ticket on the client so it
+     outlives the call. Property 4 must fail — the carve-out is one goroutine, one delivery, no
+     retained reference, and a gate that exempts "goroutines" wholesale passes both of these.
   10. Call every stub twice concurrently under `-race`. No stub may report a race or differ between
       the two calls.
 
@@ -1395,7 +1609,8 @@ separate module because `golang.org/x/tools` must not enter the root module's gr
 graph `gomobile bind` resolves for the AAR and the Apple framework. `build`, `cgo` and `js` exist for
 exactly that reason and this is the fourth of the same kind.
 
-**Two traps, both verified 2026-08-30 by reading the code.**
+**Three traps, all verified by reading the code — the first two on 2026-08-30, the third on
+2026-09-02.**
 
 1. `sdk/dependency_graph_test.go` holds a **hardcoded** list of artifact modules —
    `build/go.mod`, `cgo/go.mod`, `js/go.mod` — and `TestSdkArtifactModulePionVersionsMatchRoot`
@@ -1405,10 +1620,27 @@ exactly that reason and this is the fourth of the same kind.
    ("contains no Pion module versions"). `cgo`, `build` and `js` each carry 16 pion lines, and they
    carry them because each requires `github.com/urnetwork/sdk`, whose graph drags them in as
    indirects. A `surface/go.mod` requiring only `golang.org/x/tools` has zero and would fail the
-   moment it joined the list. So `surface` must `require github.com/urnetwork/sdk v0.0.0` with
-   `replace github.com/urnetwork/sdk => ../`, and that requirement must be **anchored by a real
-   import** or `go mod tidy` drops it. The anchor is the walk's test importing
-   `github.com/urnetwork/sdk` — child importing parent, which CODESTYLE explicitly allows.
+   moment it joined the list. So `surface` must `require github.com/urnetwork/sdk v0.0.0`, and that
+   requirement must be **anchored by a real import** or `go mod tidy` drops it. The anchor is the
+   walk's test importing `github.com/urnetwork/sdk` — child importing parent, which CODESTYLE
+   explicitly allows.
+3. **The nested module needs four `replace` directives, not one.** A `replace` applies only from the
+   main module; a nested module inherits none of its parent's. `sdk/go.mod` carries three sibling
+   replaces — `connect`, `glog`, `goidenticons` — so a `surface/go.mod` that replaces only
+   `github.com/urnetwork/sdk` cannot resolve the parent's own requirements and does not build.
+   Verified 2026-09-02 by reading all three existing nested modules: `cgo/go.mod`, `build/go.mod` and
+   `js/go.mod` each carry the identical four, spelled
+
+   ```
+   replace github.com/urnetwork/sdk => ..
+   replace github.com/urnetwork/connect => ../../connect
+   replace github.com/urnetwork/glog => ../../glog
+   replace github.com/urnetwork/goidenticons => ../../goidenticons
+   ```
+
+   Copy that block. Note the parent is `..` and not `../`; match the three siblings rather than
+   inventing a fourth spelling, because `dependency_graph_test.go` compares these modules to each
+   other.
 
 `sdk/test.sh` picks the module up with no change: its submodule loop is
 `find . -mindepth 2 -maxdepth 2 -name go.mod` over modules containing `_test.go`. Verified by
@@ -1423,14 +1655,29 @@ reading it.
   *Refusal owed:* a type the model does not recognise must produce bad-with-a-reason, and the reason
   must name the type.
 
-  **Property 2 — the walk's reachability is derived, and its roots are declared.** §9.2's table says
+  **Property 2 — the walk's reachability is derived, and so is its root set.** §9.2's table says
   the messaging generator walks "only types reachable from `MessageClient` (an explicit allowlist in
   `gen.go`)". An explicit allowlist is a list, and a list of reachable types is a list that will be
-  one type behind. The roots are declarable — `MessageClient` plus the free functions §7 declares
-  (`NewMessageClient`, `GenerateMessageSeedphrase`, `ValidateMessageSeedphrase`,
-  `MessageProtocolLimitsValues`) — and everything else is **reached**: through method parameters and
-  results, through struct fields, through `*List` element types, and through the method signatures of
-  listener interfaces.
+  one type behind. Everything below a root is **reached**: through method parameters and results,
+  through struct fields, through `*List` element types, and through the method signatures of listener
+  interfaces.
+  **The roots are derived too, and the first draft of this plan is the reason.** That draft
+  enumerated four — `MessageClient`, `NewMessageClient`, `GenerateMessageSeedphrase`,
+  `ValidateMessageSeedphrase`, `MessageProtocolLimitsValues` — and **omitted the three exported free
+  functions this very plan creates in `sdk/message_vocab.go`**: `MessageVocabularies`,
+  `MessageVocabularyValues` and `MessageVocabularyContains`. All three cross gomobile and the ABI,
+  all three return or take `*StringList`, and under the enumerated root set all three fall outside
+  the plan's own exportability walk. That is ledger 21 committed inside the task written to prevent
+  it, and the fix is the one the ledger gives every time: a wider derivation, not a longer list.
+  *The derivation:* a root is `MessageClient`, **plus every exported package-level function declared
+  by a `message_*.go` file in `package sdk`**, obtained from the loaded package. A free function
+  added by a later task is a root by existing. Measured on this plan's own output that set is eight —
+  the five above plus the three vocabulary functions — and eight is the count the gate reports, never
+  the count it is given.
+  *Scope, stated separately per R3:* the derivation rule is the scope; the eight names are the
+  content, and they are committed as a root manifest so an addition is a visible diff, exactly as
+  Task 3's field manifest is. The gate fails if the derived set and the manifest disagree in either
+  direction.
   *Refusal owed:* a struct reachable only as a field of a field of a root must be walked. A walk that
   stops at depth one passes a surface with a `map[string]string` two levels down.
   *Scope, stated separately:* the roots are enumerated (that is the content); the reachable set is
@@ -1460,6 +1707,11 @@ reading it.
   4. Stop the walk at struct fields but not at interface method signatures. Property 2 must fail.
   5. Remove `MessageProtocolLimitsValues` from the roots. Property 2 must fail — `MessageProtocolLimits`
      is reachable from nothing else.
+  5a. Add a new exported free function to `sdk/message_vocab.go` and leave the root manifest alone.
+     Property 2 must fail on the derivation half. A gate whose roots are enumerated survives this,
+     and surviving it is how the three vocabulary functions fell outside this plan's own walk.
+  5b. Delete `MessageVocabularyValues` from the root manifest while leaving the function. Property 2
+     must fail on the other direction.
   6. Return after the first finding. Property 3 must fail.
   7. Delete `surface/go.mod` from `dependency_graph_test.go`'s list. Property 5 must fail. **If it
      passes, that is the trap:** the test's own shape is to iterate a list, so a missing entry is
@@ -1469,6 +1721,10 @@ reading it.
      5 must fail with "contains no Pion module versions" — and the failure message must be
      recognisable as this trap rather than as a broken test.
   10. Add `golang.org/x/tools` to `sdk/go.mod`. Property 4 must fail.
+  11. Delete `replace github.com/urnetwork/goidenticons => ../../goidenticons` from
+      `surface/go.mod`. The module must fail to build, and the failure must be recognisable as the
+      missing replace rather than as a broken gate — this is trap 3, and it is the same error the
+      root module currently produces for the same reason.
 
 - [ ] **Step 6: Commit**
 
@@ -1494,27 +1750,63 @@ cannot are both stated in its header.
 - [ ] **Step 1: Derive the property and write the failing test**
 
   **Property 1 — the gate reads a real table, and proves it.** Parse `sdk/cgo/gen/gen.go` with
-  `go/ast` and extract `behavioralTypes`, `skipTypes`, `skipFuncs`, `skipMethods`,
-  `skipTypePatterns` and `keepTypes`.
-  *Refusal owed:* reading **zero** entries from any of those must fail, loudly, naming the file. This
-  is the most important line in the task. This project has already had 84 source anchors pass
-  vacuously on Windows because `core.autocrlf=true` made every text match miss, and the ledger's
-  words for it are worth repeating: *that is not a gate failing; it is a gate reporting the clean run
-  of a complete gate having read nothing.* `sdk` has no `.gitattributes` today (Task 15 adds one) and
-  the same system-scope autocrlf applies to it.
+  `go/ast` and extract **seven** tables: `behavioralTypes`, `skipTypes`, `skipTypePatterns`,
+  `keepTypes`, `skipFuncs`, `skipFuncPatterns` and `skipMethods`. An earlier revision of this task
+  named six and omitted **`skipFuncPatterns`**, which is the one table Task 7 Property 5's reasoning
+  actually rests on: the `^New[A-Za-z0-9]*List$` pattern that makes a list constructor invisible to
+  the ABI lives there and nowhere else (verified 2026-09-02 at `gen.go:107`). Two of the seven are
+  `[]*regexp.Regexp` and not `map[string]…`, so the gate must handle both composite-literal shapes;
+  a gate that only knows the map shape reads zero from those two and, under the refusal below,
+  reports it as a defect in the generator rather than in itself.
+  *Refusal owed — and it is "did not find", not "found nothing".* An earlier revision of this task
+  demanded that reading **zero** entries from any named table fail. That property is **red against
+  the unmutated tree**: `keepTypes` is declared `var keepTypes = map[string]bool{}` at `gen.go:92`
+  and is legitimately empty — it exists to carve names out of `skipTypePatterns` and nothing has
+  needed carving yet. A gate red on arrival is not a strict gate; it is a gate that gets deleted or
+  loosened in its first hour, and loosening it to "stop looking" is how the vacuous version arrives.
+  The property that is true of an empty table and false of a truncated one:
+  1. **Every one of the seven declarations is located in the AST**, by name, in the file Property 2
+     found. A named table the gate cannot locate fails, and that is the failure that catches a
+     rename, a move, and a text-matching gate that read nothing.
+  2. **The gate reports the size it read for each**, and the aggregate across the seven is non-zero.
+     Zero aggregate means it parsed nothing at all.
+  3. **A table's emptiness is a fact it reports, not a verdict it passes.** `keepTypes` reads 0
+     today; that is recorded in the gate's header with the date it was measured, so an entry
+     appearing there is a visible diff rather than a silent change to what `skipTypePatterns` covers.
+  Truncation is caught where truncation matters — Property 3, which asserts the comparison it ran was
+  non-vacuous. This is the most important paragraph in the task. This project has already had 84
+  source anchors pass vacuously on Windows because `core.autocrlf=true` made every text match miss,
+  and the ledger's words for it are worth repeating: *that is not a gate failing; it is a gate
+  reporting the clean run of a complete gate having read nothing.* `sdk` has no `.gitattributes`
+  today (Task 15 adds one) and the same system-scope autocrlf applies to it.
 
   **Property 2 — the gate finds the generator by shape, not by path.** Locate the file by searching
   for the Go source that declares `behavioralTypes`, so a rename or a move fails loudly instead of
   reading nothing.
   *Refusal owed:* moving `gen.go` must fail the gate, not skip it.
 
-  **Property 3 — the two models agree for every name both know.** For every type name in
-  `behavioralTypes`, `surface.Classify` must produce the handle kind; for every name in `skipTypes`,
-  bad; and every messaging behavioural type derived from the marker (Task 14) must appear in
-  `behavioralTypes` once s10 exists, and must **not** appear in `sdk/cgo`'s copy, which is the VPN
-  generator and whose ABI baseline must not move.
-  *Refusal owed:* a messaging name appearing in `sdk/cgo/gen/gen.go`'s `behavioralTypes` fails — that
-  would put a messaging export in `URnetworkSdk.dll`, which §9.1 exists to prevent.
+  **Property 3 — the two models agree for every name both know, and the comparison proves it was not
+  empty.** For every type name in `behavioralTypes`, `surface.Classify` must produce the handle kind;
+  for every name in `skipTypes`, bad. And every **marker-derived** messaging behavioural type
+  (Task 14) must appear in `sdk/cgo-message`'s `behavioralTypes` once s10 exists, and must **not**
+  appear in `sdk/cgo`'s copy, which is the VPN generator and whose ABI baseline must not move.
+  *Refusal owed:* a marker-derived messaging name appearing in `sdk/cgo/gen/gen.go`'s
+  `behavioralTypes` fails — that would put a messaging export in `URnetworkSdk.dll`, which §9.1
+  exists to prevent.
+  **`Sub` is the exception, and it must be spelled out or this property is red today.** §9.2's table
+  gives the messaging generator four behavioural types — `MessageClient`, `MessageSendTicket`,
+  `MessageDeviceLinkSession`, `Sub` — and §7.1's object-model table lists `Sub` as a behavioural
+  handle, *"existing sdk type; returned by every `Add*Listener`"*. `Sub` is therefore a messaging
+  behavioural type **and** already present in `sdk/cgo/gen/gen.go`'s `behavioralTypes` (verified
+  2026-09-02 at `gen.go:50`), because it is shared with the VPN surface. Written as "no messaging
+  name may appear in the VPN table", this refusal fails on `Sub` against an unmutated tree. Scoping
+  it to the **marker-derived** set is what makes it true, and it is true for a reason rather than by
+  construction: `Sub` cannot carry the marker at all (Task 14 Property 1), so the two sets differ by
+  exactly `Sub` and the gate asserts that difference rather than assuming it.
+  *Anti-vacuity, and this is where truncation is caught:* the gate must assert that the number of
+  names it compared equals the sizes Property 1 read, and that `"Sub"` is among them. Emptying
+  `behavioralTypes` then fails here — a comparison over zero names is a clean run of a gate that
+  checked nothing, which is the shape Property 1 declines to catch by banning empty tables.
 
   **Property 4 — what this gate does not prove is written down.** An AST comparison of the
   generator's **tables** does not prove its **logic** agrees: `classifyNamed`'s branch order, the
@@ -1529,7 +1821,16 @@ cannot are both stated in its header.
 
   1. Point the gate at a file that does not exist. Property 1 must fail; it must not pass with an
      empty table.
-  2. Point it at a file with an **empty** `behavioralTypes` map. Property 1 must fail.
+  2. Point it at a file with an **empty** `behavioralTypes` map. **Property 1 must pass** — the
+     declaration is present and its size is 0, which is a fact and not a verdict — and **Property 3
+     must fail** on anti-vacuity, because it compared zero names and `"Sub"` was not among them.
+     Run this one and check both halves; getting only the second is the point of the split.
+  2a. Delete the `keepTypes` declaration from the file entirely. Property 1 must fail on "did not
+     find". Leave it declared and empty, as it is today, and Property 1 must pass. These two
+     mutations together are what distinguish the repaired property from the one that was red on
+     arrival, so run them adjacently.
+  2b. Delete `skipFuncPatterns`. Property 1 must fail. It is in the seven because Task 7 Property 5
+     depends on it, and a six-table gate reports clean while the pattern it reasons from is gone.
   3. Rename `gen.go` to `generate.go`. Property 2 must fail, not skip.
   4. Convert `gen.go` to CRLF line endings. Property 1 must still pass if the gate is AST-based, and
      must fail if it was written with `strings.Contains`. Run this one; it is the cheapest possible
@@ -1551,7 +1852,9 @@ cannot are both stated in its header.
 - Consumes: `WalkReachable`, `Classify` (Task 12); the marker method (Task 1).
 - Produces:
 ```go
-func BehavioralTypes() []string   // DERIVED from the marker method, not maintained
+// the three marker-derived handles, plus Sub, which cannot carry the marker.
+func BehavioralTypes() []string       // the full §9.2 set: MarkerDerivedHandles() + subExceptions
+func MarkerDerivedHandles() []string  // DERIVED from the marker method, not maintained
 ```
 
 **Three reasons this test must be stronger than the generator, all verified in source.**
@@ -1574,12 +1877,31 @@ func BehavioralTypes() []string   // DERIVED from the marker method, not maintai
 
 - [ ] **Step 1: Derive the property and write the failing test**
 
-  **Property 1 — `BehavioralTypes()` is derived from the marker, not maintained.** Ask the loaded
-  package which named types declare the unexported marker method of Task 1.
-  *Refusal owed:* a fourth handle added without the marker is absent from the set and every gate that
-  depends on it fails. A fifth handle added *with* the marker is present by existing, and no list
-  needs editing. That asymmetry is the whole reason for the marker.
-  *Scope:* the package, from the type graph. Not three names.
+  **Property 1 — the handle set is marker-derived, plus exactly one name that cannot be.** Ask the
+  loaded package which named types declare the unexported marker method of Task 1; that is
+  `MarkerDerivedHandles()`, and it is three.
+  **§9.2's messaging handle set is four, and the fourth is `Sub`.** §9.2's table names
+  `MessageClient`, `MessageSendTicket`, `MessageDeviceLinkSession`, `Sub`; §7.1's object-model table
+  lists `Sub` as a behavioural handle, *"existing sdk type; returned by every `Add*Listener`"*.
+  **`Sub` cannot carry Task 1's marker**, and the reason is not stylistic: `sdk/sub.go` declares
+  `type Sub interface{ Close() }`, so a marker on `Sub` is a method added to an **interface's** method
+  set, not to a struct. That breaks every existing implementor — `simpleSub` in the same file, and
+  whatever the VPN view controllers return — and it changes the shape of a type that is already in
+  `sdk/cgo/gen/gen.go`'s `behavioralTypes` and therefore already in `URnetworkSdk.dll`'s shipped ABI.
+  The marker is the mechanism for *this plan's new* handles; it was never available for the one that
+  predates it.
+  So `BehavioralTypes()` is `MarkerDerivedHandles()` plus a declared exception set, and the exception
+  set is gated rather than trusted: it has **exactly one** member, that member is `"Sub"`, the reason
+  is written beside it in source, and the type it names must exist in the loaded package and be an
+  interface. A second hand-maintained entry fails, which is what stops the exception becoming the
+  second allowlist the marker exists to abolish.
+  *Refusal owed:* a fourth *struct* handle added without the marker is absent from the set and every
+  gate that depends on it fails. A fifth added *with* the marker is present by existing, and no list
+  needs editing. That asymmetry is the whole reason for the marker — and `Sub` is the standing
+  reminder that the asymmetry has one exception, which is why the exception is counted rather than
+  assumed.
+  *Scope:* the package, from the type graph, for the derived part; a one-member declared set, gated
+  on its size and its contents, for the exception. Say which is which in the header, per R3.
 
   **Property 2 — every type reachable from the roots is mappable, and struct fields are walked.**
   A field whose type is a handle, a func, a map, or a slice of anything but `byte` fails, at any
@@ -1616,6 +1938,12 @@ func BehavioralTypes() []string   // DERIVED from the marker method, not maintai
   6. Change `AddSyncListener` to return `*Sub`. Property 3 must fail here as well as in Task 10 —
      two independent gates over the same rule is deliberate, because Task 10's is scoped to `sdk`
      and this one is scoped to reachability, and neither subsumes the other.
+  6a. Add `"Sub"` a second time to the exception set, or add a second name to it. Property 1 must
+     fail on the exception set's size. An exception set that can grow is the hand-maintained
+     allowlist the marker was introduced to replace.
+  6b. Add the marker method to the `Sub` **interface**. The package must fail to compile, or
+     Property 1 must fail — either outcome is acceptable and both must be recorded, because this is
+     the mutation that shows why `Sub` is an exception rather than an omission.
   7. Remove the marker from `MessageSendTicket`. Property 1 must fail, and Property 2 must then
      *also* fail because the ticket is now a struct with unexported fields reachable from
      `MessageClient` — check that the second failure is reported and not masked by the first.
@@ -1655,13 +1983,27 @@ func BehavioralTypes() []string   // DERIVED from the marker method, not maintai
   U+00C2 U+00A7, U+00C3 U+00A2, U+00C3 U+201A). Written against codepoints, never against literal
   corrupted text, so the check's own source does not trip it.
 
-  **Property 2 — the workspace is checked out before anything is built.** `sdk`'s `go.mod` carries
-  three `replace ../` directives — `connect`, `glog`, `goidenticons` — and **verified 2026-08-30 the
-  build fails without them**: `reading ../goidenticons/go.mod: The system cannot find the path
-  specified`. A workflow that checks out only `sdk` is a workflow that is red for a reason unrelated
-  to any change.
-  *Refusal owed:* the job must fail with a message naming the missing sibling, not with a raw module
-  error.
+  **Property 2 — the workspace is checked out before anything is built, and the checkout names a
+  repository AND a ref for each sibling.** `sdk`'s `go.mod` carries three `replace ../` directives —
+  `connect`, `glog`, `goidenticons` — and **verified 2026-08-30 the build fails without them**:
+  `reading ../goidenticons/go.mod: The system cannot find the path specified`. A workflow that checks
+  out only `sdk` is a workflow that is red for a reason unrelated to any change. `sdk/surface` needs
+  the same three at `../../` (Task 12, trap 3).
+  **The ref is not optional, and an earlier revision of this task omitted it.** Everything this plan
+  builds against in `connect` — `connect/mls`, which Task 3's limits agreement imports, and
+  `connect/message`, which Task 16's pending pins probe — exists **only on `connect`'s
+  `beta/message` branch**. Measured 2026-09-02: `connect` at `origin/main` holds **0** files under
+  `mls/` and **0** under `message/`; at `beta/message` it holds **636** and **74**. So an
+  `actions/checkout` of `urnetwork/connect` at its default branch produces a tree in which
+  `connect/mls/errors_lifecycle.go` does not exist, and the job fails on a missing package rather
+  than on anything a contributor changed. Every sibling checkout step therefore names
+  `repository:` and `ref:` explicitly, and `connect`'s `ref:` is `beta/message`.
+  *Refusal owed:* a missing sibling fails with a message naming **which** sibling and **which ref**
+  it expected, not with a raw module or import error.
+  *This is a pin, and it expires.* `beta/message` is a moving branch and the day `connect`'s
+  messaging work reaches `main` the pin is wrong rather than merely stale. Record it as a row in
+  `sdk/slice2-pending-pins.txt` (Task 16) so the gate asks for it to be re-taken, and record it in
+  the registry beside the other cross-repository assumptions.
 
   **Property 3 — the jobs run the gates this plan built, in both modules.** The root module's
   messaging tests, and `sdk/surface`'s. Plus `go vet` and `gofmt -l` over the messaging files.
@@ -1688,6 +2030,10 @@ func BehavioralTypes() []string   // DERIVED from the marker method, not maintai
   1. Delete the `*.md` line from `.gitattributes`. Property 1 must fail.
   2. Introduce one double-encoded sequence into a markdown file. Property 1 must fail.
   3. Remove the `goidenticons` checkout step. Property 2 must fail with a message naming it.
+  3a. Change `connect`'s `ref:` from `beta/message` to its default branch. Property 2 must fail with
+     a message naming the branch, not with `package github.com/urnetwork/connect/mls is not in std`.
+     This is the mutation that proves the ref is pinned rather than defaulted, and it is the one an
+     earlier revision of this task could not have failed, because it named no ref at all.
   4. Break one messaging test. Property 3 must fail — confirm the job actually runs the root module
      and not only `surface`.
   5. Break a test in `sdk/surface` only. Property 3 must fail; a job that runs `go test ./...` from
@@ -1737,6 +2083,11 @@ instead of restating it. One copy, one gate, nothing to drift.
 
   **Property 2 — every pending pin is still pending, and the gate says so by looking.** For each row
   in `sdk/slice2-pending-pins.txt`, the named symbol must be **absent** from the named package.
+  One row is not a symbol: **`connect` is pinned to its `beta/message` branch** (Task 15 Property 2),
+  because `connect/mls` and `connect/message` exist on no other ref — measured 2026-09-02, 636 and 74
+  files there against 0 and 0 on `main`. That row's condition is the inverse of the others: it is
+  still pending while `mls/` is **absent** from `connect`'s default branch, and it expires — asking
+  for the CI ref and this plan's cross-repository assumptions to be re-taken — the day it is not.
   When m1 lands `StorageRoot`, or p7 Task 21 lands `SuccessionQuorum`, the gate **fails** and asks
   for the pin to be taken. That is the point: a pin that expires silently is a stale reference for
   the next reader.
@@ -1759,7 +2110,8 @@ instead of restating it. One copy, one gate, nothing to drift.
     Global Constraints.
 
   **Property 4 — the registry records what s1 chose where the spec was silent, marked as choices.**
-  Not as readings. Each of Open items S1-1, S1-6, S1-7, S1-11 and S1-14 is a position this plan took
+  Not as readings. Each of Open items S1-1, S1-6, S1-7, S1-11, S1-14, S1-18, S1-21 and S1-23 is a
+  position this plan took
   because something had to compile, and each is listed with the alternative it rejected. Twice on
   this project an implementer has discovered that a plan resolved an ambiguity the spec never
   settled; the difference between that and this is that these are labelled.
@@ -1827,7 +2179,7 @@ can be run until it is there.
 | The vocabularies are closed | `go test . -run TestVocabulariesAreClosed -v` | PASS — this name and `TestMessageSurfaceIsExportable` are the two §11.2 pins; every other gate above is named by its task, because naming a test is the plan supplying one (R1) |
 | The JSON surface is total | Task 8's gate, by whatever name the implementer gave it | PASS |
 | No pointer-to-interface crosses the surface | Task 10's and Task 14's gates | PASS in both; and `grep -rn ') \*Sub' *.go` returns no matches |
-| Every §7 method is owned or stubbed | Task 11's gate | PASS |
+| Every §7 method is owned, stubbed, or declared unrefusable | Task 11's gate | PASS, and the run reports the size of each of the three buckets — a third bucket that has silently emptied into the second is the failure this reports rather than the total being right |
 | The pending pins are still pending | Task 16's gate | PASS, and the run reports the row count it parsed |
 | The generator has not drifted | Task 13's gate | PASS, and the run reports the table sizes it read |
 | The artifact modules agree | `go test . -run TestSdkArtifactModulePionVersionsMatchRoot -v` | PASS, with `surface/go.mod` among the four checked |
@@ -1911,7 +2263,8 @@ add both to all four or narrow the rule to name which payloads carry them. *Posi
 transcribe what §7 declares; do not add fields. **Blocks:** Tasks 3, 4 and 6's manifests; s4's bus.
 
 **S1-6 — no closed vocabulary has a value for "this build does not implement this operation", and
-none has one for "that URL was not something I can parse".** `GroupResult.Reason`'s 21 values include
+none has one for "that URL was not something I can parse".** `GroupResult.Reason`'s 22 values (S1-20)
+include
 `"internal"`, and answering `"internal"` to `CreateInviteLink` — or to `AddContactByCard` handed a
 malformed URL — is a false statement about what happened. Compare `REASON_UNSUPPORTED_VERSION`, which
 Spec B's proto does have, and ledger open item 8, which is the identical gap on the server side.
@@ -2002,6 +2355,76 @@ request arms and none publishes or fetches one. This plan declares the four call
 declarations) and Task 11 stubs none of them, because s7 and s8 own them. **Blocks:** those four
 declarations; CP3b routes around it through s7's contact-card path.
 
+**S1-18 — §9.3 does not say what an unknown `settings_json` key does.** The schema's only statement
+about its key set is *"All keys required unless marked optional"*. Rejecting an unknown key and
+ignoring it are both defensible and they fail differently: rejecting turns a newer host application's
+extra key into a client that will not open at all, against a DLL that ships and versions separately
+(§9.6); ignoring turns every caller typo into a silent misconfiguration, running with the default for
+the key the caller believed they set. *Position taken:* Task 2 Property 1 refuses, naming the key.
+*Rejected:* ignore-and-log. **Blocks:** Task 2 only, and s10's header documentation of
+`urmsg_client_open`, which must state whichever rule stands.
+
+**S1-19 — §7.2 says `MessageServerInfo` is all milliseconds and the struct is not.** The sentence
+*"…are milliseconds because every other duration on this API surface is milliseconds"* appears
+immediately below a declaration that carries `RendezvousTtlSeconds` and
+`RendezvousDepositTtlSeconds`, both declared `int64` seconds in that struct by revision A-6 with a
+`(§7.3b, §5.14)` citation, and both read out of `ServerInfo()` by §7.3b's rate-limit paragraph.
+Anything written to the sentence rather than to the declaration is red against a
+correct transcription and invites a rename that silently changes a unit. *Position taken:* Task 3
+Property 3 transcribes the declaration field by field and asserts the suffix, not the sentence.
+**Owed:** a correction to §7.2's clause naming the two exceptions. **Blocks:** nothing; it is a
+transcription trap rather than a missing decision.
+
+**S1-20 — §7.7 declares `GroupResult.Reason`'s value set and states no count.** Counted from the
+block on 2026-09-02 it has **22** members. An earlier revision of this plan said 21 in three places
+and attributed the number to the spec, which cannot be right, because the spec gives none. A closed
+vocabulary whose size no document states is one a reader can undercount with nothing to contradict
+them, and the undercount then propagates into every plan that quotes this one. *Position taken:* the
+number is carried as this plan's measurement with its date, no gate takes it as an input, and the
+vocabulary is derived from the constants. **Owed:** §7.7 stating the count beside the block, so the
+next reader has something to check against. **Blocks:** nothing; it is a citation defect with a
+propagation cost.
+
+**S1-21 — §7.4's "attachment outcomes are not gap reasons" reads as disjointness and is not.**
+`MessageAttachment.State` and `GapReason` both contain `"expired"`, and both need it: an expired
+record is one past the server's retention window, an expired attachment is a body past its media
+TTL under an entry still present. §7.4's sentence names `pruned` and `failed` and generalises in a
+way its own declarations do not support. Written as disjointness the property is red against any
+correct transcription, and the resolution an implementer reaches for — deleting `"expired"` from one
+side — loses a real state and freezes the loss into s10's baseline. *Position taken:* Task 5
+Property 4 asserts the intersection is exactly `{"expired"}`, which refuses in both directions.
+**Owed:** a correction narrowing §7.4's sentence to the attachment-only values. **Blocks:** nothing;
+Task 5 proceeds on the transcription.
+
+**S1-22 — the `null`-versus-`[]` premise is the plan's, not the spec's.** Sixteen shadowing
+`MarshalJSON` methods (Task 7) rest on the claim that Spec C's nlohmann parse throws when it reads
+`null` as an array. The Go half is measured; the C++ half is asserted. Spec A §9.2 says only *"Data
+structs, lists and maps cross as JSON strings"*, and neither Spec A nor Spec C says what a `null`
+does on the consumer side. **Owed:** either a measurement against Spec C's wrapper or a sentence in
+§9.2 or Spec C pinning the behaviour. **Blocks:** the justification for Task 7's shadows, and — with
+S1-23 — the answer a `*List`-returning call gives when it cannot answer.
+
+**S1-23 — twelve `*List`-returning declarations have no error channel, and both available answers
+are refused.** §7 declares `Groups`, `Members`, `HistoryGrants`, `PendingInvites`, `InviteLinks`,
+`JoinRequests`, `ContactRequests`, `History`, `Search`, `Devices`, `Pins` and `SecurityLog` returning
+a `*List` and nothing else. §8.2 forbids the empty answer in the failure case — *"Spec C would then
+render 'No conversations yet' to a user whose entire history is intact on the server"* — and S1-22's
+premise makes `null` a consumer crash. §8.2 therefore states a requirement the signatures it names
+cannot express. *Position taken:* Task 11 Property 1 gives these a third bucket and stubs none of
+them; s1 declares no answer rather than picking a wrong one. *Rejected:* returning nil and calling
+`null` "the honest answer", which an earlier revision of this plan did while Task 7 was simultaneously
+calling `null` unparseable. **Blocks:** Task 11's coverage of those twelve; s9's and s6's first real
+implementations; s10's baseline, which must not be frozen before the answer exists. **Needs:** either
+an error channel on those declarations or a specified `null` tolerance in Spec C's wrapper.
+
+**S1-24 — §9.5 rule 4 covers releasing a `Sub` and not a ticket.** *"`urmsg_release(sub)` does not
+return until no callback is executing and none will start"* is stated for subscriptions; §9.2 makes
+`MessageSendTicket` a handle released by the same `urmsg_release`, and nothing says what happens when
+it is released while its callback is in flight. In s1 the window is one callback long over no shared
+state (Task 11 Property 4), which is why this plan proceeds without a ruling. It stops being harmless
+the moment s9 sends anything real. **Assigned to:** s10, which writes the release path. **Blocks:**
+nothing in s1.
+
 ---
 
 ## Open asks on other plans
@@ -2019,3 +2442,7 @@ what this plan **hands over**, and what the receiving plan owes back.
 | `MessageProtocolLimits.DeleteForEveryoneWindowMs`'s producer | m1 | Recorded as a pending pin with no producer; `connect/message` declares no such constant. |
 | `SuccessionQuorum(adminCount)` called, never reimplemented, by `MessageSuccessionState.CountersignsRequired` | p7 Task 21 + s8 | A quorum formula that exists twice disagrees with itself exactly once, at the moment it matters. |
 | Ratification of S1-7's snake_case-and-no-`omitempty` position before the ABI baseline is committed | s10 | Freezing the baseline against the wrong convention makes every later correction a baseline-break ceremony. |
+| An answer for the twelve `*List`-returning declarations that have no error channel | s9, s6, s10 | Open item S1-23. `[]` is refused by §8.2 and `null` by S1-22's premise; s1 leaves them unstubbed rather than picking one. Whoever implements each owes the ruling, and s10 must not freeze the baseline before it. |
+| A measurement of what Spec C's nlohmann wrapper does with a JSON `null` where an array is expected | s10 | Open item S1-22. Sixteen shadowing `MarshalJSON` methods and the whole of S1-23 rest on it, and it is the one load-bearing claim in this plan that was asserted rather than run. |
+| Release semantics for a `*MessageSendTicket` whose callback is in flight | s10 | Open item S1-24. §9.5 rule 4 states it for `Sub` and §9.2 makes the ticket the same kind of handle. |
+| Re-taking `connect`'s `beta/message` pin when the messaging work reaches `main` | s10, and whoever merges `connect` | Task 15 Property 2 and the pending-pin row. `connect/mls` and `connect/message` exist on no other ref today; the CI ref and this plan's cross-repository claims both move when that changes. |
