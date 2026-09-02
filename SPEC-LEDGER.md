@@ -808,6 +808,32 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     25 lines below then says exactly ONE neighbouring case is outside its reach; there are at least
     three. Rule 11 catches what an author can see; it does not make an author see further.
 
+52. **CRITICAL -- an Update proposal's LeafNode is never validated, and the code documents the
+    caller that does not exist.** RFC 9420 SS12.1.2: *"An Update proposal is invalid if the LeafNode
+    is invalid for an Update proposal according to Section 7.3."* Verified by the owner:
+    `LeafNodeSourceUpdate` appears in production source **only inside `leaf_node.go` itself** -- the
+    enum declaration and three switch arms -- and **never as any caller's `ExpectedSource`.** The
+    three real doors into `(*LeafNode).Validate` are `key_package.go:376`, `tree_sync.go:219` and
+    `validate_proposals.go:455` (which is `kp.Validate`, the ADD path). **There is no update door.**
+    So an Update's leaf gets no signature check, no `leaf_node_source` check, no credential check
+    and no SS13.4 / erratum-8745 group-extension check, and `apply_proposals.go:111` installs it
+    verbatim into the tree. ValSem109 checks only `Capabilities.Supports(required_capabilities)`,
+    which is a different rule.
+    **The package names the gap itself**: `leaf_node.go:603-607` says *"The same Validate is reached
+    from three places -- key_package.go with key_package, PROPOSAL VALIDATION WITH UPDATE, the tree
+    and the update path with commit"*, and `tree_sync.go:206` says the per-position source rule is
+    *"still OWED ... which the update path and the proposal validator state at their own doors"*.
+    Two comments describe a caller nobody wrote. Found 2026-09-02 by the p7 Task 7-8 reviewer.
+53. **Calling the VerifiedGroupContext line closed.** Eight rounds; the first five found real
+    bypasses, the last three found prose. Two measured survivors remain and are being fixed with
+    item 52: a hand-set `identity` bool on two enumerated rows whose clearing silently disables the
+    shape assertion added to close a survivor, and the X-Wing collector's `assigned` multi-map,
+    which keeps a row's production producers after a corpus read overwrites its value. **Everything
+    else outstanding in that area is prose precision and is not worth a round** -- a heading that
+    says "words no other refusal carries" where the check is set-wise, and a bullet naming two of
+    three tests. Recorded so the next reader knows the stopping point was chosen rather than
+    reached.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
