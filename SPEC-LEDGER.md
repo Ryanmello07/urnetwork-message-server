@@ -922,6 +922,31 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     missing provider reporting a malformed tree, invisible to both exclusivity sweeps. Rule 5,
     inside a gate written to enforce it, for the fifth time.
 
+64. **CRITICAL -- `ValidateCommit` accepts a commit that removes its own committer, and two more
+    SS12.2/SS12.4 rules besides.** Item 60's fix joined `List.All` to the commit's ProposalOrRef
+    vector -- correct -- but **never joined the typed BUCKETS to `List.All`**, and four of the twelve
+    rules decide off a bucket. Verified by the owner: `ValSem200` reads `in.List.Removes`, and
+    `validateBucketsAgreeWithTheCommitOrder` **exists** at `validate_proposals.go:327` with exactly
+    **one caller -- `apply_proposals.go:90`**. `ValidateCommit` does not run it.
+    Probed on unmutated HEAD: `All=[selfRemoveOfCommitter]` with `Removes` empty and
+    `Commit.Proposals = List.Refs()` -> **ValidateCommit returns nil**, while `ValidateProposalList`
+    over the identical list refuses. Same shape bypasses ValSem208 (`All=[gce,gce]`, `GCE=[gce]`)
+    and ValSem206 (an Add whose KeyPackage encryption key equals the path leaf's, `Adds` empty).
+    **This is item 60's own class -- a rule decided off a field the door does not join -- one level
+    down, in the same file, at the same door, introduced by the commit that closed item 60.**
+65. **The fix's largest new construct is a loop nothing drives past entry zero.**
+    `checkListResolvesTheCommitsVector` narrowed to `i < 1` leaves the whole suite green: all seven
+    rows of its table build a base list of exactly ONE entry. The same commit's own file header
+    states the doctrine it violates -- *"EACH RULE OWES A FIXTURE WHOSE FAULT IS NOT AT ELEMENT
+    ZERO ... a fixture carrying one entry cannot tell a loop from a read of its head."* Third
+    instance of the element-zero class in three consecutive p7 tasks.
+66. **PreTree/PostTree remain interchangeable at three more reads.** `proposalValidationInput`'s
+    `Tree: self.PreTree` (whose header argues at length that it must be the pre-commit tree), and
+    both of `ValSem203PathDecrypt`'s filtered-direct-path reads, each swap to the other tree with
+    the suite green -- because **every fixture makes PostTree a Clone of PreTree.** ValSem202 has a
+    test for exactly this and ValSem203 does not; ValSem209's two reads are covered asymmetrically,
+    the leaf read observed and the member walk not.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
