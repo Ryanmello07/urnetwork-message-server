@@ -1047,6 +1047,38 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     and is caught only incidentally, by the source-establishment gate -- the exact "incidental red"
     the file's own comment dismisses as saying nothing about its property.
 
+75. **The derived join landed and works; what is left is a DEGENERATE FIXTURE CORPUS, and it is the
+    root cause of the last three rounds of survivors.** The vector/list join is now computed from
+    what the consumers read and both probed divergences are refused. Every remaining finding
+    reduces to one fact, measured by the owner:
+    - **`grep -c 'Committer: LeafIndex'` over the whole `mls` test corpus returns ONE, and it is
+      `LeafIndex(0)`.** So `Sender: self.Committer` cannot be told from the constant `LeafIndex(0)`.
+      Proved non-equivalent: with `Committer = LeafIndex(1)` the join accepts `Sender=1` and refuses
+      `Sender=0`, and both verdicts invert under the mutation. In a group whose committer is not at
+      leaf 0, the mutated door refuses every honest inline proposal and accepts one attributed to
+      leaf 0 -- which `apply_proposals.go:131` then writes into leaf 0.
+    - **Exactly one leaf index above 255 exists anywhere in the corpus.** So the Sender
+      comparator's width is unobserved: `AppendUint64` -> `AppendUint32`, and even a **one-octet**
+      comparison, both leave the suite green. The gate that claims to hold it asserts
+      `reflect.TypeFor[LeafIndex]().Size() > 8` -- a fact about the TYPE, with the comparator's
+      octet count in prose.
+    - The `Ref` row has **zero** observation: emptying its comparator to `nil` is green, because
+      `subtle.ConstantTimeCompare(nil, nil) == 1`.
+    **This is the same shape as the previous two rounds** -- "every fixture carries exactly one
+    Update" and "every fixture makes PostTree a Clone of PreTree". Three consecutive rounds of
+    survivors trace to fixtures that cannot separate the right answer from a constant. **The
+    deliverable is the corpus, not the comparators.**
+76. **A justification that is false in this build, currently unreachable.**
+    `checkListResolvesTheCommitsVector`'s header omits a `ProposalType` comparison because *"the
+    discriminant is the first field of a proposal's encoding, so a type disagreement is an octet
+    disagreement"*. `proposal_wire.go:176-180` writes **`UnknownType`** as the wire discriminant
+    while selecting the arm by `ProposalType`, so two proposals whose `ProposalType` differs encode
+    identically -- measured, both to `000303bbccdd` under types 3 and 6. Not reachable today
+    (`UnmarshalMLS` normalises, `NewProposalList` clones through the codec), but the join's safety
+    rests on a normalisation in another file that no assertion ties to it, and
+    `NewProposalList`'s documented `if err != nil { continue }` path keeps an un-normalised value
+    verbatim.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
