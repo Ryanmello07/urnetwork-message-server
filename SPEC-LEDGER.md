@@ -1010,6 +1010,43 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     the record set rather than from a local flag. Spec C forbids a dismiss affordance, and a rule
     enforced only in a renderer is a sentence.
 
+72. **There is a fourth level, and two proxies remain in the one function.** Item 67's derivation
+    made the bucket divergence unrepresentable -- that holds. The vector/list join was then repaired
+    on its **by-value** arm only:
+    - **The by-REFERENCE arm still joins by a proxy.** It compares `cached.Ref` to
+      `vector[i].Reference` and **nothing joins the proposal BODY the list carries under that
+      reference to the body this member holds under it.** A `ProposalRef` is a hash over the framed
+      proposal the SENDER named -- an identity for the cache's entry, not for whatever the list put
+      beside it. Probed: cache holds a remove of leaf 2 under one ref; give the list's by-reference
+      entry a fresh arm removing leaf 3, leaving `Ref`, `ByValue`, length, order and every per-type
+      count untouched -> **accepted, and `ApplyProposals` removes leaf 3.** The repaired header says
+      *"AN IDENTITY ON BOTH ARMS"*; it is one arm.
+    - **Neither arm joins `CachedProposal.Sender`, and it decides a leaf.** Verified by the owner:
+      `apply_proposals.go:131` is `result.Tree.UpdateLeaf(cached.Sender, ...)`, and the join
+      mentions `Sender` **zero times**. The commit fully determines the field -- `Resolve`
+      attributes a by-value proposal to the COMMITTER and a by-reference one to the sender the cache
+      recorded -- so a commit carrying an inline Update whose list names leaf 2 **writes the
+      committer's update into leaf 2.** The door's own fixture carries a state `Resolve` cannot
+      produce (by-value Update with `Sender=1` under `Committer=0`) and is accepted, so no test
+      observes the invariant either.
+    Feasibility is established: a ~16-line join through `Pending.Cached` + `proposalOctets` +
+    `subtle.ConstantTimeCompare` refuses the probe.
+73. **The cost gate was reworded rather than tightened -- the same defect it replaced.** The test
+    written to close item 67's "a bound that cannot be reached by the change it protects against"
+    says its bound *"would catch ... a third encode per entry, or an arm that encoded inside a
+    loop"*. **Both named changes pass the entire suite** (overApply 2.18 -> 3.86 and -> 4.6 against
+    a bound of 8). Its companion `copies` assertion cannot move with cost at all -- 10.7, 13.4, 13.6
+    across baseline/1.5x/3x -- so it is a structure check listed as one of "the two things that CAN
+    fail". At the fixture's width of four proposals the bound needs roughly a tenfold regression.
+74. **The unrepresentability gate derives its ROUTES and enumerates its TARGET.** It now follows
+    every route reflect offers -- a genuine repair, and struct-wrapped, pointer and map-valued
+    indexes are all caught by name. But it asks *"does this field reach the TYPE
+    `CachedProposal`"*, while its own comment states the class as *"a second representation of one
+    fact whatever it is called"*. **An index of POSITIONS is invisible**: `addsAt []int` filled in
+    `NewProposalList`, kept in step in `Resolve`, answered by `Adds()`, passes every derivation gate
+    and is caught only incidentally, by the source-establishment gate -- the exact "incidental red"
+    the file's own comment dismisses as saying nothing about its property.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
