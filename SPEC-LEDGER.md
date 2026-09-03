@@ -1079,6 +1079,35 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     `NewProposalList`'s documented `if err != nil { continue }` path keeps an un-normalised value
     verbatim.
 
+77. **The corpus gate derives its WALK and enumerates its DIMENSION TYPES.** Item 75's hardening
+    worked for leaf indices -- the committer, the senders and a leaf index above 255 now separate,
+    and the four named survivors fail. But the gate names two types,
+    `reflect.TypeFor[LeafIndex]()` and `reflect.TypeFor[*RatchetTree]()` (owner-verified), so every
+    other dimension the door decides off is unmeasured -- **group id, cipher suite, version, epoch,
+    clock** -- and that is exactly where five survivors live. Proved: a collapsed `Generation uint32`
+    field added to `CommitValidationInput` leaves the gate PASSING and logging "11 fixtures, 5 leaf
+    dimensions"; the same field typed `LeafIndex` fires. The derivation is real inside `{LeafIndex}`
+    and absent outside it. Same shape as ledger 21, applied to types rather than files.
+78. **Five live survivors, all in the collapsed dimensions.**
+    - `in.Context.GroupId` -> `[]byte("group")` is **green**. Every `ProposalValidationInput` and
+      `CommitValidationInput` in the package is judged under one group id, so the **cross-group
+      replay** binding that function's own header exists to close is untested. Note the same struct
+      literal's `LeafIndex: cached.Sender` IS separable, caught by six tests -- two fields of one
+      context, one measured, one not.
+    - **`ValSem105SuiteAndVersionMatch` and a constant are the same program.** The rule whose stated
+      purpose is *"an Add's KeyPackage names THIS GROUP's ciphersuite and protocol version"*
+      rewritten to compare against two build-time literals is green. Two suites are registered, so
+      the dimension is live; no test ever gives an input a `Context.CipherSuite` other than the
+      default.
+    - The suite collapse repeats at two more call sites, and **`in.Now` and the machine wall clock
+      are the same program** -- the two tests that move the clock are both on the door that ignores
+      it.
+79. **The proposal door has no corpus gate at all.** Owner-verified: zero `ProposalValidationInput`
+    references in `fixture_corpus_test.go`, across **50** call sites of `testValidationInput`, 48 of
+    which pass `LeafIndex(0)`. It hard-codes one group id, one cipher suite, one version, one epoch
+    and one clock. **All five survivors above are in that corpus** -- so extending the gate to the
+    proposal door is not the polish it looks like, it is where the live gap is.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
