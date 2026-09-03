@@ -974,6 +974,42 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     already-empty field -- it fails red, safely, but because the row is unusable rather than because
     anything is wrong.
 
+69. **RULED by the owner 2026-09-02 -- key package distribution: Option B, a key-package store on
+    the message server.** Closes ledger 44 and unblocks `CreateDirect`, `CreateGroupWithMembers`,
+    `InviteMember` and `AcceptJoinRequest`. Chosen because it is the only option that serves the
+    default user -- unlisted and offline -- and the only one that also closes the **Welcome delivery**
+    hole (item 44a), which is on the CP3b chain and which nothing else closes.
+    **Three things the amendment must state explicitly rather than leave to an implementer:**
+    (1) the handle is derived from the identity **KEY**, never the principal; (2) the last-resort
+    package's existence and its labelling, so a client can tell a user which kind of key their first
+    message went under; (3) **the new disclosure class is a locked trade-off** and belongs in SS3 of
+    this ledger, so nobody rediscovers why the message server carries an identity-adjacent index.
+    The privacy argument accepted: this is precisely the weakness Signal has, and P1 fixes the target
+    at "slightly better than Signal".
+70. **RULED by the owner 2026-09-02 -- invite links: Option A for one-time, Option C for reusable.**
+    Closes ledger 45. One-time links -- SS7.3a's stated default and the common case -- get a new
+    derivation and encoding only, **no new server operation**. Reusable published addresses get
+    revocation bound to membership, which only C provides. SS7.3a already describes the two as
+    different things with different approval models. **Keep on purpose:** the server asserts a
+    deposit is exactly `rendezvous_deposit_bytes`, so if the join-request body pads to
+    `CONTACT_REQUEST`'s total, a contact request and a join request are **indistinguishable by
+    length on the wire** -- a property worth having deliberately rather than by accident.
+    SS13's A7 row must also be corrected: it currently promises a flow over mechanisms A6 does not
+    deliver.
+71. **RULED by the owner 2026-09-02 -- history grants: Option A, and ruled NOW because of the
+    freeze.** Closes ledger 46. A grant record carries an X-Wing wrap of `storage_root[m..n]` to the
+    grantee's device. **Timing was the deciding factor**: this is a `server_attachment` kind, so
+    ruling it after A6 freezes the wire would make it a format BREAK rather than an addition.
+    **Three things the amendment must state that no document states today:**
+    (1) a grant conveys `storage_root[m..n]` and **nothing else** -- never `eph_root` for any epoch,
+    so granted history contains no disappearing messages, live or expired, and the banner must say
+    so (r3 finding 5, accepted 2026-08-12 and never applied); (2) **MASTER's `eph_root` exclusion
+    list gains a fourth item** -- "never in a history grant" -- the other half of the same unapplied
+    finding; (3) what makes it non-erasable **on the wire** and not only in a UI: the grant record is
+    class `PERMANENT` so the retention sweep never prunes it, and `HistoryGrants` is projected from
+    the record set rather than from a local flag. Spec C forbids a dismiss affordance, and a rule
+    enforced only in a renderer is a sentence.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
