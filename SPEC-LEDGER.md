@@ -1170,6 +1170,35 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     both take `*CachedProposal` parameters, so `rootsOfType` finds no root and neither is in the
     class. Both are door logic, not neighbouring code.
 
+88. **`Group` has landed, and p6 Task 20 is unblocked after four days.** `mls/group.go:167`
+    declares it and the key schedule field is spelled **`schedule`**, so ledger 20 resolves in p7's
+    favour: **Task 20's literal `self.keySchedule.Secrets()` (p6 plan line 6243) must become
+    `self.schedule.Secrets()`**, and the plan's line 6185 naming the field `keySchedule` is stale.
+    Six later p7 tasks -- 12, 13, 15, 16, 18, 19 -- can now proceed as well.
+89. **`NewGroup` retains a live view over the caller's extension bodies, and the key schedule was
+    derived over the original.** `group.go:272` is
+    `append([]Extension(nil), cfg.Extensions...)`, which copies the `Extension` STRUCTS and not the
+    `[]byte` each `ExtensionData` points at, and that slice becomes `self.context.Extensions`.
+    Probed: writing into `cfg.Extensions[0].ExtensionData` after `NewGroup` returns changes what
+    `GroupContext()` answers, and `GroupPolicy()` then fails with *"varint prefix 0b11 is
+    reserved"* over a group founded with a perfectly good policy -- **while every epoch secret
+    remains expanded over octets the group no longer publishes.**
+    `Members()` has the same class three lines apart: `IdentityPub` is cloned and `SignatureKey` is
+    not. And `GroupId: cfg.GroupId` without a clone also survives, because the existing gate reads
+    only what a construction ANSWERS and `GroupId()` clones on the way out.
+    The package's own row for this class takes four caller arrays and its comment says *"handed a
+    caller's array in four places at once"* -- **the extension bodies are the fifth**, so the row
+    passes vacuously over them.
+90. **The relation gate is closed, on evidence rather than exhaustion.** Four more respellings of a
+    COMPARISON shrink the derived class -- a tag switch, a closure, a type switch, an ambiguous
+    callee -- each behaviour-identical and full-suite green. **But the reviewer read every `==`,
+    `!=` and comparator call in the three door files and confirmed every path-vs-path equality is
+    among the 25**, so none is live. **One genuinely live gap remains and is worth recording rather
+    than closing:** eleven door rules compare two paths through a **map key** instead of an
+    operator, and `validateSingleUpdateOrRemovePerLeaf` holds `List.Updates()[].Sender` against
+    `List.Removes()[].Proposal.Remove.Removed` -- two differently-named paths of one input, exactly
+    the shape the gate exists for, and not among the 25.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
