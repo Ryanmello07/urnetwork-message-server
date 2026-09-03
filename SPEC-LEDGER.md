@@ -947,6 +947,33 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     test for exactly this and ValSem203 does not; ValSem209's two reads are covered asymmetrically,
     the leaf read observed and the member walk not.
 
+67. **A count join is not an identity join, and the two doors of this package read different
+    fields.** Item 64's fix added `validateBucketsAgreeWithTheCommitOrder` to the door -- correct --
+    but the join is a per-type **COUNT** (`inOrder[type] += 1` over `All` against
+    `len(bucket.entries)`), verified by the owner. Every bypass therefore returns in
+    **count-preserving** form:
+    `All=[remove(committer)]`, `Removes=[remove(3)]` -> `ValidateCommit` answers nil, and
+    `ApplyProposals` removes leaf 3 -- **the member applies a different commit than the one the
+    transcript covers.** `All=[add colliding with the path leaf key]`, `Adds=[innocent]` -> nil, and
+    application then installs a leaf whose encryption key is **byte-identical** to the path leaf key
+    ValSem206 exists to refuse. Same for Updates, and for a GCE installing an extension outside the
+    v1 profile.
+    **Root cause: the buckets are independently-writable fields** (`Removes []CachedProposal`),
+    and the readers disagree -- `apply_proposals.go` reads `list.Updates` at :127, `list.Removes` at
+    :137 and `list.All` at :155, while validation reads buckets. Two representations of one thing,
+    no identity relation, different consumers.
+    **The fix is not a stronger check.** As with `VerifiedGroupContext`, the answer is to make the
+    divergent state unrepresentable: the buckets become derived views of `All` rather than fields a
+    caller fills in beside it. A check leaves the dual representation in place for the next reader.
+68. **The establishment table certifies the strong claim while exercising the weak one.** Its
+    generated rows say a bucket *"holds exactly the &lt;type&gt; proposals of the commit order"*, and
+    every row's break EMPTIES the bucket -- the one shape a count catches. No row applies a
+    count-preserving edit. So the gate written to end this class asserts a property its own drive
+    cannot fail on. Also: the rows are generated but their FIXTURE is hand-written
+    (`testCommitCarryingOneOfEveryBucket`), so a fifth bucket gets a row whose break empties an
+    already-empty field -- it fails red, safely, but because the row is unusable rather than because
+    anything is wrong.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
