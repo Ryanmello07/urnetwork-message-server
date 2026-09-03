@@ -1007,3 +1007,87 @@ finish, so parallelising the 54 tree-math tests moved 57.2 s to 57.7 s. The fix 
 `-run` costs **1.8 s** against the full suite's **56.6 s**, so briefs now mandate two-phase mutation
 testing — targeted first, full suite only for survivor candidates. Twenty mutations: ~3 minutes
 instead of ~20. Ledger item 12b carries the numbers.
+
+## 2026-09-02 — p5 and p6 closed, p7 to Task 10, the store on real PostgreSQL, and a roadmap correction
+
+Five days, and the summary below is the durable part. Two things changed shape rather than degree:
+the store gained a second implementation, and the road to CP3b turned out to be longer than the
+plans implied.
+
+### What landed
+
+- **p5 complete** (29 of 29), **p6 at 19 of 20** — Task 20 is the plan's only wave-4 task and both
+  its construction-bypass seams take a `*Group`, which p7 declares. The agent sent at it committed
+  nothing and said so, which was correct.
+- **p5 Task 7A** — `NewKeyPackage`, `Ref`, `Validate`, the KeyPackageTBS signing half. It had been
+  outstanding behind a documented stand-in, and **p7 Task 1's fixtures could not compile without
+  it**; nothing in a task count showed that.
+- **p7 Tasks 1-10 and Task 14.** Task 14 (`GroupInfo.Sign`/`Verify`) was pulled forward out of
+  order because four rounds of provenance work turned out to be standing in for it.
+- **p2 Tasks 19-20 — X-Wing.** The hinge: no encapsulation means no `pq_secret`, no `storage_root`,
+  no class keys, no AEAD, which is exactly the CP3a/CP3b delta.
+- **The pgx store passes the contract against real PostgreSQL** — 241 passing, both implementations
+  reporting "ran the contract". PostgreSQL 17.6 runs portable and service-free at `127.0.0.1:55432`.
+
+### Hardening the contract before writing the second implementation was the decisive call
+
+Against its only implementation the store contract could not see: epoch keys installed as 32 zero
+bytes or the read key written into both columns; `EpochKeys` answering a neighbouring epoch; four of
+the six rows the founding transaction writes; three of four retention arms; and a duplicate
+`CreateGroup` answering `REASON_REJECTED` **while disclosing that the group exists and how many
+records it holds** — §4.5's most-cited paragraph. Every one of those would have been inherited by
+the pgx store for free.
+
+The second implementation then earned its keep immediately by **disagreeing** with the first about
+§4.3.7's recovery-handle rebinding. The spec settled it and the reference model was the permissive
+one — the second time that has been true.
+
+### The road to CP3b is longer than the plans implied
+
+Traced and verified against the tree, not the documents:
+
+    p2 T19-20 -> p7 T7-13, 15, 16, 18, 19, 22 -> m1 (no plan exists) -> s1 -> 2-4 sdk plans -> CP3b
+
+`grep -r 'func StorageRoot'` returns **0**, and `connect/message` has seven non-test files with no
+key schedule, no AEAD, no ratchet and no wraps — its own CP3a header says "It does not encrypt." So
+**a `connect/message` crypto plan is a fourth unplanned workstream and it sits in front of two of the
+three already known.** Separately, `message.proto` contains **zero** occurrences of `Welcome`:
+`CommitResult.RatchetTree` is annotated "for out-of-band Welcome delivery" and no document names the
+band.
+
+The good news in the same trace: **about 85% of Spec A §7 is off the CP3b path** — roughly 21
+functions and a dozen types, none of §7.3a/§7.3b/§7.4a/§7.5/§7.6/§7.9, and no cgo ABI.
+
+### CP3b remains the bar, and an interim build was proposed and withdrawn
+
+The owner was asked whether they wanted an internal-only build carrying real messages before p7/p8
+finished, and said yes — **to a question put without checking this file first.** The checkpoint
+section had already ruled against exactly that, with the reason: *"a build that sends unprotected
+traffic is a hazard the moment it exists, because it looks exactly like the real thing to anyone
+testing it."* Shown the conflict, the owner reversed. Nothing had been built on it. The rule worth
+keeping: **a ruling here outranks a fresh answer to a question framed without it.**
+
+### The defect class that dominated this stretch
+
+Almost every finding was one shape: **a rule decided off a field nobody joined, or a gate deriving
+its class and then writing down its scope.** Selected, all measured:
+
+- A member could **crash every other member** with one valid proposal — `RefHash` wraps a whole
+  serialized structure in one `opaque<V>`, and the premise that "a panic here is unreachable" was
+  true field-by-field and false for a composition. Five call sites; nothing recovers.
+- An **Update proposal's leaf was installed unvalidated** — `LeafNodeSourceUpdate` appeared nowhere
+  as a caller's expectation, while two comments described the door as existing.
+- `tree_sync.go` passed **the leaf's own source** as the expected source, so that rule could never
+  fire.
+- `ValidateCommit` decided §12.4's path rule off `List` while the RFC states it over
+  `commit.proposals`, and **accepted a commit that removes its own committer** because the typed
+  buckets were never joined to the commit order.
+
+Three fix commits introduced a fresh instance of the class they were sent to close. That produced
+**rule 11** (run the class against your own diff) and then **rule 11a** (search it package-wide, not
+just in the diff) — 11a exists because a commit that ran 11 and said so still left two false comments
+in a neighbouring file.
+
+Where a check kept failing, the answer was to make the bad state unrepresentable instead: the
+`VerifiedGroupContext` type ended a five-round arms race that no AST walk could win, and the same
+move is now aimed at the proposal buckets.
