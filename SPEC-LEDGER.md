@@ -1108,6 +1108,38 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     and one clock. **All five survivors above are in that corpus** -- so extending the gate to the
     proposal door is not the polish it looks like, it is where the live gap is.
 
+80. **SEPARATION IS NOT DISCRIMINATION -- the deepest form of this class so far.** The corpus gate
+    now derives its dimensions over both doors and every named survivor dies. It still measures the
+    wrong thing: **every claim is stated over ONE path** (*"no path holds one value across the
+    corpus"*) and **no claim is stated over a RELATION between two paths.** A corpus in which two
+    dimensions are separately varied and **jointly degenerate** -- always equal, or always in a
+    fixed relation -- is one in which a rule comparing them and a rule comparing one against a
+    constant are **the same program**, and the gate is silent.
+    Both surviving mutations are exactly that shape. `ValSem203PathDecrypt`'s self-exclusion
+    `if in.Own == in.Committer` can become `if in.Own == LeafIndex(0)` **or `if false`** with the
+    full suite green -- because `Own` is 0 and `Committer` is 1 in every default fixture, so the
+    two are separated and never independent. The gate separates the `Own` dimension (0, 1, 257,
+    258) and says nothing.
+81. **The gate also names its POPULATION and its UNIT.** Population: it is stated over the 8 + 14
+    registry rows, while the inputs the rules actually drive are built ad hoc -- **49 of 51
+    `testValidationInput` call sites still pass `LeafIndex(0)`**, owner-verified, and the round that
+    reported the figure changed none of them. So a perfect corpus and a door whose own tests are all
+    pinned at leaf zero coexist. Measured consequence: ValSem111's `updates[i].Sender ==
+    in.Committer` -> `== LeafIndex(0)` survived phase 1 entirely and died in phase 2 only to a gate
+    about **bucket positions** -- luck, not design. Unit: one path, per item 80.
+82. **A doc comment that is false against the line below it, twice.**
+    `validate_proposals_test.go:214` reads *"testOwnLeaf is the leaf the member JUDGING these
+    commits sits at, and it is neither zero nor the committer's"* -- and line 220 is
+    `const testOwnLeaf = LeafIndex(0)`. `validate_commit_test.go:143` repeats the claim. **A reader
+    auditing ValSem203's leaf-zero exposure is told by two files that it cannot exist**, which is
+    how the seventh survivor stayed hidden. Same class as the two `treekem.go` comments in item 54.
+83. **The measurement was generalised to both doors; the VERDICT was not.**
+    `TestEveryProposalFixtureIsJudgedTheWayItsRowSays` drives all 8 proposal fixtures against an
+    expected verdict; there is **no commit equivalent**, commit rows carry no `refuses` field, and
+    **10 of the 14 commit fixtures are measured for dimension variety and never driven through any
+    door.** All three confirmed survivors are commit-door reads. Varying a corpus nothing runs
+    changes nothing.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
