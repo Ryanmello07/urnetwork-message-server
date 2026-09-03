@@ -1140,6 +1140,36 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     door.** All three confirmed survivors are commit-door reads. Varying a corpus nothing runs
     changes nothing.
 
+84. **A derived class whose SIZE is not held shrinks silently.** The relation gate derives its pair
+    class off the AST -- 14 pairs at the commit door, 6 at the proposal door -- and asserts
+    non-empty, at least two input types, at least one pair each, and three shape flags. **None of
+    those is a count.** So changing one `:=` to a `var` deletes **three of fourteen** pairs and the
+    gate passes, its log moving from *"14 of 14 compared pairs are witnessed both equal and
+    unequal"* to *"11 of 11"* -- **both read as success.** Routing one comparison through a
+    package-local helper drops another (the borrowed comparator class admits only imported,
+    exported, non-method functions). A derived class must assert its own size against something
+    that does not move with it.
+85. **The pin moved rather than vanished.** Item 79's fix moved 49 call sites off `LeafIndex(0)`
+    **so that `updates[i].Sender == in.Committer` would stop being `== LeafIndex(0)`.**
+    `testCommitterLeaf` is `LeafIndex(1)` and every proposal fixture reaching ValSem111 carries
+    `Committer = 1`, so it is now indistinguishable from `== LeafIndex(1)` -- and the gate reports
+    *"6 of 6 pairs witnessed both equal and unequal"* either way. Separability from ONE constant is
+    not separability from EVERY constant. The sibling comparison on `Removes` IS caught, because
+    `testWideCommitInput` puts the committer at 258.
+86. **The relation claim is stated over the PAIR and not over the CLAUSE that reads it.** Two
+    clauses of one rule that share a sentinel and share a single witness mask each other:
+    `checkExtensionsAreTheSetThisCommitInstalls` has a type clause and a data clause, and the
+    corpus's only differ-witness is a **swap of two entries**, which makes both pairs differ at
+    once -- so either clause can be deleted with the corpus gate green. **The fixture's own comment
+    argues the swap is the right shape because "rewriting one entry's body leaves every type
+    equal"; that argument is inverted** -- making the data clause decidable requires types that
+    AGREE and bodies that differ, which is exactly what the swap removes.
+87. **The root class is the two input types, so the commit door's own central join contributes zero
+    pairs.** `joinCachedProposals` compares the signed vector against the resolved list over every
+    field of a `CachedProposal`, and `CheckUpdatePathKeyUniqueness` is ValSem207's whole body --
+    both take `*CachedProposal` parameters, so `rootsOfType` finds no root and neither is in the
+    class. Both are door logic, not neighbouring code.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
