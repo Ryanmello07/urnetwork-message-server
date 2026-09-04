@@ -1254,6 +1254,32 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     decidable at generation time off the group's own pre-commit tree. **`ProposeRemove` DOES ask its
     equivalent question**, so the asymmetry is inside one file.
 
+98. **REGRESSION: the seam gate derived the POSITION and paid for it by narrowing the DOOR.**
+    `seamWireDoor` is the single name `"MarshalMLSMessage"`, and that function is five lines --
+    a nil check and `return syntax.Marshal(message)` (owner-verified, `framing.go:1047`). So a
+    production forge calling `syntax.Marshal` or `(*MLSMessage).MarshalMLS` emits **byte-identical**
+    wire octets and the gate reports the package clean. **The pre-fix gate caught that forge; HEAD
+    does not** -- the commit traded a body-mention read for a results-only read to buy the receiver
+    widening. Measured: 13 production forges compiled in, 9 caught, the negative control correctly
+    not caught, **3 survived**, and a full-suite run with a real forge plus its caller gave 7314
+    PASS / 2 FAIL where neither failure mentions a construction bypass.
+99. **The generator obligation is stated over proposal TYPES, not over generators.** It rests on the
+    unasserted fact that all four generators funnel through `(*Group).propose` -- true today
+    (owner-verified: four call sites) and enforced by nothing. A fifth generator doing its own
+    framing, signing, sealing and `proposals.Store` **passes**
+    `TestNoGeneratorOnThisGroupEmitsAProposalItsOwnDoorsRefuse` while putting 1670 octets on the
+    wire over a proposal its own doors refuse. The four failures it did cause were all roster lines,
+    none mentioning a validation door.
+100. **DECISION: after the regression and the obligation are fixed, the seam gate is closed.** It is
+    in its third round; each has traded one axis for another (anchor to door, position to door,
+    types to generators), and it is test infrastructure for p8's forge rather than CP3b work. Its
+    irreducible property -- "no production declaration forges a message" -- is a code-review
+    property; **what the compiler actually enforces is that a `_test.go` file is not in any shipped
+    binary**, and that already holds. So the gate keeps its derived position and its restored door,
+    and gains the paragraph `constant_time_test.go` already sets the precedent for: **"What this
+    cannot see, said out loud"** -- naming the stash-in-a-package-var shape and the ambiguous-helper
+    edge. Same basis as the VerifiedGroupContext line at item 53.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
