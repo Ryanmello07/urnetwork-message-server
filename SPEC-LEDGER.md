@@ -1384,6 +1384,39 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      the join door now holds the signing half against the published leaf and installs the encryption
      half against nothing, on a false premise.
 
+113. **CRITICAL: persistence does not work for real groups, and the two-member corpus is why.**
+     `groupStateBlob` carries `OwnEncPriv` and `RestoreSecret` and **no direct-path private state**;
+     `LoadGroup` rebuilds through `NewTreeKEMPrivate`, which starts `PathSecrets` as an **empty
+     map**. `DecryptUpdatePath` resolves the copath node at the common ancestor and `NodePrivateKey`
+     answers only for the member's OWN leaf -- so **a member restored by `LoadGroup` in a group of
+     four or more cannot process the next commit from the other side of the tree.** Persistence is
+     the whole deliverable of Task 19 and it is green.
+     **The root cause is the corpus, and it now explains this whole session's findings.**
+     Owner-verified: **32 call sites use `testTwoMemberGroup`** and nothing larger exists except
+     `testWideCommitInput` (5 uses). In a two-member group the copath is trivial and the member's
+     own leaf answers everything, so `PathSecrets` is never consulted. **Every structural defect
+     this session that needed three or more members to observe has been invisible** -- ValSem111,
+     element-zero, the Welcome pairings, `(*LeafNode).Clone`, and now this.
+114. **The provenance refusals' ORDERING is load-bearing and untested.** Moving the two new checks
+     after the `RemovesSelf` arm is a four-line reorder that leaves the suite green -- and it lets a
+     **foreign** staged commit **Close** a live group and destroy its key material. On HEAD
+     `receiverB.ApplyCommit` refuses with the group ids named; reordered, it would Close B and
+     answer `ErrRemovedFromGroup`. Both provenance fixtures use non-removing commits, so nothing
+     goes red on the commit that reorders those lines.
+115. **`ApplyCommit` installs an ERASED staged commit and answers nil.** A group id and an epoch
+     survive `Zeroize`, so the new provenance pair passes. Measured through exported API only
+     (`processed.Commit.Zeroize(); receiver.ApplyCommit(processed)`): the member advances to epoch 2
+     with a **32-zero epoch authenticator**, then bricks on first use. **Two members that both took
+     this path would compare equal.**
+116. **Two gates keyed by a name rather than a site.** The staged-commit construction gate reads
+     keyed composite literals and refuses `new(T)` and positional literals, but `var staged
+     StagedCommit` plus field assignment is invisible -- **precisely the spelling that yields nil
+     groupId and zero priorEpoch**. And the index-pairing gate is keyed by function name plus sorted
+     sequence names, so a **second** mispaired loop added inside an already-named function is
+     silently certified by the existing row; the loop/site discrepancy is logged and never asserted.
+     Credit where due: the reviewer independently reimplemented the pairing rule and reproduced the
+     same 19 sites key for key, and widening it added zero new ones.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
