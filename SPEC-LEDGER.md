@@ -1280,6 +1280,37 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     cannot see, said out loud"** -- naming the stash-in-a-package-var shape and the ambiguous-helper
     edge. Same basis as the VerifiedGroupContext line at item 53.
 
+101. **A pending commit's key material is never erased, on the ORDINARY path.** Owner-verified:
+     `(*Group).Close` zeroizes `self.schedule` and `self.secretTree` and **never touches
+     `self.pending`**, and `ClearPendingCommit` is literally `self.pending = nil`. A staged commit
+     holds a **complete second epoch** -- a `*KeySchedule` (init_secret, confirmation_key,
+     encryption secret, epoch authenticator, exporter, resumption PSK), its own `*SecretTree`, and
+     the committer's freshly drawn leaf private key in `ownPriv` -- and nothing in the package calls
+     `Zeroize` on any of it. Measured: all three compare **byte-equal after `Close()`**, and
+     `staged.secretTree` is still non-nil. `ClearPendingCommit` is not an edge case; it exists for
+     MASTER SS9.3's lost-commit race. This contradicts the discipline `StagedCommit`'s own comment
+     invokes -- *"its erase is held by the type that DECLARES that storage"* -- since the staged
+     schedule is declared by `StagedCommit` and held by nothing that erases it.
+102. **A gate that fires on CORRECT code, which is worse than one that misses.** The generator
+     obligation certifies `emitsAProposal` through `SealPrivateMessage` ->
+     `marshalPrivateMessageContentWithPadding`, whose switch names **every** content type. So an
+     exported `(*Group)` method that sends an **application** message is reported as *"puts a
+     proposal on the wire and reaches ValidateProposalList through nothing"* -- measured, the test
+     FAILS on it. Deleting the conjunct leaves the real scan green with the same four generators,
+     so it does no work over real source and only the synthetic control needs it.
+     Two more in the same gate: it is a **name-reachability** read, so `_ = ValidateProposalList`
+     in a body certifies a generator that never calls it (measured, green); and it **names the
+     position** (`candidate.receiver != proposalGenerationReceiver`), so a free function taking
+     `*Group`, or a method on a type holding one, is outside the class -- the same defect the same
+     commit fixed for the seam gate, reintroduced in its own new code.
+103. **The seam gate is closed, per item 100.** The remaining escapes are recorded rather than
+     built for: a generic door (`syntax.Marshal`/`MarshalLimit`/`MarshalMLS`) driven over a whole
+     `*MLSMessage` handed in by the caller; a hand-written two-uint16 header plus the arm's own
+     encoder, which emits byte-identical octets; and the package-var stash. Note the limits
+     paragraph's own third bullet was measurably wrong -- **five** production declarations take
+     `*MLSMessage` and **none** also takes a carrier that is not the door type, so
+     "no derivation separates the two" is false and the predicate that separates them exists.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
