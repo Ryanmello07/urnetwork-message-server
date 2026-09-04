@@ -1199,6 +1199,39 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     `List.Removes()[].Proposal.Remove.Removed` -- two differently-named paths of one input, exactly
     the shape the gate exists for, and not among the 25.
 
+91. **MILESTONE: p6 is complete at 20 of 20.** Task 20 landed at `e98cecb` with both
+    construction-bypass seams in **`framing_group_seams_test.go`** -- a test file, so the compiler
+    keeps them out of every shipped binary -- and without reopening the excuse-map hatch. It had
+    been blocked since 2026-08-30 on p7's `Group`, and the agent sent at it then committed nothing
+    and said so, which is why the block was visible at all. All three corrections that agent earned
+    were applied: the field is `schedule`, the file is `_test.go`, the hatch stays shut.
+92. **The seam gate anchors on one identifier and misses the type that carries it.**
+    `seamCandidatesIn` marks a parameter forgeable only when its type contains the Ident
+    `FramedContentAuthData` -- but `AuthenticatedContent` **carries** that type
+    (`framing.go:462`), and **both production seal entry points take it**
+    (`SealPublicMessage`, `sealPrivateMessage`). So a bypass of identical power written over
+    `*AuthenticatedContent` **ships in every binary importing mls** while the gate reports the
+    package clean. Proved by controlled A/B: identical file, identical caller, only the parameter
+    type differing -- the real seams fail five gates, the `AuthenticatedContent` version passes.
+    The executor's rule-11 pass found the enumerated-SCOPE instance and closed it, and left the
+    enumerated-ANCHOR instance standing.
+93. **`(*Group).persist` hands the group's live group id to a caller-supplied store.**
+    `group.go:637` is `self.store.PutGroupState(self.context.GroupId, ...)`, where `self.store` is
+    an object the caller supplies and goes on holding. `GroupId()` clones on the way out for exactly
+    this reason; `persist` does not. **The sdk writes these StateStore implementations**, and one
+    that keeps the slice it was handed shares an array with the group for the group's lifetime --
+    a store that writes through it rewrites the group id the epoch secrets were derived over.
+    Neither gate sees it: both read method RESULTS, so an octet handed outward as an ARGUMENT is
+    invisible.
+94. **The caller-array gate walks the group BEFORE the call, so "answered cloned, retained
+    afterwards" is structurally invisible.** Confirmed survivor: a method that clones its answer and
+    then files the clone on the group leaves 7286 tests green. That is not hypothetical -- memoising
+    `GroupContext()`'s marshalled bytes is the obvious next optimisation for Tasks 19/20 and lands
+    exactly here. Related: the gate's scope half is a **parameter-spelling** match while its arrays
+    half is a type walk at unbounded depth, so `NewProposalList` and `ParseRatchetTreeFrom` meet the
+    property and are outside the class -- a real retention in `NewProposalList` was caught only by a
+    hand-written test, i.e. by the enumeration this gate was meant to replace.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
