@@ -1359,6 +1359,31 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      erase seed excludes wire types wholesale, so **`KeyPackage.signPriv` -- a signature private key**
      -- is outside the class entirely.
 
+110. **CRITICAL: `(*Group).ApplyCommit` installs any staged commit it is handed.** Owner-verified:
+     it checks `Kind`, nil, `closed` and `RemovesSelf()` and **nothing about provenance** -- not the
+     group id, not the epoch -- and it overwrites `self.pending` unconditionally where
+     `CreateCommit` refuses with `ErrPendingCommitExists`. Measured: **group B applied group A's
+     staged commit, moved from epoch 1 to epoch 3, and derived byte-identical epoch
+     authenticators.** `Processed` and its `Commit` field are exported and `connect/message` is
+     documented as holding `Processed` values across a policy decision, so that is the expected
+     caller shape rather than a contrived one.
+111. **The index-paired class was measured properly and the previous pass had covered a fifth of
+     it.** A derived AST scan -- loops indexing two different sequences by the same variable --
+     finds **20 sites**; the round that claimed to have swept it named 6, of which only 4 are
+     actually in the class, and **15 were never examined**. `(*GroupPolicyExtension).Clone`
+     (`group_policy.go:555`) is a second uncovered member: `out.Roles[len(self.Roles)-1-i]`, an
+     **order-preserving** mispairing with no zero entries, survives the full suite. Dormant only
+     because that Clone has no production caller yet.
+112. **A justification comment that is factually wrong, and it is blocking a one-call fix.** The
+     join door leaves `keys.EncryptPrivate` unchecked, and the reason given -- in the production
+     comment and repeated in the summary -- is *"the provider has no private-to-public operation for
+     HPKE"*. `hpke.go:152-164` returns the private half as `HpkePrivateKey(priv.Bytes())` off an
+     `*ecdh.PrivateKey`, so **the private key IS the raw X25519 scalar and the public half is one
+     call away**, for both registered suites. `signaturePublicKeyOf` is the precedent -- a
+     package-level derivation deliberately outside `CryptoProvider` -- and it applies verbatim. So
+     the join door now holds the signing half against the published leaf and installs the encryption
+     half against nothing, on a false premise.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
