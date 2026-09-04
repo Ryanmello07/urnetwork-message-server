@@ -1311,6 +1311,31 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      `*MLSMessage` and **none** also takes a carrier that is not the door type, so
      "no derivation separates the two" is false and the predicate that separates them exists.
 
+104. **The Welcome's joiner pairings are unobserved, because no fixture commits more than one Add.**
+     `errWelcomeAddPairing` compares `len(adds) != len(self.added)` while its own comment says the
+     divergence it guards *"would seal each joiner's group secrets to some OTHER joiner's init key,
+     silently, with every length equal"* -- i.e. the comment names the class and the code checks the
+     one thing that cannot see it. Two mutations pass: every joiner sealed to the FIRST Add's key
+     package, and every joiner handed the same leaf index. **Same one-element fixture shape as the
+     ValSem111 and element-zero survivors, now on the join path** -- the most security-critical
+     surface in the plan.
+105. **The erase class is seeded on types that DECLARE an erase, so a new key-material type is not
+     in it at all.** Confirmed survivor: a production
+     `type reviewPastEpochWindow struct { initSecret []byte; encryptionPriv HpkePrivateKey }` with no
+     erase leaves the suite green, while the same type holding a `*KeySchedule` IS caught. The
+     upward closure over holders works; **the seed is the gap** -- and the reviewer names the
+     consequence: *"precisely the shape task 19's past-epoch window will take."*
+     Two more in the same gate: an erase of ONE SUB-FIELD certifies the whole held value (the call
+     resolves to the root field), and the drop-site gate's "refuses to overwrite a live one" arm is
+     satisfied by **any** nil comparison including a PRESENCE guard -- the opposite of a refusal --
+     which is the shape `MergePendingCommit` has today.
+106. **The generator repair traded one under-report for another.** Narrowing "emits a proposal" to a
+     literal `ContentTypeProposal` in value position rests on **one** production occurrence
+     (`group.go:1187`), so a generator setting its content type from a variable -- re-framing a
+     cached proposal -- frames, signs, seals and sends it with no validation door and is not
+     reported. **The pre-fix name-based reading did report that shape.** The non-vacuity floor
+     cannot see it either: four real proposers hold the count at the floor.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
