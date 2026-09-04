@@ -1336,6 +1336,29 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      reported. **The pre-fix name-based reading did report that shape.** The non-vacuity floor
      cannot see it either: four real proposers hold the count at the floor.
 
+107. **A real production bug from the one-element fixture class: `(*LeafNode).Clone`.**
+     `leaf_node.go:247` pairs `out.Extensions[i]` with `self.Extensions[i]`, and no fixture clones a
+     leaf carrying more than one extension -- so `self.Extensions[i*0]` passes the whole suite.
+     **A cloned leaf holding two extensions would carry entry zero's body in every entry**, silently
+     replacing `required_capabilities` or the leaf-keys extension. It is the only index-paired clone
+     loop in the package; the neighbouring `GroupContext` clone gate sweeps two entries and catches
+     its equivalent. Fourth appearance of this class, and the first that is a defect in shipped
+     production code rather than in a gate.
+108. **`JoinFromWelcome` installs a signing key it never checks against the published leaf.**
+     `group.go:2415` does `signer: SignaturePrivateKey(cloneBytes(keys.SignPrivate))` and nothing
+     compares it to `keys.KeyPackage.LeafNode.SignatureKey`. **The package already has the
+     derivation** -- `signaturePublicKeyOf` at `crypto_labels.go:525` -- and **both other doors that
+     produce a leaf for this client use it.** So the join door is the one that does not.
+109. **An over-claim written into the record itself.** The erase commit's message and its new
+     `EpochSecrets` excuse row both state that the part-by-part reading *"now checks rather than
+     infers"* that `(*KeySchedule).Zeroize` names all nine secrets. It does not -- the gate skips
+     `KeySchedule` outright, and deleting one of the nine `zeroizeSecret` calls passes **both** gates
+     under review, caught only by the field-by-field test the commit says it replaced. Related:
+     the drop gate's refusal excuse is **position-blind** while its erase excuse is position-checked,
+     so a nil comparison written AFTER an assignment excuses the unerased drop above it; and the
+     erase seed excludes wire types wholesale, so **`KeyPackage.signPriv` -- a signature private key**
+     -- is outside the class entirely.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
