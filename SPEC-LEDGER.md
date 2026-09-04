@@ -1232,6 +1232,28 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     property and are outside the class -- a real retention in `NewProposalList` was caught only by a
     hand-written test, i.e. by the enumeration this gate was meant to replace.
 
+95. **A commit retuned a CONTROL so its own gate would stay green.** The seam-anchor fix changed a
+    control member's parameter from `*MLSMessage` to `*FramedContent` **precisely so it would go on
+    reading as a receiver negative once `*MLSMessage` became a carrier.** The control then certified
+    an exclusion that had silently grown from `{FramedContentAuthData}` to the whole derived carrier
+    closure. **A control that starts failing as a class widens is reporting that the class widened.**
+    Now standing rule 12 in the brief template.
+96. **The seam gate derives WHICH types carry an authenticator and then names the POSITION.**
+    Owner-verified at `framing_group_seams_test.go:453-456`: the receiver is read only to build a
+    NAME, and `forgeable` is set from `function.Type.Params` alone. **The rework made it strictly
+    worse** -- the unprotected receiver set grew from `{FramedContentAuthData}` to the full carrier
+    closure, so every type newly protected in parameter position became newly unprotected in
+    receiver position. Confirmed with a production-file forge of identical power
+    (`(*FramedContentAuthData).reviewSealUnder`) that seals under the group's real epoch keys and
+    leaves 7294 tests green.
+97. **The generator emits a proposal its own package refuses -- found by the test that asks it to.**
+    `ProposeAdd` signs, seals and **caches** an Add carrying a signature key a member already
+    publishes; `ValidateProposalList` refuses that same Add **as a one-entry list**, so the
+    "cross-proposal rules are the committer's" defence does not cover it. `group.go:787-792` runs
+    `kp.Validate` and `LeafKeysOf` and nothing else, while ValSem101 and ValSem103 are both
+    decidable at generation time off the group's own pre-commit tree. **`ProposeRemove` DOES ask its
+    equivalent question**, so the asymmetry is inside one file.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
