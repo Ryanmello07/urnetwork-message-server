@@ -776,6 +776,19 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     cannot detect, and therefore one m1 must gate rather than leave to an implementer. Found
     2026-09-02 by the CP3b-chain review.
 
+47a. **CLOSED 2026-09-04.** m1 is written:
+    `docs/plans/2026-09-04-slice1-m1-message-crypto.md`, 24 tasks over three waves, with the CP3b
+    path as an explicit prefix (tasks 1–16) and the line where it ends stated in its own section.
+    The `expected_wrap_count` trap this item named is closed the way it asked: the count is
+    **derived from the fan-out the builder actually emitted**, and the recovery-wrap deferral fails
+    a named test until it lands, so the deferral is a red test rather than a number an implementer
+    picks. What the plan does **not** close is now the interesting half, and it is items 125 and 126
+    below: two of the four CP3b tasks in wave 2 are blocked on rulings the plan files rather than
+    makes. The plan's own **Open items** section carries **41**, of which **six** are marked
+    wire-visible and block the A6 freeze — M1-6, M1-7, M1-8, M1-24, M1-27 and M1-33 — plus items 125
+    and 126 here, which change wire bytes too and are labelled by what they block instead. They are
+    not restated in this ledger, because the plan is where an implementer meets them.
+
 49. **Findings from a workflow review are NOT visible to the next agent, and a brief that says
     "read the review" sends it looking for a file that does not exist.** A reviewer's findings are
     the workflow's RETURN VALUE, held in the orchestrator's context and nowhere on disk. On
@@ -1480,6 +1493,39 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      ratchet vector is sorted only for determinism and **the sort is stochastically observed** --
      the 2-entry map iterates descending about 59 times in 500, so roughly **one persist in eight**
      would write a vector the strict-ordering read then refuses to load.
+
+125. **BLOCKS CP3b — the device wrap has no body encoding and no stated seal, and `wrap.go` has no
+     section in any spec.** §5.11 specifies the server-visible `WrapTag` — `{wrap_target_handle,
+     epoch}` — and says nothing about the bytes inside `ct_body`. MASTER §8.2 says what a device wrap
+     *carries* (`pq_secret[n]` and `eph_root[n]`) and not how it is laid out, framed or versioned.
+     Worse, §5.11's own sizing (*"a device wrap (~1,210 B) … land in `size_bucket 2`, a `ct_body` of
+     exactly 4,112 bytes"*) makes the wrap an ordinary record whose body goes through the record
+     AEAD — **whose key comes from the `storage_root` the wrap delivers.** Either the wrap's body is
+     sealed under the previous epoch's class key, which serves no joining member, or the X-Wing
+     ciphertext is the seal and the record AEAD is a second layer under some other key. No document
+     says which. A ruling must state the body's field list and framing with its `alg_id` (MASTER
+     §7.1 requires one on every hybrid ciphertext); the key the wrap record's `ct_body` is sealed
+     under, **separately for a continuing member and for a joining one**; and whether the X-Wing
+     ciphertext sits inside the record body or replaces it. Blocks m1 Task 14 and therefore CP3b.
+     Found 2026-09-04 while writing m1. Filed as m1 Open item M1-1.
+
+126. **BLOCKS CP3b — `group_handle_key` and the joining epoch's `read_key` are said to travel "in the
+     `Welcome`" and no mechanism carries them.** MASTER §8: *"It is delivered to a joining member in
+     its `Welcome` alongside the group-context extension … A member that does not hold it cannot
+     compute its own handle and therefore cannot write."* Spec A §5.7 says the same of `read_key`.
+     Measured 2026-09-04: `grep -rn 'group_handle_key\|GroupHandleKey'` over the whole of `connect`
+     returns **0**; `mls/extension.go` declares three URmessage extension types (`0xF001` group
+     policy, `0xF002` leaf keys, `0xF003` owner successor) and none is this; and RFC 9420's `Welcome`
+     carries a `GroupInfo` and a `GroupSecrets`, neither with a free-form slot. There is a second
+     layer to it that neither sentence mentions: `group_handle_key = HKDF-Expand(storage_root[0],
+     "gh/v1", 32)` needs **epoch zero's** `pq_secret`, which a joiner never had and which no wrap at
+     its joining epoch carries. A ruling must name the carrier — a `GroupInfo` extension is the only
+     slot in the v1 profile that is both authenticated and encrypted to the joiner — state its
+     contents, and state its validation, because a `group_handle_key` accepted from an unvalidated
+     field is an attacker-chosen `sender_handle`, and `sender_handle` is inside every AAD and every
+     MAC in the system. Related and already filed: items 44 and 44a, the key-package fetch and the
+     `Welcome`'s own delivery channel. Blocks m1 Task 16 and therefore CP3b. Found 2026-09-04 while
+     writing m1. Filed as m1 Open item M1-2.
 
 ## 6. Change process
 
@@ -2292,3 +2338,121 @@ exported method, not a reachable capability. Recorded rather than closed.
 three places, with the argument's load-bearing premises named so a reviewer could check them — and
 one of the two turned out to be overstated. **A disclosure that names its own premises is what made
 the overstatement findable.** That is the shape a behaviour change should take here.
+
+### 2026-09-04 — m1: the plan for `connect/message`'s crypto, and where the CP3b path actually ends
+
+`docs/plans/2026-09-04-slice1-m1-message-crypto.md`. The **tenth** plan in `docs/plans/` — p1–p8, s1
+and this one — for the fourth unplanned workstream the 2026-08-29 re-orientation missed. It closes
+open item 47 and opens two that are worse, which is the honest outcome and is why this entry is
+written that way round.
+
+**What was measured, before the spec was read.** The brief said to read the package first, and doing
+so changed the plan's shape three times. Measured in `connect` on `beta/message`, 2026-09-04:
+`connect/message` is **9 non-test files, 9 test files, 169 `Test` functions and 2 `Fuzz` functions**;
+`go build ./message/... ./mls/...` is green on go1.26.5; and `grep -rn 'func StorageRoot'` over the
+tree returns **0**. §5.1's record types, §5.4's X-Wing, §5.7's eight MAC functions, §5.8's codec and
+§5.11's attachment encoding are all landed, and were checked field-for-field against the spec blocks
+rather than against a summary. §5.2, §5.3, §5.5, §5.6 and §5.11's client half are at **absolute
+zero** — none of `keyschedule.go`, `ratchet.go`, `handle.go`, `eph.go`, `wrap.go`, `recovery.go`,
+`engine.go` or `session.go` exists.
+
+**The plan's shape follows from one fact: `WriteKey(storageRoot)` and `ReadKey(storageRootEpoch)`
+take a value nothing in the tree produces.** 125 KB of tested MAC code is dead-ended on one missing
+function. That is the whole CP3a/CP3b delta seen from the inside, and it is why Task 3 is
+`StorageRoot` and not something more impressive.
+
+**Where the CP3b line falls, which is what the plan was commissioned to answer.** Tasks 1–16 are the
+path and nothing outside them is on it. Tasks 1–12 are buildable today: the record AEAD, the key
+schedule, both handle chains, both ratchets, the durable `stream_index` reservation, §6's engine
+interface, `GroupSession`, `SealRecord` and `OpenRecord`. Tasks 13–16 are the second client's half,
+and **two of those four are blocked on rulings the plan files rather than makes** — items 125 and 126
+above. Tasks 17–24 are the A6 freeze, and none of them is required to put a message in front of a
+person. Wave 1 complete is a `connect/message` that seals and opens records under the real key
+schedule inside one process. **That is worth having and it is not CP3b**, and the plan says so at the
+one place a reader would otherwise mistake it: Task 12's two-session round-trip property, which
+carries that sentence in its own test comment.
+
+**Two findings that came out of reading the source against the spec rather than against the brief.**
+
+The first: MASTER §8.1 says *"`ct_head` is always under the **durable** class, since it is always
+retained"*, and Spec A §5.3 hands `RecordAeadHead` and `RecordAeadBody` **the same `record_key[i]`**.
+For a `DURABLE` record the two readings coincide, so **CP3b cannot tell them apart** — and for
+`PERMANENT`, `MEDIA` and `EPH` they are two keys from two ratchets with one `stream_index` between
+them. A contradiction invisible at the milestone and wire-visible at the freeze is exactly the kind
+this project pays for late, so `SealRecord` **refuses a non-`DURABLE` class** until it is ruled
+(M1-6).
+
+The second: §5.1 fixes `octet_length(ct_body)` at its rung, so the plaintext is padded — and **no
+document states the padding scheme or how the receiver recovers the true length.** `pad.go` is named
+in §2.2's package tree and has no section anywhere; MASTER §9.5 is "What the server sees" and is not
+it; and `msgrepo/harness/seal.go` pads with `byte(index*31)` and never unpads, because CP3a's harness
+does not encrypt and never reads a body back. Without a ruling, `OpenRecord` hands back 256 octets
+for a five-octet message (M1-7).
+
+**Three reader claims were corrected against the source rather than carried through.**
+`sender_handle` was reported as having no derivation anywhere in the project; MASTER §8's RECORD
+listing has it — `HKDF-Expand(group_handle_key, "sh/v1" ‖ LP(leaf_index), 16)` — so the gap is Spec
+A's restatement, not the project's, and the plan implements MASTER's. `EphKey` was reported the same
+way; MASTER §8.1 gives `K_eph[n][b][t] = HKDF-Expand(eph_root[n], "eph/v1" ‖ u8(b) ‖ u64(t), 32)`,
+and what is genuinely missing is `t`'s unit, origin and clock. And guardrail G8 was reported as *"a
+comment"* with no gate in the tree: the gate exists, in `message/writeauth_test.go`, and is **wider**
+than G8's own text — a construct gate over the whole package directory with the comparator class and
+the `Verify*` class both derived from the syntax tree. That correction produced its own finding, and
+it is the one worth the most: **the shipped gate will refuse `VerifyRecoveryProof` and the five
+`VerifyRendezvous*` the day they are declared**, because an Ed25519 verifier calls out of the package
+and reaches no `subtle.ConstantTimeCompare`. The plan tells the implementer to amend the gate by
+restating its property and **not** by exempting a name (M1-19) — this project's own rule that a gate
+repeatedly bypassed is a gate that does not track the property it stands for.
+
+**What the plan supplies and what it deliberately does not.** Per task: a **Files** list, an
+**Interfaces** block naming exactly what is consumed and what is produced, and numbered steps — the
+part that has worked for nine plans, and what lets plans compile against each other across months.
+It supplies **no test code**, per R1: each task states the property, the refusal that property owes,
+and the numbered mutation set the implementer must run. It quotes the spec wherever a rule is
+normative, per R3, including §5.11's publication sequence at its full **five** steps and §5.6's
+write-once rule in both of its halves. And it opens with the instruction that **every signature is
+read from source**, because `FindExtension` cost this project seven stale call sites and three of the
+signatures this plan names changed shape inside the last four weeks.
+
+**The reuse section is the other half of that.** `mls.CryptoProvider.Extract(salt, ikm)` is already
+HKDF-Extract in the spec's argument order, already vector-tested against RFC 5869's table, and
+already inside one of the two files the tree's own confinement gate allows — so guardrail G1's fix is
+a call, not a function. `mls.Group.Export` is `mls_secret` in one line. `mls/secret_tree.go` is §5.5
+already solved once, and its **eviction policy is better than §5.5's** — a tree-wide retained-key
+bound instead of a per-sender one, and eviction from the fullest window instead of the oldest sender,
+which closes §14 open item 7 without a Spec C round trip. Against those, three things are named as
+**not** reusable at the point where a reader would reach for them: `mls`'s AEAD (12-octet nonce,
+wrong schedule), `mls`'s Ed25519 (RFC 9420 label framing over raw preimages — it compiles and
+verifies against nothing), and `mls.Group.Protect`/`Unprotect` (a different key schedule with no PQ
+input).
+
+**Verified by running, not by reading.** Every count in this entry was measured on 2026-09-04 against
+the tree, not against the brief: the file and test counts by `ls` and `grep -c`; the green build on
+the pinned go1.26.5 toolchain; the zero hits for `func StorageRoot`, for `group_handle_key`, and for
+a fourth URmessage extension type; `mls.CryptoProvider.Extract`'s `(salt, ikm)` order at
+`crypto.go:175` with its own comment; `Group.Export` at `group.go:821` and its `ErrEpochErased`
+refusal at `key_schedule.go:486`; `ClearPendingCommit` at `group.go:2475`; the forbidden gate's
+`forbiddenScanRoots`, `hkdfExtractAllowedPaths` and `hkdfExtraCallSites` at lines 46, 83 and 425; the
+entropy residual table at `crypto_test.go:7776` and its two rows; the constant-time gate's
+`authScanDir = "."` and its four rules; `EncodeServerAttachment`'s identical answer for a nil and an
+`AttachmentNone` attachment; `aad_test.go:70`'s `aadKatAlgId = 0x0021` against MASTER §8 line 722;
+and `MaxGroupMembers` / `MaxDeviceLeavesPerIdentity` at `errors_lifecycle.go:35-36`. Index checked
+before the commit: `git ls-files` and `git ls-tree -r HEAD --name-only` agreed at 99.
+
+**Rule 11, applied to this diff, and it found three.** The class this rule is sent to close is *a
+count nobody measured*, and a pass over the new text looking only for that found three instances,
+all introduced by this commit and all now corrected to the measured value. The draft said **nine**
+open items were wire-visible; the label appears on **six** (M1-6, M1-7, M1-8, M1-24, M1-27, M1-33),
+and the text now says six and says explicitly that it is a count of the items carrying the label
+rather than a claim that the other 35 are format-safe. Task 23's summary said *"six of the eight are
+wire-visible"* over a list of **six** items — a sentence disagreeing with itself in the same
+sentence — and now names the two that carry the label. And this entry called m1 *"the ninth plan"*;
+`docs/plans/` holds p1–p8 and s1, so it is the **tenth**, and the two places in the plan that said
+"eight plans" now say nine. Three unmeasured counts in one document is the same rate this rule has
+found on every previous commit here, which is the argument for running it every time rather than
+when the text feels risky.
+
+**Reviewed by:** the author, as a diff, against Spec A §5, MASTER §7–§9 and `connect` source. No code
+changed, so no mutation testing applies. Its equivalent here was the pass above, plus this one: every
+claim inherited from a reader was re-derived from the tree before it entered the plan, and three of
+them did not survive.
