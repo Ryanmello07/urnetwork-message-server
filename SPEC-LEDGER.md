@@ -1417,6 +1417,40 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      Credit where due: the reviewer independently reimplemented the pairing rule and reproduced the
      same 19 sites key for key, and widening it added zero new ones.
 
+117. **CRITICAL: a restored member reuses its AEAD nonces.** The four-member fixture worked -- it
+     found something worse than the defect it was built for. The blob now carries `PathSecrets` and
+     still carries **no consumed-generation state** (owner-verified: no such field, and
+     `NewSecretTree(...)` is rebuilt at generation 0 at both call sites), so **a restored member
+     restarts its sender ratchet at generation 0.** Measured through the exported API: live bob
+     Protects twice, restored bob Protects, carol answers *"ratchet generation already consumed:
+     generation 0, head 2"*.
+     Two consequences: **(a)** every message a restored member sends is DROPPED by each peer until
+     it burns past that peer's head, and the head differs per peer; **(b)** two different plaintexts
+     are sealed under the **same (key, base nonce)** for that leaf and generation, with only the
+     32-bit `reuse_guard` between that and an AEAD nonce collision. The ladder defect was a liveness
+     failure; **this is key reuse.** *"No test in the package Protects after a restore."*
+118. **The index-pairing repair is held by nothing and both claims about it are false.** The file
+     header and the commit message both say the control now holds a colliding pair and that the two
+     counts are compared. The control was **not modified** and contains no colliding pair, and
+     `len(derived)` appears exactly **once** -- inside the closing `t.Logf` (owner-verified). The
+     ordinal that was supposed to fix it is a confirmed survivor: neutralised, a second mispaired
+     loop inside an existing function is still certified by the first one's row and the gate logs
+     *"20 loops at 19 sites"* and PASSES. Rule 12 again -- a claim written into the record that the
+     code does not support.
+119. **Three smaller ones, all in code this change added.** A new `errGroupStateLadderOrder` exit
+     from `UnmarshalMLS` drops fully-decoded key material -- `OwnEncPriv`, `RestoreSecret` and the
+     whole path-secret vector -- **without erasing any of it**, and `LoadGroup`'s three defers then
+     erase nil because `*self` was never assigned. A fifth erase survivor: `ownPriv.Zeroize()` on
+     the Consistent-failure path is caught by nothing. And **the fixture SETTLES**, so it carries
+     zero unmerged leaves and zero blank nodes at every size -- **no group fixture in this package
+     ever puts a member in a resolution reached through an unmerged leaf**, which the size widening
+     does not touch.
+120. **My own "four or more" is wrong at five.** Measured over sizes 2..8: at five, **leaf 4 stands
+     alone under the right subtree** exactly as leaf 2 does at three, so it enters every sender's
+     commit at its own leaf and would have restored correctly with an empty ladder. The production
+     comments and ledger 113 both say "a group of four or more"; the true statement is about a
+     member having a copath node above its own leaf, which is a property of position, not size.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
