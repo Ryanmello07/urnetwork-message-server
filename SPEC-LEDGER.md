@@ -1451,6 +1451,36 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      comments and ledger 113 both say "a group of four or more"; the true statement is about a
      member having a copath node above its own leaf, which is a property of position, not size.
 
+121. **The round trip catches ONE of the four defects this package shipped, and its header claims
+     it catches all four.** Measured by reintroducing each: the cached Add is caught by the
+     generator gates and **not** by the round trip, because the cohort only ever adds fresh valid
+     identities. Three of the four are **unreachable by any arrangement that file builds**. The
+     header says *"every case here has the same shape"* as the four -- an overclaim that would tell
+     the next reader coverage exists where none does. **This is the right measure for a round trip**
+     and it should be reported as a number, not a shape.
+122. **A fixture was moved so it stopped covering the thing it covered.** The persist-before-handout
+     in `sealAndRecordLocked` -- whose own comment calls it load-bearing, *"it runs before the
+     caller is handed anything ... hands out a message whose generation nothing has recorded"* -- is
+     observed by nothing: `_ = self.persist()` passes 7453 tests. The package's only refusing-store
+     fixture had `store.refusing = true` **moved from before `CreateCommit` to after it** by the
+     same commit, and `refusing = false` added before `ProposeUpdate`, so no test now runs a
+     refusing store across any of the three seal sites. Rule 12, a second time.
+123. **A restored member is permanently deaf to a busy peer, not merely missing a replay guard.**
+     Measured on a settled four: alice Protects 1026 times, live bob opens all of them, bob restores,
+     alice Protects once more -- restored bob answers *"generation too far ahead: generation 1026,
+     head 0, bound 1024"*. `peekFor` refuses **without advancing the head**, so every later message
+     from that peer in that epoch is refused identically: unbounded, epoch-long message loss. The
+     shipped disclosure calls this *"a lost replay guard rather than key reuse"*, which is
+     materially incomplete.
+124. **`RestoreSenderRatchets` accepts the all-zero secret that `SenderRatchets` refuses to write.**
+     The write side opens with `refuseIfErased` because a state written from an erased tree
+     *"restores a member sending under a ratchet every party in the world can compute"*; the read
+     side checks only **length**. Measured: two right-length all-zero secrets restore cleanly and
+     `NextSenderKey` then hands out a key derived from a public constant. Related: the persisted
+     ratchet vector is sorted only for determinism and **the sort is stochastically observed** --
+     the 2-entry map iterates descending about 59 times in 500, so roughly **one persist in eight**
+     would write a vector the strict-ordering read then refuses to load.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
