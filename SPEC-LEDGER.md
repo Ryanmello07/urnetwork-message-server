@@ -1641,6 +1641,37 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      justifies it, so the next reader finds an argument rather than a widening. Found 2026-09-06
      while finishing the split. Filed as m1 Open item **M1-49**.
 
+131. **Four files in this repository are mixed WITHIN THEMSELVES, and nothing here looks for it.**
+     Recorded as Residual A of the 2026-09-10 entry below and **promoted to a numbered item here**,
+     because a residual in an append-only log is a thing nobody is holding: the log is read
+     forward once and the open items are what get worked. Re-measured on the tree this entry
+     commits, unchanged: `docs/reviews/2026-08-12-r1-design-redteam.md` (1 CRLF line among 325),
+     `r2-spec-review.md` (1 among 157), `r3-spec-review.md` (1 among 217) and
+     `r4-three-spec-review.md` (1 among 156), against `*.md text working-tree-encoding=UTF-8
+     eol=lf`. **A file mixed within itself is never a checkout** — git cannot produce one — so it
+     is always a tool that wrote part of a file, and no pin can prevent it: `eol=lf` acts at
+     checkout, and this happened after one.
+
+     *Why it is filed rather than fixed.* Rewriting the four lines takes one command and closes
+     nothing, because what is missing is the **observer**. `connect/mls`'s
+     `TestThePackageSourceIsOneLineEndingThroughout` reports exactly this condition per file, and
+     as of `connect` `b4e84f4` it also holds every file it judges to the ending
+     `.gitattributes` pins, deriving that ending by reading the rule set nearest the file. This
+     repository has no equivalent. What it has instead is defensive normalisation at every read —
+     `deps_test.go`, `api/checks_test.go`, `api/gates_test.go` and
+     `api/second_implementation_test.go` all strip the carriage returns before matching — which
+     makes the anchors safe and makes the condition **invisible**. That is the opposite trade from
+     `connect`'s, and which trade this repository wants is the question, not which four files are
+     currently affected.
+
+     *Blocks:* nothing. **Owner's call, filed not ruled.** Two shapes. Port the gate, deriving its
+     requirement from this repository's own `.gitattributes` the way `connect`'s now does — which
+     would give the `*.go`, `*.md`, `*.txt` and `go.mod`/`go.sum` pins a single observer instead of
+     four unguarded statements, and would make deleting any of them fail a test. Or rule that
+     defensive normalisation is the answer here and the four files are cosmetic, in which case say
+     so where the next reader who opens a mixed file will find it, rather than in an edit-log
+     residual. Found 2026-09-10 during the `*.go text eol=lf` ruling; promoted here.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
@@ -3880,3 +3911,127 @@ full suite both ways and did not move: **1227 `--- PASS` / 0 `--- FAIL` / 22 `--
 480s and **1227 / 0 / 22** under LF in 499s, `ok` both times. Every edit in both repositories was made
 byte-exactly, with an asserted occurrence count and the line ending derived from the file — and never
 with `sed -i`.
+
+### 2026-09-11 — the pin recalibrated into the gate: one mechanism where there were two unguarded halves
+
+**The defect, and it is the one the pin created.** `connect/mls`'s
+`TestThePackageSourceIsOneLineEndingThroughout` accepted a package that was **uniformly CRLF**, and
+its own comment gave the reason: which ending is right *"belongs to the checkout and not to this
+repository: a clone with core.autocrlf off is lf throughout, one with it on is crlf throughout, and
+both are fine to work in."* That was true when it was written, and `*.go text eol=lf` falsified it.
+**Reproduced before anything was changed**, on a fresh `--no-hardlinks` clone of `7525995` with
+`core.autocrlf` confirmed `true` at system scope in the clone itself: **474 of 474 tracked `.go`
+files arrive LF, and 116 tracked non-`.go` text files arrive CRLF** — that second number is the
+control, and without it "all the Go files are LF" is equally consistent with autocrlf having been
+quietly off for that clone. So **no checkout of this repository produces a CRLF `.go` file any
+more**, and a uniformly-CRLF package is not a checkout at all: it is a tool having rewritten the
+working tree, which is precisely the condition the gate exists to catch. Flipping all 13 files of
+`connect/message` to CRLF left the gate **PASSING** on the sentence *"all 13 source files of
+../message end their lines crlf"*, with no other test in the suite noticing.
+
+**The fix, and why it is one mechanism rather than two.** The second half of the same defect was
+that **nothing asserted the pin existed**: deleting `*.go text eol=lf` from `.gitattributes` was
+invisible to all 7,495 tests. The gate did not require LF and nothing required the pin — each half
+unguarded in a different direction. The gate now **reads the requirement out of `.gitattributes`**
+rather than carrying it as a constant, so the two collapse: the pin is the gate's input, and
+deleting the pin leaves every file the gate judges pinned to nothing and turns it red. `connect`
+`b4e84f4`.
+
+**Resolution is git's, not an approximation of it.** Rules in file order, last match wins; `-text`
+and the `binary` macro turn conversion off and **clear** an `eol=` an earlier line asked for; `text`
+with no `eol` pins nothing, because it defers to `core.eol`, which is a checkout's answer and not
+this repository's. `gitAttributesPatternMatches` — which already exists in
+`key_schedule_roundtrip_test.go` with its own control, and already knows that `*.go`, `/*.go` and
+`**/*.go` are one rule to git — is **reused rather than a second matcher written**, which is the
+mistake its own comment records having been made once.
+
+**One scope hole found in the first version of the fix and closed before commit.** That version read
+`connect/.gitattributes` and treated it as the whole answer. Git does not: a `.gitattributes` nearer
+the file overrides one further away, so a rule set appearing in `connect/mls` would have decided how
+`connect/mls/*.go` is checked out while the gate went on demanding whatever the root said — a gate
+reading something other than what it claims to read, which is this file's oldest failure mode. The
+gate now walks **nearest first** and stops at the first rule set with an opinion. There is no nested
+rule set covering Go source in `connect` today, so the walk is exercised against a fixture tree
+built for it: a control that can only run where the property already holds proves nothing.
+
+**Three statements the pinning commit falsified, closed.**
+
+1. The gate's *"pinned to NEITHER ending"* premise, above.
+2. *"measured 2026-09-05, mls/syntax is 6 files crlf and 17 lf"* — the renormalisation in that same
+   commit made it **0 crlf and 23 lf**, and the commit's own `.gitattributes` comment already stated
+   the 6/17 figure in the past tense, so the two texts disagreed about tense and fact. The sentence
+   now states the old figure as history and the new one as the event that produced it.
+3. **Four comments in three files** saying a CHECKOUT is how a carriage return gets into a `.go`
+   file here: `crypto_forbidden_test.go`'s `codeOf` (*"in a checkout git smudged"*),
+   `crypto_test.go`'s `buildConstraintsIn` (the same phrase), `tree_adapt_test.go`'s `readSourceFile`
+   (*"on a checkout that stores CRLF as on one that does not"*) and `key_schedule_test.go`'s
+   `carriesTheNoInlineDirective` (*"this repository is checked out with core.autocrlf on"*). Each
+   justifies a **defensive normalisation that is still correct** — the tool-writes-the-working-tree
+   route is live, and is exactly what the gate catches — so what changed is the stated cause, not
+   the code. **Swept package-wide rather than over the diff**, per guardrail 11a, which is how the
+   last round's sweep failed: every other line-ending statement in `mls`, `message` and
+   `messagegroup` is about a **vendored corpus** (`hpke_vectors_test.go`, `key_schedule_deps_test.go`,
+   `key_schedule_roundtrip_test.go`, `messagegroup/xwing_vectors_test.go`), those files are pinned
+   `-text` or covered by their own `.gitattributes`, and all sixteen vendored KAT files are **still
+   CRLF on disk** — measured, so *"none is byte-identical to upstream"* still holds and none of them
+   was touched.
+
+**And the same class turned on this round's own diff.** The first draft of the corrected sentence
+read *"mls/syntax … is 0 crlf against 23 lf **now**"* — a present-tense measurement, which is the
+very class being closed, waiting for the next renormalisation to falsify it. Rewritten as the event
+that produced the figure. The fresh-clone counts were likewise moved to the past tense and anchored
+to the commit they were measured on.
+
+**Recorded in `.gitattributes`, where the next reader looks.** `eol=lf` **acts only at CHECKOUT**.
+All seven `*.pb.go` were already pinned by the rule below and five were still CRLF on disk anyway,
+because a pin added after a file has been checked out does not go back and rewrite it. That single
+fact explains the whole episode: a pin governs what the next checkout writes, the working tree is
+governed by whatever last wrote it, and on this project that is as often a tool as it is git — which
+is the case for the gate, stated in the file the gate reads.
+
+**`gofmt -l`: decided, and this reverses the previous round's call.** That round left the 14 files
+alone and said why — *"fixing them would change 14 objects, which is precisely what this ruling was
+costed as not doing"* — which was right for a commit costed at **no blob may change**. This commit
+carries no such costing, and `gofmt -l` is used here as a dirty signal: at 14 it is a smaller dirty
+signal rather than a clean one, and a signal that is never zero stops being read. **`gofmt -w` over
+exactly those 14**, no others; the whole diff is struct-field and map-key alignment, doubled blank
+lines and one orphan `//` line, with no semantic change. `gofmt -l .` over `connect` is now **empty**.
+Two of the 14 are root-package files, which no gate of `mls`/`message`/`messagegroup` covers, so the
+root package's source-anchored and layering tests were run against them: **9 `--- PASS` / 0 / 0**.
+`layering_test.go` reads imports off the syntax tree and is whitespace-immune; nothing in the root
+package reads either file's text by name, checked rather than assumed.
+
+**Mutations: ten, all caught, none surviving phase 1.** A whole package flipped to CRLF (13 files);
+one file flipped; one file mixed within itself; the pin deleted; the scope derivation stopped
+following the coupling; the pin hard-coded instead of read; first-match-wins instead of last; a
+nearer rule set pinning `mls` to CRLF while the tree is LF; the nesting walk stopped at the module
+root; `-text` reporting no decision so an outer `eol=` answers for a file git was told to leave
+alone. **Every landed-check is a SHA-256 over the file's own bytes**, per the trap the previous entry
+recorded: with `*.go text eol=lf` active the clean filter turns a written CRLF back into LF before
+`git diff` is computed, so a line-ending mutation that really is on disk reports an **empty
+numstat** — the exact signature guardrail 7 teaches you to read as "the edit matched nothing".
+Reverts are byte-exact restores of a copy taken before the edit, with equality asserted before the
+next cycle, never `git checkout --`.
+
+**Verified.** `connect`: `go test -count=1 -v -timeout 10m ./mls/... ./message/... ./messagegroup/...`
+— **7496 `--- PASS`, 0 `--- FAIL`, 0 `--- SKIP`**, `ok` on all four packages. The count is 7495 + 1:
+the one new test is `TestTheLineEndingPinIsReadTheWayGitResolvesIt`, the control on the derivation,
+which states both directions (a reader answering `lf` for everything, and one answering `""` for
+everything) and the third answer the nesting walk depends on — whether a rule set decided anything at
+all. `TestThePackageSourceIsOneLineEndingThroughout` reports its derived scope
+`[. ../message ../messagegroup]` with **137 / 13 / 6** files, each naming the rule that checks them
+out: *"which is what [\*.go text eol=lf] checks them out as"*. Cross-platform gate: *"9 platforms x 3
+package trees built with CGO_ENABLED=0"*. `go vet` clean; `gofmt -l .` empty over the whole of
+`connect`. `git ls-files` **1080** = `git ls-tree -r HEAD` **1080**, before and after. Standard
+library only, no cgo, no new dependency, nothing platform-specific. Every edit in both repositories
+was made byte-exactly with an asserted occurrence count and the line ending derived from the file,
+never with `sed -i`.
+
+**Residual A of the entry above is now open item 131** rather than a paragraph in a log nobody
+re-reads. Residual B — the closure follows path **literals**, so a scan root composed at runtime is
+invisible to it — is unchanged and still prophylactic. Re-measured on this tree: `mls`, `message`
+and `messagegroup` compose exactly one path out of a `".."` literal at runtime,
+`filepath.Join("..", ".gitattributes")` in `key_schedule_roundtrip_test.go`, and it names a **file**
+rather than a directory and cleans to `".."`, which the closure's own two stated exclusions already
+decline. So no scan root is being missed today, and the shape is still the one the next widening
+will arrive in.
