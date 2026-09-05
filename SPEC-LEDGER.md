@@ -777,17 +777,20 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     2026-09-02 by the CP3b-chain review.
 
 47a. **CLOSED 2026-09-04.** m1 is written:
-    `docs/plans/2026-09-04-slice1-m1-message-crypto.md`, 24 tasks over three waves, with the CP3b
-    path as an explicit prefix (tasks 1–16) and the line where it ends stated in its own section.
+    `docs/plans/2026-09-04-slice1-m1-message-crypto.md`, **25 tasks** over three waves (24 numbered
+    plus Task 9a, added by the 2026-09-05 repair below), with the CP3b path as an explicit prefix
+    (tasks 1–16 and 9a) and the line where it ends stated in its own section.
     The `expected_wrap_count` trap this item named is closed the way it asked: the count is
-    **derived from the fan-out the builder actually emitted**, and the recovery-wrap deferral fails
-    a named test until it lands, so the deferral is a red test rather than a number an implementer
-    picks. What the plan does **not** close is now the interesting half, and it is items 125 and 126
-    below: two of the four CP3b tasks in wave 2 are blocked on rulings the plan files rather than
-    makes. The plan's own **Open items** section carries **41**, of which **six** are marked
-    wire-visible and block the A6 freeze — M1-6, M1-7, M1-8, M1-24, M1-27 and M1-33 — plus items 125
-    and 126 here, which change wire bytes too and are labelled by what they block instead. They are
-    not restated in this ledger, because the plan is where an implementer meets them.
+    **derived from the fan-out the builder actually emitted**, never typed. The *mechanism* changed
+    in the repair — the deferral is now a required-row table held to the derived inventory in both
+    directions, not a red test, because a test red on purpose across three tasks is one nobody can
+    tell from a regression and the Definition of done requires green. What the plan does **not**
+    close is the interesting half, and it is items 125 through 128 below: **four** legs or rulings
+    stand between a complete m1 and CP3b, and only two of them were visible when this item was
+    first written. The plan's own **Open items** section carries **45**, of which **six** are marked
+    wire-visible and block the A6 freeze — M1-6, M1-7, M1-8, M1-24, M1-27 and M1-33 — and four block
+    CP3b (items 125–128 here). They are not restated in this ledger, because the plan is where an
+    implementer meets them.
 
 49. **Findings from a workflow review are NOT visible to the next agent, and a brief that says
     "read the review" sends it looking for a file that does not exist.** A reviewer's findings are
@@ -1526,6 +1529,42 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      MAC in the system. Related and already filed: items 44 and 44a, the key-package fetch and the
      `Welcome`'s own delivery channel. Blocks m1 Task 16 and therefore CP3b. Found 2026-09-04 while
      writing m1. Filed as m1 Open item M1-2.
+
+127. **BLOCKS CP3b — no written plan owns the client-side submit leg, and CP3b's own definition
+     requires one.** CP3b is *"a message is private — the same path"* as CP3a, and CP3a's path ends
+     at the message server. Measured 2026-09-05 over the m1 plan: `grep -nE 'Submit|transport|
+     harness'` finds **no task producing a submit path**, and no task's Produces names one; every
+     m1 task ends at a `*Record` in memory. The server half needs nothing new — `store` and the api
+     layer serve `Hello`, `CreateGroup`, `Submit` and `Fetch`, which is leg 3 of the 2026-09-02
+     chain review and was verified then. The client half is `sdk`'s — *"the transport binding, a
+     send path and a receive path"* — and that review assigns it to **the two-to-four sdk plans that
+     do not exist**; m1 does not touch `sdk`. The only other client-side sealer-and-submitter in
+     either tree is this repository's own `harness`, which is `msgrepo`-local, held test-only by
+     `TestTheHarnessIsReachedOnlyFromTests`, and whose doc comment says *"It does not encrypt."*
+     A ruling must name the owning plan. Two shapes and they are not equivalent: **(a)** an sdk plan
+     owns it and CP3b waits for s1 and for that plan; **(b)** an `msgrepo`-side integration test owns
+     it — two `connect/message.GroupSession`s sealing, `harness` submitting and fetching, where the
+     import direction already allows it — which reaches the milestone sooner and proves the *record*
+     half rather than the *client* half, and requires changing a package whose doc comment is an
+     argument for the absences it has. **This is the largest thing m1 files:** every other open item
+     it carries is a rule that is missing, and this is a milestone leg that is missing. Found
+     2026-09-05 repairing m1. Filed as m1 Open item M1-42.
+
+128. **BLOCKS CP3b — `ct_head`'s retention class is unruled, and m1's own refusal for it stops a
+     wave-2 task.** MASTER §8.1: *"`ct_head` is always under the **durable** class, since it is
+     always retained."* Spec A §5.3 hands `RecordAeadHead` and `RecordAeadBody` the **same**
+     `record_key[i]`. For a `DURABLE` record the two readings coincide; for `PERMANENT`, `MEDIA` and
+     `EPH` they are two keys from two ratchets, and one record then has one `stream_index` covering
+     two ratchet positions. m1 Task 11 therefore makes `SealRecord` refuse every non-`DURABLE` class
+     until it is ruled, which is right — and m1 Task 15 must emit the ratchet-tree snapshot, which
+     §5.11 step 2 fixes as *"one `PERMANENT`-class record"*. So a wave-1 refusal blocks a wave-2 task
+     on the CP3b path. The item was filed under the A6 wire-format freeze until 2026-09-05 on the
+     reading that the freeze is months out; by the plan's own construction it blocks CP3b three tasks
+     from the end of wave 2, and it is now the third schedule ruling beside items 125 and 126. It
+     must **not** be closed by carving a `PERMANENT` exemption into `SealRecord`: the retention class
+     is inside `AAD_head` and inside the `write_auth` preimage, so a snapshot written at a guessed
+     class is wire-visible and unrecoverable after A6. Wire-visible. Found 2026-09-04 while writing
+     m1, promoted 2026-09-05 while repairing it. Filed as m1 Open item M1-6.
 
 ## 6. Change process
 
@@ -2456,3 +2495,161 @@ when the text feels risky.
 changed, so no mutation testing applies. Its equivalent here was the pass above, plus this one: every
 claim inherited from a reader was re-derived from the tree before it entered the plan, and three of
 them did not survive.
+
+### 2026-09-05 — m1 repaired: the interface `*mls.Group` cannot satisfy, and the adapter with nowhere to live
+
+**Change:** Amended `docs/plans/2026-09-04-slice1-m1-message-crypto.md` (2,439 → 3,103 lines) against
+an adversarial review. One task added (**9a**, the `connect/mls` adapter), four open items added
+(**M1-42** to **M1-45**), one open item moved between sections (**M1-6**, A6-freeze → CP3b), one
+open ask withdrawn (**O-4**) and one added (**O-5**), and two ledger open items opened (**127**,
+**128**). Item 48 above amended for the task count, the open-item count and the CP3b-blocker count.
+**No task was removed, no property was weakened to make the current tree pass, and the plan's 41
+existing open items are unchanged** — the review's own verdict was that the factual base survived
+intact, every measured count and every normative quotation checking out verbatim, and the repair
+left that base alone.
+
+**The defect class, and it is the one this repository named three days ago.** On 2026-09-02 the s1
+repair gave a name to *a property no correct implementation can satisfy* — the mirror image of a test
+that cannot fail — and found four instances. m1 shipped a fifth, in its most load-bearing task:
+
+- **Task 9 Property 3** required `*mls.Group` to satisfy `GroupHandle` structurally, and told the
+  implementer *"every method here must be satisfiable by `*mls.Group`."* Measured against
+  `grep -n '^func (self \*Group) [A-Z]' mls/*.go`, **13 of §6's 23 methods cannot match**, and none
+  of the 13 is closable by writing better code: `OwnLeafIndex() uint32` against `OwnLeafIndex()
+  LeafIndex` fails because `tree_math.go:27` makes `LeafIndex` a **defined type** and Go method sets
+  are identical-type; `MemberCount`, `SenderDataSecret`, `EncryptionSecret` and `ProposeGroupPolicy`
+  are absent entirely; `Process` and `ApplyCommit` name `*EngineProcessed`, which is declared in
+  `connect/message` with an unexported field and can therefore never be named by a method in
+  `connect/mls` — that pair is unclosable **by design**, which is the interface working.
+  Worse than the red gate is the instruction beside it: the cheap way out of a red structural
+  assertion is to reshape §6's interface around `mls`'s own types, which destroys the boundary
+  Gate 5 exists to hold. Repaired to the property that is true and worth gating: **the adapter
+  satisfies it and `*mls.Group` does not**, with the 13 mismatches tabulated so the measurement
+  cannot be lost, and a refusal on any `engine.go` signature naming a `connect/mls` type.
+
+**And the other half of the same defect: the adapter had no task, no file and no Produces line.**
+`grep -n 'adapter'` over the plan returned **one** hit, inside §6's own block quotation. No task
+produced a `GroupHandle` implementation at all, so Task 10's `GroupSession` had nothing real to
+hold and CP3b's *"no test-only key source anywhere on the path"* was unreachable from waves 1 and 2
+for a reason no open item named. **Task 9a** now lands it, and its home is forced rather than
+chosen: `EngineProcessed.stagedRef` is unexported, so only package `message` can construct a
+populated one, so only package `message` can implement `Process` — which is also what §2.2's tree
+says (*"engine.go — the GroupEngine interface (§6) + the connect/mls adapter"*). Task 9 Property 4,
+which forbade this package to name `mls.Group` at all, is repaired to the path-confined form the
+`crypto_forbidden_test.go` comment argues for, and the residue is filed as **M1-43**: `stagedRef`
+confines every engine implementation to one package, which is the opposite of what §6's "swappable"
+claims and what Gate 5 promises.
+
+**The CP3b prefix did not close, and the missing leg is now the largest thing the plan files.** The
+Definition of done required the record to travel *"through the message server"* and then listed
+external legs that were **all inside `connect/mls`**. Measured: no task in the plan produces a submit
+path; `store` and the api layer already serve `Submit`; `harness` is the only client-side sealer in
+the tree and is test-only and *"does not encrypt."* The 2026-09-02 chain review assigns the client
+leg to the unwritten sdk plans, and m1 does not touch `sdk`. The Definition of done now names
+**four** external legs instead of two — p2, p7, s1, and the unowned submit leg — and **M1-42** /
+ledger item **127** file the gap rather than inventing a resolution, with both candidate owners
+stated and neither chosen. In the same pass, **Task 16 Property 2** stopped calling an in-process
+two-session exchange *"This is CP3b"* — which is precisely what Task 12 Property 2 exists to warn
+against, two tasks later and one leg short.
+
+**A wave-1 refusal was blocking a wave-2 task, and the item that governs it was filed under the
+wrong heading.** Task 11(a) makes `SealRecord` refuse every non-`DURABLE` class until M1-6 is ruled.
+Task 15 consumes that `SealRecord` and must emit the ratchet-tree snapshot, which §5.11 step 2 fixes
+as *"one `PERMANENT`-class record"*. So M1-6 blocks CP3b by the plan's own construction while sitting
+under *Blocking the A6 wire-format freeze*, months out. Moved, promoted to ledger item 128, added to
+the execution order as the third schedule ruling beside M1-1 and M1-2, and Task 15 now states what it
+does in the meantime — with an explicit refusal to close it by exempting `PERMANENT` in `SealRecord`.
+
+**Nine more, each verified against the tree before it was written down.**
+
+- **Task 13 Property 2's derived class convicted five correct functions.** *Every function returning
+  32 octets whose parameters include a storage root, a class key or an epoch* names `WriteKey`,
+  `ReadKey`, `GroupHandleKey`, `DeriveClassKeys` and `RecordKeyZero` — all specified by this plan.
+  The only reading that spares them is semantic and no AST scan decides it. Rewritten as a signature
+  gate plus a required-row table in `entropyRefusalsHeldOutsideThisPackage`'s shape.
+- **Task 15 Property 5 told the implementer to assert what M1-22 files as false.** §5.11 step 5
+  claims the missing wraps are *"all derivable from the epoch state every member holds"*; a fan-out
+  interrupted before the first device wrap lands is unrecoverable by **any** member, because
+  `pq_secret[n+1]` is a fresh CSPRNG draw delivered only inside the wrap. Split into the resumable
+  case and the unrecoverable one, with a typed refusal in the second rather than a resample that
+  would fork the storage layer under a valid MLS epoch.
+- **Task 3 Property 6 would have gone red at Task 22's own commit.** §5.14's `deposit_sig_seed`
+  is a second `HKDF-Extract` inside `connect/message` — the plan files it as M1-16 and wired it into
+  neither task. Rewritten as a both-directions exception table with one row today.
+- **Task 3(b) named the wider of two gate mechanisms.** `hkdfExtractAllowedPaths`
+  (`crypto_forbidden_test.go:83`) is **needle-blind** — `hkdfAllowedPathsFor` at `:451` joins it in
+  for every entry point — so an entry there would excuse `hkdf.Key` too, which the gate's own comment
+  at `:266` calls *"the worse of the two"*. The landed precedent for `message` is the needle-keyed
+  `hkdfExtraCallSites` at `:444`.
+- **Four properties derived a class that is empty at the commit that owns them** — Task 1 P1, Task 7
+  P1, Task 9 P2, Task 13 P4 — and the tree's house style **fatals on an empty class**
+  (`aad_test.go:1293`, `:1432`, `:1539`; `writeauth_test.go:2451`, all phrased *"reporting clean
+  having read nothing"*). Each is now split: the half checkable at its own commit stays, the derived
+  half moves to the first task where the class has a member, cross-referenced both ways.
+- **Task 7 Property 1 asked a call-graph walk to prove a data-flow fact.**
+  `TestReadAuthNeverUsesWriteKey` (`writeauth_test.go:1904`) proves **reachability**; *"passes through
+  a returned-nil `Reserve`"* is error handling and ordering, and the task's own mutation 5 — ignore
+  `Reserve`'s error — is invisible to it. Now held by three mechanisms, one per claim.
+- **Task 16 consumed `GroupHandle.JoinFromWelcome`; §6 puts it on `GroupEngine`** — an R2 failure
+  inside the plan that states R2. Corrected with the spec lines named.
+- **O-4 asked p7 for two methods that already exist under other names.** `Group.RatchetTree()` at
+  `group.go:891` and `Group.GroupContext()` at `:900`. p7 owes nothing; the gap is §6's spelling
+  against the tree's, closed by Task 9a in two lines. Withdrawn rather than deleted, and the pending-
+  pin row corrected, because a withdrawn ask that leaves no trace is one somebody files again.
+- **Task 19 said `GroupHandle` exposes *"exactly `SenderDataSecret()` and `EncryptionSecret()` and
+  nothing else"*,** contradicting §6's 23 methods and four tasks' Consumes. Narrowed to the claim G6
+  actually makes and that survives: of the **epoch's secrets**, those two and no third.
+
+**Three placement and layering findings, all measured.**
+
+- **The plan said it "follows §2.2" while diverging in fourteen places.** Eleven files added that
+  §2.2 does not name, two it names that the plan does not create (`pad.go`, accounted for;
+  `tombstone.go`, absorbed into `reaction.go` with no stated reason), and one function moved. Two of
+  the moves were silent, and one of those is out of a file a spec comment names: **§5.6's own
+  interface block writes `// ratchet.go` above `StreamIndexReserver`** and the plan puts it in
+  `streamindex.go`. In a plan arguing that placement is gate-load-bearing — Gate A's allow-lists are
+  paths, Gate C's scan is a directory — every divergence is now enumerated, in the File Structure
+  section and in M1-36.
+- **Task 6 put a file-backed durable store inside `connect/message`.** Measured: that package's nine
+  production files import no I/O package at all, and §8.2's `MessageStore` already declares
+  `ReserveStreamIndex(groupId, index)` and `StreamHighWater(groupId)` — `StreamIndexReserver` method
+  for method — on the fourteen-method interface A8 pins the size of. §5.6 injects the sink for
+  exactly that reason. The task now ships the interface and a file-backed **test** fake, the durable
+  one is asked of the sdk store plan (**O-5**), and M1-5 gains the fact that its one-parameter fix is
+  one parameter in **two** documents.
+- **Gate C's comparator ban is package-wide** — its
+  `TestNoProductionFunctionComparesDataOutsideConstantTime` runs over every function in the
+  package — and the plan worked the consequence only for the `Verify*` class. Task 20's MIME sniffer and Task 24's emoji validator are the other two
+  members and neither is a verifier, so M1-19's amendment does not reach them. **M1-45**, to be ruled
+  with M1-19 and M1-35, because three separate answers to one guardrail is how a gate becomes three
+  sentences.
+
+**One judgement filed rather than taken.** Task 2 writes a second implementation of
+`mls.zeroizeSecret` in a plan whose opening paragraph forbids second implementations, and the
+alternative is **one character**: export it. `message/xwing.go:36` already imports `connect/mls` in
+production, so the call site is free; against it, that surface is p2's and the file's own comment
+argues against additions. **M1-44**, with the instruction that if the export is available for the
+asking, take it and delete the task.
+
+**Rule 11, applied to this diff, and it found two.** The class is *a count nobody measured*. The
+review that commissioned this repair said `GroupHandle` was **24 methods**; counted off §6's block it
+is **23**, and every place the repair states the number states 23 with the date it was measured. The
+review also said *three* properties derive an empty class; the pass found **four**, and all four are
+repaired rather than the three named. Both corrections went the direction that costs more work,
+which is the only direction worth trusting a count in.
+
+**Verified by running, not by reading.** Every measurement in this entry was taken on 2026-09-05
+against `connect` on `beta/message` and `msgrepo` on `main`: `*mls.Group`'s exported method set by
+`grep -n '^func (self \*Group) [A-Z]' mls/*.go`, and §6's by counting the block at spec lines
+1805–1836; `LeafIndex` as a defined type at `tree_math.go:27`; `connect/message`'s complete
+production import set, file by file; `hkdfExtractAllowedPaths` at `:83`, `hkdfExtraCallSites` at
+`:444` and the `slices.Concat` join at `:451`; the four empty-class fatals; `authScanDir = "."` and
+the package-wide comparator gate at `:2473`; §8.2's `MessageStore` at spec line 3584; §5.6's
+`// ratchet.go` annotation at spec line 1233; §5.11 E2's `K_snapshot` at spec line 1467; and
+`go build ./message/... ./mls/...` green on the pinned go1.26.5. **Index checked before the commit:
+`git ls-files` and `git ls-tree -r HEAD --name-only` agreed at 100.**
+
+**Reviewed by:** the author, as a diff, against the review's findings, Spec A §5 and §6, and
+`connect` source. No code changed, so no mutation testing applies. Its equivalent here was the pass
+above: every finding the review handed over was re-derived from the tree before it entered the plan,
+and two of its counts did not survive.
