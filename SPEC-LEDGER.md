@@ -3459,3 +3459,154 @@ A-13; `connect`'s **six** gate scopes and the five aliases beside them, read for
 their failure modes; `msgrepo/planlint_test.go` and `deps_test.go`; and a working-copy execution of
 wave 0 in full — the move, the corpus, three gate roots, `go build`, `go vet` and
 `go test ./mls/ ./message/ ./messagegroup/`.
+---
+
+### 2026-09-08 — wave 0 executed: `connect/messagegroup` exists, the dependency gate is green, and the description was short by seven kinds of edit
+
+**The split landed.** `connect` on `beta/message`, one commit **`9acefd9`** on top of `c7af659` — 18
+files, 430 insertions, 142 deletions. `connect/messagegroup` is a real package: `doc.go`,
+`xwing.go`, `xwing_errors.go`, `xwing_test.go`, `xwing_vectors_test.go`, `entropy_test.go` and the
+`testdata/vectors/rfc/` corpus, all moved with `git mv` so history follows and all recorded by git
+as renames at 84–99% similarity.
+
+**`TestEveryDependencyOfThisModuleIsOneSpecB22Allows` is green, and green the way the ruling
+required.** `deps_test.go` and `go.mod` are byte-identical before and after — `git status` in this
+repository was empty across the whole verification — and `go list -deps -test ./...` over `msgrepo`
+now names exactly `connect`, `connect/message`, `connect/mls/syntax` (allowed by name, spec B
+revision 10) and `connect/protocol`. `connect/mls` left the closure rather than joining an allow
+list. The windows/amd64 build closure went from 460 packages to 459. `go test ./...` in `msgrepo` is
+green in every package.
+
+**Three passes described this move; executing it returned seven kinds of edit none of them
+contained.** That number is this round's most useful output, and it is recorded in the plan as Task
+0 Property 6:
+
+1. **Production and test prose in `mls` naming `../message` as where X-Wing's second statement
+   lives** — `mls/extension.go:568` and `:582`, `mls/crypto_test.go:7933` and `:7946`,
+   `mls/extension_test.go:2247`, and three values inside Gate G's own classification table. Held by
+   no test; false the moment the move landed.
+2. **Five stale path references inside the moved `xwing_vectors_test.go` itself**, one of them
+   inside a `t.Errorf` message, plus one in `entropy_test.go` and one in `xwing.go`. This commit
+   created them, and they were found by running the defect class over the commit's own diff.
+3. **`PINS.md:108`**, the fifth prose reference the four documented paths leave stale — **and a
+   sixth statement in the same paragraph that was wrong before this pass touched it**: it claimed
+   `git ls-files --eol` reports `i/lf w/lf` for the xwing corpus. It reports
+   `i/none w/none attr/-text`, because the file is one line and a trailing newline, so git sees no
+   line ending to classify. Corrected with the reason, since `attr/-text` is the half that matters.
+4. **`connect/layering_test.go` owed four assertions, not one.** The load-bearing one is that
+   `connect/message` may not import `connect/mls` — the ruling itself, which nothing in the
+   `connect` repository held. It compiles cleanly forever and was visible only to this
+   repository's dependency gate, in another module, on a run nobody makes before pushing. Also:
+   `messagegroup` may not import `connect`, `message` may not import `messagegroup`, and neither
+   `mls` nor `mls/syntax` may import `messagegroup`. The control fixture gained a blank import so
+   the scanner is proven to find the new path.
+5. **`cryptoImportPaths` is now a union over three roots** — the standing obligation below.
+6. **Gate G's two failure messages** each named one scanned directory and would have misreported
+   which trees they read.
+7. **The interface registry's two statements of where X-Wing lives.** The working copy under
+   `connect/research/` is excluded by that repository's `.git/info/exclude`, so the repair landed on
+   the tracked copy here.
+
+**A standing obligation on every m1 task, which nothing stated before this pass.**
+`TestTheCryptoIsBuiltFromExactlyThesePackages` (`mls/crypto_test.go`) pins the **exact** import set
+— as a whole, deliberately not as a ban list — of the packages `forbiddenScanRoots` walks, and
+`cryptoSourcePaths` walks that same list. Gate A's one-line root edit therefore widened that pin,
+and roughly eight other `mls` gates that alias the same list, over `connect/messagegroup`. **Every
+production import added anywhere in `connect/messagegroup` must be written into `cryptoImportPaths`,
+in `mls`, in the same commit** — and every file m1 writes lands there. The failure is a test of
+`mls` going red over an edit made in another package. It is recorded in the plan's dependency policy
+and again under Task 0 Step 6.
+
+**Two claims the plan carried measured differently, and the implementer measuring is what corrected
+them.**
+
+- **Gate A is not silent, which the plan said in four places.** Reverting `forbiddenScanRoots` to
+  `{".", "../message"}` on the landed tree turns the `mls` suite to 4701 PASS / **3 FAIL**:
+  `TestNoEntropyTakingFunctionLivesWhereThisGateCannotCallIt`,
+  `TestTheCryptoIsBuiltFromExactlyThesePackages` and
+  `TestEveryTypeHoldingErasableKeyMaterialErasesAllOfIt`. What *is* silent is the hkdf entry-point
+  and `.ECDH(` confinement over the client half, and that half alone — measured with a probe: with
+  the root reverted and a bare `hkdf.Extract` and `.ECDH(` in a `messagegroup` production file,
+  `mls` reports neither; with the root restored and the same probe still there, it reports both by
+  path. The silent count across the six gates is therefore **three** (C, D, H), not four.
+- **The derivation grep does not return what the plan said it returns.** At `c7af659` it returns
+  **eight lines**: three scopes, two prose values inside Gate G's table, one allow-list path and two
+  synthetic controls. **Zero aliases** — an alias holds no literal, which is what makes it an alias
+  — and it misses **three of the six scopes**, because Gate B walks Gate A's list, Gate C's scope
+  was `authScanDir = "."` and Gate D's was `{messageRoot, mlsRoot}` with `messageRoot = "."`. A
+  scope spelled `"."` is as invisible to a grep for `"../message"` as one spelled `"./message/..."`
+  was. The grep is one input to the derivation and is not the derivation.
+
+**M1-50 is resolved, and the shape it recommended was measured to be unavailable.** The item
+proposed porting Gate C's comparator half alone, *"whose class is every production function of the
+directory and which is not empty at wave 0"*. It is empty at wave 0: the comparator class is derived
+from the **scanned code's own imports**, and `connect/messagegroup` imports `crypto/ecdh`,
+`crypto/mlkem`, `crypto/sha3`, `io`, `errors` and `connect/mls`, none of which exports a data
+comparator, so a ported comparator half logs *"3 go files, 9 functions, 6 imports, 0 comparators in
+the derived class: []"* and clears everything it read against an empty class. Two rules with no
+member and one that clears everything is not a gate.
+
+Gate C was therefore **rewritten onto a root list**: `authScanRoots = {".", "../messagegroup"}`,
+replacing `authScanDir`. Each root is scanned **separately** and the scans are never merged, because
+`TestAVerifierReachesOutOfItsPackageOnlyForTheConstantTimeComparison` is about calls leaving a
+verifier's *own* package and a merged scan would have widened the coverage claim while narrowing the
+rule. Only the emptiness refusal and the `VerifyWriteAuth`/`VerifyRequestAuth` coverage claim were
+moved to the union — and that guard was not weakened to accommodate an empty package: pointing
+`authScanRoots` at the client half alone still fatals with *"no root of [../messagegroup] declares a
+verifier at all, so this gate is reporting clean having read nothing"*.
+
+**What that does not buy is written down rather than left to be discovered.** The comparator rule
+over `../messagegroup` has no member to catch until that package imports something exporting a
+comparator; it is a live tripwire, not a live rule. And the scope is a written-down list: a new
+`TestEveryPackageBuiltOnThisOneIsUnderTheConstantTimeGate` derives the half that can be derived —
+it walks the module for production packages importing `connect/message` and fails on one that is not
+a root — but it reports 25 directories walked and **0** importers today, because
+`connect/messagegroup` does not import `connect/message` until m1 Task 1. Narrowing `authScanRoots`
+back to `{"."}` is silent today, and that is recorded as a surviving mutation rather than as a
+success.
+
+**Fourteen mutations, each confirmed applied with `git diff --numstat` before its result was
+believed, each reverted, three survivors and all three expected.** Caught: Gate G's root (exactly 26
+errors); Gate A's root (the three tests above); the hkdf/`.ECDH(` probe with the root restored; the
+class-and-bucket join probe with Gate D's root restored; the corpus left behind (9 red,
+`go build` and `go vet` clean); the corpus without its `.gitattributes`; the LF-anchored edit against
+a CRLF file (0 occurrences where a `\r\n` anchor finds 1) and the whole-file LF rewrite that turns
+`TestThePackageSourceIsOneLineEndingThroughout` red; the production pair moved alone
+(`entropy_test.go:143:13: undefined: XwingGenerateKey`); a package importing `connect/message`
+outside `authScanRoots`; `authScanRoots` set to the client half alone; and `connect/message` given
+an import of `connect/mls`. **Survivors:** Gate H's package pattern, which is silent everywhere but
+a `t.Logf` count; the whole `PINS.md` / `xwingPackageImportPath` / four-sentinel group, which is
+green with every one of them left naming `message`; and `authScanRoots` narrowed to `{"."}`.
+
+**One prediction in the plan's own mutation set was refined by running it.** Removing the corpus's
+`.gitattributes` turns `TestXwingVectorDirectoryDisablesGitsTextConversion` red and leaves
+`TestXwingVectorFileWasNotSmudgedOnTheWayIn` **green**, not red: deleting the attributes file does
+not re-smudge a file already in the working tree. It would go red on the next fresh clone, which is
+exactly why the first test has to fail on the commit that removes the rule.
+
+**Verified in `connect`:** `go build ./...` clean; `go vet ./message/... ./messagegroup/... ./mls/...`
+clean; `go test -count=1 -v ./message/... ./messagegroup/... ./mls/...` — **7495 `--- PASS`, 0
+`--- FAIL`, 0 `--- SKIP`**, `ok` on all four packages; `connect`'s own layering tests green; the
+nine-platform cross build reporting *"9 platforms x 3 package trees built with CGO_ENABLED=0"* where
+it reported 2; `TestThePackageSourceIsOneLineEndingThroughout` reporting all 137 `mls` files CRLF.
+Every edit in both repositories was made byte-exactly with an asserted occurrence count and never
+with `sed -i`, and `git diff --numstat` was read after each one, because a one-line intent that
+reports the whole file has rewritten the line endings.
+
+**The plan linter was run before and after, and the delta is zero.** `go test ./ -run
+TestThePlanLinter`, 7 of 7 tests and 17 assertions: check 1a **0**, 1b **7**, 1c **1**, 1d
+**0 / 189**, 2a **19**, 2b **0**, 3a **4**, 3b **0**, 3c **2**, 3d **0**, 4a **0**, 4b **6** —
+identical line for line. Task 0 now states six properties, fourteen mutations and two class-deriving
+properties with their membership counts, and added no finding to any check.
+
+**Index checked before both commits:** `git ls-files` against `git ls-tree -r HEAD --name-only`, per
+the standing rule on this machine. `connect` went 1079 → 1080 tracked files and both counts agree at
+`9acefd9`.
+
+**Reviewed by:** the author, by executing the move rather than describing it — the five source
+files, the corpus, five gate scopes, the new layering assertions, `go build`, `go vet`, the full
+`./message/... ./messagegroup/... ./mls/...` suite with both outcome counts, the nine-platform cross
+build, `msgrepo`'s `go test ./...`, and fourteen mutations with their verdicts. The defect class this
+commit was sent to close — *a scope or a statement that names `connect/message` where the subject is
+now in `connect/messagegroup`* — was run back over the commit's own diff and then package-wide, and
+returned items 1, 2, 3, 6 and 7 above.

@@ -63,7 +63,7 @@ This is p6's deliberate decision and it is upheld: the GroupContext is inlined i
 |---|---|---|
 | `mls/syntax/*` | **p1** | Reader, Writer, varint, opaque, optional, vector, Marshal entry points, `CheckRoundTrip` |
 | `mls/suite.go` `crypto*.go` `hpke.go` | **p2** | CipherSuite, SuiteParams, CryptoProvider, HPKE, labelled crypto, crypto errors |
-| `message/xwing*.go` | **p2** | X-Wing (package `message`, not `mls`) |
+| `messagegroup/xwing*.go` | **p2** | X-Wing (package `messagegroup`, not `mls`; it was `message` until the 2026-09-06 ruling split that package and wave 0 moved it on 2026-09-08) |
 | `mls/tree_math.go` | **p3** | LeafIndex/NodeIndex/LeafCount, path arithmetic, Resolution, FilteredDirectPath |
 | `mls/group_context.go` `key_schedule.go` `psk.go` `transcript.go` `secret_tree.go` | **p4** | GroupContext, KeySchedule, EpochSecrets, PSK, transcript hashes, SecretTree |
 | `mls/extension.go` `credential.go` `leaf_node.go` `key_package.go` `tree.go` `tree_hash.go` `tree_sync.go` `treekem.go` | **p5** | registry enums, Extension, Credential, Capabilities, LeafNode, **KeyPackage**, RatchetTree, UpdatePath, HpkeCiphertext |
@@ -1108,8 +1108,10 @@ Both p5 and p7 declare `AlgIdXwing`, the 1216 constant (as `XwingPublicKeyLen` a
 `XwingPublicKeySize`) and `LeafKeysExtension`. p5 wins on wave — the leaf node carries the
 extension, and `LeafNode.Validate` must range-check it. p7 Task 2 is reduced to the
 `LeafKeysOf(leaf)` accessor (§8.1). The constant is duplicated across the `mls`/`message` package
-boundary on purpose: `message.XwingPublicKeySize` (§10) is p2's and `mls` must not import
-`message`. p2 carries a compile assertion that the two agree.
+boundary on purpose: `messagegroup.XwingPublicKeySize` (§10) is p2's and `mls` must not import
+`messagegroup`. It was `message.XwingPublicKeySize` until wave 0 moved X-Wing out of
+`connect/message`, so that the message server cannot link an MLS parser. p2 carries a compile
+assertion that the two agree.
 
 ### 6.9 p5's error set
 
