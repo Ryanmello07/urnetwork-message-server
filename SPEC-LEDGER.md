@@ -2260,3 +2260,35 @@ throughout.
 **Reviewed by:** the author, as a diff, against §7's text and against `sdk` source. No code changed,
 so no mutation testing applies; what stands in its place is the rule-11 pass above, which is this
 document's equivalent and which found one defect of the class in this commit's own new text.
+
+### 2026-09-04 — `peekFor`'s disclosed behaviour change, verified rather than accepted
+
+The closing round on p7's CP3b path (`connect` `ebaac44`) changed `peekFor` so that a
+**too-far-ahead refusal now moves the receiving head**, and rewrote a control that had asserted the
+opposite. The implementer disclosed this in three places and named the risk in its own words:
+
+> *"If either of those is wrong, this change hands a malicious member"* new capability.
+
+It rested the argument on two facts. Both were checked against source rather than taken:
+
+**(a) "the generation reaches `peekFor` only after `openSenderData`'s AEAD opens under
+`sender_data_secret`."** — **True of this package's receive path.** `openSenderData` is at
+`framing_protect.go:688` and gates the only framing route to `MessageKey`. **But not true of the
+type's API**: `ReceiverKey` (`secret_tree.go:899`) is a second exported door onto `peekFor` with
+**zero production callers**. The word *only* holds for the path, not for the surface — which is
+exactly what the review's LOW finding said, and it stands.
+
+**(b) "the accepted in-bound path already steps and retains a full `MaxGenerationSkip` run."** —
+**True, and already documented in the file being changed.** `secret_tree.go:490` states that a member
+can move the head by `MaxGenerationSkip` *"for the price of one header, by asking for head+1024"*,
+and `RatchetWindowSize == MaxGenerationSkip == 1024`. The catch-up on refusal is therefore *exactly*
+an accepted skip, granting no advance the accepted path does not already grant.
+
+**Conclusion: sound for the framing path.** The residual is (a)'s second door, which is an unused
+exported method, not a reachable capability. Recorded rather than closed.
+
+**And the process point, which is the more valuable half.** Rule 12 forbids retuning a control
+*silently to keep a gate green*. This was the opposite: a deliberate behaviour change, argued in
+three places, with the argument's load-bearing premises named so a reviewer could check them — and
+one of the two turned out to be overstated. **A disclosure that names its own premises is what made
+the overstatement findable.** That is the shape a behaviour change should take here.
