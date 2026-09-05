@@ -1615,6 +1615,32 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      passes with no edit to `allowedDependencies` and none to spec B. Filed as m1's ruling section;
      the split's own findings are m1 **M1-46**, **M1-47** and **M1-48**.
 
+130. **`msgrepo/deps_test.go` allows `connect/message` as a *subtree* while its own comment says the
+     list is at §2.2's granularity, and §2.2 states a package.** Measured 2026-09-06.
+     `allowedDependencies` carries `{path: "github.com/urnetwork/connect/message", subtree: true}`
+     (`deps_test.go:145`); the comment above the list (`:89`) opens *"The whole of what spec B §2.2
+     ALLOWS, at the granularity §2.2 states it"* and adds that §2.2 *"names three packages of
+     connect rather than connect as a whole"*. Spec B §2.2 writes
+     `github.com/urnetwork/connect/message   (record parser, shared with spec A)` — one package —
+     and `connect/mls/syntax` is a separate entry kept **exact** on the stated reasoning that *"a
+     second child of connect/mls entering this closure is a different question, and it should fail
+     this gate and be looked at rather than inherit an answer given to the codec."* The `message`
+     entry takes the opposite treatment with no sentence saying so, and `connect/protocol` (`:144`)
+     is in the same position with at least a generated-code argument in the comment.
+
+     **This is the gap that made `connect/message/group` invisible**, which is the measurement item
+     129's ruling rests on: under the subtree entry the message server could link the whole key
+     schedule, both ratchets, the session and the sealer and this gate would say nothing. The
+     sibling name `connect/messagegroup` routes around it; it does not close it, and the day
+     somebody proposes a child of `connect/message` for any reason the gate is silent again.
+
+     *Blocks:* nothing today — item 129's split does not depend on it. **This is an owner's call and
+     is filed, not ruled.** Two shapes: make the entry exact, so a child of `connect/message` fails
+     the gate and is looked at, which is what the comment's own rule says and what
+     `connect/mls/syntax` already gets; or keep `subtree: true` and write the sentence that
+     justifies it, so the next reader finds an argument rather than a widening. Found 2026-09-06
+     while finishing the split. Filed as m1 Open item **M1-49**.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
@@ -2907,8 +2933,14 @@ The trigger was a live red test, reproduced here before anything was written.
 **The split was derived rather than accepted, and the authority is §12.1.** Spec A §12.1 is the
 published surface Spec B restates character for character, and §5.2 summarises it: *"Spec B's
 server-side code never seals or opens."* Measured against this module: every `message.X` symbol it
-names, tests included, is **37 distinct symbols**, and all 37 are declared in `record.go`,
-`codec.go`, `attachment.go`, `writeauth.go` or `errors.go`. So `connect/message` keeps those five
+names, tests included, is **35 distinct symbols**, and all 35 are declared in `record.go`,
+`codec.go`, `attachment.go`, `writeauth.go` or `errors.go`. *(This entry said 37 when it was written
+and the figure was wrong in both directions; corrected 2026-09-06 by re-measuring. The raw grep
+returns 38 strings, two of which are the file names `message.proto` and `message.yml` in prose, and
+one of the remaining 36 is `message.ProtoReflect` at `peer/peer.go:902` — where `message` is a
+parameter of type `proto.Message`, in a file that does not import `connect/message` at all. The five
+declaring files are unchanged, which is what the split's derivation actually rests on.)* So
+`connect/message` keeps those five
 plus `recovery.go` and §12.1's half of `rendezvous.go`; everything else m1 writes — the key
 schedule, both ratchets, the reserver, the session, the sealer, the wraps, the epoch fan-out, the
 cards, the blob derivations, §6's engine and its `connect/mls` adapter — goes to
@@ -3052,3 +3084,163 @@ per the standing rule on this machine.
 Spec B §2.2, §5.3 and §13 item 8, `msgrepo/deps_test.go`, `connect`'s four gate files read for
 their scan roots, and two working-copy probes of the dependency gate — one with the split applied
 and one with the client half placed under `connect/message/` instead.
+
+### 2026-09-06 — the split finished: the move list that leaves a package uncompilable, and a client half with no constant-time gate
+
+The 2026-09-06 ruling entry above created `connect/messagegroup` on paper. This pass finished the
+work that entry started and did not complete. **No code. No ruling.** Three documents changed: the
+m1 plan, Spec A (revision **A-13**), and this ledger.
+
+**Every claim in the brief was measured first. All of them reproduced in substance; three reproduced
+with different numbers, and in each case the real number is worse.** They are recorded here with the
+brief's figure beside the measured one, because a brief that is trusted on its arithmetic is a brief
+nobody re-measures.
+
+**1 — the move list left `connect/message` uncompilable, and no gate the plan cites could see it.**
+The plan named the move set three times with three different and all-wrong counts: *"the two files
+and `entropy_test.go`"*, *"moves `xwing.go`, `xwing_errors.go` and `entropy_test.go`"*, and *"two
+files moved, one scan root added, one package created"*. **`xwing_test.go` and
+`xwing_vectors_test.go` are `package message`, reference X-Wing symbols, and were named nowhere in
+the plan, in Spec A or in this ledger.** *(The brief put their reference counts at 112 and 212;
+measured at `1db6ec3` they are 149 and 83 case-sensitive matches of `Xwing`, 151 and 253
+case-insensitive. Neither counting reproduces the brief's figures — and a count is not what the plan
+should have carried, which is the point of what replaced it.)*
+
+Reproduced on the pinned toolchain against copies of the two packages, with the `connect` tree
+itself untouched: **all five files moved, `go vet` clean on both halves; the production pair alone
+moved, `go vet ./message/` fails with `undefined: XwingSeedSize` at `xwing_test.go:29:5` while
+`go vet ./messagegroup/` is clean; `entropy_test.go` left behind, the same shape at
+`entropy_test.go:143:13`.** The middle case is the one that matters: **Gate B resolves its two rows
+against the *declaring* package**, finds `entropy_test.go`'s refusals in `messagegroup` exactly
+where it expects them, and passes over a `connect/message` that does not compile.
+
+The fix is not a fourth count. **The plan now derives the set** — every file of `connect/message`
+naming a symbol declared in `xwing.go` or `xwing_errors.go`, which at `1db6ec3` is five — and the
+two downstream statements point at the derivation instead of restating it. `message/doc.go` is
+called out as a **modify**: its first sentence still calls the package the X-Wing KEM.
+
+**2 — Spec A section 6 still named the old package six lines from a sentence the ruling changed.**
+Lines 1939-1940, `Raw []byte // opaque to connect/message` and
+`stagedRef any // engine-private; connect/message never inspects it`, sat inside the same block
+whose closing sentence the ruling had already changed to `connect/messagegroup`. The plan quotes
+that block **normatively three times**, so the stale text was propagating. Both lines amended; all
+three plan quotations and the three derived sentences in M1-43 follow.
+
+**3 — the split leaves the client half with no constant-time gate, and this is its one real cost.**
+Four gate scopes move and three move silently. Gates A, B and D are a root added to a list. **Gate C
+is `authScanDir = "."` — a directory** — so `connect/messagegroup` cannot be added to it and owes
+its own copy. Until that copy exists every file m1 writes lands ungated, **including the two files
+M1-45 already names as members of the comparator class**: Task 20's MIME sniffer and Task 24's
+`REACTION` validator. M1-45 says *"Blocks: Tasks 20 and 24"*, which against a gate that does not
+walk their directory blocks nothing — a finding filed against a rule with no scope. The gate table
+now carries an owner column, every row is wave 0's, **leg 6 of the Definition of done owes the Gate
+C copy by name**, Tasks 20 and 24 are blocked on it in their Files lines, and M1-45 records why it
+is inert until then.
+
+**4 — the repathing sweep, derived rather than sampled.** `connect/message` was grepped across both
+documents and every hit ruled. **Spec A: 53 hits, 28 statements wrong** — seven release-gate or
+scope statements (section 4.5 Gate 5, which built `connect/message`'s suite against a second
+`GroupEngine` that section 6 declares in `connect/messagegroup`; section 4.6 Gate 6's audit scope;
+section 5.9 G1's lint gate; section 11.1's fuzz and integration rows; section 11.3's timing rule;
+section 13's A6 slice row), four file annotations that named no package although section 5's own
+opening sentence says every annotation below does, six ownership sentences (5.12, 5.13 twice, 5.14,
+7.4a twice), section 6's two `EngineProcessed` lines, and nine decision-table and package-comment
+statements — **including section 0.2's A2, which read *"`connect/message` may import `connect` and
+its peer `connect/mls`"*, the exact edge the split exists to forbid.** *(The brief's sample was four
+gate statements, five ownership sentences and one annotation; the derived class is larger in every
+category, which is the difference between a sample and a sweep.)* Spec B was re-checked and needs no
+amendment, as its revision 13 already recorded.
+
+The plan's own contradictions were repaired with it: `EngineProcessed` *"declared in
+`connect/message`"* in the same task whose later lines say the opposite; a mutation telling an
+implementer to put an `*mls.Group` in `message`, which after the split cannot import `connect/mls`
+at all; `message.Xwing*`, `message.StreamIndexReserver`, `message.GroupSession` and
+`message.StorageRoot`; and the divergence accounting.
+
+**The divergence accounting was stale exactly as the brief said, and this one reproduced to the
+number.** A-12 closed **seven** of the fourteen — six of the eleven added files are now named in
+section 2.2's tree (`streamindex.go`, `session.go`, `seal.go`, `card.go`, `rendezvous.go`,
+`reaction.go`) and the one moved function is closed by section 5.3's amended annotation — and
+**one** was marked closed. The item read as thirteen live divergences where seven were live. M1-36's
+claim that *"every file annotation elsewhere in Spec A has been amended"* was false on the day it
+was written; A-13 makes it true and the plan now states it as a measurement.
+
+**5 — three measurements that were wrong, in paragraphs claiming they were verified.**
+
+- **"37 distinct symbols" is 35.** A raw grep returns 38 strings; two are the file names
+  `message.proto` and `message.yml` in prose, leaving 36; and one of those 36 is
+  `message.ProtoReflect` at `peer/peer.go:902`, where `message` is a **parameter of type
+  `proto.Message`** in a file that does not import `connect/message` at all. The number backing
+  *"derived rather than accepted"* had itself been accepted. Corrected in the plan and in this
+  ledger's 2026-09-06 entry, which repeated it. The five declaring files are unchanged, which is
+  what the row derivation actually rests on.
+- **Seven of seven spec-line citations were wrong, not five.** Six drifted by two or three lines —
+  the signature of citations taken against a copy from before A-12's own insertions — one by nine,
+  and **one also named the wrong section** (E2 is section 5.10's, "Corrections adopted in MASTER",
+  not 5.11's). The paragraph asserting *"every spec-line citation in this document was re-read
+  against source after A-12"* is **not restated**: that claim has now been broken twice, so each
+  citation carries a short quotation beside its number instead. The quotation survives an insertion
+  above it; the number does not. The plan linter does not resolve these, which is why the check has
+  to be cheap enough for a human to do.
+- **Task 18 adds a second server-side `hkdf` entry point and the plan's enumeration missed it.**
+  `message/recovery.go` expands `recovery_root` for `recovery_sig_seed` (section 5.7) inside a
+  function section 12.1 publishes and the plan keeps server-side, while Gate A's
+  `hkdfExtraCallSites` (`crypto_forbidden_test.go:444`) has exactly one reviewed row,
+  `../message/writeauth.go`. Task 18 now owes Gate A a second row in its own commit, and M1-16
+  carries the full re-enumeration. **This is the one Gate A obligation the split does not silence**:
+  `../message` is already a root, so it fails loudly whether or not `../messagegroup` is ever added.
+
+**6 — two things recorded and neither ruled.**
+
+- **M1-48, the X-Wing home.** The recommendation is **(a)**: `connect/messagegroup` imports
+  `connect/mls` legitimately, because it is the client half and the client holds the group. **(b)**,
+  `crypto/ecdh` directly, is refused because guardrail G3 exists — `sdk.GenerateSharedSecret`
+  returned an all-zero secret on a low-order point — and a second reviewed ECDH call site would
+  duplicate `mls.X25519PrivateKey`'s length and validity checks. The reasoning is recorded as
+  reasoning; the item now carries *Blocks: wave 0* and an explicit **status: open**. The ruling is
+  the owner's.
+- **Ledger open item 130, m1's M1-49 — `deps_test.go:145` carries `connect/message` as
+  `subtree: true`** while the comment above `allowedDependencies` (`:89`) says the list is *"at the
+  granularity section 2.2 states it"* and section 2.2 states a **package**. That gap is what made
+  `connect/message/group` invisible; the sibling name routes around it and does not close it. Filed
+  with the measurement and the two available shapes. **Not ruled** — the rule is Spec B section
+  2.2's and the gate is this module's.
+
+**The plan linter was run before and after, and this is the first pass over this plan in five that
+did not introduce a fresh instance of the class it was sweeping.** Before: green, findings as the
+2026-09-06 entry records them. After: green, and the finding set is **identical line for line** once
+line numbers are normalised — the same 11 check-2a findings on the same properties, the same
+check-2b silence (no relocation left unlanded), the same 42 plan tokens in check 3c, the same
+check-4b row. Nothing this pass wrote states a derived class without its membership, and nothing it
+moved failed to land.
+
+*One caveat worth writing down, because it is a shape this project keeps finding: the invocation in
+general use, `go test ./ -run TestThePlanLinter`, matches only
+`TestThePlanLinterFlagsTheControlFixture` and runs **none** of the five checks over
+`docs/plans/*.md`. The five were run here by naming them. A gate whose usual invocation reads its own
+fixture and not the corpus is worth an owner's attention; it is recorded here rather than fixed,
+because renaming tests is a change to the gate and this pass changed no code.*
+
+**The msgrepo suite is red at this commit and the red is expected**, for the reason the 2026-09-06
+entry gives: `connect/message` still imports `connect/mls`, and what turns it green is wave 0's
+commit in the `connect` tree. No allow-list entry was added, no skip, no known-failure marker.
+`go build ./...` and `go vet ./...` are clean; the only test this commit can affect is the plan
+linter, and it is green.
+
+**The `connect` tree was not modified.** It was read at `1db6ec3` for the gate scopes and the move
+set, and the three compile probes ran against copies in a scratch directory with a `replace`
+pointing at it. That tree moved to `c7af659` during this pass, from another author; re-checked,
+`git diff 1db6ec3 c7af659 -- message/` is empty and so is the diff over `mls/crypto_forbidden_test.go`
+and `mls/crypto_test.go`, so every measurement and every line citation above still holds at the tip:
+`forbiddenScanRoots` at `:46`, `hkdfExtractAllowedPaths` at `:83`, `ecdhAllowedPaths` at `:90`,
+`hkdfExtraCallSites` at `:444`, Gate B at `crypto_test.go:7781`, `joinAllowedPaths` at
+`record_test.go:648`, `joinScanRoots` at `:673`, `authScanDir` at `writeauth_test.go:1624` and Gate
+C's comparator test at `:2473`.
+
+**Index checked before the commit:** `git ls-files` and `git ls-tree -r HEAD --name-only` compared,
+per the standing rule on this machine.
+
+**Reviewed by:** the author, as a diff, against Spec A sections 0.2, 1, 3.3, 3.6, 4.5, 4.6, 5.1-5.14,
+6, 7.4a, 11 and 13; Spec B section 2.2 and revision 13; `connect`'s four gate files read for their
+scan roots and their failure modes; `msgrepo/deps_test.go` and `planlint_test.go`; and three
+working-copy compile probes of the move set.
