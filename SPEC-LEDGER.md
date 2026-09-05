@@ -3738,3 +3738,145 @@ reporting *"9 platforms x 3 package trees built with CGO_ENABLED=0"*, 27 subtest
 1d **0 / 189**, 2a **19**, 2b **0**, 3a **4**, 3b **0**, 3c **2**, 3d **0**, 4a **0**, 4b **6**.
 Every edit in both repositories was made byte-exactly with an asserted occurrence count and never
 with `sed -i`.
+
+### 2026-09-10 — the owner's `*.go text eol=lf` ruling: a pin that changes no git object, and the ninth log line
+
+**The ruling, and where it landed.** `connect/.gitattributes` now pins `*.go text eol=lf`, matching
+what this repository already does and for the reason this repository's own comment gives: *a gate
+that matches on the text of a source file matches nothing at all* — which is not a gate failing, it
+is a gate reporting the clean run of a complete gate **having read nothing**. `connect` `7525995`,
+one commit, carrying the pin, the renormalisation and the log-line fix below.
+
+**What it cost, measured before it was claimed. No git object changed.** `core.autocrlf=true` is set
+at system scope here and cleans on the way in, so every tracked `.go` blob was **already LF**.
+Comparing every `.go` entry of `449f3ab` against `7525995` by blob SHA: **473 of 474 byte-identical**,
+and the one that moved is `message/writeauth_test.go`, by the log fix and nothing else. What the pin
+rewrites is the **working tree** — **442 CRLF / 32 LF before, 474 LF / 0 CRLF / 0 mixed after** — and
+the working tree is the only place the drift was ever visible and the only place an anchored edit
+reads. The ruling was costed as "no blob may change"; it is paid, and it was verified rather than
+assumed.
+
+**The ruling's file count was 452; the measured count is 474 tracked `.go` files, of which 442 were
+CRLF.** Recorded, not reconciled — nothing turns on it, because the pin is written as `*.go` and not
+as a list of files.
+
+**What it closes.** `connect/mls`'s `TestThePackageSourceIsOneLineEndingThroughout` holds the same
+property as a gate, but **per package** and only over the scope it can derive: `namedSiblingPaths`
+collects `"../…"` path **literals** off the syntax tree, so the closure reaches `../message` and
+`../messagegroup` and **cannot reach a child directory at all**. `connect/mls/syntax` sat in exactly
+that blind spot at **6 CRLF against 17 LF**, and `connect/message` imports it. The pin is the half of
+the property no derivation reaches: every Go file in the repository, in every package, gated or not.
+
+**`connect/protocol` was mixed BY DESIGN and now agrees rather than conflicts** — confirmed with
+`git check-attr text eol` over all ten of its `.go` files, not assumed: every one answers `text: set` /
+`eol: lf`, and both rules say `eol=lf`, so the general line subsumes the specific one instead of fighting
+it. **The more useful half of that measurement is why it was mixed.** All seven `*.pb.go` files were
+ALREADY pinned by `*.pb.go text eol=lf`, and five of them were CRLF on disk regardless — `eol=lf` acts at
+CHECKOUT, and those files had not been checked out again since the rule landed. Only `frame.pb.go` and
+`message.pb.go` had. So a pin on its own changes nothing in the working tree, which is the case for doing
+the renormalisation in the same commit rather than leaving it to the next clone, and the three ordinary
+`.go` files beside them (`message_op_test.go`, `message_test.go`, `message_wire_test.go`) had no rule at
+all until now. `*.pb.go` stays anyway, because the comment under it argues regenerate-and-diff, which is
+about `*.proto` as much as about the generated Go.
+
+`mls/testdata/corpus/**` still answers `text: unset` — the new rule
+above it does not disturb the corpus's binary pin, and `TestTheCommittedSeedCorpusIsPinnedAsBinary`'s
+negative control, which requires `mls/key_schedule_roundtrip_test.go` **not** to be pinned binary, is
+still green: `*.go text eol=lf` sets `text`, it does not unset it.
+
+**The win that arrived is not the one that was predicted.** `gofmt -l .` over the whole of `connect`
+went from **442 files to 14**. Under CRLF it flagged every file in the repository, so it could not
+distinguish a real formatting error from a fresh clone — which is the second half of the failure this
+repository's `.gitattributes` comment names, arriving as a measurement. The **14** that remain are
+real, pre-existing layout deviations -- struct-field and map-key alignment, doubled blank lines, and
+one orphan `//` line gofmt folds into the comment block below it; every hunk across all 14 is
+whitespace and comment layout, checked rather than sampled, with no semantic change in any of them --
+living in blobs this commit does not touch, so they are pre-existing in the repository and were not
+introduced by the renormalisation. **Left alone**: fixing them would change 14 objects, which is
+precisely what this ruling was costed as not doing. Recorded here so the next `gofmt` run is not a
+surprise.
+
+**The predicted win did not reproduce, and no change was manufactured for it.** The ruling said five
+root-package tests fail under CRLF and pass under LF — the `*SourceAnchors` tests and
+`TestBusyProbeInterposesOnlyOnTheSendStallPath` — because `functionBody` locates a function's end by
+searching for a literal `"\n}\n"`. They were **already passing under CRLF**, measured on the CRLF tree
+before any edit: `readSource` normalises the carriage returns away before `functionBody` sees the
+text, and `functionBody` now returns `false` on a missing terminator rather than the whole rest of the
+file, so both halves of the stated mechanism had already been repaired. There are also **six**
+`*SourceAnchors` tests, not four. The three tests called pre-existing failures on this box —
+`TestCombineTrim`, `TestPump`, `TestPumpTrim` — **all passed** too. The root package measured
+**1227 `--- PASS` / 0 `--- FAIL` / 22 `--- SKIP`** before the change.
+
+**The ninth log line, and it is the last description this sentence gets.** Gate C's empty-class
+report (`message/writeauth_test.go`) said
+`TestEveryPackageBuiltOnThisOneIsUnderTheConstantTimeGate` is *"the half of G8 that is LIVE over that
+directory today"*. It is not. That test derives its class from this module's production packages that
+import `connect/message`, and its own log on this run reads **"0 production packages import
+github.com/urnetwork/connect/message: []"** — so the class is empty, the loop that reports an
+uncovered root never executes, and **nothing in G8 is a rule in force over `../messagegroup`**. Both
+halves are armed tripwires. The sentence now says that, names what arms the derived check — **Task 1,
+the first `connect/messagegroup` file that calls into `connect/message`** — and agrees with the
+correct statement 906 lines above it. The function's own doc comment, which promised the log would
+say *which* half is doing work, now promises *whether any* is. Searched **package-wide** rather than
+in the diff, per guardrail 11a: `message/doc.go` and `connect/layering_test.go` both state the
+opposite correctly and were left alone; that one `t.Logf` was the only instance in `message`,
+`messagegroup` or `mls`.
+
+**Correction to the 2026-09-09 entry above, made here rather than there,** because a ledger that
+edits its own past entries is not a ledger. That entry's finding 3 records the new log line as saying
+*"that `TestEveryPackageBuiltOnThisOneIsUnderTheConstantTimeGate` is the half doing work today"*.
+That is the claim being retracted: it was never true, and this is the third consecutive round in
+which the commit sent to fix a misleading statement shipped one.
+
+**Residual A — four files in this repository are mixed WITHIN THEMSELVES, and nothing here looks for
+it.** `docs/reviews/2026-08-12-r1-design-redteam.md` (1 CRLF line among 324), `r2-spec-review.md`
+(1 among 156), `r3-spec-review.md` (1 among 216) and `r4-three-spec-review.md` (1 among 155), despite
+`*.md text working-tree-encoding=UTF-8 eol=lf`. A file mixed within itself is **never** a checkout —
+git cannot produce one — it is always a tool that wrote part of a file. Pre-existing, and **recorded
+rather than fixed**. `connect` has a gate for exactly this condition and reports it per file;
+`msgrepo` has none. What this repository has instead is defensive normalisation at every read —
+`deps_test.go`, `api/checks_test.go`, `api/gates_test.go` and `api/second_implementation_test.go` all
+strip the carriage returns before matching — which makes the anchors safe and makes the condition
+**invisible**, which is the opposite trade from `connect`'s.
+
+**Residual B — the line-ending gate's closure follows path LITERALS, so a scan root composed at
+runtime is invisible to it.** `namedSiblingPaths` reads `"../…"` string literals off the syntax tree,
+which is what makes it immune to a directory that prose merely mentions; the same property means a
+root built as `root := "../" + name` is never seen, and neither is a child directory, which is how
+`connect/mls/syntax` stayed outside the scope until this pin. The literal rule is stated in the gate's
+own comment; the **consequence** is not spelled out there and is carried here. Measured today:
+`connect` has no runtime-composed `"../"` scan root in `mls`, `message` or `messagegroup`, so this is
+prophylactic and not a live gap — but it is the shape the next widening will arrive in.
+
+**Two controls on the gate this ruling is about, run after the renormalisation because a gate over a
+uniform tree is a gate with nothing left to observe.** Flipping `connect/message/aad.go` to CRLF
+turns `TestThePackageSourceIsOneLineEndingThroughout` **RED**, naming the file: *"../message's source
+is not one line ending throughout: [..\message\aad.go] end their lines crlf and the other 12 files do
+not"* — so the gate still observes its property with the tree uniform. Flipping
+`connect/mls/syntax/varint.go` to CRLF leaves it **GREEN**, `ok`. That second one is the point: the
+blind spot is now **observed** rather than argued from reading the closure, and it is the whole
+reason a `.gitattributes` pin was the right instrument instead of another root on a list. Both files
+were restored byte-exactly and their SHA-256s checked back against the pre-mutation copy, never with
+`git checkout --`.
+
+**A trap this pin creates for the next round, and it is the one guardrail 7 exists to catch.**
+`git diff --numstat` is **no longer a valid landed-check for a line-ending mutation**. The `eol=lf`
+clean filter converts the CRLF back to LF before the diff is computed, so a mutation that really is
+on disk reports an **empty diff** — the exact signature guardrail 7 teaches you to read as "the edit
+matched nothing". It happened on the first attempt at the two controls above: both were aborted as
+not-landed when both had landed. The landed-check for this class must be the **file's own bytes** —
+a CRLF count, or a hash against the pre-mutation copy — and `git diff --numstat` remains correct for
+every ordinary content mutation. Recorded here because the next agent to mutate a line ending on this
+tree will hit it, and the failure looks like success.
+
+**Verified.** `connect`: `go test -count=1 -v -timeout 10m ./mls/... ./message/... ./messagegroup/...`
+— **7495 `--- PASS`, 0 `--- FAIL`, 0 `--- SKIP`**, `ok` on all four packages, the same count as the
+round before. `TestThePackageSourceIsOneLineEndingThroughout` now reports its derived scope
+`[. ../message ../messagegroup]` with **all 137 / 13 / 6** source files ending `lf`. The cross-platform
+gate: *"9 platforms x 3 package trees built with CGO_ENABLED=0"*, 27 subtests green. `go vet` clean on
+the three packages; `gofmt` clean on both changed files. `git ls-files` **1080** = `git ls-tree -r HEAD`
+**1080**, before and after. The **root package**, the one this pin reaches that no gate covers, ran its
+full suite both ways and did not move: **1227 `--- PASS` / 0 `--- FAIL` / 22 `--- SKIP`** under CRLF in
+480s and **1227 / 0 / 22** under LF in 499s, `ok` both times. Every edit in both repositories was made
+byte-exactly, with an asserted occurrence count and the line ending derived from the file — and never
+with `sed -i`.
