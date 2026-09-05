@@ -306,6 +306,44 @@ being reported through `RetentionApplied.durable_clamped_down` and about refusal
 Both are already stated in §5.4's own prose, in the paragraph beginning "On the unset sentinel". The
 restatement is complete in substance and needed no edit.
 
+**Revision 13 — 2026-09-06 — Spec A split `connect/message` in two, and this document needs no
+amendment.** No normative change and no edit to §2.2's ALLOWED or FORBIDDEN blocks. Recorded because
+"nothing changed" is a claim that has to be measured on this project rather than assumed, and because
+the next reader will arrive holding Spec A §2.2's new two-package tree and will want to know why this
+document does not mention it.
+
+**What happened in Spec A.** `msgrepo`'s dependency gate,
+`TestEveryDependencyOfThisModuleIsOneSpecB22Allows`, failed with *"spec B §2.2 forbids these outright
+and this module reaches them: github.com/urnetwork/connect/mls"*. The cause was one file:
+`go list -deps -test ./...` over this module names exactly one direct importer of `connect/mls` in
+the entire closure — `connect/message` — and inside it `xwing.go` alone, for the four reviewed
+X25519 wrappers Spec A §5.4 builds X-Wing on. Spec A §2.2 now splits the storage layer:
+`connect/message` keeps the server-safe half and `connect/messagegroup` takes the client half,
+`xwing.go` with it.
+
+**Why this document needs no edit, measured rather than reasoned.** With `xwing.go` and
+`xwing_errors.go` moved to `connect/messagegroup` in a working copy and **nothing else changed**, the
+same gate passes on the pinned toolchain, with no edit to `allowedDependencies` and none here.
+§2.2 ALLOWS `github.com/urnetwork/connect/message` and that package still exists and is still what
+this server links; §5.3's *"the message server binary MUST NOT link an MLS implementation"* and §13
+item 8's assertion over the **package** `github.com/urnetwork/connect/mls` both become **true** where
+they were failing. The gate's own failure message offers two readings — *"either the import is
+wrong, or §2.2 has grown"* — and the first is the right one. The import was wrong. §2.2 has not
+grown.
+
+**Two things a later reader should not have to rediscover.** First, `connect/messagegroup` is a
+**sibling** of `connect/message` and not a child, and that is load-bearing rather than cosmetic:
+`allowedDependencies` carries `connect/message` as a **subtree**, so a client half at
+`connect/message/group` would be linkable by this server with the gate silent — measured in both
+directions against a working copy. A sibling is outside the allowance, so the day a package of this
+module imports it the gate fails by name and a human looks, which is the behaviour §2.2's rule
+exists for. Second, and **not taken here**: `connect/messagegroup` could be added to §2.2's
+FORBIDDEN block, which would replace the gate's generic *"not in spec B §2.2's allow list"* with a
+failure naming the reason, the way `connect/mls` already gets. It is not needed for correctness —
+the un-allowlisted path already fails — it would require a matching row in
+`msgrepo/deps_test.go`'s `forbiddenDependencies` (which `TestEverythingSpecB22ForbidsIsOnTheForbid-`
+`denList` holds to this block), and it is an owner's call rather than a scribe's.
+
 ---
 
 ## 1. Scope

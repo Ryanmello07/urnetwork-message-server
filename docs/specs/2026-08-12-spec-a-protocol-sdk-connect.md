@@ -58,7 +58,7 @@ section and specifies the **Go types, package boundaries, and test obligations**
 | B → A | Server-advertised limits, fetch attestation, epoch verification state | §12.1 |
 | A → C | `URmessageSdk.dll` C ABI: handles, callbacks, memory ownership | §9, §12.2 |
 | C → A | Storage root path, the network space host as configuration rather than a compile-time constant (A13), message server client id, foreground/background lifecycle, WNS channel URI. **Not** a ByJwt at construction and **not** a handle from another DLL — A owns login (A12). | §12.2 |
-| A ↔ B | Both depend on `connect/message` for the record codec; the server imports it via `replace ../` and on `connect/protocol/message.proto`, which A owns and B's arms populate (§10.1). | §2.4 |
+| A ↔ B | Both depend on `connect/message` for the record codec; the server imports it via `replace ../` and on `connect/protocol/message.proto`, which A owns and B's arms populate (§10.1). **B imports `connect/message` and never `connect/messagegroup`**, which is what keeps an MLS implementation out of that binary (§2.2, §2.3, Spec B §5.3). | §2.4 |
 
 ### 0.4 Open items
 
@@ -71,7 +71,7 @@ Open items are consolidated in §14, with stable numbers. There is no second lis
 | A-ASSUME-1 | **CONFIRMED, not an assumption.** `modernc.org/sqlite` is accepted for the local store in `sdk`, behind the 14-method `sdk.MessageStore` interface. The gomobile `android/arm` build remains a CI gate (§11.4), not an open question. | — |
 | A-ASSUME-3 | **CONFIRMED, not an assumption.** X-Wing is pinned at `draft-connolly-cfrg-xwing-kem-06` semantics: a **32-byte** seed, expanded internally to 96 bytes with SHAKE-256, SHA3-256 combiner. | MASTER §5.2 already derives a 32-byte seed. There is nothing to rule on. |
 | A-ASSUME-4 | v1 groups use `PrivateMessage` wire format for **all** handshake messages (no `PublicMessage` on the wire) | Simplifies the profile and removes the membership-tag path from production. `PublicMessage` is still implemented because the interop harness and ValSem007/008 require it; it is refused by policy at the group config. |
-| A-ASSUME-5 | The message server is trusted to be the single Delivery Service, so `connect/message` implements no client-side commit-conflict resolution beyond re-derive-and-retry | MASTER §9.3. If multi-server lands in V2 this becomes a real distributed-consensus problem. |
+| A-ASSUME-5 | The message server is trusted to be the single Delivery Service, so `connect/messagegroup` implements no client-side commit-conflict resolution beyond re-derive-and-retry | MASTER §9.3. If multi-server lands in V2 this becomes a real distributed-consensus problem. |
 
 ### 0.6 Edit log
 
@@ -92,6 +92,7 @@ Append-only. Newest last. One entry per commit that changes this spec. Every cha
 | 2026-08-25 | A-9 | Implementation feedback from the two record AAD preimages; one amendment, in §12.1, and it changes no signature. **The refusals block is an allowlist of what the server may reach, not an inventory of what `connect/message` exports.** A-8's "nine names, no more, and a tenth is a design discussion" reads as a rule about the count; the rule is reachability. §12.1 was never the package's export set — the package also exports the sealing side, `AADBody`, `AADHead` and `BodyBinding`, which build MASTER §8's two record AEAD preimages and are deliberately on no line of §12.1 because the server never decrypts — so the message-server allowlist test asserts the names in the block rather than what the package declares. A sentinel a published function can return is owed a line in the same commit that makes it reachable; one only an unpublished function can return is not, and publishing it would widen the server's allowlist with a name no server can use. `ErrRecordHeaderNil` and `ErrServerAttachmentMismatch` are the first two of that kind: both are `AADHead`'s, and both stay off the surface until something on it can return them. |
 | 2026-08-26 | A-10 | Implementation feedback from `connect/message/attachment.go`, the codec Spec B §5.1 check 3 calls on every submit. Four amendments, none of which changes a wire byte. **§12.1 gains the six sentinels `ParseServerAttachment` can return**, under A-9's rule that a sentinel a published function can return is owed a line in the same commit that makes it reachable. **§12.1 gains `ServerAttachmentKind` and its five constants**: without them a server held to the published surface can tell an `EpochAttachment` from a `RecoveryTag` only by testing four body pointers for nil, never by the discriminator §5.11 defines, while check 3 requires exactly that discrimination. **§5.11 gains Go field types for `EpochAttachment`, `RecoveryTag`, `WrapTag` and `EpochComplete`** — it previously declared `ServerAttachment`'s and none of theirs, so a second implementation could reasonably read the wire table's "exactly 32 bytes" as `[32]byte`, at which point check 3's `write_key` exactly 32 bytes' is a question it can neither ask nor fail. **Kind `0x0000` on parse is RULED: a parser MUST refuse an encoded one.** The table forbade emitting it and said nothing about receiving it; accepting it would give one logical attachment two encodings with two different `H(server_attachment)`, which sits inside `AAD_head` and the `write_auth` preimage, so two peers choosing differently would disagree on the AEAD of every ordinary record with neither side's tests failing. |
 | 2026-08-26 | A-11 | Implementation feedback from `peer/`, the connect frame transport. **§5.7 said `server_nonce` is "scoped to that connection" while the transport supplies no connection identity**, verified in `connect`'s source rather than inferred: the receive callback gets `{SourceId, StreamId}` with `StreamId` always zero, `connect.Peer` is built from the contract rather than the session, a `ReceiveSequence`'s per-session id never reaches a callback, and `EncryptionModeOff` means a deployment may have no sessions at all — so the whole arriving identity is the `client_id`, which survives a reconnect. A connection is now defined as **one `Hello` epoch of a `client_id`**, and **the residual is stated rather than argued away**: a client that reconnects without saying `Hello` keeps its nonce and the server cannot tell, so cross-connection replay resistance rests on the client outbox rule rather than on the transport, and that rule is therefore normative for the guarantee. The §6.1 step (0) idempotency claim and stream-index monotonicity already refuse a replay without depending on the nonce, which bounds the residual without removing it. Removing it needs `connect` to expose a session identity at the receive callback — a change to a repository this work does not own, and therefore an owner decision. |
+| 2026-09-06 | A-12 | The storage layer became two packages, and the reason is a live red test rather than taste. `msgrepo`'s dependency gate `TestEveryDependencyOfThisModuleIsOneSpecB22Allows` failed with *"spec B §2.2 forbids these outright and this module reaches them: github.com/urnetwork/connect/mls"*: `go list -deps -test ./...` names exactly one direct importer of `connect/mls` in the whole message-server closure, `connect/message`, and inside it `xwing.go` alone — the four reviewed X25519 wrappers of §5.4. `connect/mls/syntax`, which `aad.go`, `codec.go`, `attachment.go` and `writeauth.go` use, is separately allowed (Spec B revision 10) and is not the problem. **§2.2 now carries two package trees**: `connect/message`, the server-safe half — the record, its codec, the two AAD preimages, the `write_auth` and `req_auth` MACs, the server attachment, the recovery proof and §12.1's rendezvous verifiers — and `connect/messagegroup`, the client half — the key schedule, both ratchets, the stream-index reserver, X-Wing, the wraps, the session, the sealer, the cards, the client's rendezvous signatures and §6's engine. **The name is load-bearing and was measured in both directions**: Spec B §2.2's allow list covers `connect/message` as a subtree, so a client half at `connect/message/group` would be linkable by the server with the gate silent, while a sibling fails it by name on the first import. **§2.3 gains two forbidden edges**: `connect/message` → `connect/mls` (the one the split exists for) and `connect/message` → `connect/messagegroup` (the split is one way). **§5.2, §5.3, §5.4, §5.5, §5.6, §5.7 and §6's file annotations were repathed**, `§6`'s factory now returns `messagegroup.GroupEngine`, and §6 gained the corrected scope of `stagedRef`: it confines populating the field, not implementing the interface, so the unforgeability holds for engines declared in `connect/messagegroup` and `EngineProcessed` must travel with the adapter. **§5.2's "no way to construct a Record by hand" was corrected**: `Record`'s fields are exported, so the builder is a discipline and not a compiler-enforced invariant. **Spec B needs no amendment** — verified by measurement: with `xwing.go` and `xwing_errors.go` moved, the same gate passes with no edit to its allow list. §12.1 gained one paragraph saying which of its three refusals are now facts about the binary and which is still a rule about the list. |
 
 ---
 
@@ -165,20 +166,45 @@ connect/                                   (existing; never imports its own chil
     testdata/
       vectors/                             the 16 mlswg vector families, pinned by commit
       corpus/                              seed corpus for the 9 fuzz targets
-  message/                                 storage layer. imports connect and connect/mls (peers)
+  message/                                 the SERVER-SAFE half of the storage layer: the record
+                                           the message server parses, and the surface §12.1
+                                           publishes to it. Imports connect and connect/mls/syntax,
+                                           and NEVER connect/mls (see the note below this tree)
     record.go                              Record, RecordHeader, retention classes
     codec.go                               record wire encode/decode (uses mls/syntax)
+    aad.go                                 the two record AAD preimages (MASTER §8)
+    writeauth.go                           write_auth and req_auth MACs (§5.7)
+    recovery.go                            Ed25519 recovery proof and its verifier (§5.7) — here
+                                           and not in messagegroup because §12.1 publishes both
+    attachment.go                          server_attachment encoding (§5.11)
+    rendezvous.go                          §12.1's nine published rendezvous functions: the
+                                           preimages, the five verifiers, RendezvousId,
+                                           DepositVerifyKey, RendezvousDepositBytes (§5.14)
+    pad.go                                 size buckets. COVER records and the body padder are
+                                           messagegroup's: the ladder is authenticated and the
+                                           padding is done under a record key
+    errors.go
+  messagegroup/                            the CLIENT half. imports connect, connect/message and
+                                           connect/mls (peers). The message server never imports
+                                           it, and Spec B §2.2's allow list does not carry it
     keyschedule.go                         storage_root, class keys, record_key ratchet
     ratchet.go                             sender ratchet + skipped-key window
-    xwing.go                               X-Wing KEM (§5.4)
+    streamindex.go                         the StreamIndexReserver interface (§5.6); the durable
+                                           implementation is sdk's, per §8.2
+    xwing.go                               X-Wing KEM (§5.4) — the file that carries the
+                                           connect/mls edge, and the reason for the split
     wrap.go                                epoch wraps: device leaves, recovery targets, snapshot
-    writeauth.go                           write_auth and req_auth MACs (§5.7)
-    recovery.go                            Ed25519 recovery proof (§5.7)
-    attachment.go                          server_attachment encoding (§5.11)
     handle.go                              sender_handle, recovery_handle, wrap_target_handle
-    pad.go                                 size buckets, COVER records
-    engine.go                              the GroupEngine interface (§6) + the connect/mls adapter
+    session.go  seal.go                    GroupSession, SealRecord, OpenRecord (§5.2)
+    engine.go                              the GroupEngine interface (§6), EngineProcessed, and the
+                                           connect/mls adapter — all three in one package, because
+                                           stagedRef is unexported and only the declaring package
+                                           can populate it
+    card.go                                §5.14's card derivations and the sealed deposit
+    rendezvous.go                          the client's five §5.14 signatures, over the preimages
+                                           connect/message builds
     tombstone.go                           TOMBSTONE construction and verification
+    reaction.go                            §5.1's REACTION body, and COVER
     eph.go                                 eph_root, buckets, window expiry
     errors.go
 sdk/                                       (existing)
@@ -203,22 +229,51 @@ sdk/                                       (existing)
     smoke/  Makefile
 ```
 
+**Why the storage layer is two packages and not one.** The message server links `connect/message`
+(§12.1, and Spec B §2.2 allows it by name). Spec B §5.3 is normative that *"the message server
+binary MUST NOT link an MLS implementation"*, and Spec B §13 item 8 asserts it over the package
+`github.com/urnetwork/connect/mls`. One package cannot satisfy both: `xwing.go` needs `connect/mls`'s
+four reviewed X25519 wrappers (§5.4, guardrail G3), so the first server package that parses a
+record drags `connect/mls` into the closure behind it. That is not hypothetical — the message
+server's own dependency gate failed on exactly it, with `connect/message` measured as the single
+direct importer in a 481-package closure and `xwing.go` as the single importing file. The split is
+therefore by **capability**: `connect/message` is everything the server may reach and reaches no MLS
+type; `connect/messagegroup` is everything else, and its `connect/mls` import is its ordinary case
+rather than a tolerated exception.
+
+**The name is load-bearing.** `messagegroup` is a **sibling** of `message` and not a child. Spec B
+§2.2's allow list covers `connect/message` and everything beneath it, so a client half at
+`connect/message/group` would be linkable by the server with the dependency gate silent — measured
+in both directions against a working copy. A sibling is outside that allowance, so the day a server
+package imports it the gate fails by name and a human looks, which is the behaviour the rule exists
+for. Do not relocate `messagegroup` under `message`.
+
 ### 2.3 Layering rules (enforced in CI)
 
 ```
-sdk  ──imports──▶  connect/message  ──imports──▶  connect/mls  ──imports──▶  connect/mls/syntax
- │                        │
- └──imports──▶  connect ◀─┘
+sdk  ──imports──▶  connect/messagegroup  ──imports──▶  connect/mls  ──imports──▶  connect/mls/syntax
+                      │                                                           ▲
+                      └──imports──▶  connect/message  ────────────────────────────┘
+
+sdk, connect/messagegroup and connect/message may each import connect.
+connect imports none of the three.
 ```
 
 Forbidden edges, each asserted by a test in `connect/layering_test.go` and `sdk/layering_test.go`
 that walks `go list -deps`:
 
-- `connect` → `connect/mls` or `connect/message` (A2)
-- `connect/mls` → `connect` or `connect/message` (MLS must be a self-contained crypto library, so it
-  can be audited and fuzzed without the transport)
+- `connect` → `connect/mls`, `connect/message` or `connect/messagegroup` (A2)
+- **`connect/message` → `connect/mls`** — the edge the §2.2 split exists to forbid, and the one
+  a refactor breaks by accident. `connect/message` is the package the message server links; Spec B
+  §5.3 is normative that that binary links no MLS implementation and Spec B §13 item 8 asserts it
+  over the package. `connect/mls/syntax` is allowed and is not an MLS implementation — no MLS type,
+  no key schedule, no validation semantic
+- **`connect/message` → `connect/messagegroup`** — the split is one way. The client half knows
+  about the record; the record does not know about the client
+- `connect/mls` → `connect`, `connect/message` or `connect/messagegroup` (MLS must be a
+  self-contained crypto library, so it can be audited and fuzzed without the transport)
 - `connect/mls/syntax` → anything but stdlib
-- `connect/message` → `sdk`
+- `connect/message` or `connect/messagegroup` → `sdk`
 
 ### 2.4 Modules and dependency policy
 
@@ -922,10 +977,19 @@ instead of running alongside the build. MASTER §15 item 7 carries the same ruli
 
 ---
 
-## 5. `connect/message` — the storage layer
+## 5. `connect/message` and `connect/messagegroup` — the storage layer
 
 MASTER §8 defines the record, its AADs, and the key schedule. This section defines the Go types, the
 package API, and the invariants the code must carry.
+
+**The storage layer is two packages, and every file annotation below names which.** `connect/message`
+is the server-safe half — the record the message server parses, the four preimages it
+authenticates one with, and the surface §12.1 publishes. `connect/messagegroup` is the client half
+— the key schedule, both ratchets, the session, the sealer, the wraps and the MLS adapter. The
+boundary is a capability rather than a convenience: Spec B §5.3 forbids the message server binary an
+MLS implementation, `connect/mls`'s four reviewed X25519 wrappers are what X-Wing (§5.4) is built
+on, and one package cannot both be linked by that binary and reach them. §2.2 carries the tree and
+§2.3 the forbidden edges.
 
 ### 5.1 Record types
 
@@ -1061,8 +1125,10 @@ wrong produces a circular AAD that *appears* to work until two implementations d
 The API makes the order unrepresentable-otherwise:
 
 ```go
-// codec.go
-type recordBuilder struct{ ... }   // unexported; no way to construct a Record by hand
+// messagegroup/seal.go — NOT codec.go: `connect/message/codec.go`'s header states it exports
+// nothing beyond the three functions §12.1 publishes, and SealRecord/OpenRecord are on no line
+// of §12.1 because the server never seals and never opens.
+type recordBuilder struct{ ... }   // unexported; the only builder inside this package
 
 // the only way to build a record. the steps happen inside, in order.
 // serverAttachment is nil for an ordinary record and MUST then encode zero-length (§5.11).
@@ -1076,14 +1142,24 @@ func (self *GroupSession) SealRecord(
 func (self *GroupSession) OpenRecord(record *Record) (headPlain, bodyPlain []byte, err error)
 ```
 
-`Record` has no exported constructor and its fields are set only by `codec.go` and by the decoder.
+`Record` has no exported constructor, and the builder above is unexported so that nothing in
+`connect/messagegroup` assembles one out of order. **That is a discipline inside the package and not
+a guarantee of the language:** `Record`'s fields are all exported, so a keyed composite literal from
+any package builds one, and no gate can stop it. The property the builder buys is that the *ordered*
+path is the only one anybody writes, which is what §5.2 is for; a reader who takes it for a
+compiler-enforced invariant will be wrong in the same way §6's `stagedRef` sentence was.
+
 Spec B's server-side code never seals or opens; it uses `message.ParseRecord`, `message.EncodeRecord`,
-and `message.VerifyWriteAuth`, which are the only exported functions it needs (§12.1).
+and `message.VerifyWriteAuth`, which are the only exported functions it needs (§12.1). It links
+`connect/message` and never `connect/messagegroup`, so `SealRecord` and `OpenRecord` are not merely
+absent from its surface — they are absent from its binary.
 
 ### 5.3 Key schedule
 
 ```go
-// keyschedule.go
+// messagegroup/keyschedule.go — the whole of this block is in the client half. §12.1 gives the
+// message server "no key-schedule function", and after the §2.2 split that is a fact about which
+// package it links rather than a rule somebody has to remember.
 
 // storage_root[n] = HKDF-Extract(salt = mls_secret[n], ikm = pq_secret[n])   MASTER §7
 //
@@ -1117,14 +1193,19 @@ func RecordKeyNext(recordKey []byte) []byte
 func RecordAeadHead(recordKey []byte) (key, nonce []byte)
 func RecordAeadBody(recordKey []byte) (key, nonce []byte)
 
+// messagegroup/handle.go — §2.2's tree puts these two in handle.go, not here.
 // group_handle_key = HKDF-Expand(storage_root[0], "gh/v1", 32)  — FIXED at group
 // creation, so sender_handle survives epoch changes. MASTER §8.
 func GroupHandleKey(storageRootEpoch0 []byte) []byte
 func SenderHandle(groupHandleKey []byte, leaf uint32) [16]byte
+
+// messagegroup/eph.go — NewEphRoot and EphKey are declared above under keyschedule.go's
+// header and belong in eph.go, per §2.2's tree.
 ```
 
 `NewEphRoot` takes an `io.Reader` and nothing else — no group, no epoch, no storage root. There is
-deliberately no function in this package that produces an `eph_root` from any durable input. MASTER
+deliberately no function in `connect/messagegroup` that produces an `eph_root` from any durable
+input, and none in `connect/message` at all. MASTER
 §8.1 calls this out as the most easily broken property in the design: a derivation would compile, pass
 every test that does not specifically look for it, and silently make every expired message
 recoverable forever. The type signature is the defence. `TestEphRootHasNoDurableInput` additionally
@@ -1138,7 +1219,10 @@ the ordering of combiner inputs and the domain-separation label are transcribed 
 reconstructed.
 
 ```go
-// xwing.go
+// messagegroup/xwing.go — the client half. This file is the one that imports connect/mls,
+// for the four reviewed X25519 wrappers below, and its import is why the storage layer is two
+// packages: a message server that linked it would link an MLS implementation, which Spec B
+// §5.3 forbids. The server never wraps, never unwraps and never holds an X-Wing key.
 const (
     XwingSeedSize       = 32     // dk, the storable private key
     XwingExpandedSize   = 96     // SHAKE256(seed, 96): [0:64] = ML-KEM d‖z, [64:96] = X25519 sk
@@ -1176,14 +1260,16 @@ negative test that a low-order X25519 point produces an error rather than a zero
 test that a truncated or over-long ciphertext is rejected by length before any arithmetic.
 
 **`sdk.GenerateSharedSecret` (`sdk/sdk.go:804-817`), `box.Precompute`, and `curve25519.ScalarMult`
-MUST NOT be referenced anywhere in `connect/mls`, `connect/message`, or `sdk/message_*.go`.** A CI
+MUST NOT be referenced anywhere in `connect/mls`, `connect/message`, `connect/messagegroup`, or
+`sdk/message_*.go`.** The grep gate's scan roots must name `connect/messagegroup` from the day it
+exists; a confinement gate whose root is missing reports clean having read nothing. A CI
 grep gate asserts this (§11.4). The existing function length-checks only, reaches deprecated
 `ScalarMult` through `box.Precompute`, and returns an all-zero secret on a low-order point.
 
 ### 5.5 The sender ratchet and the skipped-key window
 
 ```go
-// ratchet.go
+// messagegroup/ratchet.go
 // a real forward ratchet: the sender overwrites record_key[i] after use.
 // receivers keep a bounded window of skipped keys for out-of-order receipt.
 type SenderRatchet struct {
@@ -1228,9 +1314,12 @@ Nonce reuse under a repeated `record_key` is a total break of both AEADs for tha
 the reservation is durable rather than best-effort.
 
 ```go
-// ratchet.go
-// the reservation MUST be durable before the key is produced. this is the
+// messagegroup/streamindex.go — the reserver is not a ratchet, and it is ordered before one.
+// The reservation MUST be durable before the key is produced. This is the
 // caller's obligation and the constructor takes the sink to make it explicit.
+// The DURABLE implementation is not here and is not in connect/messagegroup at
+// all: §8.2's MessageStore declares ReserveStreamIndex and StreamHighWater, method
+// for method, and sdk owns the persistence.
 type StreamIndexReserver interface {
     // returns only after the reservation is durable (fsync'd or equivalent).
     Reserve(groupId []byte, index uint64) error
@@ -1250,7 +1339,7 @@ produced twice.
 ### 5.7 `write_auth`, `req_auth` and the recovery proof
 
 ```go
-// writeauth.go
+// message/writeauth.go — the server-safe half: §12.1 publishes every name in this block.
 func WriteKey(storageRoot []byte) []byte    // HKDF-Expand(storage_root[n], "write/v1", 32)
 
 // MAC(write_key, "URmessage/v1/write" ‖ LP(server_nonce) ‖ LP(group_id)
@@ -1789,10 +1878,17 @@ Tests: `TestRendezvousIdIsTokenDerived`, `TestDepositIsExactly5238Bytes`,
 Gate 5 (§4.5). The interface is declared at each consumer (A3); Go's structural typing makes the
 `connect/mls` adapter satisfy both without an import edge.
 
+**It is declared in `connect/messagegroup` and not in `connect/message`.** §12.1 gives the message
+server *"no MLS type"*, and `GroupHandle` is twenty-three of them; an interface over an MLS group in
+the package that binary links is the thing §2.2's split exists to prevent. `EngineProcessed` and the
+`connect/mls` adapter are in the same package as the interface, and that is forced rather than tidy:
+`stagedRef` is unexported, so only a member of the package that declares `EngineProcessed` can
+populate one, and separating them would leave the adapter unable to stage a commit unforgeably.
+
 ```go
-// connect/message/engine.go
+// connect/messagegroup/engine.go
 //
-// the entire MLS surface connect/message is allowed to see. adding a method
+// the entire MLS surface the storage layer is allowed to see. adding a method
 // here is a design decision, not a convenience — everything added is something
 // a replacement implementation must provide.
 type GroupEngine interface {
@@ -1848,14 +1944,23 @@ type EngineProcessed struct {
 Note what is **not** on this interface: no tree, no node, no secret tree, no HPKE, no
 `epoch_secret`, no `confirmation_key`, no `membership_key`, no ciphersuite internals. `EngineProcessed.Raw`
 and `stagedRef` are deliberately opaque so a staged commit can be carried across a policy decision
-without `connect/message` being able to read or forge it.
+without `connect/messagegroup` being able to read or forge it.
+
+**The scope of that guarantee, stated because the loose reading of it has been wrong once.**
+`stagedRef` being unexported confines **populating** it, not implementing the interface. A keyed
+composite literal naming only the exported fields is legal across package boundaries, so a
+replacement engine may be declared anywhere and satisfy `GroupHandle`; what it cannot do is put
+anything in `stagedRef`, so it must carry its staged commit in `Raw` — where
+`connect/messagegroup` can read and forge it — or in state of its own. The unforgeability above
+therefore holds **for engines declared in `connect/messagegroup`**, and a foreign engine trades that
+guarantee for its independence. Gate 5's swap is unaffected: it is a change to the factory below.
 
 **The swap point** lives in `sdk`, where the product decides:
 
 ```go
 // sdk/message_mls.go
 type MlsEngineFactory interface {
-    NewEngine(store MlsStateStore, signer *MessageIdentity) (message.GroupEngine, error)
+    NewEngine(store MlsStateStore, signer *MessageIdentity) (messagegroup.GroupEngine, error)
 }
 
 // the v1 factory. replacing it is a one-line change and TestEngineSwappable
@@ -4183,7 +4288,11 @@ the `sdk` surface, caught at PR time, not at release time when the Android clien
 ### 12.1 To the message server (Spec B)
 
 **What Spec B imports from us.** `github.com/urnetwork/connect/message`, via the existing
-`replace ../` in `server/go.mod`. This table is the single published version of that surface and is
+`replace ../` in `server/go.mod` — and, since §2.2's split, **that package and nothing beside
+it**. `github.com/urnetwork/connect/messagegroup` holds the key schedule, both ratchets, the
+session, the sealer, X-Wing, the wraps and the MLS adapter, and Spec B §2.2's allow list does not
+carry it, so a server that reached for one of them fails the message server's own dependency gate by
+name rather than by review. This table is the single published version of that surface and is
 restated character-for-character in Spec B §12.1 (A-1):
 
 ```go
@@ -4285,6 +4394,15 @@ mailbox.
 The server may use **only** this surface. It gets no decryption function, no key-schedule function, and no
 MLS type. A test in the message-server repo asserts the allowlist. If Spec B ever needs more, that is a
 design discussion, not a patch.
+
+**Two of those three are now facts about the binary rather than rules about the reader.** After
+§2.2's split the key schedule and every MLS type are in `connect/messagegroup`, which the message
+server does not link and which its dependency gate does not allow; reaching one is a build the gate
+refuses, not a review it passes. The third — *no decryption function* — is still a rule about
+this list, because `connect/message` exports more than this list does: `AADHead`, `AADBody` and
+`BodyBinding` build MASTER §8's two record AEAD preimages and are deliberately on no line here
+(A-9). This block has never been the package's export set, and the split does not make it one. The
+allowlist test is what holds the difference, and it is still unwritten.
 
 **Two amendments from the implementation (A-8, 2026-08-25).** Both are in the block above and both
 are restated in Spec B §12.1, which is the same list.

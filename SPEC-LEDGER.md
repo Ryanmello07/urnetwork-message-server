@@ -1530,8 +1530,21 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      `Welcome`'s own delivery channel. Blocks m1 Task 16 and therefore CP3b. Found 2026-09-04 while
      writing m1. Filed as m1 Open item M1-2.
 
-127. **BLOCKS CP3b — no written plan owns the client-side submit leg, and CP3b's own definition
-     requires one.** CP3b is *"a message is private — the same path"* as CP3a, and CP3a's path ends
+127. **OWNED 2026-09-06 — the client-side submit leg is `s2`'s, an sdk plan that has not been
+     written.** The owner ruled shape **(a)** below, on the reasoning that `sdk` already owns
+     transport and storage and that Spec A §8.2's `MessageStore` already declares
+     `ReserveStreamIndex` and `StreamHighWater`, which is `message.StreamIndexReserver` method for
+     method and which m1 Task 6 now only interfaces. So the item is no longer *"no plan owns it"*;
+     it is *"the plan that owns it does not exist yet"*, and **`s2` is on the CP3b critical path**
+     carrying two of the milestone's six external legs — the submit path and the durable
+     `StreamIndexReserver`. m1's **O-5** is answered by the same ruling: `s2` inherits Task 6's
+     interface, its five properties and its whole mutation set, `TestStreamIndexNeverReused`
+     included. Shape (b) was rejected: it reaches the milestone sooner through a harness that is not
+     the product's transport, so what it proves is the record half and not the client half. It stays
+     **BLOCKS CP3b** until `s2` is written and executed. The problem as filed, which is what `s2`
+     has to close, follows.
+
+     CP3b is *"a message is private — the same path"* as CP3a, and CP3a's path ends
      at the message server. Measured 2026-09-05 over the m1 plan: `grep -nE 'Submit|transport|
      harness'` finds **no task producing a submit path**, and no task's Produces names one; every
      m1 task ends at a `*Record` in memory. The server half needs nothing new — `store` and the api
@@ -1546,9 +1559,10 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      it — two `connect/message.GroupSession`s sealing, `harness` submitting and fetching, where the
      import direction already allows it — which reaches the milestone sooner and proves the *record*
      half rather than the *client* half, and requires changing a package whose doc comment is an
-     argument for the absences it has. **This is the largest thing m1 files:** every other open item
-     it carries is a rule that is missing, and this is a milestone leg that is missing. Found
-     2026-09-05 repairing m1. Filed as m1 Open item M1-42.
+     argument for the absences it has. **(a) was ruled.** While it was open this was the largest
+     thing m1 filed: every other open item it carries is a rule that is missing, and this is a
+     milestone leg that is missing. Found 2026-09-05 repairing m1; filed as m1 Open item M1-42;
+     owned 2026-09-06.
 
 128. **BLOCKS CP3b — `ct_head`'s retention class is unruled, and m1's own refusal for it stops a
      wave-2 task.** MASTER §8.1: *"`ct_head` is always under the **durable** class, since it is
@@ -1565,6 +1579,41 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      is inside `AAD_head` and inside the `write_auth` preimage, so a snapshot written at a guessed
      class is wire-visible and unrecoverable after A6. Wire-visible. Found 2026-09-04 while writing
      m1, promoted 2026-09-05 while repairing it. Filed as m1 Open item M1-6.
+
+129. **RULED 2026-09-06 — `connect/message` is split in two, and item 11 was the wrong diagnosis
+     of the failure that forced it.** `TestEveryDependencyOfThisModuleIsOneSpecB22Allows` has been
+     red since `c089bb3` with *"spec B §2.2 forbids these outright and this module reaches them:
+     github.com/urnetwork/connect/mls"*. The 2026-09-06 entry below it read that as item 11's
+     question — whether §2.2 says that allowing a package allows the module behind it —
+     *"arriving as a failing test rather than as a hypothetical"*, and said it *"wants a ruling
+     rather than an allow-list edit"*. **The first half of that was wrong and is corrected here.**
+     Item 11 is about the ~204 packages of 31 modules that arrive behind `connect`'s root; this was
+     one package of the **same** module reached by one import, and no rule about modules would have
+     answered it. The second half was right, and the ruling is not a rule about §2.2 at all: the
+     import was wrong.
+
+     **Measured before the ruling, at `c089bb3`.** `go list -deps -test ./...` over this module
+     names **exactly one** direct importer of `github.com/urnetwork/connect/mls` in a 481-package
+     closure, and it is `github.com/urnetwork/connect/message`. Inside that package it is
+     **`xwing.go` alone** — Spec A §5.4's four reviewed X25519 wrappers, `ErrNilRandomSource`, and
+     two compile-time pins. `connect/mls/syntax`, which `aad.go`, `codec.go`, `attachment.go` and
+     `writeauth.go` use, is separately allowed as of spec B revision 10 and is not the cause. This
+     module names `Xwing` **zero** times, tests included.
+
+     **The ruling.** `connect/message` keeps the server-safe half — the record, its codec, the two
+     AAD preimages, the `write_auth`/`req_auth` MACs, the server attachment, the recovery proof and
+     §12.1's rendezvous verifiers. `connect/messagegroup`, a **sibling** package, takes the client
+     half — the key schedule, both ratchets, the stream-index reserver, X-Wing, the wraps, the
+     session, the sealer, the cards, the client's rendezvous signatures and §6's engine. The
+     property is a **capability**: the message server *cannot* link an MLS parser, rather than does
+     not call one.
+
+     *Blocks:* nothing in the plan; it is one commit in the `connect` tree and it is m1's wave 0.
+     Until it lands the gate stays red, **and that red is expected and must not be silenced** —
+     no allow-list entry for `connect/mls`, no skip, no known-failure marker. *Verified:* with
+     `xwing.go` and `xwing_errors.go` moved in a working copy and nothing else changed, the gate
+     passes with no edit to `allowedDependencies` and none to spec B. Filed as m1's ruling section;
+     the split's own findings are m1 **M1-46**, **M1-47** and **M1-48**.
 
 ## 6. Change process
 
@@ -2821,3 +2870,185 @@ per the standing rule on this machine.
 **Reviewed by:** the author, as a diff, against the six findings handed over, Spec A §5, §5.6, §5.11
 and §6, `connect/message` source, and a compiled reproduction of the `stagedRef` claim. The linter is
 the review that runs next time.
+
+
+### 2026-09-06 — two owner rulings: `connect/message` is split so the server cannot link MLS, and the submit leg is `s2`'s
+
+**Change:** the m1 plan, Spec A, Spec B's revision history and this ledger. **No code.** The code
+move — creating `connect/messagegroup` and moving `xwing.go` into it — is a separate commit in the
+`connect` tree, and another agent holds that tree.
+
+*On the date in this heading:* the machine's clock says 2026-09-05, and `c089bb3` — the linter
+commit the entry above this one describes — is committed 2026-09-05 while every document calls that
+pass 2026-09-06. This heading follows the documents' clock so the append-only log stays monotone; the
+measurements below were taken 2026-09-05 and are dated as such where they appear. Recorded rather
+than quietly reconciled, because a date that drifts by one is how a two-day gap gets inferred later.
+
+---
+
+**Ruling 1 — `connect/message` splits, and the property is a capability rather than a habit.**
+
+The trigger was a live red test, reproduced here before anything was written.
+`go test ./ -run TestEveryDependencyOfThisModuleIsOneSpecB22Allows` at `c089bb3`:
+
+> spec B §2.2 forbids these outright and this module reaches them:
+>   github.com/urnetwork/connect/mls
+
+**Every claim in the brief was measured and every one reproduced.**
+
+| Claim | Measured |
+|---|---|
+| the gate fails at `c089bb3` for `connect/mls` | yes, on all four release platforms and this developer's own build |
+| `connect/mls` enters through `connect/message` | `go list -deps -test ./...`: **exactly one** direct importer in a 481-package closure |
+| inside it, through `xwing.go` alone | yes — the only non-test file naming `mls.` |
+| `connect/mls/syntax` is separately allowed | yes, `deps_test.go:146`, spec B revision 10 |
+| `msgrepo` uses X-Wing nowhere | `grep -rn 'Xwing' --include='*.go'` returns **0** |
+
+**The split was derived rather than accepted, and the authority is §12.1.** Spec A §12.1 is the
+published surface Spec B restates character for character, and §5.2 summarises it: *"Spec B's
+server-side code never seals or opens."* Measured against this module: every `message.X` symbol it
+names, tests included, is **37 distinct symbols**, and all 37 are declared in `record.go`,
+`codec.go`, `attachment.go`, `writeauth.go` or `errors.go`. So `connect/message` keeps those five
+plus `recovery.go` and §12.1's half of `rendezvous.go`; everything else m1 writes — the key
+schedule, both ratchets, the reserver, the session, the sealer, the wraps, the epoch fan-out, the
+cards, the blob derivations, §6's engine and its `connect/mls` adapter — goes to
+`connect/messagegroup`.
+
+**Three places the derivation disagreed with the brief, all three findings rather than defects.**
+
+- **`aad.go` stays, and not for the reason given.** The brief lists it among *"the record layer the
+  server genuinely parses"*. It is not: this module calls `AADHead`, `AADBody` and `BodyBinding`
+  **zero** times, and §12.1 A-9 says those three are *"deliberately on no line of §12.1 because
+  the server never decrypts"*. It stays anyway, because `BodyBinding()` is a **method** on
+  `RecordHeader` — Go permits a method only in its type's own package, so the move is a shape
+  change to landed, vector-tested code — and because `aad.go` reaches only `connect/mls/syntax`,
+  which §2.2 allows. The property the ruling protects is *"the server cannot link an MLS parser"*,
+  not *"the server links only §12.1"*; the narrower one is a test, and it is still the one
+  ledger open item 7 asks for. Filed as m1 **M1-46**.
+- **`recovery.go` and `rendezvous.go` are genuinely on both sides.** §12.1 publishes
+  `RecoveryProof` **and** `VerifyRecoveryProof`, and nine rendezvous functions; those stay in
+  `connect/message`. The client half of §5.14 — the 5,238-octet deposit sealed under X-Wing, and
+  the five signers — cannot: X-Wing is the file that carries the `connect/mls` edge. So
+  `rendezvous.go` exists in both packages, one file per side, and the line between them is §12.1's.
+- **`RecoveryProof` is a signer on a surface whose own closing sentence is *"The server gets
+  verifiers and no signers"*.** Pre-existing; the split makes it visible. Filed as m1 **M1-47**, to
+  be ruled with M1-29, which is the same question about `DepositVerifyKey`.
+
+**Task 9a's adapter was the sharpest instance, and M1-43's correction did useful work.** The plan
+put the `connect/mls` adapter in `message/engine.go` — the package the server imports — citing
+§2.2 line 180. §12.1 gives the server *"no MLS type"* and `GroupHandle` is twenty-three of them,
+so interface, adapter **and `EngineProcessed`** all move. The togetherness is forced: `stagedRef` is
+unexported, so an adapter in `messagegroup` over an `EngineProcessed` left in `message` could not
+populate it, and §6's unforgeability argument would have been lost to a directory change nobody
+would have read as a security decision. Under M1-43's **old, false** premise — that `stagedRef`
+confined every implementation — that consequence was invisible.
+
+**The sibling name is load-bearing, and it was probed in both directions rather than argued.**
+`allowedDependencies` carries `connect/message` as a **subtree** (`deps_test.go:145`). Against a
+working copy of `connect` with the split applied and a throwaway importer in this module:
+
+| client half at | imports `connect/mls` | gate says |
+|---|---|---|
+| `connect/messagegroup` | no | **FAIL** — "not in spec B §2.2's allow list" |
+| `connect/message/group` | no | **silence** — the subtree entry covers it |
+| `connect/message/group` | yes | FAIL, but only because `connect/mls` is separately forbidden |
+
+So under a subtree child the server could link the whole key schedule, both ratchets, the session
+and the sealer with the gate saying nothing — which is the *"does not call one"* property the
+ruling rejects. Written into the plan, into Spec A §2.2 and into Spec B's revision 13 as a
+do-not-tidy.
+
+**Four gate scopes move with the split, and three of the four move silently.** Every one derives its
+class over a directory list, and a gate whose root is missing reports clean having read nothing.
+Read out of `connect` source: Gate A's `forbiddenScanRoots = {".", "../message"}`
+(`mls/crypto_forbidden_test.go:46`) needs `"../messagegroup"`; **Gate B walks Gate A's list**
+(`mls/crypto_test.go:7781`), so the same one line fixes it — and Gate B is the one that fails
+loudly, because its two rows for `XwingGenerateKey` and `XwingEncapsulate` resolve against the
+declaring package, so the move forces `entropy_test.go` to move in the same commit; Gate C's
+`authScanDir = "."` (`message/writeauth_test.go:1624`) leaves the client half with no constant-time
+gate at all; Gate D's `joinScanRoots` (`message/record_test.go:673`) leaves the client half outside
+the class-and-bucket scan while `joinAllowedPaths` correctly does not move, because `record.go` does
+not. Tabled in the plan's constraints section with the commit each belongs in.
+
+**Spec B needs no amendment, and that was measured rather than reasoned.** With `xwing.go` and
+`xwing_errors.go` moved in a working copy and **nothing else changed**, the same gate passes — no
+edit to `allowedDependencies`, none to §2.2's ALLOWED or FORBIDDEN blocks. The gate's failure
+message offers two readings, *"either the import is wrong, or §2.2 has grown"*; the import was
+wrong. Spec B gains a revision-13 entry saying so and nothing else, because *"nothing changed"* is a
+claim that has to be measured on this project. One thing recorded and **not** taken: adding
+`connect/messagegroup` to §2.2's FORBIDDEN block would upgrade the gate's generic refusal to a
+named one, but it needs a matching row in `forbiddenDependencies` and it is an owner's call.
+
+**The X25519 wrappers, for the follow-on commit, with the recommendation labelled as one.**
+`xwing.go` needs four wrappers, one sentinel and two pins from `connect/mls`. **(a)**
+`connect/messagegroup` imports `connect/mls` and the import is correct — it is the client half and
+the client holds the group. **(b)** `crypto/ecdh` directly: this is the shape that would let
+`xwing.go` stay put and need no new package at all, and it is the one to refuse — it needs a
+**second** entry in `ecdhAllowedPaths`, and G3 exists because `sdk.GenerateSharedSecret` returned an
+all-zero secret on a low-order point. **(c)** a shared low-level home: rewires `connect/mls` for one
+caller, and `connect/mls/x25519` would put a second child of `connect/mls` in the tree.
+**Recommendation: (a).** And stated explicitly so it is not read as having been answered: (a) does
+**not** answer `deps_test.go`'s reserved question about *"a second child of `connect/mls` entering
+this closure"*, because nothing new enters this module's closure — `connect/messagegroup` is a
+sibling, not a child, and this module does not import it. Verified by probe: making it import one
+fails the gate by name. Filed as m1 **M1-48**.
+
+---
+
+**Ruling 2 — the client-side submit leg is an sdk plan, `s2`.**
+
+Open item **127** moves from *"no written plan owns it"* to **OWNED**, and m1's **M1-42** closes with
+it. The reasoning is the owner's: `sdk` already owns transport and storage, and Spec A §8.2's
+`MessageStore` already declares `ReserveStreamIndex` and `StreamHighWater`, which is
+`message.StreamIndexReserver` method for method and which m1 Task 6 now only interfaces. Shape (b)
+— an `msgrepo`-side integration test over `harness` — was rejected: it reaches the milestone
+sooner through a transport that is not the product's, so what it proves is the record half.
+
+**`s2` does not exist and is now on the CP3b critical path.** m1's external-leg list goes from five
+legs to six and `s2` owns **two** of them: the submit path (leg 4) and the durable
+`StreamIndexReserver` (leg 5). **O-5 is answered** in the same stroke — `s2` inherits Task 6's
+interface, its five properties and its whole mutation set, `TestStreamIndexNeverReused` included,
+which §5.9 names as G5's and G11's and which no other plan owns. Leg 6 is the split itself.
+
+---
+
+**One correction to the entry above this one.** The 2026-09-06 linter entry read the red dependency
+gate as ledger item 11's question — whether allowing a package allows the module behind it —
+*"arriving as a failing test rather than as a hypothetical"*. That diagnosis was wrong. Item 11 is
+about the ~204 packages of 31 modules that arrive behind `connect`'s root; this was one package of
+the **same** module reached by one import, and no rule about modules would have answered it. The
+entry's second half — *"it wants a ruling rather than an allow-list edit"* — was right, and the
+ruling turned out not to be about §2.2 at all. Corrected in open item **129**.
+
+**The plan linter was run before and after, and it caught an instance of its own target class in
+this pass's new text.** Before: green, with 19 reporting findings against m1. After the first draft
+of these edits: **`check 2b` fatal** — *"m1 Task 3 Property 6 states its derived class is empty at
+this task and names no later task where the class first has a member"*. It was a real defect and it
+was mine: rewriting Property 6's scope for the split, I wrote that the class *"has no member on the
+other side"*, which is a claim about `connect/message` that the linter correctly could not
+distinguish from a claim about the property's own class. The class is not empty — at Task 3's
+commit it has exactly one member, `StorageRoot` — so the fix was to state the count instead of
+the absence. **This is the fourth consecutive pass over this plan to introduce a fresh instance of
+the class it was sweeping, and the first where the sweep's own output was checked before the
+commit.** After: green.
+
+The linter's other movement is reporting and expected: m1's plan-token findings go from 16 to 42,
+because Ruling 2 makes the plan name `s2` many times and `s2` has no document. That is the ruling
+being recorded, not a defect, and the check's own severity note already says *"today s2 through s10
+are cited as owners of unwritten work, which the plans say on purpose"*. The three pre-existing
+findings in other plans (p8's `Task 2a`, the registry's `p1 Task 17b`, the `p6 Task 23` cited in
+three documents) are unchanged and still print on every run.
+
+**The msgrepo suite is red at this commit and the red is expected.**
+`TestEveryDependencyOfThisModuleIsOneSpecB22Allows` fails because `connect/message` still imports
+`connect/mls`. **What turns it green is the `connect` commit, not anything in this repository.** No
+allow-list entry for `connect/mls` was added, the gate was not skipped, and it is not marked as a
+known failure. Everything else in the module builds: `go build ./...` is green.
+
+**Index checked before the commit:** `git ls-files` and `git ls-tree -r HEAD --name-only` compared,
+per the standing rule on this machine.
+
+**Reviewed by:** the author, as a diff, against Spec A §2.2, §2.3, §5.2–§5.7, §6 and §12.1,
+Spec B §2.2, §5.3 and §13 item 8, `msgrepo/deps_test.go`, `connect`'s four gate files read for
+their scan roots, and two working-copy probes of the dependency gate — one with the split applied
+and one with the client half placed under `connect/message/` instead.
