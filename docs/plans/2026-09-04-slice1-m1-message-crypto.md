@@ -1027,8 +1027,9 @@ Definition of done. **It landed on 2026-09-08**, in `connect` on branch `beta/me
 of what that commit did and measured**, replacing the prediction that stood here: three consecutive
 passes described this move on paper and each was found short by executing it — first by two test
 files, then by a fifth gate and a testdata corpus, then by four string literals inside a moved test.
-This pass executed it, and the seven items in Property 6 are what execution returned that the
-description did not contain. **A reader taking wave 1 needs the two standing obligations under Step
+This pass executed it, and the **nine** items in Property 6 are what execution and the review
+after it returned that the description did not contain — seven from executing the move, and two
+more on 2026-09-09 from a second reader running the same class over the same diff. **A reader taking wave 1 needs the two standing obligations under Step
 6; everything above them is history.**
 
 **Files, as committed:**
@@ -1114,8 +1115,11 @@ package messagegroup
 
   **Property 6 — the derived set is larger than any description of it, and this is the number the
   round was for.** Everything the brief's known set predicted was needed, and beyond it **that
-  class has seven further members**, each demanded by the compiler, by the tests, or by rule 11's
-  pass over this commit's own diff:
+  class has nine further members**, each demanded by the compiler, by the tests, or by rule 11's
+  pass over this commit's own diff. **Seven is what executing the move returned; the count went
+  to nine on 2026-09-09**, when a second reader ran the same class over the same diff and found
+  two more — which is itself the finding, because items 8 and 9 were demanded on exactly the
+  terms above and this list is what a pass that stops at its own diff looks like:
   1. `mls/extension.go:568` and `:582`, `mls/crypto_test.go:7933` and `:7946`,
      `mls/extension_test.go:2247` and the three classification-table values at `:3623`, `:3624`
      and `:3628` — production and test prose naming `../message` as where X-Wing's second
@@ -1139,6 +1143,27 @@ package messagegroup
      is excluded by `connect/.git/info/exclude`, so they are not in the `connect` commit; the
      tracked copy at `docs/plans/2026-08-12-slice1-interface-registry.md` is repaired in this
      repository's commit instead.
+  8. **Three present-tense sentences saying `connect/messagegroup` imports `connect/message`** —
+     `message/doc.go:19` and `:40`, and `layering_test.go:17`. It does not. Measured 2026-09-05:
+     its production imports are `crypto/ecdh`, `crypto/mlkem`, `crypto/sha3`, `errors`, `io` and
+     `connect/mls`, and `TestEveryPackageBuiltOnThisOneIsUnderTheConstantTimeGate` reports **0**
+     production importers of `connect/message`. Two of the three were written by this commit in
+     `message/doc.go` — the file it rewrote to close this very class — and the third in
+     `layering_test.go`, three paragraphs above that same file's correct statement of the
+     opposite. Closed in `connect` `449f3ab`. **This is why the count moved:** item 2's rule 11
+     pass was scoped to path references inside the moved files, so it never reached the
+     import-direction sentences the same commit was writing two files over.
+  9. **A seventh gate scope, and the one that catches this tree's most persistent failure.**
+     `TestThePackageSourceIsOneLineEndingThroughout` (`mls/vectors_runner_test.go`) scanned
+     `mls` alone. It is not one of the six above, so nothing widened it, and it is the gate that
+     refuses a package whose files disagree about how a line ends — the condition under which an
+     anchored edit matches nothing and reports success, and under which a scanner anchored on a
+     line start reads a whole file as one body and reports clean. In git nothing showed: every
+     blob of all three packages was lf and `git diff` was empty. The WORKING TREE, which is what
+     an anchored edit actually reads, was `mls` 137 crlf / 0 lf, `message` 6 / 7 and
+     `messagegroup` 5 / 1 — `mls` uniform **because** it had this gate. Widened to a derived
+     closure over the packages that read each other's text, and both trees normalised, in
+     `connect` `449f3ab`; the normalisation changed no blob.
 
 - [ ] **Step 2: The red it started from.** `msgrepo`'s dependency gate, red at `main` with
   *"spec B §2.2 forbids these outright and this module reaches them:
@@ -3530,8 +3555,9 @@ Wave 3  17, 18, 19, 20, 21 | 22 → 23 | 24                          (A6 freeze;
 Task 0 — where it is now a record and not a plan.** It landed 2026-09-08 as `9acefd9`. Its contents
 are derived there and in the constraints section rather than summarised here, because this paragraph
 was the summary and it was short three times — once by the two `xwing` test files, once by a whole
-testdata corpus and two gates nobody had named, and once by seven further kinds of edit that only
-executing it returned (Task 0 Property 6). Do not read this outline as the list. Nothing in wave 1
+testdata corpus and two gates nobody had named, and once by nine further kinds of edit, seven of
+which only executing it returned and two of which only a second reader's pass over its own diff
+did (Task 0 Property 6). Do not read this outline as the list. Nothing in wave 1
 was blocked on it — every task below can be written against either package layout,
 because the split changes which directory a file lands in and not what it does — but **`msgrepo`'s
 suite stays red until it lands**, and a wave-1 task that creates `keyschedule.go` in

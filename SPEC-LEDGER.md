@@ -3610,3 +3610,131 @@ build, `msgrepo`'s `go test ./...`, and fourteen mutations with their verdicts. 
 commit was sent to close — *a scope or a statement that names `connect/message` where the subject is
 now in `connect/messagegroup`* — was run back over the commit's own diff and then package-wide, and
 returned items 1, 2, 3, 6 and 7 above.
+
+### 2026-09-09 — the four findings after the split: a seventh gate scope, three sentences that were not true, and a log that could not say which kind of empty it was
+
+**The split itself was not reopened.** 7,495 `--- PASS` / 0 `--- FAIL` / 0 `--- SKIP`, `deps_test.go`
+and `go.mod` still byte-identical, `connect/mls` still out of `msgrepo`'s closure, the six gate
+scopes still live. What follows is the review's four findings, closed in `connect` `449f3ab` and in
+this repository's commit beside this entry.
+
+**1 — There was a seventh gate scope, and it is the one that catches this tree's most persistent
+failure.** `TestThePackageSourceIsOneLineEndingThroughout` (`mls/vectors_runner_test.go`) scanned
+`mls` alone. It was not in the six-gate set wave 0 widened, so nothing widened it, and it is the gate
+that refuses a package whose files disagree about how a line ends — the condition under which an
+exact-string edit matches nothing and reports success, and under which a scanner anchored on a line
+start reads a whole file as one body and *reports clean having found nothing*.
+
+State the measurement precisely, because the obvious framing is wrong. **In git nothing was
+inconsistent**: every blob of all three packages was already LF, and `git diff` was empty across the
+entire drift, because `core.autocrlf=true` cleans on the way in. **The working tree — which is what
+an anchored edit actually reads — was mixed**: `mls` 137 CRLF / 0 LF, `connect/message` 6 / 7,
+`connect/messagegroup` 5 / 1. Files smudged at checkout land CRLF; files written in-session by tools
+land LF. `mls` stayed uniform **because it had this gate**, and the two packages without one are what
+a package with no gate looks like after a fortnight.
+
+Widened to a **derived closure**, not a list, per guardrail 5. `lineEndingScanRoots` starts at `mls`,
+follows every `"../..."` path **literal** its source hands to something — read off the syntax tree,
+so a directory that prose merely mentions is not mistaken for one a gate opens — and repeats in
+whatever that reaches. It lands on exactly the packages that read each other's *text*: `mls` scans
+`../message` and `../messagegroup`, `../message` scans `../messagegroup` and `../mls`, and
+`../messagegroup` names `../mls` back. A root added to any of those scans is added here with nobody
+remembering to. Three things it declines, each because the rule declines them: a literal resolving to
+nothing on disk (`"../elsewhere"`, `"../nowhere"` — fixture names); a literal outside this module
+(`joinScanRoots` reaches the `sdk` repository beside `connect`, a different checkout with its own
+`autocrlf`); and a literal that cleans to `".."`, which is **not** hypothetical — the derivation's own
+`"../"` prefix is such a literal, and the first run of the closure over its own source read it as an
+instruction to judge `connect`'s root package. The coverage claim is checked rather than asserted,
+against `forbiddenScanRoots`.
+
+Both working trees were normalised to CRLF, which is what this checkout's `autocrlf` would have
+produced. **That changed no blob**: `git add` staged the eight files as no diff at all, and the eight
+do not appear in the commit. Judged **per package**, pinned to neither ending.
+
+**2 — Two sentences said `connect/messagegroup` imports `connect/message`, and package-wide there
+were three.** It does not: measured 2026-09-05, its production imports are `crypto/ecdh`,
+`crypto/mlkem`, `crypto/sha3`, `errors`, `io` and `connect/mls`, and
+`TestEveryPackageBuiltOnThisOneIsUnderTheConstantTimeGate` reports **0** production importers of
+`connect/message`. Two were in `message/doc.go` — the file wave 0 rewrote to close this very class —
+and searching package-wide rather than in the diff, per guardrail 11a, found a third in
+`layering_test.go`, three paragraphs above that same file's correct statement of the opposite. All
+three now say something a measurement backs, or are gone.
+
+**3 — Gate C shipped the log line the round before was told not to ship.** *"0 comparators in the
+derived class: []"* reads identically whether the gate is armed or dead. **The design was not
+undone** — the class is derived from the scanned code's own imports, which is what makes it self
+extending, and M1-50 already records the honest residual. What was added is a line saying **which
+kind of empty**: the imports it read, that none of those packages exports a function answering a
+question about two data-shaped arguments, that the first comparison written over there brings that
+package's whole comparator surface in on the same run, and that
+`TestEveryPackageBuiltOnThisOneIsUnderTheConstantTimeGate` is the half doing work today. Guardrail
+11a again: the identical bare zero sat one test below on the verifier set and got the same treatment.
+The claim is now falsifiable and was falsified on purpose — a first `bytes.Equal` in
+`connect/messagegroup` grew that class from **0 to 16** comparators on the same run and the gate
+reported the violation.
+
+Recorded where the root is declared: **narrowing `authScanRoots` back to `{"."}` is silent today**
+(mutation 14). Re-measured rather than copied — the full `message` suite is `ok` under that mutation.
+
+**4 — The count of what wave 0's description was short by is nine, not seven.** Two more members of
+the same class turned up on an independent pass over the same diff: finding 2's three sentences, and
+finding 1's seventh gate scope. **Why it moved is the interesting half**: wave 0's own rule 11 pass
+was scoped to path references inside the moved files, so it never reached the import-direction
+sentences the same commit was writing two files over — which is guardrail 11a's warning, arriving as
+a worked example rather than as advice. `2026-09-04-slice1-m1-message-crypto.md` Task 0 Property 6
+now lists nine and says which two are late and why. **The heading of the 2026-09-08 entry above still
+reads "seven kinds of edit"; it is corrected here rather than rewritten there, because a ledger that
+edits its own past entries is not a ledger.**
+
+Also under finding 4: **`connect/message`'s test binary reaches `connect/messagegroup` by filesystem
+path** (Gate C's `authScanRoots`, Gate D's `messagegroupRoot`), so the split is one-way in the import
+graph while the suite is coupled to the sibling directory existing on disk — `go test ./message/` in
+a tree where that directory is gone fails outright rather than passing over a quietly smaller scope,
+which is what those gates are written for. Stated in `connect/layering_test.go`, where a reader of
+the layering rules will find it. It is a property of the design, not a defect.
+
+**One claim in the review did not reproduce, and no change was manufactured for it.** The review said
+the plan's mutation 7 states an effect that does not happen — that deleting the corpus's
+`.gitattributes` turns both `TestXwingVectorDirectoryDisablesGitsTextConversion` and
+`TestXwingVectorFileWasNotSmudgedOnTheWayIn` red. It does not say that. The 2026-09-08 commit had
+already corrected it, in both places: Task 0 Step 5 mutation 7 reads *"**CAUGHT**, but in one test and
+not two"* with the re-smudge reasoning, and the ledger entry above records the refinement. Left
+alone.
+
+**`p2`'s ~20 statements placing X-Wing under `connect/message` stay as written, and the ruling that
+they should is upheld.** A landed plan is the record of what its tasks did; rewriting it to match a
+later move falsifies the record rather than correcting it. What was owed and is now paid is **one
+dated note at the head of `p2`'s File Structure table** — naming the seven rows, the move, the commit,
+the reason, and the one row (`connect/message/doc.go`) that did not move — instead of twenty in-place
+rewrites. That note first cited *"that plan's Task 0"*, which turned check 3a from four findings to
+five because `p2` declares no Task 0; caught by running the linter, and rephrased.
+
+**Mutations, `connect` `449f3ab`.** Eleven applied, every one confirmed to have landed with
+`git diff --numstat` before its verdict was believed, every one reverted by restoring the file's
+bytes rather than by `git checkout --`, which on an uncommitted file discards the work under it — a
+mistake made once in this round and repaired by rebuilding the file from its source of truth.
+**Caught (9):** an LF file in each of the three packages; a file mixed within itself; the closure
+losing its siblings and the closure truncated to one root, both by the coverage assertion; a first
+`bytes.Equal` in `messagegroup`; an `hmac.Equal` verifier in `message`, by both halves of G8; and
+`authScanRoots` narrowed, re-measured as **silent** and therefore recorded rather than relied on.
+**Survivor (1):** disabling the closure's file-literal-to-parent-directory branch changes nothing
+today, because both siblings are also named as bare directory literals. **Control (1):** flipping all
+of `messagegroup` to LF leaves the gate **green**, which is the per-package, ending-agnostic property
+stated as something observable.
+
+**Guardrail 11 was run against this round's own diff, for the classes it was sent to close, and it
+found two.** A mention count measured over three packages and attributed to one — removed rather than
+corrected, because a number in a comment about how often a comment says something is the most
+perishable sentence a file can hold. And a date: the split had been "corrected" to `2026-09-05`, the
+commit's author date, when the tree and this ledger both call it **the 2026-09-06 split**. Reverted;
+the odd one out was the correction.
+
+**Verified.** `connect`: `go vet` clean on the three packages; `gofmt` clean on every changed file;
+`go test -count=1 -v ./mls/... ./message/... ./messagegroup/...` — **7495 `--- PASS`, 0 `--- FAIL`,
+0 `--- SKIP`**, `ok` on all four packages; `connect`'s layering tests green; the cross-platform gate
+reporting *"9 platforms x 3 package trees built with CGO_ENABLED=0"*, 27 subtests green; `git ls-files`
+1080 = `git ls-tree -r HEAD` 1080 before and after. `msgrepo`: `go test ./ -run TestThePlanLinter`
+**7 of 7**, and every check identical to the recorded baseline — 1a **0**, 1b **7**, 1c **1**,
+1d **0 / 189**, 2a **19**, 2b **0**, 3a **4**, 3b **0**, 3c **2**, 3d **0**, 4a **0**, 4b **6**.
+Every edit in both repositories was made byte-exactly with an asserted occurrence count and never
+with `sed -i`.

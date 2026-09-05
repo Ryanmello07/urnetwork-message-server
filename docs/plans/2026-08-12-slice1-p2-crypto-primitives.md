@@ -123,6 +123,21 @@ Two findings that change what gets implemented:
 
 ## File Structure
 
+> **Dated note, 2026-09-08 — X-Wing is no longer in `connect/message`.** The seven rows below
+> that put `xwing*.go` and `testdata/vectors/rfc/xwing-draft10.json` under `connect/message/`
+> record where **this plan** created them, and they are left exactly as written on purpose: a
+> landed plan is the record of what its tasks did, and rewriting it to match a later move
+> falsifies that record rather than correcting it. Wave 0 of
+> `2026-09-04-slice1-m1-message-crypto.md` moved that half to **`connect/messagegroup`**
+> (`connect` commit `9acefd9`), because spec B §2.2 forbids the message server from linking an
+> MLS parser at all and `xwing.go` was the tree's only import of `connect/mls` from
+> `connect/message`. `connect/message/doc.go` is the one row here that did not move.
+>
+> **For where these files are today, read that plan's wave 0 record, not this table.** The same
+> applies to every other statement in this document placing X-Wing under `connect/message`,
+> including the Architecture paragraph above. This note is the whole correction, made once at
+> the head, and it is the alternative that was chosen over rewriting those statements in place.
+
 | File | Responsibility |
 |---|---|
 | `connect/go.mod` | **not modified here** — `go 1.26.3` + `toolchain go1.26.5` is p1 Task 1's edit; Task 1 asserts it |
