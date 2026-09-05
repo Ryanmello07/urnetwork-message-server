@@ -2653,3 +2653,171 @@ the package-wide comparator gate at `:2473`; §8.2's `MessageStore` at spec line
 `connect` source. No code changed, so no mutation testing applies. Its equivalent here was the pass
 above: every finding the review handed over was re-derived from the tree before it entered the plan,
 and two of its counts did not survive.
+
+---
+### 2026-09-06 — the plan linter, and the sixth round of m1 findings it makes unnecessary
+
+**Change:** `planlint_test.go` — an ordinary `go test` in this module, over **every** file matching
+`docs/plans/*.md`, checking the four defect classes this project's plans have actually shipped. Plus
+the six m1 findings the review that commissioned it handed over, all six reproduced against source
+before being acted on.
+
+**Why a test and not a sixth careful pass.** The 2026-09-05 repair was a careful pass. It swept m1
+for properties deriving a class empty at their own commit, **introduced a fifth instance while doing
+so** — in the very task it rewrote — replaced an unsatisfiable property with a vacuous one, replaced
+an undecidable class with another undecidable class, and dropped two of the three relocations it
+made, including the one whose own instruction was *"note it in both tasks so it is not dropped
+between them."* Its author was not careless. Its author had no way to check their own new text
+against the class they were sweeping, because the sweep was prose and the check came afterwards from
+someone else. Thirteen documents, 61,364 lines, every one written to the same rigid shape — Files,
+Interfaces, Properties, Mutations — and this repository is a Go module. That is a machine's job.
+
+**The four checks, each derived from the document's own structure and none keyed to a heading.**
+
+1. **A property with no mutation that would make it fail** (fatal). Found **m1 Task 16**: four
+   properties and no mutation step at all, through five human passes. Two reporting arms beside it:
+   where a document links mutations to properties by name — s1 writes *"Property 1 must fail"* and
+   m1 writes it nowhere, and the linter derives which convention a document uses rather than
+   assuming one — every property must be named by a mutation (seven unlinked in s1); and a task that
+   supplies a finished Go test with no mutation set (189 across p1–p8, which is the *"roughly
+   thirty"* of ledger-era memory measured properly).
+2. **A property deriving a class empty at its own task** (2b fatal, 2a reporting). 2b is the one the
+   repair needed: an empty-class property owes a relocation, the relocation owes a **reciprocal at
+   the destination naming the source task and property**, and that is the plan's own instruction
+   read back to it. It found both unlanded relocations and passed the one that landed. Naming the
+   destination task in passing is not a reciprocal — m1 Task 15 named Task 13 twice while holding
+   none of what Task 13 sent it, which is exactly the miss.
+3. **A cross-reference that does not resolve** — `Task N`, `Task Na`, `M1-n`/`S1-n`/`O-n`, ledger
+   item numbers, and plan-to-plan tokens. Item and ledger references are fatal and clean. Task
+   references report, on three findings in documents this pass may not edit, all three real and all
+   three printed on every run.
+4. **A `Consumes` entry naming something no earlier task `Produces`** (4a fatal and clean; 4b
+   reporting).
+
+**Reporting versus fatal is written down, not implied.** Every check that reports states, in the
+constant that sets its severity, exactly what turns it fatal. No check was weakened to make an old
+plan pass; the severity moved and the derived class did not. And every check fatals if its class is
+empty across the whole corpus — a gate reporting the clean run of a complete gate having read
+nothing is this project's most expensive failure mode and this file refuses to be an instance of it.
+
+**What it cannot see is in its own doc comment**, because the next author needs to know which half is
+still theirs: it cannot decide whether a class is semantically decidable, it cannot tell a true claim
+from a false one, it cannot decide that a stated mutation would refute the property beside it, and it
+does not resolve spec-section or spec-line references.
+
+**And it has a control fixture**, `TestThePlanLinterFlagsTheControlFixture`, in the shape of
+`connect/mls`'s `TestHkdfConfinementFlagsTheControlFixture`: a synthetic plan carrying one instance
+of every defect **beside** one instance of the correct form, read through the same constructor the
+corpus is read through, with each defect required to come back. Three of the four checks report
+rather than fail today; a reporting check that quietly stopped deriving anything would be
+indistinguishable from one with nothing to report, and this is what keeps the two apart.
+
+---
+
+**The six m1 findings, and the one measurement that decided the largest of them.**
+
+**HIGH — a claim that is false as a matter of Go semantics, in six places.** M1-43 said
+*"`stagedRef` being unexported confines EVERY `GroupEngine` implementation to package
+`connect/message`"*, and that was the sole stated reason the adapter's home was forced. **Compiled
+on the pinned go1.26.5 in a five-line throwaway module:** a keyed composite literal naming only
+exported fields is legal across packages, so a foreign type declaring
+`Process(...) (*msg.EngineProcessed, error)` and returning `&msg.EngineProcessed{Kind: 3, Raw: b}`
+builds green and satisfies `msg.GroupHandle`. What the compiler refuses is the field and nothing
+else: *"cannot refer to unexported field stagedRef in struct literal"* for a keyed literal naming
+it, *"implicit assignment to unexported field stagedRef"* for an unkeyed one. **Only populating
+`stagedRef` is confined.** All six statements corrected, and the argument redone on true premises:
+the adapter lives in `message/engine.go` because **§2.2 line 180 puts it there** and because it is
+the one implementation that carries a staged `mls` commit through `stagedRef` — a **choice**, not a
+forcing, and M1-43 now says so. The news for §6 is better than the wrong claim was: Gate 5's swap is
+not confined to one package's source tree, and what a foreign engine gives up is the unforgeability
+guarantee rather than the ability to exist. §6 owes one sentence saying so; recommended, not taken.
+
+**HIGH — an unsatisfiable property replaced by a vacuous one.** Task 9 Property 3's headline —
+*"`*mls.Group` does not satisfy `GroupHandle`"* — was asserted by nothing. Its two teeth were (i) *"a
+test asserting `var _ GroupHandle = (*mls.Group)(nil)` must not exist"*, which cannot fire in any
+state where the test binary builds, and (ii) a restatement of Property 4. **A non-event is not an
+assertion.** The headline is deleted. What replaces it has a mechanism, a class and a member: *no
+method on `GroupEngine` or `GroupHandle` names a type from `connect/mls`*, over a class that is 27
+members from this task's first commit, which is the property that actually refuses the one reshape
+Gate 5 exists to stop. The 13-mismatch table stays as the argument for Task 9a rather than as a
+property, and mutation 7 now records that **the compiler** refuses it — the assertion does not build
+— rather than asking for a gate that searches for a line which cannot exist in a buildable tree.
+
+**HIGH — the CP3b prefix still did not close, one leg further along.** The 2026-09-05 repair made
+the external-leg list authoritative and exhaustive — *"tasks 1–16 and 9a, plus four legs outside this
+plan"* — and in the same pass **deleted Task 6's only production `StreamIndexReserver`
+implementation**, leaving the interface and a test-only fake, **without adding it to the list**. The
+list is now five, the fifth is the durable reserver, and it is stated where it bites: §5.6 says a
+reused `stream_index` is a reused nonce under a reused `record_key`, *"a total break of both AEADs
+for that record"*, so a CP3b run over the fake proves the record layer and not the client. Owned by
+the unwritten sdk store plan (O-5, blocked behind S1-9), carrying M1-5's keying ruling and M1-25's
+fsync cost. The alternative — give Task 6 back a production implementation and put `os` into a
+package whose whole production import set is seven `crypto` packages, `fmt`, `io`, `mls` and
+`mls/syntax` — is stated and not taken.
+
+**HIGH — the fifth empty-derived-class, the one the repair introduced.** Task 7 Property 1, as
+rewritten, derived *"every path from `Next` … to a `RecordAeadHead`/`RecordAeadBody` call"* and asked
+for an AST check on each member of that reached class. **Measured 2026-09-06: zero members at
+Task 7.** `RecordAeadHead`/`RecordAeadBody` are declared by Task 5 and called by nothing until
+Task 11's `SealRecord`; `Next` has no production caller either. The shape the property named for its
+own second mechanism — `aad_test.go`'s discard gate — fatals on an empty class, so as written it
+fails on arrival, and written without the guard it passes vacuously. Repaired the way the other four
+were: the AST check and the behavioural test stay at Task 7 over `Next`, a one-member class from this
+task's first commit; the reachability walk moves to **Task 11 Property 3**, which names Task 7
+Property 1 back.
+
+**HIGH — two relocations that never landed at their destinations.** Task 9 Property 2's relocated
+half was to become *"a derived-class gate over readers of `EngineProcessed`"* at Task 9a; what had
+landed was a claim about what the adapter **writes** into `Raw`. Task 13 Property 4's was to become a
+derived-class gate over readers of the provisional epoch value at Task 15; nothing landed at all.
+Both halves are now at their destinations — Task 9a Property 3 carries the reader gate over a
+two-member class beside the producer half, Task 15 gains **Property 6** over the fan-out's own
+readers plus two mutations — and each names its source property back.
+
+**MEDIUM — an undecidable class replaced by an undecidable class.** Task 13 Property 2 half B was
+rewritten to derive *"every package-level function returning a 32-octet secret"*. Measured against
+source: `WriteKey` (`connect/message/writeauth.go:158`) and `ReadKey` (`:172`) return **`[]byte`**,
+so *"32-octet"* is not readable off any signature — it is the same semantic question one clause
+further along. Half A, the sampler's parameter list being exactly `(io.Reader)`, is decidable and is
+kept. Half B is regrounded on the sampler's **reachable set**: it must reach its own `io.Reader` and
+must reach nothing in `keyschedule.go`, `handle.go`, `writeauth.go` or any `hkdf` entry point.
+*Reaching a derivation* is decidable where *being a derived value* is not, and it is what refuses
+mutation 3 whatever the return type is. The identity question stays with the author and with M1-17,
+and the plan now says so.
+
+**And one finding of check 1 in m1 itself, which no human pass had reported:** Task 16 stated four
+properties and no mutation. It now states seven, each naming the property it refutes.
+
+---
+
+**Verified by running, not by reading.** `go build ./...` green; `gofmt -l` clean; `go vet ./...`
+clean. All six plan-linter tests pass over all twelve plan documents. The repair was then **checked
+by reintroducing it**: deleting Task 16's mutation set turns check 1a red; stripping the reciprocal
+at Task 15, at Task 9a, or at Task 11 turns check 2b red in each case, naming the source property and
+the destination; and pointing Task 7 Property 1's relocation at a task that does not exist turns 2b
+and 3a red together. The `stagedRef` claim was disproved by compiling, not by argument, and the
+compiler's two refusals are quoted in M1-43.
+
+**One pre-existing failure, not caused by this change and not fixed by it.**
+`TestEveryDependencyOfThisModuleIsOneSpecB22Allows` (`deps_test.go`) is red at `0e4359d` and stays
+red: `github.com/urnetwork/connect/mls` is in this module's closure, reached through
+`connect/message`, which §2.2 allows while forbidding `connect/mls`. Confirmed by running the gate
+with `planlint_test.go` removed from the tree. It is ledger item 11's question — *"§2.2 does not say
+whether allowing a package allows the module behind it"* — arriving as a failing test rather than as
+a hypothetical, and it wants a ruling rather than an allow-list edit.
+
+**Findings in other plans, reported and deliberately not fixed**, per the instruction that this pass
+runs the linter everywhere and repairs only m1: p8 line 883 attributes `profile.go` in prose to a
+task number one below the heading p8 gives that file; the interface registry cites a p1 task suffix
+p1 does not declare; the p6 citation in m1's, s1's and this ledger's R1 paragraph names a task number
+above the twenty p6 declares, so the error is in three documents and the linter cannot say which is
+right; seven s1 properties are named by no mutation in a document whose mutations name properties
+throughout; and 189 p1–p8 tasks supply a finished test with no mutation set. Every one prints on
+every run.
+
+**Index checked before the commit:** `git ls-files` and `git ls-tree -r HEAD --name-only` compared,
+per the standing rule on this machine.
+
+**Reviewed by:** the author, as a diff, against the six findings handed over, Spec A §5, §5.6, §5.11
+and §6, `connect/message` source, and a compiled reproduction of the `stagedRef` claim. The linter is
+the review that runs next time.

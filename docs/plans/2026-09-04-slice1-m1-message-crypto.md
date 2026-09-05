@@ -369,8 +369,10 @@ type GroupHandle interface{ /* 23 methods: the MLS surface connect/message is al
 type EngineProcessed struct{ /* Raw and stagedRef opaque */ }
 
 // the connect/mls adapter. *mls.Group does NOT satisfy GroupHandle — 13 of the 23 methods
-// cannot match, measured; see Task 9 property 3. This is what does, and it lives in this
-// package because stagedRef is unexported (M1-43).
+// cannot match, measured; see Task 9 property 3. This is what does, and §2.2's tree (spec
+// line 180) is why it lives in this file. stagedRef does NOT force that: a keyed composite
+// literal naming only exported fields is legal across packages, so a foreign type CAN
+// implement Process — only POPULATING stagedRef is confined (M1-43).
 func NewConnectMlsEngine(...) (GroupEngine, error)
 ```
 
@@ -487,7 +489,7 @@ discovered at Task 14.
 | 2 | 13–16 | **yes** | the second client's half; Tasks 14 and 16 need rulings M1-1 and M1-2 |
 | 3 | 17–24 | **no** | required before the A6 format freeze; none is required to put a message in front of a person |
 
-**And the leg this plan does not have.** CP3b's own words are *"through the message server"*. Every
+**And the two legs this plan does not have.** CP3b's own words are *"through the message server"*. Every
 task above stops at a `*Record` in memory. Measured on 2026-09-05: `grep -nE 'Submit|transport|
 harness'` over this document finds **no task producing a submit path**; `msgrepo/store` and the api
 layer serve `Submit` and `Fetch` and need nothing new (the 2026-09-02 chain review's leg 3, verified);
@@ -497,6 +499,16 @@ by its own doc comment. The chain review assigns the client leg to **s1 plus the
 plans that do not exist** — *"the transport binding, a send path and a receive path"* — and this plan
 does not touch `sdk`. **Open item M1-42** files that no written plan owns it, and the Definition of
 done below names it in the external legs rather than implying tasks 1–16 reach the milestone alone.
+
+**The second leg is the durable `stream_index` reserver, and it was made a leg by this plan's own
+repair.** Task 6 declares `StreamIndexReserver` and — since 2026-09-05 — ships **no** production
+implementation, only the interface and a file-backed fake confined to `streamindex_test.go`; §8.2
+assigns the durable one to `sdk`'s `MessageStore`, whose plan is unwritten. §5.6 is explicit about
+what the fake stands in for: a reused `stream_index` is a reused nonce under a reused `record_key`,
+*"a total break of both AEADs for that record"*. So a CP3b run over the fake proves the record layer
+and not the client, exactly as a run without the submit path does. It is **leg 5** of the Definition
+of done, asked of the sdk store plan as **O-5**, and it is there because an exhaustive list that
+silently lost a leg is the failure this section was written to stop.
 
 **On the CP3b path and already done, so no task exists for it:** the whole of §5.4 (X-Wing), §5.1's
 record types and both ladders, §5.8's codec, §5.7's `write_auth` and `req_auth`, and §5.11's
@@ -1107,6 +1119,14 @@ s2 entirely"*), and every property below is an obligation that plan inherits. Sa
 interface's doc comment, so a reader who finds no implementation finds the reason instead of writing
 one.
 
+**And the deletion's consequence is now on the Definition of done, where it belongs.** Removing the
+production implementation from this task removed a piece from CP3b's path, and the 2026-09-05 pass
+that removed it did not add it to the external-leg list that same pass made exhaustive. It is
+**leg 5** there now: a durable `StreamIndexReserver`, owned by the unwritten sdk store plan, asked of
+it as **O-5**, and carrying M1-5's keying ruling and M1-25's fsync cost with it. A CP3b run over this
+task's test fake proves the record layer and not the client, and the Definition of done says so
+rather than leaving it to be discovered at the milestone.
+
 - [ ] **Step 1: Derive the property and write the failing test**
 
   **Property 1 — `Reserve` returns only after the reservation survives a process death.** The
@@ -1199,38 +1219,57 @@ whether a member's stream survives an epoch change, and §5.5 states both. **Ope
 - [ ] **Step 1: Derive the property and write the failing test**
 
   **Property 1 — the reservation completes, and completes successfully, before the key exists.**
-  Two claims, and they need two mechanisms, because the earlier version of this property named one
-  that can only prove the first.
+  Two claims, and they need two mechanisms, because the version of this property before the
+  2026-09-06 pass named one that can only prove the first — and the version before *that* one named
+  a mechanism whose class is empty at this task. Both corrections are stated below rather than
+  silently applied, because the second is the fifth instance of a defect class this plan has now
+  repaired five times.
 
-  **What a call-graph walk can prove: reachability.** `writeauth_test.go`'s
-  `TestReadAuthNeverUsesWriteKey` (`:1904`) walks edges read off the syntax tree and answers *does
-  root X reach function Y* — it is a reachability walk with a `reaches` list to prove it followed
-  something, and a positive control fixture under `testdata`. Copy it for the half it fits: **every
-  path from `Next` (or from `SealRecord`, per the M1-13 ruling) to a `RecordAeadHead` /
-  `RecordAeadBody` call reaches `Reserve`.** That refuses mutation 3, dropping the `Reserve` call,
-  and nothing else in this task's mutation set.
+  **The class the previous version derived is empty at this task's commit.** It said: *"every path
+  from `Next` (or from `SealRecord`, per the M1-13 ruling) to a `RecordAeadHead` / `RecordAeadBody`
+  call reaches `Reserve`"*, and then asked for an AST check *"on each member of that reached
+  class"*. **Measured 2026-09-06, that class has zero members at Task 7.** `RecordAeadHead` and
+  `RecordAeadBody` are declared by Task 5 and **called by nothing** until Task 11's `SealRecord`;
+  `SealRecord` does not exist until Task 11; and `Next` itself is declared by this task and has no
+  production caller yet. So a path from either root to either AEAD derivation does not exist, and
+  the very shape the previous version named for the second mechanism — `aad_test.go`'s discard gate
+  at `:1537-1541` — **fatals on an empty class**, which is what the tree's house style does rather
+  than reporting clean over one (`aad_test.go:1293`, `:1432`, `:1539`; `writeauth_test.go:2451`).
+  Written as stated, it fails on arrival; written without the guard, it passes vacuously. That is
+  exactly what Task 1 Property 1 measured for the AAD builders three tasks earlier, and it is the
+  same commit boundary: **the first production call of anything in `keyschedule.go` is Task 11's.**
 
-  **What it cannot prove: that the path passes through a *returned-nil* `Reserve`.** *"Passes
-  through a returned-nil `Reserve`"* is error handling and ordering, not reachability, and both are
-  invisible to that walk: a body that calls `Reserve`, discards its error and computes the key is
-  reachability-identical to one that checks it. This task's own **mutation 5 — ignore `Reserve`'s
-  error** — is therefore invisible to the mechanism the earlier version named, and a mutation a
-  test cannot see is the defect R1 exists for. Mutation 4's ordering is invisible to it too.
+  **So Property 1 splits, and the two halves land in two commits.**
 
-  So Property 1 is held by **three** things, and the task owes all three:
+  **Here, at Task 7, where the class has a member — the ratchet's own body.** Both mechanisms below
+  derive over `SenderRatchet.Next`, which this task declares, so **the class is one member at this
+  task's commit** and it is non-empty from this task's first commit:
 
-  - the reachability walk above, in `TestReadAuthNeverUsesWriteKey`'s shape, with its own positive
-    control — it refuses mutation 3;
-  - an **AST check on each member of that reached class**: the `Reserve` call's error result is
-    bound and the function returns on non-nil before any key derivation. Both halves are decidable
-    on the syntax tree within one function body, which is where they live; `aad_test.go`'s discard
-    gate (`:1537-1541`) is the shape, and it fatals on an empty class — it refuses mutations 4 and 5;
+  - an **AST check on `Next` itself**: the `Reserve` call's error result is bound, and the function
+    returns on non-nil **before** any call into `keyschedule.go`. Both halves are decidable on the
+    syntax tree within one function body, which is where they live; `aad_test.go`'s discard gate
+    (`:1537-1541`) is the shape and it fatals on an empty class, which is safe here because the
+    class is `Next` and `Next` exists. It refuses mutations 4 and 5;
   - a **behavioural** test with an injected failing reserver, asserting no key and no index is
-    produced when `Reserve` returns an error — which is the property stated as behaviour and the
-    only one of the three that survives a refactor into a shape the AST check does not recognise.
+    produced when `Reserve` returns an error — the property stated as behaviour, and the only
+    mechanism that survives a refactor into a shape the AST check does not recognise. It refuses
+    mutations 3, 4 and 5.
 
-  Do not collapse them. Each catches something the other two do not, and the first one alone reads
-  like coverage.
+  **And at Task 11, where the path class first has a member — the reachability walk.** *"Every path
+  from `SealRecord` to a `RecordAeadHead` / `RecordAeadBody` call reaches `Reserve`"* is the
+  derived-class half of this property, and it **moves to Task 11 Property 3**, the commit that
+  first has a path to walk. `writeauth_test.go`'s `TestReadAuthNeverUsesWriteKey` (`:1904`) is the
+  shape: it walks edges read off the syntax tree, answers *does root X reach function Y*, carries a
+  `reaches` list to prove it followed something, and has a positive control fixture under
+  `testdata`. Task 11 Property 3 names this property back, so neither half is dropped between them.
+
+  **What a reachability walk could never prove, wherever it lands.** *"Passes through a
+  returned-nil `Reserve`"* is error handling and ordering, not reachability, and both are invisible
+  to it: a body that calls `Reserve`, discards its error and computes the key is
+  reachability-identical to one that checks it. Mutations 4 and 5 are therefore invisible to the
+  walk at Task 11 as well, which is why the AST check and the behavioural test stay **here** rather
+  than travelling with it. Do not collapse the three. Each catches something the other two do not,
+  and the walk alone reads like coverage.
 
   **Property 2 — `TestRatchetZeroizes`, named by §5.5.** After `Next`, the previous key's backing
   array is zero, *inspected through a second slice header over the same array*. The struct field is
@@ -1418,11 +1457,33 @@ would make Gate 5's swap a type change rather than a factory change. **Open item
   function that reads an `EngineProcessed`. Do not write it here as a derived-class gate that
   passes vacuously — R1 exists because that is the shape thirty plan-supplied tests took.
 
-  **Property 3 — the *adapter* satisfies `GroupHandle`, and `*mls.Group` does not.** The first half
-  is Task 9a's `var _ GroupHandle = (*connectMlsHandle)(nil)`; this task asserts only what it can own,
-  which is the second half.
+  **Property 3 — no method on either interface names a type from `connect/mls`.** The scope
+  question (R3a): the class is the method set of `GroupEngine` and `GroupHandle`, read off the
+  syntax tree of `engine.go`. **That class is 27 members at this task's commit** — 4 and 23,
+  counted off §6's block on 2026-09-05 — and every one is checked for a parameter or result type
+  qualified by the `mls` package. *Refusal owed:* a method whose signature names `mls.LeafIndex`, `mls.Member`,
+  `mls.Processed` or any other `connect/mls` type fails, naming Gate 5.
 
-  **`*mls.Group` is not supposed to satisfy this interface. Measured on 2026-09-05, it cannot** —
+  **This is the property that holds the boundary, and it is the one an implementer will be pushed
+  to break.** The cheap way out of any friction between §6's block and `group.go`'s method set is
+  to change the **interface** until `mls` fits — mutation 6 below is exactly that move — and an
+  interface that names `mls`'s types has stopped being a seam and become a re-export. The class is
+  non-empty from this task's first commit, because this task declares all 27 methods.
+
+  **What this property no longer says, and why.** Its previous form was *"the adapter satisfies
+  `GroupHandle`, and `*mls.Group` does not"*, and the second half of that — the headline — was
+  asserted by nothing. Its two stated teeth were (i) *"a test asserting
+  `var _ GroupHandle = (*mls.Group)(nil)` must not exist"*, which **cannot fire in any state where
+  the test binary builds**: if such a test existed the package would not compile, so the property
+  was true exactly when it was unobservable, and (ii) a restatement of Property 4. A non-event is
+  not an assertion, and a sentence that reads like a guarantee while resting on a non-event is
+  worse than no sentence. **The half that is genuinely checkable is Task 9a's
+  `var _ GroupHandle = (*connectMlsHandle)(nil)`, which is a build failure when it is violated —
+  see Task 9a Property 1.** What survives here is the interface-shape gate above, which has a
+  mechanism, a class and a member.
+
+  **The measurement stays, as the argument for Task 9a rather than as a property.**
+  `*mls.Group` is not supposed to satisfy this interface, and measured on 2026-09-05 it cannot —
   `grep -n '^func (self \*Group) [A-Z]' connect/mls/*.go` against §6's block puts **13 of the 23
   methods** out of reach, and no correct implementation of either side closes them:
 
@@ -1446,13 +1507,11 @@ would make Gate 5's swap a type change rather than a factory change. **Open item
   `EngineProcessed` is declared in `connect/message` and carries an unexported field, so no method in
   `connect/mls` can ever name it. That is the interface working, not failing.
 
-  *Refusal owed:* a test asserting `var _ GroupHandle = (*mls.Group)(nil)` **must not exist**, and a
-  gate over `engine.go` refuses any method signature naming a type from `connect/mls` — because the
-  cheap way out of a red structural assertion is to change the **interface** until `mls` fits, and
-  that is exactly the boundary Gate 5 is for. The previous version of this property asserted the
-  structural identity and told the implementer every method *"must be satisfiable by `*mls.Group`"*;
-  it was red before a single mutation and it pushed toward the one reshape this section forbids.
-  This is its correction.
+  That table is why Task 9a exists and why it is thirteen decisions rather than a delegation. It is
+  not an assertion this task can make: *"a structural mismatch is absent"* is refuted by nothing a
+  test can run, which is the correction Property 3 above records. An older draft went further still
+  and told the implementer every method *"must be satisfiable by `*mls.Group`"* — red before a
+  single mutation, and pushing toward the one reshape this section forbids.
 
   **Property 4 — nothing in this package's production source names `mls.Group` *outside the
   adapter's own file*.** Derived off the tree; this is Gate 5's actual content, and the exemption is
@@ -1464,10 +1523,27 @@ would make Gate 5's swap a type change rather than a factory change. **Open item
   The earlier form of this property — *nothing in this package names `mls.Group`, full stop* —
   contradicted §2.2's own tree, which assigns *"engine.go — the GroupEngine interface (§6) **+ the
   connect/mls adapter**"* to this package (spec line 180), and contradicted Task 9a, which has to
-  exist for `GroupSession` to hold anything real. This plan follows §2.2 (M1-36). The adapter's home
-  is forced rather than chosen: `EngineProcessed.stagedRef` is **unexported**, so only package
-  `message` can construct a populated one, so only package `message` can implement `Process`. See
-  **Open item M1-43** for what that costs §6's claim that the engine is swappable.
+  exist for `GroupSession` to hold anything real. This plan follows §2.2 (M1-36).
+
+  **The adapter's home is a choice, and the earlier reason given for it was false.** That reason
+  was: *"`EngineProcessed.stagedRef` is unexported, so only package `message` can construct a
+  populated one, so only package `message` can implement `Process`."* It is false as a matter of
+  Go semantics, and the reviewer proved it by compiling on the pinned go1.26.5: a keyed composite
+  literal naming only exported fields is legal across package boundaries, so a type in another
+  package declaring `Process(...) (*msg.EngineProcessed, error)` and returning
+  `&msg.EngineProcessed{Kind: 3, Raw: b}` builds green and satisfies `msg.GroupHandle`. What is
+  confined is narrower and is the whole of it: **populating `stagedRef`**. Naming it in a literal
+  from outside is *"cannot refer to unexported field stagedRef in struct literal"*, and an unkeyed
+  literal is *"implicit assignment to unexported field stagedRef"*. Both are compile errors; the
+  keyed-exported-fields form is not.
+
+  So this file is the adapter's home because **§2.2 line 180 puts it here** — *"engine.go — the
+  GroupEngine interface (§6) + the connect/mls adapter"* — and because this adapter is the one
+  implementation that carries a staged `mls` commit through `stagedRef`, which only a member of
+  this package can populate. A replacement engine in another package satisfies the interface;
+  what it cannot do is use `stagedRef`, so it must carry its staged state some other way and
+  §6's unforgeability argument does not reach it. **Open item M1-43** states what that leaves of
+  §6's swap claim, on the corrected premise.
 
 - [ ] **Step 2–4** as above.
 - [ ] **Step 5: Mutation-test.**
@@ -1478,7 +1554,11 @@ would make Gate 5's swap a type change rather than a factory change. **Open item
   5. Drop `Export` from the interface and reach the exporter another way.
   6. Change `OwnLeafIndex`'s result to `mls.LeafIndex` so `*mls.Group` fits — the reshape Property 3
      exists to refuse, and the first one an implementer reaches for.
-  7. Add `var _ GroupHandle = (*mls.Group)(nil)` to a test file.
+  7. Add `var _ GroupHandle = (*mls.Group)(nil)` to a test file. **What refutes this one is the
+     compiler**, not a gate: the assertion does not build, so `go test ./message/...` fails to
+     compile and the mutation is refused before any test runs. Record it as a compile refusal;
+     do not write a gate for it, because a gate that searches for a line which cannot exist in a
+     buildable tree is the non-event Property 3 above was corrected for.
 - [ ] **Step 6: Commit**
 
 ---
@@ -1534,9 +1614,12 @@ adapter takes rather than a translation:
 - `Commit` — over `Group.CreateCommit(byReference, nil, nil)` (`:1952`), projecting `*CommitResult`
   to §6's four returns.
 - `Process`, `ApplyCommit` — `*mls.Processed` in, `*EngineProcessed` out, with the `mls` value
-  carried in **`stagedRef`** and never in `Raw`. This is the pair that forces the adapter into
-  package `message`: `stagedRef` is unexported, so no other package can construct a populated
-  `EngineProcessed`, so no other package can implement `Process`. **Open item M1-43.**
+  carried in **`stagedRef`** and never in `Raw`. This is the pair that needs `stagedRef`, and
+  needing it is what puts *this* adapter in package `message`: `stagedRef` is unexported, so only
+  a member of this package can populate one. It does **not** confine every implementation —
+  a foreign type returning `&message.EngineProcessed{Kind: …, Raw: …}` from a keyed literal over
+  the exported fields compiles and satisfies `GroupHandle`, measured on go1.26.5; it just has
+  nowhere unforgeable to put the staged commit. **Open item M1-43.**
 - `Unprotect` — `*mls.ApplicationMessage` projected to three values.
 
 **What this task must not do.** It must not widen `GroupHandle` to make any of the above cheaper.
@@ -1555,11 +1638,30 @@ adapter is five, and §6's whole value is that the interface is the expensive si
   type mentions `mls.Group` and assert it is exactly this file's, by scanned path (Task 9
   Property 4's other side).
 
-  **Property 3 — `EngineProcessed.Raw` never carries the staged commit.** After `Process`, the
-  value `ApplyCommit` needs is in `stagedRef` and `Raw` is opaque bytes; an `ApplyCommit` handed an
-  `EngineProcessed` this adapter did not build is a typed refusal, not a panic and not a silent
-  no-op. §6: *"so a staged commit can be carried across a policy decision without `connect/message`
-  being able to read or forge it."*
+  **Property 3 — no reader of an `EngineProcessed` inspects `Raw`, and `Raw` never carries the
+  staged commit.** Two halves, and the first is **the derived-class half Task 9 Property 2
+  relocated here**, because this is the commit where its class first has a member.
+
+  **The relocated half — the derived-class gate over *readers*.** Task 9 Property 2 states that
+  `stagedRef` is unexported and that `Raw` is never inspected, and measured at Task 9's commit the
+  class of functions in this package that read an `EngineProcessed` was **empty**; the tree's house
+  style fatals on an empty derived class rather than reporting clean over one, so the reader gate
+  could not land there. The scope question (R3a): the class is every function in this package's
+  production source whose body reads a field of an `EngineProcessed`, derived off the syntax tree
+  and never listed. **At this task's commit that class has two members** — this adapter's `Process`
+  and its `ApplyCommit` — and it grows by one at Task 10, when `GroupSession` reads one. *Refusal
+  owed:* a member that indexes, parses, compares or length-checks `Raw` fails, naming Task 9
+  Property 2 and quoting §6; the gate fatals if it finds no reader at all, in the house phrasing,
+  so it cannot become vacuous again through a refactor.
+
+  **The producer half — what this adapter writes.** After `Process`, the value `ApplyCommit` needs
+  is in `stagedRef` and `Raw` is opaque bytes; an `ApplyCommit` handed an `EngineProcessed` this
+  adapter did not build is a typed refusal, not a panic and not a silent no-op. §6: *"so a staged
+  commit can be carried across a policy decision without `connect/message` being able to read or
+  forge it."* Note the scope this buys and the scope it does not (M1-43): the guarantee is that
+  **this package** cannot forge a staged commit an engine **in this package** staged. It is not a
+  guarantee about an engine declared elsewhere, which can satisfy the interface and has no way to
+  use `stagedRef` at all.
 
   **Property 4 — every projection is total.** For each of the 13, a case where the `mls` side
   reports absence — `MemberAt`'s `false`, `EpochSecret`'s error, an aged-out epoch's
@@ -1748,8 +1850,26 @@ asks for the reading to be promoted into §5.11.
   `AAD_body`. G4 makes the second half unrepresentable; assert it anyway, because the assertion is
   what survives a refactor of `BodyBinding`.
 
-  **Property 3 — the reservation precedes the first AEAD call,** extended from Task 6's property 1
+  **Property 3 — the reservation precedes the first AEAD call,** extended from Task 6's Property 1
   to the real seal, and extended per G11 with an injected commit loss between reserve and re-seal.
+
+  **This is also where Task 7 Property 1's derived-class half lands, and this is the commit where
+  that class first has a member.** Task 7 Property 1 states the reservation-before-key property
+  over `SenderRatchet.Next` — a one-member class at Task 7 — and relocates the **reachability
+  walk** here, because *"every path from `SealRecord` to a `RecordAeadHead` / `RecordAeadBody` call
+  reaches `Reserve`"* has no path to walk until `SealRecord` exists: measured 2026-09-06, nothing
+  in `connect/message` calls either AEAD derivation before this task. The scope question (R3a): the
+  class is the call paths read off the syntax tree from `SealRecord`, never a list, and **it has at
+  least one member at this task's commit** — `SealRecord` itself. `writeauth_test.go`'s
+  `TestReadAuthNeverUsesWriteKey` (`:1904`) is the shape, with its `reaches` list and its positive
+  control under `testdata`, and the gate fatals if it finds no path at all, in the house phrasing,
+  so it cannot go back to being vacuous if `SealRecord` is refactored. *Refusal owed:* a path that
+  reaches an AEAD derivation without reaching `Reserve` fails, naming Task 7 Property 1.
+
+  **What this walk cannot prove stays at Task 7 Property 1** — that the path passes through a
+  *returned-nil* `Reserve`. Error handling and ordering are invisible to a reachability walk, so
+  Task 7 keeps the AST check on `Next` and the behavioural failing-reserver test, and mutation 6
+  below is refused by those rather than by this walk.
 
   **Property 4 — every header field the caller supplies reaches both preimages.**
   `writeauth_test.go` already has `TestEveryWriteAuthInputHasAMutator` and
@@ -1938,14 +2058,40 @@ destroyed apart.
   scan and no reflection decides that: Go reflection sees neither parameter names nor the meaning of
   returned bytes, which is M1-17's point about the sibling eph property.
 
-  So half B is written the way this tree has written the same class twice — **a derived class plus a
-  required-row table, held in both directions** (`message/entropy_test.go`,
-  `mls/crypto_forbidden_test.go`, and `entropyRefusalsHeldOutsideThisPackage` at
-  `mls/crypto_test.go:7776`). The derived class is *every package-level function returning a 32-octet
-  secret*; the table names each member and what it derives it from; a member with no row fails, a
-  row with no member fails, and the sampler's row is the only one whose source is an entropy reader.
-  That is a gate a reviewer reads once per new key, which is the right frequency, and it is the same
-  machinery Property 1's Gate B row already uses. **Open item M1-17** covers the specification half.
+  **And the class the 2026-09-05 pass replaced it with is undecidable too, in the same way.** That
+  pass wrote half B as *"a derived class plus a required-row table, held in both directions"*, with
+  the derived class being **every package-level function returning a 32-octet secret**. Measured
+  2026-09-06 against source: `WriteKey` (`connect/message/writeauth.go:158`) and `ReadKey` (`:172`)
+  both return **`[]byte`**, not `[32]byte`, and so does every derivation in `keyschedule.go` as this
+  plan declares it. *"32-octet"* is therefore not a property any AST scan can read off a signature —
+  it is a fact about what the function computes, which is the same semantic question one clause
+  further along. An undecidable class replaced by an undecidable class is not a repair; it is the
+  same defect in a second draft, and it is filed here rather than passed on a third time.
+
+  **So half B is regrounded on something a syntax tree can decide: the sampler's body reaches no
+  derivation.** The scope question (R3a): the class is the call graph of the sampler, read off the
+  syntax tree from its declaration, in `TestReadAuthNeverUsesWriteKey`'s shape (`writeauth_test.go:1904`)
+  with its `reaches` list and its positive control under `testdata`. **The class has one root and is
+  non-empty at this task's commit**, because this task declares the sampler. Two assertions over it:
+
+  - it **reaches** the entropy source it was handed — `Read` or `io.ReadFull` on the `io.Reader`
+    parameter — so a body that ignores its argument and returns a constant fails;
+  - it **reaches nothing** in `keyschedule.go`, `handle.go` or `writeauth.go`, and no `hkdf` entry
+    point at all. A `pq_secret` computed from anything already in the schedule is the whole defect
+    half B exists for, and *reaching a derivation* is decidable where *being a derived value* is
+    not. This is what refuses **mutation 3**, deriving `pq_secret` from `storage_root[n]`, and it
+    refuses it whatever the return type is.
+
+  *Refusal owed:* an edge from the sampler into any of those files fails, naming this property and
+  §5.10 E1; and the walk fatals if it followed no edge at all, in the house phrasing, so a sampler
+  refactored into a shape the walk does not recognise reports rather than passes.
+
+  **What is still not decidable, stated so the next author knows which half is theirs.** *Is the
+  value this function returns a `pq_secret`?* is a question about meaning. No AST scan, no
+  reflection and no gate in this tree answers it — Go reflection sees neither parameter names nor
+  the meaning of returned bytes, which is M1-17's point about the sibling eph property. Half A pins
+  the signature, half B pins the body's reachable set, and **the identity of the value stays with
+  the author and with §5's text.** **Open item M1-17** covers the specification half.
 
   **Property 3 — the provisional value is destroyed as one thing.** After the destructor, every
   field is zeroized **and** `ClearPendingCommit` has been called. Assert both from one call.
@@ -1959,8 +2105,9 @@ destroyed apart.
   over it (`aad_test.go:1293`, `:1432`, `:1539`; `writeauth_test.go:2451`). So what lands here is the
   half that has a member — **the value itself refuses every accessor after the destructor has run**,
   a typed refusal per G7, asserted behaviourally on the type this task creates — and the
-  derived-class gate over *readers* moves to **Task 15**, the first commit that has one. Note it in
-  both tasks so it is not dropped between them.
+  derived-class gate over *readers* moves to **Task 15 Property 6**, the first commit that has one.
+  Note it in both tasks so it is not dropped between them: Task 15 Property 6 names this property
+  back, and the 2026-09-05 pass that wrote this instruction is the pass that dropped it.
 
   **Property 5 — `TestLostCommitResamplesPqSecret`, named by §5.9 G10 and by §11.2.** Two commits at
   the same epoch produce two different `pq_secret` values, and the second is not the first. It can be
@@ -2158,6 +2305,21 @@ test that is red on purpose is indistinguishable from one that is red by regress
   far as §5.11 step 5 is actually true.** Assert the non-writability, and assert that resumption
   re-derives what it can rather than replaying stored bytes.
 
+  **Property 6 — every reader of the provisional epoch value checks the destroyed flag first.**
+  This is **the derived-class half of Task 13 Property 4**, landing here because this is the commit
+  where the class first has a member. G10's own words are *"there is no path that reads it
+  afterwards"*; Task 13 states the behavioural half — the value refuses every accessor once its
+  destructor has run — and could not state this half, because measured at Task 13's commit the
+  class of readers was **empty** (the readers are this task's fan-out and Task 21's retry loop, and
+  neither existed), and the tree's house style fatals on an empty derived class rather than
+  reporting clean over one. The scope question (R3a): the class is every function in this package's
+  production source that reads a field of the provisional epoch value, derived off the syntax tree
+  and never listed. **At this task's commit that class has at least one member** — this task's
+  fan-out builder, which reads `pq_secret[n+1]` to build the wraps — and it gains Task 21's retry
+  loop later. *Refusal owed:* a member that reads a field without first checking the destroyed flag
+  fails, naming Task 13 Property 4 and quoting G10; the gate fatals if it finds no reader at all,
+  in the house phrasing, so it cannot become vacuous through a refactor.
+
   **Do not assert step 5's derivability claim, because this plan elsewhere files it as false.**
   §5.11 step 5 says the missing wraps are *"all derivable from the epoch state every member holds"*.
   **M1-22 says why they are not:** `pq_secret[n+1]` is a fresh CSPRNG draw taken by the committer
@@ -2185,7 +2347,10 @@ test that is red on purpose is indistinguishable from one that is red by regress
 - [ ] **Steps 2–6** as above, with mutations including: emit the marker before the last wrap; type
   the count as a literal; count the snapshot twice; MAC a wrap under `write_key[n]`; put the
   `EpochAttachment` on a non-commit record (the landed `attachment.go` must refuse it and the test
-  must prove it does); set the attachment's epoch to `n`.
+  must prove it does); set the attachment's epoch to `n`; read `pq_secret[n+1]` off the provisional
+  epoch value without checking the destroyed flag, which Property 6 exists to refuse; and add a
+  second reader of that value with no check, which the derived class must catch without being
+  edited.
 
 ---
 
@@ -2258,8 +2423,30 @@ way CP3a's key source was, and the gate is part of the task.
   **Property 4 — the test-only first-contact path is unreachable from a non-test build,** asserted
   the way CP3a's key source is: a gate over the tree, with a positive control.
 
-- [ ] **Steps 2–6** as above. This task also rewrites `doc.go`'s inventory paragraph a second time,
-  and updates `PROGRESS.md` in `msgrepo` — CP3b is a milestone and its claim belongs in the file that
+- [ ] **Steps 2–4** as above.
+- [ ] **Step 5: Mutation-test.** This task stated four properties and **no mutation at all** until
+  the 2026-09-06 pass, which is R1's own subject one layer up: four sentences that read like
+  guarantees with nothing stated that would make any of them fail. Being blocked on M1-2 is not a
+  reason to state no mutation — the mutation set is what the ruling gets implemented against.
+  1. Compute the joiner's `sender_handle` from its own leaf and a locally derived
+     `group_handle_key` rather than the one the carrier delivered — Property 1 must fail, and this
+     is the mutation the whole task exists for.
+  2. Accept the carrier's `group_handle_key` without validating it — Property 3 must fail.
+  3. Truncate or pad a delivered `group_handle_key` of the wrong width instead of refusing it —
+     Property 3 must fail.
+  4. Open a record sealed at the joining epoch under the founder's epoch rather than the joiner's —
+     Property 2 must fail.
+  5. Reverse the direction: have only the joiner open the founder's record and not the founder the
+     joiner's — Property 2 must fail, because a one-directional exchange is the half that hides a
+     handle-derivation asymmetry.
+  6. Remove the test-only gate from the first-contact short circuit, or reach it from a non-test
+     build — Property 4 must fail, and it must fail the way CP3a's key-source gate fails, over the
+     tree and with a positive control.
+  7. Call this milestone CP3b in `PROGRESS.md` while no submit path and no durable reserver exist —
+     Property 2's stated residue must refuse the claim; those are legs 4 and 5 of the Definition of
+     done and both are outside this plan.
+- [ ] **Step 6: Commit.** This task also rewrites `doc.go`'s inventory paragraph a second time, and
+  updates `PROGRESS.md` in `msgrepo` — CP3b is a milestone and its claim belongs in the file that
   defines it.
 
 ---
@@ -2537,9 +2724,13 @@ exchange one `DURABLE` text record **through the message server**, with `storage
 `HKDF-Extract(mls_secret, pq_secret)` on both sides, with no test-only key source anywhere on the
 path, and with the first-contact short circuit — if taken — named and gated.
 
-**That is tasks 1–16 and 9a, plus four legs outside this plan, and the fourth has no owner.** The
-earlier version of this paragraph listed two, both inside `connect/mls`, which left the words
-*"through the message server"* unserved by anything:
+**That is tasks 1–16 and 9a, plus five legs outside this plan, and two of the five have no written
+owner.** The list has been short twice. The first version named two, both inside `connect/mls`,
+which left the words *"through the message server"* unserved by anything. The 2026-09-05 repair
+named four — and in the same pass deleted Task 6's production `StreamIndexReserver` implementation,
+leaving the interface and a test-only fake, **without adding the implementation to this list**. An
+exhaustive list that is not exhaustive is worse than a list that does not claim to be, so the
+deletion's own consequence is leg 5:
 
 1. `connect/mls` **p2 Tasks 19–20** — **landed**, verified in `message/xwing.go`.
 2. `connect/mls` **p7 Tasks 7–13, 15, 16, 18, 19 and 22** — the group lifecycle the two real
@@ -2554,10 +2745,30 @@ earlier version of this paragraph listed two, both inside `connect/mls`, which l
    local, gated test-only, and *"does not encrypt"* by its own doc comment. **Open item M1-42**, and
    it is the largest one this plan carries: everything else it files is a rule that is missing, and
    this is a milestone leg that is missing.
+5. **A durable `StreamIndexReserver` implementation**, which Task 6 declares the interface for and
+   deliberately does not build: `connect/message` imports no I/O package, §8.2 assigns the
+   persistence to `sdk`'s `MessageStore` (`ReserveStreamIndex` / `StreamHighWater`, method for
+   method), and what Task 6 ships is the interface plus a file-backed fake confined to
+   `streamindex_test.go`. **CP3b says *"no test-only key source anywhere on the path"*, and a
+   test-only reserver is not a key source — but it is the thing standing between a reused
+   `stream_index` and a reused nonce under a reused `record_key`, which §5.6 calls *"a total break
+   of both AEADs for that record"*.** A CP3b run over the test fake proves the record layer and not
+   the client. This leg is asked of the sdk store plan as **O-5**; s1 files that plan as **S1-9**,
+   *"blocks s2 entirely"*, and it is unwritten. **M1-5**'s keying question must be ruled before it
+   has rows on disk, because it is the one piece of durable state that cannot be migrated by
+   recomputation.
+
+   *The alternative, stated so the choice is visible rather than defaulted:* give Task 6 back a
+   production implementation in `connect/message` and argue the layering — which means putting `os`
+   and a file format into a package whose whole production import set is
+   `crypto/{sha256,subtle,hkdf,hmac,ecdh,mlkem,sha3}`, `fmt`, `io`, `mls` and `mls/syntax`, and
+   accepting a second durable implementation beside §8.2's. **This plan does not take it**; Task 6
+   states the reason and requires a ledger entry against §8.2 before anyone does.
 
 A wave-2-complete tree with legs 1–3 done reaches *two sessions exchange a private record in one
-process over a real join*. That is one leg short of CP3b, and Task 16 Property 2 says so at the point
-where somebody would otherwise declare it.
+process over a real join, over a reserver that does not ship*. That is two legs short of CP3b — the
+submit path and the durable reserver — and Task 16 Property 2 says so at the point where somebody
+would otherwise declare it.
 
 **Gate obligations, restated so they are checkable:** every new file is inside Gate C's scan and must
 contain no variable-time comparator; every new `hkdf` entry point has its Gate A allow-list entry and
@@ -2575,7 +2786,9 @@ Tasks 12 and 16; and `SPEC-LEDGER.md` gains an edit-log entry per this repositor
   principal, and no channel for the `Welcome`. Task 16 takes a gated short circuit for a test; the
   product needs proposal 1's ruling.
 - **It does not touch `sdk`.** `GroupEngine` is declared here (and Task 9a's adapter with it,
-  because `stagedRef` leaves it nowhere else to go — M1-43); its **factory** is s5's. The gap
+  because §2.2 line 180 puts it here and because it is the implementation that needs `stagedRef`
+  — M1-43, whose earlier claim that `stagedRef` confines *every* implementation was false); its
+  **factory** is s5's. The gap
   between "two `GroupSession`s exchange a record" and "a person types a message" is s2–s10 and Spec
   C's wiring — and the first step of that gap, the client-side submit path, is **inside CP3b** rather
   than beyond it, which is M1-42. This plan's Definition of done names it as an external leg; and that distance is measured in `docs/reviews/2026-09-02-cp3b-chain-and-three-amendment-proposals.md`.
@@ -2602,6 +2815,19 @@ adapter's confinement), M1-44 (the second zeroizer) and M1-45 (Gate C's wider cl
 from the A6-freeze section to the CP3b section, where the plan's own task graph puts it. The other
 forty-one are unchanged; they were the most valuable output of the first draft and none of them was
 in question.
+
+**The 2026-09-06 pass added none and rewrote one.** M1-43's premise was false as a matter of Go
+semantics and is corrected there, along with the five other places that stated it. Everything else
+that pass changed is a property, a leg or a relocation rather than an item — and the pass's real
+output is not in this document at all: it is `msgrepo/planlint_test.go`, an ordinary `go test` over
+`docs/plans/*.md` that derives the four defect classes this plan has now paid for five, five, four
+and three times respectively. It found this plan's Task 16 stating four properties with no mutation
+set, and both of the 2026-09-05 relocations that never landed. In plans this pass did not touch it
+found two more, reported rather than repaired: p8 attributes `profile.go` in its prose to a task
+number one lower than the heading p8 itself gives that file, and the citation of p6 in this
+document's R1 paragraph — repeated verbatim in s1 and in `SPEC-LEDGER.md` — names a task number
+higher than the twenty p6 declares. Neither is this plan's to decide, and both print on every run.
+The linter's own doc comment states what it cannot see, which is the half that stays the author's.
 
 Numbering is plan-local (`M1-n`). Where an item corresponds to a ledger open item, the number is
 given.
@@ -2684,24 +2910,53 @@ real sealed record, which is a change to a package whose doc comment is an argum
 absences it has. Neither is chosen here. **This is the largest item in this section**: every other
 one is a rule that is missing, and this is a milestone leg that is missing.
 
-**M1-43 — `EngineProcessed.stagedRef` confines every engine implementation to package `message`,
-which is the opposite of what §6 claims.** §6 declares `stagedRef any` unexported so *"a staged
-commit can be carried across a policy decision without `connect/message` being able to read or forge
-it"* — a property worth having. Its consequence: only package `message` can construct a populated
-`EngineProcessed`, so only package `message` can implement `Process`, so **every** `GroupEngine`
-implementation — the `connect/mls` adapter of Task 9a and any replacement Gate 5 exists to allow —
-must live in `connect/message`. §2.2's tree agrees and puts the adapter in `message/engine.go`
-(spec line 180). §6's swap point does not: it puts `NewConnectMlsEngineFactory` in `sdk/message_mls.go`
-and calls replacing it *"a one-line change"*, which is true of the **factory** and false of the
-**implementation** it returns.
+**M1-43 — `EngineProcessed.stagedRef` confines the *carrier*, not the *implementation*, and the
+earlier text of this item said the opposite in six places.** §6 declares `stagedRef any` unexported
+so *"a staged commit can be carried across a policy decision without `connect/message` being able to
+read or forge it"* — a property worth having. The consequence this item claimed was that only
+package `message` can construct a populated `EngineProcessed`, so only package `message` can
+implement `Process`, so **every** `GroupEngine` implementation must live in `connect/message`.
 
-*Blocks:* nothing — Task 9a lands the adapter in `message/engine.go`, which is the only home the
-unexported field permits and the one §2.2 names. Filed because Gate 5's promise is that MLS is
-swappable, and as declared the swap is confined to one package's source tree. *Two shapes close it,
-neither taken here:* give `EngineProcessed` an exported opaque carrier (an interface value or a
-`[]byte` token the engine can validate), which restores the swap and weakens the unforgeability
-argument; or state in §6 that engine implementations live in `connect/message` by construction and
-that the swap point is the factory only, which is honest and narrows Gate 5's claim.
+**That is false as a matter of Go semantics, and it was disproved by compiling on the pinned
+go1.26.5.** A keyed composite literal naming only exported fields is legal across package
+boundaries. A type declared outside `connect/message` with
+
+```go
+func (self *Other) Process(wire []byte) (*msg.EngineProcessed, error) {
+    return &msg.EngineProcessed{Kind: 3, Raw: wire}, nil
+}
+```
+
+builds green and satisfies `msg.GroupHandle`. What the compiler refuses is narrower and is exactly
+the field: naming it in a keyed literal is *"cannot refer to unexported field stagedRef in struct
+literal of type msg.EngineProcessed"*, and an unkeyed literal is *"implicit assignment to unexported
+field stagedRef in struct literal"*. **Only populating `stagedRef` is confined.**
+
+So the corrected reading, and it is better news for §6 than the wrong one was. Gate 5's swap is
+**not** confined to one package's source tree: a replacement engine may live anywhere and satisfy
+the interface. What it cannot do is put anything in `stagedRef`, so it must carry its staged commit
+some other way — in `Raw`, where `connect/message` can read and forge it, or in state of its own
+that `connect/message` never sees. The unforgeability §6 argues for therefore holds **for engines
+that use `stagedRef`, which is engines inside `connect/message`**, and is a property of the carrier
+rather than of the interface.
+
+**The adapter's home is a choice this plan takes, and the reason is §2.2, not the compiler.** §2.2's
+tree assigns *"engine.go — the GroupEngine interface (§6) + the connect/mls adapter"* to this package
+(spec line 180), and Task 9a's adapter is the one implementation that wants `stagedRef` for the
+`*mls.Processed` it stages. Both reasons are real and neither is a forcing.
+
+*Blocks:* nothing. *What is still owed:* one sentence in §6, because §6's own claim is now the loose
+one. It puts `NewConnectMlsEngineFactory` in `sdk/message_mls.go` and calls replacing it *"a one-line
+change"*; that is true of the factory, true of the implementation's *location*, and false only of
+the unforgeability guarantee, which a foreign engine does not inherit. *Recommendation, labelled as
+one:* say in §6 that `stagedRef` is unforgeable **only for engines declared in `connect/message`**,
+and that a foreign engine trades that guarantee for its independence. *Rejected alternative:* give
+`EngineProcessed` an exported opaque carrier so a foreign engine can stage unforgeably — it costs a
+validation step at every `ApplyCommit` and buys a swap nobody has asked for.
+
+*Recorded for the next reader:* this item is the reason the plan linter's own doc comment says it
+cannot tell a true claim from a false one. All six statements of the wrong claim resolved, counted
+and cross-referenced perfectly; what caught it was a reviewer compiling a five-line package.
 
 **M1-44 — two zeroizers, and the alternative is one character.** Task 2 writes
 `message.zeroize` because `mls.zeroizeSecret` (`secret_zeroize.go:42`) is unexported. Exporting it is
@@ -3057,9 +3312,11 @@ m1, not s5.** s1 records both as pending pins with **s5** as producer and `conne
 as absent. §6 puts `engine.go` in `connect/message` and §5.2's `SealRecord` cannot be a method on a
 `GroupSession` that has no exporter to reach. What s5 produces is the **factory**,
 `NewConnectMlsEngineFactory` in `sdk/message_mls.go`. Task 9 of this plan lands the interface and
-Task 9a lands the `connect/mls` implementation of it — which also has to live in `connect/message`,
-because `EngineProcessed.stagedRef` is unexported and no other package can populate it (M1-43), so
-what s5 has left is a factory returning a `message.GroupEngine` this package constructs. s1's
+Task 9a lands the `connect/mls` implementation of it, in `connect/message` because §2.2 line 180
+puts it there and because it is the one implementation that carries a staged commit through
+`stagedRef`, which only a member of that package can populate (M1-43; the claim that `stagedRef`
+confines *every* implementation is false and is corrected there). What s5 has left either way is a
+factory returning a `message.GroupEngine`. s1's
 registry row should name m1 so the pending-pin gate fails and asks for the pin on the day it lands.
 
 **O-2 — to s1's Task 16 registry: `MessageProtocolLimits.DeleteForEveryoneWindowMs` is not produced
