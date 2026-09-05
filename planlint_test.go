@@ -47,6 +47,24 @@
 //     taken as the author's own measurement; the linter checks that a measurement was stated
 //     and that the relocation it triggers landed, not that the number is right.
 //
+// # How to run it, and why every check's name begins with the same eleven characters
+//
+//	go test ./ -run TestThePlanLinter
+//
+// That is the whole linter, and it is the command SPEC-LEDGER.md and every brief on this
+// project have printed. Until the 2026-09-07 pass it ran ONE of the six tests this file then
+// declared — the control fixture — and none of the five checks over docs/plans/*.md, because
+// the fixture was the only test whose name began with TestThePlanLinter. It printed "ok"
+// having linted nothing but its own fixture: the exact failure mode the paragraph below calls
+// this project's most expensive, in the one mechanism that has ever caught an instance of it.
+//
+// The repair is a naming rule rather than a longer command: EVERY test in this file is named
+// with the documentedRunPrefix below, so the command that was already documented selects all
+// of them and a check added tomorrow is run by the same command without anybody editing it.
+// The rule is not held by this comment — TestThePlanLinterRunsUnderTheInvocationThisFileDocuments
+// derives the test set off this file's own source and fails on the first name that would fall
+// outside the pattern.
+//
 // # Reporting versus fatal
 //
 // A check that would fail widely on plans already committed lands REPORTING: it prints every
@@ -471,6 +489,84 @@ func allTasks(docs []*planDocument) []*planTask {
 	return out
 }
 
+// ── the invocation, held to the file rather than to a comment ─────────────────────────
+
+// The prefix every test in this file carries, and the whole of the documented command:
+//
+//	go test ./ -run TestThePlanLinter
+//
+// -run takes an unanchored regular expression matched against each test's name, so a name
+// beginning with this prefix is selected by that command and a name that does not is not. This
+// constant is the pattern, spelled once, so the gate below and the header comment cannot say
+// two different things.
+const documentedRunPrefix = "TestThePlanLinter"
+
+// The file this gate reads. Its own, and named rather than walked: the rule is about THIS
+// file's tests, and a walk of the directory would sweep deps_test.go's gate into a pattern
+// that has nothing to do with it.
+const planLinterSourcePath = "planlint_test.go"
+
+// The number of tests this file is known to declare, which is what stops the reading being
+// vacuous. Not the rule and not derived from the rule: it is the tripwire under the
+// derivation, in the shape connect/message's xwingHeldAnswersPerVector uses. A test deleted
+// or a matcher that reads nothing lands here rather than in a clean run.
+const planLinterTestFloor = 7
+
+var testDeclRe = regexp.MustCompile(`(?m)^func[ 	]+(Test[A-Za-z0-9_]*)[ 	]*\(`)
+
+// TestThePlanLinterRunsUnderTheInvocationThisFileDocuments is the gate on the gate.
+//
+// Why it exists, stated as the measurement rather than as a principle: at msgrepo a48cd4c this
+// file declared six tests, five of them the checks over docs/plans/*.md and one the control
+// fixture, and only the fixture's name began with TestThePlanLinter. The documented invocation therefore
+// ran the fixture and nothing else, and reported ok having read no plan at all — a gate that
+// reports the clean run of a complete gate having read nothing, over the one mechanism on this
+// project that catches that class. Renaming the five fixed the instance. This test is what
+// stops the seventh check, written next month under whatever name reads best, from recreating
+// it: a name outside the pattern fails HERE, in the file that owns the pattern, rather than
+// silently subtracting itself from every run afterwards.
+//
+// The class is derived off this file's own source and not listed, so it covers a test added
+// after this comment was written. The header comment is read back too: a command printed in
+// prose beside a constant it disagrees with is the drift this whole file exists to catch.
+func TestThePlanLinterRunsUnderTheInvocationThisFileDocuments(t *testing.T) {
+	source, err := os.ReadFile(planLinterSourcePath)
+	if err != nil {
+		t.Fatalf("reading %s, which is the source this rule is derived from: %v", planLinterSourcePath, err)
+	}
+	text := string(source)
+
+	declared := []string{}
+	for _, match := range testDeclRe.FindAllStringSubmatch(text, -1) {
+		declared = append(declared, match[1])
+	}
+	if len(declared) < planLinterTestFloor {
+		t.Fatalf("%s declares %d tests (%v) and this file is known to declare at least %d; the matcher is reading something other than this file's test declarations, and a rule over an empty reading clears every name there is",
+			planLinterSourcePath, len(declared), declared, planLinterTestFloor)
+	}
+
+	selected := 0
+	for _, name := range declared {
+		if !strings.HasPrefix(name, documentedRunPrefix) {
+			t.Errorf("%s declares %s, which %q does not select, so `go test ./ -run %s` — the invocation this file's header documents and SPEC-LEDGER.md prints — would run every other check in this file and not that one, and report ok. Rename it to begin with %s, or change documentedRunPrefix and the header together",
+				planLinterSourcePath, name, documentedRunPrefix, documentedRunPrefix, documentedRunPrefix)
+			continue
+		}
+		selected++
+	}
+	if selected == 0 {
+		t.Fatalf("no test of %s is selected by %q, so the documented invocation runs nothing at all", planLinterSourcePath, documentedRunPrefix)
+	}
+
+	// and the header says the same thing the constant does
+	if !strings.Contains(text, "go test ./ -run "+documentedRunPrefix) {
+		t.Errorf("%s's header does not print `go test ./ -run %s`, so the command a reader copies out of this file and the pattern this gate holds the names to are two statements that can drift; they drifted once already and that is why this file's checks were unreachable",
+			planLinterSourcePath, documentedRunPrefix)
+	}
+
+	t.Logf("%d tests declared in %s, all selected by `go test ./ -run %s`", selected, planLinterSourcePath, documentedRunPrefix)
+}
+
 // ── check 1: a property with no mutation that would make it fail ─────────────────────────────
 
 // The severities of check 1, and what moves them.
@@ -506,7 +602,7 @@ const (
 // task it sits in.
 const linkageConventionShare = 2
 
-func TestEveryStatedPropertyHasAStatedMutation(t *testing.T) {
+func TestThePlanLinterChecksEveryStatedPropertyHasAStatedMutation(t *testing.T) {
 	docs := readPlanCorpus(t)
 	properties := 0
 	for _, task := range allTasks(docs) {
@@ -585,7 +681,7 @@ func documentLinksMutationsToProperties(doc *planDocument) bool {
 // Fatal for a document that DOES state properties, because that document has adopted the shape
 // and a task inside it that supplies a test instead is a regression against its own convention.
 // The severity is derived from the document, not written down per plan.
-func TestNoTaskSuppliesATestWithNoMutationThatWouldRefuteIt(t *testing.T) {
+func TestThePlanLinterChecksNoTaskSuppliesATestWithNoMutationThatWouldRefuteIt(t *testing.T) {
 	docs := readPlanCorpus(t)
 	supplied, fatalFindings, reportedFindings := 0, []finding{}, []finding{}
 	for _, doc := range docs {
@@ -678,7 +774,7 @@ const (
 	check2bFatal = true
 )
 
-func TestEveryClassDerivingPropertyStatesItsMembership(t *testing.T) {
+func TestThePlanLinterChecksEveryClassDerivingPropertyStatesItsMembership(t *testing.T) {
 	docs := readPlanCorpus(t)
 	derived := []*planProperty{}
 	for _, task := range allTasks(docs) {
@@ -897,7 +993,7 @@ const (
 	check3dFatal = true
 )
 
-func TestEveryCrossReferenceResolves(t *testing.T) {
+func TestThePlanLinterChecksEveryCrossReferenceResolves(t *testing.T) {
 	docs := readPlanCorpus(t)
 	byToken := map[string]*planDocument{}
 	for _, doc := range docs {
@@ -1050,7 +1146,7 @@ const (
 
 var qualifiedNameRe = regexp.MustCompile(`\b([A-Z][A-Za-z0-9_]*)\.([A-Z][A-Za-z0-9_]*)\b`)
 
-func TestEveryConsumedNameIsProducedOrExternal(t *testing.T) {
+func TestThePlanLinterChecksEveryConsumedNameIsProducedOrExternal(t *testing.T) {
 	docs := readPlanCorpus(t)
 	entries, qualified := 0, 0
 	unresolvableTasks, unproducedMembers := []finding{}, []finding{}

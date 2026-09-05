@@ -2481,7 +2481,7 @@ schedule, both handle chains, both ratchets, the durable `stream_index` reservat
 interface, `GroupSession`, `SealRecord` and `OpenRecord`. Tasks 13–16 are the second client's half,
 and **two of those four are blocked on rulings the plan files rather than makes** — items 125 and 126
 above. Tasks 17–24 are the A6 freeze, and none of them is required to put a message in front of a
-person. Wave 1 complete is a `connect/message` that seals and opens records under the real key
+person. Wave 1 complete is a `connect/messagegroup` that seals and opens records under the real key
 schedule inside one process. **That is worth having and it is not CP3b**, and the plan says so at the
 one place a reader would otherwise mistake it: Task 12's two-session round-trip property, which
 carries that sentence in its own test comment.
@@ -2546,7 +2546,7 @@ the pinned go1.26.5 toolchain; the zero hits for `func StorageRoot`, for `group_
 a fourth URmessage extension type; `mls.CryptoProvider.Extract`'s `(salt, ikm)` order at
 `crypto.go:175` with its own comment; `Group.Export` at `group.go:821` and its `ErrEpochErased`
 refusal at `key_schedule.go:486`; `ClearPendingCommit` at `group.go:2475`; the forbidden gate's
-`forbiddenScanRoots`, `hkdfExtractAllowedPaths` and `hkdfExtraCallSites` at lines 46, 83 and 425; the
+`forbiddenScanRoots`, `hkdfExtractAllowedPaths` and `hkdfExtraCallSites` at lines 46, 83 and 444; the
 entropy residual table at `crypto_test.go:7776` and its two rows; the constant-time gate's
 `authScanDir = "."` and its four rules; `EncodeServerAttachment`'s identical answer for a nil and an
 `AttachmentNone` attachment; `aad_test.go:70`'s `aadKatAlgId = 0x0021` against MASTER §8 line 722;
@@ -3244,3 +3244,218 @@ per the standing rule on this machine.
 6, 7.4a, 11 and 13; Spec B section 2.2 and revision 13; `connect`'s four gate files read for their
 scan roots and their failure modes; `msgrepo/deps_test.go` and `planlint_test.go`; and three
 working-copy compile probes of the move set.
+
+### 2026-09-07 — the gate that reported clean having read nothing was the plan linter itself, and wave 0 written as steps
+
+*On the date in this heading:* the same drift the 2026-09-06 ruling entry records two entries above.
+The machine's clock says 2026-09-05 and so does this commit's author date; the headings follow the
+documents' own clock so the append-only log stays monotone, and 2026-09-05 is already the name of an
+earlier repair here, so reusing it would make every back-reference ambiguous. **Measurements below
+are dated by the machine — 2026-09-05 — and are dated as such where they appear.**
+
+**No code in `connect`. No ruling.** Four files changed: `planlint_test.go`, the m1 plan, Spec A
+(A-13's denominator only) and this ledger. The `connect` tree was **read** at `c7af659` and never
+modified; every measurement below was taken against copies in a scratch directory.
+
+**Every claim in the brief was measured before anything was written. All of them reproduced. One
+reproduced with a number that names a narrower class than the sentence it corrects, and it is
+recorded here with both readings** — because a brief trusted on its arithmetic is a brief nobody
+re-measures, and that has now cut both ways twice.
+
+**1 — the linter's documented invocation ran one test out of six, and the last entry prescribed it.**
+`go test ./ -run TestThePlanLinter` matched only `TestThePlanLinterFlagsTheControlFixture` and ran
+**none** of the five checks over `docs/plans/*.md`. It printed `ok` having linted nothing but its own
+fixture. The 2026-09-06 entry above **recorded this and did not fix it** — *"it is recorded here
+rather than fixed, because renaming tests is a change to the gate and this pass changed no code"* —
+and then printed the broken command as the linter's invocation, so the next caller copied a command
+that reads nothing. That is this project's most expensive failure mode aimed at the one mechanism
+that has ever caught an instance of it.
+
+Fixed as a **naming rule** rather than a longer command, so the invocation already in circulation
+starts working instead of being replaced: the five checks are renamed
+`TestThePlanLinterChecks…`, and a seventh test,
+`TestThePlanLinterRunsUnderTheInvocationThisFileDocuments`, derives every `func Test…` off
+`planlint_test.go`'s own source and fails on the first name outside the pattern — so a check added
+next month under whatever name reads best cannot silently subtract itself from every run. It also
+reads the header comment back and requires it to print the same command the constant holds, because a
+command in prose beside a constant it disagrees with is the drift this whole file exists to catch.
+The floor constant `planLinterTestFloor = 7` is the tripwire under the derivation: a matcher that
+reads nothing fails rather than clearing every name there is.
+
+**Verified against a plan with a known defect, which is the only check that means anything here.** A
+throwaway `docs/plans/2099-01-01-slice9-z9-linter-probe.md` carrying three fatal defects — a task
+stating a property with no mutation set (check 1a), a Consumes entry naming a task that does not
+exist (4a) and a ledger citation that resolves to nothing (3d). Same file, same command, both
+versions of `planlint_test.go`:
+
+| `planlint_test.go` | `go test ./ -run TestThePlanLinter` |
+|---|---|
+| at `a48cd4c` | `ok  github.com/urnetwork/message-server  0.231s` |
+| after the rename | `FAIL`, three checks red: 1a, 3d, 4a |
+
+The probe file was deleted before the commit; `docs/plans/` holds the same twelve documents it did.
+
+**2 — a FIFTH gate over `../message`, and a SIXTH the fifth's own grep cannot see.** The plan's
+constraints table said *"the split moves four of these gates' scopes"* and the entry above says
+*"`connect`'s four gate files"*. **Executing wave 0 exactly as written leaves `connect/mls` red with
+26 errors** — measured, on a working copy — every one of the form *"`xwingNamedDeclarationsOfBothPackages`
+classifies X and neither this package nor `../message` declares it"*, from
+`TestNoXwingNamedDeclarationLandsInEitherPackageWithoutBeingClassifiedHere`
+(`mls/extension_test.go:3665`), whose `messagePackageDir = "../message"` (`:3560`) is named in no
+document. *(The brief characterised the message as* "classifies XwingSee…"*; the count 26 is exact
+and the form is* "classifies `<name>` and neither this package nor ../message declares it"*, over 26
+of the table's 28 rows — the two it keeps are `mls`'s own.)*
+
+**The enumeration is replaced by a derivation, because a fifth found by execution proves the four was
+never derived.** The rule: *every test-side constant or literal in `connect` naming the
+`connect/message` package — as `"../message"` or as the go-tool pattern `"./message/..."`*. The
+second spelling is half the rule and is exactly why the count was four: **`crossPlatformPackages =
+{"./mls/...", "./message/..."}` (`mls/crossplatform_test.go:52`) matches no grep for `../message`**,
+and it is a **sixth** scope — the nine product platforms simply stop being built for the client half,
+and nothing anywhere reports it. Run over `c7af659` the rule returns six scopes needing a hand edit
+(A, B, C, D, G, H), **five aliases of `forbiddenScanRoots`** that move for free and are listed so a
+reader finds them ruled rather than missed (`extensionTypeSelectionRoots` at
+`extension_lookup_test.go:68`, `epochMoverRoots` at `epoch_advance_test.go:120`,
+`framing_guard_test.go:1047`, `TestNoPackageBeneathTheseRootsComparesAWholeOctetStringWithGoEquality`,
+and `framing_group_seams_test.go`'s call sites), one allow-list path that does not move, and two
+synthetic controls that read no directory. Verified: with Gates A, D and G applied and the move done,
+`go test ./mls/ ./message/ ./messagegroup/` is **green in all three**.
+
+**3 — the move set was short by a testdata corpus, and the derivation structurally could not see
+it.** The stated rule — *every file of `connect/message` naming a symbol declared in `xwing.go` or
+`xwing_errors.go`* — is a rule over **Go source**, and testdata declares no symbols. Move the five
+source files without `message/testdata/vectors/rfc/` and `go build ./...` and
+`go vet ./message/... ./messagegroup/... ./mls/...` are **clean** while **9 `messagegroup` tests are
+red**, every one on `open testdata/vectors/rfc/xwing-draft10.json`. Measured, and the nine are named
+in the plan. The rule now has its second half stated — *the fixtures those files read move with
+them* — and the other four `message/` testdata corpora were checked one by one: every one is read
+by a file that stays, so the split is clean.
+
+Two things the move owes that **no test holds**, measured green with all of them left wrong:
+`mls/interop/PINS.md` names the corpus at `:25`, `:83`, `:114` and `:119` and
+`xwing_vectors_test.go` matches two of those *by text*, so the document and the gate stay in
+agreement while both point at a path that no longer exists; `xwingPackageImportPath` (`:114`) is a
+label handed to `types.Config.Check` and never resolved; and `xwing_errors.go`'s four sentinels read
+`errors.New("message: xwing …")` while every other sentinel in both packages names its own package.
+All three are Task 0 Property 5's, and Task 0's mutation 8 is the one mutation there that is
+**expected to survive**.
+
+**4 — the citation table added to fix seven wrong citations was seven wrong citations.** Every
+*"Actually at"* number in it is the value at **`ecf0df6`, the parent commit**, while the sentence
+directly beneath said *"against Spec A as this commit leaves it"* and the plan's own inline citations
+already carried the `a48cd4c` numbers. Both measured, all seven:
+
+| | table said | at `ecf0df6` | at `a48cd4c` |
+|---|---|---|---|
+| §2.2 tree / `messagegroup/` | 169–209 / 187 | 169–209 / 187 | **170–210 / 188** |
+| §5.6 streamindex annotation | 1317 | 1317 | **1327** |
+| §5.14 `HKDF-Extract` | 1804 | 1804 | **1817** |
+| §2.2 `engine.go` row | 199 | 199 | **200** (199 is `session.go  seal.go`) |
+| §5.10 E2 | 1556 | 1556 | **1566** |
+| §6 `GroupEngine` block | 1894–1899 / 1898 | 1894–1899 / 1898 | **1907–1912 / 1911** |
+| §8.2 `ReserveStreamIndex` | 3706 | 3706 | **3719** |
+
+Seven for seven, and the shifts are +1, +10 and +13 by region — the signature of a measurement taken
+one commit early. **The repair is not a fourth re-numbering.** A spec line number in this document
+has now drifted in three consecutive passes and it is the one reference class `planlint_test.go` does
+not resolve, so the table is rewritten with the **anchor first and authoritative** and the number
+second and advisory: column one is a string that occurs in Spec A and is distinctive enough to
+`grep`, and the header says in as many words that when the two disagree the anchor is right and the
+number is stale. The way to re-derive every number is written into the table's own header as one
+command, because **a number that cannot be re-derived does not earn a column**. Every anchor was run:
+all seven resolve, and every number now agrees with the plan's own inline citation of the same fact —
+which is the check, and which failed in all seven places before this pass.
+
+**5 — three smaller ones, all reproduced.**
+
+- **A-13's denominator.** It said *"ruling every one of the 53 hits"*. Measured at `ecf0df6`, the
+  commit the sweep read: `connect/message` proper is **71 occurrences on 64 lines** (61 on 59
+  excluding the revision table) and `connect/messagegroup` is 27 on 25, so **both package names
+  together are 98 occurrences on 78 lines** (85 on 73 excluding the revision table). No reading of
+  either commit gives 53. *(The brief's figures — 71 and 64 — reproduce exactly, and they are the
+  `connect/message` half; the sentence they correct says* "grepping both package names"*, so the
+  number written into A-13 is 98 on 78, with the split shown so either reading is checkable.
+  Corrected as a denominator only: the sweep's **content** was independently re-derived and zero
+  wrong statements remain in either document.)*
+- **A probe's quoted output.** The plan said the production-pair-alone probe *"fails with `undefined:
+  XwingSeedSize` (`xwing_test.go:29:5`)"*. Run: it prints
+  `entropy_test.go:143:13: undefined: XwingGenerateKey` — byte-identical to what the plan attributes
+  to the third probe, so two of three probes were indistinguishable by their reported result. **The
+  defect is larger than the brief stated**: the two probes really are told apart, but by the half the
+  plan never printed — the third probe also fails `go vet ./messagegroup/` with
+  `xwing_vectors_test.go:823:9: undefined: entropyDeclaredName`, while the second leaves
+  `messagegroup` clean. Both halves of all three probes are now stated.
+- **One ledger sentence still named the old package.** *"Wave 1 complete is a `connect/message`
+  that seals and opens records…"* against the plan's twin, which says `connect/messagegroup`.
+  Repathed.
+
+**Two more found while measuring, neither in the brief.** First: `hkdfExtraCallSites` is cited as
+line 425 in two places and as 444 in five others, in the same two documents. Measured at `1db6ec3` **and** at
+`c7af659`: the map is at **444** and its single entry at 445. Both 425s corrected. It is the same
+class as finding 4 one layer down — a source anchor, which this project's plans claim are re-read
+from source. Second: the m1 plan's *"not a claim that the other 39 are format-safe"* is 45 minus the
+six wire-visible items — the item total when that sentence was written, and four passes have added
+items since. It is 44 now, and the sentence says so along with why it was 39.
+
+**6 — the wave-0 execution hazard nothing named: `mls` is CRLF and `mls` gates on it.**
+`TestThePackageSourceIsOneLineEndingThroughout` (`mls/vectors_runner_test.go:1298`, the report at
+`:1332`) derives the class off the directory and refuses a mixture; measured, `mls` is **137 of 137
+`.go` files CRLF**. It went red the moment a reviewer's `sed` rewrote `crypto_forbidden_test.go` and
+green again when CRLF was restored. **Wave 0 owes one-line edits to exactly three `mls` test files**
+— `crypto_forbidden_test.go`, `extension_test.go`, `crossplatform_test.go` — so an exact-string edit
+anchored on LF matches nothing in them, edits nothing, and reads as *"the change was made and was
+harmless"*. Written into Task 0's steps as a named hazard, with the two verifications (`git diff
+--stat`, and mutation 9). For contrast and because it matters to the same reader: `connect/message`
+is genuinely **mixed** (6 CRLF, 12 LF of 18) and has no such gate, and `connect/messagegroup`
+inherits the mixture, so anyone copying `mls`'s gate there later must normalise first.
+
+**Wave 0 is now `## Task 0`, with Files, Interfaces, five properties, six steps and ten mutations.**
+It was a paragraph, and a paragraph was executed twice on paper and came up short both times. It is
+**not** one of the plan's 25 tasks and says so in its own header; it is leg 6, it lands in `connect`,
+and whoever takes wave 1 does not execute it. Its mutation set is the six scope reverts and the two
+move halves, each with the red or the **silence** it must produce — including mutation 8, which is
+expected to survive and is the finding rather than the failure.
+
+**One open item added, M1-50: Gate C's copy is not a copy.** Three of Gate C's four rules go through
+`authVerifiersUnderGate` (`message/writeauth_test.go:2447`), which `t.Fatal`s on an empty verifier
+set and then `t.Fatalf`s again unless `VerifyWriteAuth` and `VerifyRequestAuth` are among what it
+found. Measured: `connect/messagegroup` declares **no** `Verify`-prefixed production function at
+wave 0, and both named verifiers are in `message/writeauth.go` and stay. **So the literal copy the
+plan and this ledger both prescribed fatals on arrival, twice, on correct code** — and it fatals
+because of this tree's own house rule about empty derived classes, which is the right behaviour.
+Task 0 ports the comparator half, whose class is not empty, and files the rest: either `messagegroup`
+grows the verifier half when it declares its first `Verify*` — which on this plan's file table may
+never happen, since §12.1 publishes every verifier and they all stay in `connect/message` — or
+Gate C is rewritten onto a root list the way Gate A already is. Not ruled. M1-45 and M1-19 are filed
+against a rule whose scope this item decides.
+
+**Two statements in the 2026-09-06 entries above are superseded rather than rewritten**, because that
+entry is the record of what was believed then: *"Four gate scopes move with the split, and three of
+the four move silently"* is six and four, and *"`connect`'s four gate files read for their scan roots"*
+is six. Both are corrected in the plan's constraints section, which is the live document.
+
+**The plan linter was run before and after, under the renamed invocation, and the delta is zero.**
+Before (six checks named explicitly, because the documented command could not select them) and after
+(`go test ./ -run TestThePlanLinter`): check 1a **0**, 1b **7**, 1c **1**, 1d **0 / 189**, 2a **19**,
+2b **0**, 3a **4**, 3b **0**, 3c **2**, 3d **0**, 4a **0**, 4b **6** — identical line for line.
+Task 0 states five properties, ten mutations and one derived class with its membership count, and
+added **no** finding to any check; M1-50 resolves; the intermediate run in which it did not was
+caught by check 3b, which is the check working.
+
+**`go build ./...` and `go vet ./...` are clean, and `go test ./...` is red in exactly one test**,
+`TestEveryDependencyOfThisModuleIsOneSpecB22Allows`, for the reason the ruling section gives: the
+`connect` tree still has `connect/message` importing `connect/mls`, and what turns it green is
+Task 0's commit in that tree. No allow-list entry was added, no skip, no known-failure marker.
+
+**The `connect` tree was not modified.** Read at `c7af659` for every measurement above; the move,
+the six gate edits, the corpus move and all three compile probes ran against copies in a scratch
+directory. `git status` in `connect` is unchanged from the start of this pass.
+
+**Index checked before the commit:** `git ls-files` and `git ls-tree -r HEAD --name-only` compared,
+per the standing rule on this machine.
+
+**Reviewed by:** the author, as a diff, against Spec A §§2.2, 5.6, 5.10, 5.14, 6, 8.2 and revision
+A-13; `connect`'s **six** gate scopes and the five aliases beside them, read for their roots and
+their failure modes; `msgrepo/planlint_test.go` and `deps_test.go`; and a working-copy execution of
+wave 0 in full — the move, the corpus, three gate roots, `go build`, `go vet` and
+`go test ./mls/ ./message/ ./messagegroup/`.
