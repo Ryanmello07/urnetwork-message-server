@@ -474,11 +474,17 @@ func report(t *testing.T, subject string, findings []finding, fatal bool, whenFa
 
 // The guard against the failure mode this file exists to prevent. A check whose derived class
 // is empty across the whole corpus has read nothing, and a clean run of it means nothing.
+// A floor of one catches a class that read NOTHING. It does not catch a class that read most of
+// the corpus and silently excluded one form of it, which is what check 3d did to every bolded
+// ledger citation until 2026-09-15 — nine of thirty-seven, all in one document, under a FATAL
+// check reporting "no findings". So the size is printed on every run beside the findings: a
+// number that drops when a corpus grew is the signal that was missing, and it costs one line.
 func mustHaveRead(t *testing.T, subject string, count int) {
 	t.Helper()
 	if count == 0 {
 		t.Fatalf("%s derived an empty class over the whole corpus, so a clean run of it would report clean having read nothing", subject)
 	}
+	t.Logf("%s: %d reference(s) read", subject, count)
 }
 
 func allTasks(docs []*planDocument) []*planTask {
@@ -951,6 +957,17 @@ var (
 	itemRefRe = regexp.MustCompile(`\b((?:[A-Z][0-9]+-[0-9]+[a-z]?)|(?:O-[0-9]+))\b`)
 	// A ledger citation: "ledger 21", "Ledger 25", "ledger item 47", "ledger items 44 and 44a",
 	// "ledger open item 7".
+	//
+	// RUN OVER THE MARKUP-STRIPPED LINE, never over `flat`. The plans bold an item number as
+	// often as not — "ledger open item **142**" — and against the raw line this pattern's
+	// digits run into an asterisk and the citation is not a citation at all. Measured at
+	// `cea05b8`, before this was corrected: over `docs/plans/*.md` the raw line matched **28**
+	// citation sites and the stripped line matches **37**, so **nine** citations in the corpus
+	// were invisible to a check that is FATAL and that reported "no findings" over all nine.
+	// All nine were in m1 and one of them, at `m1:3220`, was written by the pass that ran this
+	// linter and read the clean report as coverage. A check whose class silently excludes the
+	// form the corpus most often uses reports clean by not looking; the control fixture below
+	// now carries a bolded citation for exactly this reason.
 	ledgerRefRe = regexp.MustCompile(`(?i)\bledger[ \t]+(?:open[ \t]+)?(?:items?[ \t]+)?((?:[0-9]+[a-z]?)(?:[ \t]*(?:,|and)[ \t]*(?:[0-9]+[a-z]?))*)`)
 	// A plan named by its token in running prose: "p8's plan", "s5 produces", "m1".
 	planRefRe = regexp.MustCompile(`\b((?:p|s|m)[0-9]+)\b`)
@@ -1010,6 +1027,8 @@ func TestThePlanLinterChecksEveryCrossReferenceResolves(t *testing.T) {
 		for index, line := range doc.lines {
 			number := index + 1
 			flat := flatten(line)
+			// The ledger matcher below reads this rather than `flat`. See ledgerRefRe.
+			plain := flatten(stripMarkup(line))
 
 			for _, match := range taskListRe.FindAllStringSubmatchIndex(flat, -1) {
 				prefix := stripMarkup(flat[:match[0]])
@@ -1064,14 +1083,14 @@ func TestThePlanLinterChecksEveryCrossReferenceResolves(t *testing.T) {
 					fmt.Sprintf("names plan %s, for which %s holds no document", match[1], planGlob)})
 			}
 
-			for _, match := range ledgerRefRe.FindAllStringSubmatchIndex(flat, -1) {
+			for _, match := range ledgerRefRe.FindAllStringSubmatchIndex(plain, -1) {
 				// "argued in ledger 2026-09-04" cites an edit-log entry by date, not an item by
 				// number. A citation whose digits run straight into a hyphen is a date, and RE2
 				// has no lookahead to say so inside the pattern.
-				if match[3] < len(flat) && flat[match[3]] == '-' {
+				if match[3] < len(plain) && plain[match[3]] == '-' {
 					continue
 				}
-				for _, id := range taskNumRe.FindAllString(flat[match[2]:match[3]], -1) {
+				for _, id := range taskNumRe.FindAllString(plain[match[2]:match[3]], -1) {
 					ledgerRefs++
 					if ledger[id] {
 						continue
@@ -1297,7 +1316,8 @@ func collapse(findings []finding) []finding {
 //     names it back (check 2b) — m1 Task 13 Property 4 and Task 9 Property 2's shape;
 //   - Task 2 Property 2 states its class is empty and relocates nowhere at all (check 2b);
 //   - Task 3 names Task 99 and open item M9-77 (checks 3a, 3b), and cites ledger item 9999
-//     (check 3d);
+//     and, in bold, ledger item 9998 (check 3d) — the bolded form is m1's shape, and it is the
+//     one check 3d read as no citation at all until 2026-09-15;
 //   - Task 3 consumes from Task 88 (check 4a).
 //
 // The fixture also carries the CORRECT forms beside the defects — Task 2 Property 3 relocates
@@ -1381,7 +1401,9 @@ func TestThePlanLinterFlagsTheControlFixture(t *testing.T) {
 	})
 
 	t.Run("check3d_a_ledger_citation_that_resolves_to_nothing_and_a_date_that_is_not_one", func(t *testing.T) {
-		body := flatten(mustTask(t, doc, "3").body)
+		// stripMarkup before flatten, which is what check 3d itself does and is the whole of
+		// the 2026-09-15 repair: run it over `flatten(body)` instead and 9998 disappears.
+		body := flatten(stripMarkup(mustTask(t, doc, "3").body))
 		cited := []string{}
 		for _, match := range ledgerRefRe.FindAllStringSubmatchIndex(body, -1) {
 			if match[3] < len(body) && body[match[3]] == '-' {
@@ -1391,6 +1413,9 @@ func TestThePlanLinterFlagsTheControlFixture(t *testing.T) {
 		}
 		if !slices.Contains(cited, "9999") {
 			t.Fatalf("fixture Task 3 cites ledger item 9999 and the linter read %v", cited)
+		}
+		if !slices.Contains(cited, "9998") {
+			t.Fatalf("fixture Task 3 cites ledger item **9998** in bold, which is the form nine of the thirty-seven citations in docs/plans at cea05b8 used and which this check could not see until 2026-09-15; the linter read %v", cited)
 		}
 		if slices.Contains(cited, "2026") {
 			t.Fatalf("fixture Task 3's \"ledger 2026-01-01\" is an edit-log date and the linter read it as item 2026, out of %v", cited)
@@ -1602,7 +1627,9 @@ which quietly stopped deriving anything is distinguishable from a check with not
 **M9-1 — the fixture's one defined item.** It exists so that a check refusing an undefined item
 is not a check refusing every item. This task also cites M9-77, which nothing defines, and
 Task 99, which nothing declares. Its argument was recorded in ledger 2026-01-01, and the number
-it should have cited is ledger item 9999.
+it should have cited is ledger item 9999. It cites a second one in the form the corpus most often
+uses and this check could not see until 2026-09-15 — ledger item **9998**, with the asterisks
+around the NUMBER, which is where m1 puts them — and nothing defines that either.
 
 - [ ] **Step 1: Derive the property and write the failing test**
 

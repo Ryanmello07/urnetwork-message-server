@@ -3222,6 +3222,23 @@ still owes is a normative **bound** on how far a republished wrap may lag plus t
 publisher and restorer to it — without a bound an unbounded restorer searches back to epoch 0.) Surface
 it; do not paper over it.
 
+**Corrected again 2026-09-15, and this is the version a builder must read, because the 2026-09-14 form
+would have got a nonce reuse written.** The retry still costs no wire bytes and the trial-decryption
+walk still works. What that paragraph left out is **what a republisher republishes**. `AAD_head` binds
+the **record's** epoch and stream index; the recovery wrap's `key_head ‖ nonce_head =
+HKDF-Expand(wrap_key, "wraphead/v1", 56)` binds **neither**, and `wrap_key` binds the **content** epoch
+— so rebuilding the record around a `ct_xwing` the outbox kept seals a **second, different `AAD_head`
+under a byte-identical `(key, nonce)`**, and the server itself forces both AAD fields to move
+(`memory.go:578` and `:610`). Guardrail **G5** does not catch it: G5's defence is the `stream_index`
+reservation and this head is not on the `record_key[i]` ladder. The escape is that
+`XwingEncapsulate` cannot be derandomized, so **re-encapsulating from the wrap plaintext** gives a fresh
+pair unconditionally — which also means the body signature must be **recomputed and never copied**, and
+which needs the wrap **plaintext** kept in the outbox rather than the sealed bytes. **And ledger open
+item 144 says the wrap's inner `aead_ct` has no nonce in any document at all**, which decides whether
+reusing `ct_xwing` is a head forgery or also a two-time pad over the payload. **142 now names four
+rulings, not one bound.** The operative instruction for this task is unchanged and is now underwritten
+rather than asserted: **do not silently retry a stranded wrap.** Surface it; do not paper over it.
+
 **Why it moved, because a reader will otherwise put the recovery wraps back.** `AttachmentRecovery` is
 not in the shipped server's exemption set: `exemptFromEpochComplete` (`msgrepo/store/memory.go:937`)
 exempts exactly `AttachmentWrap` and `AttachmentEpochComplete`, so every recovery wrap the old step 2
@@ -3694,6 +3711,36 @@ exactly those two, and reaches no third** — `epoch_secret`, `confirmation_key`
 `connect/messagegroup` is the half named here because it is the half that holds the adapter; before
 2026-09-06 this sentence named the other one, which after the split has no route to `mls` to close.
 
+**TWO THINGS THIS TASK CANNOT PIN YET, ADDED 2026-09-15, and both are stop signs rather than notes.**
+This task owns `wrap.go`, which is where the recovery wrap's seal actually gets written, and two of its
+inputs are undefined in every document. A known-answer vector written against a guess for either one is
+a vector that runs, passes, and proves nothing — which is the same reason
+`TestXwingEncapsulateIsNotDerandomizable` exists rather than a comment.
+
+- **The inner AEAD's nonce — ledger open item 144.** MASTER §7 expands `wrap_key` to **32** octets, a
+  key and no nonce, and then writes `hybrid_ct = u16(alg_id) ‖ LP(ct_xwing) ‖ LP(aead_ct)`. Nothing says
+  what `aead_ct` is sealed under. The closure nearest to hand is Spec A §5.14's sibling KEM
+  construction, `nonce = 0` justified by *"Every encapsulation yields a fresh `deposit_key`, so the zero
+  nonce uses no key twice"* — which is a **freshness precondition**, not a free choice, and which the
+  republish question in ledger **142** turns on. **Do not pick one.** A `hybrid_ct` KAT is blocked on
+  144 the way Task 14 is blocked on M1-1's remainder.
+- **`target_id` — Spec A §5.11 (5).** It is the fourth input to `wrap_key`, so a publisher and a
+  restorer that read it differently produce a wrap nobody can open **with no error anywhere**.
+  `recovery_handle`, `wrap_target_handle`, a leaf index and a member id are four different byte strings
+  and the corpus defines none of them as this one. Its own KAT is blocked on the same sentence.
+
+**And one property this task owes that no earlier version of it stated: the outbox holds the wrap
+PLAINTEXT.** If ledger **142** is ever ruled in the republish direction, the safety of a republished
+recovery wrap rests entirely on the republisher re-encapsulating rather than reusing a stored
+`ct_xwing` — reuse repeats `wrap_key`, therefore repeats
+`key_head ‖ nonce_head = HKDF-Expand(wrap_key, "wraphead/v1", 56)`, against an `AAD_head` the server
+forces to move. **Nothing can check that after the fact**, so the shape §5.11 asks for is §5.9 **G4**'s:
+the republish path is a function taking the wrap plaintext and the target's X-Wing public key, and a
+sealed recovery-wrap record or a bare `ct_xwing` is not something a caller can hand it. That is a
+ruling and it is not made yet — **this task ships no republish path at all** — but if one is added
+later it belongs to this file and to this shape, and the retained plaintext is
+`storage_root[k] ‖ archive_secret[k]`, which is a forward-secrecy cost and not a storage cost.
+
 Task 9 Property 1's closure gate is what holds that, and this task's own property is that
 `archive_secret` is built from those two methods and from no other source.
 
@@ -4135,21 +4182,30 @@ required a signature over before (it closes ledger item **135**); the device wra
 **two** records, a `PERMANENT` one carrying `pq_secret` and an `EPH(5)` one carrying `eph_root`; and
 the fan-out is resequenced so the recovery wraps land **after** the `EpochComplete` marker. The
 caching obligation `env_key` brings with it, and the fact that a missed window is unrecoverable, are
-stated in §5.11 as well. **Three costs of the rulings are filed rather than resolved and a builder has
-to read them**: ledger **138** (nothing detects a missing recovery wrap), **142** (after the marker the
-group is fully writable, so a concurrent commit strands every recovery wrap still in flight under
-`REASON_EPOCH_STALE` — no crash required — and a retry is possible but unruled: it costs **no wire
-bytes**, because the content epoch is bound inside `wrap_key`'s HKDF `info` and a restorer recovers it
-by trial decryption, and what it still owes is a normative bound on the lag) and **143** (the device
-wrap still owes a normative `stream_index`-to-ratchet-position pin,
-which rulings 2 and 3 sharpen by putting two records per leaf on one ladder).
+stated in §5.11 as well. **Four costs of the rulings are filed rather than resolved and a builder has
+to read them** (three until 2026-09-15, when the fourth was found): ledger **138** (nothing detects a
+missing recovery wrap), **142** (after the marker the group is fully writable, so a concurrent commit
+strands every recovery wrap still in flight under `REASON_EPOCH_STALE` — no crash required — and a
+retry is possible but unruled: it costs **no wire bytes**, because the content epoch is bound inside
+`wrap_key`'s HKDF `info` and a restorer recovers it by trial decryption, **but the procedure published
+for it on 2026-09-14 was unsafe** — rebuilding around a stored `ct_xwing` repeats the wrap head's
+`(key, nonce)` against an `AAD_head` the server forces to move — so it now owes four rulings and not
+one bound), **143** (the device wrap still owes a normative `stream_index`-to-ratchet-position pin,
+which rulings 2 and 3 sharpen by putting two records per leaf on one ladder, and which as of
+2026-09-15 names a concrete instantiation: ruling 2's ladder head carries no retention class, so two
+per-class ratchets over it share a root) and **144** (the recovery wrap's **inner** `aead_ct` has no
+nonce in any document, which is Task 19's stop sign and which decides 142).
 
 **What is still open, and it is what still blocks Task 14.** The wrap body's field list beyond what
 MASTER §8.2's payload table and MASTER §7's `hybrid_ct` framing already fix; **where the signature sits
 relative to `hybrid_ct` and precisely which octets it covers**; and the padding scheme, which is
 **M1-7**. *Blocks:* Task 14. **No longer blocks:** Task 16, and therefore no longer CP3b by this route
 — M1-6 does. *A ruling must state:* the three items in the sentence before this one, and nothing more;
-the rest of this item is answered.
+the rest of this item is answered. (**2026-09-15:** two further values the rulings do not state were
+added to Spec A §5.11 (5) and are **Task 19's** rather than Task 14's — `target_id`, which is defined
+nowhere in the corpus and is the fourth input to `wrap_key`, and the inner nonce of **144**. Neither
+widens what M1-1 asks; both are named here so a builder does not read this item's *"the rest of
+this item is answered"* as covering the recovery wrap's seal.)
 
 **M1-2 — DELIBERATELY DEFERRED 2026-09-13, and no longer a CP3b blocker. `group_handle_key` and the
 joining epoch's `read_key` still have no production carrier.** MASTER §8 and Spec A §5.7 both say "in

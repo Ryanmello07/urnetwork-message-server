@@ -97,6 +97,7 @@ Append-only. Newest last. One entry per commit that changes this spec. Every cha
 | 2026-09-13 | A-14 | **Three owner rulings on M1-1 applied; two of the five questions the 2026-09-12 red team put to the owner remain open and are not touched here.** **Ruling 1 — the fan-out is resequenced: recovery wraps land AFTER the `EpochComplete` marker**, as ordinary records of the now-open epoch, because `exemptFromEpochComplete` (`msgrepo/store/memory.go:937`) exempts exactly `AttachmentWrap` and `AttachmentEpochComplete` and `store/contract.go:2555` derives that class from the declared kinds in both directions across both stores — so the pre-ruling sequence executed against no shipped server. Nothing in the store gate changes and that contract test stays green as written, verified rather than assumed. The accepted cost is stated in §5.11 itself: `expected_wrap_count` becomes **decorative for the recovery arm**, and **nothing detects a missing recovery wrap** — not the count, not the `no_wrap` gap, not a live member, not the server. **Ruling 2 — the device wrap is sealed under an MLS-exporter envelope**, `env_key[k] = MLS-Exporter("URmessage/v1/envelope", "", 32)` at the wrap's own epoch, over §5.3's existing record ladder and no new one. Two consequences are written as consequences: the **recovery wrap cannot use it** — its only intended reader has no MLS state and no `storage_root` by definition — so it is KEM-sealed with a real `ct_head` keyed `HKDF-Expand(wrap_key, "wraphead/v1", 56)`; and the **past-epoch caching obligation is now live**, because `(*Group).Export` reads the current schedule, `connect` has no `ExportAt`, and `PastEpochWindow` is 32 — all three measured. A missed window is **unrecoverable** for that epoch's `storage_root`, and §5.11 says so. **A signature over every wrap body under the publisher's `identity` key** is carried in, as MASTER §5.3's existing rule applied where it already applies. (**Corrected 2026-09-14, in the review of A-15:** that is true of *half* of it. For the recovery wrap it is MASTER §5.3 applied where it already applied; for the **two device-wrap records** it is **new normative policy ruled here**, because they carry a `WrapTag` and no `RecoveryTag` and no document required a signature over them before. A-15 corrected this sentence in §5.11 and in the ledger and left this copy standing.) **Ruling 3 — the device wrap becomes two records**, a `PERMANENT` one carrying `pq_secret` and an `EPH(5)` one carrying `eph_root`, which makes MASTER §8.1's disappearing-message promise cryptographic rather than behavioural and closes ledger item 136. `expected_wrap_count` is therefore `2 × device_leaves + 1`, covering **both** device-wrap record kinds and the snapshot and **no** recovery wrap; the bundle goes from ~6.9 MB to **~11.5 MB** and from ~55 to ~90 round trips, and §5.10's and §5.11's sizing, the S5 and S6 rows and E1's second sentence are amended with it. **Not ruled and left open:** where `group_handle_key` lives, and ledger items 132–135. (**Corrected 2026-09-14, in the review of A-15:** the range is **132–134**. Item **135** is what the signature sentence above ruled, and it is CLOSED. A-15 resolved exactly this contradiction — a normative MUST in §5.11 against a ledger saying it had never been decided — in §5.11 and in ledger items 135 and 137, and left the two copies of it in this row untouched. The rule A-16 states is why they are annotated here rather than rewritten.) |
 | 2026-09-13 | A-15 | **The A-14 review closed: five defects in how A-14 was written, none in what it ruled.** A-14's rulings reproduce — `go test ./...` green, the resequenced fan-out executes end to end against the shipped gate, all three `connect/mls` facts exact, every sizing figure reproduces — and this row is the repair of the writing. **§5.11 gains the window the resequence opened**, which A-14 attributed only to a committer that dies: after the marker the group is fully writable, so any concurrent commit sets `current_epoch := n+2` and strands every recovery wrap still in flight under `REASON_EPOCH_STALE` (`store/memory.go:578`, in front of the epoch-complete gate) — **permanently**, across a **~18-round-trip** window the pre-ruling sequence structurally did not have, with **no crash required**. Whether a stranded wrap may be republished at a later epoch is **answered rather than deferred**: the cryptography permits it and `RecoveryTag` does not, because it carries no epoch where `WrapTag` carries `u64 epoch` and `recovery_handle` is the same in every epoch — filed as ledger open item **142** with the two changes that would make a retry coherent. (**Corrected 2026-09-14, in the review of this row:** the second half does not follow from the first. The content epoch is bound inside `wrap_key`'s HKDF `info`, so a restorer **tells two candidate wraps apart by trial decryption** — one decapsulation per record, then bounded symmetric trials downward from the record's own `epoch`. A retry costs **zero wire bytes** and is **not** an A6 change; it needs a normative bound and two MUSTs. §5.11 and item 142 carry the re-derivation; A-16 is the row.) **§5.11 (4)'s signature is split into its existing half and its new half**: the recovery wrap's is MASTER §5.3 applied where it already applied, the two device-wrap records' is **new normative policy ruled 2026-09-13**, which A-14's *"not new policy"* understated — it **closes ledger item 135**. **§5.11 (5) gains the red team's residual 2**, the normative `stream_index`-to-ratchet-position pin, which no document carried and which rulings 2 and 3 sharpen (ledger item **143**). **"Decorative for the recovery arm" is scoped**: the count is exact and its equality with the marker is normative; only its silence about the recovery arm is meant. **E1's superseded sentence is struck in the row itself**, not only in the paragraph beneath. And `mls/group.go:2587` is corrected to `:2594` — `:2587` is the cutoff guard, not the `DeleteGroupStateBefore` call. |
 | 2026-09-14 | A-16 | **One design correction and one rule about revision rows; A-14's and A-15's rulings are untouched.** **The correction: a retry for a stranded recovery wrap costs ZERO wire bytes, not an A6 change.** A-15 ruled it out on the ground that a restorer *"cannot tell two candidate wraps apart"*, and supplied in the same paragraph the fact that defeats that: the content epoch is bound **inside** `wrap_key`'s HKDF `info`, so a wrong candidate **fails AEAD authentication**. A restorer decapsulates **once per record** — `ss` is epoch-independent — and walks candidate content epochs **downward** from the record's own `epoch` field, which is an upper bound because no wrap is published before its epoch opens. The search therefore adds symmetric trials and **no asymmetric operation**, and its cost does not scale with the bound. What a retry actually needs is **one normative bound plus two MUSTs** (a publisher MUST NOT republish past the bound; a restorer MUST NOT search past it) — a bound is required, because without one a restorer cannot distinguish *wrong guess* from *not mine* and walks back to epoch 0. `PastEpochWindow` = **32** (`connect/mls/key_schedule.go:30`) is the ceiling the corpus already supplies: past it no member can rebuild that epoch's wrap, because `archive_secret[k]` is gone. §5.11's block is re-derived and ledger item **142** is re-priced; **142 stays filed and unruled** — the bound's value is the owner's. **§5.11's opening no longer says MASTER §8.3 carries the same block**, which A-15's own fourth MASTER divergence disproved in the same commit: MASTER's copy still annotates `expected_wrap_count` with the superseded definition, and that sentence is what would send a second implementation to transcribe it (ledger **141**). **And the rule for a landed revision entry, applied to A-14 above and stated once here:** *a revision entry's claim about what the document says is corrected in place by a dated annotation that quotes what it said; a revision entry's measurement, true at the commit the entry names, is never rewritten.* That is the rule Spec B revision 14 already followed when its per-commit figures were corrected in place, and it is why the ledger's §7 edit log is still not swept — its numbers were true at the commits its entries name, while A-14's *"132–135"* and its *"existing rule applied where it already applies"* were claims about the corpus that are false now and one of which was false when written. Both are annotated, neither is erased. |
+| 2026-09-15 | A-17 | **A-16's price for a republished recovery wrap was UNSAFE AS SPECIFIED, and the correction is to the procedure rather than to the wire.** A-16 is right that the retry costs **zero wire bytes** and right that a restorer separates candidates by trial decryption; both halves survive. What A-16 did not price is the **seal**. `AAD_head` binds the **record's** epoch and stream index (MASTER §8, §5.1); the recovery wrap's `key_head ‖ nonce_head = HKDF-Expand(wrap_key, "wraphead/v1", 56)` binds **neither**, and `wrap_key` binds the **content** epoch — so the head's `(key, nonce)` is a pure function of `ss` and moves with neither field the shipped server forces a republish to change (`store/memory.go:578` and `:610`, and §5.7's own outbox rule). **A republisher that rebuilds around a stored `ct_xwing` seals a second `AAD_head` under a byte-identical `(key, nonce)`** — Poly1305 one-time-key recovery, the failure §5.11 (5) already names — and §5.9's **G5**, whose defence is the `stream_index` reservation, is **vacuous here** because the wrap head is not on the `record_key[i]` ladder at all. **The escape is a procedure choice and not a format constraint:** `XwingEncapsulate` cannot be derandomized (`connect/messagegroup/xwing.go:236`, `xwing_test.go:277`), so a republisher that re-encapsulates from the wrap **plaintext** gets a fresh pair unconditionally. That cannot ship as a bare MUST — nothing can check it — so §5.11 states it in §5.9 G4's guardrail shape and leaves the ruling to the owner. **Three further prices A-16 omitted:** the body signature MUST be recomputed and MUST NOT be copied (fresh `ss` → fresh `ct_body` → fresh `body_hash`), and a repairer that is not the committer signs under its own identity; the retry is **not** all client-side, because re-encapsulation needs the wrap plaintext — `storage_root[k] ‖ archive_secret[k]` — retained in an outbox, which is a forward-secrecy ruling; and the wrap's **inner** `aead_ct` has **no nonce in any document** (ledger **144**), which decides the whole question, because §5.14's sibling KEM construction seals at `nonce = 0` on the single justification *"Every encapsulation yields a fresh `deposit_key`"*. **`PastEpochWindow` = 32 is withdrawn as the bound**: it bounds *rebuilding from live group state* and an outbox is not group state (`DeleteGroupStateBefore` runs off the live epoch inside commit-apply, `mls/group.go:2594`; `grep -rni outbox connect/mls/` names no file), the two numbers share no premise, and the error is one-sided. **And no normative bound exists anywhere today**, while A-16 moved the walk into descriptive prose — so §5.11 now says in as many words that until item **142** is ruled the walk is a derivation and not a licence and a conforming client does not republish. **142 stays filed and unruled; 144 is new; 143 gains a concrete instantiation** (ruling 2's ladder head has no retention class in it, ruling 3 puts a `PERMANENT` and an `EPH(5)` record on that one root, and §5.5 still sizes the ratchet per class — two ratchets, identical roots, both at `i = 0`). **Also corrected, each measured:** §5.11's opening claimed the three `EpochAttachment` blocks *"disagree field for field"* — the eight field declarations are **byte-identical** in all three documents and exactly **one annotation of one field** diverges normatively; the discriminator's probability was stated **inverted** in two places; and `target_id`, the inner nonce and the wrap head's plaintext are added to (5)'s list of what is not stated, `target_id` because it is defined **nowhere in the corpus** and is the value the whole re-derivation depends on. No wire byte, no ruling and no gate's derived class changed. |
 
 ---
 
@@ -1588,16 +1589,36 @@ were 4.6 MB, ≈ 6.9 MB and ~55 round trips.
 `connect/message/attachment.go` owns this encoding. Spec B consumes it and never reimplements it
 (B §12.1 A-2).
 
-**MASTER §8.3 carries a copy of this block and it is STALE — transcribe from here, not from there.**
-Corrected 2026-09-14; this sentence read *"MASTER §8.3 carries the same block"* and the pass that wrote
-the block below had already disproved it in the same commit. MASTER's copy still annotates
-`expected_wrap_count` as *"device wraps + recovery wraps + 1 snapshot, for the epoch it opens"*, which
-**both** rulings of 2026-09-13 contradict — ruling 3 makes it `2 × device_leaves + 1` and ruling 1 takes
-the recovery wraps out of it entirely — so the three documents' `EpochAttachment` blocks now disagree
-field for field. It is the worst of MASTER's four divergences precisely because it is a **wire-block
-annotation**, the form a second implementation transcribes rather than reads, and this sentence is what
-would send that implementation to it. Ledger open item **141** carries all four and says MASTER's
-amendment is a transcription rather than a decision.
+**MASTER §8.3 carries a copy of this block and ONE ANNOTATION IN IT IS STALE — transcribe from here,
+not from there.** Corrected 2026-09-14; this sentence read *"MASTER §8.3 carries the same block"*, and
+that was disproved by the fourth MASTER divergence found in the review of the same pass. MASTER's copy
+still annotates `expected_wrap_count` as *"device wraps + recovery wraps + 1 snapshot, for the epoch it
+opens"*, which **both** rulings of 2026-09-13 contradict — ruling 3 makes it `2 × device_leaves + 1` and
+ruling 1 takes the recovery wraps out of it entirely. It is the worst of MASTER's four divergences
+precisely because it is a **wire-block annotation**, the form a second implementation transcribes rather
+than reads, and this sentence is what would send that implementation to it. Ledger open item **141**
+carries all four and says MASTER's amendment is a transcription rather than a decision.
+
+**Corrected again 2026-09-15, and the correction is to the SCOPE of the divergence rather than to the
+divergence.** The paragraph above ended *"so the three documents' `EpochAttachment` blocks now disagree
+field for field"*, which is measurably false and overstates the thing it is warning about — the danger
+of a scope claim in a *transcribe from here* sentence is that a reader who checks one field and finds it
+identical stops believing the sentence. The measurement, with its query, so it can be re-run:
+
+```
+for f in urmessage-protocol-design spec-a-protocol-sdk-connect spec-b-message-server-operator; do
+  sed -n '/^EpochAttachment {/,/^}/p' docs/specs/2026-08-12-$f.md | sed 's-//.*--' ; done
+```
+
+strips every annotation and leaves the **eight field declarations plus the two brace lines**, and the
+three documents' ten lines are **byte-identical**. Field order, field names and field widths do not
+diverge at all. What diverges is **one annotation of one field**, `expected_wrap_count`, and it
+diverges *normatively*. (Two others differ in wording and not in meaning: `read_key`'s trailing
+cross-reference names each document's own retention section, which is correct in each; and
+`durable_ttl_seconds`' annotation is longer here because it carries `RetentionApplied.durable_clamped_down`
+and Spec B §7.3 case 3's no-refusal rule, which MASTER states elsewhere.) **One field of eight, and it
+is the one whose value opens an epoch** — which is a sharper warning than *field for field*, not a
+milder one.
 
 `LP(x)` = 32-bit big-endian length prefix then `x`; `u8/u16/u32/u64` big-endian fixed width.
 
@@ -1744,59 +1765,166 @@ else's perfectly legal commit** — no crash required, and at whatever rate the 
 detects that either, for the reasons *So what does detect a missing recovery wrap?* gives below. A
 reader who takes step 7 to mean *"this happens only if the committer crashes"* has the frequency wrong.
 
-**May a stranded recovery wrap be republished at a later epoch? Yes — the cryptography permits it and
-the wire costs nothing, because the content epoch is RECOVERED by trial decryption rather than
-transmitted.** Answered here rather than left as an exercise, because a retry is the first repair an
-implementer reaches for and it is the only mitigation the window above has.
+**May a stranded recovery wrap be republished at a later epoch? The cryptography permits it, the wire
+costs nothing — AND THE PROCEDURE THIS SECTION PUBLISHED FOR IT WAS UNSAFE. A conforming implementer
+following the 2026-09-14 text would have shipped an XChaCha20-Poly1305 nonce reuse.** Answered here
+rather than left as an exercise, because a retry is the first repair an implementer reaches for and it
+is the only mitigation the window above has.
 
-**CORRECTED 2026-09-14, and the correction changes the price rather than the ruling.** This block first
-concluded the opposite — that a retry is *unaddressable* because `RecoveryTag` carries no epoch, at a
-price of a `u64 epoch` on `RecoveryTag` and therefore an **A6 wire-format change** reaching this
-section, Spec B §5.4 and MASTER §8.3. **That conclusion does not follow from the bullet that supplies
-it.** The first bullet states that the content epoch is bound inside `wrap_key`'s HKDF `info`; a value
-bound inside a key is a value a holder of that key **tests for**, and testing is what an AEAD is. The
-restorer can tell two candidate wraps apart, at zero wire cost.
+**CORRECTED 2026-09-15. Three consecutive passes priced this retry and each supplied, in its own text,
+the fact that defeated its own conclusion.** The first ruled a retry *unaddressable* because
+`RecoveryTag` carries no epoch, at a price of an **A6 wire-format change** across three documents. The
+second showed the restorer can separate candidates by trial decryption and re-priced it at **zero wire
+bytes and two normative sentences** — that half stands and is re-derived below. **What the second pass
+did not price is the seal**, and the seal is where the retry actually costs something.
 
-- **The cryptography permits it, and the same fact identifies the epoch.** A recovery wrap's `ct_body`
-  **is** `hybrid_ct` and its `ct_head` is keyed from `wrap_key` (part (2) above), so neither depends on
-  the record's own `epoch` field; the content epoch is bound *inside* `wrap_key`'s HKDF `info`
-  (`… ‖ u64(epoch) ‖ LP(target_id)`, MASTER §7). A wrap built for epoch *k* and submitted at epoch *k+1*
-  decapsulates and opens exactly as it would have — **under `wrap_key` derived with *k*, and under no
-  other value.**
-- **A wrong guess therefore fails AEAD authentication, and that failure is the discriminator.**
-  `ss = XWing.Decapsulate(recovery_sk, ct_xwing)` does **not** depend on the epoch. The epoch enters
-  only at `wrap_key = HKDF-Expand(ss, "URmessage/v1/wrap" ‖ LP(group_id) ‖ u64(epoch) ‖ LP(target_id),
-  32)` and again beneath it at `key_head ‖ nonce_head = HKDF-Expand(wrap_key, "wraphead/v1", 56)`. So a
-  restorer decapsulates **once per candidate record** and then walks candidate content epochs downward
-  from the record's own `epoch` field — which is an upper bound, because no wrap is published before
-  its epoch opens. The first candidate whose `ct_head` opens is the content epoch; every other fails
-  Poly1305 with probability `2^-128`. **The property that makes this cheap, stated so it stays
-  checkable: the decapsulation count does not depend on the bound at all**, because `ss` is
-  epoch-independent — the search adds symmetric trials (two HKDF-Expands and one AEAD open each) and
-  **no** asymmetric operation.
-- **A bound MUST be normative, and it is the one thing a retry genuinely needs.** Without it the search
-  has no stopping rule: a restorer handed a record it cannot open — corrupt, foreign, or for an epoch
-  it is not owed — cannot distinguish *wrong guess* from *not mine*, so the failure of the **whole**
-  search is its only signal and an unbounded restorer walks back to epoch 0 on every such record. The
-  corpus already supplies a ceiling rather than inviting a fresh constant: `PastEpochWindow` is **32**
-  (`connect/mls/key_schedule.go:30`, the same measurement the caching paragraph below carries), past
-  which no member still holds epoch *k*'s MLS state and therefore no member can **rebuild** that epoch's
-  recovery wrap at all — `archive_secret[k]` is `sender_data_secret[k] ‖ encryption_secret[k]`
-  (MASTER §8.2) and `DeleteGroupStateBefore` has taken both. A lag above it names a record nobody could
-  have produced. **What the value is, is the owner's; that there must be one is not.**
-- **So what a retry would take, re-derived rather than carried over: two normative sentences and ZERO
-  wire bytes.** A publisher MUST NOT republish a recovery wrap whose content epoch lags the epoch it is
-  submitted at by more than the bound; a restorer MUST try only content epochs within the bound below
-  the record's own `epoch` and MUST surface a gap rather than search further. Neither is a
-  published-surface change, neither reaches Spec B §5.4 or MASTER §8.3, and **neither is an A6 change**.
-  What does *not* shrink to nothing: two wraps at one `recovery_handle` in one epoch are separated by
-  *which* content epoch opens, and an unauthenticated one is already refused by part (4)'s signature
-  rule — so what remains is two **verified** wraps for the **same** content epoch that disagree, which
-  is a member equivocating and is not created by the retry.
-- **Still filed as ledger open item 142, and still not ruled here.** A retry adds a MUST to the restore
-  path and fixes a number, and both are rulings. What this correction changes is that item 142 is no
-  longer blocked behind a wire-format decision — it is blocked behind one bound. Until it is ruled, a
-  stranded recovery wrap stays stranded and that epoch's recovery arm is short.
+**THE FACT ALL THREE PASSES HAD IN FRONT OF THEM. `AAD_head` binds the RECORD's epoch; the wrap head's
+key and nonce bind the CONTENT epoch; a republish moves the first and cannot move the second.** Three
+derivations, none of them new, read together for the first time here:
+
+```
+AAD_head              = "URmessage/v1/aad/head" ‖ u16(alg_id) ‖ LP(group_id) ‖ LP(sender_handle)
+                        ‖ u64(epoch) ‖ u64(stream_index) ‖ …          MASTER §8, this §5.1
+                        //  ^ the RECORD's epoch and the RECORD's stream index
+
+wrap_key              = HKDF-Expand(ss, "URmessage/v1/wrap" ‖ LP(group_id) ‖ u64(epoch)
+                        ‖ LP(target_id), 32)                          MASTER §7
+                        //  ^ the CONTENT epoch
+
+key_head ‖ nonce_head = HKDF-Expand(wrap_key, "wraphead/v1", 56)      part (2) below
+                        //  ^ a BARE label: no record epoch, no stream index, no sender handle
+```
+
+So the recovery wrap's `(key_head, nonce_head)` is a pure function of `ss` and the content epoch, and
+it moves with **neither** of the two `AAD_head` fields the shipped server forces a republish to change:
+`store/memory.go:578` refuses any record whose epoch is not the current one — which is why the wrap was
+stranded in the first place — and `store/memory.go:610` refuses a `stream_index` that is not strictly
+greater, which §5.7's outbox rule already requires (*"re-sealed at the new epoch, consuming a"* **fresh**
+*"`stream_index`"*). **A republisher that rebuilds the record around a `ct_xwing` it kept therefore
+seals a second, different `AAD_head` under a byte-identical `(key, nonce)`.** That is keystream reuse
+plus recovery of the Poly1305 one-time key — header forgery over a preimage covering `body_hash`,
+`blob_id` and `H(server_attachment)` — and it is the exact failure part (5) below names, in its own
+words, as *"a repeated pair under XChaCha20-Poly1305 leaks the Poly1305 one-time key"*.
+
+**And §5.9's mechanical defence does not reach it.** Guardrail **G5**, *"AEAD nonce reuse"*, is defended
+by *"§5.6 durable reservation + `TestStreamIndexNeverReused`"*. That guards `i` in `record_key[i]`,
+which is what an ordinary record's head nonce descends from. The recovery wrap's head is keyed from
+`wrap_key` and is **not on that ladder at all**, so G5 is vacuous for precisely the record class this
+paragraph is about. Nothing in the corpus is watching this nonce.
+
+- **The restorer can still tell two candidate wraps apart, and that half of the 2026-09-14 correction
+  stands.** A recovery wrap's `ct_body` **is** `hybrid_ct` and its `ct_head` is keyed from `wrap_key`
+  (part (2) **below**), so neither depends on the record's own `epoch` field; the content epoch is bound
+  *inside* `wrap_key`'s HKDF `info` (`… ‖ u64(epoch) ‖ LP(target_id)`, MASTER §7).
+  `ss = XWing.Decapsulate(recovery_sk, ct_xwing)` does **not** depend on the epoch, so a restorer
+  decapsulates **once per candidate record** and then walks candidate content epochs downward from the
+  record's own `epoch` field — an upper bound, because no wrap is published before its epoch opens. The
+  first candidate whose `ct_head` opens is the content epoch. **The property that makes this cheap,
+  stated so it stays checkable: the decapsulation count does not depend on the bound at all**, because
+  `ss` is epoch-independent — the search adds symmetric trials (two HKDF-Expands and one AEAD open each)
+  and **no** asymmetric operation.
+- **A wrong candidate opens with probability about `2^-128`, and the 2026-09-14 text stated that
+  inverted.** It read *"every other fails"* / *"Poly1305 with probability `2^-128`"* — two strings,
+  because it straddled a line break — and it says a wrong guess almost always **succeeds**. A wrong
+  candidate **fails** with probability `1 − 2^-128`; `2^-128` is the chance it opens anyway, and that
+  direction is the one the search's correctness rests on. The same inversion was written into ledger
+  item 142 and is corrected there.
+- **THE REUSE IS A PROCEDURE CHOICE AND NOT A FORMAT CONSTRAINT, and this is the fact the seal analysis
+  turns on.** `XwingEncapsulate` **cannot be derandomized**: `crypto/mlkem`'s `Encapsulate` takes no
+  randomness argument and reads `crypto/rand` itself, so the ML-KEM half is fresh whatever reader the
+  caller supplies (`connect/messagegroup/xwing.go:236`, and asserted rather than documented by
+  `xwing_test.go:277`, `TestXwingEncapsulateIsNotDerandomizable`). A republisher that **re-encapsulates
+  from the wrap plaintext** therefore gets a fresh `ss`, a fresh `wrap_key` and a fresh
+  `(key_head, nonce_head)` — unconditionally, and without depending on any field of the AAD, on any
+  server check, or on anything the restorer does. A republisher that **reuses a stored `ct_xwing`** gets
+  the collision above. Both conform to every wire rule in this document; the difference is entirely in
+  what the outbox kept.
+- **So a bare MUST is the wrong shape for it, and §5.9 already says why.** No party can check
+  compliance: the server never decrypts, the restorer sees only the record that landed, and the
+  ciphertext the reuse would be compared against was **refused** and exists only on the server's side of
+  the wire. §5.9's own idiom is the answer — G4 does not tell an implementer to keep `body_hash` out of
+  `AAD_body`, it makes `AAD_body` *"built by a function that does not take a hash argument"*. The same
+  shape here: rule that a recovery-wrap outbox entry holds the wrap **plaintext** and MUST NOT hold a
+  sealed recovery-wrap record or a `ct_xwing`, and give the republish path one function that takes the
+  plaintext and the target's X-Wing public key and does its own encapsulation. Then reusing `ct_xwing`
+  is not forbidden, it is **not representable**. That is a data-structure ruling and it is not made here.
+- **Re-encapsulating forces the signature to be recomputed, and this is the part easiest to miss.** A
+  fresh `ss` gives a fresh `ct_xwing` and a fresh `aead_ct`, so `hybrid_ct` changes, so `ct_body`
+  changes, so `body_hash` changes. Part (4) **below**'s signature over the wrap body MUST be recomputed
+  and MUST NOT be copied — a republisher that copies the stranded signature ships a signature over bytes
+  that are no longer there. And step 6 above lets **any member** repair a fan-out, so a repairer that is
+  not the original committer signs under its **own** `identity` key and the restorer must accept that.
+  Neither sentence is written anywhere today.
+- **It also costs a publisher-side RETENTION obligation, which the 2026-09-14 price omitted entirely by
+  calling itself client-side.** The input to a re-encapsulation is the wrap plaintext, and MASTER §8.2's
+  payload table says what that is: **`storage_root[k]` ‖ `archive_secret[k]`**, where
+  `archive_secret[k] = sender_data_secret[k] ‖ encryption_secret[k]`. Holding it in an outbox past epoch
+  *k* is a copy of that epoch's whole non-`EPH` key material living outside the MLS state store and
+  outside `record_key[i]`'s overwrite discipline, against `connect/mls/group.go:2488`'s *"THE DELETE IS A
+  SECURITY REQUIREMENT AND NOT HOUSEKEEPING"*. **It is not, however, a breach of MASTER §8.1's
+  disappearing-message promise** — that promise is `eph_root`'s, and `eph_root` is *"never wrapped to a
+  recovery key"* and is not in this payload. How long a stranded wrap may sit in an outbox is a
+  forward-secrecy ruling with a measurable cost on the publisher side, and it is the quantity the
+  restorer's bound should be derived from.
+- **A BOUND MUST BE NORMATIVE, NO DOCUMENT CARRIES ONE TODAY, AND THE PARAGRAPHS ABOVE DESCRIBE AN
+  UNBOUNDED WALK.** Stated in that order because the 2026-09-14 text put the bound under *what a retry
+  would take* while putting the walk into descriptive prose, so a reader building to this section today
+  builds a search with no stopping rule: handed a record it cannot open — corrupt, foreign, or for an
+  epoch it is not owed — a restorer cannot distinguish *wrong guess* from *not mine*, and walks back to
+  epoch 0 on every such record. **Until item 142 is ruled, the walk above is a derivation and not a
+  licence, and a conforming client does not republish at all.**
+- **`PastEpochWindow` = 32 is NOT that bound, and the 2026-09-14 text was wrong to reach for it.** It
+  was offered as *"the ceiling the corpus already supplies"* on the ground that past 32 epochs
+  `DeleteGroupStateBefore` has taken `archive_secret[k]` and no member can **rebuild** that epoch's
+  wrap. That argument bounds **rebuilding from live group state**, and a republish is not a rebuild: the
+  wrap was produced at epoch *k* while the state existed, and what republishes it is an **outbox**.
+  `DeleteGroupStateBefore` is called off `self.context.Epoch` inside the commit-apply path
+  (`connect/mls/group.go:2594`, its cutoff guard at `:2587`) and reaches the MLS state store;
+  `grep -rni outbox connect/mls/` names no file. A committer whose outbox survives a forty-epoch offline
+  stretch republishes at lag 40 and a restorer bounded at 32 refuses to look that far — which loses the
+  wrap in exactly the case the retry exists for, silently, because nothing detects a missing recovery
+  wrap. The two numbers also share no premise: `PastEpochWindow`'s own comment derives 32 from *"the
+  window is a product promise"* / *"about how long a laptop may stay closed, and an active group can
+  burn eight epochs in a"* — two strings, because that comment wraps mid-clause
+  (`connect/mls/key_schedule.go:25-29`) — while a search bound is a per-unopenable-record work budget
+  spent on records an attacker can submit. And the error is one-sided: too small loses a
+  legitimate wrap permanently and silently; too large costs symmetric trials. **The bound should be
+  derived from the publisher-side retention window, ruled where it has a cost, and the restorer's bound
+  is then that window or greater.**
+- **One further thing is undetermined and it may decide the whole question: the wrap's INNER AEAD has no
+  nonce in any document.** MASTER §7 derives `wrap_key` as **32** octets and then writes
+  `hybrid_ct = u16(alg_id) ‖ LP(ct_xwing) ‖ LP(aead_ct)`, and nothing in MASTER, this spec, Spec B or
+  the m1 plan says what nonce seals `aead_ct`. Measured: `wrap_nonce` and `nonce_wrap` occur in the
+  whole corpus **only** inside the r3 review's un-adopted proposal
+  (`docs/reviews/2026-08-12-r3-spec-review.md:172`, which proposed
+  `wrap_key ‖ wrap_nonce = HKDF-Expand(prk, info, 56)`), and MASTER still expands 32. The closure an
+  implementer will reach for is one section away in this document: §5.14's sibling KEM construction
+  seals at `nonce = 0` and justifies it in one sentence — *"Every encapsulation yields a fresh
+  `deposit_key`, so the zero nonce uses no key twice"* (**I7**). **That is the re-encapsulation rule,
+  written for a different record.** On that reading a republish that reuses `ct_xwing` is a two-time pad
+  over `storage_root[k] ‖ archive_secret[k]` **as well as** a head forgery, and the inner nonce must be
+  ruled before the republish procedure can be. Filed as ledger open item **144**.
+- **Still filed as ledger open item 142, still not ruled here, and the reason it is unruled has changed
+  a second time.** It was blocked behind a wire-format decision; then behind one bound; it is in fact
+  blocked behind **four** things, none of them a wire byte: the inner nonce (**144**), a re-encapsulation
+  rule in a form nothing can violate, a publisher retention window, and the bound derived from that
+  window. **What is now settled is the direction:** a retry costs zero wire bytes, and the price is paid
+  in procedure and retention rather than on the wire.
+- **And there is a candidate that deletes the question instead of answering it, priced here because the
+  comparison is the useful part.** Widening `exemptFromEpochComplete` to cover `AttachmentRecovery` and
+  putting the recovery leg back **inside** the fan-out means nothing is ever stranded: no republish, no
+  re-seal, no bound, no search — and `expected_wrap_count` becomes a real count over the recovery arm,
+  which is the one thing every other route leaves open (item **138**). Its landed-code price was
+  measured rather than argued: one arm of one switch (`store/memory.go:939`, shared with `pgx.go:1152`)
+  plus `exempt: true` on one map entry (`store/contract.go:2576`), and exactly **one** failing test leaf,
+  `OnlyTheExemptKindsPassTheGateWhileTheFanOutIsOpen/AttachmentRecovery`, which fails by **assertion**
+  and not through `attachmentKindsDeclared`'s by-name guard — that guard fires for a **new** kind, which
+  is a different proposal. Its real price is **availability**: the group cannot write for the recovery
+  arm's ~18 extra round trips on every commit, which is exactly what ruling 1 bought back, and it widens
+  the interval in which a permanent refusal leaves `epoch_complete = false` with no commit path out. And
+  it does **not** make the seal question moot — step 6 above still has any member rebuild a fan-out its
+  committer abandoned, and that rebuild re-seals. **Not ruled here either;** it reverses a ruling and
+  belongs with 142.
 
 **The wrap's seal (RULED 2026-09-13).**
 
@@ -1890,21 +2018,68 @@ field list beyond what MASTER §8.2's payload table and MASTER §7's `hybrid_ct`
 where the signature sits relative to `hybrid_ct` and precisely which octets it covers; and the padding
 scheme (**M1-7**). That is M1-1's and M1-7's remainder, and m1 Task 14 stays blocked on it.
 
+**Three more were added to this list on 2026-09-15, and the first two are load-bearing for the
+republish block above rather than merely absent.**
+
+- **`target_id` is defined nowhere in the corpus.** It is the fourth input to
+  `wrap_key = HKDF-Expand(ss, "URmessage/v1/wrap" ‖ LP(group_id) ‖ u64(epoch) ‖ LP(target_id), 32)`,
+  and therefore the value a restorer must reproduce **byte for byte** for the trial-decryption walk to
+  open anything at all. Measured: `target_id` occurs in this repository in MASTER §7's derivation, in
+  the three documents that quote that derivation, and in the r3 review's un-adopted rewrite — and in
+  **no definition anywhere**. The candidates are not interchangeable: `recovery_handle` (16 octets,
+  `HKDF-Expand(recovery_root, "idx/v1", 16)`), the member's `wrap_target_handle` (16 octets, but
+  epoch-scoped and therefore circular for a wrap that carries an epoch), a leaf index, and a member id
+  are four different byte strings, and a publisher and a restorer that choose differently produce a
+  wrap nobody can open with no error anywhere. This is the single most likely way for a second
+  implementation to diverge silently on the wrap, and it costs a sentence to close.
+- **The inner AEAD's nonce is undefined.** MASTER §7 expands `wrap_key` to **32** octets — a key and no
+  nonce — and then writes `hybrid_ct = u16(alg_id) ‖ LP(ct_xwing) ‖ LP(aead_ct)`. Nothing says what
+  `aead_ct` is sealed under. Ledger open item **144**; the republish block above says why it decides
+  that question and not only this one.
+- **What a recovery wrap's `ct_head` PLAINTEXT holds is not stated either.** MASTER's record table gives
+  a head as *"MLS PrivateMessage header, type, sent_at"*, and part (4) above says the wrap is the only
+  record class carrying **no MLS frame**, so the table's answer is not this record's answer. It matters
+  for the paragraph below: whether a repeated `(key, nonce)` yields a plaintext XOR as well as a forgery
+  depends on whether the two heads differ, and a head carrying a `sent_at` differs on every rebuild.
+
 **And one more, filed by the red team as a residual of this very recommendation and carried by no
 document until now: the device wrap still owes a normative `stream_index`-to-ratchet-position
 mapping.** The record nonce is derived from the record key — `key_head ‖ nonce_head =
 HKDF-Expand(record_key[i], "rec/v1/head", 56)` (§5.3, MASTER §8.1) — so key-nonce uniqueness **is**
 uniqueness of `i`, and a repeated pair under XChaCha20-Poly1305 leaks the Poly1305 one-time key, which
-is header **forgery** and not a plaintext XOR. `i` and `stream_index` are not the same thing by
-default: gaps are normatively legal (§5.6, *"the server enforces monotonicity, not contiguity"*), and
-one rate-limited submit mid-fan-out is enough to separate them. **Rulings 2 and 3 sharpen this rather
-than soften it.** Ruling 2 gives the device wrap its own ladder head,
-`record_key[0] = HKDF-Expand(env_key[k], "sender/v1" ‖ LP(leaf_index), 32)`, and ruling 3 puts **two**
-records per leaf on that ladder, so a fan-out now advances it twice per leaf where it advanced it once.
-The repair the review proposes is to pin `i = stream_index` in every ladder, so the invariant follows
-from §5.12 step 6's existing *"MUST NOT be reused"* rule rather than from a second, unwritten
-discipline. **It is not ruled here** — it reaches every ladder in §5.3 and not only the wrap's — and is
-filed as ledger open item **143**.
+is header **forgery**. (*Corrected 2026-09-15: this sentence ended* **"and not a plaintext XOR"** —
+*the word* `forgery` *is bolded in the source, so that is the grep-able half — and the claim holds only
+where the two head plaintexts are byte-identical. A repeated
+`(key, nonce)` repeats the keystream, so two heads that differ at all also yield their own XOR — and
+the bullet above records that nothing states whether a wrap's head carries a value like `sent_at` that
+moves between rebuilds. Forgery is the worse half and it is why the sentence names it; it is not the
+only half.*) `i` and `stream_index` are not the same thing by default: gaps are normatively legal
+(§5.6, *"the server enforces monotonicity, not contiguity"*), and one rate-limited submit mid-fan-out
+is enough to separate them. **Rulings 2 and 3 sharpen this rather than soften it.** Ruling 2 gives the
+device wrap its own ladder head, `record_key[0] = HKDF-Expand(env_key[k], "sender/v1" ‖ LP(leaf_index),
+32)`, and ruling 3 puts **two** records per leaf on that ladder, so a fan-out now advances it twice per
+leaf where it advanced it once. The repair the review proposes is to pin `i = stream_index` in every
+ladder, so the invariant follows from §5.12 step 6's existing *"MUST NOT be reused"* rule rather than
+from a second, unwritten discipline. **It is not ruled here** — it reaches every ladder in §5.3 and not
+only the wrap's — and is filed as ledger open item **143**.
+
+**A sharper form of 143, added 2026-09-15, because ruling 2's ladder head has no retention class in
+it.** Ruling 2's root is `record_key[0] = HKDF-Expand(env_key[k], "sender/v1" ‖ LP(leaf_index), 32)`.
+For an ordinary record the head of that same ladder is `HKDF-Expand(class_key, "sender/v1" ‖
+LP(leaf_index), 32)`, and the **class key is what separates one sender's ladders from each other** —
+which is why §5.5 sizes the skipped-key window *"per (`sender_handle`, retention class)"* and why §5.3
+publishes `NewSenderRatchet(classKey []byte, leaf uint32)` and `RecordKeyZero(classKey []byte, leaf
+uint32)`, signatures with a class-key parameter and nowhere to put anything else. Ruling 2 replaces
+`class_key` with `env_key[k]`, which has **no class in it**, and ruling 3 then puts a `PERMANENT`
+record (`pq_secret[k]`) and an `EPH(5)` record (`eph_root[k]`) on that one root. An implementer that
+adapts the published constructor by passing `env_key[k]` as `classKey`, and instantiates one ratchet
+per (sender, class) as §5.5 directs, gets **two ratchets with byte-identical roots, both starting at
+`i = 0`** — so the two device wraps for one leaf are sealed under the same `(key_head, nonce_head)`
+and the same `(key_body, nonce_body)` with different plaintexts and different AADs, and the message
+server recovers `pq_secret[k] ⊕ eph_root[k]` for every leaf of every epoch. That is simultaneously a
+break of the PQ layer and of the disappearing-message property rulings 2 and 3 were adopted to protect.
+**It is the same open item and it is not ruled here either**, but it is a concrete, reachable
+instantiation rather than a general discipline gap, and 143 now carries it.
 
 **The `env_key` caching obligation, which is now live and is the accepted cost of (1).**
 

@@ -466,6 +466,45 @@ device-wrap record kinds and the snapshot it is **exact**, this server enforces 
 **Not amended, and the list is unchanged.** Ledger open items **132**, **133** and **134** remain filed
 and unruled. MASTER remains un-amended and its four divergences remain ledger item **141**'s.
 
+**Revision 17 — 2026-09-15 — the review of revision 16: this document's own claims all hold, and the
+one it borrowed from Spec A does not. No SQL, no column, no index, no reason code, no gate, and nothing
+this server does changes.**
+
+**What revision 16 got right and keeps.** A republished recovery wrap costs this document nothing.
+`RecoveryTag` gains no field, §5.4's encoding is untouched, `WrapFetch`'s neighbours are untouched, and
+**this server sees nothing at all**: a republished wrap is an ordinary record of the epoch it is
+submitted at, MAC'd under that epoch's `write_key`, refused or accepted by the same gate as any other.
+Every one of those sentences is about this server and every one of them still reproduces.
+
+**What it borrowed and should not have.** Revision 16 and §6.1 step 7 both ended by calling item 142
+*"a normative bound on the lag plus two client-side MUSTs"*. That price came from Spec A and it was
+incomplete there, so it is incomplete here. Spec A §5.11 now carries the correction and the derivation;
+the short form an operator needs is that a **safe** republish additionally requires the publisher to
+have kept the wrap's **plaintext** rather than its ciphertext, because rebuilding around a stored
+`ct_xwing` reuses the wrap head's `(key, nonce)` against an `AAD_head` this server itself forces to
+change (§5.1 check 6's epoch gate and the stream-index gate are what move it). **None of that reaches
+this document** — it is a client-side sealing procedure and a client-side retention window — but the
+sentence *"142 needs a bound and two MUSTs"* understates it and would let a reader conclude the repair
+is smaller than it is.
+
+**Two consequences an operator can act on, and they are the reason this revision exists at all.**
+First, a stranded recovery arm stays possible for longer than revision 16 implied: item 142 is now
+blocked behind four rulings rather than one, so §6.1 step 7's *"recovery arm in the field does not
+conclude a client crashed"* stays the operational reading **indefinitely** rather than until a number
+is chosen.
+Second, the alternative that **removes** the window is a change to **this** server and not to Spec A —
+exempting `AttachmentRecovery` from the epoch-complete gate and putting the recovery leg back inside
+the fan-out. Its cost here is measured rather than argued: one arm of the exemption switch, shared by
+both store implementations, and one entry in the contract table that asserts the current refusal by
+name. Its cost to a **deployment** is availability: every group is non-writable for the recovery arm's
+own length — about eighteen extra round trips — on every commit, and the interval in which a permanent
+refusal can leave `epoch_complete = false` with no commit path out grows with it. **Not proposed here**;
+it reverses a 2026-09-13 ruling and it belongs to the owner, as ledger item **142** says.
+
+**Not amended, and the list is unchanged.** Ledger open items **132**, **133** and **134** remain filed
+and unruled; **142** remains filed and unruled; **144** is new and is Spec A's and MASTER's, not this
+document's. MASTER remains un-amended and its four divergences remain ledger item **141**'s.
+
 ---
 
 ## 1. Scope
@@ -2361,12 +2400,27 @@ prevent.
 >    eighteen round trips at the design target. **No change to this server is proposed for it**: the
 >    sequence is the client's and Spec A §5.11 owns it, and whether a stranded wrap may be republished
 >    at a later epoch is ledger open item **142**. **Corrected 2026-09-14: that retry costs this
->    document nothing.** This step read *"a `RecoveryTag` gained an epoch would be a wire change
->    reaching §5.4's encoding here"*, and the wire change is not needed: the content epoch is bound
->    inside `wrap_key`'s HKDF `info`, so a seed-only restorer recovers it by **trial decryption** —
->    one decapsulation per record, then bounded symmetric trials downward from the record's own `epoch`
->    — and `RecoveryTag` gains no field. §5.4's encoding is **unchanged**, and 142 is now a client-side
->    normative bound rather than a wire-format decision. It is recorded so an operator reading a short
+>    document nothing.** This step read *"a `RecoveryTag` gained an epoch would be a wire change"*
+>    (the sentence continues *"reaching §5.4's encoding here"* on the next line, so `grep -F` the
+>    halves separately), and the wire change is not needed: the content epoch is bound inside
+>    `wrap_key`'s HKDF `info`, so a seed-only restorer recovers it by **trial decryption** —
+>    one decapsulation per record, then symmetric trials downward from the record's own `epoch`
+>    — and `RecoveryTag` gains no field. §5.4's encoding is **unchanged**.
+>
+>    **Corrected again 2026-09-15, and only the size of the client-side repair moves.** This step then
+>    read *"142 is now a client-side"* / *"normative bound rather than a wire-format decision"* — two
+>    strings because the sentence straddled a line break at `cea05b8`, which is the only form of a
+>    two-part anchor `grep -F` can take — and that is right about this document and understates the
+>    repair. A safe republish also needs the publisher to
+>    have kept the wrap's **plaintext** rather than its ciphertext: rebuilding around a stored
+>    `ct_xwing` re-derives the wrap head's `(key, nonce)` unchanged while **this server** forces the
+>    record's epoch and stream index — both inside `AAD_head` — to move, which is an AEAD nonce reuse.
+>    Spec A §5.11 carries the derivation and item **142** now names four rulings rather than one, of
+>    which none is a wire byte and none is this server's. Two things follow for an operator: a short
+>    recovery arm stays an expected field condition rather than a bug for as long as 142 is open, and
+>    the only change that removes the window is a change **here** — exempting `AttachmentRecovery`
+>    from the epoch-complete gate — bought with group-wide non-writability for the recovery arm's own
+>    length on every commit. Revision 17 prices both. It is recorded so an operator reading a short
 >    recovery arm in the field does not conclude a client crashed.
 >
 > **Sizing at the 500-member × 2-device design target, after the 2026-09-13 device-wrap split.** Wraps

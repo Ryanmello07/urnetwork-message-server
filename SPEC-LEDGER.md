@@ -1914,9 +1914,14 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
 
      **The count is dropped rather than corrected a third time, and the reason is worth the sentence.**
      This paragraph first published **456** — the count at `2cbbb71`, the **parent** commit: a
-     pre-commit number published post-commit. The 2026-09-13 review corrected that to *"464 matching
-     lines across 15 files, measured at `7fb0dd9`"* — and `7fb0dd9` is the parent of `7681f4c`, the
-     commit that published the 464, **so the correction reproduced the error it was correcting**. A
+     pre-commit number published post-commit. The 2026-09-13 review corrected that to *"Measured at
+     `7fb0dd9`:"* **464** *"matching lines across 15 files"* — and `7fb0dd9` is the parent of `7681f4c`,
+     the commit that published the 464, **so the correction reproduced the error it was correcting**.
+     *(The quotation was itself repaired 2026-09-15. It read* **"464 matching lines across 15 files,
+     measured at `7fb0dd9`"** *as one quoted string, which is the sentence's two clauses in the reverse
+     order — a paraphrase presented as a quotation, and `grep -F` returns zero hits for it anywhere,
+     including in the revision it quotes. The rule this very paragraph states is that a citation is its
+     quoted string; a re-ordered quotation is a citation that resolves to nothing.)* A
      measurement between two named commits is the form worth writing down: at `7681f4c` the same query
      gives **468**, four more than the number that commit published about itself. Naming the commit a
      count was measured at does not save it when that commit is not the one publishing it, and the
@@ -1999,8 +2004,25 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
        for the epoch it opens"*. Both rulings contradict it: ruling 3 makes it `2 × device_leaves + 1`
        and ruling 1 takes the recovery wraps out of it entirely. This one is worse than the other three
        because it is a **wire-block annotation** — the form a second implementation transcribes rather
-       than reads — and Spec A §5.11 and Spec B §5.4 both carry the ruled text in the same block, so the
-       three documents' `EpochAttachment` blocks now disagree with each other field for field.
+       than reads — and Spec A §5.11 and Spec B §5.4 both carry the ruled text in the same block.
+
+       *(**Corrected 2026-09-15, and the correction is to the SCOPE.** This bullet ended* **"so the"** /
+       **"three documents' `EpochAttachment` blocks now disagree with each other field for field"**, *and
+       Spec A §5.11's opening imported that sentence. It is measurably false, and it is false in the
+       direction that gets a warning disbelieved: a reader who checks one field and finds it identical
+       stops trusting the whole sentence. (*Two strings, because the sentence straddled a line break at*
+       `cea05b8`.) *The query, so it can be re-run —*
+       `for f in urmessage-protocol-design spec-a-protocol-sdk-connect spec-b-message-server-operator; do sed -n '/^EpochAttachment {/,/^}/p' docs/specs/2026-08-12-$f.md | sed 's-//.*--'; done`
+       *— strips every annotation and leaves the eight field declarations plus two brace lines, and the
+       three documents' ten lines are* **byte-identical**. *Field order, names and widths do not diverge
+       at all.* **One annotation of one field diverges normatively** — `expected_wrap_count` — *and it is
+       the field whose value opens an epoch, which is a sharper warning than "field for field" rather
+       than a milder one. Two other annotations differ in wording without differing in meaning:
+       `read_key`'s trailing cross-reference names each document's own retention section, correctly in
+       each; and `durable_ttl_seconds`' is longer in Spec A because it carries
+       `RetentionApplied.durable_clamped_down` and Spec B §7.3 case 3's no-refusal rule. Corrected here
+       and in Spec A §5.11's opening; the finding itself is unchanged and MASTER is still the next
+       edit.)*
 
      **The four line numbers above are advisory and the quoted strings are the citations.** They resolve
      today because neither pass edited MASTER.
@@ -2014,11 +2036,14 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      2026-09-13 by the pass that wrote the rulings.
 
 142. **After the marker the group is fully writable, so any concurrent commit strands every recovery
-     wrap still in flight — permanently, with no crash required. A retry is the mitigation, it costs
-     ZERO wire bytes, and what it still needs is one normative bound.** The second cost of ruling 1,
-     filed in the review of the pass that wrote ruling 1 rather than discovered later. **This headline
-     read *"a retry is unaddressable because `RecoveryTag` carries no epoch"* until 2026-09-14; the
-     re-derivation that replaced it is at the foot of this item.**
+     wrap still in flight — permanently, with no crash required. A retry costs ZERO WIRE BYTES and the
+     procedure published for it on 2026-09-14 was UNSAFE: a conforming implementer following it would
+     have shipped an XChaCha20-Poly1305 nonce reuse.** The second cost of ruling 1, filed in the review
+     of the pass that wrote ruling 1 rather than discovered later. **This headline read** *"and a retry
+     is unaddressable because"* / *"`RecoveryTag` carries no epoch"* **until 2026-09-14** — two strings,
+     because the sentence straddled a line break at `7681f4c` and that is the only form of a two-part
+     anchor `grep -F` can take — **and then read** *"what it still needs is one normative bound"*
+     **until 2026-09-15.** Both re-derivations are at the foot of this item and neither is erased.
 
      `EpochComplete` is what opens the group for ordinary
      writes, and the recovery leg runs **after** it, so a commit accepted from any member during that
@@ -2036,10 +2061,10 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      somebody else's legal commit**, at whatever rate the group commits. Both now say so.
 
      **RE-DERIVED 2026-09-14: the retry was ruled out on a reason that does not hold, and the price
-     published with it was wrong by an entire wire-format change.** The paragraph this item first
-     carried supplied the fact that defeats its own conclusion. It said — correctly — that a recovery
-     wrap's `ct_body` **is** `hybrid_ct`, that its `ct_head` is keyed from `wrap_key`, that neither
-     depends on the record's own `epoch` field, and that **the content epoch is bound inside
+     published with it was wrong by an entire wire-format change. THAT HALF STANDS.** The paragraph this
+     item first carried supplied the fact that defeats its own conclusion. It said — correctly — that a
+     recovery wrap's `ct_body` **is** `hybrid_ct`, that its `ct_head` is keyed from `wrap_key`, that
+     neither depends on the record's own `epoch` field, and that **the content epoch is bound inside
      `wrap_key`'s HKDF `info`**. It then concluded that a restorer *"cannot tell two candidate wraps
      apart"* and priced a coherent retry at a `u64 epoch` on `RecoveryTag` — a `server_attachment`
      change, therefore an **A6 wire-format change** reaching Spec A §5.11, Spec B §5.4 and MASTER §8.3.
@@ -2051,43 +2076,146 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      ‖ u64(epoch) ‖ LP(target_id), 32)`, and again beneath it at `key_head ‖ nonce_head =
      HKDF-Expand(wrap_key, "wraphead/v1", 56)`. So the restorer decapsulates **once per candidate
      record**, then walks candidate content epochs **downward** from the record's own `epoch` field —
-     an upper bound, because no wrap is published before its epoch opens. A wrong candidate fails
-     Poly1305 with probability `2^-128`; the first that opens is the content epoch. `RecoveryTag` gains
-     no field, no document's wire block changes, and **the decapsulation count does not depend on the
-     bound at all** — the search adds two HKDF-Expands and one AEAD open per candidate and **no
-     asymmetric operation**. That property, not a timing figure, is what makes it cheap, and it stays
-     checkable against MASTER §7's own derivation.
+     an upper bound, because no wrap is published before its epoch opens. A wrong candidate **fails**
+     Poly1305, and opens anyway with probability about `2^-128`; the first that opens is the content
+     epoch. *(**Corrected 2026-09-15:** this read* **"A wrong candidate fails"** / **"Poly1305 with
+     probability `2^-128`"** — *two strings, because it straddled a line break —* *and it states the
+     discriminator inverted — it says a wrong guess almost always
+     succeeds. The failure probability is `1 − 2^-128`; `2^-128` is the chance a wrong candidate opens
+     regardless, and that is the direction the search's correctness rests on. The same inversion was
+     written into Spec A §5.11 and is corrected there.)* `RecoveryTag` gains no field, no document's
+     wire block changes, and **the decapsulation count does not depend on the bound at all** — the
+     search adds two HKDF-Expands and one AEAD open per candidate and **no asymmetric operation**. That
+     property, not a timing figure, is what makes it cheap, and it stays checkable against MASTER §7's
+     own derivation.
 
-     **The bound must be normative, and that is the whole of what is left.** Without one the search has
-     no stopping rule: handed a record it cannot open — corrupt, foreign, or for an epoch it is not
-     owed — a restorer cannot distinguish *wrong guess* from *not mine*, so the failure of the whole
-     search is its only signal and an unbounded restorer walks back to epoch 0 on every such record.
-     A ceiling is already in the corpus rather than needing invention: **`PastEpochWindow` = 32**
-     (`connect/mls/key_schedule.go:30`), past which no member still holds epoch *k*'s MLS state and so
-     no member can **rebuild** that epoch's recovery wrap — `archive_secret[k]` is
-     `sender_data_secret[k] ‖ encryption_secret[k]` (MASTER §8.2) and `DeleteGroupStateBefore`
-     (`connect/mls/group.go:2594`) has taken both. A lag above it names a record nobody could have
-     produced.
+     **RE-DERIVED AGAIN 2026-09-15, and this time the correction is to the PROCEDURE, which the
+     2026-09-14 price did not contain at all.** This item's corrected price was *"two normative
+     sentences and zero wire bytes"* — and `cea05b8`'s own commit message summarised it as *"Corrected
+     price: two normative sentences and ZERO wire bytes, all client-side."* (that one is in a commit
+     message rather than a file: `git log -1 --format=%B cea05b8`). Between them they named the
+     restorer's stopping rule and the publisher's lag limit and stopped. They said nothing about **what
+     a republisher republishes**, and that is where the whole cost is — nor is the price all
+     client-side, for the reason the retention bullet below gives.
 
-     **The corrected price, therefore: two normative sentences and zero wire bytes.** A publisher MUST
-     NOT republish a recovery wrap whose content epoch lags the epoch it is submitted at by more than
-     the bound; a restorer MUST try only content epochs within the bound below the record's own `epoch`
-     and MUST surface a gap rather than search further. Neither is a published-surface change and
-     neither reaches Spec B §5.4 or MASTER §8.3. **The second half of the old price shrinks but does not
-     vanish:** *which* of two wraps at one `(recovery_handle, record epoch)` a restorer honours is
-     answered for the ordinary case — they are separated by which content epoch opens, and an
-     unauthenticated one is already refused by Spec A §5.11 part (4)'s signature rule — leaving only two
-     **verified** wraps for the **same** content epoch that disagree, which is a member equivocating and
-     is not created by the retry.
+     - **`AAD_head` binds the RECORD's epoch and the RECORD's stream index** — `"URmessage/v1/aad/head"
+       ‖ u16(alg_id) ‖ LP(group_id) ‖ LP(sender_handle) ‖ u64(epoch) ‖ u64(stream_index) ‖ …`
+       (MASTER §8; `connect/message/aad.go`'s `AADHead` writes `h.Epoch` and `h.StreamIndex` field for
+       field). **The recovery wrap's `key_head ‖ nonce_head = HKDF-Expand(wrap_key, "wraphead/v1", 56)`
+       binds neither**, and `wrap_key` binds the **content** epoch. So the wrap head's `(key, nonce)` is
+       a pure function of `ss` and the content epoch and moves with **neither** field a republish forces
+       to change — `store/memory.go:578` refuses a record whose epoch is not the current one, which is
+       why the wrap is stranded, and `store/memory.go:610` refuses a `stream_index` that is not strictly
+       greater, which Spec A §5.7's outbox rule independently requires.
+     - **Therefore a republisher that rebuilds the record around a stored `ct_xwing` seals a second,
+       different `AAD_head` under a byte-identical `(key, nonce)`.** Keystream reuse plus recovery of
+       the Poly1305 one-time key: header forgery over a preimage covering `body_hash`, `blob_id` and
+       `H(server_attachment)`. **And Spec A §5.9's guardrail G5, whose whole defence against AEAD nonce
+       reuse is the `stream_index` reservation, is VACUOUS here** — it guards `i` in `record_key[i]`, and
+       the wrap head is not on that ladder. Nothing in the corpus was watching this nonce.
+     - **The escape is a procedure choice and not a format constraint, which is the single most
+       load-bearing correction in this whole chain.** `XwingEncapsulate` **cannot be derandomized**:
+       `crypto/mlkem`'s `Encapsulate` takes no randomness argument and reads `crypto/rand` itself
+       (`connect/messagegroup/xwing.go:236`; asserted, not merely documented, by `xwing_test.go:277`
+       `TestXwingEncapsulateIsNotDerandomizable`, which also pins that the X25519 half **is**
+       reader-controlled — so no supplied reader can force `ss` reuse). A republisher that
+       **re-encapsulates from the wrap plaintext** gets a fresh `ss`, a fresh `wrap_key` and a fresh
+       pair, unconditionally and without depending on the AAD, on a server check, or on the restorer.
+       Both republishers conform to every wire rule in the corpus; the difference is entirely in what
+       the outbox kept.
+     - **It cannot ship as a bare MUST, because nothing can check it.** The server never decrypts, the
+       restorer sees only the record that landed, and the ciphertext the reuse would be compared against
+       was **refused** and exists only on the server's side of the wire. Spec A §5.9's own idiom is the
+       shape that survives contact with an implementer: G4 does not forbid putting `body_hash` in
+       `AAD_body`, it makes `AAD_body` *"built by a function that does not take a hash argument"*. The
+       equivalent here is to rule that a recovery-wrap outbox entry holds the wrap **plaintext** and
+       MUST NOT hold a sealed record or a `ct_xwing`, and that the republish path is one function taking
+       the plaintext and the target's public key. Then the reuse is not forbidden, it is
+       **unrepresentable**. That is a data-structure ruling and it is the owner's.
+     - **Re-encapsulating forces the body signature to be recomputed.** Fresh `ss` → fresh `ct_xwing`
+       and `aead_ct` → fresh `hybrid_ct` → fresh `ct_body` → fresh `body_hash`. Spec A §5.11 part (4)'s
+       signature MUST be recomputed and MUST NOT be copied; and because §5.11 step 6 lets **any member**
+       repair a fan-out, a repairer that is not the committer signs under its **own** `identity` key and
+       the restorer must accept that. Neither sentence exists in any document today.
+     - **It is NOT all client-side: it carries a publisher RETENTION obligation.** The input to a
+       re-encapsulation is the wrap plaintext, which MASTER §8.2's payload table fixes as
+       **`storage_root[k]` ‖ `archive_secret[k]`**, with
+       `archive_secret[k] = sender_data_secret[k] ‖ encryption_secret[k]`. Holding that in an outbox past
+       epoch *k* is a copy of the epoch's whole non-`EPH` key material living outside the MLS state
+       store and outside `record_key[i]`'s overwrite discipline, against `connect/mls/group.go:2488`'s
+       *"THE DELETE IS A SECURITY REQUIREMENT AND NOT HOUSEKEEPING"*. **It is not a breach of MASTER
+       §8.1's disappearing-message promise** — that promise is `eph_root`'s, `eph_root` is *"never
+       wrapped to a recovery key"*, and it is not in this payload; saying otherwise overstates the cost
+       in a way the owner would rightly discount. How long a stranded wrap may sit in an outbox is a
+       forward-secrecy ruling with a measurable publisher-side cost, and it is the quantity the
+       restorer's bound should be derived from.
 
-     **Still filed, still not ruled, and the reason it is unruled has changed.** A retry adds a MUST to
-     the restore path and fixes a number, and both are rulings a scribe does not make. What changed is
-     that this item is no longer blocked behind a wire-format decision — it is blocked behind one bound.
-     **That distinction is the point of the correction:** a retry is the only mitigation the window this
-     item files has, and pricing it as an A6 change across three documents is what would have kept it
-     from being built. *Blocks:* nothing mechanically, and it compounds **138**: 138 says nothing
-     detects a missing recovery wrap, and this item says a healthy client produces one on a normal day.
-     **Filed, not ruled.** Found 2026-09-13 in the review of the three rulings; re-derived 2026-09-14.
+     **THE BOUND: still required, still not written anywhere, and `PastEpochWindow` = 32 is WITHDRAWN.**
+     Without a bound the search has no stopping rule: handed a record it cannot open — corrupt, foreign,
+     or for an epoch it is not owed — a restorer cannot distinguish *wrong guess* from *not mine*, so
+     the failure of the whole search is its only signal and an unbounded restorer walks back to epoch 0.
+     **No document carries a bound today**, and the 2026-09-14 pass moved the walk into Spec A §5.11's
+     descriptive prose while leaving the bound under *what a retry would take* — so a reader building to
+     §5.11 as it stood built an unbounded search. §5.11 now says the walk is a derivation and not a
+     licence until this item is ruled. The 32 offered as *"the ceiling the corpus already supplies"*
+     fails on three counts, the first decisive:
+
+     - **(a) It bounds PRODUCTION, not publication lag.** The argument was that past 32 epochs
+       `DeleteGroupStateBefore` has taken `archive_secret[k]` so no member can **rebuild** that epoch's
+       wrap. A stranded wrap was already produced, at epoch *k*, when the state existed; what
+       republishes it is an **outbox**, and an outbox is not group state. `DeleteGroupStateBefore` is
+       called off `self.context.Epoch` inside the commit-apply path (`connect/mls/group.go:2594`, cutoff
+       guard `:2587`) and reaches the MLS state store; `grep -rni outbox connect/mls/` names **no file**.
+       A committer whose outbox survives a forty-epoch offline stretch republishes at lag 40 and a
+       restorer bounded at 32 refuses to look — losing the wrap in exactly the case the retry exists
+       for, and by item **138** nothing detects that.
+     - **(b) The two quantities have unrelated derivations.** `PastEpochWindow`'s own comment
+       (`connect/mls/key_schedule.go:25-29`) derives 32 from *"the window is a product promise"* /
+       *"about how long a laptop may stay closed, and an active group can burn eight epochs in a"* — two
+       strings, because the comment wraps mid-clause. A restorer's search bound
+       is a work budget spent on every record it **cannot** open, including records an attacker submits.
+       Two numbers that share no premise should not be pinned to equality.
+     - **(c) The error is one-sided.** Too small loses a legitimate wrap permanently and silently; too
+       large costs symmetric trials. A one-sided error is the wrong place for an unrelated constant.
+
+     **What it should be derived from:** the quantity at issue is `record_epoch − content_epoch`, and its
+     only real ceiling is how long the **publisher** retains what it needs to republish. Rule a
+     publisher-side retention window on the side where it has a measurable forward-secrecy cost, and the
+     restorer's bound is that window or greater.
+
+     **Still filed, still not ruled, and the reason has changed a second time.** It was blocked behind a
+     wire-format decision; then behind one bound; it is in fact blocked behind **four rulings, none of
+     them a wire byte**: (1) the wrap's inner `aead_ct` nonce, which is undefined in every document and
+     is now open item **144** — under the closure Spec A §5.14 uses for its own sibling KEM
+     construction, `nonce = 0` justified by *"Every encapsulation yields a fresh `deposit_key`"*, a
+     republish that reuses `ct_xwing` is a two-time pad over the wrap payload **as well as** a head
+     forgery, so 144 decides this item and not merely itself; (2) the re-encapsulation rule, in a form
+     nothing can violate rather than a MUST nothing can check; (3) the publisher retention window; and
+     (4) the bound, derived from (3). **What is settled is the direction:** zero wire bytes, and a price
+     paid in procedure and retention.
+
+     **And the alternative that deletes the question rather than answering it, priced because the
+     comparison is the useful half.** Widening `exemptFromEpochComplete` to cover `AttachmentRecovery`
+     and putting the recovery leg back **inside** the fan-out means nothing is ever stranded — no
+     republish, no re-seal, no bound, no search — and it is the **only** route that closes item **138**
+     for the recovery arm, because `expected_wrap_count` becomes a real count over it again. Measured
+     rather than argued: the landed-code price is one arm of one switch (`store/memory.go:939`, shared
+     with `pgx.go:1152`) plus `exempt: true` on one map entry (`store/contract.go:2576`), and running
+     `go test ./store/...` with that one arm widened produces **exactly one** failing leaf,
+     `TestTheMemoryStoreMeetsTheContract/TheMarkerIsTheOnlyThingThatOpensAnEpoch/OnlyTheExemptKindsPassTheGateWhileTheFanOutIsOpen/AttachmentRecovery`,
+     which fails by **assertion** — not through `attachmentKindsDeclared`'s by-name guard, which fires
+     for a **new** attachment kind and is a different proposal's cost. The checkout was restored and
+     re-verified green. Its real price is **availability**: group-wide non-writability for the recovery
+     arm's own length on every commit, which is exactly what ruling 1 bought back, plus a wider interval
+     in which a permanent refusal leaves `epoch_complete = false` with no commit path out. **And it does
+     not make the seal question moot** — §5.11 step 6 still has any member rebuild a fan-out its
+     committer abandoned, and a rebuild re-seals — so the re-encapsulation rule is required under this
+     route too. **Not ruled here;** it reverses a 2026-09-13 ruling.
+
+     *Blocks:* nothing mechanically, and it compounds **138**: 138 says nothing detects a missing
+     recovery wrap, and this item says a healthy client produces one on a normal day. **Filed, not
+     ruled.** Found 2026-09-13 in the review of the three rulings; re-derived 2026-09-14 and again
+     2026-09-15.
 
 143. **The device wrap owes a normative `stream_index`-to-ratchet-position mapping, and it is the one
      residual of the adopted M1-1 recommendation carried into no document.** Residual risk 2 of the
@@ -2109,6 +2237,73 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      mechanically; it is a wire-visible correctness property no test in m1 can currently refute.
      **Filed, not ruled.** Found 2026-09-13 in the review of the three rulings, by checking each of the
      recommendation's five residuals against the corpus — 1, 3, 4 and 5 are carried and this one was not.
+
+     **A CONCRETE, REACHABLE INSTANTIATION, added 2026-09-15, because a general discipline gap gets
+     deferred and a specific one gets fixed.** Ruling 2's ladder head is
+     `record_key[0] = HKDF-Expand(env_key[k], "sender/v1" ‖ LP(leaf_index), 32)`. For an ordinary record
+     the same head is `HKDF-Expand(class_key, "sender/v1" ‖ LP(leaf_index), 32)`, and **the class key is
+     what separates one sender's ladders from each other** — which is why Spec A §5.5 sizes the
+     skipped-key window *"per (`sender_handle`, retention class)"* and why §5.3 publishes
+     `NewSenderRatchet(classKey []byte, leaf uint32)` and `RecordKeyZero(classKey []byte, leaf uint32)`,
+     signatures with a class-key parameter and nowhere to put anything else. **Ruling 2 replaces
+     `class_key` with `env_key[k]`, which has no class in it, and ruling 3 then puts a `PERMANENT`
+     record (`pq_secret[k]`) and an `EPH(5)` record (`eph_root[k]`) on that one root.** An implementer
+     that adapts the published constructor the obvious way — pass `env_key[k]` as `classKey` — and
+     instantiates one ratchet per (sender, class) as §5.5 directs gets **two ratchets with
+     byte-identical roots, both starting at `i = 0`**. The two device wraps for one leaf are then sealed
+     under the same `(key_head, nonce_head)` **and** the same `(key_body, nonce_body)`, with different
+     plaintexts and different AADs (the joined retention-class wire byte differs), so the message server
+     recovers `pq_secret[k] ⊕ eph_root[k]` for every leaf of every epoch — simultaneously a break of the
+     PQ layer and of the disappearing-message property that rulings 2 and 3 were adopted to protect.
+     Nothing in the corpus refuses this: §5.6's *"the ratchet resumes at `highWater + 1`"* describes
+     **one** counter for a sender whose §5.5 ratchets are per-class, which is the contradiction this
+     item files. It is the same open item and the same repair — pin `i = stream_index`, or give the
+     ladder head a class — and it is **still not ruled**; what changes is that it now names the concrete
+     failure rather than only the missing discipline. Carried into Spec A §5.11 part (5).
+
+144. **The recovery wrap's INNER AEAD has no nonce in any document, and it decides item 142.** MASTER §7
+     derives `wrap_key = HKDF-Expand(ss, "URmessage/v1/wrap" ‖ LP(group_id) ‖ u64(epoch) ‖
+     LP(target_id), 32)` — **thirty-two octets, a key and no nonce** — and then writes
+     `hybrid_ct = u16(alg_id) ‖ LP(ct_xwing) ‖ LP(aead_ct)`. **Nothing in MASTER, Spec A, Spec B or the
+     m1 plan says what nonce `aead_ct` is sealed under.** Measured rather than asserted: over
+     `docs/` and this ledger, `aead_ct` occurs in exactly three places — MASTER §7's framing
+     (`:581`), Spec A §5.11's quotation of it, and the 2026-09-12 red team's — and `wrap_nonce` and
+     `nonce_wrap` occur **only** inside the r3 review's proposal
+     (`docs/reviews/2026-08-12-r3-spec-review.md:172`), which is the one place in the corpus that ever
+     noticed. r3's **M-15** wrote it in as many words — *"no AEAD nonce is derived and `alg_id` is
+     absent from `info`"* (grep it that short: that review file is stored double-encoded, so its section
+     signs are not the octets a reader would type) — and proposed
+     `wrap_key ‖ wrap_nonce = HKDF-Expand(prk, info, 56)`. **MASTER still expands 32**, and no ledger
+     item, owner-decision file or spec revision carries a disposition for M-15 either way; it was
+     neither adopted nor recorded as rejected. (Its second half is still open too: `alg_id` is still
+     absent from `wrap_key`'s `info`.)
+
+     **Why it is not merely a gap. The two closures an implementer will reach for are both live in this
+     corpus and they disagree about item 142.**
+
+     - **`nonce = 0`, which is what the sibling construction one section over already does.** Spec A
+       §5.14's rendezvous deposit is the same shape — `deposit_ct = u16(alg_id) ‖ LP(ct_xwing) ‖
+       AEAD(deposit_key, nonce = 0, …)` — justified by a single sentence: *"Every encapsulation yields a
+       fresh `deposit_key`, so the zero nonce uses no key twice (**I7**)."* Read across, that sentence
+       says the wrap's inner seal is safe **if and only if** every wrap is a fresh encapsulation, which
+       is precisely the re-encapsulation rule item 142 needs and does not have. A republish that reuses
+       a stored `ct_xwing` would then be a **two-time pad over `storage_root[k] ‖ archive_secret[k]`**
+       plus recovery of the inner Poly1305 key — an attacker able to forge the payload a seed-only
+       restorer installs — on top of the head forgery item 142 already describes.
+     - **A bare-label expand off `wrap_key`**, which is literally what `"wraphead/v1"` does one line
+       away in Spec A §5.11 (2). That closure has the same defect as the head's and for the same reason.
+
+     **So the ordering is forced: 144 is ruled before 142's procedure can be.** The republish question
+     cannot be decided while the inner seal's safety condition is unstated, because on the most likely
+     reading that condition **is** the answer to 142. Adopting r3's 56-octet expand is one available
+     ruling; stating `nonce = 0` with §5.14's justification carried across explicitly is another; they
+     are not equivalent, because the second makes freshness load-bearing in a second place.
+
+     *Blocks:* Spec A §5.11 part (5) now lists it as not stated, and m1 **Task 19** cannot pin a known-
+     answer vector for `hybrid_ct` without it — a KAT written against an assumed nonce is a KAT that
+     passes and proves nothing, which is the same shape as `TestXwingEncapsulateIsNotDerandomizable`'s
+     stated reason for existing. **Filed, not ruled.** Found 2026-09-15, in the red team of item 142's
+     re-derivation; the underlying gap was found by r3 on 2026-08-12 and has been open since.
 
 ## 6. Change process
 
@@ -4942,7 +5137,14 @@ revision 15, m1 Task 15 and M1-1, and item 142 itself.
 touched.**
 
 - **Item 135's contradiction did not vanish; it moved into Spec A's own revision history.** The A-14
-  row still ended *"Not ruled and left open: ... ledger items 132–135"* and still called the signature
+  row still ended *"Not ruled and left open:"* … *"and ledger items 132–135"* and still called the
+  signature
+  *(**Anchor repaired 2026-09-15**, under A-16's own rule that a landed entry's claim about what a
+  document says is corrected in place. This read* **"Not ruled and left open: ... ledger items
+  132–135"** *— one quoted string with an ellipsis inside it, which `grep -F` returns zero hits for,
+  which is the exact defect the fifth bullet of this same entry announces as fixed three bullets below.
+  The two halves are now separate strings joined outside the quotes, which is the form m1's table row 4
+  uses and the only form a two-part anchor can take.)*
   *"MASTER §5.3's existing rule applied where it already applies"* — the two exact sentences the pass
   corrected in §5.11 and in items 135 and 137. **And the pass created a tension it did not name:** it
   rewrote Spec B's landed **Revision 14** body in place while refusing to sweep this ledger's edit log,
@@ -4967,6 +5169,12 @@ touched.**
   named and item 141 cited. (*The brief that found this put the sentence eight lines above the
   `EpochAttachment` block; it is 27 — the sentence is at the section's opening and the block follows
   the `LP(x)` line and the `kind` table. The finding reproduces; that distance does not.*)
+  *(**The 27 is annotated 2026-09-15 with the query it was published without**, which is the rule the
+  paragraph two bullets down states and this line broke in the same entry —*
+  `git show 7681f4c:docs/specs/2026-08-12-spec-a-protocol-sdk-connect.md | grep -n 'MASTER §8.3 carries the same block\|^EpochAttachment {'`
+  *— which answers `1588` and `1615` at `7681f4c`, the commit the brief read, so the distance is 27
+  there and reproduces. A bare distance is not checkable at any other commit and both lines have since
+  moved; the query is, and it is the thing to copy.)*
 - **"Decorative" was scoped in Spec B §5.4's wire block and left unscoped in §6.1's prose** — the
   paragraph a server implementer reads immediately **before** the epoch-publication sequence, which is
   the worse of the two places to leave it. Revision 15 scoped the wire block and stopped. Both now
@@ -5008,3 +5216,174 @@ before the commit rather than assumed. Every edited file measured **LF throughou
 with `tr -dc '\r' | wc -c`. This repository still has exactly one branch, `main`, and no
 `beta/message`; the work was done on `main` at `7681f4c`, which is again the half of the brief that
 reproduces.
+
+---
+
+### 2026-09-15 — the retry that costs no wire bytes and would have shipped a nonce reuse, and a fatal linter check that could not see nine of the corpus's thirty-seven ledger citations
+
+**Nothing is ruled here.** Items 132, 133, 134 stay filed and unruled; 142 stays filed and unruled and
+its blockers go from one to four; 143 gains a concrete instantiation and stays unruled; **144 is new**;
+MASTER stays un-amended (item 141). One Go file changed and it is a test file — `planlint_test.go` —
+and no file in `connect` was modified; `connect` was read for measurement only.
+
+**1 — THE DESIGN CORRECTION: A-16's price for a republished recovery wrap was unsafe as specified.**
+A-16 answered *may a stranded recovery wrap be republished* with **yes, at zero wire bytes, needing two
+normative sentences, all client-side**. The first two thirds hold and are kept. The last third is
+wrong, and it is wrong in the way that ships a defect: a conforming implementer following §5.11 as it
+stood would have rebuilt the record around the `ct_xwing` it had kept, and that is an XChaCha20-Poly1305
+**nonce reuse**.
+
+The fact was in the corpus the whole time and three consecutive passes reasoned past it:
+
+- **`AAD_head` binds the RECORD's epoch and the RECORD's stream index** (MASTER §8; `AADHead` in
+  `connect/message/aad.go` writes `h.Epoch` and `h.StreamIndex`).
+- **The recovery wrap's `key_head ‖ nonce_head = HKDF-Expand(wrap_key, "wraphead/v1", 56)` binds
+  neither** — it is a bare label — and `wrap_key` binds the **content** epoch.
+- **The shipped server forces both AAD fields to move on a republish**: `store/memory.go:578` refuses a
+  record whose epoch is not the current one, which is why the wrap was stranded, and `:610` refuses a
+  `stream_index` that is not strictly greater, which Spec A §5.7's outbox rule already required.
+
+So the head's `(key, nonce)` cannot move while the AAD must: keystream reuse plus Poly1305
+one-time-key recovery, over a preimage covering `body_hash`, `blob_id` and `H(server_attachment)`.
+**And §5.9's guardrail G5 — the corpus's one mechanical defence against AEAD nonce reuse — is vacuous
+here**, because its defence is the `stream_index` reservation and the wrap head is not on the
+`record_key[i]` ladder at all.
+
+**What makes it repairable, and it is the load-bearing correction:** the reuse is a **procedure
+choice, not a format constraint**. `XwingEncapsulate` cannot be derandomized — `crypto/mlkem`'s
+`Encapsulate` takes no randomness argument (`connect/messagegroup/xwing.go:236`, asserted by
+`xwing_test.go:277`) — so a republisher that re-encapsulates from the wrap **plaintext** gets a fresh
+`(key_head, nonce_head)` unconditionally. That cannot be a bare MUST, because **no party can check it**:
+the server never decrypts, the restorer sees only what landed, and the stranded ciphertext was refused
+and exists only on the server's side of the wire. §5.11 now states it in §5.9 **G4**'s shape — make a
+stored `ct_xwing` unreachable from the republish path rather than forbidden on it — and leaves the
+ruling to the owner.
+
+**Three prices A-16 omitted, now written down.** The body signature MUST be recomputed and MUST NOT be
+copied, and a repairer that is not the committer signs under its own identity (§5.11 step 6 blesses
+that repairer and no document says either thing). The retry is **not** all client-side: re-encapsulating
+needs the wrap plaintext — `storage_root[k] ‖ archive_secret[k]` — retained in an outbox past epoch
+*k*, which is a forward-secrecy ruling against `mls/group.go:2488`'s *"THE DELETE IS A SECURITY
+REQUIREMENT AND NOT HOUSEKEEPING"*. (It is **not** a breach of MASTER §8.1's disappearing-message
+promise; that promise is `eph_root`'s and `eph_root` is not in this payload. Overstating it would have
+got the whole cost discounted.) And the wrap's **inner** `aead_ct` has **no nonce in any document** —
+new item **144** — which decides 142 rather than sitting beside it, because Spec A §5.14's sibling KEM
+construction seals at `nonce = 0` on the sole justification *"Every encapsulation yields a fresh
+`deposit_key`"*, and that is the re-encapsulation rule written for a different record.
+
+**2 — THE BOUND: `PastEpochWindow` = 32 is withdrawn, and no bound exists anywhere.** A-16 offered 32
+as *"the ceiling the corpus already supplies"*. It fails on three counts, the first decisive.
+**(a)** It bounds **rebuilding from live group state**, not publication lag. A stranded wrap was already
+produced at epoch *k*; what republishes it is an **outbox**, and `DeleteGroupStateBefore` runs off
+`self.context.Epoch` inside commit-apply (`mls/group.go:2594`) and reaches the MLS store —
+`grep -rni outbox connect/mls/` names **no file**. A restorer bounded at 32 refuses to look at a lag-40
+republish, losing the wrap in exactly the case the retry exists for, silently (item 138).
+**(b)** The two numbers share no premise: `PastEpochWindow`'s own comment derives 32 from *"a product
+promise about how long a laptop may stay closed"* (`mls/key_schedule.go:25-29`), while a search bound is
+a per-unopenable-record work budget an attacker can spend. **(c)** The error is one-sided.
+**And separately: A-16 moved the trial-decryption walk into §5.11's descriptive prose while leaving the
+bound under *what a retry would take*, so §5.11 as it stood described an unbounded search.** It now says
+in as many words that the walk is a derivation and not a licence until 142 is ruled.
+
+**3 — THE ALTERNATIVE THAT DELETES THE QUESTION, measured rather than argued.** Exempting
+`AttachmentRecovery` from the epoch-complete gate and putting the recovery leg back inside the fan-out
+strands nothing: no republish, no re-seal, no bound, no search — and it is the only route that closes
+item **138** for the recovery arm. Its landed-code price is one arm of one switch (`store/memory.go:939`,
+shared with `pgx.go:1152`) plus `exempt: true` on one map entry (`store/contract.go:2576`). Measured by
+running it: `go test ./store/...` with that arm widened produces **exactly one** failing leaf,
+`…/OnlyTheExemptKindsPassTheGateWhileTheFanOutIsOpen/AttachmentRecovery`, which fails by **assertion**
+and **not** through `attachmentKindsDeclared`'s by-name guard — that guard fires for a **new** kind and
+is a different proposal's cost, and the write-ups that said "fails by name" had the mechanism wrong.
+The checkout was restored and re-verified green before anything else was done. Its real price is
+availability, ~18 extra round trips of group-wide non-writability per commit, and it does **not** make
+the seal question moot because §5.11 step 6's repair still re-seals. Priced in 142 and in Spec B
+revision 17; **not proposed**, because it reverses a 2026-09-13 ruling.
+
+**4 — THE PLAN LINTER'S CHECK 3d COULD NOT SEE A BOLDED LEDGER CITATION.** `ledgerRefRe` ran over
+`flatten(line)` with the markup left on, while `stripMarkup` sat two lines above being used for the task
+qualifier. The plans bold the **number** — `ledger open item **142**` — so the pattern's digits ran into
+an asterisk and the citation was not a citation. Measured at `cea05b8` over `docs/plans/*.md`: the raw
+line matched **28** citation sites and the stripped line matches **37**, so **nine** were invisible to a
+**fatal** check that reported *no findings* over all nine. All nine were in m1, and one of them —
+`m1:3220`, `ledger open item **142**` — was written by the pass that then read the clean report as
+coverage. The check now reads the stripped line; **at `cea05b8` the class it derives goes from 29 item
+numbers to 41**, and the check now prints that size on every run beside the findings, because a floor of
+one catches a class that read nothing and does not catch a class that read most of the corpus. (At the
+commit this entry lands in it prints **44** against **30** for the old matcher, because this pass's own
+document edits added citations — which is exactly why the size is printed rather than pinned.) The
+control fixture gains a bolded citation with the asterisks around the number, so the repair is pinned:
+reverting it fails `check3d_a_ledger_citation_that_resolves_to_nothing_and_a_date_that_is_not_one`
+**by name**, verified by reverting it. All eleven finding counts are identical to baseline and check
+3d is still at no findings.
+
+**5 — FOUR QUOTED ANCHORS FROM THE PREVIOUS PASS RETURNED ZERO HITS UNDER `grep -F`, one of them the
+repair of the very defect that entry announces as fixed.** Each measured before it was touched, each
+repaired in place under A-16's rule.
+
+- **The ellipsis, again, in the entry that fixed the ellipsis.** This entry's own predecessor wrote
+  *"Not ruled and left open: ... ledger items 132–135"* as one quoted string — and three bullets below
+  announced *"Two of the new inline anchors were a single quoted string containing an ellipsis"* as
+  repaired. Zero hits against Spec A's A-14 row, where the string is live. Split into two anchors
+  joined outside the quotes.
+- **A re-ordered quotation presented as verbatim.** Item 137 quoted its own superseded text as
+  *"464 matching lines across 15 files, measured at `7fb0dd9`"*; the text said *"Measured at
+  `7fb0dd9`:"* **464** *"matching lines across 15 files"*. `grep -F` returns zero hits for the quoted
+  form anywhere, including in the revision it quotes. Re-quoted in the source order.
+- **Two supersession quotes that straddle a line break in the revision they quote** — item 142's own
+  former headline, and Spec B §6.1 step 7's *"a `RecoveryTag` gained an epoch would be a wire change"* /
+  *"reaching §5.4's encoding here"*. Both now split at the break, the form item 134 already prescribes
+  (*"The longer form of the sentence spans a line break in every document, so grep it short"*).
+
+**6 — TWO INTRA-SECTION CROSS-REFERENCES POINTED THE WRONG WAY, both in §5.11's retry block.** The
+block sits **before** the numbered parts (1)–(5) and referred into them as though they preceded it:
+*"(part (2) above)"* — part (2) is 138 lines below it — and *"part (4)'s signature rule"*, likewise
+below. Both now say **below**. The `sixty lines on` distance in the rewritten text was replaced by the
+quoted sentence it points at, under the rule item 137 states.
+
+**7 — THREE SMALLER ONES, each reproduced.**
+
+- **A scope claim that is measurably false, in a *transcribe from here* sentence.** §5.11's opening and
+  item 141 both ended *"so the three documents' `EpochAttachment` blocks now disagree field for field"*.
+  The query is now published beside the claim; it strips every annotation and the three documents' ten
+  lines are **byte-identical** — eight field declarations, same order, same names, same widths.
+  **One annotation of one field diverges normatively**, `expected_wrap_count`, and it is the field
+  whose value opens an epoch, which is a sharper warning than *field for field*, not a milder one. The
+  danger of an overstated scope claim is that a reader who checks one field and finds it identical
+  stops believing the sentence.
+- **The discriminator's probability was stated inverted, in both new copies.** *"every other fails"* /
+  *"Poly1305 with probability `2^-128`"* — two strings, because it straddles a line break in both —
+  says a wrong guess almost always **succeeds**. A wrong candidate
+  fails with probability `1 − 2^-128`; `2^-128` is the chance it opens anyway, and that is the direction
+  the search's correctness rests on. Corrected in §5.11 and in item 142.
+- **`target_id` is defined nowhere in the corpus** and is the fourth input to `wrap_key`, so it is the
+  value a restorer must reproduce byte for byte for the whole trial-decryption walk to open anything.
+  It occurs in MASTER §7's derivation, in the documents quoting it, and in r3's un-adopted rewrite — and
+  in **no definition**. `recovery_handle`, `wrap_target_handle`, a leaf index and a member id are four
+  different byte strings; a publisher and a restorer that choose differently produce a wrap nobody can
+  open with no error anywhere. Added to §5.11 (5)'s list of what the rulings do not state, with the
+  inner nonce and the wrap head's plaintext.
+
+**8 — THE BARE DISTANCE IN THIS LOG'S PREVIOUS ENTRY NOW CARRIES ITS QUERY.** That entry published
+*"it is 27"* with no query, two bullets after stating the rule *publish the query beside the value*.
+The query is annotated in place and re-run here:
+`git show 7681f4c:… | grep -n 'MASTER §8.3 carries the same block\|^EpochAttachment {'` answers `1588`
+and `1615`, so the distance is 27 **at the commit the brief read** and reproduces. Both lines have since
+moved, which is the whole argument for the query.
+
+**What this pass did not do.** It ruled nothing. It did not touch MASTER, or `connect`, or any
+non-test Go file. It did not sweep the append-only edit log beyond annotating, in place and dated, the
+two claims A-16's own rule says are corrected that way — the ellipsis anchor and the bare distance.
+Two further stale sentences in older log entries (`field for field`, and the previous entry's own
+`2^-128`) are **left standing**: they were claims made in entries this pass is not rewriting, and this
+entry is where the corrected form lives.
+
+**Verified.** `go build ./...` clean; `go test ./...` green; `go test ./ -run TestThePlanLinter`
+**7 of 7, `ok`**, before and after, with every check's finding count identical to baseline — 1b 7,
+1c 1, 1d 189, 2a 18, 2b none, 3a 4, 3c 2, 4b 5, and both fatal checks **3b** and **3d** at **no
+findings** in both runs — and the ledger-reference class now printed at **44** where the same run with
+the old matcher prints **30** at this commit (**41** against **29** at `cea05b8`, the corpus the finding
+was measured over). `git ls-files` equals `git ls-tree -r HEAD --name-only` at **102**,
+checked before the commit rather than assumed. Every edited file measured **LF throughout, zero CR
+bytes**, with `tr -dc '\r' | wc -c`. The C5 experiment was run against `store/memory.go`, reverted, and
+`git status --porcelain` confirmed empty before any document was written. This repository still has
+exactly one branch, `main`, and no `beta/message`; the work was done on `main` at `cea05b8`.
