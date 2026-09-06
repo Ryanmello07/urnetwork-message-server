@@ -465,6 +465,8 @@ device-wrap record kinds and the snapshot it is **exact**, this server enforces 
 
 **Not amended, and the list is unchanged.** Ledger open items **132**, **133** and **134** remain filed
 and unruled. MASTER remains un-amended and its four divergences remain ledger item **141**'s.
+(**Superseded 2026-09-18:** MASTER was amended, item **141** is closed, and the divergences were
+**six** rather than four — see revision 18 below. Nothing in this document changed with it.)
 
 **Revision 17 — 2026-09-15 — the review of revision 16: this document's own claims all hold, and the
 one it borrowed from Spec A does not. No SQL, no column, no index, no reason code, no gate, and nothing
@@ -504,6 +506,28 @@ it reverses a 2026-09-13 ruling and it belongs to the owner, as ledger item **14
 **Not amended, and the list is unchanged.** Ledger open items **132**, **133** and **134** remain filed
 and unruled; **142** remains filed and unruled; **144** is new and is Spec A's and MASTER's, not this
 document's. MASTER remains un-amended and its four divergences remain ledger item **141**'s.
+(**Superseded 2026-09-18:** MASTER was amended and items **141** and **144** are both closed — see
+revision 18 below. Nothing in this document changed with it.)
+
+**Revision 18 — 2026-09-18 — MASTER was amended and this document needs no change; recorded so the
+next reader does not go looking for one.** No SQL, no column, no index, no reason code, no gate and
+no advertised limit moves. MASTER §8.1, §8.2 and §8.3 now carry the three rulings of 2026-09-13 that
+revision 14 wrote into this document — the resequenced fan-out, the MLS-exporter envelope with the
+recovery wrap KEM-sealed as a consequence, and the two-record device wrap with
+`expected_wrap_count = 2 × device_leaves + 1` — so the three documents' `EpochAttachment` annotations
+now agree and ledger item **141** closes. It carried **six** divergences rather than the four the
+item listed; neither of the two additions is this document's.
+
+MASTER §7 separately adopts red-team finding **M-15** from 2026-08-12, which had carried no
+disposition for four weeks: the wrap KDF now derives its own 24-octet AEAD nonce and binds `alg_id`,
+the target's X-Wing public key and `ct_xwing` into a nine-element `info`, over an
+Extract-then-Expand. **`hybrid_ct` is unchanged and nothing new goes on the wire**, so this server
+stores, indexes, verifies and prunes exactly the bytes it did before — which is why this revision
+amends nothing. Ledger item **144** closes. §6.1's blockquote of Spec A §5.11 is unaffected: the
+content epoch is still bound inside `wrap_key`'s `info` and still not in the record's own fields, so
+the trial-decryption walk and the nonce-reuse hazard both read exactly as revision 17 left them.
+**Item 142's blockers go from four to three** and none of the remaining three is this server's; the
+one change that would remove the window is still this server's and is still not proposed.
 
 ---
 

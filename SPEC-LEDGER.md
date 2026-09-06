@@ -1984,7 +1984,53 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      it trades away part of what ruling 3 bought, and shortening it is worse. *Blocks:* nothing.
      **Filed, not ruled.** Found 2026-09-13 while writing ruling 3 into §5.11.
 
-141. **MASTER still carries the pre-ruling fan-out and the single-record device wrap, and was
+141. **CLOSED 2026-09-18 — MASTER is amended, and the location list was short a THIRD TIME: four
+     named, SIX found.** The three rulings of 2026-09-13 are now in MASTER §8.1, §8.2 and §8.3, under
+     an *"Amendment to revision 9"* entry in §0. Re-run this item's own query and the eight
+     `EpochAttachment` field declarations are still **byte-identical** across the three documents,
+     while MASTER's `expected_wrap_count` annotation's first four lines are now byte-identical to Spec
+     A's and diverge only in the cross-reference — the form `read_key`'s annotation already uses
+     legitimately in each document. **The one normative divergence this item existed for is gone.**
+
+     **The two the list missed, and both are the same shape as the fourth: not a stale NUMBER but a
+     CLAIM the ruling makes false.**
+
+     - **MASTER §8.2 step 4's detector was unscoped.** It read *"A member or device that finds no wrap
+       for its target at epoch `n+1` after the marker has landed surfaces a `gap` entry with reason
+       `no_wrap`"* — no qualifier — so it claimed for the recovery arm precisely the detector ruling 1
+       removes, in the same numbered list whose step 2 this item already flagged. Spec A §5.11 step 5
+       scopes it to the **device** arm and the snapshot; MASTER now does too. This is worse than a
+       stale figure: a reader of MASTER alone concluded a missing recovery wrap is detected, and item
+       **138** is the record that nothing detects it.
+     - **A SECOND copy of the pre-split sizing, thirteen lines outside the sizing paragraph.** §8.2's
+       indexing requirement closed *"Without this a 500-member group makes every join a 6.9 MB
+       download"* (`:875`). A pass that edited only the paragraph this item's third bullet names would
+       have left it standing.
+
+     **Why the list was short, stated so the next one is not.** All four bullets resolved exactly —
+     the item was right about everything it said. It was built by looking for where the rulings change
+     a **number**, and both misses are places where the rulings change a **sentence's truth value**.
+     The query that finds all six, published so it can be re-run rather than trusted:
+     `grep -nE 'no wrap|6\.9 MB|1,000 device|1,503|~55 round|device wraps \+ recovery wraps'`
+     over MASTER answers all six locations and costs one command.
+
+     **The ruling's COST travels into MASTER with the ruling, which is what the amendment was for.**
+     §8.2 now states, where a reader of the fan-out meets it rather than only here: `expected_wrap_count`
+     is **decorative for the recovery arm**, and **nothing detects a missing recovery wrap** — not the
+     count, not the `no_wrap` gap, not a live member, not the server. §8.2 also names item **142**'s
+     `REASON_EPOCH_STALE` window and §8.1 names item **143**; neither is ruled by this pass.
+
+     **Not a revision bump, and that is recorded as a residual rather than decided.** MASTER is amended
+     under the *"Amendment to revision 9"* form its two 2026-08-25 entries established, and the entry
+     says plainly that **unlike those two, this one does change rules** — the rules changed when the
+     owner ruled them on 2026-09-13 and when M-15 was adopted, and MASTER was the last of four
+     documents to be told. Whether that warrants **revision 10** is **not decided here**: a bump moves
+     the parent pin and the baseline row of both Spec A and Spec B, and no ruling covers that. **Filed
+     for the owner.**
+
+     *The item as filed, kept, because an item that vanishes is an item somebody files again:*
+
+     **MASTER still carries the pre-ruling fan-out and the single-record device wrap, and was
      deliberately not amended by the 2026-09-13 pass.** The brief that carried the rulings named Spec
      A §5.11 and its neighbours, Spec B §6.1, the m1 plan and this ledger, and did not name
      `docs/specs/2026-08-12-urmessage-protocol-design.md`. Amending the normative parent is a larger
@@ -2261,7 +2307,63 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      ladder head a class — and it is **still not ruled**; what changes is that it now names the concrete
      failure rather than only the missing discipline. Carried into Spec A §5.11 part (5).
 
-144. **The recovery wrap's INNER AEAD has no nonce in any document, and it decides item 142.** MASTER §7
+144. **CLOSED — RULED 2026-09-18 by adopting r3's M-15, four weeks after it was raised.** MASTER §7 now
+     derives `prk = HKDF-Extract(salt = "URmessage/v1/wrap-salt", ikm = ss)` and
+     `wrap_key ‖ wrap_nonce = HKDF-Expand(prk, info, 56)` over a nine-element `info`, and `aead_ct`
+     is sealed under `(wrap_key, wrap_nonce)`. **Both halves of M-15 close** — the nonce, which was
+     this item, and the missing `alg_id`, which **nobody had ever filed** and which is the half that
+     violates §7.1's own anti-downgrade rule. **Zero wire bytes**: `wrap_nonce` is derived by both
+     sides and `hybrid_ct` is unchanged. **No code to migrate**, verified rather than assumed — a grep
+     for `wrap_key`, `WrapKey` and `wraphead` across every `*.go` file in `msgrepo` and `connect`
+     returns three hits and all three are `connect/mls/leaf_keys_test.go`, on the leaf's wrap KEM
+     **public key** in the `urmessage_leaf_keys` extension, which is a different thing.
+
+     **THE ADOPTION REQUIRED ONE SUBSTITUTION, AND A CLOSURE THAT DID NOT SAY SO WOULD BE DISHONEST.
+     M-15's block cannot be adopted verbatim: it was written against a construction revision 5
+     deleted.** r3 reviewed a **pre-X-Wing** revision — its keystone B-1 still names
+     `device_x25519_pub` and `device_mlkem_pub` as two separate leaf values — so its block takes
+     `ikm = ss_x25519 ‖ ss_mlkem` and binds `LP(pk_x25519) ‖ LP(ek_mlkem) ‖ LP(ct_x25519) ‖
+     LP(ct_mlkem)`. Measured: those six identifiers occur in this repository **only** inside r3's own
+     review file and in MASTER §7's own sentence recording their deletion — *"It replaces the
+     hand-rolled `ss_x25519 ‖ ss_mlkem` combiner of earlier revisions"*, quoted rather than cited by
+     line because that line moved with this amendment. **Pasting M-15's IKM
+     literally would have reinstated the hand-rolled combiner MASTER calls *"the most dangerous
+     composition in this document"*** — a revert of revision 5, not an adoption of M-15. Two X-Wing
+     values stand in for the four, `LP(target_xwing_pub) ‖ LP(ct_xwing)`, covering the same material
+     in X-Wing's own ordering under two length prefixes rather than four; MASTER §7 carries that
+     paragraph rather than making the substitution quietly. Every substantive claim of M-15 survives
+     it.
+
+     **Three inherited gaps, NAMED AND NOT FILLED, because filling one is a wire ruling.**
+     `target_id` was already undefined before the amendment (Spec A §5.11 (5)); `u8(target_type)` and
+     `u8(payload_type)` **arrive with M-15** and have no code point, value table or definition
+     anywhere — measured 2026-09-18, both occur only in r3's review file and in the 2026-09-12 red
+     team's reference back to it. MASTER §7 states that its block is **normative modulo those three**,
+     so a second implementation still cannot build a wrap from it alone; what the block settles is the
+     shape, so the derivation does not move again once they are ruled. A fourth and softer one is
+     named there too: no line says in as many words which `alg_id` `hybrid_ct` carries, so §7 binds
+     *"the same two octets `hybrid_ct` carries"* rather than picking a number — which is what makes
+     the binding anti-downgrade whichever number it turns out to be.
+
+     **WHAT THIS DOES TO ITEM 142, because it is easy to read the other way.** 142 was blocked behind
+     four rulings and this was the first, so **142 is now blocked behind three** and **stays FILED and
+     UNRULED**. **The hazard is CONFIRMED, not removed:** `wrap_nonce` is a function of `ss` and
+     `ct_xwing` and of nothing the record carries, so a republish that reuses a stored `ct_xwing`
+     repeats the inner `(wrap_key, wrap_nonce)` exactly as the `nonce = 0` closure would have — a
+     two-time pad over `storage_root[k] ‖ archive_secret[k]` **as well as** the head forgery. Freshness
+     of the encapsulation is still the safety condition; what changed is that MASTER's own
+     construction now states it, instead of it being inferred by reading across from §5.14. So 142's
+     re-encapsulation rule is **more** clearly required, not less. The other three blockers — the
+     re-encapsulation rule, the publisher retention window, and the bound derived from it — are
+     untouched.
+
+     **The process failure behind this item is measured separately as new open item 146**, because it
+     is bigger than one finding: fourteen of r3's fifteen majors are named nowhere outside the review
+     file that raised them.
+
+     *The item as filed, kept:*
+
+     **The recovery wrap's INNER AEAD has no nonce in any document, and it decides item 142.** MASTER §7
      derives `wrap_key = HKDF-Expand(ss, "URmessage/v1/wrap" ‖ LP(group_id) ‖ u64(epoch) ‖
      LP(target_id), 32)` — **thirty-two octets, a key and no nonce** — and then writes
      `hybrid_ct = u16(alg_id) ‖ LP(ct_xwing) ‖ LP(aead_ct)`. **Nothing in MASTER, Spec A, Spec B or the
@@ -2304,6 +2406,60 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      passes and proves nothing, which is the same shape as `TestXwingEncapsulateIsNotDerandomizable`'s
      stated reason for existing. **Filed, not ruled.** Found 2026-09-15, in the red team of item 142's
      re-derivation; the underlying gap was found by r3 on 2026-08-12 and has been open since.
+
+145. **Spec A §5.14's rendezvous deposit is the same construction and still seals at `nonce = 0`, so
+     the corpus now carries one KEM seal that derives a nonce and one that does not.** M-15's argument
+     applies to `deposit_key = HKDF-Expand(ss, "URmessage/v1/rzvdeposit" ‖ LP(rendezvous_id), 32)`
+     word for word: it expands **32**, derives no nonce, and omits `alg_id` from its `info` while
+     `deposit_ct = u16(alg_id) ‖ LP(ct_xwing) ‖ AEAD(deposit_key, nonce = 0, …)` puts `alg_id` on the
+     wire — the same anti-downgrade gap §7.1's rule exists to close. **It is not unsafe as it stands:**
+     §5.14 justifies the zero nonce in one sentence — *"Every encapsulation yields a fresh
+     `deposit_key`, so the zero nonce uses no key twice (**I7**)"* — and unlike the wrap, nothing in
+     the corpus proposes republishing a deposit under a stored `ct_xwing`, so freshness is not
+     load-bearing against a documented procedure there. What is now true is that **two sibling KEM
+     seals in one corpus answer the same question two ways**, which is the shape a second
+     implementation gets wrong, and the `alg_id` half has no justification at all — it is simply
+     missing. **Out of the 2026-09-18 pass's scope**, which the owner set to MASTER §7's wrap KDF and
+     the three 2026-09-13 rulings; naming it is what that pass could do. *Blocks:* nothing.
+     **Filed, not ruled.** Found 2026-09-18, while adopting M-15 into MASTER §7.
+
+146. **THE PROCESS FAILURE BEHIND 144, MEASURED: r3's twelve BLOCKERS were dispositioned by id and
+     its fifteen MAJORS were dispositioned by a COUNT, so fourteen of the fifteen are named nowhere in
+     this repository outside the review file that raised them.** Item 144 recorded that M-15 carried
+     no disposition. It is not one finding; it is the whole severity class. **The query, published
+     beside the number so it can be re-run rather than believed** — for each finding id declared in
+     `docs/reviews/2026-08-12-r3-spec-review.md`, count the files at `bed5b84` that name it outside
+     that file:
+
+     ```
+     git grep -lE "(^|[^A-Za-z0-9-])$id([^0-9]|$)" bed5b84 \
+       -- ':!docs/reviews/2026-08-12-r3-spec-review.md' | wc -l
+     ```
+
+     **`B-1` … `B-12`: 1 to 6 files each, all twelve non-zero. `M-1` … `M-14`: ZERO, every one.
+     `M-15`: 1, and that one is item 144 itself, written on 2026-09-15 to say it had no disposition.**
+     So before 2026-09-18 the recorded disposition of r3's entire majors class was empty.
+
+     **The convention that failed is visible in this file.** The 2026-08-12 R4/R5 edit-log entry closes
+     *"0 blockers, 0 leaked labels (independently re-grepped), 8 majors and 22 minors remaining"*, and
+     §1's state table still carries *"Remaining | 30: 8 major, 22 minor. Ordinary pre-implementation
+     cleanup."* **The blockers were re-grepped; the majors were counted.** A count cannot be checked
+     against a document — nothing re-derives which eight — so a major that was neither applied nor
+     rejected is indistinguishable from one that was absorbed, and M-15 sat in that gap for four weeks
+     until a different chain of reasoning walked into the same hole and filed it as 144. **Three passes
+     is what the rediscovery cost**, and the second half of M-15 — the missing `alg_id`, which
+     violates §7.1's own anti-downgrade rule — was never filed by anyone and closed on 2026-09-18
+     without ever having been opened.
+
+     **This is NOT a claim that the other fourteen are unfixed.** Several are plainly satisfied by the
+     documents as they stand; the measurement is of the **disposition record**, not of the text, and
+     the distinction is the whole point — a finding whose fate no document states is a finding the
+     next reader must re-derive from scratch, at whatever it costs them. **What would have caught it**
+     is one property rather than one number: *every finding id declared in `docs/reviews/` is named at
+     least once outside its own file.* It is greppable, it is cheap, and it is exactly the shape of
+     the gate the plan linter's check 3d already is for plan citations. **Whether to make it a gate is
+     the owner's, and is not ruled here.** *Blocks:* nothing mechanically. **Filed, not ruled.** Found
+     2026-09-18, while adopting M-15 four weeks late.
 
 ## 6. Change process
 
@@ -5387,3 +5543,151 @@ checked before the commit rather than assumed. Every edited file measured **LF t
 bytes**, with `tr -dc '\r' | wc -c`. The C5 experiment was run against `store/memory.go`, reverted, and
 `git status --porcelain` confirmed empty before any document was written. This repository still has
 exactly one branch, `main`, and no `beta/message`; the work was done on `main` at `cea05b8`.
+
+### 2026-09-18 — MASTER amended: the three rulings transcribed, a four-week-old red-team finding adopted, and the disposition convention that lost it measured
+
+**Change:** four documents. **MASTER** — §0 gains an *"Amendment to revision 9"* entry; §7's wrap KDF
+adopts red-team finding **M-15**; §8.1, §8.2 and §8.3 take the three owner rulings of 2026-09-13.
+**Spec A** — §5.11's three quotations of MASTER §7 move with it, its *"MASTER's annotation is stale"*
+warning is superseded, and revision row **A-18** records the pass. **Spec B** — revision **18** records
+that MASTER moved and this document does not have to, plus two in-place supersessions of present-tense
+*"MASTER remains un-amended"* sentences. **This ledger** — items **141** and **144** close, **142**'s
+blocker count drops, **145** and **146** are new. **No Go file changed. `connect` was not touched.**
+
+**The scope the owner set was exactly two things, and this entry says what each cost.**
+
+---
+
+**1 — THE THREE RULINGS ARE IN MASTER, AND THE LOCATION LIST WAS SHORT A THIRD TIME.** Item 141 named
+three locations on 2026-09-13 and a re-measurement found a fourth. **All four resolved exactly. Six
+exist.** The two the list did not have are in item 141 and both are the same shape as the fourth — not
+a stale number but a **sentence the ruling makes false**:
+
+- **§8.2 step 4's `no_wrap` detector was unscoped**, so MASTER claimed for the recovery arm exactly the
+  detector ruling 1 removes — in the same numbered list whose step 2 the item already flagged. A reader
+  of MASTER alone would have concluded a missing recovery wrap is detected. Item **138** is the record
+  that nothing detects it.
+- **A second copy of the pre-split sizing, thirteen lines outside the sizing paragraph** — *"every join
+  a 6.9 MB download"*. A pass editing only the paragraph the item names would have left it.
+
+**The lesson is about how the list was built, not about who built it.** It was built by looking for
+where a ruling changes a **number**. Both misses are where a ruling changes a **truth value**. The
+query that finds all six is published in item 141 so it can be re-run, and it costs one command.
+
+**The ruling's cost travelled with the ruling**, which is the whole reason the amendment was asked for:
+§8.2 now states, where a reader of the fan-out meets it, that `expected_wrap_count` is **decorative for
+the recovery arm** and that **nothing detects a missing recovery wrap**. §8.2 also names item **142**'s
+`REASON_EPOCH_STALE` window and §8.1 names item **143**. Neither is ruled.
+
+**Item 141's own byte-identity query re-runs clean.** The eight `EpochAttachment` field declarations
+are still byte-identical across the three documents; MASTER's `expected_wrap_count` annotation's first
+four lines are now byte-identical to Spec A's, and diverge only in the cross-reference — the form
+`read_key`'s annotation already uses legitimately in each document. **The one normative divergence is
+gone.**
+
+---
+
+**2 — M-15 ADOPTED, AND IT COULD NOT BE ADOPTED AS WRITTEN. This is the finding of the pass.** MASTER
+§7 now derives `prk = HKDF-Extract(salt = "URmessage/v1/wrap-salt", ikm = ss)` and
+`wrap_key ‖ wrap_nonce = HKDF-Expand(prk, info, 56)` over a **nine**-element `info` — r3's list is
+eleven, and two X-Wing values carry what four separate X25519/ML-KEM values carried. **Zero wire bytes,
+no code to migrate** — the grep returns three hits and all three are `leaf_keys_test.go` on the leaf's
+wrap KEM *public key*.
+
+**r3's block was written against a construction revision 5 deleted.** It takes
+`ikm = ss_x25519 ‖ ss_mlkem` and binds four separate X25519/ML-KEM length-prefixes; its own keystone
+B-1 still names `device_x25519_pub` and `device_mlkem_pub` as two separate leaf values. **Measured:
+those six identifiers occur in this repository only inside r3's review file and in MASTER §7's own
+sentence recording their deletion**, *"It replaces the hand-rolled `ss_x25519 ‖ ss_mlkem` combiner of
+earlier revisions"* — quoted, because a line number is advisory and this one moved. Pasting the IKM
+literally would have reinstated the hand-rolled
+combiner MASTER calls *"the most dangerous composition in this document"*: a **revert of revision 5**,
+not an adoption of M-15. Two X-Wing values stand in for the four, covering the same material in
+X-Wing's own ordering, and MASTER §7 carries a paragraph saying so rather than substituting quietly.
+**Every substantive claim of M-15 survives. The brief's instruction to adopt it "as written" is the one
+claim in it that does not reproduce, and this is the record of why.**
+
+**Both halves close, and only one had ever been filed.** Item **144** was the nonce. **The missing
+`alg_id` — the half that violates §7.1's own anti-downgrade rule — had no ledger item at all**, and is
+closed here without ever having been opened.
+
+**Three gaps are INHERITED and named rather than filled**, because filling any one is a wire ruling:
+`target_id` was already undefined; `u8(target_type)` and `u8(payload_type)` **arrive with M-15** and
+have no code point anywhere. MASTER §7 states its block is **normative modulo those three** — so a
+second implementation still cannot build a wrap from it, and what the block settles is the shape.
+
+**What it does to item 142, stated because it reads the other way at a glance.** 142 goes from four
+blockers to **three** and **stays filed and unruled**. **The hazard is confirmed rather than removed:**
+`wrap_nonce` is a function of `ss` and `ct_xwing` and of nothing the record carries, so a republish
+reusing a stored `ct_xwing` repeats the inner `(wrap_key, wrap_nonce)` exactly as the `nonce = 0`
+closure would have. Freshness is still the safety condition; what changed is that MASTER's own
+construction now says so instead of it being read across from §5.14. **142's re-encapsulation rule is
+more clearly required, not less.**
+
+---
+
+**3 — THE PROCESS FAILURE, MEASURED RATHER THAN ASSERTED. New open item 146.** The owner asked this
+entry to record the failure as well as the fix. It is not one finding — it is a whole severity class.
+**For each finding id declared in r3, count the files at `bed5b84` naming it outside r3's own file:**
+
+```
+git grep -lE "(^|[^A-Za-z0-9-])$id([^0-9]|$)" bed5b84 \
+  -- ':!docs/reviews/2026-08-12-r3-spec-review.md' | wc -l
+```
+
+**`B-1` … `B-12`: 1 to 6 files each, all twelve non-zero. `M-1` … `M-14`: ZERO, every one. `M-15`: 1 —
+and that one is item 144, written on 2026-09-15 to say it had no disposition.**
+
+**The convention that failed is visible in this file.** The 2026-08-12 R4/R5 entry closes *"0 blockers,
+0 leaked labels (independently re-grepped), 8 majors and 22 minors remaining"*, and §1's state table
+still carries *"Remaining | 30: 8 major, 22 minor."* **The blockers were re-grepped. The majors were
+counted.** A count cannot be checked against a document — nothing re-derives *which* eight — so a major
+neither applied nor rejected is indistinguishable from one absorbed. M-15 sat in that gap for four
+weeks until a different chain of reasoning walked into the same hole and filed it as 144, and the
+rediscovery cost **three passes**.
+
+**This is not a claim that the other fourteen are unfixed.** The measurement is of the **disposition
+record**, not of the text, and that distinction is the point: a finding whose fate no document states
+is one the next reader re-derives from scratch. **The property that would have caught it** — *every
+finding id declared in `docs/reviews/` is named at least once outside its own file* — is greppable,
+cheap, and the same shape as the plan linter's check 3d for plan citations. **Whether it becomes a gate
+is the owner's and is not ruled here.**
+
+---
+
+**4 — WHAT WAS FOUND AND DELIBERATELY NOT FIXED.**
+
+- **New item 145: Spec A §5.14's rendezvous deposit is the same construction and still seals at
+  `nonce = 0`.** M-15's argument applies word for word — it expands 32, derives no nonce, and omits
+  `alg_id` from its `info` while putting it on the wire. It is **not unsafe as it stands** (§5.14
+  justifies the zero nonce by encapsulation freshness, and nothing proposes republishing a deposit),
+  but the corpus now carries **one KEM seal that derives a nonce and one that does not**, which is the
+  shape a second implementation gets wrong. **Out of scope: the owner scoped M-15 to §7.**
+- **The m1 plan carries two sentences this pass makes stale and did not edit.**
+  `docs/plans/2026-09-04-slice1-m1-message-crypto.md:3054` says *"Read Spec A §5.11 and not MASTER"*
+  citing item 141, and `:3721`–`:3725` tells Task 19 not to pick a nonce because the question is
+  unruled. **Task 19 is now unblocked and the plan does not know it.** The scope the owner set names
+  MASTER, Spec A and Spec B; the plan is neither, so it is **reported here rather than edited**. The
+  plan linter stays green either way — item 144 still exists, so check 3d's citations still resolve.
+- **Not ruled, untouched, and still filed:** items **132**, **133**, **134**, **142**, **143**. Item
+  134's false derivability sentence in MASTER §8.2 step 6 is **marked in place and not repaired**,
+  which is exactly what Spec A §5.11 and Spec B §6.1 already do with their copies; leaving MASTER's
+  third copy unmarked in a step this pass rewrote would have re-published a known-false claim.
+- **A revision bump was not made and is filed as a residual.** MASTER is amended under the *"Amendment
+  to revision 9"* form, and the entry says plainly that **unlike the two 2026-08-25 amendments, this
+  one does change rules**. Whether it warrants revision 10 is undecided here because a bump moves both
+  children's parent pin and baseline row, and no ruling covers that.
+
+---
+
+**Verified.** `go build ./...` clean. `go test ./...` green, all packages. `go test ./ -run
+TestThePlanLinter` **7 of 7, `ok`**, before and after, with **every check's finding count identical to
+baseline** — 1a none, 1b 7, 1c 1, 1d none/189, 2a 18, 2b none, 3a 4, 3c 2, 4b 5, both fatal checks
+**3b** and **3d** at **no findings** in both runs, and the ledger-reference class at **44** in both.
+`git ls-files` equals `git ls-tree -r HEAD --name-only` at **102**, checked before the commit rather
+than assumed. Every edited file measured **LF throughout, zero CR bytes** with `tr -dc '\r' | wc -c`.
+`git status --porcelain` before the commit listed exactly the four documents and nothing else — the
+edit scripts this pass used were deleted rather than left untracked. Item 141's own byte-identity query
+re-run and still clean. **This repository still has exactly one branch, `main`, and no `beta/message`;
+the brief named `beta/message`, which is `connect`'s branch (README:43, PROGRESS.md:19) and not this
+repository's, so the work was done on `main` at `bed5b84` as every prior pass has been.**
