@@ -22,14 +22,18 @@ targets one operator, one message server, many providers.
 | Spec A — protocol / sdk / connect | Revision A-3 — 3,127 lines |
 | Spec B — message-server / operator | Revision 3 — 2,411 lines |
 | Spec C — Windows client UI | Revision 3 — 1,506 lines |
-| Blockers | **0** — down from 41 |
-| Remaining | 30: 8 major, 22 minor. Ordinary pre-implementation cleanup. |
+| Blockers | **0 from r1–r4** — down from 41. **r8's two are not in that count**; both are fixed in the text and neither is recorded as fixed. Item **165**. |
+| Review findings | **Dispositioned per finding in §5, not counted.** r3's twelve blockers were re-grepped by id; its fourteen remaining majors are items **149–162**, one item per id, each opening with the id and a disposition verb, so `git grep "M-7"` returns a disposition rather than silence. **r2's, r3's and r4's minors, r6's 30 and r8's 25 are NOT dispositioned** — item **165** measures that and publishes the query; those findings carry no ids, so an id-keyed gate cannot see them at all. The count this row used to carry (*"30: 8 major, 22 minor"*) was r6's file, not r3's majors, and the two had been read as one set for five weeks. |
 | Implementation plan | Not written |
 | Code | None |
 
 **Ready for owner review, and for handoff once the owner has read them.** Four review rounds and two
-edit passes have taken this from 41 blockers to none. The remaining 8 majors and 22 minors are the
-kind a team absorbs alongside the build rather than before it.
+edit passes have taken this from 41 blockers to none. What is left is not a count: r3's fourteen
+undispositioned majors now carry one ledger item each (**149–162**): **four** are ALREADY SATISFIED
+or SUPERSEDED (M-2, M-8, M-12, M-13) and **ten are STILL OPEN**, every one of the ten needing an owner
+ruling and **nine of them blocking the A6 wire-format freeze** (all but M-14). Two further instances of
+M-15's class are filed as items **163** and **164**, the second of which also blocks A6. And the
+findings in `docs/reviews/` that carry no identifier at all are still undispositioned (item **165**).
 
 What no review can supply: whether the *product* decisions are the ones the owner wants. Every
 finding to date has been internal consistency, cryptographic soundness, or implementability. Nobody
@@ -2645,6 +2649,1153 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      a procedure rather than a wire byte. *Blocks:* nothing mechanically; a snapshot KAT should not be
      written against a duplicate-publish case until it is ruled. **Filed, not ruled.** Found
      2026-09-19, while fixing item 147.
+
+**THE DISPOSITION CONVENTION, stated here because the one that failed was a count.** Items 149–162
+below disposition r3's fourteen undispositioned MAJORs, one item per finding, and 163–166 the four
+things measuring them turned up. Each begins with the **finding id** and a **verb from a closed
+set** — *ALREADY SATISFIED*, *SUPERSEDED*, *REJECTED*, *STILL OPEN* — each optionally *NEEDS RULING*,
+so that `git grep M-7` returns a disposition rather than silence, and so that a gate can key on the
+verb beside the id rather than on the id alone (item **166** is why that distinction is
+load-bearing). Every item states **the property the finding names**, not the instance it was raised
+against, and publishes **the query that finds every instance of that property** together with its
+output at HEAD — that being the error items 141, 146 and 147 each recorded at a different altitude,
+and it recurred twice more inside this very pass (items 158 and 162 say where). **Nothing below is
+ruled.** Dispositioning was the task; the fixes are separate work these items scope.
+
+**Arithmetic, corrected in passing: the undispositioned set is FOURTEEN, not thirteen.** r3 declares
+M-1 … M-15; M-15 alone is closed, by items **144** and **147**. M-1 … M-14 all remain, and all
+fourteen are dispositioned below.
+
+149. **`M-1` — STILL OPEN (PARTIAL — the ciphertext half closed 2026-08-25, the authenticator half
+     never did). NEEDS RULING. WIRE-VISIBLE.** r3: *"§7.1 requires every authenticator and ciphertext
+     to carry `alg_id` inside signed bytes; the record violates it on both counts."*
+
+     **Property.** Every value §7.1 calls a signature, an authenticator, a hybrid ciphertext or a
+     published public key carries its algorithm identifier **inside its own preimage**, and the record
+     carries on the wire the identifier of the suite it was built under — so a suite change is a value
+     change rather than a format break, and the AEAD, the KDF and the MAC cannot be negotiated
+     independently of one another.
+
+     **Query, with its exclusion rule, because the obvious form of it over-reports.** Enumerate every
+     domain-separated preimage label in the corpus and ask whether `alg_id` sits inside its own block:
+
+     ```
+     for lab in $(grep -rhoE '"URmessage/v1/[a-z0-9/_-]+"' docs/specs/*.md | sort -u | tr -d '"'); do
+       printf "%-38s %s\n" "$lab" "$(grep -rh -A5 "\"$lab\"" docs/specs/*.md | grep -c alg_id)"
+     done
+     ```
+
+     28 labels, and the `-A5` window returns **17** with no `alg_id` — a number anyone re-running this
+     will get and which is not the number below, so the rule that reduces it is published rather than
+     applied silently. **Count a label only where §7.1's own words reach it**: a signature, an
+     authenticator, a hybrid ciphertext, or a published public key. That drops four labels which are
+     none of those (`kt/empty`, `kt/leaf`, `storage`, `vrf`) and two which carry the identifier
+     transitively (`card`, whose signed bytes open on `u16 alg_id`; `rzvdeposit/deposit_auth`, whose
+     `LP(H(deposit_ct))` does). **The answer is 13**: `write`, `req`, `attest`, `sth`, `serverkeyroot`,
+     `serverkeyrot`, `discovery`, `succession`, `recovery`, `rzvopen`, `rzvcollect`, `rzvretire`, and
+     `aad/rzv`.
+
+     **COUNT 1 (ciphertext) — CLOSED, and not by M-1.** MASTER §8:868-871 now reads
+     `AAD_body = "URmessage/v1/aad/body" ‖ u16(alg_id) ‖ …` and the same for `AAD_head`, pinned to
+     `0x0021` by the 2026-08-25 amendment (MASTER §8:874-893), and `connect/message/aad.go:171,228`
+     write it. **This is the neighbouring fix that makes M-1 look applied.**
+
+     **COUNT 2 (authenticator) — STILL OPEN, in the spec and in shipped code.** MASTER §9.2:1340-1344
+     defines `write_auth` over fourteen elements with no `alg_id`, and
+     `connect/message/writeauth.go:269-284` writes exactly that list. `req_auth` (MASTER §9.2:1377) is
+     the same. §7.1's registry has **no code point for HMAC-SHA-256** at all — MASTER's only `HMAC` hit
+     is PBKDF2-HMAC-SHA512 in §5.2 — so the third leg of M-1's `(AEAD, KDF, capability-authenticator)`
+     triple cannot be bound even if someone wanted to. `alg_suite` occurs **twice** in this repository
+     and both hits are inside r3's own review.
+
+     **THE ONE THING IN THE CORPUS THAT ARGUES BACK IS CODE, NOT SPEC, AND A RULING MUST OVERTURN IT.**
+     `connect/message/writeauth.go:50-57` carries an explicit, argued refusal: *"`alg_id` is
+     deliberately absent too … the mac here is HMAC-SHA-256 fixed by this layer rather than negotiated,
+     and a field written into the preimage that no other implementation writes is a field that fails
+     every record. **Do not add it.**"* That is the closest thing to a disposition of M-1's
+     authenticator half in either tree, and it sits fifteen lines above the code this item cites. It
+     does not defeat M-1 — M-1 asks for a header `alg_suite u16` naming one **registered suite**, not a
+     per-preimage field, and the comment argues from the status quo — but it is a spec-level finding
+     dispositioned in a Go doc comment in `connect`, where item 146's proposed gate cannot see it
+     (item **166**).
+
+     **THE SIBLING THE PROPERTY QUERY FINDS AND AN INSTANCE QUERY WOULD NOT.**
+     `"URmessage/v1/aad/rzv" ‖ LP(rendezvous_id)` (Spec A §5.14:2472) is an AEAD AAD with **no**
+     `alg_id`, while its three siblings `aad/head`, `aad/body` and `aad/snap` each gained one — in two
+     separate passes, 2026-08-25 and 2026-09-19 (item **147**). Three of four AADs were repaired by two
+     queries and the fourth was in neither. Same shape as M-15's second instance.
+
+     **THE WIRE SLOT M-1 ASKS FOR ALREADY EXISTS, UNDOCUMENTED AND UNAUTHENTICATED.**
+     `connect/message/codec.go:78,108` writes `u8 recordFormatVersion = 0x01` as the **first** field of
+     every record — one byte before `group_id`, which is one byte from where M-1 asked for
+     `alg_suite u16`. `format_version` occurs **zero** times in MASTER, whose §8:829 says *"The fourteen
+     fields below it are the ones `connect/message` serialises"* while `connect/message` serialises
+     fifteen. It survives in Spec A:5011 and Spec B:3456 only as `ErrRecordFormatVersion`, and it is in
+     neither AAD and in neither MAC preimage — **a value the parser acts on that nothing signs.** At v1
+     that is a parse-failure DoS; at v2 it is a downgrade oracle, which is M-1's own argument one level
+     up.
+
+     **THE DOWNGRADE SURFACE IS LIVE AND GROWING.** Five algorithm identifiers travel independently and
+     none as a suite: `EpochAttachment.alg_id`, `RecoveryTag.alg_id`, `hybrid_ct`'s leading `u16`, the
+     contact card's `u16` (Spec A:2448) and `deposit_ct`'s `u16` (Spec A:2471) — plus the AADs'
+     pinned-but-unsent `0x0021`. Independent negotiation of the three is exactly what M-1 says not to
+     build, and the corpus has built five.
+
+     **Cost at A6.** The suite identifier and `format_version` are both header bytes, and §14 slice 2
+     freezes §8 and §9.2 by name, so adding either after the freeze is a format break. `alg_id` being a
+     Go *parameter* rather than a wire field (`aad.go:164,205` take `algId uint16`) means two
+     implementations that disagree about it fail every AEAD on every record with no diagnostic.
+     *Blocks:* **A6.** **FILED, NOT RULED.** The owner chooses between one registered-suite `u16` and
+     the five independent identifiers already shipped, and rules on the undocumented `format_version`
+     byte in the same edit — they are one decision. Dispositioned 2026-09-20.
+
+150. **`M-2` — ALREADY SATISFIED, and satisfied before this repository's first commit.** r3 asked that
+     `epoch` be `u64` and not `u32` in §8's header, the AADs, `cap_auth` and §7's wrap `info`. It is,
+     in all four, and it always was here.
+
+     **Property.** Every representation of an MLS or record epoch — wire preimage, protobuf field,
+     database column, Go declaration, KDF `info` — is 64 bits wide, and no path on which epoch is an
+     anti-replay binding narrows it.
+
+     **The four named clauses, quoted rather than counted.** MASTER §8:815 `epoch u64`;
+     MASTER §8:868-872, both AAD blocks carry `u64(epoch)`; MASTER §9.2:1341 `u64(epoch)` inside
+     `write_auth`, and `connect/message/writeauth.go:272 writer.WriteUint64(h.Epoch)`; MASTER §7:645
+     `‖ u64(epoch)` in the wrap `info`. **All four satisfied, in the spec and in the shipped code.**
+
+     **Query and output over the four surfaces r3 did not name.**
+
+     ```
+     grep -rhoE "u(8|16|32|64)\([a-z_]*epoch[a-z_]*\)" docs/specs/*.md | sort | uniq -c
+     grep -rhoE "(u?int(32|64)|fixed(32|64)) +[a-z_]*epoch[a-z_]* *=" ../connect/protocol/message.proto
+     grep -rhoE "[a-z_]*epoch[a-z_]* +(bigint|integer|int|smallint|serial|bigserial)" store/migrations.go
+     grep -rnE "(uint32|uint16|uint8|int32|int16|int8)\([^)]*[Ee]poch[^)]*\)" --include=*.go . ../connect
+     ```
+
+     **15 × `u64(epoch)` and 2 × `u64(kt_epoch)`; zero `u8`/`u16`/`u32`.** Protobuf: **11 of 11**
+     epoch-valued fields `uint64`. Postgres: **12 of 12** epoch-valued columns `bigint` or `bigserial`.
+     Go: **~130 of ~130** declarations `uint64`, the only two exceptions being test helpers off the
+     wire path (`connect/mls/group_context_test.go:132`, `connect/mls/key_schedule_kat_test.go:1876`).
+     Narrowing conversions: **5 hits and not one is an epoch** — every one is a sibling field of an
+     `EpochAttachment` (`AlgId`, `MediaTtlSeconds`, `DurableTtlSeconds`, `ExpectedWrapCount`).
+     RFC 9420's own carrier agrees: `connect/mls/group_context.go:29 Epoch uint64`.
+
+     **It was never wrong here.** `git show aa9303e:docs/specs/2026-08-12-urmessage-protocol-design.md`
+     — the earliest state this repository records, and the commit that also introduced r3's review file
+     — already reads `epoch u64` at line 393 and `u64(epoch)` at 322/410/413/487, and `u32(epoch)`
+     counts **0** there. M-2 was satisfied in the pre-commit R4/R5 pass and stayed satisfied through
+     every later amendment, including the two that rewrote §7. That it was never *recorded* as
+     satisfied is item 146's point exactly; the text was never wrong.
+
+     **Residual, recorded only so a later sweep does not re-find it and mistake it for M-2.**
+     `store/pgx.go` scans `bigint` into `*int64` and converts back with `uint64(…)` at :559 and :1511.
+     Exact for every epoch below 2^63; a group would need ~9.2 × 10^18 commits to reach it.
+
+     *Blocks:* nothing. Epoch width freezes at A6, but it freezes **correct**, so nothing is owed before
+     the freeze. **No ruling and no edit needed — this item is the disposition.** Dispositioned
+     2026-09-20.
+
+151. **`M-3` — STILL OPEN (PARTIAL — clause 1 applied, clause 3 absent in the spec AND unimplemented in
+     the code). NEEDS RULING. WIRE-VISIBLE.** r3 asked for roles in §6's extension body **and** a
+     normative client-side commit-authorization rule.
+
+     **Property.** A field the protocol treats as authoritative for authorization lives in a structure
+     RFC 9420 §12.1.7 lets **any** member propose and **any** member commit, with no normative rule
+     naming who may change it and no client-side check enforcing one.
+
+     **Query, in two halves — the spec's and the code's.** Enumerate every mutable field of the two
+     group-context extensions and ask which has a rule naming who may change it; then, for every error
+     the specs name as a client-side authorization condition, ask whether it has a call site:
+
+     ```
+     grep -rn 'ErrAdminRemovedByNonOwner\|OwnerSuccessorOf(\|successionPreimage(' \
+       --include='*.go' ../connect/mls/ | grep -v '_test.go'
+     ```
+
+     **SPEC.** `0xF001 GroupPolicyExtension {Roles, RetentionPolicy, DisappearingBuckets, ServerId}`:
+     **0 of 4** have a rule naming who may change them. `0xF003 OwnerSuccessorExtension` is guarded by
+     a five-condition table (Spec A §3.4) — the contrast that shows the gap is nowhere deliberate.
+     **CODE.** Three hits and all three are declarations: `connect/mls/errors_lifecycle.go:45`,
+     `connect/mls/owner_successor.go:280`, `:327`. **Zero call sites for any of the three.**
+
+     **CLAUSE 1 — APPLIED, and this is the dangerous half.** MASTER §6:587 now carries *"a
+     group-context extension carrying `{roles, retention_policy, disappearing_buckets, server_id}`"*,
+     against r3's quoted `{host_server_id, retention_policy, disappearing_buckets}`; Spec A:513-518
+     gives the normative body, implemented in `connect/mls/group_policy.go` with canonical ordering
+     refused in **both** directions. r3's `owner_identity_key` is legitimately subsumed by
+     `RoleEntry{MemberId, RoleOwner}`.
+
+     **CLAUSE 3 — NOT APPLIED.** r3 called this the *"Worse"* half and it is untouched. §11 states one
+     authorization rule as a validity condition, and it is about `Remove`, not about
+     `GroupContextExtensions`. Nothing anywhere constrains a GCE proposal that rewrites `Roles`.
+     ValSem208/209 check GCE cardinality and extension support, never authority, and
+     `apply_proposals.go:120` records the semantics that make this sharp: *"GroupContextExtensions,
+     WHOLESALE replacement rather than a merge."*
+
+     **THE TWO-COMMIT ESCALATION.** An ordinary MEMBER proposes and commits a GCE rewriting `Roles` to
+     make itself OWNER. No client rejects it. At the next epoch it holds OWNER in the **pre-commit**
+     extension — which Spec A §3.4 says the removal rule reads — so it can then strip the real owner and
+     every admin. §11's own rationale describes precisely this incident, and reaches it from an ordinary
+     member rather than from a compromised admin.
+
+     **THE PROPERTY QUERY FOUND TWO FIELDS r3 DID NOT NAME.** `DisappearingBuckets` — so an ordinary
+     member can lengthen the group's disappearing timer, which §12.1 calls *"Guaranteed"* and §12.5
+     requires the UI to state; and `RetentionPolicy`, whose only normative constraint (*"Either party
+     may shorten … Neither may lengthen either unilaterally"*) is written for DMs and has no group
+     analogue.
+
+     **AND THE CODE IS BEHIND THE SPEC.** Spec A §3.4 asserts *"Removal authority, validated at every
+     client … The check runs on receipt as well as at construction … `TestAdminCannotRemoveAdmin`
+     asserts the construction refusal and the receipt rejection separately."* The query above shows the
+     error has no call site; `TestAdminCannotRemoveAdmin`, `TestSuccessionRequiresAllFive` and
+     `TestSuccessionUnobtainableBelowTwoAdmins` exist **as p7 plan text**
+     (`docs/plans/2026-08-12-slice1-p7-group-lifecycle.md:8535, 8810, 8872`) and **in no Go file in
+     `connect`**. `owner_successor.go` is a parser and a preimage builder. So §11's client-side
+     authorization model is documented as enforced and is enforced nowhere — M-3's claim reproduced one
+     altitude below where r3 could see it.
+
+     **Cost at A6.** The rule itself is not a wire field, but two things it rests on are frozen by A6:
+     `RoleEntry`'s encoding sits in the group context, hence in the transcript hash and every
+     `confirmation_tag` the group has ever produced (`group_policy.go`'s own header calls the canonical
+     form *"a security property rather than tidiness"* because a disagreement is *"a permanent fork"*);
+     and **`RoleEntry` is defined in no spec document** — `grep -rn RoleEntry docs/specs/` returns
+     exactly one line, Spec A:514, where it is used as a field type and never declared. A second
+     implementation cannot encode the extension from the specs.
+
+     *Blocks:* **A6.** **FILED, NOT RULED.** Who may change each of the four `0xF001` fields is policy,
+     not transcription. Whatever is ruled must be enforced **at receipt** and not only at construction,
+     for the reason §11 already gives about modified clients. Dispositioned 2026-09-20.
+
+152. **`M-4` — STILL OPEN in substance; its MECHANISM is SUPERSEDED; and its property is already filed
+     under another name as ledger item 128, with a narrower argument that would close it wrong. NEEDS
+     RULING. WIRE-VISIBLE. MUST BE MERGED INTO ITEM 128 BEFORE ITEM 128 IS RULED.**
+
+     **Property.** No material that outlives a retention class's own key may be decryptable under a key
+     that class's destruction does not destroy — concretely, the per-record metadata (MLS
+     `PrivateMessage` header, `type`, `sent_at`, sender) of an `EPH` record must die with the `EPH` key
+     rather than live under a class key every member, every future device and every seedphrase holder
+     holds forever.
+
+     **Query and output at HEAD.**
+
+     ```
+     grep -rniE "rec/v1/head|always retained|always under the" docs/specs/*.md ../connect/message/*.go
+     grep -rln "handle_link\|HandleLink" . | grep -v '^./.git/'
+     grep -rniE "ct_head.*class|head under the record" SPEC-LEDGER.md docs/specs/*.md
+     ```
+
+     MASTER §8:876 `key_head ‖ nonce_head = HKDF-Expand(record_key[i], "rec/v1/head", 56)` — **one**
+     ladder. MASTER §8:823 *"`ct_head` AEAD, always retained"*. MASTER §8.1:963 *"`ct_head` is always
+     under the **durable** class, since it is always retained"* — **two** ladders. Spec A §5.1:1057
+     agrees with §8. Spec B §7.2:2589 clears the head for `EPH(1..5)`, and §7.2:2587-2588 keeps it for
+     `DURABLE` and `MEDIA`. `handle_link`: **2 files, both under `docs/reviews/`**, zero in the current
+     corpus. And the property is filed: **SPEC-LEDGER.md:1571, item 128**, *"BLOCKS CP3b — `ct_head`'s
+     retention class is unruled"*.
+
+     **THE DEFECT REPRODUCES, AND IT IS WORSE THAN r3 FOUND IT.** §8.1:963 keys `ct_head` under
+     `K_durable[n]`; §8.1's ladder derives `K_durable[n]` from `storage_root[n]`; and MASTER §8.2:994 —
+     where the recovery wrap now delivers **`storage_root[n]` itself** rather than r3's `pq_secret[n]` —
+     puts that root directly in a seedphrase holder's hands. r3 had to argue that §8.3 *"hands the
+     recovery key the material from which `K_durable[n]` follows"*; today §8.2 hands it the root.
+
+     **WHAT IT FALSIFIES, all within a dozen lines of each other.** MASTER §8.1:967-969: *"After the
+     timer, retained server ciphertext, a seized device, a newly provisioned device, and a seedphrase
+     holder all fail to decrypt."* MASTER §12.4's required UI string. MASTER §13:1933 *"including
+     against a device set up tomorrow and against a seedphrase holder."* All three are false for
+     `ct_head`. `K_durable[n]` is destroyed nowhere and is delivered to every member's recovery wrap for
+     the life of the group.
+
+     **THE ONLY THING STOPPING IT IS A COOPERATING SERVER, AGAINST THE EXACT ADVERSARY §8.1 NAMES.**
+     Spec B §7.2 sets `ct_head = NULL` for `EPH(1..5)`. That is an **operational** erasure. §8.1 claims
+     the guarantee against *"retained server ciphertext"* — a backup, a replica that missed the sweep, a
+     legal hold, a seized snapshot — which is precisely the case erasure does not cover, and precisely
+     the case ruling 3 of 2026-09-13 was made to convert from behavioural to cryptographic for
+     `eph_root`. The head was left behind by that ruling.
+
+     **MECHANISM SUPERSEDED.** M-4 proposes splitting into `ct_head_chain` (`handle_link` only) and
+     `ct_head_meta`. `handle_link` was deleted from the design, so `ct_head_chain` would carry nothing.
+     The surviving repair is one clause rather than a split: **key `ct_head` under the record's own
+     class key.** It costs nothing for `PERMANENT`/`DURABLE`/`MEDIA` — `K_perm`, `K_durable` and
+     `K_media` all descend from `storage_root[n]` and none is ever destroyed — and it makes `EPH`
+     metadata die with `K_eph`. It also collapses the one-ladder/two-ladder ambiguity item 128 files.
+
+     **THE MEASUREMENT CORRECTION, AND IT IS THE LOAD-BEARING PART OF THIS ITEM.** M-4's id count is
+     zero, and yet its property **is** filed — as item **128**, found 2026-09-04 while writing the m1
+     plan, promoted to a CP3b blocker on 2026-09-05, marked wire-visible, filed as m1 open item **M1-6**,
+     and **NOT RULED**. It reaches M-4's question by an entirely different route and never names M-4.
+     But it files a **narrower** question — a two-ratchet/one-`stream_index` bookkeeping contradiction
+     blocking Task 15's snapshot record — and omits the confidentiality consequence completely: no
+     disappearing messages, no seedphrase holder, no §8.1 sentence. **A ruling made on item 128's own
+     terms — "`ct_head` is DURABLE, that settles the ambiguity, `SealRecord` may stop refusing" — is the
+     reading that ships M-4's harm permanently.** That is the project's own lesson turned on itself: the
+     same question, with the argument that reaches the wrong answer. A zero id-count therefore
+     distinguishes neither "ignored" nor "silently superseded" from "filed under another name and about
+     to be closed wrong", which is the third reason item 146's proposed gate needs the repair item 166
+     states.
+
+     **Cost at A6.** Item 128 already states it: *"the retention class is inside `AAD_head` and inside
+     the `write_auth` preimage, so a snapshot written at a guessed class is wire-visible and
+     unrecoverable after A6."* The key the head is sealed under is a derivation, so the repair costs
+     **zero wire bytes** and changes **every head ciphertext** — an interop break if made after the
+     freeze. The ladder is not yet implemented in `connect/message`, so the fix still lands in unwritten
+     code. *Blocks:* **A6**, and CP3b through item 128. **FILED, NOT RULED — and item 128 must not be
+     ruled without this item beside it.** Dispositioned 2026-09-20.
+
+153. **`M-5` — STILL OPEN (PARTIAL — one clause of three applied). NEEDS RULING, IN ONE SITTING WITH
+     ITEM 155. WIRE-VISIBLE AT MAXIMUM COST.** r3 asked to replace §7's application-layer combiner with
+     an MLS `PreSharedKey` proposal, and to stop overclaiming what the out-of-band combination buys.
+
+     **Property.** Post-quantum secret material is combined with MLS output at the **application layer
+     only**, so no PQ input ever enters the MLS key schedule, the confirmed transcript hash or any
+     `confirmation_tag` — while the document claims conformance to draft-ietf-mls-combiner and an
+     *"adversary must break both"* property that an out-of-band combination does not deliver.
+
+     **Query and output at HEAD.** The finding is half construction and half claim, so it takes two,
+     and a grep for the string `M-5` or `combiner` returns only the ledger sentence that **keeps** the
+     construction:
+
+     ```
+     grep -rniE "(pq|post-quantum).{0,80}(transcript|key schedule|confirmation_tag|psk)" \
+       docs/specs/*.md SPEC-LEDGER.md
+     grep -rn "ProposalTypePreSharedKey" ../connect/mls/proposal_list.go
+     ```
+
+     **(a) ZERO hits** — nothing in the four specs or the ledger binds `pq_secret` into the MLS key
+     schedule or transcript. **(b)** `connect/mls/proposal_list.go:92` maps `ProposalTypePreSharedKey`
+     to `errProfilePsk` (*"pre_shared_key proposals are outside the v1 profile"*, :59). **The shipped
+     code does not merely omit M-5's mechanism, it refuses it** — at the proposal-profile gate, at the
+     cache `Store`, and at `Group` (`mls/group.go:3192`). The plans say the same: *"the v1 profile has
+     no PSKs"*.
+
+     **CLAUSE 1 — APPLIED, and it is why this is PARTIAL rather than open flat.** Spec A §5.9 landmine
+     **G1** (:1550) makes the salt/ikm ordering normative and mechanical — *"`crypto/hkdf.Extract(h,
+     secret, salt)` takes ikm first, salt second … Swapping them compiles, returns 32 bytes, and passes
+     every test that does not compare against an independent implementation"* — with a single call
+     site, a lint gate forbidding `hkdf.Extract` elsewhere in three roots, and `TestStorageRootKAT`.
+
+     **CLAUSE 2 — the overclaim — STILL OPEN, verbatim.** MASTER §7:615-618 still reads *"post-quantum
+     protection is added at the **storage** layer, following draft-ietf-mls-combiner rather than an
+     invented composition. Signal uses the same shape in both PQXDH and SPQR: combine the classical and
+     post-quantum secrets so an adversary must break **both**."* SPEC-LEDGER.md:119-121 repeats it as a
+     locked lesson. **That ledger sentence is the closest thing in the corpus to a disposition of M-5
+     and it is not one:** it does not name M-5, it does not consider the PSK alternative, and its stated
+     justification **is** the claim M-5 disputes.
+
+     **CLAUSE 3 — the PSK injection — STILL OPEN and now contradicted by shipped code.** MASTER §7:634
+     samples `pq_secret[n]` and X-Wing-encapsulates it in wrap records published **after** the commit
+     (§8.2 steps 2 and 4), so `pq_secret` is outside `FramedContentTBS`, outside
+     `confirmed_transcript_hash` and outside `confirmation_tag` **by construction**.
+
+     **Cost at A6: maximal, and it is not a wire edit.** A `PreSharedKey` proposal changes `psk_secret`,
+     hence `joiner_secret` → `epoch_secret` and every secret below it, and adds a `PreSharedKeyID` to
+     the Commit and to the Welcome. It is not an addition to the URmessage layer; it is a change to
+     **every MLS epoch key in the system**, plus a reversal of a shipped profile refusal with four gates
+     and named tests against it (`group_roundtrip_test.go:653-664`, `apply_proposals_test.go:363`,
+     `proposal_list_test.go:500`). Deciding it after the freeze is not a wire break, it is a rebuild.
+
+     **COUPLING — these two must be ruled together.** M-5's `pq_psk_id` binds `u64(epoch)`. Under item
+     155's era it must bind the **era** instead. Ruling M-5 alone bakes per-epoch PQ rotation into the
+     PSK identifier and makes item 155 more expensive, not less. *Blocks:* **A6.** **FILED, NOT RULED.**
+     Dispositioned 2026-09-20.
+
+154. **`M-6` — STILL OPEN on its core clause; its ADDRESSING clause was ALREADY APPLIED on 2026-09-18 as
+     an unremarked side effect of adopting M-15; two further clauses are SUPERSEDED by the owner rulings
+     of 2026-09-13. NEEDS RULING. WIRE-VISIBLE.**
+
+     **Property.** There is exactly one normative statement of what each wrap target receives and how it
+     is addressed, and no second section or document restates a wrap payload set that can disagree with
+     it — because a publisher and a restorer reading different sections build a wrap nobody can open,
+     with no error anywhere.
+
+     **Query and output at HEAD.**
+
+     ```
+     sed -n '634,635p;990,994p;1014,1018p' docs/specs/2026-08-12-urmessage-protocol-design.md
+     grep -n "LP(leaf_index)\|u8(target_type)" docs/specs/2026-08-12-urmessage-protocol-design.md
+     ```
+
+     MASTER §7:634-635: *"the committer samples `pq_secret[n]` … and X-Wing-encapsulates **it** to every
+     active device leaf's `urmessage_leaf_keys` **and to every member's `RECOVERY_PUB`**"*.
+     MASTER §8.2:992-994, the table: device leaves receive `pq_secret[n]` and `eph_root[n]` in two
+     records; `RECOVERY_PUB` receives **`storage_root[n]` and `archive_secret[n]`**.
+     MASTER §8.2:1014-1018: *"a wrap carrying `pq_secret` would leave it able to derive no class key and
+     open nothing … Seed-only restore would not work at all."* `LP(leaf_index)` in the wrap `info`: **0
+     occurrences**; MASTER §7:646 now reads `‖ u8(target_type) ‖ LP(target_id)`.
+
+     **THE DISAGREEMENT r3 CITED IS STILL THERE, IN THE SAME TWO SECTIONS OF THE SAME DOCUMENT, AND IT
+     IS NOW SELF-REFUTING.** §7 instructs the construction §8.2 spends a paragraph proving is useless —
+     and §7 is the section carrying the only normative wrap KDF block, the section amended twice in the
+     last month, and the section an implementer reads first.
+
+     **§7 IS ALSO NOW INCOMPLETE AGAINST ITS OWN TABLE.** Ruling 3 of 2026-09-13 made the device wrap
+     two records with two payloads. §7:634 still names one secret going to device leaves, while §7's own
+     `info` table three paragraphs later (line 683) justifies `u8(payload_type)` on the grounds that *"a
+     device leaf now receives **two** wrap records at one epoch"*. The prose and the table of one section
+     disagree about how many payloads a device leaf receives.
+
+     **WHAT IS APPLIED, AND THE RECORD OF IT IS THE PROBLEM.** M-6's addressing clause — *"Replace
+     `LP(leaf_index)` in `info` with `u8(target_type) ‖ LP(target_id)`"* — is in MASTER §7:646, adopted
+     2026-09-18. The §7 amendment marks `u8(target_type)` and `u8(payload_type)` *"new"* and attributes
+     them to **M-15**; M-6 is named nowhere in the corpus. **One of M-6's two clauses landed by accident
+     and no document records that it did** — item 146's failure mode producing a false negative as well
+     as a false positive.
+
+     **WHAT IS SUPERSEDED, recorded as rejected-with-reason rather than dropped.** (i) M-6's premise —
+     *"the surviving set is small: {`pq_secret[n]` → device leaves} and {`pq_secret[n]`,
+     `archive_secret[n]` → member recovery key}"* — is superseded twice: the recovery payload is
+     `storage_root[n]`, and there are now **three** wrap records. (ii) M-6's *"with `eph_root[n]`
+     delivered over the MLS application channel"* is superseded by ruling 3 of 2026-09-13, which
+     delivers it in its own `EPH(5)` wrap record, for a reason M-6 did not have: the four-week rung the
+     server actually prunes, which is what made §8.1's promise cryptographic.
+
+     **WHAT SURVIVES AND IS OPEN:** M-6's instruction itself — make §7 the single normative wrap
+     definition and §8.2's table a pointer to it. **Five documents currently state a wrap payload set**
+     (MASTER, Spec A, Spec B, the m1 plan, this ledger; two of the five restate rather than state, and
+     the count is a presence grep, not a normativity judgement). §7's is wrong. That is exactly the
+     failure mode M-6 predicted, reached by a route M-6 did not predict, and live at HEAD.
+
+     **Cost at A6, corrected — the divergence is SILENT, which is worse than being caught.** Spec A:2288
+     and Spec B:2451-2452 both size the wraps: a device wrap carrying one 32-octet secret is **1,178 B**,
+     a recovery wrap carrying `storage_root`(32) + `archive_secret`(64) is **1,242 B**, each plus a
+     64-octet signature, and *"every one of them still lands in `size_bucket 2` — a `ct_body` of exactly
+     4,112 bytes … with roughly 2.8 KB of slack unused"*. Spec B §5.1 check 3's equality is
+     `octet_length(ct_body) == size_bucket_bytes[b] + 16`, against the **padded** bucket. So the 64-byte
+     plaintext difference is invisible to the server: an implementer building from §7 produces a wrap
+     the server accepts and the restorer decapsulates successfully and cannot use. *Blocks:* **A6.**
+     **FILED, NOT RULED** on which section is normative and whether §8.2's table is deleted or demoted;
+     the payload correction to §7 itself is a transcription of §8.2's already-ruled answer.
+     Dispositioned 2026-09-20.
+
+155. **`M-7` — STILL OPEN, and strictly worse than when raised, by a ruling made four weeks after it and
+     without reading it. NEEDS RULING, IN ONE SITTING WITH ITEM 153. WIRE-VISIBLE ON THREE COUNTS.**
+
+     **Property.** Any secret that must reach every member (or every device) is re-sampled on **every**
+     MLS epoch and delivered by **per-recipient** public-key encapsulation, so the per-epoch cost is
+     O(members × devices) encapsulations sitting beside TreeKEM's O(log n) — which makes the O(log n)
+     irrelevant. The property is *a per-epoch fresh secret delivered by per-recipient encapsulation*,
+     **not** `pq_secret`; r3 named one instance.
+
+     **Query and output at HEAD.**
+
+     ```
+     grep -rnE "fresh CSPRNG|32 B CSPRNG|CSPRNG at commit" --include=*.md docs/specs/
+     grep -rnE "expected_wrap_count *=" --include=*.md docs/specs/
+     grep -rniE "\bpq[-_ ]?era\b" --include=*.md --include=*.go . ../connect | grep -v r3-spec-review
+     ```
+
+     **"era": zero hits corpus-wide** — the concept does not exist. **Class members at HEAD: THREE,
+     where r3 named one.** (1) `pq_secret[n]`, MASTER §7:634, 32 B CSPRNG per epoch → `PERMANENT` device
+     wrap, one per active device leaf. (2) `eph_root[n]`, MASTER §8.1, 32 B CSPRNG at commit → `EPH(5)`
+     device wrap, one per active device leaf — **created by ruling 3 of 2026-09-13, i.e. after r3**.
+     (3) `storage_root[n]` + `archive_secret[n]` → recovery wrap, one per member. Plus the ~300 KB epoch
+     snapshot. `expected_wrap_count = 2 × (active device leaves) + 1` (Spec A:2240, MASTER:1186).
+
+     **REPRODUCED, AND THE NUMBER MOVED THE WRONG WAY.** r3 measured ~3,000 wraps ≈ 5 MB per epoch. The
+     corpus at HEAD measures **2,503 records ≈ 11.5 MB per epoch over ~90 round trips** — Spec A:1584,
+     Spec A:2293, Spec B:373 (*"the per-commit figures go from ~30 KB / ~700 KB / ~6.9 MB to ~40 KB /
+     ~1.2 MB / ~11.5 MB"*). Epochs advance on every Add/Remove/Update and nothing rate-limits them.
+
+     **THE SHARPEST FACT.** Ruling 3 of 2026-09-13 split the device wrap into two records precisely to
+     make §8.1's disappearing-message promise cryptographic (item **136**, CLOSED). That was correct on
+     its own terms — and it **doubled the linear arm M-7 exists to delete**, from ~6.9 MB to ~11.5 MB and
+     ~55 to ~90 round trips, four weeks after M-7 was raised and never read. Spec A §5.11 states the cost
+     plainly as one of the ruling's three accepted costs.
+
+     **M-7 IS THE ROOT OF FIVE OPEN LEDGER ITEMS.** Under a PQ era, an additive Commit or an Update
+     publishes **no wrap fan-out at all**, and the following stop existing on the common path rather
+     than needing separate rulings: item **134** (a stalled fan-out is terminal), item **138** (nothing
+     detects a missing recovery wrap), item **139** (the `env_key[k]` past-epoch caching obligation,
+     whose miss is unrecoverable), item **142** (a live committer loses its recovery arm to somebody
+     else's legal commit, permanently), item **148** (a same-epoch snapshot republish is a two-time pad).
+     Every one is a hazard **of the per-epoch fan-out**. Ruling M-7 first collapses the population they
+     range over; ruling them first spends five rulings on a mechanism M-7 proposes to make rare.
+
+     **WIRE-VISIBLE ON THREE COUNTS.** (1) the era must be bound into the transcript so it cannot be
+     silently stretched — a group-context extension field, covered by `confirmation_tag`; (2) MASTER
+     §7's wrap `info` carries `u64(epoch)`, which becomes `u64(era)`, so the wrap key's **value**
+     changes; (3) `expected_wrap_count`'s formula, the `EpochComplete` marker's meaning and the §8.2
+     publication sequence all change shape.
+
+     **What deferring costs.** The freeze locks a fan-out whose measured cost is 11.5 MB per membership
+     change at the design target the spec itself **enforces** (500 members, refused by the committing
+     client *and* every receiving client). r3's phrase is still the right one: TreeKEM's O(log n) is
+     irrelevant if a linear layer sits beside it. *Blocks:* **A6.** **FILED, NOT RULED.** Dispositioned
+     2026-09-20.
+
+156. **`M-8` — SUPERSEDED. The property is met by a different mechanism, ruled in revisions 4/6/7
+     without ever citing M-8. Two residuals, one of which needs a narrow ruling.**
+
+     **Property.** A credential a removed member still holds continues to be accepted after the removal
+     takes effect, because the storage layer defines no retirement for it.
+
+     **Query — the property, not the constructs, because the constructs are gone.**
+
+     ```
+     grep -rn 'prev_high_water_index\|EPOCH_WRITER_SET\|handle_link\|may_write' docs/specs/ SPEC-LEDGER.md docs/plans/
+     grep -rniE 'retire|read_key_window' docs/specs/ | grep -iE 'write_key|read_key|epoch'
+     ```
+
+     All four constructs: **0 hits corpus-wide.** Both per-epoch credentials the server holds now have
+     a bounded retirement. `write_key[n]`: Spec B decision **B9** — *"Advancing an epoch sets
+     `retire_time = now()` on the outgoing epoch …; the 5-minute tidy loop (§7.4) NULLs
+     `write_key_wrapped` where `retire_time < now() - interval '60 seconds'`."* `read_key[n]`: Spec B
+     §5.3 / decision 8 — retained `read_key_window_seconds`, default **7776000** (90 days), then NULLed,
+     and advertised as `Capabilities.read_key_window_seconds`.
+
+     **(a) *"Make `prev_high_water_index` a ceiling as well as a floor"* — superseded by key retirement,
+     in a strictly better place.** A member removed by the commit creating n+1 cannot submit epoch-n
+     records once `write_key[n]` is NULLed, because Spec B §5.1 check 6 resolves *"the current epoch's
+     key and one briefly-retired predecessor"* and nothing else. The ceiling is enforced on the
+     **credential**, not on the counter — which does not depend on the removed writer publishing a
+     successor handle at all, the weak point of r3's own (a).
+
+     **(b) *"the host stamps a retirement time"* — literally what happened, minus the construct.**
+     `message_epoch.retire_time` is stamped by §6.1 step (6) on a won commit. r3's mechanism, r3's field
+     name, arrived independently.
+
+     **The read side is the half r3 did not separate out and the corpus did.** Spec B:2034 states M-8's
+     own defect without citing it: *"A member removed at epoch n keeps read authorization … until epoch
+     n's read key ages out, and no longer. **Under the previous design it kept that access for the life
+     of the group, which is the defect the window closes.**"* MASTER §0 rev 7 says the same, and §13
+     discloses it to users under *"On metadata after removal"*. A full, disclosed disposition of the
+     property.
+
+     **RESIDUAL 1 — the write window is not 60 seconds, and three documents say it is.** B9 sets
+     `retire_time` immediately, but the NULLing is done by a loop that runs **every 5 minutes**
+     (Spec B §7.4:2696), so the true bound is 60 s **plus up to one tidy period ≈ 6 minutes**. MASTER
+     §9.2:1362 and Spec A:5128 both state a flat *"(60 s)"*. Check 6's in-process LRU can extend it
+     further: negative results are documented as cached 5 s with jitter, **positive results have no
+     stated TTL at all**.
+
+     **RESIDUAL 2 — nothing client-side rejects such a record.** It is an MLS `PrivateMessage` from a
+     leaf that was valid at epoch n, so it verifies at every client and renders normally; `sent_at` is
+     client-declared inside `ct_head`. r3's clause (a) was a **client** rule and no client rule of any
+     shape exists. The harm is small — a removed member gets a several-minute last word — but it is the
+     exact shape r3 named and it is undocumented.
+
+     *Blocks:* nothing. Both windows are server configuration, one advertised in `Capabilities`, neither
+     a frozen field. **The only ruling owed is narrow:** accept the ~6-minute write window and correct
+     the three *"60 s"* sentences to say what enforces it, or make the bound normative. Dispositioned
+     2026-09-20.
+
+157. **`M-9` — STILL OPEN. The instance r3 cited was deleted; the property is intact, and the remedy is
+     already precedented here, on M-9's own argument. NEEDS RULING. WIRE-VISIBLE.**
+
+     **Property.** The set of record facts that survive body erasure and drive client rendering is
+     authenticated **only** by keys every group member holds — so once the MLS frame is gone, no
+     retained fact can be attributed to its purported sender, and no member's retained metadata can be
+     distinguished from another member's forgery of it.
+
+     **Query — an intersection, not a string, because r3's instance no longer exists.** `handle_link`
+     returns one hit and it is r2's review file; a query built from it scores M-9 moot. The
+     property-shaped query is **A ∩ C**, where A is the fields Spec B §7.2 retains when `ct_body` is
+     erased and C is the per-publisher signatures in the storage layer:
+
+     ```
+     grep -rniE "handle_link|ct_head_chain|ct_head_meta" --include=*.md --include=*.go . | grep -v r3-spec-review
+     grep -rnE "signed under the publisher|Ed25519\(" docs/specs/2026-08-12-urmessage-protocol-design.md
+     ```
+
+     **(A)** Spec B §7.2:2587-2588 — `DURABLE`: body erased, **Head: kept**; `MEDIA`:
+     `ct_body = NULL`, **Head: kept**, Row kept. Only `EPH(1..5)` clears the head. Spec A §10:5106
+     requires it. **(B)** `AAD_head` is sealed under `record_key[i]` ← class key ← `storage_root[n]`,
+     group-shared; `write_auth` is `MAC(write_key[n], …)`, group-shared **and** server-held. **(C)**
+     three per-publisher signatures exist and all three are scoped away from ordinary records — the
+     wrap-body signature (ruled 2026-09-13), `recovery_proof`, and the `RECOVERY_PUB` body signature.
+     **A ∩ C = EMPTY.**
+
+     **REPRODUCED AGAINST THE CURRENT CORPUS.** Every member can derive every other member's complete
+     record ladder: `sender_handle = HKDF-Expand(group_handle_key, "sh/v1" ‖ LP(leaf_index), 16)`, which
+     MASTER §8:809 annotates *"stable per group; **every member computes it**"*;
+     `record_key[0] = HKDF-Expand(class_key, "sender/v1" ‖ LP(leaf_index), 32)` with `class_key`
+     group-shared and `leaf_index` public in the ratchet tree; `key_head ‖ nonce_head` from
+     `record_key[i]`; `write_auth` under a group-wide `write_key`. So a member can emit a well-formed
+     `DURABLE` record at any unused `stream_index` bearing **another member's** `sender_handle` and a
+     forged `type`, `sent_at` and `body_hash`.
+
+     **WHY IT IS CAUGHT TODAY AND NOT AFTER ERASURE, in the corpus's own words.** Spec B:1997: *"the
+     server holds no group leaf key, so it cannot tell a genuine sender from a member impersonating
+     another member. Any check it invented would be weaker than the one the client already performs."*
+     MASTER §9.2:1348 rests on the same sentence: *"a forged record fails at every client no matter what
+     the server accepts (I5)."* **That check is the MLS signature inside `ct_body`.** At
+     `create_time + durable_ttl_seconds` — **one year by default on a stock server** — the sweep sets
+     `ct_body = NULL` and keeps the head. The check no longer exists, and the forged head is
+     indistinguishable from a genuine one, permanently.
+
+     **THE ALREADY-APPLIED TRAP, NAMED SO THE NEXT READER DOES NOT FALL IN IT.** MASTER §9.2:1368-1370
+     already discusses a forgery capability and defers a fix: *"An asymmetric per-epoch write proof
+     (Ed25519 derived from `storage_root`, server holds only the public half) removes the forgery
+     capability … It is the right long-term shape and is a **V2** item."* A sweep asking *"is member
+     forgery discussed?"* hits this and scores M-9 addressed. It is **not** M-9, on four counts: (i) it
+     is scoped to consequence 1, the **server** forging `write_auth`, not a member forging a peer;
+     (ii) *"derived from `storage_root`"* is **one group-wide keypair**, so every member derives the same
+     private half and it cannot separate member from member; (iii) it would sign the `write_auth`
+     preimage, which carries `LP(H(ct_head))` but **not** the head plaintext `type` and `sent_at` that
+     drive rendering; (iv) its v1 acceptance rests on I5's *"fails MLS verification at every client"* —
+     the exact sentence erasure falsifies.
+
+     **THE REMEDY IS ALREADY PRECEDENTED HERE, ON M-9's OWN ARGUMENT.** The ruling of 2026-09-13
+     (Spec A:2067, MASTER §8.2) requires wrap bodies to be signed under the publisher's identity key
+     *"because the wrap is the only record class carrying **no MLS frame** — so without it every field a
+     client validates on a wrap is authenticated by nothing, and §9.2's stated mitigation for server
+     injection … has no referent for a wrap."* **That is M-9's argument word for word.** The ruling
+     applied it to the class where the MLS frame is absent **by construction** and did not notice that
+     erasure makes it absent **by operation** for `DURABLE` and `MEDIA`. **I5 does not block the fix and
+     needs no amendment:** its wording is *"no second signature over CONTENT"*, and `type` / `sent_at` /
+     `body_hash` are header facts — the same reading MASTER:909 already used to admit the wrap
+     signature.
+
+     **Cost at A6.** The signature goes inside `ct_head`'s plaintext, so it changes the head layout and
+     its length. The wrap absorbed 64 octets free because it sits at `size_bucket 2` with ~2.8 KB of
+     slack; an ordinary record at `size_bucket 0` is 256 B and has no such slack, so the size question
+     is real and is a freeze item. The head cap is also enforced server-side (Spec B §5.1 check 3,
+     *"`ct_head` ≤ head cap"*), so the bound is a configured number that would move. *Blocks:* **A6.**
+     **FILED, NOT RULED.** Dispositioned 2026-09-20.
+
+158. **`M-10` — STILL OPEN on its structural half; its two other claims are REJECTED against measurement,
+     and the property has a SECOND instance nobody had found, which the proposed remedy does not close.
+     NEEDS RULING. WIRE-VISIBLE.** This item is also the place where **this pass made item 147's own
+     error**, and that is recorded rather than quietly fixed.
+
+     **Property.** A server-visible identifier derived from long-lived, unrotatable key material whose
+     KDF `info` binds **no group, no epoch and no server**, so one constant value links every context it
+     appears in for the life of the seed.
+
+     **THE QUERY THAT WAS WRONG, AND WHY.** The first pass ran
+     `grep -rhoE '[a-z_]*handle[a-z_]* *= *HKDF-Expand\([^)]*\)' docs/specs/*.md` and reported *"exactly
+     one instance, and it is the one r3 named."* **That query enumerates the literal token `handle`,
+     which appears nowhere in the property above.** It is `handle` because `recovery_handle` is what r3
+     named — the instance, not the property — which is item 147's failure repeated one altitude down,
+     inside a disposition written to demonstrate the lesson. **The property-shaped query names no
+     token:** *every derivation off `recovery_root`, whatever it is called and whatever it produces.*
+
+     ```
+     sed -n '418,426p' docs/specs/2026-08-12-urmessage-protocol-design.md
+     grep -rnoE "HKDF-Expand\(recovery_root,[^)]*\)" docs/specs/*.md | sort -u
+     ```
+
+     **TWO instances, not one**, and they sit two lines apart in the same block:
+     `recovery_handle = HKDF-Expand(recovery_root, "idx/v1", 16)` and
+     `recovery_sig_seed = HKDF-Expand(recovery_root, "idxsig/v1", 32)` → `recovery_verify_pub`. The
+     third derivation in that block, `rk_xwing = XWing.KeyGen(HKDF-Expand(recovery_root, "rk/v1" ‖
+     LP(g), 32))`, **binds `LP(g)` one line above them** — so the design already knows how to scope
+     this and did so for exactly one of the three.
+
+     **THE SECOND INSTANCE IS AS EXPOSED AS THE FIRST, AND SCOPING THE HANDLE LEAVES IT INTACT.**
+     `recovery_verify_pub` is 32 bytes of Ed25519 public key with no group, no epoch and no server in
+     its derivation. It rides in the **same** struct (MASTER §5.3:493-494,
+     `RECOVERY_PUB { …, LP(recovery_handle), LP(recovery_verify_pub) }`), is stored in the **same**
+     database row (`store/migrations.go:351-362`: `message_recovery`,
+     `PRIMARY KEY (group_id, recovery_handle)`, `verify_pub bytea NOT NULL CHECK (octet_length = 32)`),
+     and the server is required to keep it TOFU per group. **So r3's structural remedy —
+     `HKDF-Expand(recovery_root, "idx/v1" ‖ LP(group_id), 16)` — closes the handle and leaves a 32-byte
+     unrotatable cross-group join key beside it.** Any ruling must cover both derivations or it does not
+     close the property.
+
+     **WHAT IS REJECTED AGAINST MEASUREMENT.** (1) *"the property got worse — r3 said (member, server)
+     and it is now member alone."* **False.**
+     `git show aa9303e:docs/specs/2026-08-12-urmessage-protocol-design.md` line 167 reads
+     `recovery_handle = HKDF-Expand(recovery_root, "idx/v1", 16)` — **byte-identical to HEAD**, at the
+     earliest state this repository records. The derivation never carried a server input here; r3's
+     *"(member, server)"* describes revision 3, which predates the repo. Nothing changed, in either
+     direction. (2) *"the disclosure was not applied at any of the three sites (§5.3, §9.5, §13)."*
+     **False, and the three sites are the three r3 named** — the same defect as the query above.
+     **MASTER §5.4:518-522 discloses it**: *"The server learns how many groups that handle participates
+     in — and in a single-server v1 it already knows the user's full group list, so this adds nothing it
+     did not have. Disclosed in §13."* That is revision 4's single-server argument, the same argument
+     item 160 accepts to score M-12 SUPERSEDED. And the **false** sentence r3 was correcting — *"handles
+     are per-server, so no global identifier exists"* — returns **0 hits corpus-wide**: that half of
+     M-10's ask was satisfied by deletion.
+
+     **WHAT REMAINS OPEN, and it is sharper than what was filed.** (i) **§5.4's *"Disclosed in §13"* is a
+     dangling forward reference** — §13 never names `recovery_handle`, and a reader sent there finds
+     nothing. That is a checkable defect and it survives the correction above. (ii) The **structural**
+     ask is untaken: the handle does not appear only in a record the member's own device writes; it
+     appears in `server_attachment`, which MASTER §8 calls *"the only server-visible structured field"*,
+     on a `PERMANENT` record in every group, and MASTER §8.2 makes the indexing **mandatory** (*"The
+     server MUST index … recovery wraps by `recovery_handle`"*), with Spec B §6.1 step (6c) keying
+     `message_recovery` on it. (iii) The **second instance** above is unfiled anywhere.
+
+     **Why this needs a ruling and not a transcription.** The handle is the seed-only restorer's index
+     (MASTER §5.4, Spec B §4.3.7 resolves restore across candidate groups by it). Scoping it per group
+     closes the linkage and costs the restorer the ability to find its groups from the handle alone —
+     which after seedphrase loss it cannot do otherwise. **That is a real product trade between
+     cross-group unlinkability and seed-only restore, and it is the owner's to make**, now over two
+     derivations rather than one.
+
+     **Cost at A6.** `RecoveryTag` is a frozen `server_attachment` body (kind `0x0002`) with a fixed
+     16-byte handle and a 32-byte verify key, hashed into `AAD_head` and the `write_auth` preimage.
+     Rescoping changes no length, changes **every value**, and changes the server's index semantics —
+     the kind of change §14 slice 2 exists to prevent after the freeze. *Blocks:* **A6.** **FILED, NOT
+     RULED.** Dispositioned 2026-09-20.
+
+159. **`M-11` — STILL OPEN. The construct r3 raised it against was deleted; the property survived onto
+     `(sender_handle, stream_index)`, and the harm is now PERMANENT rather than bounded to one epoch.
+     NEEDS RULING. WIRE- OR SCHEMA-VISIBLE.**
+
+     **Property.** A group-symmetric authenticator is the only thing gating a per-member-scoped,
+     server-held resource, so any current member can act as any other member on that resource — and no
+     client-side check can reverse the server-side state it mutates.
+
+     **Query — the construct query returns nothing, so it must not be the query.** Ask instead which
+     server-held resources are keyed on a per-member identifier, and what authenticates the claim to
+     that identifier:
+
+     ```
+     grep -c 'sender_handle' docs/specs/2026-08-12-spec-b-message-server-operator.md
+     grep -n 'sender_handle' docs/specs/2026-08-12-spec-b-message-server-operator.md \
+       | grep -icE 'verif|prove|bind to|belongs to the submitt|authenticat'
+     ```
+
+     `EPOCH_WRITER_SET`, `may_write`, `entries[]`: **0 hits each** — r3's instance no longer exists.
+     Spec B mentions `sender_handle` on **42 lines**; the number that verify it, bind it to the
+     submitter, or authenticate the claim to it is **0**. Two per-member server resources are keyed on
+     it and both are mutated on the submit path: `message_sender PRIMARY KEY (group_id, sender_handle)`
+     carrying `last_stream_index`, and
+     `message_stream_claim PRIMARY KEY (group_id, sender_handle, stream_index)`.
+
+     **THE ATTACK, EACH STEP QUOTED.** (1) The victim's identifier is computable by the attacker —
+     MASTER §8:808-809, `sender_handle = HKDF-Expand(group_handle_key, "sh/v1" ‖ LP(leaf_index), 16)`,
+     annotated *"every member computes it"*, and `group_handle_key` reaches every member in the Welcome.
+     (2) The authenticator over it is group-symmetric — MASTER §9.2, `write_auth = MAC(write_key, … ‖
+     LP(sender_handle) ‖ …)`, *"One group-wide key, so the server learns only 'a current member of this
+     group'."* (3) Nothing checks the claim — Spec B §5.1's only `sender_handle` check is check 3,
+     `octet_length(sender_handle)==16`, a **shape** check; check 2 authenticates the connect-layer
+     `ByJwt`/`SourceId` and is never joined to the handle, and §9.2 states the design goal that forbids
+     joining them. (4) The corpus states the gap itself — Spec B:1997, quoted in item 157. (5) The
+     server then mutates per-victim state on the unverified claim — Spec B §6.1 step (3) reads
+     `last_stream_index` for the **claimed** handle and step (7) writes it back with
+     `ON CONFLICT (group_id, sender_handle) DO UPDATE`.
+
+     **COST: ONE 256-BYTE RECORD, PERMANENT.** Submit under the victim's handle at
+     `stream_index = 2^63 − 1`. There is no upper bound and no gap limit anywhere — the schema is
+     `stream_index bigint NOT NULL, CHECK (0 <= stream_index)` (`store/migrations.go:149,179`) and
+     check 3 does not bound it. Every later legitimate write from that member returns
+     `REASON_STREAM_INDEX_REGRESSED`.
+
+     **WHY IT IS PERMANENT, WHICH IS WHERE IT EXCEEDS M-11 AS RAISED.** r3's harm was bounded to one
+     epoch because `writer_handle` rotated per epoch. It no longer does: MASTER §8:923 *"`sender_handle`
+     is stable per group rather than rotating per epoch"*; §8:931 `group_handle_key` is *"fixed for the
+     life of the group"*; the handle is a function of `leaf_index`, so an Update does not move it; Spec
+     B:2601 *"`message_sender.last_stream_index` is untouched by expiry"*. **No reset or repair operation
+     is specified anywhere**, and epoch rotation — the corpus's answer to everything else in this area —
+     does not help, because the handle does not rotate.
+
+     **AND IT IS UNDIAGNOSABLE.** §4.5 gives `REASON_EPOCH_STALE` a `current_epoch` and
+     `REASON_COMMIT_LOST` a `winning_commit`; `REASON_STREAM_INDEX_REGRESSED = 5` (*"index <= last
+     accepted"*, Spec B:1839, `connect/protocol/message.proto:569`) carries **nothing**. The victim
+     cannot learn the poisoned high-water mark, so it cannot even jump its counter past it, and §12.2
+     C-5 requires the client to render it as a generic failure.
+
+     **WHY THE CORPUS'S OWN DEFENCE DOES NOT COVER IT.** Spec B:1999 — *"A record forged by anyone
+     without a group leaf key fails MLS verification at every client regardless of what the server
+     accepted."* That argument is about **content authenticity** and it is correct. The damage here is to
+     **server-side per-member state**, which no client-side MLS check reverses: the forged record is
+     discarded by every client and the victim is still bricked. And the V2 fix §9.2 names does not close
+     it either — an Ed25519 derived from `storage_root` is derivable by **every** member (see item 157).
+
+     **r3's residual edits, mapped.** (1) *"add the authenticator to the struct explicitly"* — moot, the
+     struct is gone. (2) *"require clients to recompute `may_write` from the M-3 roles"* — unavailable,
+     because M-3's roles are unenforced (item **151**). (3) *"first-wins per `(group_id, epoch)`, never
+     replaced"* — the right shape, and it survives as a first-wins binding of `sender_handle` to a
+     `client_id`. It costs exactly the property §9.2 bought (*"the server cannot attribute a record to a
+     device"*) and collides with §9.7/§11's ban on storing `sender_handle` beside `client_id`, **which
+     is why it is a ruling and not a transcription.** *Blocks:* **A6** — every candidate fix adds a
+     per-sender authenticator to the record header or to `server_attachment`, or a server-side binding
+     table. **FILED, NOT RULED.** Dispositioned 2026-09-20.
+
+160. **`M-12` — SUPERSEDED. The remedy was deleted by a named ruling, for a reason that faces M-12
+     directly. One disclosure residual survives and is transcribable.**
+
+     **Property.** A server-visible structure that lets the blind host recover a stable per-member
+     pseudonym, and therefore a complete per-member activity graph, from data it is given for another
+     purpose.
+
+     **Query — not `entries[]` or `writer_handle`, but the property: does the host end up holding a
+     stable per-member pseudonym, by whatever route?**
+
+     ```
+     grep -n 'is stable per group\|group_handle_key = HKDF' docs/specs/2026-08-12-urmessage-protocol-design.md
+     grep -rniE 'foreign host|foreign server' docs/specs/ SPEC-LEDGER.md
+     ```
+
+     MASTER §8:808, §8:923, §8:931 — yes, and by construction. **`foreign host` / `foreign server`: 0
+     hits** — the threat model M-12 was written against is gone. `EPOCH_WRITER_SET`, `entries[]`,
+     `writer_handle`: 0 hits each.
+
+     **THE RULING THAT SUPERSEDES IT, NAMED.** MASTER §0:35-36 — *"**Revision 4** narrows v1 to one
+     message server and many providers carrying traffic, which removes the read-through proxy,
+     **per-epoch handle rotation**, and per-device capability blinding."* Per-epoch handle rotation **is**
+     M-12's remedy, deleted by name. And the reasoning faces M-12 directly, MASTER §8:923: *"Per-epoch
+     rotation existed to stop **foreign** hosts linking a member across epochs; with one server that the
+     client authenticates to, it bought nothing and cost three defects."*
+
+     **Why this is accepted rather than re-raised.** M-12's harm was that the host could **recover** the
+     pseudonym by correlating entry position across epochs. The ruling grants the host the pseudonym
+     outright and argues the mitigation was theatre: the client authenticates to this single server on
+     every connection, so the server can link a member across epochs at the transport layer whether or
+     not the handle rotates. That is sound. r3 reviewed revision 3; revision 4 removed the boundary that
+     made the finding load-bearing. **A rejection with reasons, already written down — it simply never
+     cites M-12.**
+
+     **RESIDUAL — the disclosure half, which the ruling does not discharge.** MASTER §9.5:1506-1507 says
+     the server sees *"Your account, your group list, `sender_handle` per group, record sizes by bucket,
+     timing, retention class. **Not** content, and not which member a handle belongs to."* Every clause
+     is true and the emphasis is misleading: because the handle never rotates, the server holds a
+     **complete per-member activity graph for the life of the group** — every record, size bucket,
+     timing and retention class, partitioned by member — missing only the name. *"Not which member a
+     handle belongs to"* reads far weaker than what is held, and Spec C:455 propagates it to the UI.
+     §13's *"Worse than Signal"* paragraph lists four disclosures narrower than this one and omits it.
+     **One sentence in §9.5 and one in §13, in the register §13 already uses. TRANSCRIBABLE** — it states
+     a consequence of a decision already taken and needs no new ruling.
+
+     **Consistency note, not a defect.** `wrap_target_handle` still binds `u64(epoch)` and so still
+     rotates per epoch — the mitigation revision 4 called worthless, retained on the neighbouring handle.
+     It costs nothing and buys nothing, since the server can invert it by submission position and already
+     holds the stable `sender_handle`. Recorded so a later reader does not take the rotation as evidence
+     of a privacy property the design does not have. *Blocks:* nothing. Dispositioned 2026-09-20.
+
+161. **`M-13` — SUPERSEDED. The construct was deleted by revision 4 and the substance was independently
+     applied in revision 7, which reproduces M-13's argument without citing it.**
+
+     **Property.** A capability is scoped to the MLS epoch, which advances on every Add/Remove/Update,
+     so it expires precisely in the case it exists to serve: a client that was offline across a commit.
+
+     **Query — enumerate every client-held authorizer and ask what its validity is scoped to, epoch or
+     time.**
+
+     ```
+     grep -rniE 'READ_DELEGATION|home.server|delegat|prefetch' docs/specs/*.md
+     grep -rniE 'read_key_window' docs/specs/ | grep -iE 'read_key'
+     ```
+
+     `READ_DELEGATION`, `home server`, `prefetch`: **0 hits**. `delegat*`: 2 hits, neither a capability.
+     Authorizers: `write_auth`/`write_key[n]` is epoch-scoped with a ~60 s server retention and is
+     deliberately not a caching capability; `req_auth`/`read_key[e]` is indexed by epoch and **time**-
+     scoped at the server — retained `read_key_window_seconds`, default 7776000 (90 days), and any
+     retained key is accepted.
+
+     **THE CONSTRUCT IS GONE**, together with the thing it delegated to: MASTER §0 rev 4 *"removes the
+     read-through proxy"*. With one server the client authenticates to directly there is no home server
+     to prefetch, so there is no delegation to time-scope.
+
+     **THE SUBSTANCE LANDED ANYWAY, AND THE CORPUS REPRODUCES M-13's ARGUMENT VERBATIM.** MASTER §9.2,
+     *"Why the read key is not the epoch's write key"*: *"a member that was offline across a single
+     commit for more than a minute holds a `write_key` the server can no longer resolve. If reads were
+     authenticated under that key, such a member could not call `GroupStatus` … could not `Fetch` …
+     could not `WrapFetch` its own wrap — **every path out of the condition is itself a read**."* Same
+     defect, same mechanism, arrived at independently. MASTER §0 rev 7 records the change.
+
+     **Clause by clause against r3's proposed `{group_id, home_server_id, not_before, not_after, auth}`:**
+     `group_id` — present, read keys are per `(group_id, epoch)`. `home_server_id` — moot, one server.
+     `not_before` — present, `read_key_install`. `not_after` — present, install + window.
+     *"survives epoch changes"* — **satisfied, and it is the whole point**: any retained key is accepted,
+     so a client offline across many commits authenticates with the newest key it still holds.
+     *"Cap `not_after − not_before` normatively"* — satisfied as a **published number** rather than a
+     constant: Spec B decision 8, *"it is advertised as `Capabilities.read_key_window_seconds` … and it
+     is a published number, not a tuning knob: changing it changes a statement in MASTER §13."*
+
+     **The one clause not applied is a DISCLOSED REJECTION, not an oversight.** r3 asked for the
+     delegation to be *"revoked by `Remove`"*. It is not: a removed member keeps read authorization until
+     epoch n's key ages out. That trade is stated in three places, in the register a disclosed trade
+     belongs in — MASTER §9.2, Spec B:2034, and §13's *"On metadata after removal"*: *"It is not instant,
+     and 90 days is the price of letting a member who closed their laptop for a season come back and
+     catch up."* Trading revocation for offline catch-up is the same trade M-13 was making in the other
+     direction; the corpus took the opposite side, said so, and told users.
+
+     *Blocks:* nothing. `read_epoch` is already a request field inside `req_auth`'s
+     `canonical_request_bytes`, and the window is server configuration advertised in `Capabilities`.
+     **No ruling needed — this item is the disposition.** Dispositioned 2026-09-20.
+
+162. **`M-14` — STILL OPEN. The §6 half is a transcription; the acceptance half needs a ruling. Running
+     the suite made the finding stronger than r3 stated it — and it also corrected this pass's own first
+     reading, twice. NOT WIRE-VISIBLE.**
+
+     **Property.** The acceptance set MASTER declares for slice 1 **is** the acceptance set actually
+     enforced: every RFC 9420 vector family the implementation must pass is named in the normative
+     acceptance criterion **and** has a runner behind it, so a family cannot be absent from the gate by
+     being absent from the list.
+
+     **Query and output — and the grep-only form of it gives the wrong answer, which is the point.** A
+     grep for the five family names returns 7–12 files each (Spec A §4.2.1, two slice-1 plans,
+     `VECTORS.sha256`, four test files) and reads as ALREADY APPLIED. **Running it says otherwise:**
+
+     ```
+     sed -n '592,594p' docs/specs/2026-08-12-urmessage-protocol-design.md
+     wc -l < ../connect/mls/testdata/vectors/VECTORS.sha256
+     go test ./mls/ -run 'TestVectorManifestIsComplete|TestVectorFamiliesVerify' -v -timeout 300s
+     grep -n 'expectedPendingFamilies = ' ../connect/mls/vectors_test.go
+     ```
+
+     MASTER §6:592-594 lists **eleven** families and then says *"**This is the acceptance criterion for
+     slice 1**"*. `VECTORS.sha256` pins **sixteen**; Spec A §4.2.1 numbers all sixteen. The run:
+     `--- PASS: TestVectorFamiliesVerify (0.29s)`, logging *"9 families verified; 604 published cases
+     offered"*. `connect/mls/vectors_test.go:110` declares
+     `expectedPendingFamilies = []int{2, 8, 9, 13, 14, 15, 16}` — **seven of sixteen families with a nil
+     `Verify` runner.** The five MASTER omits (9 tree-operations, 13/14/15 passive-client, 16
+     deserialization) are **all five** in that pending list.
+
+     **THE FIRST CORRECTION THIS PASS OWES ITSELF: the correlation is real but weaker than "what MASTER
+     does not name is what has not been built."** All five omissions are pending — **and so are two of
+     MASTER's eleven named families**, 2 (crypto-basics) and 8 (welcome). The honest statement is that
+     the omitted set is entirely pending while the named set is not entirely built.
+
+     **THE SECOND CORRECTION, and it matters more, because the misreading inverted a sentence.**
+     `vectors_test.go:269` reads *"this loop over a manifest of sixteen nil `Verify` funcs completes
+     instantly and reports PASS, **which is the shape gate 1 has to be unable to reach**"* — that names
+     the failure the test is **built to prevent**, and the test then asserts
+     `families == 16 - len(expectedPendingFamilies)` and fails on `families == 0` with *"no family is
+     installed, so gate 1 is green with nothing behind it."* Reading it as the file conceding vacuity is
+     backwards. **The file's actual disclosed weakness is different and stronger, and it is the one to
+     carry:** `vectors_test.go:270-278` — *"What this loop counts is cases OFFERED … a family that
+     declined every case it was handed — because the case is at a ciphersuite it does not implement,
+     which is the normal condition for five of the seven suites the mlswg files publish — is
+     indistinguishable here from one that checked all of them. **Family 6 is offered 77 cases and
+     compares 22 of them** … this number is an upper bound and reading it as coverage overstates the
+     run."* So the **604** in the log line is an upper bound, and slice 1's acceptance claim rests on
+     nine per-family counts nobody has aggregated.
+
+     **THE HONEST SPLIT.** Spec A §4.2.1 is correct and complete at sixteen. `VECTORS.sha256` is
+     complete at sixteen. **MASTER §6 is short by five, and MASTER §6 is the sentence that says "This is
+     the acceptance criterion for slice 1"** — a slice-1 sign-off read against MASTER alone is
+     satisfiable today with seven of sixteen families dark. MASTER §14's slice-1 row says only
+     *"Acceptance: the IETF test vectors pass"*, unqualified, so M-14's *"add all five to both sections"*
+     is **SUPERSEDED for §14** by a revision that stopped enumerating there.
+
+     **M-14's SECOND HALF — the non-vector acceptance item — is STILL OPEN, and the near-miss is what
+     makes it easy to close wrongly.** r3 asked for *"two independent instances running a 3-member group
+     through a concurrent-commit collision and demonstrating the B-3 CAS outcome."* Spec B §12:3529 item
+     2 specifies a commit-race property test (k concurrent committers at one epoch against real Postgres,
+     k ∈ {2, 8, 64}, 1,000 iterations) and `store/contract.go:86-87` implements
+     `ConcurrentCommittersAtOneEpoch` and `ACommitRacingOrdinaryWritesAtTheSameEpoch` against both
+     stores. **That covers the SERVER's CAS.** It does not touch MLS state, does not exercise the loser
+     protocol (re-derive against the winner and retry — MASTER §9.3, Spec A §5.12's seven steps, whose
+     step 2 is the hard MUST NOT on `pq_secret[n+1]` reuse that Spec B §12.1 A-6 calls a silent-corruption
+     failure invisible in functional tests), and is not a slice-1 acceptance item. **The client half of
+     B-3 is asserted by nothing in either tree.**
+
+     *Blocks:* not A6 — nothing here changes a byte. It gates **slice 1's completion claim**, which is
+     nearer. The §6 half is a pure **TRANSCRIPTION**: Spec A §4.2.1 already fixes the answer at sixteen
+     and MASTER need only say sixteen. **FILED, NOT RULED** on the second half — whether the two-instance
+     CAS interop run joins slice 1's acceptance set, and whether a vector gate may report green with
+     families pending and with an offered-not-compared count. Dispositioned 2026-09-20.
+
+163. **`M-15`-ADJACENT, INSTANCE 3 — STILL OPEN. A third member of M-15's class, invisible to the
+     property query item 147 published as the repair for exactly this failure. NOT WIRE-VISIBLE.**
+
+     **Property.** Item 147's, generalised one step: an AEAD key whose derivation does not yield that
+     AEAD's **own** nonce length, and whose `info`/AAD does not bind `alg_id`.
+
+     **Query — item 147's, with its enumerations removed.** Item 147 published
+     `grep -rhoE 'HKDF-Expand\(.{0,90}?, *(16|24|32|48|56|64)\)' docs/specs/`. That regex enumerates two
+     things the property does not mention: **a length domain** `{16,24,32,48,56,64}`, and **the
+     assumption that a derivation fits on one line within 90 characters.** Both are properties of the
+     instances already known. Remove them:
+
+     ```
+     perl -0777 -ne 'while (/HKDF-Expand\((.{0,160}?),\s*(\d{1,4})\)/gs) { my $a=$1; my $n=$2;
+       $a =~ s/\s+/ /g; print "$n <- HKDF-Expand($a)\n" }' docs/specs/*.md | sort -u \
+       | grep -vE "^(16|24|32|48|56|64) "
+     ```
+
+     Item 147's query at HEAD returns **33** derivations and **zero** containing `entry/v1`. The
+     de-enumerated query returns **exactly one** derivation item 147 cannot see:
+     `44 <- HKDF-Expand(local_store_key, "entry/v1" ‖ LP(group_id) ‖ LP(message_id))`. Widening item
+     147's **scope** as well — it runs only over `docs/specs/` — to `docs/plans/` and `SPEC-LEDGER.md`
+     adds no further derivation, so the scope limit is harmless today, but it is a third enumeration in a
+     query offered as a property.
+
+     **THE DEFECT.** Spec A §8.3a:4408-4412, verbatim: `per row: key ‖ nonce =
+     HKDF-Expand(local_store_key, "entry/v1" ‖ LP(group_id) ‖ LP(message_id), 44)`, sealed with
+     `XChaCha20-Poly1305(key, nonce, aad = the row's plaintext index columns, …)`. **44 = 32 ‖ 12.
+     XChaCha20-Poly1305's nonce is 24 octets.** The corpus states that four times and uses it three
+     times as a load-bearing argument to settle `alg_id` by elimination (MASTER:189, :665, :885, :1050).
+     Every other `key ‖ nonce` split in the corpus is **56 = 32 ‖ 24**: `rec/v1/head`, `rec/v1/body`,
+     `wraphead/v1`, `snap/v1`, and M-15's own `wrap_key ‖ wrap_nonce`. This one contradicts all of them.
+     Either the length is wrong (should be 56) or the AEAD name is wrong (ChaCha20-Poly1305 IETF, 12-octet
+     nonce), and **no other document can arbitrate**: `entry/v1` occurs **exactly once** across every
+     `.md` and `.go` in `msgrepo` and `connect`. Its AAD also binds no `alg_id`, which is M-15's second
+     half, untouched.
+
+     **WHY THIS IS THE ASSIGNED LESSON REPEATING AT A FOURTH ALTITUDE.** Item 146: a class dispositioned
+     by a **count**. Item 141: a location query built from the **numbers** a ruling changed. Item 147: a
+     class swept by the **construction** M-15 was raised against. This: item 147's own repair query
+     enumerating the **lengths** and the **line shape** of the instances it already had. Item 147 stated
+     the property correctly in prose — *"an AEAD key produced by a bare expand, with no nonce beside it
+     and no `alg_id` bound"* — and that prose mentions no length and no line; the regex added both.
+     **A query is property-shaped only if every literal in it appears in the property.** This
+     de-enumerated form is the best template the pass produced and is offered as such.
+
+     *Blocks:* nothing — this is local-store-at-rest, not on the wire, so it does not gate A6.
+     **TRANSCRIBE, DO NOT RULE — unless the owner wants the AEAD changed rather than the length.** The
+     length fix is one character (`44` → `56`); the second decision, adding `u16(alg_id)` to the row AAD,
+     is M-15's second half and should be taken with it. Found 2026-09-20, while dispositioning M-15's
+     siblings.
+
+164. **`M-15`-ADJACENT, INSTANCE 4 — STILL OPEN. M-15's property in its strongest form, and reachable by
+     NO `HKDF-Expand` query, because there is no expand to find. NEEDS RULING. WIRE-VISIBLE.**
+
+     **Property.** The same property stated over the **AEAD (the consumer)** rather than over the
+     **KDF (the producer)**: every value used as an AEAD key in this corpus is derived together with a
+     nonce of that AEAD's nonce length, under an `info` or AAD binding `alg_id`. Stated over the
+     producer, as item 147's query is, it **cannot see an AEAD whose key is never derived at all.**
+
+     **Query — the consumer, which has no length domain to enumerate.**
+
+     ```
+     grep -rnoE "(XChaCha20-Poly1305|ChaCha20-Poly1305|AES-?128-?GCM|AEAD)\([^)]{0,120}" \
+       --include=*.md docs/specs/ docs/plans/ SPEC-LEDGER.md
+     grep -rniE "blob.{0,60}(encrypt|seal|AEAD|key)|(encrypt|seal|AEAD).{0,40}blob" --include=*.md docs/specs/
+     ```
+
+     The consumer query returns exactly **one** explicit AEAD invocation in the spec corpus outside
+     §8.3a — Spec A:2471, the rendezvous deposit, which is item **145**. Everything else is named only in
+     prose, **which is itself the finding.** For the blob object the corpus's entire statement of its
+     encryption is two prose fragments: Spec A:4308 *"file body encrypted under the message's class
+     key"* and Spec B:1121 *"The bytes are already client-encrypted under the `MEDIA` class key."* **No
+     derivation, no nonce, no AAD, no `alg_id`.** The m1 crypto plan's Task 20 produces
+     `blob_id = HKDF-Expand(record_key[i], "blob/v1", 32)`, the 262,144-octet padder and the MIME sniff —
+     **and no content key.**
+
+     **`blob/v1` is an IDENTIFIER, and item 147 classifies it correctly as one** (SPEC-LEDGER:2594, *"an
+     identifier (`blob/v1`)"*). **That correct classification is exactly what closes the enquiry too
+     early:** having established that `blob/v1` is not an AEAD key, nothing then asks what the blob's
+     AEAD key **is**. It is stated nowhere.
+
+     **WHAT IS AND IS NOT SETTLED, so this is not overstated. INTEGRITY IS SETTLED:** Spec B check 8
+     compares `body_hash` against `message_blob.content_hash`, SHA-256 over the assembled ciphertext
+     computed during multipart compose, and `body_hash` is inside `AAD_head` and the `write_auth`
+     preimage — so the object is bound to its record. **CONFIDENTIALITY IS NOT:** the key, the nonce, the
+     AAD and the `alg_id` of the object's own AEAD are unstated. Read literally, *"encrypted under the
+     message's class key"* means `K_media[n]` — **one key shared by every `MEDIA` record of every sender
+     in the epoch**, with no nonce stated, which is nonce reuse across every attachment in the epoch and
+     a direct **I7** violation (*"No AEAD key or nonce is ever used twice"*). The intended reading is
+     presumably a `record_key[i]` ladder position mirroring `rec/v1/body` — but that is an inference a
+     second implementer must make unaided, and two implementers who infer differently produce objects
+     neither can open, silently.
+
+     **WHY IT MUST BE SETTLED BEFORE A6.** The object goes to the bulk plane and to a third-party object
+     store (Spec B §8.3), padded to a 262,144-byte multiple, up to the 100 MB file cap. A6's own
+     acceptance row (Spec A:5229) lists *"records, key schedule, X-Wing, ratchet, wraps, `write_auth`,
+     `req_auth` … all must land before the format freezes here."* **A blob object whose sealing is
+     undefined is a format the freeze does not fix.**
+
+     **Relation to the other instances.** Item **145** (`rzvdeposit`) is filed-not-ruled and its nonce
+     half is justified; item **147** (`snap/v1`) is closed; item **163** (`entry/v1`) is filed above.
+     This is the fourth member of M-15's class and **the first that no producer-side query can reach** —
+     which is the argument for restating the property over the AEAD, permanently. *Blocks:* **A6.**
+     **FILED, NOT RULED.** Found 2026-09-20, while dispositioning M-15's siblings.
+
+165. **THE STATE TABLE'S "30: 8 major, 22 minor" HAS A SOURCE, AND THE SOURCE IS TWO REVIEW FILES THIS
+     REPOSITORY REFERENCES NOWHERE — one of which has never been read into the record at all, and whose
+     findings CANNOT be measured by item 146's proposed gate because they carry no ids. FILED, NOT
+     RULED.** Item 146 asked what hid r3's majors; §1's number is the same failure with a worse
+     substrate, and this is what measuring it with the same query shows.
+
+     **Provenance, measured.** `docs/reviews/2026-08-12-r6-verify-remaining.json` contains **exactly 8
+     `MAJOR` and 22 `MINOR` entries**. That is §1's *"Remaining | 30: 8 major, 22 minor"*, byte for byte,
+     and it is **not** r3's majors class — r3 declares fifteen. The two numbers have been read as the
+     same set for five weeks.
+
+     ```
+     for f in docs/reviews/*.json; do echo "$f"; grep -o '"severity": *"[A-Z]*"' "$f" | sort | uniq -c; done
+     grep -rn "r6-verify-remaining\|r8-verify" --include=*.md --include=*.go . | grep -v '^./docs/reviews/'
+     ```
+
+     `r4-findings-full.json`: 41 BLOCKER / 81 MAJOR / 26 MINOR. `r6-verify-remaining.json`: **8 MAJOR /
+     22 MINOR**. `r8-verify.json`: **2 BLOCKER / 10 MAJOR / 13 MINOR**. **Second command: zero hits.**
+     Neither r6 nor r8 is named anywhere in this repository outside itself — not in this ledger, not in
+     a spec, not in a plan. `grep -rn "r6\|R6\|r8\|R8" SPEC-LEDGER.md` returns nothing.
+
+     **THE GATE ITEM 146 PROPOSES CANNOT SEE ANY OF THESE 30, AND IT IS NOT A SCOPE PROBLEM — THEY HAVE
+     NO IDS.** Every entry in r6 and r8 has exactly four keys: `severity`, `location`, `problem`, `fix`.
+     **There is no id field.** The same is true of the prose reviews' minors: r2's five, r3's eight and
+     r4's four are numbered *within their own file* and carry no corpus-wide identifier. So *"every
+     finding id declared in `docs/reviews/` is named at least once outside its own file"* is not merely
+     unsatisfied for these findings — **it is unrunnable on them**, and a gate that reports on the twelve
+     blockers and fifteen majors while being structurally blind to thirty findings whose count §1
+     publishes is a gate that will read green over the larger half. This is the second repair item 166
+     owes.
+
+     **SO: DISPOSITIONED, OR COUNTED? COUNTED — and here is the sample that says so.** Six of r6's 22
+     minors were checked against HEAD by the literal string each names. **Five of five checkable ones
+     reproduce verbatim, unapplied:**
+
+     - r6 minor 13 — *"a section mark with no number"*: Spec A:4680 still reads *"and in Spec C §."*
+     - r6 minors 10 and 18 — a path that *"exists only in the working scratch"*: Spec B:87 still reads
+       *"(edits B-0 … B-24 of `research/r4-edit-plan.md`)"*.
+     - r6 minor 17 — *"Spec B §6 ends at §6.4; there is no §6.7"*: Spec B:1052 still cites *"§6.7 already
+       flags as the throughput ceiling"*, and Spec B's section 6 still ends at §6.4.
+     - r6 minor 7 — *"Spec A has a §6 but no §6.2"*: Spec A:5187 row C11 still reads *"the §6.2 protected
+       screen"*, and Spec A §6 is *"The narrow swappable interface"* with no subsections.
+     - r6 minor 11 — blockquote style drift, *"183 blockquote lines"*: Spec B now has **239**.
+
+     **AND r8 IS THE SHARPER HALF OF THIS ITEM, because r8 postdates r6 and §1's numbers predate r8.**
+     r8 found **2 BLOCKERs** against a state table that says *"Blockers | 0"*. Both were in fact fixed —
+     r8's blockers ask for a group-less rendezvous mailbox in Spec B, and Spec B §4.3.11 exists, added in
+     its revision 6 — **but the revision entry attributes the work to `research/rendezvous-plan.md` edits
+     B1 … B22 and names r8 nowhere.** So the text is right and the record is empty, which is item 146's
+     shape exactly, one review round later and against blockers rather than majors.
+
+     **What replaces the number.** §1's *"Remaining"* row is rewritten to point at the disposition record
+     rather than to publish a count, because a count is what could not be checked. The residual work this
+     item names — dispositioning r6's 30 and r8's 25 the way 149–164 disposition r3's fourteen — is
+     **not** done here and is not small: 55 findings, none of them carrying an id to disposition against.
+     *Blocks:* nothing mechanically. **FILED, NOT RULED.** Found 2026-09-20, while dispositioning r3's
+     majors.
+
+166. **ITEM 146's PROPOSED GATE IS SELF-SATISFYING, AND IT HAS ALREADY BEEN SATISFIED TWICE WITHOUT A
+     SINGLE DISPOSITION — by the sentence that records the failure. FILED, NOT RULED.**
+
+     **Property.** A disposition record must record a **disposition**, not a **mention**. A gate that
+     asks *"is this finding id named outside its own file?"* is satisfied by the sentence recording that
+     the finding was never dispositioned.
+
+     **Query — item 146's own, re-run at `bed5b84` and at HEAD, and additionally over the `connect`
+     tree, which item 146's published form does not cover.**
+
+     ```
+     git grep -lE "(^|[^A-Za-z0-9-])$id([^0-9]|$)" <rev> \
+       -- ':!docs/reviews/2026-08-12-r3-spec-review.md' | wc -l
+     ```
+
+     At `bed5b84`: **M-1 … M-14 all 0**, M-15 = 1, controls B-1 = 5, B-6 = 4, B-11 = 3. At HEAD
+     (`10f0a39`): **M-1 = 1, M-14 = 1**, M-2 … M-13 still 0, M-15 = 5, B-1 = 6. Over `connect` at HEAD:
+     0 for every major. **Nothing was adopted, rejected or filed between those two revisions.** Both new
+     hits resolve to `SPEC-LEDGER.md:2517` and `:5823`, and both are **item 146's own sentence**:
+     *"`B-1` … `B-12`: 1 to 6 files each, all twelve non-zero. `M-1` … `M-14`: ZERO, every one."*
+
+     **So the entry written to prove these ids were never dispositioned is now the file the query finds
+     when it asks whether they were.** And the artefact is not even uniform across the class it
+     describes: M-1 and M-14 picked it up **purely because they are the endpoints of the range item 146
+     spelled out**; M-2 … M-13 sit inside the ellipsis and stay at zero. Write that list out in full —
+     which any conscientious reader of item 146 would do — and **all fourteen pass the gate at once, with
+     nothing decided and the ledger reporting full coverage.**
+
+     **This is the third time on this project that a gate turned out to be a proxy that does not track
+     its property, and it is the same shape as the other two.** Item 146 diagnosed *"a count cannot be
+     checked against a document"* and then proposed a gate that is a count of a different thing. Judged
+     by **what it catches and when**, as this project has already ruled a gate must be: as published it
+     catches nothing, and it reports success at the exact moment the failure is being described.
+
+     **Three repairs, offered together because each alone leaves a hole.** (a) **Key the gate on a
+     disposition VERB adjacent to the id** — `ADOPTED` / `REJECTED` / `SUPERSEDED` / `STILL OPEN` / a
+     ledger item number — rather than on the id alone, and **exclude SPEC-LEDGER lines that are
+     themselves measurements of the gate.** Items 149–164 are written in that form deliberately, so the
+     repair has a corpus to run against on the day it is taken. (b) **Extend the scope to `connect`.**
+     Item 146's published query runs only against `msgrepo`; the code that would implement any of these
+     findings lives in `connect`, and item **149** found a spec-level finding dispositioned in a Go doc
+     comment there (`writeauth.go:50-57`, *"Do not add it"*), which the gate as published cannot see.
+     Running it over `connect` changed no answer today, which is exactly why the omission survived.
+     (c) **Do not key it on ids alone**, because item **165** shows 55 findings in `docs/reviews/` that
+     have no id at all, and a gate keyed on ids reports green over them by construction.
+
+     **And a fourth thing the gate cannot do, recorded because item 152 is the live example.** An id
+     count distinguishes *"ignored"* from neither *"silently superseded"* (items 156, 160, 161 — three
+     majors closed by revision-4/7 rulings that never cite them) nor *"filed under another name and about
+     to be closed wrong"* (item **152**: M-4's property is ledger item **128**, unruled, framed too
+     narrowly to be ruled safely). **A gate on mentions would have missed all of that in both
+     directions.** *Blocks:* nothing mechanically. **Whether any of this becomes a gate is the owner's
+     and is not ruled here.** Found 2026-09-20, while dispositioning r3's majors.
 
 ## 6. Change process
 
@@ -6010,3 +7161,153 @@ listed exactly the four documents and nothing else; the edit scripts ran from ou
 **Still one branch, `main`, and no `beta/message`** — the brief named `beta/message`, which is
 `connect`'s branch (README:43, PROGRESS.md:19) and not this repository's, so the work was done on
 `main` at `be7154d` as every prior pass has been.
+
+### 2026-09-20 — r3's fourteen undispositioned majors dispositioned one by one, the state-table count that hid them replaced, and the gate proposed to prevent a repeat measured passing on the sentence that describes the failure
+
+**Change:** this ledger only. §1's state table loses the *"Remaining | 30: 8 major, 22 minor"* row and
+gains a **Review findings** row that points at a record instead of publishing a count; §5 gains
+**eighteen** items, **149–166**. **No spec changed. No plan changed. No Go file changed. `connect` was
+not touched.** Dispositioning was the deliverable; **nothing below is ruled and no finding is fixed
+here** — the fixes are separate work these items scope, except where a finding was already satisfied,
+which needed only recording.
+
+**Why:** item **146** measured, on 2026-09-18, that r3's twelve blockers were dispositioned by id and
+its fifteen majors by a **count** — *"8 majors and 22 minors remaining"* — and that fourteen of the
+fifteen are named nowhere in this repository outside the review that raised them. M-15, the fifteenth,
+cost three passes to rediscover and revealed a sibling on closing. The owner ruled that all the
+remaining majors be dispositioned before CP3b work resumes.
+
+---
+
+**THE PREMISE, RE-MEASURED FIRST, BECAUSE A BRIEF'S OWN NUMBERS ARE CLAIMS TOO.** The query item 146
+publishes, re-run at `bed5b84` and at HEAD `10f0a39`, over this repository **and** over `connect`:
+
+```
+git grep -lE "(^|[^A-Za-z0-9-])$id([^0-9]|$)" <rev> \
+  -- ':!docs/reviews/2026-08-12-r3-spec-review.md' | wc -l
+```
+
+At `bed5b84`: **M-1 … M-14 all ZERO**; M-15 = 1; controls **B-1 = 5, B-6 = 4, B-11 = 3**. **The premise
+holds.** At HEAD it does not hold identically, and that difference is item **166**.
+
+**Two corrections to the premise, both measured rather than argued.**
+
+**1 — The set is FOURTEEN, not thirteen.** r3 declares M-1 … M-15 and only M-15 is closed (items 144
+and 147). The brief's *"thirteen"* is the same class of error the brief exists to catch, so it is
+recorded rather than quietly absorbed. All fourteen received a verdict.
+
+**2 — The published query is now SELF-POISONING, and only for the two ids that happen to be the
+endpoints of a range.** At HEAD, **M-1 = 1** and **M-14 = 1**, up from zero, with nothing adopted,
+rejected or filed in between. Both hits are `SPEC-LEDGER.md:2517` and `:5823` and both are item 146's
+own sentence saying those ids have no disposition. M-2 … M-13 sit inside that sentence's ellipsis and
+stay at zero. **Item 146 proposes exactly this query as a gate; it counts MENTIONS, not DISPOSITIONS,
+so recording that a finding was never dispositioned passes it through the gate** — and writing the
+elided middle out in full, which any conscientious reader of item 146 would do, passes all fourteen at
+once with nothing decided. Item **166** files it with three repairs.
+
+---
+
+**THE DISPOSITIONS — items 149–162, one per finding id, each opening with the id and a verb.**
+
+| Item | Finding | Disposition | A6 |
+|---|---|---|---|
+| 149 | `M-1` `alg_suite` | **STILL OPEN (partial)** — ciphertext half closed 2026-08-25, authenticator half never | **blocks** |
+| 150 | `M-2` `epoch` u64 | **ALREADY SATISFIED** — and satisfied at `aa9303e`, before this repo's first commit | no |
+| 151 | `M-3` roles + commit authorization | **STILL OPEN (partial)** — clause 1 applied, clause 3 absent in spec *and* unimplemented | **blocks** |
+| 152 | `M-4` split `ct_head` | **STILL OPEN**, mechanism SUPERSEDED, property already filed as item **128** | **blocks** |
+| 153 | `M-5` PSK combiner | **STILL OPEN (partial)** — ordering clause applied; overclaim and PSK untouched | **blocks** |
+| 154 | `M-6` one normative wrap definition | **STILL OPEN** on its core; addressing clause applied 2026-09-18 unremarked | **blocks** |
+| 155 | `M-7` PQ era | **STILL OPEN**, and worse than raised — the 2026-09-13 split doubled the arm it deletes | **blocks** |
+| 156 | `M-8` epoch retirement | **SUPERSEDED** by key retirement; two residuals, one narrow ruling | no |
+| 157 | `M-9` sign the retained header facts | **STILL OPEN**; the remedy is already precedented on M-9's own argument | **blocks** |
+| 158 | `M-10` lifetime cross-group handle | **STILL OPEN** on its structural half; two of its claims **REJECTED** on measurement | **blocks** |
+| 159 | `M-11` per-member resource forgery | **STILL OPEN**, transplanted, and now **permanent** rather than one epoch | **blocks** |
+| 160 | `M-12` permute `entries[]` | **SUPERSEDED** by revision 4 by name; one disclosure residual, transcribable | no |
+| 161 | `M-13` time-scope the delegation | **SUPERSEDED** — construct deleted, substance applied by revision 7 | no |
+| 162 | `M-14` complete the vector list | **STILL OPEN**; §6 is transcription, the CAS acceptance item needs a ruling | no |
+| 163 | `M-15`-adjacent, instance 3 | **STILL OPEN** — `entry/v1` expands 44 = 32‖12 against a 24-octet nonce | no |
+| 164 | `M-15`-adjacent, instance 4 | **STILL OPEN** — the blob object's AEAD key, nonce, AAD and `alg_id` are stated nowhere | **blocks** |
+| 165 | the state table's own number | **FILED** — it is r6's file, r6 and r8 are referenced nowhere, and 55 findings carry no ids | no |
+| 166 | item 146's proposed gate | **FILED** — it is satisfied by the sentence that records the failure | no |
+
+**Four are ALREADY SATISFIED or SUPERSEDED. Ten are STILL OPEN, all ten need a ruling, and nine of the
+ten block A6** — every major except M-14, plus item 164. **Nothing was ruled.**
+
+---
+
+**THREE THINGS THIS PASS GOT WRONG ON ITS FIRST READING, AND WHAT CAUGHT EACH, because the corrections
+are worth more than the verdicts they left standing.**
+
+**(a) The lesson repeated inside the pass that was written to demonstrate it — item 158.** The first
+M-10 sweep ran `grep -rhoE '[a-z_]*handle[a-z_]* *= *HKDF-Expand\([^)]*\)'` and reported *"exactly one
+instance."* That regex enumerates the literal token **`handle`**, which appears nowhere in the property
+M-10 states — it is `handle` because `recovery_handle` is the instance r3 named. The property-shaped
+query names no token, and it finds **two**: `recovery_sig_seed = HKDF-Expand(recovery_root,
+"idxsig/v1", 32)` → `recovery_verify_pub` is a 32-byte unrotatable cross-group identifier in the **same
+struct** (MASTER §5.3:493-494) and the **same database row** (`store/migrations.go:351-362`).
+**Consequence: r3's own proposed remedy does not close the property it states.** Item 147's failure, at
+one altitude down, inside the disposition of a different finding. Item **163** publishes the
+de-enumerated query template that catches this class.
+
+**(b) Two claims that did not reproduce, withdrawn rather than shipped — item 158 again.** *"The
+property got worse"* is **false**: `git show aa9303e:…design.md` line 167 is **byte-identical** to
+HEAD, so the derivation never carried a server input **here**; r3's *"(member, server)"* describes
+revision 3, which predates this repository. *"The disclosure was not applied at any of the three
+sites"* is **false**, and the three sites are the three **r3** named: **MASTER §5.4:518-522 discloses
+it explicitly**, with revision 4's single-server argument — the same argument this pass accepted to
+score M-12 SUPERSEDED. What survives is sharper than what was withdrawn: **§5.4's *"Disclosed in §13"*
+is a dangling forward reference**, because §13 never names `recovery_handle`.
+
+**(c) A quotation read backwards — item 162.** `connect/mls/vectors_test.go:269` says a manifest of
+sixteen nil runners reporting PASS is *"the shape gate 1 has to be **unable to reach**"* — it names the
+failure the test **prevents**, and the test then asserts `families == 16 - len(expectedPendingFamilies)`
+and fails on zero. Reading it as the file conceding vacuity inverts it. **The file's real disclosed
+weakness is stronger and is now the one recorded:** the loop counts cases **offered**, not compared, and
+*"family 6 is offered 77 cases and compares 22 of them"* — so the run's own `604` is an upper bound.
+**Running the suite is what settled both**: `go test ./mls/ -run 'TestVectorManifestIsComplete|
+TestVectorFamiliesVerify' -v` → `PASS (0.29s)`, *"9 families verified; 604 published cases offered."*
+A grep for the five family names returns 7–12 files each and reads as ALREADY APPLIED; the run says
+seven of sixteen families have no runner and **all five MASTER omits are among them**. The correlation
+is also weaker than *"what MASTER does not name is what has not been built"* — **two of MASTER's
+eleven named families, 2 and 8, are pending too.**
+
+---
+
+**THE STATE TABLE'S NUMBER HAS A SOURCE, AND IT IS NOT r3 — item 165.**
+`docs/reviews/2026-08-12-r6-verify-remaining.json` contains **exactly 8 `MAJOR` and 22 `MINOR`
+entries**. That is §1's *"30: 8 major, 22 minor"*, byte for byte, and it has been read as r3's majors
+class — which has fifteen — for five weeks. **`grep -rn "r6-verify-remaining\|r8-verify"` outside
+`docs/reviews/` returns zero hits**: neither file is named anywhere in this repository, not in this
+ledger, not in a spec, not in a plan.
+
+**And the minors are in a worse position than the majors, not the same one.** Every entry in r6 and r8
+has four keys — `severity`, `location`, `problem`, `fix` — and **no id field**; r2's five, r3's eight
+and r4's four minors are numbered only within their own files. So item 146's proposed gate is not
+merely unsatisfied for them, **it is unrunnable on them.** Asked plainly, as the brief asked:
+**dispositioned, or counted? Counted.** Six of r6's 22 minors were checked against HEAD by the literal
+string each names and **five of five checkable ones reproduce verbatim, unapplied** — Spec A:4680 still
+ends a sentence *"and in Spec C §."*; Spec B:87 still cites `research/r4-edit-plan.md`; Spec B:1052
+still cites a §6.7 that does not exist in a document whose §6 ends at §6.4; Spec A:5187 still cites a
+§6.2 in a document whose §6 has no subsections; and Spec B's blockquote drift has gone from **183 lines
+to 239**.
+
+**r8 is the sharper half.** It postdates r6, found **2 BLOCKERs** against a table that says
+*"Blockers | 0"*, and both were in fact fixed — Spec B §4.3.11 exists — **but its revision entry
+attributes the work to `research/rendezvous-plan.md` and names r8 nowhere.** Text right, record empty:
+item 146's shape, one round later, against blockers.
+
+---
+
+**Verified.** `go build ./...` clean **before and after**. `go test ./...` green, all packages, before
+and after. `go test ./ -run TestThePlanLinter` **`ok`** before and after — no plan or spec was edited,
+so no citation class could move, and none did. `git ls-files` equals `git ls-tree -r HEAD --name-only`
+at **102**, checked before the commit rather than assumed. `SPEC-LEDGER.md` measured **LF throughout,
+zero CR bytes** with `tr -dc '\r' | wc -c`. `git status --porcelain` before the commit listed exactly
+one file. **Every query this entry and items 149–166 publish was run at HEAD `10f0a39`, and its output
+is printed beside it** — including the two that produce a different number from the disposition they
+support, item 149's `-A5` window (17, not 13) and item 154's document count (5, a presence grep), each
+of which publishes its exclusion rule rather than leaving the gap for the next reader to find.
+**Still one branch, `main`, and no `beta/message`** — the brief named `beta/message`, which is
+`connect`'s branch (README:43, PROGRESS.md:19) and not this repository's, so the work was done on
+`main` at `10f0a39` as every prior pass has been. **`connect` was read and never written**, which
+`git -C ../connect status --porcelain` confirms empty.
