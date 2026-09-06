@@ -223,6 +223,36 @@ in `SPEC-LEDGER.md` as a residual for the owner.
   Ledger items **132**, **133**, **134**, **142** and **143** stay filed and unruled, and §8.1 and §8.2
   name **143** and **142** where a reader of the construction will meet them.
 
+**Amendment to revision 9 — 2026-09-19 — §7, §8, §8.2: M-15's SECOND instance, which the sweep that
+closed the first did not report, and the one contradiction the transcription left standing.** The
+2026-09-18 amendment ran M-15's class across this document and reported the §7 `wrap_key` instance and
+one sibling out of scope (Spec A §5.14's rendezvous deposit, ledger item **145**). It missed a member
+of that class **in the section it was already editing**.
+
+- **§8.2's epoch snapshot was the second instance.** `K_snapshot[n] = HKDF-Expand(storage_root[n],
+  "snap/v1", 32)` was a 32-octet AEAD key with **no nonce, no `alg_id` and no AAD anywhere in the
+  corpus** — M-15's defect, in M-15's own document, one section from where M-15 was adopted. It now
+  expands **56** octets to `K_snapshot[n] ‖ nonce_snapshot[n]` and states an `AAD_snap` binding
+  `alg_id`, the group and the epoch. `K_snapshot[n]`'s **value is unchanged** — HKDF-Expand's prefix
+  property, measured over 1,000 roots rather than asserted — so it costs zero wire bytes and no code,
+  and §5.11 correction **E2**'s quotation of the key stays true. What the derived nonce does **not**
+  buy is stated beside it: both halves are functions of the epoch alone, so a second snapshot sealed
+  at one epoch by step 6's republish path reuses the pair. New ledger item **148** files that.
+- **§8's *"this layer adds no signature"*** was the **seventh** location the three rulings of
+  2026-09-13 invalidate and the only one the 2026-09-18 transcription left standing: §8.2 now makes a
+  body signature a **MUST** on all three wrap record kinds. **I5 is not amended** — it says *"no
+  second signature over **content**"* and a wrap body is not content; §8's sentence had dropped the
+  qualifier.
+- **§7's `info` table and its gap list read against each other**, and now do not: the table
+  enumerates `target_type`'s **domain**, the gap list says no document gives its **encoding**, and
+  both are true at once. The gap is unchanged and still unruled.
+
+**Why the sweep missed it is recorded, because that is worth more than the fix.** New ledger item
+**147** carries it: the 2026-09-18 sweep was run as a search for the *construction* M-15 named — a KEM
+seal, `HKDF-Expand(ss, …)`, `hybrid_ct` — and the snapshot is not a KEM seal, so it fell outside the
+query while being inside the class. The class M-15 actually names is **every AEAD key in this corpus
+derived by a bare 32-octet expand**, and that class is greppable.
+
 ## 1. Purpose and product target
 
 URmessage is a private messenger built on the URnetwork mesh. It reuses URnetwork's transport and
@@ -649,7 +679,7 @@ deliberately rather than pasted:
 | `"URmessage/v1/wrap"` | kept | domain separation from every other HKDF label in this document |
 | `LP(group_id)` | kept | a wrap of one group never opens under another group's key |
 | `u64(epoch)` | kept | the epoch whose secrets the wrap carries — Spec A §5.11 calls it the **content** epoch, and it is deliberately not the record's own `epoch` field |
-| `u8(target_type)` | **new** | separates target *classes* under one key schedule, and there are two: an active device leaf, and a member's `RECOVERY_PUB` |
+| `u8(target_type)` | **new** | separates target *classes* under one key schedule. This design has exactly two — an active device leaf, and a member's `RECOVERY_PUB` — and naming them is **not** assigning them octets; which byte each takes is one of the three gaps below |
 | `LP(target_id)` | kept | the recipient; one member's wrap never opens under another's key |
 | `u8(payload_type)` | **new** | separates payload *kinds* sent to one target at one epoch — which ruling 3 of 2026-09-13 turns into a live case rather than a hypothetical, because a device leaf now receives **two** wrap records at one epoch |
 | `u16(alg_id)` | **new** | M-15's anti-downgrade half. The same two octets `hybrid_ct` carries are now inside the key, so flipping them on the wire yields a different `wrap_key` and the AEAD fails, instead of the field being one that nothing checks |
@@ -683,9 +713,19 @@ ruling and this amendment makes none.**
   strings — `recovery_handle`, the epoch-scoped `wrap_target_handle`, a leaf index, a member id. A
   publisher and a restorer that choose differently produce a wrap nobody can open, with no error
   anywhere.
-- **`target_type` and `payload_type`.** Both arrive with M-15, and neither has a code point, a value
-  table or a definition anywhere. Measured 2026-09-18: both identifiers occur only inside r3's review
-  file and in the 2026-09-12 red team's reference back to it.
+- **`target_type` and `payload_type`.** Both arrive with M-15, and neither has a **code point**
+  anywhere: no document maps a target class or a payload kind to an octet, and nothing stops two
+  implementations choosing opposite assignments. Measured 2026-09-18: both identifiers occur only
+  inside r3's review file and in the 2026-09-12 red team's reference back to it.
+  *(**Clarified 2026-09-19, and the gap is NOT closed by the clarification.** This bullet read
+  — *"neither has a code point, a value table or a definition anywhere"* — while the `info` table
+  three paragraphs above enumerates `target_type`'s two classes in the same block, so the two read
+  against each other and a reader could take either for the mistake. Neither is. What the table gives
+  is the **domain**, which this document does fix, because §8.2's payload table fixes it. What no
+  document gives is the **encoding** — which octet each class takes — and the encoding is what a
+  publisher and a restorer must agree on, which is what makes this a gap rather than a note. **The
+  domain is not the encoding.** Unruled before this sentence and unruled after it; only the wording
+  changed.)*
 - **Which `alg_id`.** §7.1 lists `0x0014` as *"the v1 wrap KEM"* and requires every *"hybrid
   ciphertext"* to carry an identifier, so `hybrid_ct`'s is not seriously in doubt — but no line says so
   in as many words, and the record AADs needed an amendment on 2026-08-25 to settle exactly this
@@ -856,7 +896,20 @@ because the body it names is the thing being encrypted.
 Construction order: build `server_attachment` → encrypt `ct_body` → compute `body_hash` → encrypt
 `ct_head` → compute `write_auth`. Every dependency is acyclic.
 
-Per **I5**, this layer adds no signature. Sender authentication is MLS's, inside the ciphertext.
+Per **I5**, this layer adds no signature **over content**. Sender authentication is MLS's, inside the
+ciphertext.
+
+**The wrap is the exception, and this sentence used to omit it. Corrected 2026-09-19.** It read *"this
+layer adds no signature"* flat, which §8.2's *"Every wrap body is signed under the publisher's
+`identity` key, and a client MUST NOT honour an unverified one"* — **RULED 2026-09-13**, transcribed
+into this document on 2026-09-18 — makes false for all three wrap record kinds. It is the **seventh**
+location here that the three rulings of 2026-09-13 invalidate, after the six ledger item **141** closed
+on, and the only one that pass left standing; the query that finds all seven is published with item
+141. **I5 itself is untouched and needs no amendment**: its own wording is *"no second signature over
+content"*, and a wrap body is not content — a wrap carries **no MLS frame at all**, so there is no
+inner signature for I5 to defer to, and §8.2's is the first and only signature over that record class
+rather than a second one over anything. The epoch snapshot is not among the three: it is a blob-ref
+record with **no `ct_body`**, so it has no wrap body to sign.
 
 `stream_index` is a single `u64` counter per `(group_id, sender_handle)`, write-once, assigned locally.
 A device MUST durably record "index *k* consumed" **before** encrypting, and MUST NEVER encrypt a second
@@ -974,9 +1027,54 @@ already reads everything (§13). No adversary class gains anything.
 **The epoch snapshot is a record, not part of the wrap.** A restoring device also needs the epoch's
 ratchet-tree public state and GroupContext to verify signatures. That snapshot is roughly 300 KB at
 the 500-member design target; carried inside each member's wrap it would make a single commit emit
-~150 MB. It is instead **one `PERMANENT`-class record per epoch**, encrypted under
-`K_snapshot[n] = HKDF-Expand(storage_root[n], "snap/v1", 32)` — which the restorer can open precisely
-because `storage_root[n]` is in its wrap.
+~150 MB. It is instead **one `PERMANENT`-class record per epoch**, encrypted under `K_snapshot[n]` —
+which the restorer can open precisely because `storage_root[n]` is in its wrap.
+
+**The snapshot's AEAD derives its own nonce and binds `alg_id`. AMENDED 2026-09-19, and it is M-15's
+class rather than a new shape.** Until this amendment the line above read `K_snapshot[n] =
+HKDF-Expand(storage_root[n], "snap/v1", 32)` — **thirty-two octets, a key and no nonce**, with no
+`alg_id` bound and no AAD stated anywhere in the corpus. That is defect for defect what r3's **M-15**
+raised against §7's `wrap_key` and what §7 adopted on 2026-09-18, one section away and in this same
+document. Measured 2026-09-19 at `be7154d`, the commit before this amendment: `snap/v1` occurred
+**five** times across this repository and a snapshot nonce occurred **zero** times.
+
+```
+K_snapshot[n] ‖ nonce_snapshot[n] = HKDF-Expand(storage_root[n], "snap/v1", 56)  // 32 B key ‖ 24 B nonce
+
+AAD_snap = "URmessage/v1/aad/snap" ‖ u16(alg_id) ‖ LP(group_id) ‖ u64(n)
+```
+
+**What each element buys, stated on the same terms §7's own table states its.**
+
+- **The 56.** `32 ‖ 24` is the split `key_head ‖ nonce_head` already uses in §8 and `wrap_key ‖
+  wrap_nonce` uses in §7, and a 24-octet nonce is XChaCha20-Poly1305's and no other v1 suite's — the
+  same argument §8 used on 2026-08-25 to settle which `alg_id` its own record AADs carry. So `alg_id`
+  here is `0x0021`, by that argument rather than by a fresh assertion.
+- **`K_snapshot[n]` does not change value, so nothing quoting it goes stale.** HKDF-Expand's output is
+  a prefix of any longer expand under the same PRK and the same `info`, so the first 32 octets of the
+  56 are exactly the octets the pre-amendment line produced. Measured rather than assumed:
+  `Expand(root, "snap/v1", 32) == Expand(root, "snap/v1", 56)[:32]` over 1,000 random roots, every
+  one. **Zero wire bytes** — `nonce_snapshot[n]` is derived independently by both sides and the blob
+  object's length is unchanged — and **no code**: a grep for `K_snapshot`, `KSnapshot` and `snap/v1`
+  across every `*.go` file in `msgrepo` and in `connect` returns **zero** hits.
+- **What the AAD buys.** `storage_root[n]` already binds the group and the epoch, so `LP(group_id)`
+  and `u64(n)` are defence in depth of exactly the kind §8's `AAD_body` already carries for exactly
+  that reason. `u16(alg_id)` is the element that is **not** redundant: it is M-15's anti-downgrade
+  half, and without it the suite identifier is a value nothing binds.
+
+**What the nonce does NOT buy, because the honest half is the useful half.** Both `K_snapshot[n]` and
+`nonce_snapshot[n]` are functions of the epoch alone, so **two snapshot objects sealed at one epoch
+reuse the pair exactly**. The derived nonce does not rescue that case and no reader should conclude it
+does. It is not hypothetical: step 6 below lets **any member** re-publish the missing wraps of an
+interrupted fan-out, the snapshot is one of the records `expected_wrap_count` names, and the wrap index
+is deliberately not unique (ledger open item **132**). It is safe only while every conforming publisher
+seals a **byte-identical** plaintext — which the ratchet-tree public state and GroupContext at one
+epoch are by MLS agreement, but which **no line of this corpus requires of the serialiser**. Two
+publishers whose encodings differ by one byte hand the message server a two-time pad over the epoch's
+ratchet tree, plus the Poly1305 one-time key. Ledger open item **148** files it, and it is **not ruled
+here**: both repairs are rulings this amendment is not scoped to make — a canonical-serialisation MUST,
+or a publisher-separated nonce, which either changes `K_snapshot[n]`'s value or adds a second expand
+beside it.
 
 **The outer seal. RULED 2026-09-13, and the two wrap kinds take opposite answers because they have
 opposite readers.** A wrap is an ordinary record, and an ordinary record's `ct_body` is AEAD'd under a

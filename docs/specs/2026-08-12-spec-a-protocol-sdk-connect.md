@@ -1568,7 +1568,7 @@ ruling is outstanding and nothing blocks slice A6.
 | # | Correction | Where it now lives in MASTER |
 |---|---|---|
 | E1 | The **recovery** wrap carries `storage_root[n]` and `archive_secret[n]`, not `pq_secret[n]`. A seed-only restorer has no MLS state and therefore no `mls_secret[n]`, so a wrap carrying `pq_secret` would open nothing. ~~The **device** wrap is unchanged and still carries `pq_secret[n]` and `eph_root[n]`.~~ **The struck sentence is SUPERSEDED, 2026-09-13** — the device wrap is now **two** records, a `PERMANENT` one carrying `pq_secret[n]` and an `EPH(5)` one carrying `eph_root[n]`; see the paragraph under this table. E1's correction itself is untouched. | §8.2, table and the "Why the recovery wrap carries `storage_root[n]`" paragraph |
-| E2 | The per-epoch ratchet-tree snapshot is **one `PERMANENT`-class record per epoch** under `K_snapshot[n] = HKDF-Expand(storage_root[n], "snap/v1", 32)`, not a copy inside every wrap. | §8.2, "The epoch snapshot is a record, not part of the wrap" |
+| E2 | The per-epoch ratchet-tree snapshot is **one `PERMANENT`-class record per epoch** under `K_snapshot[n] ‖ nonce_snapshot[n] = HKDF-Expand(storage_root[n], "snap/v1", 56)`, not a copy inside every wrap. **Amended in MASTER 2026-09-19 and E2 itself is UNTOUCHED:** the expand was `32`, a key and no nonce, with no `alg_id` and no AAD — red-team **M-15**'s defect in its second instance, one section from where §7 adopted M-15 on 2026-09-18. `K_snapshot[n]`'s **value does not change**, by HKDF-Expand's prefix property, so every quotation of the key stays true; what moves is the length beside it, and MASTER now states an `AAD_snap` binding `alg_id`, the group and the epoch. What it does **not** buy — a second snapshot sealed at one epoch reuses the pair — is ledger open item **148**. | §8.2, "The epoch snapshot is a record, not part of the wrap" |
 | E3 | The recovery X-Wing key is derived from a **32-byte** seed, expanded internally with SHAKE-256 per draft-06. A 96-byte HKDF output used directly is not X-Wing and forfeits the security proof. | §5.2 |
 
 **E1 is superseded in part, 2026-09-13, and only in its second sentence.** *"The **device** wrap is
@@ -1620,11 +1620,20 @@ identical stops believing the sentence. The measurement, with its query, so it c
 
 ```
 for f in urmessage-protocol-design spec-a-protocol-sdk-connect spec-b-message-server-operator; do
-  sed -n '/^EpochAttachment {/,/^}/p' docs/specs/2026-08-12-$f.md | sed 's-//.*--' ; done
+  sed -n '/^EpochAttachment {/,/^}/p' docs/specs/2026-08-12-$f.md \
+    | sed 's-//.*--' | sed 's/[[:space:]]*$//' | grep -v '^$' ; done
 ```
 
 strips every annotation and leaves the **eight field declarations plus the two brace lines**, and the
-three documents' ten lines are **byte-identical**. Field order, field names and field widths do not
+three documents' ten lines are **byte-identical**. *(**The last two filters were added 2026-09-19, and
+the query did not work without them.** As first published it stopped after `sed 's-//.*--'`, which
+deletes a comment's text and leaves the indentation in front of it — so the output was 25 lines for
+MASTER and Spec A and **33** for Spec B, differing in trailing whitespace and in blank-line count, and
+`diff` on the three reported changes. The **claim** was right and stays right: the ten non-blank lines
+were byte-identical then and are now. What was wrong is that the artefact published to prove it did not
+produce the result it claimed when run as written, which is the same defect as a number published
+without its query. Re-run and verified 2026-09-19: `diff` is silent across all three pairs, and each
+output is exactly ten lines.)* Field order, field names and field widths do not
 diverge at all. What diverges is **one annotation of one field**, `expected_wrap_count`, and it
 diverges *normatively*. (Two others differ in wording and not in meaning: `read_key`'s trailing
 cross-reference names each document's own retention section, which is correct in each; and
@@ -2030,9 +2039,14 @@ own.
 **(3) The epoch snapshot is not in the wrap-body class at all, and nothing here touches it.** Stated
 because two of the three M1-1 option write-ups quietly put it there and a reader of either would
 conclude otherwise. Correction **E2** (§5.10) already rules it under
-`K_snapshot[n] = HKDF-Expand(storage_root[n], "snap/v1", 32)`, and it is a **blob-ref record with no
-`ct_body` at all** (`size_bucket = 5`), so *"`ct_body` is an AEAD under `key_body`"* is not a statement
-about it in the first place. Its `ct_head` is governed by **M1-6** and by nothing in this section.
+`K_snapshot[n] ‖ nonce_snapshot[n] = HKDF-Expand(storage_root[n], "snap/v1", 56)`, and it is a
+**blob-ref record with no `ct_body` at all** (`size_bucket = 5`), so *"`ct_body` is an AEAD under
+`key_body`"* is not a statement about it in the first place. Its `ct_head` is governed by **M1-6** and
+by nothing in this section. *(**The `56` is MASTER's 2026-09-19 amendment**, and it changes nothing
+this paragraph says: the expand was `32` and derived no nonce, which is M-15's defect in a second
+instance, and `K_snapshot[n]`'s value is unchanged by HKDF-Expand's prefix property. The snapshot's own
+AEAD now has a stated nonce and an `AAD_snap`; the residual it does not close — two snapshots sealed
+at one epoch reuse the pair — is ledger open item **148**.)*
 
 **(4) Every wrap body is signed under the publisher's `identity` key, and a client MUST NOT honour an
 unverified one.** **Half of this is existing policy and half of it is new, and the two halves are

@@ -1985,7 +1985,8 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      **Filed, not ruled.** Found 2026-09-13 while writing ruling 3 into §5.11.
 
 141. **CLOSED 2026-09-18 — MASTER is amended, and the location list was short a THIRD TIME: four
-     named, SIX found.** The three rulings of 2026-09-13 are now in MASTER §8.1, §8.2 and §8.3, under
+     named, SIX found — and a FOURTH time, because the query published to stop that finds four of the
+     six and a SEVENTH location existed. Both are repaired 2026-09-19 and the item stays closed.** The three rulings of 2026-09-13 are now in MASTER §8.1, §8.2 and §8.3, under
      an *"Amendment to revision 9"* entry in §0. Re-run this item's own query and the eight
      `EpochAttachment` field declarations are still **byte-identical** across the three documents,
      while MASTER's `expected_wrap_count` annotation's first four lines are now byte-identical to Spec
@@ -2010,9 +2011,53 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      **Why the list was short, stated so the next one is not.** All four bullets resolved exactly —
      the item was right about everything it said. It was built by looking for where the rulings change
      a **number**, and both misses are places where the rulings change a **sentence's truth value**.
-     The query that finds all six, published so it can be re-run rather than trusted:
-     `grep -nE 'no wrap|6\.9 MB|1,000 device|1,503|~55 round|device wraps \+ recovery wraps'`
-     over MASTER answers all six locations and costs one command.
+
+     **AMENDED 2026-09-19 — THE QUERY PUBLISHED WITH THAT DIAGNOSIS FAILS THE DIAGNOSIS. It finds
+     FOUR of the six, and the two it misses are the two this item's own headline names.** As published
+     it was
+     `grep -nE 'no wrap|6\.9 MB|1,000 device|1,503|~55 round|device wraps \+ recovery wraps'`,
+     offered as the artefact that *"answers all six locations and costs one command"* — and it was
+     never run against that claim. Run against it: it hits the `no_wrap` detector, the sizing
+     paragraph, the join-cost sentence and the `expected_wrap_count` annotation, **misses §8.2's
+     payload table and the fan-out's step 2** — *the single-record device wrap and the pre-ruling
+     fan-out*, which is verbatim what this item is titled after — and returns one line
+     (`:371`, *"appears in no wrap"*) that is none of them. **Five of its six alternations are
+     numbers**, so it is the number-shaped query the diagnosis one paragraph above says cannot find a
+     truth-value change. A query offered as an artefact and never run against its own claim is the
+     same defect as a gate that reports clean having read nothing.
+
+     **The derived query, built from the rulings' SUBJECTS rather than from the answers.** Each
+     alternation is one thing a ruling changed the truth of, not one value it changed: *a device wrap
+     carrying both secrets* (ruling 3), *the recovery arm inside the device arm's set* (ruling 1),
+     *the omission detector*, *what a join costs*, and *whether this layer signs* — the last being the
+     seventh location, below.
+
+     ```
+     grep -nE 'pq_secret.*eph_root|device wraps? .*recovery wraps?|recovery wraps? .*(device wrap|snapshot)|no_wrap|finds no wrap|every join|adds no signature'
+     ```
+
+     **The verification, published beside it, because that is the half this item got wrong.** Over
+     MASTER at `bed5b84` — the last commit before the amendment, which is the only tree where all
+     seven are still false — it returns **nine lines in exactly seven locations** (hits within two
+     lines of each other are one location) and **zero lines outside them**:
+
+     ```
+     item 141's published query: 4/7 locations, 1 line outside all seven
+       MISS L1 signature (:741)          MISS L2 payload-table (:806)
+       MISS L3 fanout-step2 (:841-844)   HIT  L4 no_wrap-detector (:848-850)
+       HIT  L5 sizing (:854-864)         HIT  L6 join-cost (:873-875)
+       HIT  L7 attachment-annot (:912)
+     the derived query:          7/7 locations, 0 lines outside all seven
+     ```
+
+     **THE SEVENTH LOCATION, found 2026-09-19 and now fixed.** MASTER §8 said flatly *"Per **I5**,
+     this layer adds no signature"* while §8.2, rewritten by the same 2026-09-18 pass eight screens
+     below it, makes a body signature a **MUST** on all three wrap record kinds. It is a normative
+     contradiction inside one section of the normative parent, and it was the only location the
+     rulings invalidate that the transcription left standing. **I5 is not amended and does not need to
+     be**: I5's own wording is *"no second signature over **content**"*, a wrap body is not content,
+     and §8's sentence had dropped the qualifier. Fixed in MASTER §8 on 2026-09-19, with the reason
+     stated in place.
 
      **The ruling's COST travels into MASTER with the ruling, which is what the amendment was for.**
      §8.2 now states, where a reader of the fan-out meets it rather than only here: `expected_wrap_count`
@@ -2058,9 +2103,16 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
        direction that gets a warning disbelieved: a reader who checks one field and finds it identical
        stops trusting the whole sentence. (*Two strings, because the sentence straddled a line break at*
        `cea05b8`.) *The query, so it can be re-run —*
-       `for f in urmessage-protocol-design spec-a-protocol-sdk-connect spec-b-message-server-operator; do sed -n '/^EpochAttachment {/,/^}/p' docs/specs/2026-08-12-$f.md | sed 's-//.*--'; done`
+       `for f in urmessage-protocol-design spec-a-protocol-sdk-connect spec-b-message-server-operator; do sed -n '/^EpochAttachment {/,/^}/p' docs/specs/2026-08-12-$f.md | sed 's-//.*--' | sed 's/[[:space:]]*$//' | grep -v '^$'; done`
        *— strips every annotation and leaves the eight field declarations plus two brace lines, and the
-       three documents' ten lines are* **byte-identical**. *Field order, names and widths do not diverge
+       three documents' ten lines are* **byte-identical**. *(**The last two filters were added
+       2026-09-19; without them the query does not produce the byte-identical result it claims.**
+       `sed 's-//.*--'` deletes a comment's text and leaves the indentation that preceded it, so the
+       raw output is 25 lines for MASTER and Spec A and* **33** *for Spec B — differing in trailing
+       whitespace and blank-line count, with* `diff` *reporting changes on all three pairs. The claim
+       was and is true of the ten non-blank lines; what was false is that the published artefact
+       produced it. Re-run 2026-09-19 with the filters:* `diff` *silent on all three pairs, ten lines
+       each. Corrected here and in Spec A §5.11.)* *Field order, names and widths do not diverge
        at all.* **One annotation of one field diverges normatively** — `expected_wrap_count` — *and it is
        the field whose value opens an epoch, which is a sharper warning than "field for field" rather
        than a milder one. Two other annotations differ in wording without differing in meaning:
@@ -2229,16 +2281,32 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      publisher-side retention window on the side where it has a measurable forward-secrecy cost, and the
      restorer's bound is that window or greater.
 
-     **Still filed, still not ruled, and the reason has changed a second time.** It was blocked behind a
-     wire-format decision; then behind one bound; it is in fact blocked behind **four rulings, none of
-     them a wire byte**: (1) the wrap's inner `aead_ct` nonce, which is undefined in every document and
-     is now open item **144** — under the closure Spec A §5.14 uses for its own sibling KEM
-     construction, `nonce = 0` justified by *"Every encapsulation yields a fresh `deposit_key`"*, a
-     republish that reuses `ct_xwing` is a two-time pad over the wrap payload **as well as** a head
-     forgery, so 144 decides this item and not merely itself; (2) the re-encapsulation rule, in a form
-     nothing can violate rather than a MUST nothing can check; (3) the publisher retention window; and
-     (4) the bound, derived from (3). **What is settled is the direction:** zero wire bytes, and a price
-     paid in procedure and retention.
+     **Still filed, still not ruled, and the reason has changed a second time — then a third, on
+     2026-09-18, which this paragraph did not say until 2026-09-19.** It was blocked behind a
+     wire-format decision; then behind one bound; then behind four rulings; it is now blocked behind
+     **THREE rulings, none of them a wire byte**: (1) the re-encapsulation rule, in a form nothing can
+     violate rather than a MUST nothing can check; (2) the publisher retention window; and (3) the
+     bound, derived from (2). **What is settled is the direction:** zero wire bytes, and a price paid
+     in procedure and retention.
+
+     **THE FOURTH BLOCKER IS RULED, AND IT MADE THIS ITEM WORSE RATHER THAN BETTER.** It was *"the
+     wrap's inner `aead_ct` nonce, which is undefined in every document and is now open item 144"*, and
+     item **144 closed on 2026-09-18** when MASTER §7 adopted r3's **M-15**:
+     `wrap_key ‖ wrap_nonce = HKDF-Expand(prk, info, 56)`. The reading this paragraph feared — Spec A
+     §5.14's `nonce = 0`, under which a republish that reuses a stored `ct_xwing` is a two-time pad over
+     the wrap payload **as well as** a head forgery — **is what the ruling delivers anyway**:
+     `wrap_nonce` is a function of `ss` and `ct_xwing` and of **nothing the record carries**, so a
+     reused `ct_xwing` repeats the inner `(wrap_key, wrap_nonce)` exactly. So freshness of the
+     encapsulation is still the safety condition, this item's re-encapsulation rule is **more** clearly
+     required and not less, and what changed is that MASTER's own construction now states the condition
+     instead of it having to be read across from §5.14.
+
+     *(**Corrected 2026-09-19, and the delay is the point.** From 2026-09-18 until then this paragraph
+     read* **"blocked behind four rulings"** *and* **"the wrap's inner `aead_ct` nonce, which is
+     undefined in every document and is now open item 144"** *— both false at `be7154d`, in the body of
+     an* **open** *item a reader consults before the closed ones, and contradicted by item 144's own
+     closure two screens below, which says in as many words that 142's blockers go from four to three.
+     Item 144's closure did the arithmetic and did not carry it back into the item it was about.)*
 
      **And the alternative that deletes the question rather than answering it, priced because the
      comparison is the useful half.** Widening `exemptFromEpochComplete` to cover `AttachmentRecovery`
@@ -2423,6 +2491,16 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      the three 2026-09-13 rulings; naming it is what that pass could do. *Blocks:* nothing.
      **Filed, not ruled.** Found 2026-09-18, while adopting M-15 into MASTER §7.
 
+     *(**2026-09-19: this item is one of TWO, not one, and it is the one the sweep found.** Item
+     **147** is the other — MASTER §8.2's epoch snapshot, the same defect in the same document as §7,
+     missed because the sweep searched for M-15's construction (a KEM seal) rather than its property
+     (an AEAD key from a bare expand with no nonce and no bound `alg_id`). 147 publishes the property
+     query and its output; over the four specs at `be7154d` exactly two 32-octet expands hand their
+     output to an AEAD, and they are this one and `snap/v1`. **This item is unchanged and still
+     out of scope**: unlike the snapshot, nothing in the corpus proposes republishing a deposit, so
+     freshness is not load-bearing against a documented procedure here — which is why 147 was fixed
+     and this one is still only named.)*
+
 146. **THE PROCESS FAILURE BEHIND 144, MEASURED: r3's twelve BLOCKERS were dispositioned by id and
      its fifteen MAJORS were dispositioned by a COUNT, so fourteen of the fifteen are named nowhere in
      this repository outside the review file that raised them.** Item 144 recorded that M-15 carried
@@ -2460,6 +2538,113 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      the gate the plan linter's check 3d already is for plan citations. **Whether to make it a gate is
      the owner's, and is not ruled here.** *Blocks:* nothing mechanically. **Filed, not ruled.** Found
      2026-09-18, while adopting M-15 four weeks late.
+
+147. **CLOSED — AMENDED 2026-09-19. M-15 HAD A SECOND INSTANCE IN MASTER, AND THE SWEEP THAT CLOSED
+     THE FIRST DID NOT REPORT IT — in the section it was already editing. The fix is one line; why the
+     sweep missed it is the item.** MASTER §8.2's epoch snapshot was encrypted under
+     `K_snapshot[n] = HKDF-Expand(storage_root[n], "snap/v1", 32)` — **a 32-octet AEAD key with no
+     nonce, no `alg_id` and no AAD anywhere in the corpus**, which is defect for defect what r3's
+     **M-15** raised against §7's `wrap_key` and what §7 adopted on 2026-09-18, one section away in
+     the same document and in the same commit. Measured at `be7154d`: `snap/v1` occurs **five** times
+     across this repository and a snapshot nonce occurs **zero** times.
+
+     **THE FIX, in M-15's shape rather than a second one.**
+     `K_snapshot[n] ‖ nonce_snapshot[n] = HKDF-Expand(storage_root[n], "snap/v1", 56)`, with
+     `AAD_snap = "URmessage/v1/aad/snap" ‖ u16(alg_id) ‖ LP(group_id) ‖ u64(n)`. `32 ‖ 24` is the
+     split §8's `key_head ‖ nonce_head` and §7's post-M-15 `wrap_key ‖ wrap_nonce` already use, and 24
+     octets is XChaCha20-Poly1305's nonce and no other v1 suite's — the same argument §8 used on
+     2026-08-25 to settle its own record AADs, which is why `alg_id` here is `0x0021` rather than a
+     fresh assertion. **`K_snapshot[n]`'s VALUE does not change**, because HKDF-Expand's output is a
+     prefix of any longer expand under the same PRK and `info`; measured rather than asserted,
+     `Expand(root, "snap/v1", 32) == Expand(root, "snap/v1", 56)[:32]` over 1,000 random roots, every
+     one. So it costs **zero wire bytes**, migrates **no code** (grep for `K_snapshot`, `KSnapshot`
+     and `snap/v1` over every `*.go` in `msgrepo` and `connect`: zero hits), and Spec A §5.10's
+     correction **E2** — which quotes the key — stays true; the three copies of the derivation moved
+     with it (Spec A §5.10 and §5.11, and the m1 plan's Task 3 note, which also loses a KAT blocker
+     it did not know it had lost).
+
+     **WHY THE SWEEP MISSED IT, which is worth more than the fix.** The 2026-09-18 pass did run
+     M-15's class across the corpus, and it found one sibling and filed it as item **145** — Spec A
+     §5.14's rendezvous deposit. So the sweep was real and it was not lazy. **It searched for M-15's
+     CONSTRUCTION and not for M-15's PROPERTY.** M-15 was raised against a KEM seal, so the sweep
+     looked for KEM seals: an encapsulation, `HKDF-Expand(ss, …)`, a `hybrid_ct`, an `alg_id` on the
+     wire. `rzvdeposit` is a KEM seal and was found. **The snapshot is not a KEM seal** — its key
+     comes off `storage_root[n]`, there is no encapsulation, no `ct_xwing`, no `hybrid_ct` and no
+     `alg_id` on the wire at all — so it sat outside the query while sitting inside the class. The
+     property M-15 actually names is not *a KEM seal without a nonce*; it is **an AEAD key produced by
+     a bare expand, with no nonce beside it and no `alg_id` bound**, and that property does not
+     mention KEMs.
+
+     **The property is greppable, and the query is published beside the number with its output,
+     because a query that is never run is what item 141 was just corrected for.** Over the four specs
+     at `be7154d`:
+
+     ```
+     grep -rhoE 'HKDF-Expand\(.{0,90}?, *(16|24|32|48|56|64)\)' docs/specs/ \
+       | sed 's/  */ /g' | sort -u
+     ```
+
+     returns **32** distinct derivations, **24** of them 32-octet. Of those 24, exactly **two** hand
+     their output straight to an AEAD: `"snap/v1"` — this item — and
+     `"URmessage/v1/rzvdeposit"` — item **145**. **The sweep found one of the two.** The other 22 are
+     each something else, and naming them is what makes the two visible: ladder roots and class keys
+     (`sender/v1` under `class_key` and under `env_key[k]`, `ratchet/v1`, `eph/v1`, `perm/v1`,
+     `durable/v1`, `media/v1`), whose AEAD keys come from §8's **56**-octet `rec/v1/head` and
+     `rec/v1/body`; a MAC key and a read authorizer (`write/v1`, `read/v1`); a handle root (`gh/v1`);
+     an identifier (`blob/v1`); signature seeds (`idxsig/v1`, `colsig/v1`); KEM and identity seeds
+     (`recovery/v1`, `card/v1`, `identity/v1`, `cardgen/v1`, `cardkem/v1`, `rk/v1`); and
+     `HKDF-Expand(ss, …, 32)`, which is §7's own record of the form M-15 replaced.
+
+     **THE SHAPE, because this is the third time in six passes.** Item **146** measured a class
+     dispositioned by a **count** instead of a grep. Item **141** published a location query built
+     from the **numbers** the rulings changed instead of the **claims** they falsified, and it missed
+     two of its own six. This item is a class swept by the **construction** the finding was raised
+     against instead of the **property** the finding names, and it missed one of its two. All three
+     are the same error at different altitudes: **the artefact was derived from the instance rather
+     than from the property the instance instantiates.** A sweep whose query cannot be stated as a
+     property of the corpus is a sweep that will find the members that look like the one it started
+     from.
+
+     **What would have caught it, stated as a property so it can become a gate if the owner wants
+     one:** *every HKDF-Expand in `docs/specs/` whose output is used as an AEAD key expands at least
+     key-length + nonce-length, or the document states the nonce beside it.* It is greppable at the
+     cost of one human classification per derivation — 32 of them today — and the classification is
+     the part a machine cannot do, which is why it is offered as a property and not as a check.
+     **Whether it becomes a gate is the owner's and is not ruled here.** *Blocks:* nothing.
+     **Found and fixed 2026-09-19**, in the review of the 2026-09-18 pass.
+
+148. **The snapshot's derived nonce does NOT make a same-epoch republish safe, and step 6 permits one.
+     FILED, NOT RULED.** Item 147 gives `K_snapshot[n] ‖ nonce_snapshot[n]` both as functions of the
+     epoch alone, so **two snapshot objects sealed at one epoch reuse the pair exactly** — the same
+     key, the same nonce and the same `AAD_snap`. It is not hypothetical. MASTER §8.2 step 6 lets
+     **any member** re-publish the missing wraps of a fan-out whose committer died, the snapshot is one
+     of the records `expected_wrap_count` names, and the wrap index is deliberately **not unique**
+     (item **132**), so nothing in the corpus refuses a second snapshot record at one epoch.
+
+     **It is safe only under a property no document states.** Two conforming publishers seal
+     byte-identical plaintext — the ratchet-tree public state and GroupContext at one epoch are agreed
+     across members, that being what MLS is for — and an AEAD over identical plaintext under an
+     identical `(key, nonce, AAD)` yields identical ciphertext and leaks nothing. **But no line of
+     this corpus requires the serialiser to be canonical.** Two publishers whose encodings differ by
+     one byte — map iteration order, an optional field, a length-prefix choice — hand the message
+     server a two-time pad over the epoch's ratchet tree plus the Poly1305 one-time key, which is a
+     forged snapshot a restoring device verifies signatures against.
+
+     **Two repairs, and both are rulings 147 was not scoped to make.** (a) A canonical-serialisation
+     MUST on the snapshot plaintext, plus a rule that a publisher unable to produce the canonical bytes
+     MUST NOT publish — cheap, and it is the one that also makes the duplicate record harmless rather
+     than merely safe. (b) A publisher-separated nonce, which is wire-visible either way: putting
+     `sender_handle` into the `info` changes `K_snapshot[n]`'s value and breaks item 147's
+     zero-migration property, and putting it in a second expand beside the first introduces the second
+     shape 147 deliberately avoided. **They are not equivalent** — (a) leaves one ciphertext where (b)
+     leaves two — and the choice is the owner's.
+
+     **Same family as 142 and it is worth saying so.** 142 is a republish that reuses a stored
+     `ct_xwing` and repeats a KEM seal's pair; this is a republish that repeats a class key's pair. In
+     both, the derivation binds the **content** and not the **publication**, and in both the repair is
+     a procedure rather than a wire byte. *Blocks:* nothing mechanically; a snapshot KAT should not be
+     written against a duplicate-publish case until it is ruled. **Filed, not ruled.** Found
+     2026-09-19, while fixing item 147.
 
 ## 6. Change process
 
@@ -5691,3 +5876,137 @@ edit scripts this pass used were deleted rather than left untracked. Item 141's 
 re-run and still clean. **This repository still has exactly one branch, `main`, and no `beta/message`;
 the brief named `beta/message`, which is `connect`'s branch (README:43, PROGRESS.md:19) and not this
 repository's, so the work was done on `main` at `bed5b84` as every prior pass has been.**
+
+---
+
+**2026-09-19 — `docs/specs/2026-08-12-urmessage-protocol-design.md`,
+`docs/specs/2026-08-12-spec-a-protocol-sdk-connect.md`,
+`docs/plans/2026-09-04-slice1-m1-message-crypto.md`, `SPEC-LEDGER.md` — the review of the 2026-09-18
+MASTER pass. THE PASS ITSELF LANDED: the three rulings agree across all three documents everywhere a
+reviewer could make them disagree, M-15 is adopted with its one substitution stated rather than made
+quietly, and the three inherited gaps are carried rather than filled. What follows is what the review
+found afterwards, and two of the seven are the pass's own artefacts failing against their own claims.**
+
+**1 — M-15 HAD A SECOND INSTANCE IN MASTER, AND THE SWEEP THAT CLOSED THE FIRST DID NOT REPORT IT.**
+§8.2's epoch snapshot was `K_snapshot[n] = HKDF-Expand(storage_root[n], "snap/v1", 32)` — **a 32-octet
+AEAD key with no nonce, no `alg_id` and no AAD anywhere in the corpus**, one section from where §7
+adopted M-15 in the same commit. Reproduced before it was touched: `snap/v1` five hits at `be7154d`, a
+snapshot nonce **zero**. Fixed in M-15's own shape and not a second one —
+`K_snapshot[n] ‖ nonce_snapshot[n] = HKDF-Expand(storage_root[n], "snap/v1", 56)` with an `AAD_snap`
+binding `alg_id`, the group and the epoch. **`K_snapshot[n]`'s value does not change**: HKDF-Expand's
+output is a prefix of any longer expand under the same PRK and `info`, measured over 1,000 random
+roots rather than asserted, so it costs zero wire bytes, migrates no code (zero `*.go` hits in
+`msgrepo` and `connect`), and Spec A §5.10's correction **E2** stays true. New item **147**.
+
+**And what the derived nonce does NOT buy is written beside it rather than left to be assumed.** Both
+halves are functions of the epoch alone, so a second snapshot sealed at one epoch — which §8.2 step 6
+permits and item 132's non-unique wrap index does not refuse — reuses the pair exactly. It is safe
+only under a canonical-serialisation property **no document states**. New item **148**, filed and not
+ruled, because both repairs are rulings this pass was not scoped to make. *The one-shot argument was
+considered and rejected on the evidence: it would have been legitimate, but step 6 defeats it.*
+
+**WHY THE SWEEP MISSED IT, which is the half worth more than the fix.** The 2026-09-18 pass did sweep,
+and it found one sibling — item **145**, Spec A §5.14's rendezvous deposit. It searched for M-15's
+**construction** (a KEM seal: an encapsulation, `HKDF-Expand(ss, …)`, a `hybrid_ct`, an `alg_id` on the
+wire) and not for M-15's **property** (an AEAD key from a bare expand, no nonce beside it, no `alg_id`
+bound). The snapshot is not a KEM seal, so it sat outside the query while sitting inside the class.
+**The property is greppable and the query is published with its output in item 147**: over the four
+specs at `be7154d`, 32 distinct `HKDF-Expand` derivations, 24 of them 32-octet, of which exactly
+**two** hand their output to an AEAD — `snap/v1` and `rzvdeposit`. The sweep found one of two, and the
+other 22 are each named as the ladder root, MAC key, handle, seed or identifier they are.
+
+**This is the third time in six passes at three altitudes.** Item **146**: a class dispositioned by a
+**count** instead of a grep. Item **141**: a location query built from the **numbers** a ruling changed
+instead of the **claims** it falsified. This: a class swept by the **construction** a finding names
+instead of the **property** it names. **Each artefact was derived from the instance rather than from
+the property the instance instantiates.**
+
+**2 — ITEM 141'S PUBLISHED QUERY FINDS FOUR OF ITS SIX, AND THE TWO IT MISSES ARE THE TWO ITS OWN
+HEADLINE NAMES.** `grep -nE 'no wrap|6\.9 MB|1,000 device|1,503|~55 round|device wraps \+ recovery
+wraps'` was published as the artefact that *"answers all six locations"* and was **never run against
+that claim**. Run: it misses §8.2's payload table and the fan-out's step 2 — *the single-record device
+wrap and the pre-ruling fan-out*, verbatim what the item is titled after — and returns one line that
+is none of the six. **Five of its six alternations are numbers**, so it is precisely the number-shaped
+query the diagnosis one paragraph above it says cannot find a truth-value change. The item's diagnosis
+was right; its artefact did not implement it.
+
+**The derived query is built from the rulings' SUBJECTS, and its verification is published beside it**
+— which is the part item 141 omitted:
+
+```
+grep -nE 'pq_secret.*eph_root|device wraps? .*recovery wraps?|recovery wraps? .*(device wrap|snapshot)|no_wrap|finds no wrap|every join|adds no signature'
+```
+
+Over MASTER at `bed5b84`: **nine lines in exactly seven locations, zero lines outside them**, against
+the old query's **four of seven plus one false positive**. The coverage table is in item 141.
+
+**3 — THE SEVENTH LOCATION: A NORMATIVE CONTRADICTION INSIDE MASTER §8, AND THE ONLY ONE THE
+TRANSCRIPTION LEFT STANDING.** §8 said flatly *"Per **I5**, this layer adds no signature"* while §8.2,
+rewritten by the same pass eight screens below, makes a body signature a **MUST** on all three wrap
+record kinds. **I5 is not amended and does not need to be** — its own wording is *"no second signature
+over **content**"*, a wrap body is not content (a wrap carries no MLS frame, so there is no inner
+signature to defer to), and §8's sentence had dropped the qualifier. The epoch snapshot is explicitly
+**not** among the three: it is a blob-ref record with no `ct_body`, so it has no wrap body to sign.
+
+**4 — ITEM 142'S BODY WAS STALE AND UNANNOTATED, IN AN OPEN ITEM A READER GOES TO FIRST.** It read
+*"blocked behind four rulings"* and named blocker (1) as *"the wrap's inner `aead_ct` nonce, which is
+undefined in every document and is now open item 144"*. **Both false at `be7154d`**, and contradicted
+by item 144's own closure two screens below, which does the arithmetic and says 142 goes from four to
+three. 142 now says **three**, and says what the fourth's ruling did: it **confirmed** the hazard
+rather than removing it, because `wrap_nonce` is a function of `ss` and `ct_xwing` and of nothing the
+record carries, so a reused `ct_xwing` repeats the inner pair exactly as the `nonce = 0` reading would
+have. 144's closure did the arithmetic and did not carry it back into the item it was about.
+
+**5 — THE M1 PLAN'S STALE COUNT WAS TWO; IT IS SEVEN, ACROSS SIX PASSAGES, AND ALL SEVEN ARE NOW
+EDITED.** The 2026-09-18 pass reported *"two sentences"* (`:3054` and `:3720`–`:3725`) and left the
+plan alone on the ground that the owner's scope named MASTER, Spec A and Spec B. The scope argument is
+sound; the count was not. **Four passages went unreported**, carrying five sentences: `:3237`–`:3239`
+(*"ledger open item 144 says the wrap's inner `aead_ct` has no nonce in any document at all"* **and**
+*"142 now names four rulings"* — two sentences, one passage), `:3727` and `:4205` (**`target_id` is
+*"the fourth input to `wrap_key`"***, which was its position in the pre-M-15 four-element `info` and is
+now the **fifth** of nine — a builder transcribing the preimage from either sentence builds the wrong
+one), and `:4194`–`:4196` (a second copy of *"four rulings"* and a third copy of 144 as **Task 19's
+stop sign**). This pass edits all seven with dated corrections, plus the snapshot derivation §1 moved.
+**Task 19 loses two stop signs it did not know it had lost** — the wrap's inner nonce, and the
+snapshot seal's — and keeps `target_id`.
+
+**6 — A PUBLISHED BYTE-IDENTITY QUERY THAT DOES NOT PRODUCE THE BYTE-IDENTICAL RESULT IT CLAIMS.**
+Pre-existing and re-asserted by the 2026-09-18 pass rather than introduced by it, in Spec A §5.11 and
+in item 141. As written it stopped after `sed 's-//.*--'`, which deletes a comment's text and leaves
+the indentation that preceded it: **25 lines for MASTER and Spec A, 33 for Spec B**, differing in
+trailing whitespace and blank-line count, with `diff` reporting changes on all three pairs. **The
+claim was and is true of the ten non-blank lines; what was false is that the artefact produced it** —
+the same defect as item 2 above. Both copies now carry
+`| sed 's/[[:space:]]*$//' | grep -v '^$'`, re-run: `diff` silent on all three pairs, ten lines each.
+
+**7 — MASTER §7'S `info` TABLE AND ITS GAP LIST READ AGAINST EACH OTHER.** The table enumerated
+`target_type`'s two classes while the gap list three paragraphs below said it has *"no code point, a
+value table or a definition anywhere"*. Both now say the same thing and **the gap is not closed**: the
+table gives the **domain**, which §8.2's payload table already fixes; no document gives the
+**encoding**, which is what a publisher and a restorer must agree on. **The domain is not the
+encoding.** No code point was invented.
+
+**Nothing else is ruled here.** Items **132**, **133**, **134**, **142**, **143**, **145** and the new
+**148** stay filed and unruled. Item **134**'s false derivability sentence in MASTER §8.2 step 6 stays
+marked in place and unrepaired, as it is in Spec A §5.11 and Spec B §6.1. The revision-10 question
+filed by item 141 is still the owner's and is not answered here.
+
+**Verified.** `go build ./...` clean. `go test ./...` green, all packages. `go test ./ -run
+TestThePlanLinter` **7 of 7, `ok`**, before and after, with **every check's finding count identical to
+baseline** — 1a none, 1b 7, 1c 1, 1d none/189, 2a 18, 2b none, 3a 4, 3c 2, 4b 5, both fatal checks
+**3b** and **3d** at **no findings** in both runs, and the ledger-reference class at **44** in both.
+**Two class sizes moved and both are accounted for rather than waved past**, because a class that
+shrinks is the failure this linter's own header exists to catch: the task-reference class **1616 →
+1618**, the two new *"Task 19"* mentions written into the m1 plan by §5 above; and the
+open-item-reference class **415 → 414**, one `M1-1` reference deleted with the sentence that carried
+it (*"A `hybrid_ct` KAT is blocked on 144 the way Task 14 is blocked on M1-1's remainder"*), because
+144 is closed and the analogy it drew no longer holds. Measured, not inferred: `M1-*` occurrences in
+the m1 plan **254 → 253**, and the one that went is `M1-1` **15 → 14**. `git ls-files` equals
+`git ls-tree -r HEAD --name-only` at **102**, checked before the commit rather than assumed. Every
+edited file measured **LF throughout, zero CR bytes** with `tr -dc '\r' | wc -c`. Every query this
+entry publishes was **run at the commit it names** and its output is in the item beside it, which is
+the defect items 2 and 6 above exist to stop repeating. `git status --porcelain` before the commit
+listed exactly the four documents and nothing else; the edit scripts ran from outside the checkout.
+**Still one branch, `main`, and no `beta/message`** — the brief named `beta/message`, which is
+`connect`'s branch (README:43, PROGRESS.md:19) and not this repository's, so the work was done on
+`main` at `be7154d` as every prior pass has been.
