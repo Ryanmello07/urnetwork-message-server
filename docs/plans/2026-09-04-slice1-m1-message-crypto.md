@@ -637,8 +637,8 @@ func VerifyWriteAuth(writeKey, serverNonce []byte, r *Record) bool
 | Symbol | Producer | Consumed by | State on 2026-09-04 |
 |---|---|---|---|
 | `pq_secret[n]`, as a value with a type and a sampler | **this plan, Task 13** | `StorageRoot`'s second argument | absent everywhere: no type, no file, no spec section |
-| the device wrap's body encoding and its seal | **unruled — Open item M1-1** | Task 14 | `wrap.go` is named in §2.2 and has no section in any spec |
-| the joiner's channel for `group_handle_key` | **unruled — Open item M1-2** | Task 16 | `grep -rn 'group_handle_key\|GroupHandleKey'` over `connect` returns **0** |
+| the device wrap's body encoding and its seal | **PARTLY RULED 2026-09-13 — three of the five questions; M1-1's remainder is still open** | Task 14 | Spec A §5.11 now carries the outer seal, the two-record split, the body signature and the fan-out sequence. Still absent: the body's field list beyond MASTER §8.2's payload table, where the signature sits relative to `hybrid_ct`, and the padding scheme (M1-7) |
+| the joiner's channel for `group_handle_key` | **DELIBERATELY DEFERRED 2026-09-13 — still unruled, and CP3b is NOT blocked by it** | Task 16 | `grep -rn 'group_handle_key\|GroupHandleKey'` over `connect` still returns **0**. Ledger 44a's already-blessed gated test-only hand-off carries it for CP3b, under the proviso Task 16 now states |
 | `mls.CheckGroupSize`, `mls.CheckDeviceCount` | p7 Task 20 | nothing in this plan | absent; the two constants exist, the two checks do not |
 | `SubmitResult.winning_commit` | Spec B / `msgrepo` | Task 21 (§5.12) | Spec B's type; `msgrepo/store` serves `Submit` today |
 | `testdata/message-server-vectors.json` | §12.1 A-8, **unowned** | Tasks 15, 20, 23 | absent in both repositories |
@@ -942,7 +942,7 @@ discovered at Task 14.
 | Wave | Tasks | On CP3b? | Note |
 |---|---|---|---|
 | 1 | 1–12, and 9a | **yes** | unblocked: the schedule, the ratchets, the adapter, the session, seal and open |
-| 2 | 13–16 | **yes** | the second client's half; Tasks 14 and 16 need rulings M1-1 and M1-2 |
+| 2 | 13–16 | **yes** | the second client's half. Task 14 has three of M1-1's questions ruled (2026-09-13) and still needs M1-1's remainder **and M1-6**, which now blocks it too; Task 15 needs M1-6; Task 16's M1-2 is deferred and does **not** block CP3b |
 | 3 | 17–24 | **no** | required before the A6 format freeze; none is required to put a message in front of a person |
 
 **And the two legs this plan does not have.** CP3b's own words are *"through the message server"*. Every
@@ -2171,7 +2171,13 @@ makes it reachable from a published function, per amendment A-9's reachability r
 - Produces: `GroupEngine`, `GroupHandle`, `EngineProcessed` — the block in Spec A §6 (spec lines
   1885–1939, re-read after A-12), transcribed **from the spec**, and deliberately **not** normalised against
   `group.go`'s signatures. Measured 2026-09-05: `GroupEngine` is 4 methods and `GroupHandle` is
-  **23**.
+  **23**. The full method set is §6's and is not restated here, but the members **other tasks in this
+  plan consume by name** are declared here so a reader is not sent to the registry for them:
+  `Export`, `SenderDataSecret`, `EncryptionSecret`, `RatchetTreeSnapshot`, `GroupContextBytes`,
+  `MemberAt`, `MergePendingCommit`, `ClearPendingCommit`, `Process`, `ApplyCommit` and
+  `JoinFromWelcome` — the last on `GroupEngine`, not on `GroupHandle`, which is the mistake Task 16
+  warns about. `Export` is named 2026-09-13: the device-wrap ruling makes `env_key[k]` a per-epoch
+  exporter call, so Task 14 now consumes it and §6 already declares it.
 
 **Why this is m1's and not s5's, and the correction it forces.** s1's registry records
 `message.GroupEngine` and `message.GroupHandle` as **pending pins with s5 as producer** and
@@ -2607,6 +2613,16 @@ Task 15's own text; it is not this task's to weaken. Specifically: do **not** ca
 exemption into `SealRecord` for the snapshot. The refusal is the only thing standing between an
 unruled reading and a wire-visible record, and one exemption is how a refusal becomes a sentence.
 
+**And on 2026-09-13 this refusal grew to block Task 14 as well, which is the schedule fact that
+changed.** Before that ruling the only non-`DURABLE` record on this plan's CP3b path was Task 15's
+snapshot. After it, **every record the epoch fan-out writes is non-`DURABLE`**: Spec A §5.11 makes the
+device wrap two records — a `PERMANENT` one carrying `pq_secret` and an `EPH(5)` one carrying
+`eph_root` — beside a `PERMANENT` recovery wrap and a `PERMANENT` snapshot. So `SealRecord` refuses
+every record Task 14 builds, not only every record Task 15 builds, and **M1-6 is a precondition of
+both.** The instruction is unchanged and is now worth more: do not carve an exemption for the wrap
+either. It is four record kinds now rather than one, and four exemptions is a refusal that has become
+a sentence.
+
 **(b) How the body is padded, and how the receiver recovers its length.** §5.1 fixes
 `octet_length(ct_body)` at `size_bucket_bytes[b] + 16` exactly, so the plaintext is padded to
 `SizeBucketBytes(b)` before the AEAD. **No document states the padding scheme, and `pad.go` is named
@@ -2701,7 +2717,10 @@ asks for the reading to be promoted into §5.11.
   7. Pass `attachmentBytes` to `AADHead` while setting a different value on the header — the landed
      `ErrServerAttachmentMismatch` must catch this and the test must prove it does.
   8. Pad with a constant instead of the ruled scheme.
-  9. Accept a `PERMANENT` class.
+  9. Accept a `PERMANENT` class — Property 6 must fail.
+  10. Accept an `EPH(5)` class — Property 6 must fail. Added 2026-09-13: the `eph_root` device wrap is
+      `EPH(5)`, so the eph arm of that refusal is now on the CP3b path and not only on the A6 path, and
+      a refusal tested on one arm of a two-arm switch is a refusal tested on half of itself.
 - [ ] **Step 6: Commit**
 
 ---
@@ -2826,6 +2845,25 @@ storage-layer
 half a home and puts the `mls` call **inside its destructor**, not beside it, so the two cannot be
 destroyed apart.
 
+**And one value that is deliberately NOT part of it, ruled 2026-09-13.** Spec A §5.11 seals every
+device-wrap record under `env_key[k] = MLS-Exporter("URmessage/v1/envelope", "", 32)` and makes caching
+that key a normative obligation, because it is computable **only while the group is at epoch k**:
+`(*Group).Export` (`connect/mls/group.go:821`) reads the current schedule and `connect` has no
+`ExportAt` at all — measured, `grep -rn 'ExportAt'` over the whole of `connect` returns **0**. The
+cached `env_key` is **not** provisional-committer state, and the destructor this task builds MUST NOT
+reach it. Destroying it on a rejected commit submission would discard the only route into the
+`storage_root` of an epoch that may already be open — the same shape as ledger open item 134's
+conforming-client hazard, arrived at from the other side. §5.12 step 1's list is what the provisional
+value holds; the `env_key` cache has its own lifetime, stated in §5.11, and **where it is persisted is
+not ruled** and is not this task's to choose.
+
+**And the provisional value now feeds two records rather than one.** `pq_secret[n+1]` and
+`eph_root[n+1]` used to ride one device wrap and now ride two, at two different retention classes. That
+changes nothing about what the destructor must erase and everything about how a half-erase looks: a
+destructor that zeroizes one and leaves the other live leaves half of an epoch's delivery material
+alive, and the surviving half is the one §8.1's disappearing-message promise is about. Property 3
+already says "destroyed as one thing"; mutation 7 is what makes it fail.
+
 - [ ] **Step 1: Derive the property and write the failing test**
 
   **Property 1 — the sampler refuses a nil reader with `mls.ErrNilRandomSource` and refuses an
@@ -2915,6 +2953,13 @@ destroyed apart.
   the same epoch produce two different `pq_secret` values, and the second is not the first. It can be
   written now against the provisional value even though Task 21 supplies the retry loop.
 
+  **Property 6 — the destructor does not touch the epoch's cached `env_key`.** Added 2026-09-13 with the
+  device-wrap ruling. Two assertions, and the second is the one a refactor breaks: a destructor run
+  leaves an already-cached `env_key` for an **open** epoch intact, and the provisional epoch value
+  declares **no field able to hold one**. The second is a shape and is what stops the first from being
+  re-broken by somebody who finds it convenient to keep the two together. *Refusal owed:* a provisional
+  value that carries an `env_key` field fails, naming Spec A §5.11's caching obligation and G10.
+
 - [ ] **Step 2–4** as above; run the `mls` suite.
 - [ ] **Step 5: Mutation-test.**
   1. Fall back to `crypto/rand` when the reader is nil.
@@ -2923,11 +2968,16 @@ destroyed apart.
   4. Zeroize the provisional state without calling `ClearPendingCommit`.
   5. Call `ClearPendingCommit` without zeroizing.
   6. Reuse the previous `pq_secret` on a retry.
+  7. Zeroize `pq_secret[n+1]` and leave `eph_root[n+1]` live, then the reverse — Property 3 must fail
+     both ways. This became a live shape on 2026-09-13, when the two secrets stopped riding one record.
+  8. Hold the cached `env_key[k]` as a field of the provisional epoch value, so the destructor takes it
+     — Property 6 must fail on its second assertion, the one about the shape, before it fails on the
+     first.
 - [ ] **Step 6: Commit**
 
 ---
 
-## Task 14: The device wrap — **BLOCKED on Open item M1-1**
+## Task 14: The device wrap — **two records; three of M1-1's questions ruled 2026-09-13, and the rest still blocks**
 
 **Files:**
 - Create: `connect/messagegroup/wrap.go`
@@ -2937,59 +2987,138 @@ destroyed apart.
 - Consumes: `messagegroup.XwingEncapsulate`, `messagegroup.XwingDecapsulate`,
   `messagegroup.ParseXwingPublicKey`
   (all landed, §5.4 complete); `mls.LeafKeysExtension` and `ExtensionTypeUrmessageLeafKeys` for the
-  target key; Task 4's `WrapTargetHandle`; Task 11's `SealRecord`; `message.WrapTag`,
-  `message.EncodeServerAttachment` (landed).
-- Produces: the device wrap builder and opener, and the target enumeration over a group's leaves.
+  target key; `GroupHandle.Export` for `env_key[k]` (Task 9's interface; `(*mls.Group).Export` at
+  `group.go:821` is what Task 9a's adapter forwards to); Task 4's `WrapTargetHandle`; Task 11's
+  `SealRecord`; `message.WrapTag`, `message.EncodeServerAttachment` (landed).
+- Produces: the device-wrap builder and opener — **two records per target**, not one — the target
+  enumeration over a group's leaves, and the per-epoch `env_key` cache Spec A §5.11 makes an obligation.
 
-**Why this is blocked, and it is the largest hole in front of CP3b.** `wrap.go` is named in §2.2's
-package tree and **has no section in any spec.** What is missing is not a detail:
+**What the owner ruled on 2026-09-13, quoted in outline so this task is not implemented from the
+summary.** Spec A §5.11 is the normative text and it is short; read it rather than this list.
 
-1. **The wrap body has no encoding.** §5.11 specifies the `WrapTag` — the server-visible attachment,
-   `{wrap_target_handle, epoch}` — and says nothing about the bytes inside `ct_body`. MASTER §8.2
-   says what the wrap *carries* (`pq_secret[n]` and `eph_root[n]` for a device leaf) and not how they
-   are laid out, framed, or versioned.
-2. **The wrap's own seal is circular as the sizing implies it.** §5.11 says a device wrap *"pads to
-   `size_bucket 2`, a `ct_body` of exactly 4,112 bytes"*, i.e. it is an ordinary record whose body
-   goes through the record AEAD. But the record AEAD's key comes from `storage_root[n+1]`, and
-   `storage_root[n+1]` is **what the wrap delivers**. Either the wrap's record body is sealed under
-   the *previous* epoch's class key — which a **newly joined** member does not have, so the join case
-   is unserved — or the X-Wing ciphertext is the seal and the record AEAD is a second layer over it
-   under some other key. No document says which.
-3. **The joining member's case is unserved either way**, which is Open item M1-2.
+1. **The device-wrap records ride an MLS-exporter envelope.**
+   `env_key[k] = MLS-Exporter("URmessage/v1/envelope", "", 32)` at the wrap's **own** epoch, taking the
+   place of the class key at the head of §5.3's **existing** record ladder. No new ladder, no new label
+   below the root. It is not circular — `env_key[k]` descends from the MLS key schedule and from no
+   `storage_root` — and it is the only outer key that neither the message server nor a member removed
+   by the commit that opened the epoch can derive.
+2. **The device wrap is two records**, and this is the sizing change: a `PERMANENT` record carrying
+   `pq_secret[k]` and an `EPH(5)` record carrying `eph_root[k]`, both `WrapTag`, both at the **same**
+   `wrap_target_handle`. That is what makes MASTER §8.1's disappearing-message promise cryptographic
+   rather than behavioural, and it closes ledger item 136.
+3. **Every wrap body is signed under the publisher's `identity` key**, and a client MUST NOT honour an
+   unverified one. Not new policy — MASTER §5.3 already says it for a `RecoveryTag` — and it is the
+   only thing that gives a wrap's fields any authenticator at all, because a wrap carries no MLS frame
+   and §2.4 makes `write_auth` zero on read.
+4. **The recovery wrap does NOT use the envelope** and is KEM-sealed, with a real `ct_head` keyed
+   `HKDF-Expand(wrap_key, "wraphead/v1", 56)`. That is Task 19's record and is stated here only so this
+   task does not generalise its own rule across it.
 
-**What a ruling must state, so it can be implemented in one pass:** the wrap body's field list and
-its framing (with an `alg_id`, per MASTER §7.1's rule that every hybrid ciphertext carries one); the
-key the wrap record's `ct_body` is sealed under, stated separately for a continuing member and for a
-joining one; and whether the X-Wing ciphertext sits inside the record body or replaces it.
+**Read Spec A §5.11 and not MASTER for any of the four points above.** Ledger item **141**: the
+2026-09-13 pass amended Spec A and Spec B and **deliberately did not amend MASTER**, which therefore
+still publishes the single-record device wrap in its §8.2 payload table, the pre-ruling fan-out with
+the recovery wraps in step 2, and the old sizing. MASTER stays authoritative for the inner X-Wing
+construction and for §8.2's payload semantics; it is **not** current on the record count, the outer
+seal or the order, and an implementer who reads it for those builds the shape mutation 6 refutes.
 
-- [ ] **Step 1 (after M1-1 is ruled): Derive the property and write the failing test**
+**What is still open, and it still blocks this task.** M1-1's remainder is real and small: the wrap
+body's field list beyond what MASTER §8.2's payload table and MASTER §7's `hybrid_ct` framing already
+fix; **where the signature sits relative to `hybrid_ct` and precisely which octets it covers**; and the
+padding scheme, which is **M1-7**. And **M1-6 now blocks this task too** — see Task 11(a): both records
+this task builds are non-`DURABLE`, so `SealRecord` refuses both until M1-6 is ruled. Do not start
+step 1 against a guess at any of the three.
 
-  **Property 1 — every active device leaf gets exactly one wrap.** The scope question (R3a): the
-  class is the leaves the **group** reports, through `GroupHandle.MemberAt`, not a list the caller
-  passes. A fan-out over a caller-supplied list is a fan-out that silently omits.
-  *Refusal owed:* a leaf with no `LeafKeysExtension` is a typed refusal, not a skip — §3.4 puts
+**The caching obligation is this task's, and it is the part most likely to be dropped.** `env_key[k]`
+is computable **only while the group is at epoch k**: `(*Group).Export` reads the current schedule,
+there is no `ExportAt` in `connect` at all (measured, `grep -rn 'ExportAt'` returns 0), and
+`PastEpochWindow` is 32 but no published API reaches a past epoch's exporter, so the thirty-two is not
+the window here — the live epoch is. A client that walks *m* commits of catch-up and opens its wraps
+afterwards can open **none** of them. §5.11 states who caches, for how long, where, and what a client
+does when it has missed the window; the honest answer to the last is that **that epoch's
+`storage_root` is unrecoverable**, and this task's opener must say so with a typed failure rather than
+retry.
+
+- [ ] **Step 1 (after M1-1's remainder and M1-6 are ruled): Derive the property and write the failing
+      test**
+
+  **Property 1 — every active device leaf gets exactly TWO wrap records,** one `PERMANENT` and one
+  `EPH(5)`, and no leaf gets one of them. The scope question (R3a): the leaves are the ones the
+  **group** reports, through `GroupHandle.MemberAt`, and never a list the caller passes — a fan-out
+  over a caller-supplied list is a fan-out that silently omits. That derived set of leaves is
+  non-empty at this task's commit and its class has **at least one** member for any group this task can
+  be tested against, because a group with no active device leaf has no wrap to build and no test to
+  run. *Refusal owed:* a leaf with no `LeafKeysExtension` is a typed refusal, not a skip — §3.4 puts
   `0xF002` in `RequiredCapabilities` precisely so this cannot happen, and a member with no X-Wing key
-  *"would silently lose history at the next commit"*.
+  *"would silently lose history at the next commit"*. **The "exactly two" half is what mutation 6
+  refutes**, and it is the assertion the pre-ruling version of this property could not state.
 
-  **Property 2 — a member finds its own wrap by computing its handle,** and finds no other. The
-  server cannot invert `wrap_target_handle`; the member computes it.
+  **Property 2 — a member finds its own wraps by computing its handle,** and finds no other member's.
+  The server cannot invert `wrap_target_handle`; the member computes it. **Both** of its records answer
+  to that one handle, so a lookup that stops at the first row is a lookup that loses half the epoch —
+  assert the count returned, not merely that something was returned.
 
-  **Property 3 — the wrap round-trips through X-Wing and yields the exact `pq_secret`,** and a wrap
-  built for leaf *a* does not open under leaf *b*'s key.
+  **Property 3 — each wrap round-trips through X-Wing and yields the exact secret it carries,** the
+  `PERMANENT` one `pq_secret[k]` and the `EPH(5)` one `eph_root[k]`; and a wrap built for leaf *a* does
+  not open under leaf *b*'s key. Assert the two secrets are **not** interchanged, which is the failure a
+  round-trip test written over one record cannot see.
 
   **Property 4 — the epoch is bound.** A wrap for epoch *n+1* does not open as a wrap for epoch *n*.
-  `wrap_target_handle` binds the epoch; assert that the **body** does too, or the ruling must say why
-  it need not.
+  `wrap_target_handle` binds the epoch, `wrap_key`'s HKDF info binds it, and `env_key[k]` is an epoch's
+  own exporter output; assert that the **body** binds it too.
 
-  **Property 5 — an omitted wrap is visible.** §5.11 step 4's `no_wrap` gap. And see **Open item
-  M1-22**: a committer that omits one member's wrap while matching `expected_wrap_count` produces a
-  group that is writable, self-consistent to the server, and **permanently unreadable** for the
-  omitted member — the victim stays a full MLS member with a `no_wrap` gap forever, and §5.11 step 5
+  **Property 5 — an omitted wrap is visible.** §5.11 step 5's `no_wrap` gap, which after the
+  2026-09-13 resequence covers the **device** arm and the snapshot and not the recovery arm. And see
+  **Open item M1-22**: a committer that omits one member's wrap while matching `expected_wrap_count`
+  produces a group that is writable, self-consistent to the server, and **permanently unreadable** for
+  the omitted member — the victim stays a full MLS member with a `no_wrap` gap forever, and §5.11
   authorises repair only for a committer that *died*, not one that *lied*.
 
-- [ ] **Steps 2–6** as above, with mutations including: encapsulate to the wrong leaf; reuse one
-  X-Wing ciphertext for two targets; omit the epoch from the body; drop a leaf from the enumeration;
-  seal the wrap under the new epoch's class key when the ruling said the old one.
+  **Property 6 — the outer seal is `env_key[k]` and never a `storage_root`.** Two assertions. The
+  behavioural one: a wrap sealed by this builder does not open under any key descending from
+  `storage_root[k]` or `storage_root[k-1]`. The structural one, which is the one that survives a
+  refactor: the builder's own call into `SealRecord` is reached from `Export` and from nothing in
+  `keyschedule.go`. *Refusal owed:* an edge from the builder into `DeriveClassKeys` fails, naming
+  §5.11's ruling — that edge is exactly the circularity the ruling exists to remove.
+
+  **Property 7 — every wrap body carries a signature under the publisher's `identity` key, and the
+  opener refuses an unsigned or wrongly-signed one before it honours anything in the record.** Order
+  matters and is the property: refuse **before** reading the epoch, the handle or the secret, because
+  a wrap whose signature has not been checked has no authenticated field to read. MASTER §5.3's
+  wording — *"MUST NOT honour"* — is the standard.
+
+  **Property 8 — the `env_key` cache survives what it must survive.** The builder and the opener read
+  `env_key[k]` from the cache and never recompute it from a group that has moved on; a cache miss for
+  an epoch the group has left is a **typed failure naming the epoch**, not a silent skip and not a
+  retry loop. This is the property that catches the natural implementation — call `Export` at open
+  time — which is correct in every test where the group has not advanced and wrong in every real
+  catch-up. The failure this property makes visible is **unrecoverable** — ledger item **139** —
+  which is why it must be typed and must not be a retry.
+
+- [ ] **Steps 2–6** as above.
+- [ ] **Step 5: Mutation-test.**
+  1. Encapsulate to the wrong leaf — Property 3 must fail.
+  2. Reuse one X-Wing ciphertext for two targets — Property 3 must fail.
+  3. Omit the epoch from the body — Property 4 must fail.
+  4. Drop a leaf from the enumeration — Property 1 must fail.
+  5. Seal the wrap under `DeriveClassKeys(storage_root[k])` instead of `env_key[k]` — Property 6 must
+     fail on both of its assertions, and the structural one must fail first.
+  6. Emit **one** record per leaf carrying both secrets, which is the pre-2026-09-13 shape — Property 1
+     must fail. It is written out because it is the shape every existing draft, every option write-up
+     and the sizing arithmetic in three documents used to describe, so it is the mistake a reader
+     arrives holding.
+  7. Emit both records but give the `eph_root` one the `PERMANENT` class — Property 1 must fail, and
+     this is the mutation that matters most: the record is otherwise correct, it round-trips, and the
+     only thing it breaks is the disappearing-message promise ruling 3 exists to make cryptographic.
+  8. Swap the two secrets between the two records — Property 3 must fail.
+  9. Publish an unsigned wrap body, then one signed under the wrong member's key — Property 7 must fail
+     twice.
+  10. Honour a wrap's `wrap_target_handle` before verifying its signature — Property 7 must fail on
+      ordering even though every byte in the record is correct.
+  11. Call `Export` at wrap-open time instead of reading the cache, then advance the group by one epoch
+      before opening — Property 8 must fail. Without the advance it passes, which is the whole point.
+  12. Return only the first row from a lookup at a `wrap_target_handle` that has two — Property 2 must
+      fail.
+- [ ] **Step 6: Commit**
 
 ---
 
@@ -3005,34 +3134,54 @@ joining one; and whether the X-Wing ciphertext sits inside the record body or re
 - Produces: the publication sequence of §5.11 as one ordered operation, and the derived
   `expected_wrap_count`.
 
-**The sequence, quoted whole, because its five steps are usually collapsed to three.** §5.11:
+**The sequence was RESEQUENCED on 2026-09-13 and is quoted whole, because it is now seven steps and
+because the pre-ruling version of it executed against no server at all.** §5.11:
 
 > 1. The server accepts at most one commit per `(group_id, epoch)`. On acceptance it sets
 >    `current_epoch := n+1` and installs `write_key[n+1]` from the attachment, in the same
 >    transaction.
 > 2. The committer then submits, **as ordinary records at epoch `n+1`, MAC'd under
->    `write_key[n+1]`**: one device wrap per active device leaf (`WrapTag`, indexed by
->    `wrap_target_handle`), one recovery wrap per member (`RecoveryTag`, indexed by
->    `recovery_handle`), and the ratchet-tree snapshot (one `PERMANENT`-class record, `WrapTag` with
->    `leaf_index = 0xFFFFFFFF`).
+>    `write_key[n+1]`**: **two** device-wrap records per active device leaf — a `PERMANENT` one
+>    carrying `pq_secret[n+1]` and an `EPH(5)` one carrying `eph_root[n+1]`, each a `WrapTag` and both
+>    indexed by that leaf's `wrap_target_handle` — and the ratchet-tree snapshot (one
+>    `PERMANENT`-class record, `WrapTag` with `leaf_index = 0xFFFFFFFF`). **No recovery wrap is
+>    published in this step.**
 > 3. The committer closes the fan-out with one `EpochComplete` marker record whose `wrap_count` MUST
 >    equal the attachment's `expected_wrap_count`. Until that marker is accepted, the group is
->    **readable-but-not-writable**: the server returns `REASON_EPOCH_INCOMPLETE` to any non-wrap
->    submit at epoch `n+1`.
-> 4. A member or device that finds no wrap for its target at epoch `n+1` after the marker has landed
->    surfaces a `gap` entry with reason `no_wrap`. It never fails silently.
-> 5. If the committer dies mid-fan-out, the marker never lands, the group stays non-writable, and any
->    member may re-publish the missing wraps for epoch `n+1` (they are all derivable from the epoch
->    state every member holds) and submit the marker.
+>    **readable-but-not-writable**: the server returns `REASON_EPOCH_INCOMPLETE` to any submit at
+>    epoch `n+1` carrying neither a `WrapTag` nor an `EpochComplete`.
+> 4. **Then**, as ordinary records of the now-open epoch `n+1`, the committer publishes one recovery
+>    wrap per member (`RecoveryTag`, indexed by `recovery_handle`).
+> 5. A member or device that finds no **device** wrap for its target at epoch `n+1` after the marker
+>    has landed surfaces a `gap` entry with reason `no_wrap`. It never fails silently.
+> 6. If the committer dies mid-fan-out, the marker never lands, the group stays non-writable, and any
+>    member may re-publish the missing wraps for epoch `n+1` (*"they are all derivable from the epoch
+>    state every member holds"* — false, and §5.11 now says so in place) and submit the marker.
+> 7. A committer that dies **after** the marker and before the recovery wraps leaves a fully writable
+>    group with a short recovery arm, and no party detects it.
+
+**Why it moved, because a reader will otherwise put the recovery wraps back.** `AttachmentRecovery` is
+not in the shipped server's exemption set: `exemptFromEpochComplete` (`msgrepo/store/memory.go:937`)
+exempts exactly `AttachmentWrap` and `AttachmentEpochComplete`, so every recovery wrap the old step 2
+published was refused `REASON_EPOCH_INCOMPLETE` (`memory.go:582`), and the group could never leave the
+readable-but-not-writable state. `store/contract.go:2555`,
+`OnlyTheExemptKindsPassTheGateWhileTheFanOutIsOpen`, derives that class from every declared
+`AttachmentKind` in **both** directions across **both** stores and asserts the recovery refusal by
+name — so the alternative fix, exempting the kind, reverses a green derived assertion and was
+rejected. **Nothing in the store changes and that contract test stays green as written**; what changed
+is when a conforming client submits.
 
 The server half is **already built and already enforcing this**: `msgrepo/store/contract.go` carries
-`TheMarkerIsTheOnlyThingThatOpensAnEpoch` and returns `REASON_EPOCH_INCOMPLETE` to a non-wrap submit.
+`TheMarkerIsTheOnlyThingThatOpensAnEpoch` and returns `REASON_EPOCH_INCOMPLETE` to a non-exempt submit.
 A client that does not publish wraps cannot send a second record.
 
-**What this task can and cannot emit before M1-6 is ruled, stated because Task 11 refuses.** §5.11
-step 2's snapshot is *"one **PERMANENT**-class record"*, and Task 11(a) makes `SealRecord` refuse
-every non-`DURABLE` class until M1-6 lands. So **this task cannot emit the snapshot at all** until
-M1-6 is ruled, and the ruling is a precondition of the task rather than a note beside it. Until it
+**What this task can and cannot emit before M1-6 is ruled, stated because Task 11 refuses — and after
+2026-09-13 the answer is "nothing".** §5.11 step 2's snapshot is *"one **PERMANENT**-class record"*,
+and Task 11(a) makes `SealRecord` refuse every non-`DURABLE` class until M1-6 lands. That used to leave
+this task the device-wrap fan-out to build. It no longer does: after the device-wrap ruling **every
+record this fan-out writes is non-`DURABLE`** — a `PERMANENT` `pq_secret` wrap, an `EPH(5)` `eph_root`
+wrap, a `PERMANENT` recovery wrap and a `PERMANENT` snapshot. So M1-6 is a precondition of the whole
+task and not of one record in it, and it is a precondition of Task 14 as well. Until it
 lands, this task builds the device-wrap fan-out, the `EpochAttachment`, the marker and the ordering,
 and holds the snapshot in the same deferral register as the recovery wraps (below), naming M1-6 as
 the reason. Do not seal it under `DURABLE` "for now": the retention class is on the wire, inside
@@ -3049,11 +3198,29 @@ this plan does. It is one `Expand` away from Task 3's helper; add it here, in `k
 its siblings, in the commit that first needs it, with the same distinct-label property Task 3
 Property 4 states.
 
-**`expected_wrap_count` is derived from the fan-out actually built, and never typed.** This is ledger
-item 47's named trap. The field is defined as *"device wraps + recovery wraps + 1 snapshot"*; the
-server can only check the marker against the attachment, so a client that defers recovery wraps
-passes while diverging from the spec. **The count is computed from the records the builder emitted,
-and a test asserts the builder's own inventory against §5.11's definition.**
+**`expected_wrap_count` is derived from the fan-out actually built, and never typed** — and on
+2026-09-13 both what it counts and what it can possibly mean changed. This is ledger item 47's named
+trap in its new shape.
+
+**What it counts now:** `2 × (active device leaves) + 1`, the `+ 1` being the snapshot. It covers
+**both** device-wrap record kinds and **no** recovery wrap, because the recovery wraps land after the
+marker and the marker is where the count is checked. At the 500-member × 2-device target that is
+2 × 1,000 + 1 = **2,001**, against 1,501 before the two rulings.
+
+**What it cannot mean, and this is the accepted cost of the resequence rather than a defect to work
+around:** for the recovery arm the number is **decorative by construction**. It names a set that has
+already closed when the recovery wraps are due, so a missing recovery wrap is invisible to it — and
+invisible to §5.11 step 5's `no_wrap` gap too, which cannot distinguish *absent* from *not yet* once
+the marker has landed. §5.11 states the conclusion plainly and this plan repeats it because an
+implementer will otherwise write a check that cannot fail: **nothing detects a missing recovery wrap.**
+Not the count, not the gap, not a live member (none of them reads its own recovery wrap on any normal
+path), and not the server (ledger item **132**: it never counts a wrap record, `expected_wrap_count`
+has no upper bound, and the wrap index is deliberately not unique). Do not build an omission detector
+for the recovery arm out of this field and do not assert one; **assert that the count excludes the
+recovery arm**, which is a true statement, and leave the hole where the ledger files it.
+
+**The count is computed from the records the builder emitted before the marker, and a test asserts the
+builder's own inventory against §5.11's definition.** Never typed, and never taken from a caller.
 
 **How the deferral is held, and it is not a red test.** The earlier form of this instruction had the
 inventory test *"failing that test by name until Task 19 lands"* — which leaves the suite red across
@@ -3067,7 +3234,12 @@ member, and a row naming a test that package does not declare."* Build the defer
 
 - the **inventory** is derived from the records the builder emitted, never typed;
 - a table of **deferred wrap kinds** is written down, one row per kind, each row naming the task that
-  lands it (`RecoveryTag` → Task 19; the snapshot → M1-6, then this task);
+  lands it (`RecoveryTag` → Task 19; the snapshot → M1-6, then this task). **The `RecoveryTag` row's
+  meaning changed on 2026-09-13**: the recovery wraps are no longer part of the set the marker closes,
+  so the row defers a **post-marker** leg of the sequence and not a member of `expected_wrap_count`.
+  The conformance assertion below must therefore hold the inventory against the count for the
+  **pre-marker** set only, and hold the recovery leg against the sequence rather than against the
+  number;
 - the conformance assertion is `inventory + deferrals == §5.11's definition`, so a deferral cannot be
   forgotten and cannot be quietly widened;
 - and the table is held in both directions: **a row whose kind the builder now emits fails**, so
@@ -3090,12 +3262,18 @@ test that is red on purpose is indistinguishable from one that is red by regress
 
 - [ ] **Step 1: Derive the property and write the failing test**
 
-  **Property 1 — the order is the spec's order,** and the marker is last. Assert over the emitted
-  record sequence, not over the builder's internals.
+  **Property 1 — the order is the spec's order, and the marker is NOT last.** Rewritten 2026-09-13:
+  the marker closes the device arm and the snapshot, and the recovery wraps come after it. Assert over
+  the emitted record sequence, not over the builder's internals, and assert the position of the marker
+  **within** the sequence rather than at its end — "the marker is last" is exactly what this fan-out
+  must no longer do, and it is what every earlier draft of this plan said.
 
-  **Property 2 — `expected_wrap_count` equals the number of records the builder emitted before the
-  marker,** derived, and equals §5.11's definition. Two assertions, not one: the first is
-  self-consistency and the second is conformance, and only the second catches a deferral.
+  **Property 2 — `expected_wrap_count` equals the number of records the builder emitted BEFORE the
+  marker,** derived, and equals §5.11's definition of `2 × device_leaves + 1`. Three assertions now,
+  not two: self-consistency against the emitted pre-marker inventory; conformance against §5.11's
+  formula; and **that no recovery wrap is inside either number**. The third is the one that catches an
+  implementer who reads the old definition, and it is the assertion that keeps this field honest now
+  that it can no longer speak for the recovery arm at all.
 
   **Property 3 — every wrap record is an ordinary record at epoch `n+1` under `write_key[n+1]`,**
   and the commit itself is at epoch `n` under `write_key[n]`. The two keys are one epoch apart and
@@ -3149,17 +3327,35 @@ test that is red on purpose is indistinguishable from one that is red by regress
   That second case is the one worth the test. It is also the strongest evidence for M1-22's
   recommendation, so record the measurement in the commit message.
 
-- [ ] **Steps 2–6** as above, with mutations including: emit the marker before the last wrap; type
-  the count as a literal; count the snapshot twice; MAC a wrap under `write_key[n]`; put the
-  `EpochAttachment` on a non-commit record (the landed `attachment.go` must refuse it and the test
-  must prove it does); set the attachment's epoch to `n`; read `pq_secret[n+1]` off the provisional
-  epoch value without checking the destroyed flag, which Property 6 exists to refuse; and add a
-  second reader of that value with no check, which the derived class must catch without being
-  edited.
+- [ ] **Steps 2–6** as above, with mutations including: emit the marker before the last **device**
+  wrap — Property 1 must fail; type the count as a literal — Property 2 must fail; count the snapshot
+  twice — Property 2 must fail; MAC a wrap under `write_key[n]` — Property 3 must fail; put the
+  `EpochAttachment` on a non-commit record (the landed `attachment.go` must refuse it and the test must
+  prove it does) — Property 4 must fail; set the attachment's epoch to `n` — Property 4 must fail; read
+  `pq_secret[n+1]` off the provisional epoch value without checking the destroyed flag — Property 6
+  must fail; add a second reader of that value with no check, which the gate must catch without being
+  edited — Property 6 must fail.
+
+  **And four the 2026-09-13 rulings add, all of which pass every pre-ruling test:**
+
+  - **publish the recovery wraps before the marker**, which is the pre-ruling sequence — Property 1
+    must fail, and against a real `msgrepo` store the submit is refused `REASON_EPOCH_INCOMPLETE`,
+    which is the second, independent way this mutation dies;
+  - **count the recovery wraps into `expected_wrap_count`** — Property 2's third assertion must fail.
+    This is the single most likely error, because it is what the field's own definition said until this
+    ruling and what MASTER still says;
+  - **emit one device-wrap record per leaf instead of two** — Property 2 must fail on the formula, and
+    Task 14's Property 1 must fail on the fan-out;
+  - **omit the recovery leg entirely and land the marker**, which produces a writable, self-consistent,
+    fully green group with no recovery wrap in it — **nothing in this task's test set can be made to
+    fail by this mutation**, and that is the finding. State it in the test file as a named,
+    deliberately unrefuted mutation citing ledger items **132** and **138**, in the shape Task 15
+    already uses for its deferral table, rather than deleting it because nothing catches it. A
+    mutation with no refutation is information; a mutation quietly dropped is not.
 
 ---
 
-## Task 16: The joining member — **BLOCKED on Open item M1-2**
+## Task 16: The joining member — **M1-2 deliberately deferred 2026-09-13; this task is NOT blocked by the deferral**
 
 **Files:**
 - Modify: `connect/messagegroup/session.go`, `connect/messagegroup/wrap.go`,
@@ -3198,6 +3394,33 @@ v1 profile that is both authenticated and encrypted to the joiner), state what i
 because a `group_handle_key` a joiner accepts from an unvalidated field is a `sender_handle` an
 attacker chooses, and `sender_handle` is inside every AAD and every MAC in the system.
 
+**RULED 2026-09-13: where `group_handle_key` lives is DEFERRED, and CP3b is not blocked by the
+deferral.** The owner ruled three of the five questions the 2026-09-12 red team put to them and
+deliberately left this one open, so nothing below decides it and nothing below should be read as
+deciding it. What *is* ruled is the schedule consequence: **ledger 44a's already-blessed gated,
+test-only hand-off can carry `group_handle_key` for CP3b** — *"a named, gated test-only hand-off — of a
+public KeyPackage and a `Welcome` already sealed to the joiner's init key — under the same
+absent-not-placeholder rule that made CP3a's key source safe"* — which closes this task for CP3b
+without ruling the production carrier and without putting a group-lifetime secret anywhere it would
+live in production.
+
+**The proviso is a requirement on whoever builds the hand-off, not a note beside it.** The hand-off's
+**own doc comment** must say, in its own words, that it is **not** the production carrier for
+`group_handle_key` and that the production carrier is unruled. Without that sentence the next reader
+finds one construction and assumes it is both — which is exactly how a deferral becomes a decision
+nobody made. Property 5 and mutation 8 below are what hold it.
+
+**And one measurement the review treats as unknown, corrected here because it changes the question.**
+The red team's Part 5 asks whether the key-package store authenticates a served package against the
+claimed identity's signature key, and calls that the cheapest determination available. It is not a
+measurement anybody can take: **the key-package store does not exist**. Measured 2026-09-13 in this
+repository — `git grep -n 'KeyPackage' -- '*.go'` returns **0**, and so does `key_package`; the 456
+hits `git grep -n 'KeyPackage'` returns across the whole tree are all in plans, specs, reviews and the
+ledger, none of them code. So the question is not *does it?* but *what will it be required to do?*, and
+the answer can simply be **written into the store's specification before the store is built**. That is
+cheaper than the review thought, and it belongs to whichever slice-2 plan owns ledger 44 and 69 rather
+than to this task.
+
 **And the second half of the same hole, already filed elsewhere.** CP3b also needs the founder to
 hold the joiner's MLS `KeyPackage` before it can propose the `Add`, and needs the `Welcome` to reach
 the joiner at all. Neither has a channel: ledger open items **44** and **44a**, written up as
@@ -3208,7 +3431,7 @@ taken under: *"It is a deferral of first contact, not of privacy, and it must be
 CP3b will be mistaken for a product."* This task takes that short circuit **only** if it is gated the
 way CP3a's key source was, and the gate is part of the task.
 
-- [ ] **Step 1 (after M1-2 is ruled): Derive the property and write the failing test**
+- [ ] **Step 1 (M1-2 is deferred, not required — build against the gated hand-off): Derive the property and write the failing test**
 
   **Property 1 — a joined session computes the same `sender_handle` for a given leaf as the founder
   does.** This is the property the whole item is about, and it is one assertion.
@@ -3230,6 +3453,16 @@ way CP3a's key source was, and the gate is part of the task.
 
   **Property 4 — the test-only first-contact path is unreachable from a non-test build,** asserted
   the way CP3a's key source is: a gate over the tree, with a positive control.
+
+  **Property 5 — the hand-off says what it is not.** Added 2026-09-13 as the proviso on the owner's
+  deferral. The hand-off's own doc comment states that it is **not** the production carrier for
+  `group_handle_key` and that the production carrier is unruled. Asserted over the source text of the
+  declaration, in the shape this tree already uses for a comment that has to survive a refactor —
+  matched on the declaration the gate of Property 4 already finds, so the two cannot drift apart and a
+  hand-off renamed out from under the assertion fails rather than passing over nothing. *Refusal
+  owed:* a hand-off whose doc comment does not carry the disclaimer fails, naming this property and
+  the 2026-09-13 deferral. This is not style: a deferral whose stand-in does not say it is a stand-in
+  is a decision this project has already made twice by accident.
 
 - [ ] **Steps 2–4** as above.
 - [ ] **Step 5: Mutation-test.** This task stated four properties and **no mutation at all** until
@@ -3253,6 +3486,9 @@ way CP3a's key source was, and the gate is part of the task.
   7. Call this milestone CP3b in `PROGRESS.md` while no submit path and no durable reserver exist —
      Property 2's stated residue must refuse the claim; those are legs 4 and 5 of the Definition of
      done and both are outside this plan.
+  8. Strip the disclaimer from the hand-off's doc comment, or reword it so it no longer says the
+     production carrier is unruled — Property 5 must fail. And the same mutation with the hand-off
+     renamed, which must fail on the gate finding no declaration rather than passing over none.
 - [ ] **Step 6: Commit.** This task also rewrites `doc.go`'s inventory paragraph a second time, and
   updates `PROGRESS.md` in `msgrepo` — CP3b is a milestone and its claim belongs in the file that
   defines it.
@@ -3547,7 +3783,7 @@ Tombstones and `COVER` land here too; `pad.go`'s size-bucket ladder is already i
 ```
 Wave 0  Task 0, the split                                         (not this plan's commit)
 Wave 1  1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 9a → 10 → 11 → 12     (CP3b prefix, unblocked)
-Wave 2  13 → [14: needs M1-1] → [15: needs M1-6] → [16: needs M1-2] (CP3b, blocked)
+Wave 2  13 → [14: needs M1-1's remainder + M1-6] → [15: needs M1-6] → [16: M1-2 deferred, not blocking] (CP3b)
 Wave 3  17, 18, 19, 20, 21 | 22 → 23 | 24                          (A6 freeze; the three groups are parallel)
 ```
 
@@ -3571,11 +3807,24 @@ implementer is free — they are the other separable start, and 9a must not be s
 because 9 without 9a is an interface nothing implements. Tasks 22–23 depend only on X-Wing, which is
 landed, and are the largest block that can run entirely in parallel with waves 1 and 2.
 
-**Three rulings gate the schedule and none is this plan's to make.** M1-1 (the wrap's encoding and
-seal) and M1-2 (the joiner's channel) sit between Task 13 and CP3b. **M1-6 joins them**, because
-Task 11(a)'s refusal of every non-`DURABLE` class blocks Task 15's `PERMANENT` snapshot — a wave-1
-refusal blocking a wave-2 task, which is why M1-6 moved out of the A6-freeze section. Everything in
-wave 1 is buildable and testable without any of the three, and a wave-1-complete tree is a
+**Three rulings gated the schedule; the owner has moved two of them and the third grew.** Amended
+2026-09-13.
+
+- **M1-1 is three-fifths ruled.** Spec A §5.11 now carries the fan-out sequence, the outer seal of both
+  wrap kinds, the body signature and the two-record device-wrap split. What is left is the body's field
+  list beyond MASTER §8.2, the signature's placement, and M1-7's padding scheme. Task 14 is written
+  against the ruling and blocked on that remainder.
+- **M1-2 is deliberately deferred and is no longer a schedule gate.** Where `group_handle_key` lives in
+  production is not ruled, and CP3b does not wait on it: ledger 44a's gated test-only hand-off carries
+  it, under the proviso Task 16 states. That proviso is a **requirement on whoever builds the hand-off**,
+  not a note.
+- **M1-6 got bigger, and this is the schedule fact that changed.** It used to block Task 15's snapshot
+  alone. After the device-wrap ruling **every record the fan-out writes is non-`DURABLE`** — a
+  `PERMANENT` `pq_secret` wrap, an `EPH(5)` `eph_root` wrap, a `PERMANENT` recovery wrap and a
+  `PERMANENT` snapshot — so Task 11(a)'s refusal now stands in front of **Task 14 as well as Task 15**.
+  M1-6 is the one ruling still on the critical path.
+
+Everything in wave 1 is buildable and testable without any of them, and a wave-1-complete tree is a
 `connect/messagegroup` that seals and opens records under the real key schedule inside one process —
 which is worth having and **is not CP3b**.
 
@@ -3800,27 +4049,60 @@ given.
 
 ### Blocking CP3b
 
-**M1-1 — the device wrap has no body encoding and no stated seal.** `wrap.go` is named in §2.2's
-package tree and has **no section in any spec**. §5.11 specifies the server-visible `WrapTag` and
-nothing about `ct_body`'s contents. MASTER §8.2 says what a device wrap carries and not how it is
-laid out, framed or versioned. Worse, §5.11's sizing implies the wrap is an ordinary record whose
-body goes through the record AEAD — whose key comes from the `storage_root` **the wrap delivers**.
-Either the wrap's body is sealed under the previous epoch's class key, which serves no joiner, or the
-X-Wing ciphertext is the seal and the record AEAD is a second layer under some other key. *Blocks:*
-Task 14, Task 16, and therefore CP3b. *A ruling must state:* the body's field list and framing with
-its `alg_id`; the key the wrap record's `ct_body` is sealed under, separately for a continuing member
-and a joining one; and whether the X-Wing ciphertext sits inside the record body or replaces it.
+**M1-1 — PARTLY RULED 2026-09-13. The device wrap's seal, its record count and its signature are
+settled; its body encoding is not.** The item is kept whole rather than rewritten, because what it
+still asks is the part an implementer will otherwise guess at.
 
-**M1-2 — `group_handle_key` and the joining epoch's `read_key` have no carrier.** MASTER §8 and Spec
-A §5.7 both say "in the `Welcome`". `grep -rn 'group_handle_key\|GroupHandleKey'` over `connect`
-returns **0**; there is no fourth URmessage extension type; RFC 9420's `Welcome` has no free-form
-slot. And `group_handle_key` derives from **epoch zero's** `storage_root`, which needs epoch zero's
-`pq_secret`, which no wrap at the joining epoch carries. *Blocks:* Task 16, and therefore CP3b —
-a member that does not hold `group_handle_key` "cannot compute its own handle and therefore cannot
-write". *A ruling must state:* the carrier (a `GroupInfo` extension is the only authenticated,
-joiner-encrypted slot in the v1 profile), its contents, and its validation — an unvalidated
-`group_handle_key` is an attacker-chosen `sender_handle`, and `sender_handle` is inside every AAD and
-every MAC in the system.
+**What it asked.** `wrap.go` is named in §2.2's package tree and had **no section in any spec**. §5.11
+specified the server-visible `WrapTag` and nothing about `ct_body`'s contents. MASTER §8.2 said what a
+device wrap carries and not how it is laid out, framed or versioned. And §5.11's sizing implied the
+wrap is an ordinary record whose body goes through the record AEAD — whose key comes from the
+`storage_root` **the wrap delivers**.
+
+**What the owner ruled**, all of it now in Spec A §5.11 and none of it repeated normatively here: the
+device-wrap records are sealed under `env_key[k] = MLS-Exporter("URmessage/v1/envelope", "", 32)` over
+§5.3's existing ladder; the recovery wrap cannot use that envelope — its only intended reader has no
+MLS state and no `storage_root` **by definition** — and is KEM-sealed with a real `ct_head` keyed
+`HKDF-Expand(wrap_key, "wraphead/v1", 56)`; every wrap body is signed under the publisher's `identity`
+key, which is MASTER §5.3's existing rule applied where it already applied; the device wrap becomes
+**two** records, a `PERMANENT` one carrying `pq_secret` and an `EPH(5)` one carrying `eph_root`; and
+the fan-out is resequenced so the recovery wraps land **after** the `EpochComplete` marker. The
+caching obligation `env_key` brings with it, and the fact that a missed window is unrecoverable, are
+stated in §5.11 as well.
+
+**What is still open, and it is what still blocks Task 14.** The wrap body's field list beyond what
+MASTER §8.2's payload table and MASTER §7's `hybrid_ct` framing already fix; **where the signature sits
+relative to `hybrid_ct` and precisely which octets it covers**; and the padding scheme, which is
+**M1-7**. *Blocks:* Task 14. **No longer blocks:** Task 16, and therefore no longer CP3b by this route
+— M1-6 does. *A ruling must state:* the three items in the sentence before this one, and nothing more;
+the rest of this item is answered.
+
+**M1-2 — DELIBERATELY DEFERRED 2026-09-13, and no longer a CP3b blocker. `group_handle_key` and the
+joining epoch's `read_key` still have no production carrier.** MASTER §8 and Spec A §5.7 both say "in
+the `Welcome`". `grep -rn 'group_handle_key\|GroupHandleKey'` over `connect` still returns **0**; there
+is no fourth URmessage extension type; RFC 9420's `Welcome` has no free-form slot. And
+`group_handle_key` derives from **epoch zero's** `storage_root`, which needs epoch zero's `pq_secret`,
+which no wrap at the joining epoch carries.
+
+**The owner ruled the schedule and not the carrier.** Where the key lives in production is left open on
+purpose. **CP3b is not blocked by that**, because ledger 44a's already-blessed gated, test-only
+hand-off carries it — **provided** the hand-off's own doc comment says it is not the production
+carrier. That proviso is a requirement on whoever builds the hand-off and is written into Task 16 as
+Property 5 with a mutation, not as a note.
+
+**And one thing the 2026-09-12 review treats as an unknown that is not one.** The review names *"does
+the key-package store authenticate a served package against the claimed identity's signature key?"* as
+the cheapest determination available and the one that would rank the three homes for
+`group_handle_key`. It is not a determination anyone can make: measured 2026-09-13,
+`git grep -n 'KeyPackage' -- '*.go'` over this repository returns **0**, as does `key_package`. **The
+key-package store does not exist yet**, so this is not a measurement — it is a requirement that can be
+**written into the store's specification before the store is built**, and it belongs to whichever
+slice-2 plan owns ledger 44 and ledger 69.
+
+*Blocks:* nothing on the CP3b path. It still blocks the production join, and the deferral spends the
+flag-day window the review named. *A ruling must still state:* the carrier, its contents, and its
+validation — an unvalidated `group_handle_key` is an attacker-chosen `sender_handle`, and
+`sender_handle` is inside every AAD and every MAC in the system.
 
 **M1-3 — `pq_secret[n]` has no producer, no type, no file and no section.** §5.12 says the committer
 samples it; §5.10 E1 says the device wrap carries it; §5.3 takes it as an argument. Nothing declares

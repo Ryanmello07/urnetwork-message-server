@@ -344,6 +344,48 @@ the un-allowlisted path already fails — it would require a matching row in
 `msgrepo/deps_test.go`'s `forbiddenDependencies` (which `TestEverythingSpecB22ForbidsIsOnTheForbid-`
 `denList` holds to this block), and it is an owner's call rather than a scribe's.
 
+**Revision 14 — 2026-09-13 — the owner ruled three of the five M1-1/M1-2 questions, and one of this
+document's own sentences was false.** Three amendments, none of which changes an SQL statement, a
+column, an index or a returned reason.
+
+**§6.1's epoch-publication block asserted the opposite of the store this repository ships, and had for
+as long as it has existed.** Its step 3 ended *"Step (2) of the transaction already implements exactly
+this and exempts wrap, snapshot and marker records for every submitter, so no change to the SQL is
+needed"* — true of the class it names and false of the sequence it was describing, because that
+sequence published one recovery wrap per member **before** the marker and a recovery wrap carries a
+`RecoveryTag`, which the exemption does not cover. Measured: `exemptFromEpochComplete`
+(`msgrepo/store/memory.go:937`) exempts exactly `AttachmentWrap` and `AttachmentEpochComplete`;
+`memory.go:582` returns `REASON_EPOCH_INCOMPLETE`; and `store/contract.go:2555`,
+`OnlyTheExemptKindsPassTheGateWhileTheFanOutIsOpen`, derives the class from every declared
+`AttachmentKind` in both directions and runs it against both stores, asserting the recovery refusal by
+name. **No conforming fan-out has ever executed against this server.** The owner ruled the fix on the
+client side — recovery wraps land after the marker — so this document's transaction is unchanged, its
+SQL is unchanged, and the contract test stays green as written; that was verified, not assumed. The
+step-3 sentence is kept and corrected rather than deleted, because a sentence that vanishes is a
+sentence somebody writes again. The epoch gate's SQL comment now states the exemption class narrowly
+and says why widening it by one line is the change `contract.go:2555` exists to prevent.
+
+**The device wrap became two records, and the operator-facing numbers move with it.** Each active
+device leaf now receives a `PERMANENT` record carrying `pq_secret[n]` and an `EPH(5)` record carrying
+`eph_root[n]`, both at the same `wrap_target_handle` — the construction that makes MASTER §8.1's
+disappearing-message promise cryptographic rather than behavioural, ruled after the 2026-09-12 red team
+showed the promise rests on client behaviour today. §3.5's storage table gains the `EPH(5)` row, and
+the per-commit figures go from **~30 KB / ~700 KB / ~6.9 MB** to **~60 KB / ~1.4 MB / ~11.5 MB** at
+2 / 50 / 500 members. **The durable footprint does not double**: about 4.6 MB of the 500-member figure
+is `EPH(5)` and prunable at twenty-eight days, so the ~2.5 GB/year of unprunable `PERMANENT` data
+stands and the write volume is what doubled. §4.3.9's `WrapFetchResponse` says that a target now has
+two device-wrap rows and that returning one is a truncation; Spec A's S5 row says the same to the other
+side. §14's wrap-rung deferral row and §4.3.9's rationale take the new bundle size.
+
+**Not amended, and recorded so it is not amended later by someone reading the same review.** Ledger
+open items **132** (the fan-out has no coverage check and `expected_wrap_count` has no upper bound),
+**133** (removal revokes nothing) and **134** (a stalled fan-out is terminal) are all Spec B's and all
+remain **filed and unruled**. Item 132 gains two interactions from these rulings and is not resolved by
+them: the resequence puts the recovery arm outside `expected_wrap_count` entirely, and the device-wrap
+split makes *two wraps at one `wrap_target_handle`* the normal case, which forecloses a uniqueness
+constraint on `(group_id, epoch, wrap_target_handle)` unless that constraint also takes the retention
+class. Both are written down in Spec A §5.11 and in the ledger.
+
 ---
 
 ## 1. Scope
@@ -904,12 +946,15 @@ It does **not** enable a drop-partition retention trick: a pruned `MEDIA` record
 |---|---|---|
 | `DURABLE` text | ~700 B inline + ~200 B row overhead | yes — **one year by default**, and only indefinite on a server that advertises no text cap (§7.3) |
 | `MEDIA` head after prune | ~250 B, **forever** | body only |
-| `PERMANENT` device wrap | ~4.6 KB (`ct_body` padded to exactly 4,112 B at `size_bucket 2`, plus head and columns) | **never** |
+| `PERMANENT` device wrap — the `pq_secret` half | ~4.6 KB (`ct_body` padded to exactly 4,112 B at `size_bucket 2`, plus head and columns) | **never** |
+| `EPH(5)` device wrap — the `eph_root` half | ~4.6 KB, padded identically; **one per device leaf per epoch, alongside the `PERMANENT` half and at the same `wrap_target_handle`** | body at 28 days |
 | `PERMANENT` recovery wrap | ~4.6 KB, padded identically | **never** |
 | `PERMANENT` epoch snapshot | ~300 KB, blob | **never** |
 | `EPH(1..5)` after expiry | ~60 B placeholder, **forever** | body only |
 
-Per commit at 2 / 50 / 500 members: ~30 KB / ~700 KB / **~6.9 MB**. A 500-member group with one membership change per day accumulates roughly **2.5 GB/year of unprunable `PERMANENT` data**. State it plainly: **`PERMANENT`-class epoch-bundle data is the dominant unprunable term in this system**, by a wide margin, and §3.4's row counts do not express it. The padded ladder is what sets the number — a 1.2 KB wrap occupies a 4 KiB rung because the encoding admits no smaller one above 1 KiB — and an operator provisioning disk from row counts alone will under-provision by more than an order of magnitude. The only reclamation lever in v1 is group closure (§7.5); per-group quotas are V2.
+**The device wrap became two records on 2026-09-13** (Spec A §5.11), and the table above is written after that ruling: each active device leaf receives a `PERMANENT` record carrying `pq_secret[n]` and an `EPH(5)` record carrying `eph_root[n]`. The split is what makes MASTER §8.1's disappearing-message promise cryptographic rather than behavioural — `eph_root` now rides a rung this server actually prunes — and its cost lands here, on the operator, as a doubled wrap count.
+
+Per commit at 2 / 50 / 500 members: ~40 KB / ~1.2 MB / **~11.5 MB** (~30 KB / ~700 KB / ~6.9 MB before the split; the 2-member figure counts one device per member and the other two count two, exactly as the pre-split row did). Of the 500-member figure, roughly **4.6 MB is `EPH(5)` and prunable at twenty-eight days** and roughly **6.9 MB is `PERMANENT` and prunable never**. A 500-member group with one membership change per day therefore still accumulates roughly **2.5 GB/year of unprunable `PERMANENT` data** — the split doubles the write volume and does **not** double the durable footprint, and an operator sizing IOPS from the old number will under-provision by half. State it plainly: **`PERMANENT`-class epoch-bundle data is the dominant unprunable term in this system**, by a wide margin, and §3.4's row counts do not express it. The padded ladder is what sets the number — a 1.2 KB wrap occupies a 4 KiB rung because the encoding admits no smaller one above 1 KiB — and an operator provisioning disk from row counts alone will under-provision by more than an order of magnitude. The only reclamation lever in v1 is group closure (§7.5); per-group quotas are V2.
 
 ---
 
@@ -1447,12 +1492,17 @@ message WrapFetchRequest {
     bytes  req_auth           = 15;
 }
 message WrapFetchResponse {
-    repeated Record records = 1;     // the device wrap and, if requested, the snapshot ref
+    repeated Record records = 1;     // the device wrap RECORDS -- since 2026-09-13 a target has
+                                     // TWO at one wrap_target_handle, a PERMANENT one carrying
+                                     // pq_secret and an EPH(5) one carrying eph_root (Spec A
+                                     // §5.11) -- and, if requested, the snapshot ref. A response
+                                     // carrying one row where two exist is a truncation, not a
+                                     // complete answer.
     bool   epoch_complete   = 2;
 }
 ```
 
-Served by `message_record_wrap` (§3.3 Q10). Without it every device add and every join pulls the whole ~6.9 MB epoch bundle through Q1 and discards 99.9% of it, at `max_records_per_fetch = 512`, over a 3 KiB-batched control plane — the exact failure MASTER §8.2's "the server MUST index wraps by target" exists to prevent. A request naming a target with no wrap at that epoch returns `REASON_WRAP_TARGET_UNKNOWN`.
+Served by `message_record_wrap` (§3.3 Q10). Without it every device add and every join pulls the whole ~11.5 MB epoch bundle through Q1 and discards 99.9% of it, at `max_records_per_fetch = 512`, over a 3 KiB-batched control plane — the exact failure MASTER §8.2's "the server MUST index wraps by target" exists to prevent. A request naming a target with no wrap at that epoch returns `REASON_WRAP_TARGET_UNKNOWN`.
 
 #### 4.3.10 Supporting messages
 
@@ -1899,7 +1949,13 @@ EpochAttachment {
                                 //              floored up to this server's advertised minimum and
                                 //              clamped down to its advertised cap
     LP   group_context_hash     // exactly 32 bytes
-    u32  expected_wrap_count    // device wraps + recovery wraps + 1 snapshot, for the epoch it opens
+    u32  expected_wrap_count    // RULED 2026-09-13: the device-wrap RECORDS plus the one snapshot,
+                                //   for the epoch this attachment opens -- two device-wrap records
+                                //   per active device leaf, so 2 x device_leaves + 1. Recovery
+                                //   wraps are NOT counted, because they land AFTER the marker
+                                //   (§6.1). Spec A §5.11 owns this and states the consequence:
+                                //   the count is decorative for the recovery arm, and nothing
+                                //   detects a missing recovery wrap.
 }
 
 RecoveryTag {
@@ -2001,6 +2057,15 @@ SELECT current_epoch, next_record_id, media_ttl_seconds, durable_ttl_seconds,
 --   if NOT epoch_complete AND the record is not a wrap / snapshot / EpochComplete
 --   for this epoch:
 --        ROLLBACK; return REASON_EPOCH_INCOMPLETE{current_epoch}
+--        -- READ THE CLASS NARROWLY. It is WrapTag and EpochComplete and NOTHING ELSE.
+--        -- A RECOVERY WRAP IS NOT IN IT: it carries a RecoveryTag, so it is refused here,
+--        -- and that is why Spec A §5.11's fan-out was resequenced on 2026-09-13 to publish
+--        -- recovery wraps AFTER the marker rather than before it. The shipped
+--        -- implementation is exemptFromEpochComplete (msgrepo/store/memory.go:937), which
+--        -- exempts exactly AttachmentWrap and AttachmentEpochComplete, and
+--        -- store/contract.go:2555 holds that class against every declared AttachmentKind in
+--        -- both directions across both stores. Widening it by one line is the change that
+--        -- test exists to prevent.
 
 -- (3) Stream monotonicity, per (group_id, sender_handle). Monotonic, NOT contiguous.
 SELECT last_stream_index FROM message_sender
@@ -2144,33 +2209,68 @@ message CreateGroupResponse {
 
 **Epoch publication.**
 
+**AMENDED 2026-09-13, and the sentence this block used to end step 3 with was simply wrong.** It read
+*"Step (2) of the transaction already implements exactly this and exempts wrap, snapshot and marker
+records for every submitter, so no change to the SQL is needed."* The exemption class is `WrapTag` and
+`EpochComplete` and nothing else. **A recovery wrap carries a `RecoveryTag` and is therefore refused**
+`REASON_EPOCH_INCOMPLETE` — measured in the shipped implementation at
+`msgrepo/store/memory.go:937` (`exemptFromEpochComplete`, exempting exactly `AttachmentWrap` and
+`AttachmentEpochComplete`) and at `memory.go:582`, and held there by
+`store/contract.go:2555`, which derives the class from every declared `AttachmentKind` in **both**
+directions and runs it against **both** store implementations. So the sequence this document published
+described a fan-out that **executed against no server**: every one of its ~500 recovery wraps was
+refused, and the group could never leave the readable-but-not-writable state.
+
+The owner's ruling of 2026-09-13 fixes it in the **client's** sequence and not in this server's gate:
+the recovery wraps now land **after** the marker, as ordinary records of the now-open epoch. Nothing in
+§6.1's transaction changes, no SQL changes, and the derived two-store contract test stays green as
+written — that was verified rather than assumed. The alternative fix, exempting `AttachmentRecovery`
+from the gate, was rejected: it reverses a green derived assertion and widens the set of records that
+may land while a group is not writable. Spec A §5.11 is the owner of the sequence and carries the
+ruling in full, including its accepted cost — `expected_wrap_count` is decorative for the recovery arm,
+and **nothing detects a missing recovery wrap**.
+
 > **Epoch publication sequence.** A commit is submitted at `epoch == current_epoch = n`, MAC'd under
 > `write_key[n]`, and carries an `EpochAttachment` for epoch `n+1`.
 >
 > 1. The server accepts at most one commit per `(group_id, epoch)`. On acceptance it sets
 >    `current_epoch := n+1` and installs `write_key[n+1]` from the attachment, in the same transaction.
-> 2. The committer then submits, **as ordinary records at epoch `n+1`, MAC'd under `write_key[n+1]`**: one
->    device wrap per active device leaf (`WrapTag`, indexed by `wrap_target_handle`), one recovery wrap per
->    member (`RecoveryTag`, indexed by `recovery_handle`), and the ratchet-tree snapshot (one
->    `PERMANENT`-class record, `WrapTag` with `leaf_index = 0xFFFFFFFF`).
+> 2. The committer then submits, **as ordinary records at epoch `n+1`, MAC'd under `write_key[n+1]`**:
+>    **two** device-wrap records per active device leaf — a `PERMANENT` record carrying `pq_secret[n+1]`
+>    and an `EPH(5)` record carrying `eph_root[n+1]`, each a `WrapTag` and both indexed by that leaf's
+>    `wrap_target_handle` — and the ratchet-tree snapshot (one `PERMANENT`-class record, `WrapTag` with
+>    `leaf_index = 0xFFFFFFFF`). **No recovery wrap is published in this step.**
 > 3. The committer closes the fan-out with one `EpochComplete` marker record whose `wrap_count` MUST equal
 >    the attachment's `expected_wrap_count`. Until that marker is accepted, the group is
->    **readable-but-not-writable**: the server returns `REASON_EPOCH_INCOMPLETE` to any non-wrap submit at
->    epoch `n+1`. Step (2) of the transaction already implements exactly this and exempts wrap, snapshot
->    and marker records for every submitter, so no change to the SQL is needed.
-> 4. A member or device that finds no wrap for its target at epoch `n+1` after the marker has landed
->    surfaces a `gap` entry with reason `no_wrap`. It never fails silently.
-> 5. If the committer dies mid-fan-out, the marker never lands, the group stays non-writable, and any
->    member may re-publish the missing wraps for epoch `n+1` (they are all derivable from the epoch state
->    every member holds) and submit the marker.
+>    **readable-but-not-writable**: the server returns `REASON_EPOCH_INCOMPLETE` to any submit at epoch
+>    `n+1` carrying neither a `WrapTag` nor an `EpochComplete`. Step (2) of the transaction already
+>    implements exactly this, for every submitter, so no change to the SQL is needed — **and the class it
+>    exempts does not include a `RecoveryTag`**, which is why step 4 exists.
+> 4. **Then**, as ordinary records of the now-open epoch `n+1`, the committer publishes one recovery wrap
+>    per member (`RecoveryTag`, indexed by `recovery_handle`). They pass the gate because the gate is
+>    satisfied, not because anything exempts them.
+> 5. A member or device that finds no **device** wrap for its target at epoch `n+1` after the marker has
+>    landed surfaces a `gap` entry with reason `no_wrap`. It never fails silently. The detector covers
+>    the device arm and the snapshot and not the recovery arm.
+> 6. If the committer dies mid-fan-out, the marker never lands, the group stays non-writable, and any
+>    member may re-publish the missing wraps for epoch `n+1` (*"they are all derivable from the epoch
+>    state every member holds"* — **that parenthesis is false and is deliberately not repaired here**;
+>    ledger open item 134 files it, its other copies are at Spec A §5.11 and in MASTER, and its repair is
+>    not one of the three rulings of 2026-09-13) and submit the marker.
+> 7. **A committer that dies after the marker and before the recovery wraps leaves a fully writable group
+>    with a short recovery arm, and no party detects it** — not this server, which never counts a wrap
+>    record (ledger item 132).
 >
-> **Sizing at the 500-member × 2-device design target.** Wraps pad to the ladder like everything else: a
-> device wrap (~1,210 B) and a recovery wrap (~1,242 B) both land in `size_bucket 2`, a `ct_body` of
-> exactly 4,112 bytes, about 4.6 KB on the wire each. One commit + 1,000 device wraps + 500 recovery
-> wraps + 1 snapshot + 1 marker ≈ 1,503 records ≈ **6.9 MB**, plus a ~300 KB snapshot object on the bulk
-> plane. Per-record size caps apply to individual wrap records, never to the commit as a whole.
+> **Sizing at the 500-member × 2-device design target, after the 2026-09-13 device-wrap split.** Wraps
+> pad to the ladder like everything else: a device-wrap record carrying one 32-octet secret (~1,178 B)
+> and a recovery wrap (~1,242 B), each plus a 64-octet body signature, all land in `size_bucket 2`, a
+> `ct_body` of exactly 4,112 bytes, about 4.6 KB on the wire each. One commit + 2,000 device-wrap records
+> + 1 snapshot + 1 marker + 500 recovery wraps ≈ 2,503 records ≈ **11.5 MB**, plus a ~300 KB snapshot
+> object on the bulk plane (≈ 1,503 records and ≈ 6.9 MB before the split). Per-record size caps apply to
+> individual wrap records, never to the commit as a whole.
 > `max_records_per_submit` is 256 and `max_submit_bytes` is 131072; the byte cap binds first at about
-> 28 wraps per submission, so a wrap-only batch takes **~55 round trips**.
+> 28 wraps per submission, so the wrap traffic takes **~90 round trips** — now split either side of the
+> marker: ~72 for the device arm and the snapshot, then the marker, then ~18 for the recovery arm.
 
 **stream_index scope.**
 
@@ -3298,4 +3398,4 @@ Master spec §14 makes §9.7 an acceptance criterion for this slice. Concretely,
 | Asymmetric per-epoch write proof | §5.3 — removes the server's forgery capability at one signature per record |
 | Grant proof-of-possession | §8.2 — the v1 grant is bearer-only for 15 minutes and says so |
 | Per-instance signing keys under a fleet root | Still V2. What v1 **does** ship is the fleet root itself, offline, with the signing key in an HSM or sidecar and never on a replica (§9.1, decision B13) — which is what makes per-instance keys an optimisation later rather than a prerequisite |
-| A wrap-sized rung on the size ladder | Wraps are ~1.2 KB and pad to the 4 KiB rung, which is most of the 6.9 MB epoch bundle (§3.5). A new rung is a wire change to a ladder restated in three documents and enforced as an equality by §5.1 check 3 — worth doing deliberately in V2, not as a size optimisation in v1 |
+| A wrap-sized rung on the size ladder | Wraps are ~1.2 KB and pad to the 4 KiB rung, which is most of the 11.5 MB epoch bundle (§3.5). A new rung is a wire change to a ladder restated in three documents and enforced as an equality by §5.1 check 3 — worth doing deliberately in V2, not as a size optimisation in v1 |
