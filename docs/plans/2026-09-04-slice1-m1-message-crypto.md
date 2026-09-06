@@ -790,9 +790,9 @@ defects.**
 fifteenth that subsumes them.** Gate A's allow-lists are lists of **paths** and Gate C's scan is a
 **directory**, so where a function lands changes which gate reads it — which is why the divergences
 are enumerated rather than summarised. Measured against §2.2's `message/` tree as it stood before
-A-12 (fifteen files in one block); the amended tree is at **spec lines 170–210** — `message/` from
-170 (*"the SERVER-SAFE half of the storage layer"*) and `messagegroup/` from 188 (*"the CLIENT
-half"*).
+A-12 (fifteen files in one block); the amended tree is at §2.2's two anchors — `message/` at
+*"the SERVER-SAFE half of the storage layer"* and `messagegroup/` at *"the CLIENT half. imports
+connect"*. The line numbers are in the table below, are advisory, and are stale since `7fb0dd9`.
 
 **Every spec-line citation in this document carries an ANCHOR and a line number, and the anchor is
 the citation. The number is advisory.** That is the rule this table is written under, and it is
@@ -817,7 +817,16 @@ written down once:
 Measured at **`a48cd4c`**, this document's own commit, on 2026-09-05 — which is the measurement the
 row beneath the previous table claimed and did not make:
 
-| Anchor — the citation (grep this) | Line at `a48cd4c` (advisory) | What the pre-2026-09-06 citation pointed at instead |
+**Every number in the middle column is stale, and has been since `7fb0dd9`** — the 2026-09-13 rulings
+commit, which inserted a revision row into Spec A §0 and rewrote §5.10 and §5.11, moving **all seven
+rows and every inline citation in this document** at once. That is recorded rather than repaired, and
+the repair is deliberately **not another re-numbering**: the numbers were correct at the commit the
+header names, the **anchor is what the citation means**, and a number is re-derived in one second by
+the command in the paragraph above. No shift arithmetic is given here on purpose — a stated offset is
+one more derived number to go stale, and this column has now drifted in four consecutive passes, which
+is the whole argument for it being advisory.
+
+| Anchor — the citation (grep this) | Line as measured at `a48cd4c` — **ADVISORY, and stale since `7fb0dd9`** | What the pre-2026-09-06 citation pointed at instead |
 |---|---|---|
 | §2.2's tree: `the SERVER-SAFE half of the storage layer` … `the CLIENT half. imports connect` | `170`–`210`; `messagegroup/` from `188` | cited `169–206` from `185`; the 2026-09-06 table said `169–209` from `187`, which is `ecf0df6` |
 | §5.6: `// messagegroup/streamindex.go — the reserver is not a ratchet` | `1327` | cited `1314`; the 2026-09-06 table said `1317`, which is `ecf0df6` |
@@ -827,11 +836,15 @@ row beneath the previous table claimed and did not make:
 | §6: `type GroupEngine interface {` … `JoinFromWelcome(welcome, ratchetTree []byte)` | block `1907`–`1912`; the method at `1911` | cited `1885–1896`, a range that did not contain the method; the 2026-09-06 table said `1894–1899` / `1898`, which is `ecf0df6` |
 | §8.2: `ReserveStreamIndex(groupId []byte, index uint64) error` | `3719` (`DeleteEntries` at `3716`) | cited `3703`; the 2026-09-06 table said `3706`, which is `ecf0df6` |
 
-Every number in the middle column agrees with this document's own inline citations — `spec lines
-170–210`, `spec line 1327`, `spec line 1817`, `spec line 200`, `spec line 1566`, `spec lines
-1907–1912`, `line 3719` — and that agreement is the check: the inline citation and the table row
-are two statements of one fact, and until the 2026-09-07 pass they disagreed in all seven places. **The claim
-is not restated.** This document does not promise its numbers are current; it promises its anchors
+**The check is now an anchor check, and it is one an implementer can actually run.** Every inline
+citation in this document names the **same anchor string** as its table row and no longer carries a
+line number of its own — because a number repeated in nine places is a number that drifts in nine
+places, which is what happened on 2026-09-13. Two statements of one fact are still two statements of
+one fact; they are now two statements of a *string*, and a string does not move when a paragraph is
+inserted above it. The one place the old form survived a sweep is recorded rather than hidden: Task 9's
+Produces block cited *"spec lines 1885–1939"* for §6's interface block, a range that never agreed with
+this table's `1907`–`1912` and was never swept by the 2026-09-07 pass. It is an anchor now too. **The
+claim is not restated.** This document does not promise its numbers are current; it promises its anchors
 resolve. The plan linter resolves task, item, ledger and plan references and **does not** resolve
 these — they are the one class of reference here a machine does not check, which is why the check
 has to be a `grep` a human runs in a second.
@@ -875,8 +888,8 @@ the five still unnamed:
   `// ratchet.go` above**, and which §2.2 did not name at all. This plan splits it out because the
   reserver is not a ratchet and Task 6 is ordered before Task 7 for that reason. It was a silent
   divergence from a spec comment until this line, and A-12 closed it in the spec: §5.6's block now
-  reads `// messagegroup/streamindex.go` (spec line 1327, *"the reserver is not a ratchet, and it is
-  ordered before one"*) and §2.2's tree names the file.
+  reads `// messagegroup/streamindex.go` — anchor *"the reserver is not a ratchet, and it is
+  ordered before one"*, table row 2 — and §2.2's tree names the file.
 - **`recordaead.go`** and **`zeroize.go`** — both new surfaces with no §2.2 home, and both now in
   `connect/messagegroup`, which Gate C's directory scan **does not reach** until somebody widens it.
   That is the Gate C row of the table in the constraints section, and it is why these two are still
@@ -977,12 +990,23 @@ blobs beyond the record shape; §5.14's cards and rendezvous; reactions; COVER r
 beyond the size-bucket ladder; §5.12 steps 1, 2, 4, 5 and 6. Each has a task in wave 3 and each is
 required before A6 freezes the wire format.
 
-**The trap inside those deferrals — the one ledger item 47 names.** §5.11 defines
-`expected_wrap_count` as *"device wraps + recovery wraps + 1 snapshot, for the epoch it opens"*, and
-the server checks only that the `EpochComplete` marker's `wrap_count` equals the attachment's
-`expected_wrap_count` — **it has no idea what the right number is.** A client that defers recovery
-wraps therefore passes the server while diverging from the spec's own definition of the field. That
-is a deferral the system cannot detect, which is the exact shape of defect this project keeps paying
+**The trap inside those deferrals — the one ledger item 47 names, restated 2026-09-13 because the
+definition it quoted was superseded that day and the restatement inverts half of it.** §5.11 used to
+define `expected_wrap_count` as *"device wraps + recovery wraps + 1 snapshot, for the epoch it
+opens"*. **It does not any more.** After the owner's rulings the field is `2 × (active device leaves)
++ 1`, it counts **both** device-wrap record kinds and the snapshot, and it counts **no recovery
+wrap** — the recovery wraps land *after* the marker, so the count has already closed when they are
+due. So a client that defers the recovery wraps **no longer diverges from the field's definition at
+all**, and this paragraph's original claim is now false in that direction.
+
+**The trap it names survives, in the opposite direction and unchanged in force.** The server still
+checks only that the marker's `wrap_count` equals the attachment's `expected_wrap_count` — **two
+client-declared numbers compared against each other, and it has no idea what the right number is**
+(ledger item 132). A client that defers the **device** wraps, or the snapshot, and declares a count
+matching what it actually emitted passes the server while publishing a fan-out no member can open.
+And after the resequence the recovery arm has **no** count over it at all, which is worse than a
+divergence the field could in principle catch — ledger items **138** and **142**. That is still a
+deferral the system cannot detect, which is the exact shape of defect this project keeps paying
 for. Task 15 makes the count **derived from the fan-out it actually built**, and gates the deferral
 with a failing test that names it. It is not a number an implementer picks.
 
@@ -1585,7 +1609,8 @@ Until then this task is buildable with the helper's body as the single open line
   **Stated as "the only extraction, full stop", this property goes red at a commit inside this same
   plan.** §5.14 declares a **second** `Extract` —
   `deposit_sig_seed[k] = HKDF-Expand(HKDF-Extract("URmessage/v1/rendezvous", token[k]), "depsig/v1",
-  32)`, spec line 1817 (*`deposit_sig_seed[k]  = HKDF-Expand(HKDF-Extract(...`*) — in the same
+  32)`, anchor *`deposit_sig_seed[k]  = HKDF-Expand(HKDF-Extract("URmessage/v1/rendezvous"`*, table
+  row 3 — in the same
   derivation block Task 22 produces
   (`messagegroup/card.go`), reached again by Task 23. Note where Task 23's half of it lands: the
   derivation is the **client's**, so it is in `messagegroup/rendezvous.go`, while
@@ -2106,8 +2131,9 @@ what it is keyed by, and no statement of who owns the 64-sender table. `KeyFor` 
 **Open item M1-14.**
 
 **The channel problem, filed and load-bearing on Task 12.** §5.5 requires an out-of-window record to
-surface as a **gap**, not an error; §5.11 step 4 requires a member finding no wrap to surface a gap
-with reason `no_wrap`. `KeyFor` returns an `error`, `OpenRecord` returns an `error`, and §5.9 G7
+surface as a **gap**, not an error; **§5.11 step 5** — *the `no_wrap` step*, which was step 4 before
+the 2026-09-13 resequence — requires a member finding no **device** wrap to surface a gap with reason
+`no_wrap`. `KeyFor` returns an `error`, `OpenRecord` returns an `error`, and §5.9 G7
 makes every error in this package fatal by construction. Nothing in §5 names the sentinels `sdk` must
 `errors.Is` against to turn a refusal into a gap rather than a failure, and §12.1's refusals block
 carries neither name. **Open item M1-15.** This task declares `ErrOutOfWindow` as a sentinel;
@@ -2168,8 +2194,11 @@ makes it reachable from a published function, per amendment A-9's reachability r
   it. Do **not** reshape this interface around `mls`'s own types to make `*mls.Group` fit — that is
   the one move that destroys the boundary Gate 5 exists to hold, and the measurement under Property 3
   is there to stop it.
-- Produces: `GroupEngine`, `GroupHandle`, `EngineProcessed` — the block in Spec A §6 (spec lines
-  1885–1939, re-read after A-12), transcribed **from the spec**, and deliberately **not** normalised against
+- Produces: `GroupEngine`, `GroupHandle`, `EngineProcessed` — the block in Spec A §6, anchor
+  *`type GroupEngine interface {`* through *`JoinFromWelcome(welcome, ratchetTree []byte)`*, table
+  row 6. (This line cited *"spec lines 1885–1939"* until 2026-09-13; that range never agreed with the
+  table's own row and was missed by the 2026-09-07 sweep. It is an anchor now.) Transcribed **from the
+  spec**, and deliberately **not** normalised against
   `group.go`'s signatures. Measured 2026-09-05: `GroupEngine` is 4 methods and `GroupHandle` is
   **23**. The full method set is §6's and is not restated here, but the members **other tasks in this
   plan consume by name** are declared here so a reader is not sent to the registry for them:
@@ -2294,8 +2323,8 @@ would make Gate 5's swap a type change rather than a factory change. **Open item
 
   The earlier form of this property — *nothing in this package names `mls.Group`, full stop* —
   contradicted §2.2's own tree, which assigns *"engine.go — the GroupEngine interface (§6) **+ the
-  connect/mls adapter**"* to one file (spec line 200, *"engine.go — the GroupEngine interface (§6),
-  EngineProcessed, and the connect/mls adapter"*), and contradicted Task 9a, which has to exist
+  connect/mls adapter**"* to one file (anchor *"engine.go … the GroupEngine interface (§6),
+  EngineProcessed"*, table row 4), and contradicted Task 9a, which has to exist
   for `GroupSession` to hold anything real. This plan follows §2.2's pairing (M1-36). **After the
   split the full-stop form becomes true of `connect/message` and stays false of
   `connect/messagegroup`,** and that is the ruling working: `mls.Group` is nameable in exactly one
@@ -2746,10 +2775,12 @@ func (self *GroupSession) OpenRecord(record *Record) (headPlain, bodyPlain []byt
 > `GapReason == "out_of_window"` (§7.4) — **not as an error.** This is a deliberate, visible failure:
 > silently skipping is how a message loss becomes invisible.
 
-§5.11 step 4:
+§5.11 step 5 — *the `no_wrap` step*, step 4 before the 2026-09-13 resequence, quoted whole:
 
-> A member or device that finds no wrap for its target at epoch `n+1` after the marker has landed
-> surfaces a `gap` entry with reason `no_wrap`. It never fails silently.
+> A member or device that finds no **device** wrap for its target at epoch `n+1` after the marker has
+> landed surfaces a `gap` entry with reason `no_wrap`. It never fails silently. This detector covers
+> the device arm and the snapshot and **not** the recovery arm; *What `expected_wrap_count` counts*
+> below says why, and says what covers the recovery arm instead.
 
 `OpenRecord` has **one** error channel, and §5.9 G7 makes every error in this package fatal by
 construction. Nothing in §5 names the sentinels `sdk` must `errors.Is` against to turn a refusal into
@@ -3007,9 +3038,13 @@ summary.** Spec A §5.11 is the normative text and it is short; read it rather t
    `wrap_target_handle`. That is what makes MASTER §8.1's disappearing-message promise cryptographic
    rather than behavioural, and it closes ledger item 136.
 3. **Every wrap body is signed under the publisher's `identity` key**, and a client MUST NOT honour an
-   unverified one. Not new policy — MASTER §5.3 already says it for a `RecoveryTag` — and it is the
-   only thing that gives a wrap's fields any authenticator at all, because a wrap carries no MLS frame
-   and §2.4 makes `write_auth` zero on read.
+   unverified one. **Half existing and half new, and this task builds the new half.** For the recovery
+   wrap it is MASTER §5.3's existing rule applied where it already applied — that record carries a
+   `RecoveryTag`. For **the two device-wrap records this task produces it is new normative policy,
+   ruled 2026-09-13**: they carry a `WrapTag` and no `RecoveryTag`, so no document required a signature
+   over them before. It closes **ledger item 135**, and it is the only thing that gives a wrap's fields
+   any authenticator at all, because a wrap carries no MLS frame and §2.4 makes `write_auth` zero on
+   read.
 4. **The recovery wrap does NOT use the envelope** and is KEM-sealed, with a real `ct_head` keyed
    `HKDF-Expand(wrap_key, "wraphead/v1", 56)`. That is Task 19's record and is stated here only so this
    task does not generalise its own rule across it.
@@ -3135,30 +3170,50 @@ retry.
   `expected_wrap_count`.
 
 **The sequence was RESEQUENCED on 2026-09-13 and is quoted whole, because it is now seven steps and
-because the pre-ruling version of it executed against no server at all.** §5.11:
+because the pre-ruling version of it executed against no server at all.** *Whole* means whole: an
+earlier form of this block dropped the trailing sentence of steps 4, 5 and 7 and paraphrased step 6's
+parenthesis, and every one of those sentences carries a constraint on this task. §5.11:
 
 > 1. The server accepts at most one commit per `(group_id, epoch)`. On acceptance it sets
->    `current_epoch := n+1` and installs `write_key[n+1]` from the attachment, in the same
->    transaction.
-> 2. The committer then submits, **as ordinary records at epoch `n+1`, MAC'd under
->    `write_key[n+1]`**: **two** device-wrap records per active device leaf — a `PERMANENT` one
->    carrying `pq_secret[n+1]` and an `EPH(5)` one carrying `eph_root[n+1]`, each a `WrapTag` and both
->    indexed by that leaf's `wrap_target_handle` — and the ratchet-tree snapshot (one
->    `PERMANENT`-class record, `WrapTag` with `leaf_index = 0xFFFFFFFF`). **No recovery wrap is
->    published in this step.**
-> 3. The committer closes the fan-out with one `EpochComplete` marker record whose `wrap_count` MUST
->    equal the attachment's `expected_wrap_count`. Until that marker is accepted, the group is
->    **readable-but-not-writable**: the server returns `REASON_EPOCH_INCOMPLETE` to any submit at
->    epoch `n+1` carrying neither a `WrapTag` nor an `EpochComplete`.
-> 4. **Then**, as ordinary records of the now-open epoch `n+1`, the committer publishes one recovery
->    wrap per member (`RecoveryTag`, indexed by `recovery_handle`).
-> 5. A member or device that finds no **device** wrap for its target at epoch `n+1` after the marker
->    has landed surfaces a `gap` entry with reason `no_wrap`. It never fails silently.
+>    `current_epoch := n+1` and installs `write_key[n+1]` from the attachment, in the same transaction.
+> 2. The committer then submits, **as ordinary records at epoch `n+1`, MAC'd under `write_key[n+1]`**:
+>    **two** device-wrap records per active device leaf — see *The device wrap is two records* below —
+>    each carrying a `WrapTag` and each indexed by that leaf's `wrap_target_handle`; and the ratchet-tree
+>    snapshot (one `PERMANENT`-class record, `WrapTag` with `leaf_index = 0xFFFFFFFF`). **No recovery
+>    wrap is published in this step.**
+> 3. The committer closes the fan-out with one `EpochComplete` marker record whose `wrap_count` MUST equal
+>    the attachment's `expected_wrap_count`. Until that marker is accepted, the group is
+>    **readable-but-not-writable**: the server returns `REASON_EPOCH_INCOMPLETE` to any submit at epoch
+>    `n+1` that carries neither a `WrapTag` nor an `EpochComplete`.
+> 4. **Then**, as ordinary records of the now-open epoch `n+1`, the committer publishes one recovery wrap
+>    per member (`RecoveryTag`, indexed by `recovery_handle`). They are ordinary records in every sense:
+>    the epoch-complete gate is satisfied, nothing exempts them, and they hold no privilege the epoch's
+>    other records do not.
+> 5. A member or device that finds no **device** wrap for its target at epoch `n+1` after the marker has
+>    landed surfaces a `gap` entry with reason `no_wrap`. It never fails silently. This detector covers
+>    the device arm and the snapshot and **not** the recovery arm; *What `expected_wrap_count` counts*
+>    below says why, and says what covers the recovery arm instead.
 > 6. If the committer dies mid-fan-out, the marker never lands, the group stays non-writable, and any
 >    member may re-publish the missing wraps for epoch `n+1` (*"they are all derivable from the epoch
->    state every member holds"* — false, and §5.11 now says so in place) and submit the marker.
-> 7. A committer that dies **after** the marker and before the recovery wraps leaves a fully writable
->    group with a short recovery arm, and no party detects it.
+>    state every member holds"* — **that parenthesis is false as it stands and is deliberately not
+>    repaired here**: `pq_secret[n+1]` is a fresh CSPRNG draw delivered only inside the wrap, so a
+>    fan-out interrupted before the first device wrap lands is derivable by nobody at all. Ledger open
+>    item 134 and m1 Task 15 both file it, its two other copies are in Spec B §6.1 and in MASTER, and its
+>    repair is not one of the three rulings of 2026-09-13) and submit the marker.
+> 7. **A committer that dies after the marker and before the recovery wraps leaves a fully writable group
+>    with a short recovery arm, and no party detects it.** This failure mode is new with the resequence;
+>    it is the accepted cost, and it is stated in *What `expected_wrap_count` counts* below rather than
+>    left to be discovered. **It is also not confined to a committer that dies** — see the next
+>    paragraph, which is the part of this cost most easily missed.
+
+**§5.11 continues past step 7 with the window the resequence opened, and this task is written against
+that paragraph as well as against the steps.** After the marker the group is **fully writable**, so a
+commit accepted from any member while step 4 is still running advances the epoch and the server refuses
+every recovery wrap still in flight with `REASON_EPOCH_STALE` — permanently, across a window about
+eighteen round trips long, **with no crash of any kind**. A builder must not treat the recovery leg as
+"the part that only fails if we die", and must not silently retry a stranded wrap at the new epoch:
+`RecoveryTag` carries no epoch, so a retry is unaddressable on the wire until ledger open item **142**
+is ruled. Surface it; do not paper over it.
 
 **Why it moved, because a reader will otherwise put the recovery wraps back.** `AttachmentRecovery` is
 not in the shipped server's exemption set: `exemptFromEpochComplete` (`msgrepo/store/memory.go:937`)
@@ -3189,8 +3244,8 @@ the reason. Do not seal it under `DURABLE` "for now": the retention class is on 
 unrecoverable after A6 exactly as Task 11(a) says.
 
 **A second measured fact about the snapshot, so it is not derived from the class ratchet.** Spec A
-§5.10 E2 (spec line 1566, *"The per-epoch ratchet-tree snapshot is one `PERMANENT`-class record per
-epoch"*; it is **§5.10**, "Corrections adopted in MASTER", not §5.11) puts the snapshot under its
+§5.10 E2 (anchor *"The per-epoch ratchet-tree snapshot is **one"*, table row 5; it is **§5.10**,
+"Corrections adopted in MASTER", not §5.11) puts the snapshot under its
 **own** key —
 `K_snapshot[n] = HKDF-Expand(storage_root[n], "snap/v1", 32)`, *"not a copy inside every wrap"* —
 which is neither `ClassKeys.Perm` nor any `record_key[i]`. Task 3 does not derive it and no task in
@@ -3285,7 +3340,8 @@ test that is red on purpose is indistinguishable from one that is red by regress
   producer feeds them right.
 
   **Property 5 — an interrupted fan-out leaves the group non-writable, and is resumable exactly as
-  far as §5.11 step 5 is actually true.** Assert the non-writability, and assert that resumption
+  far as §5.11 step 6 is actually true.** (*The derivability step*, step 5 before the 2026-09-13
+  resequence.) Assert the non-writability, and assert that resumption
   re-derives what it can rather than replaying stored bytes.
 
   **Property 6 — every reader of the provisional epoch value checks the destroyed flag first.**
@@ -3303,8 +3359,9 @@ test that is red on purpose is indistinguishable from one that is red by regress
   fails, naming Task 13 Property 4 and quoting G10; the gate fatals if it finds no reader at all,
   in the house phrasing, so it cannot become vacuous through a refactor.
 
-  **Do not assert step 5's derivability claim, because this plan elsewhere files it as false.**
-  §5.11 step 5 says the missing wraps are *"all derivable from the epoch state every member holds"*.
+  **Do not assert the derivability claim, because this plan elsewhere files it as false.**
+  **§5.11 step 6** — *the derivability step*, step 5 before the 2026-09-13 resequence — says the
+  missing wraps are *"all derivable from the epoch state every member holds"*.
   **M1-22 says why they are not:** `pq_secret[n+1]` is a fresh CSPRNG draw taken by the committer
   (Task 13) and delivered **only inside the wrap**, so a fan-out interrupted **before the first
   device wrap lands** is unrecoverable by *any* member — every member can derive `mls_secret[n+1]`
@@ -3365,8 +3422,9 @@ test that is red on purpose is indistinguishable from one that is red by regress
 **Interfaces:**
 - Consumes: Task 9's **`GroupEngine`**`.JoinFromWelcome(welcome, ratchetTree []byte) (GroupHandle,
   error)` — §6 puts it on `GroupEngine`, **not** on `GroupHandle`, which is where an earlier draft of
-  this line spelled it; read the block at spec lines 1907–1912 (`type GroupEngine interface {` …
-  `JoinFromWelcome(welcome, ratchetTree []byte) (GroupHandle, error)`) before writing the call (R2,
+  this line spelled it; read the block anchored at `type GroupEngine interface {` …
+  `JoinFromWelcome(welcome, ratchetTree []byte) (GroupHandle, error)` (table row 6) before writing the
+  call (R2,
   and this
   was an R2 failure inside the plan that states R2). Task 9a's `connectMlsEngine` is the
   implementation. Also: Task 15's fan-out; Task 4's handles.
@@ -4064,11 +4122,18 @@ device-wrap records are sealed under `env_key[k] = MLS-Exporter("URmessage/v1/en
 §5.3's existing ladder; the recovery wrap cannot use that envelope — its only intended reader has no
 MLS state and no `storage_root` **by definition** — and is KEM-sealed with a real `ct_head` keyed
 `HKDF-Expand(wrap_key, "wraphead/v1", 56)`; every wrap body is signed under the publisher's `identity`
-key, which is MASTER §5.3's existing rule applied where it already applied; the device wrap becomes
+key — MASTER §5.3's existing rule applied where it already applied **for the recovery wrap**, and **new
+normative policy for the two device-wrap records**, which carry no `RecoveryTag` and which no document
+required a signature over before (it closes ledger item **135**); the device wrap becomes
 **two** records, a `PERMANENT` one carrying `pq_secret` and an `EPH(5)` one carrying `eph_root`; and
 the fan-out is resequenced so the recovery wraps land **after** the `EpochComplete` marker. The
 caching obligation `env_key` brings with it, and the fact that a missed window is unrecoverable, are
-stated in §5.11 as well.
+stated in §5.11 as well. **Three costs of the rulings are filed rather than resolved and a builder has
+to read them**: ledger **138** (nothing detects a missing recovery wrap), **142** (after the marker the
+group is fully writable, so a concurrent commit strands every recovery wrap still in flight under
+`REASON_EPOCH_STALE` — no crash required — and a retry is unaddressable because `RecoveryTag` carries
+no epoch) and **143** (the device wrap still owes a normative `stream_index`-to-ratchet-position pin,
+which rulings 2 and 3 sharpen by putting two records per leaf on one ladder).
 
 **What is still open, and it is what still blocks Task 14.** The wrap body's field list beyond what
 MASTER §8.2's payload table and MASTER §7's `hybrid_ct` framing already fix; **where the signature sits
@@ -4204,7 +4269,8 @@ the carrier rather than of the interface.
 
 **The adapter's home is a choice this plan takes, and the reason is §2.2, not the compiler.** §2.2's
 tree assigns *"engine.go — the GroupEngine interface (§6) + the connect/mls adapter"* to this package
-(spec line 200, the `engine.go` row of §2.2's `messagegroup/` block), and Task 9a's adapter is the
+(anchor *"engine.go … the GroupEngine interface (§6), EngineProcessed"*, table row 4 — the `engine.go`
+row of §2.2's `messagegroup/` block), and Task 9a's adapter is the
 one implementation that wants `stagedRef` for the
 `*mls.Processed` it stages. Both reasons are real and neither is a forcing.
 
@@ -4341,8 +4407,8 @@ cannot be migrated by recomputation. *Recommendation, labelled as one:* add the 
 `Reserve(groupId, senderHandle []byte, index uint64) error`. *Rejected alternative:* keying on
 `group_id` and reconciling later, which is a migration of exactly the state that cannot be migrated.
 
-**And the parameter is in two documents, not one.** §8.2's `MessageStore` (spec line 3719,
-*`ReserveStreamIndex(groupId []byte, index uint64) error`*) already
+**And the parameter is in two documents, not one.** §8.2's `MessageStore` (anchor
+*`ReserveStreamIndex(groupId []byte, index uint64) error`*, table row 7) already
 declares `ReserveStreamIndex(groupId []byte, index uint64) error` and `StreamHighWater(groupId
 []byte) (uint64, error)` — `StreamIndexReserver` method for method, with the same coarse key, on the
 interface `sdk`'s sqlite implementation owes. So the fix is one parameter **twice**, on a
@@ -4417,7 +4483,8 @@ construction, and Task 10's ownership of the table.
 
 **M1-15 — `OpenRecord` has one error channel and §5 requires two non-error outcomes.** §5.5's
 out-of-window record *"surfaces as a `Kind == "gap"` entry with `GapReason == "out_of_window"` — not
-as an error"*; §5.11 step 4's `no_wrap` is the second. §5.9 G7 makes every error in this package
+as an error"*; **§5.11 step 5**'s `no_wrap` — *the `no_wrap` step*, step 4 before the 2026-09-13
+resequence — is the second. §5.9 G7 makes every error in this package
 fatal by construction, and §12.1's refusals block — which A-9 makes an allowlist of what a **published**
 function can return — carries neither name. *Blocks:* Task 12's signature, and `sdk`'s §7.4 gap
 rendering. *Two shapes close it:* a third return value on `OpenRecord`, or two pinned sentinels `sdk`
@@ -4670,7 +4737,8 @@ beyond §12.1's three functions "because that block is restated character for ch
 it in `streamindex.go`, which §2.2 did not name at all — that one was silent. **Closed by A-12,
 and it is one of seven, not one of one:**
 
-§5.6's block now reads `// messagegroup/streamindex.go` (spec line 1327) and §2.2's tree names the
+§5.6's block now reads `// messagegroup/streamindex.go` (anchor *"the reserver is not a ratchet"*,
+table row 2) and §2.2's tree names the
 file, so the divergence is recorded in the spec rather than only here.
 And `tombstone.go` — that one was silent too.
 
@@ -4693,8 +4761,10 @@ notice that the sixth deliberately does not. Say why, or an implementer adds the
 deposit verification across connections.
 
 **M1-40 — `expected_wrap_count` is a deferral the system cannot detect.** Ledger item 47. §5.11
-defines it as *"device wraps + recovery wraps + 1 snapshot"* and the server checks only marker
-against attachment. Task 15 derives it and gates the deferral with a red test rather than leaving it
+defined it as *"device wraps + recovery wraps + 1 snapshot"* until 2026-09-13 and now defines it as
+`2 × (active device leaves) + 1`, covering both device-wrap record kinds and the snapshot and **no
+recovery wrap**; the server still checks only marker against attachment, which is what this item is
+about and which the ruling did not change. Task 15 derives it and gates the deferral with a red test rather than leaving it
 a number an implementer picks; filed here because the **spec** should say the count is derived and
 what happens when a client's inventory disagrees with the definition.
 

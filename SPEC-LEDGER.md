@@ -770,10 +770,14 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     that *"It does not encrypt"* — so **CP3b cannot be reached without it and it has no plan, no
     estimate and no owner.** The chain, with the tasks each leg forces and the ones it does not, is
     in `docs/reviews/2026-09-02-cp3b-chain-and-three-amendment-proposals.md` Part 1. One trap it
-    names: §5.11 defines `expected_wrap_count` as *"device wraps + recovery wraps + 1 snapshot"* and
+    names: §5.11 defined `expected_wrap_count` as *"device wraps + recovery wraps + 1 snapshot"* and
     the server checks only that the marker matches the attachment, so a client that defers recovery
     wraps and the snapshot passes the server while diverging from the spec — a deferral the system
-    cannot detect, and therefore one m1 must gate rather than leave to an implementer. Found
+    cannot detect, and therefore one m1 must gate rather than leave to an implementer. **(The quoted
+    definition was superseded on 2026-09-13: the field is now `2 × device_leaves + 1` and counts no
+    recovery wrap, so deferring the recovery wraps no longer diverges from it. The trap survives in
+    the other direction — the server still compares two client-declared numbers, item 132 — and the
+    recovery arm now has no count over it at all, items 138 and 142.)* Found
     2026-09-02 by the CP3b-chain review.
 
 47a. **CLOSED 2026-09-04.** m1 is written:
@@ -1741,23 +1745,41 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      sealed under the class keys that were lost.
 
      **And no crash is required.** Spec A §5.12 / G10 mandate destroying `pq_secret[n+1]` on *any
-     rejection* of a commit submission, while Spec B `:2234` makes a retried identical commit return
-     `REASON_OK`. A timeout on a commit that actually landed therefore drives a **conforming** client
+     rejection* of a commit submission, while Spec B **§6.3** — anchor *"a retried identical commit
+     returns `REASON_OK`, not `REASON_COMMIT_LOST`"*, cited as `spec-b:2234` until 2026-09-13 — makes a
+     retried identical commit return `REASON_OK`. A timeout on a commit that actually landed therefore drives a **conforming** client
      to burn the secret for an epoch that is already open. Spec B's own sentence notices the adjacent
      hazard — getting idempotency backwards *"burns a `pq_secret`"* — and not that burning it after
      acceptance is unrecoverable rather than expensive.
 
      **A third copy of the false sentence.** *"they are all derivable from the epoch state every
-     member holds"* is at `spec-a:1662`, `spec-b:2164` **and** MASTER:852. Every prior write-up
-     reported two. *Blocks:* nothing mechanically. **Filed, not ruled.** Found 2026-09-12; review
+     member holds"* is in **Spec A §5.11 step 6**, **Spec B §6.1 step 5's quoted sequence** and at
+     **MASTER:852**. Every prior write-up reported two. *(Cited as `spec-a:1662` and `spec-b:2164`
+     until 2026-09-13; both moved that day when the rulings landed, and the sentence is now step 6 of
+     Spec A's sequence rather than step 5. The quoted string is the citation and the line number is
+     not — `grep -rn -F 'derivable from the epoch' docs/specs/` re-derives all three, one hit per file.
+     (The longer form of the sentence spans a line break in every document, so grep it short.)
+     MASTER:852 still resolves, because MASTER was not amended; item 141.)* *Blocks:* nothing mechanically. **Filed, not ruled.** Found 2026-09-12; review
      finding E.
 
-135. **The wrap is the only record class carrying no MLS frame, and MASTER §5.3's own signature rule
-     has nothing to verify.** MASTER **I5** (`:248`) gives sender authentication to MLS and says the
-     storage layer adds no second signature; **I8** (`:254`) requires every field a client validates
-     to be inside the MLS payload or covered by `write_auth`; and Spec A §2.4 (`:300-303`) empties
-     that second arm on the read path — `write_auth` is **zero on read** and a client MUST NOT verify
-     it. A wrap's body is `hybrid_ct` and carries no MLS frame, so **no field of any wrap satisfies
+135. **CLOSED — RULED by the owner 2026-09-13, carried in with ruling 2, and recorded as ruled on
+     2026-09-13 in the review of that pass. The wrap is the only record class carrying no MLS frame,
+     and MASTER §5.3's own signature rule has nothing to verify.** **Every wrap body is signed under
+     the publisher's `identity` key and a client MUST NOT honour an unverified one** — Spec A §5.11
+     part (4) is the normative text. **Half of that is existing policy and half of it is new, and the
+     halves are named apart because Spec A first published the whole of it as *"not new policy"*,
+     which understates it:** for the **recovery** wrap it is MASTER §5.3:441 applied where it already
+     applied, since that record carries a `RecoveryTag`; for the **two device-wrap records** it is a
+     **new normative obligation**, because they carry a `WrapTag` and no `RecoveryTag` and no document
+     required a signature over them before. 64 octets into `size_bucket 2`'s existing slack, so it
+     costs nothing on the wire. The item is kept below with the problem it stated, because an item
+     that vanishes is an item somebody files again.
+
+     *The problem as filed, kept:* MASTER **I5** (`:248`) gives sender authentication to MLS and says
+     the storage layer adds no second signature; **I8** (`:254`) requires every field a client validates
+     to be inside the MLS payload or covered by `write_auth`; and Spec A **§2.4** — anchor
+     *"`write_auth` is **zero on read**"* through *"A client MUST NOT verify `write_auth` on a fetched
+     record"*, cited as `spec-a:300-303` until 2026-09-13 — empties that second arm on the read path. A wrap's body is `hybrid_ct` and carries no MLS frame, so **no field of any wrap satisfies
      I8** under any of the three M1-1 options.
 
      MASTER §5.3 (`:441-443`) already states the rule that would fix it — *"A client MUST NOT honour
@@ -1766,7 +1788,12 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      every option as written publishes ~500 records per epoch that §5.3, in its own words, says a
      client MUST NOT honour. *Blocks:* M1-1's ruling should carry the answer; the recommendation in
      the review is to sign every wrap body under the publisher's identity key, at 64 octets in 2,886
-     octets of existing slack. **Filed, not ruled.** Found 2026-09-12; review finding C.
+     octets of existing slack. **RULED 2026-09-13**, as stated at the head of this item — the ruling
+     adopted exactly that recommendation. It was carried into Spec A §5.11 by the 2026-09-13 pass
+     while item 137 and this item still read *"filed, not ruled"*; that contradiction — a normative
+     MUST whose own ledger said it had never been decided — is what the review of that pass found, and
+     resolving it in this direction is what the owner's ruling 2 actually did. Found 2026-09-12;
+     review finding C.
 
 136. **CLOSED — RULED by the owner 2026-09-13. MASTER §8.1's disappearing-message guarantee is a
      property of behaviour, not of cryptography, and the split that makes it cryptographic is
@@ -1779,7 +1806,8 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      an item that vanishes is an item somebody files again.
 
      `eph_root[n]` rode in the **device wrap**, which is `PERMANENT` and prunable **never**
-     (`spec-b:907`), encapsulated to a device X-Wing key that never rotates — `ProposeUpdate`'s own
+     (Spec B **§3.5**'s storage table, the `PERMANENT` device-wrap row — cited as `spec-b:907` until
+     2026-09-13, when the row moved and was split in two; grep the row, not the number), encapsulated to a device X-Wing key that never rotates — `ProposeUpdate`'s own
      header (`connect/mls/group.go:1613`): *"The device wrap key is read off the leaf being REPLACED
      and re-encoded, so an update publishes the same `urmessage_leaf_keys` the group already wraps
      to."* One device key obtained once opens every retained device wrap for every epoch, hence every
@@ -1828,7 +1856,12 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      who caches, for how long, where, and what a client does on a miss — and **the honest answer to
      the last is that a missed window is unrecoverable** for that epoch's `storage_root`; item 139.
      **A signature over every wrap body under the publisher's `identity` key** is carried in with the
-     ruling as the review asked, as MASTER §5.3:441's existing rule applied where it already applies.
+     ruling as the review asked. **It closes item 135, and it is not wholly "existing policy":** for
+     the recovery wrap it is MASTER §5.3:441 applied where it already applied, and for the **two
+     device-wrap records it is new normative policy ruled here**, because they carry a `WrapTag` and no
+     `RecoveryTag`. This paragraph first read *"as MASTER §5.3:441's existing rule applied where it
+     already applies"*, and the paragraph below listed 135 as still filed — a normative MUST in Spec A
+     against a ledger saying it had never been decided. Corrected 2026-09-13 in the review of this pass.
 
      **Ruling 3 — `pq_secret` is split from `eph_root`.** Two records: a `PERMANENT` one and an
      `EPH(5)` one. Closes item **136**. *The accepted cost:* the device-wrap count doubles and
@@ -1843,15 +1876,27 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      **CP3b is not blocked by the deferral**, because ledger 44a's already-blessed gated test-only
      hand-off can carry it **provided** the hand-off's own doc comment says it is not the production
      carrier; that proviso is written into m1 Task 16 as Property 5 with a mutation, as a requirement
-     on whoever builds it. Items **132–135** stay filed and unruled; 132 gains two interactions from
-     rulings 1 and 3, recorded in 132 itself. And one fact the review treats as an unknown is not one:
-     `git grep -n 'KeyPackage' -- '*.go'` over `msgrepo` returns **0** — the key-package store does not
-     exist, so *"does it authenticate a served package against the claimed identity's signature key?"*
-     is not a measurement anyone can take but a **requirement that can be written into the store
-     before it is built**, which is cheaper than the review's ranking assumed. (The brief that carried
-     this ruling stated the measurement as `grep -rn 'KeyPackage'` over the whole of `msgrepo`
-     returning 0; that does not reproduce — the whole-tree count is **456** across fifteen documents.
-     The `*.go` count is 0 and is the one the review actually took.)
+     on whoever builds it. Items **132–134** stay filed and unruled; 132 gains two interactions from
+     rulings 1 and 3, recorded in 132 itself. (**135 does not stay filed**: the signature carried in
+     with ruling 2 *is* 135's answer, and 135 is now recorded CLOSED. This paragraph said *132–135*
+     when it was written, which is the contradiction the review of this pass found.) And one fact the review treats as an unknown is not one:
+     **`git grep -n 'KeyPackage' -- '*.go'` over `msgrepo` returns 0**, and the measurement is stated
+     here **with its scope**, because the scope is what carries the argument: **no Go code in this
+     repository names a key package, therefore there is no key-package store, therefore this is a
+     requirement to write and not a fact anyone can measure.** *"Does it authenticate a served package
+     against the claimed identity's signature key?"* has no answer to look up; it has an answer to
+     specify, before the store exists, which is cheaper than the review's ranking assumed.
+
+     *The unscoped form does not reproduce, in either direction, and is not the one to quote.* The
+     brief that carried this ruling stated it as `grep -rn 'KeyPackage'` over the whole of `msgrepo`
+     returning **0**; the whole-tree count is not 0 and never was. Measured at `7fb0dd9`: **464
+     matching lines across 15 files**, every one of them a document — nine plans, two reviews, Spec A,
+     PROGRESS.md, this ledger and one JSON findings file; no `.go` file among them. This paragraph
+     first published **456**, which is the count at `2cbbb71`, the **parent** commit — a pre-commit
+     number published post-commit, and a smaller instance of the same error. (`-- '*.go' '*.proto'`
+     returns 0 as well, though the `*.proto` half of that scope is vacuous: this repository contains no
+     `.proto` file at all. `key_package` over `*.go` is likewise 0.) Corrected 2026-09-13 in the review
+     of this pass.
 
      *Blocks:* nothing further of its own. m1 Task 14 is still blocked on M1-1's remainder — the wrap
      body's field list beyond MASTER §8.2, the signature's placement, and M1-7's padding — and on
@@ -1861,7 +1906,8 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
 138. **Nothing detects a missing recovery wrap, and after the 2026-09-13 resequence nothing can
      without a change item 132 owns.** Filed as the named cost of ruling 1 rather than discovered.
      `expected_wrap_count` cannot see one: it names a set that closed when the marker landed, and the
-     recovery wraps are published after that. §5.11 step 5's `no_wrap` gap cannot: it is keyed on
+     recovery wraps are published after that. §5.11 **step 5** — *the `no_wrap` step*, step 4 before
+     the resequence — cannot either: it is keyed on
      *"after the marker has landed"*, and after the marker an absent recovery wrap is
      indistinguishable from one not yet published. No live member notices, because no live member
      reads its own recovery wrap on any normal path — its reader is a seed-only restorer, by
@@ -1870,7 +1916,10 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      **So a missing recovery wrap is discovered at restore time, by the party least able to act on it,
      potentially years later, and by then that epoch's `storage_root` is unrecoverable for that
      member.** A conforming committer that dies after the marker and before the recovery leg produces
-     exactly this, with a fully writable group and no signal to anyone. *Blocks:* nothing
+     exactly this, with a fully writable group and no signal to anyone — **and so does one that does
+     not die**, because after the marker the group is writable and another member's commit strands the
+     rest of the arm under `REASON_EPOCH_STALE`. That second producer is **item 142**, found in the
+     review of this pass, and it is why this item is not a rare-crash item. *Blocks:* nothing
      mechanically. **Filed, not ruled** — the repair is a coverage check the server can actually make,
      which is item 132's and is not m1's. Found 2026-09-13 while writing ruling 1 into §5.11.
 
@@ -1908,22 +1957,93 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      deliberately not amended by the 2026-09-13 pass.** The brief that carried the rulings named Spec
      A §5.11 and its neighbours, Spec B §6.1, the m1 plan and this ledger, and did not name
      `docs/specs/2026-08-12-urmessage-protocol-design.md`. Amending the normative parent is a larger
-     claim than a scribe should make unasked, so the divergence is **filed rather than hidden**. Three
-     places, measured 2026-09-13:
+     claim than a scribe should make unasked, so the divergence is **filed rather than hidden**.
+     **Three places were named on 2026-09-13. All three were re-measured in the review of that pass,
+     all three resolve exactly — and the re-measurement found a FOURTH the original count missed:**
 
-     - **MASTER §8.2's payload table** gives active device leaves *"`pq_secret[n]` **and**
-       `eph_root[n]`"* in one wrap, which ruling 3 splits into two records;
-     - **MASTER's own epoch-publication sequence** publishes the recovery wraps in step 2, before the
-       marker, which ruling 1 moves after it — the sequence that executes against no server;
-     - **MASTER's sizing paragraph** carries 1,000 device wraps, ≈ 1,503 records, ≈ 6.9 MB and ~55
-       round trips, which ruling 3 makes 2,000, ≈ 2,503, ≈ 11.5 MB and ~90.
+     - **MASTER §8.2's payload table** (`:806`) gives active device leaves *"`pq_secret[n]` **and**
+       `eph_root[n]`"* in one wrap, which ruling 3 splits into two records. **Confirmed.**
+     - **MASTER's own epoch-publication sequence** (step 2, `:842`) publishes *"one recovery wrap per
+       member"* before the marker, which ruling 1 moves after it — the sequence that executes against
+       no server. **Confirmed.**
+     - **MASTER's sizing paragraph** (`:855`) carries 1,000 device wraps, ≈ 1,503 records, ≈ 6.9 MB and
+       ~55 round trips, which ruling 3 makes 2,000, ≈ 2,503, ≈ 11.5 MB and ~90. **Confirmed.**
+     - **FOURTH, found 2026-09-13 in the review of that pass — MASTER §8.3's `server_attachment` block**
+       (`:912`) still annotates `expected_wrap_count` as *"device wraps + recovery wraps + 1 snapshot,
+       for the epoch it opens"*. Both rulings contradict it: ruling 3 makes it `2 × device_leaves + 1`
+       and ruling 1 takes the recovery wraps out of it entirely. This one is worse than the other three
+       because it is a **wire-block annotation** — the form a second implementation transcribes rather
+       than reads — and Spec A §5.11 and Spec B §5.4 both carry the ruled text in the same block, so the
+       three documents' `EpochAttachment` blocks now disagree with each other field for field.
 
-     MASTER:852 additionally holds the **third copy** of §5.11 step 5's false derivability sentence,
-     which item 134 files and which this pass did not repair in any document — it marked it in place
+     **The four line numbers above are advisory and the quoted strings are the citations.** They resolve
+     today because neither pass edited MASTER.
+
+     MASTER:852 additionally holds the **third copy** of the false derivability sentence — Spec A
+     §5.11 **step 6** since the 2026-09-13 resequence, step 5 before it, and step 5 of MASTER's own
+     un-resequenced list — which item 134 files and which this pass did not repair in any document — it marked it in place
      in Spec A and Spec B instead. *Blocks:* nothing mechanically, and everything about a reader's
      confidence: the normative parent and the two component specs now describe two different fan-outs.
      **This should be the next edit made, and it is a transcription rather than a decision.** Found
      2026-09-13 by the pass that wrote the rulings.
+
+142. **After the marker the group is fully writable, so any concurrent commit strands every recovery
+     wrap still in flight — permanently, with no crash required — and a retry is unaddressable because
+     `RecoveryTag` carries no epoch.** The second cost of ruling 1, filed in the review of the pass that
+     wrote ruling 1 rather than discovered later. `EpochComplete` is what opens the group for ordinary
+     writes, and the recovery leg runs **after** it, so a commit accepted from any member during that
+     leg sets `current_epoch := n+2` and `store/memory.go:578` then refuses every remaining recovery
+     wrap `REASON_EPOCH_STALE`. That check sits **in front of** the epoch-complete gate, so the
+     fan-out's state is irrelevant to the answer, and no path in either store accepts a record at a
+     closed epoch. **The window is the recovery arm's own length — about eighteen round trips** at the
+     500-member design target, between the marker and the last recovery wrap.
+
+     **The pre-ruling sequence had no window of this shape**, structurally: it published the recovery
+     wraps before the marker, and while a fan-out is open a commit carries an `AttachmentEpoch`, which
+     `exemptFromEpochComplete` does not exempt. So this window is created by the resequence. Both specs
+     attributed a short recovery arm **only to a committer that dies** (Spec A §5.11 step 7, Spec B §6.1
+     step 7), and that is false as it stood: **an ordinary, conforming, live committer loses the arm to
+     somebody else's legal commit**, at whatever rate the group commits. Both now say so.
+
+     **Whether a stranded wrap may be republished at a later epoch is answered, not deferred — the
+     cryptography permits it and the wire does not.** A recovery wrap's `ct_body` **is** `hybrid_ct` and
+     its `ct_head` is keyed from `wrap_key`, so neither depends on the record's own `epoch` field; the
+     content epoch is bound inside `wrap_key`'s HKDF `info`. But `RecoveryTag` carries
+     `recovery_handle`, `recovery_verify_pub` and `alg_id` and **no epoch** — where `WrapTag` carries
+     `u64 epoch` — and `recovery_handle = HKDF-Expand(recovery_root, "idx/v1", 16)` is the **same value
+     in every epoch**, so republishing epoch *k*'s wrap at *k+1* puts two wraps at one `recovery_handle`
+     inside one epoch with nothing on the wire saying which epoch's `storage_root` either carries. The
+     party that would have to tell them apart is the seed-only restorer, which holds the least state of
+     anyone.
+
+     **What a retry would take, written down rather than guessed at:** a `u64 epoch` on `RecoveryTag` —
+     a `server_attachment` change, therefore an **A6 wire-format change** reaching Spec A §5.11, Spec B
+     §5.4 and MASTER §8.3 — plus a normative rule for which of two wraps at one `(recovery_handle,
+     record epoch)` a restorer honours. Both are published-surface decisions and neither is one of the
+     three rulings. *Blocks:* nothing mechanically, and it compounds **138**: 138 says nothing detects a
+     missing recovery wrap, and this item says a healthy client produces one on a normal day. **Filed,
+     not ruled.** Found 2026-09-13 in the review of the three rulings.
+
+143. **The device wrap owes a normative `stream_index`-to-ratchet-position mapping, and it is the one
+     residual of the adopted M1-1 recommendation carried into no document.** Residual risk 2 of the
+     2026-09-12 review's recommendation. The record nonce is derived from the record key —
+     `key_head ‖ nonce_head = HKDF-Expand(record_key[i], "rec/v1/head", 56)`, MASTER §8.1 — so key-nonce
+     uniqueness **is** uniqueness of `i`, and a repeated pair under XChaCha20-Poly1305 leaks the
+     Poly1305 one-time key: header **forgery**, not a plaintext XOR. `i` and `stream_index` are not the
+     same thing by default, because gaps are normatively legal (*"the server enforces monotonicity, not
+     contiguity"*), and one rate-limited submit mid-fan-out is enough to separate them.
+
+     **Rulings 2 and 3 sharpen it rather than soften it.** Ruling 2 gives the device wrap its own ladder
+     head — `record_key[0] = HKDF-Expand(env_key[k], "sender/v1" ‖ LP(leaf_index), 32)` — and ruling 3
+     puts **two** records per leaf on that ladder, so a fan-out now advances it twice per leaf where it
+     advanced it once, at 2,000 records rather than 1,000. The review's proposed repair is to pin
+     `i = stream_index` in **every** ladder, so the invariant follows from Spec A §5.12 step 6's
+     existing *"MUST NOT be reused"* rule rather than from a second, unwritten discipline. That reaches
+     all of §5.3 and not only the wrap's ladder, which is why it is filed rather than ruled inside a
+     wrap ruling. Named in Spec A §5.11 part (5) as explicitly not stated. *Blocks:* nothing
+     mechanically; it is a wire-visible correctness property no test in m1 can currently refute.
+     **Filed, not ruled.** Found 2026-09-13 in the review of the three rulings, by checking each of the
+     recommendation's five residuals against the corpus — 1, 3, 4 and 5 are carried and this one was not.
 
 ## 6. Change process
 
@@ -4518,3 +4638,186 @@ trap this repository has hit once. Every edited file measured **LF throughout, z
 `tr -dc '\r' | wc -c` rather than with `grep`: on this box `grep -c $'\r$'` reports every line of a
 pure-LF file as matching, which is exactly the shape of vacuous pass `.gitattributes` was written
 against. No file under `C:/Users/ryanm/Downloads/claude_sandbox_message/connect` was modified.
+
+### 2026-09-13 — the three rulings reviewed: a window nobody had costed, a MUST its own ledger called undecided, and 23 citations the rulings' own edits invalidated
+
+**The rulings themselves stand.** Every one of them was re-verified before a word of this pass was
+written and none was changed: `go test ./...` green, `go test ./ -run TestThePlanLinter` **7 of 7**,
+the resequenced fan-out executes end to end against the shipped gate, all three `connect/mls` facts
+exact (`(*Group).Export` at `mls/group.go:821` reads `self.schedule`; `grep -rn 'ExportAt'` over the
+whole of `connect` returns **0**; `PastEpochWindow` is **32** at `mls/key_schedule.go:30`), and every
+sizing figure reproduces from MASTER §7's framing. **This entry is about how the rulings were written
+down.** No file under `C:/Users/ryanm/Downloads/claude_sandbox_message/connect` was read for anything
+but measurement and none was modified.
+
+**1 — the resequence's real cost was undocumented, and it is not the cost either spec described.**
+The largest finding, and it reproduces exactly against the shipped store. `EpochComplete` is what
+opens the group for ordinary writes, so **after the marker the group is fully writable** and the
+recovery leg runs inside that writable window. A commit accepted from any member during that leg sets
+`current_epoch := n+2`, and `store/memory.go:578` then refuses every recovery wrap still in flight
+`REASON_EPOCH_STALE` — **permanently**, because that check sits *in front of* the epoch-complete gate
+and no path in either store accepts a record at a closed epoch. The window is the recovery arm's own
+length: **about eighteen round trips** at the 500-member design target, which is a number §5.11's own
+sizing paragraph already published without connecting it to this.
+
+**The pre-ruling sequence had no window of this shape**, structurally: it published the recovery wraps
+before the marker, and while a fan-out is open a commit carries an `AttachmentEpoch`, which
+`exemptFromEpochComplete` does not exempt. So both specs' attribution of a short recovery arm to *a
+committer that dies* (§5.11 step 7, §6.1 step 7) was **false as it stood**: an ordinary, conforming,
+**live** committer loses the tail of its arm to somebody else's perfectly legal commit, at whatever
+rate the group commits, with no failure of any kind. Written into **§5.11 itself**, where a reader of
+the fan-out lands, and mirrored in Spec B §6.1 — not only into this ledger, which is the half of the
+original instruction most easily lost twice.
+
+**And the question that follows is answered rather than deferred: may a stranded recovery wrap be
+published at a later epoch?** *The cryptography permits it* — a recovery wrap's `ct_body` **is**
+`hybrid_ct` and its `ct_head` is keyed from `wrap_key`, so neither depends on the record's own `epoch`
+field, and the content epoch is bound inside `wrap_key`'s HKDF `info`. *The wire does not.*
+`RecoveryTag` carries `recovery_handle`, `recovery_verify_pub` and `alg_id` and **no epoch** — where
+`WrapTag` carries `u64 epoch` — and `recovery_handle = HKDF-Expand(recovery_root, "idx/v1", 16)` is
+the **same value in every epoch**, so a republished wrap is indistinguishable from the current epoch's
+own. The party that would have to tell them apart is the seed-only restorer. So a retry is **not**
+specified, and what it would take is written down instead of guessed at: a `u64 epoch` on
+`RecoveryTag` — an A6 wire change reaching Spec A §5.11, Spec B §5.4 and MASTER §8.3 — plus a rule for
+which of two wraps at one `(recovery_handle, record epoch)` a restorer honours. **New open item 142**,
+which compounds 138: 138 says nothing detects a missing recovery wrap, and 142 says a healthy client
+produces one on an ordinary day.
+
+**2 — an item the ledger said was unruled had acquired a normative answer, and it is ruled rather than
+weakened.** Spec A §5.11 part (4) published *"Every wrap body is signed under the publisher's
+`identity` key, and a client MUST NOT honour an unverified one"* as a MUST, while item 137 said items
+**132–135** stay filed and unruled and item 135 said *"Filed, not ruled"* — a normative MUST against a
+ledger saying it had never been decided, which is a shape this project has twice had an implementer
+discover and which the brief for that very commit named as a risk. **Resolved in the ruling
+direction**, because that is what the owner's ruling 2 actually did: the signature was carried in with
+it, as the review asked. Item **135 is CLOSED**, 137's list becomes **132–134**, and the understatement
+is corrected in the same breath: *"not new policy"* was true of **half** of it. For the recovery wrap
+it is MASTER §5.3:441 applied where it already applied, since that record carries a `RecoveryTag`. For
+the **two device-wrap records it is new normative policy** — they carry a `WrapTag` and no
+`RecoveryTag`, and no document required a signature over them before. Spec A §5.11 (4), m1 Task 14's
+outline and m1's M1-1 item now all say which half is which.
+
+**3 — the spec line-number citations were invalidated wholesale by the rulings' own edits, and the
+repair is not another re-numbering.** **23 citation sites were swept**, and the accounting is given
+rather than the round number: **21** were correct at `2cbbb71` and wrong at `7fb0dd9` — measured both
+ways, not assumed — plus the anchor table's own header claim, plus one that was **already** wrong
+before this commit and had survived the 2026-09-07 sweep. The commit inserted a revision row into
+Spec A §0 and rewrote §5.10 and §5.11, so at `7fb0dd9` the shifts were `+1` above §5.10 and `+251`
+below it, and Spec B moved with it — a measurement between two named commits, which is the only form
+in which an offset is worth writing down. The repair is the one this repository already owns from
+`a48cd4c`: **the quoted anchor is the citation and the number is advisory**, with the `grep` to
+re-derive it in the table's own header.
+
+- **m1's anchor table** keeps its seven `a48cd4c` numbers, and its header now says in the column
+  title that they are **advisory and stale since `7fb0dd9`** — so a reader knows the column is
+  expected to be stale rather than broken, and re-derives any of them with the header's `grep`.
+- **Ten inline citations in m1 lost their numbers entirely** and now name the anchor string and its
+  table row: §2.2's two tree anchors, §5.6's `streamindex.go` twice, §5.14's `deposit_sig_seed`,
+  §2.2's `engine.go` twice, §5.10 E2, §6's `GroupEngine` block twice, and §8.2's `ReserveStreamIndex`.
+  The *"the numbers agree with the inline citations, and that agreement is the check"* paragraph is
+  rewritten around anchors, because a number repeated in nine places drifts in nine places. **No shift
+  arithmetic is written into the plan on purpose:** a stated offset is one more derived number that
+  goes stale on the next edit, including this one's.
+- **One citation the 2026-09-07 sweep had missed is recorded rather than quietly fixed:** Task 9's
+  Produces block cited *"spec lines 1885–1939"* for §6's interface block, a range that never agreed
+  with the anchor table's own `1907`–`1912`.
+- **Four bare numbers in three live ledger items became anchors:** 134's `spec-a:1662` /
+  `spec-b:2164` and its `spec-b:2234`, 135's `spec-a:300-303`, and 136's `spec-b:907`. Two of those
+  are in text this commit never touched — the commit's *spec* edits invalidated them anyway, which is
+  the whole shape of the class — and 136's is doubly stale, because that row was split in two by
+  ruling 3 on the same day.
+- **The append-only edit log is deliberately not swept.** Its `spec-a:1565` / `1566` / `1673` /
+  `1662` and `spec-b:2164` were correct at the commits their own entries name, and rewriting a past
+  entry's measurements is not what §6's change process does — the same reason the 2026-09-12 review
+  document keeps its own numbers. The anchors for those five are in the live items above, which is
+  where a reader who needs them will be. **The same rule is why the previous entry's two uses of
+  *"§5.11 step 5"* for the derivability sentence are named here rather than edited there.**
+
+**4 — eight smaller findings, each reproduced before it was acted on.**
+
+- **Spec B's revision 14 preamble contradicted the §3.5 table it described, in the same commit**, with
+  two wrong per-commit figures: *"~60 KB / ~1.4 MB"* against §3.5's **~40 KB / ~1.2 MB**. ~60 and ~1.4
+  are the pre-split numbers naively doubled; the bundle does not double, only its device-wrap half
+  does. §3.5's arithmetic reproduces (+2 records ≈ 9.2 KB at 2 members, +100 ≈ 460 KB at 50, +1,000
+  ≈ 4.6 MB at 500) and the preamble now agrees with it. The 500-member figure, the one an operator
+  sizes from, was right in both.
+- **The §5.11 renumbering broke five step citations in m1** — 2109, 2749, 3288, 3307 and 4420 in the
+  file as `7fb0dd9` left it — because old step 4 became step 5 and old step 5 became step 6. Repaired,
+  and every one now names *which* step it means (*the `no_wrap` step*, *the derivability step*) with
+  its pre-resequence number, so a future resequence cannot make them silently wrong again. **The
+  commit's own new prose used *"§5.11 step 5"* for two different steps** — the `no_wrap` gap (correct)
+  in items 138, and the derivability sentence (now step 6) in item 141 and in the entry above. Both
+  corrected.
+- **`plan:980-986` still quoted the superseded `expected_wrap_count` definition** — *"device wraps +
+  recovery wraps + 1 snapshot"* — in a file the commit edited, and drew from it the conclusion that a
+  client deferring recovery wraps diverges from the field's definition, which is now the **opposite**
+  of ruling 1. Rewritten: the divergence it named is gone and the trap it names survives in the other
+  direction (item 132's two client-declared numbers), plus the recovery arm now having no count over
+  it at all. m1's **M1-40** and ledger item **47** carried the same superseded quote and are marked.
+- **Residual risk 2 of the adopted recommendation was carried into no document.** Residuals 1, 3, 4
+  and 5 are all in the corpus; the **normative `stream_index`-to-ratchet-position pin** was in the
+  review and nowhere else. It is real: the nonce is derived from the record key
+  (`HKDF-Expand(record_key[i], "rec/v1/head", 56)`), so key-nonce uniqueness *is* uniqueness of `i`,
+  and a repeat leaks the Poly1305 one-time key — header forgery. **Rulings 2 and 3 sharpen it**: ruling
+  2 gives the device wrap its own ladder head and ruling 3 puts two records per leaf on it, so a
+  fan-out advances that ladder twice per leaf, 2,000 times rather than 1,000. Named in §5.11 part (5)
+  as explicitly not stated, and filed as **new open item 143**.
+- **"Decorative for the recovery arm" re-defined the review's term**, and the one place a server
+  implementer reads the field's wire definition — Spec B §5.4's `EpochAttachment` block — carried the
+  label without the re-definition. The word is now scoped in both documents: the count is **exact and
+  its equality with the marker is normative and is the only thing that opens an epoch**; *decorative
+  for the recovery arm* means the field makes **no statement** about that arm, and is not a licence to
+  stop enforcing the equality.
+- **`mls/group.go:2587` is the cutoff guard, not the `DeleteGroupStateBefore` call.** `:2587` is
+  `if self.context.Epoch > PastEpochWindow {`; the call is `:2594`. Corrected in §5.11 with both lines
+  named. `:2488`, `:821`, `:1613` and `key_schedule.go:30` all resolve exactly as published.
+- **m1 Task 15 said the seven-step sequence *"is quoted whole"* and the blockquote was abridged** —
+  the trailing sentences of steps 4, 5 and 7 dropped and step 6's parenthesis paraphrased, every one
+  of them a constraint on that task. The blockquote is now generated from §5.11's own text and the
+  claim is true, and the task gains the window paragraph as a named obligation: do not treat the
+  recovery leg as the part that only fails on a crash, and do not silently retry a stranded wrap.
+- **The E1 correction row still read as pre-ruling**; only the paragraph below it said otherwise. The
+  superseded sentence is now struck **in the row**, with E1's own correction left untouched.
+
+**5 — two measurements corrected, and one claim in the review that does not reproduce.**
+
+- **The `KeyPackage` measurement now carries its scope, because the scope is the argument.**
+  `git grep -n 'KeyPackage' -- '*.go'` over `msgrepo` returns **0**: no Go code names a key package,
+  therefore no key-package store exists, therefore *"does it authenticate a served package against
+  the claimed identity's signature key?"* is a requirement to write and not a fact anyone can measure.
+  The unscoped form does not reproduce in either direction. The brief said `grep -rn 'KeyPackage'`
+  over the whole of `msgrepo` returns 0; the previous entry corrected that to **456**, which is the
+  count at `2cbbb71` — a pre-commit number published post-commit. Measured at `7fb0dd9` the whole-tree
+  count is **464 matching lines across 15 files**, every one a document. (`-- '*.go' '*.proto'` is 0
+  too, though the `*.proto` half is vacuous: this repository holds no `.proto` file. `key_package`
+  over `*.go` is 0.)
+- **The review's own figure of 509 does not reproduce and no change was manufactured to fit it.**
+  Measured at `7fb0dd9`, over the working tree with `.git` excluded: `grep -rn 'KeyPackage'` gives
+  **464** lines and `grep -ro` gives **556** occurrences. Neither is 509, and `git grep` agrees with
+  the 464. The scoped measurement the review asked to be stated is the one that carries the argument
+  and it is stated; the whole-tree number is recorded with its measurement point rather than left as a
+  bare figure that will be wrong again next commit.
+- **MASTER (item 141) was correctly left alone and was not amended here either.** Its three named
+  locations were re-measured and **all three confirmed** — §8.2's payload table at `:806`, the
+  epoch-publication sequence's step 2 at `:842`, and the sizing paragraph at `:855`. **A fourth was
+  found and added:** MASTER §8.3's `server_attachment` block at `:912` still annotates
+  `expected_wrap_count` as *"device wraps + recovery wraps + 1 snapshot, for the epoch it opens"*,
+  which both rulings contradict. It is the worst of the four for a reason worth writing down: it is a
+  **wire-block annotation**, the form a second implementation transcribes rather than reads, and the
+  three documents' `EpochAttachment` blocks now disagree field for field. MASTER remains the next edit
+  and remains a transcription rather than a decision.
+
+**What this pass did not do.** It did not rule items **132**, **133** or **134**, or the two M1-1/M1-2
+questions the owner left open; it did not touch MASTER; it changed nothing in `connect`; and it
+changed no Go file in this repository. Item 135 is the only item whose status it moved, and it moved
+it to what the owner's own ruling 2 had already decided.
+
+**Verified.** `go build ./...` clean and `go test ./...` green, before and after. `go test ./ -run
+TestThePlanLinter` — **7 of 7, `ok`**, before and after, and the finding counts move in the intended
+direction and in no other: check 2a **18 → 18**, check 3c **2 → 2**, check 4b **5 → 5**, and both fatal
+checks, 3b and 3d, at **no findings** in both runs. `git ls-files` equals `git ls-tree -r HEAD
+--name-only` — checked before the commit rather than assumed, per the trap this repository has hit
+once. Every edited file measured **LF throughout, zero CR bytes**, with `tr -dc '\r' | wc -c` rather
+than with `grep`, for the reason the previous entry gives. This repository has exactly one branch,
+`main`, and no `beta/message`; the work was done on `main` at `7fb0dd9`, which is the half of the
+brief that reproduces — the same discrepancy the previous entry recorded, unchanged.

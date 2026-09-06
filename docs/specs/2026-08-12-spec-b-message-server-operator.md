@@ -370,8 +370,13 @@ device leaf now receives a `PERMANENT` record carrying `pq_secret[n]` and an `EP
 `eph_root[n]`, both at the same `wrap_target_handle` — the construction that makes MASTER §8.1's
 disappearing-message promise cryptographic rather than behavioural, ruled after the 2026-09-12 red team
 showed the promise rests on client behaviour today. §3.5's storage table gains the `EPH(5)` row, and
-the per-commit figures go from **~30 KB / ~700 KB / ~6.9 MB** to **~60 KB / ~1.4 MB / ~11.5 MB** at
-2 / 50 / 500 members. **The durable footprint does not double**: about 4.6 MB of the 500-member figure
+the per-commit figures go from **~30 KB / ~700 KB / ~6.9 MB** to **~40 KB / ~1.2 MB / ~11.5 MB** at
+2 / 50 / 500 members. (**Corrected 2026-09-13, in the review of this revision:** this paragraph first
+read ~60 KB / ~1.4 MB, which is the pre-split figures naively doubled and disagrees with the §3.5 table
+this same revision wrote. The bundle does not double — only the device-wrap half does, and the 2-member
+row counts one device per member. The arithmetic that reproduces is in §3.5: at 2 members the split
+adds two wrap records, ~9.2 KB, to ~30 KB; at 50 members it adds 100, ~460 KB, to ~700 KB; at 500 it
+adds 1,000, ~4.6 MB, to ~6.9 MB. §3.5 is the table and this sentence now agrees with it.) **The durable footprint does not double**: about 4.6 MB of the 500-member figure
 is `EPH(5)` and prunable at twenty-eight days, so the ~2.5 GB/year of unprunable `PERMANENT` data
 stands and the write volume is what doubled. §4.3.9's `WrapFetchResponse` says that a target now has
 two device-wrap rows and that returning one is a truncation; Spec A's S5 row says the same to the other
@@ -385,6 +390,46 @@ them: the resequence puts the recovery arm outside `expected_wrap_count` entirel
 split makes *two wraps at one `wrap_target_handle`* the normal case, which forecloses a uniqueness
 constraint on `(group_id, epoch, wrap_target_handle)` unless that constraint also takes the retention
 class. Both are written down in Spec A §5.11 and in the ledger.
+
+---
+
+**Revision 15 — 2026-09-13 — the review of revision 14: three amendments, none of which changes an SQL
+statement, a column, an index or a returned reason, and none of which changes what revision 14 ruled.**
+
+**Revision 14's own preamble contradicted the §3.5 table it was describing, in the same commit.** It
+said the per-commit figures go to *"~60 KB / ~1.4 MB / ~11.5 MB"* at 2 / 50 / 500 members; §3.5 says
+**~40 KB / ~1.2 MB / ~11.5 MB**, and §3.5 is right. ~60 KB and ~1.4 MB are the pre-split figures
+naively doubled, and the bundle does not double — only its device-wrap half does. The arithmetic that
+reproduces, and that §3.5 states: the split adds two wrap records (~9.2 KB) at 2 members, 100 (~460 KB)
+at 50, and 1,000 (~4.6 MB) at 500. Two of the three figures in the preamble were wrong and the
+500-member one, which is the one an operator sizes from, was right. Corrected in the preamble; §3.5
+untouched.
+
+**§6.1's step 7 attributed a short recovery arm only to a committer that dies, and that is false.**
+After step 3 the group is **fully writable** — that is what the marker does — and step 4 runs inside
+that window, so a commit accepted from any member during step 4 advances `current_epoch` and this
+server then refuses every recovery wrap still in flight with `REASON_EPOCH_STALE`. The epoch check
+precedes the epoch-complete gate and no path accepts a record at a closed epoch, so the refusal is
+permanent. The window is the recovery arm's own length, about eighteen round trips at the design
+target, and **no failure of any kind is required** — an ordinary conforming live committer loses the
+tail of its arm to somebody else's legal commit. **Nothing here changes on the server side**: the
+sequence is the client's, Spec A §5.11 owns it, and whether a stranded wrap may be republished at a
+later epoch is ledger open item **142** — which, if it is ever ruled *yes*, lands as a `u64 epoch` on
+`RecoveryTag` and therefore in §5.4's encoding and in `WrapFetch`'s neighbours. Recorded now so that an
+operator reading a short recovery arm in the field does not conclude that a client crashed, and so that
+142's wire cost is visible from this document rather than only from Spec A's.
+
+**"Decorative for the recovery arm" is scoped in the one place a server implementer reads the field's
+wire definition.** §5.4's `EpochAttachment` block carried the phrase from Spec A without the meaning
+attached to it. `expected_wrap_count` is **exact and enforced**: §6.1 opens an epoch only on the
+marker's `wrap_count` equalling it, and that equality is the only thing that opens an epoch. The phrase
+means one thing — the field makes **no statement** about the recovery arm, which lands after the count
+has closed — and it is not a licence to stop enforcing the equality. The block now says so, and names
+ledger items 138 and 142 for the consequence that does hold.
+
+**Not amended, again and deliberately.** Ledger open items **132**, **133** and **134** remain filed
+and unruled; nothing in this revision touches them. Item **135**, the wrap-body signature, is ruled and
+closed in the same pass, but it is Spec A's section and no sentence of this document carried it.
 
 ---
 
@@ -1953,9 +1998,17 @@ EpochAttachment {
                                 //   for the epoch this attachment opens -- two device-wrap records
                                 //   per active device leaf, so 2 x device_leaves + 1. Recovery
                                 //   wraps are NOT counted, because they land AFTER the marker
-                                //   (§6.1). Spec A §5.11 owns this and states the consequence:
-                                //   the count is decorative for the recovery arm, and nothing
-                                //   detects a missing recovery wrap.
+                                //   (§6.1).
+                                //   THIS FIELD IS EXACT AND THIS SERVER ENFORCES IT. §6.1 opens an
+                                //   epoch only when the marker's wrap_count equals this value, and
+                                //   that equality is normative and is the only thing that opens an
+                                //   epoch. Spec A §5.11 calls the field "decorative for the recovery
+                                //   arm"; that phrase is scoped and means ONLY that the field makes
+                                //   no statement about the recovery arm, which lands after the count
+                                //   has closed. It is NOT a licence to stop enforcing the equality --
+                                //   doing so reintroduces the permanent brick §6.1 exists to prevent.
+                                //   The consequence Spec A §5.11 does state: nothing detects a
+                                //   missing recovery wrap (ledger items 138 and 142).
 }
 
 RecoveryTag {
@@ -2259,7 +2312,16 @@ and **nothing detects a missing recovery wrap**.
 >    not one of the three rulings of 2026-09-13) and submit the marker.
 > 7. **A committer that dies after the marker and before the recovery wraps leaves a fully writable group
 >    with a short recovery arm, and no party detects it** — not this server, which never counts a wrap
->    record (ledger item 132).
+>    record (ledger item 132). **And a committer need not die to produce this.** After step 3 the group
+>    is fully writable, which is what the marker is for, so a commit accepted from any member during
+>    step 4 sets `current_epoch := n+2` and this server then refuses every recovery wrap still in flight
+>    with `REASON_EPOCH_STALE` — the epoch check precedes the epoch-complete gate and there is no path
+>    that accepts a record at a closed epoch. The window is the recovery arm's own length, about
+>    eighteen round trips at the design target. **No change to this server is proposed for it**: the
+>    sequence is the client's and Spec A §5.11 owns it, whether a stranded wrap may be republished at a
+>    later epoch is ledger open item **142**, and a `RecoveryTag` gained an epoch would be a wire change
+>    reaching §5.4's encoding here. It is recorded so an operator reading a short recovery arm in the
+>    field does not conclude a client crashed.
 >
 > **Sizing at the 500-member × 2-device design target, after the 2026-09-13 device-wrap split.** Wraps
 > pad to the ladder like everything else: a device-wrap record carrying one 32-octet secret (~1,178 B)
