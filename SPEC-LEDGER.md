@@ -1672,6 +1672,104 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      so where the next reader who opens a mixed file will find it, rather than in an edit-log
      residual. Found 2026-09-10 during the `*.go text eol=lf` ruling; promoted here.
 
+132. **The fan-out has no coverage check, and `expected_wrap_count` has no upper bound.** Measured
+     2026-09-12. `store/memory.go:720-724` opens a group for ordinary writes when the marker's
+     `wrap_count` equals `row.expectedWrapCount` — **two client-declared numbers compared against
+     each other**. Neither store ever counts a wrap record. `wellFormedEpochAttachment`
+     (`memory.go:962`) bounds `expected_wrap_count` only at non-zero. The wrap index is deliberately
+     **not unique** (`store/migrations.go:222-226`) and **nothing binds `sender_handle` to the party
+     that submitted the record** — it appears in `api/submit.go` only as a copy and in
+     `store/memory.go` only as a map key.
+
+     Every member holds `write_key[n+1]`, in the clear, from the commit's plaintext `EpochAttachment`
+     (`connect/message/attachment.go:155-157`). So: a decoy wrap can be landed at a victim's handle
+     while the declared count still matches; any member can close a fan-out that never happened with
+     one record, forcing a permanent `no_wrap` gap on everyone at once; and a committer declaring an
+     `expected_wrap_count` of 0xFFFFFFFF freezes a group readable-but-not-writable **permanently**,
+     with item 134 showing the only exit is a marker that lies.
+
+     *Why this is filed here and not in m1.* **The single detector every M1-1 option offers against
+     M1-22's omission attack is this count**, and it is correct while the coverage is wrong — so no
+     M1-1 ruling means anything until it is fixed, and the fix is Spec B's. *Blocks:* the value of
+     any M1-1 ruling. **Filed, not ruled.** Found 2026-09-12 by the M1-1/M1-2 red team; see
+     `docs/reviews/2026-09-12-m1-wrap-and-welcome-redteam.md` finding B.
+
+133. **Removal revokes nothing at the server layer, and two published claims are false.** Measured
+     2026-09-12. `EpochAttachment.WriteKey` and `.ReadKey` are plaintext fields of every commit
+     record. `Fetch` runs exactly four stages (`api/fetch.go`, `fetchStages`) — request shape,
+     known-group, read-key lookup on `(group_id, read_epoch)`, `req_auth` — and **none scopes the
+     returned records to an epoch**; `MemoryStore.Fetch` (`store/memory.go:217-255`) filters on
+     `record_id` and the class mask and nothing else.
+
+     So a member removed at epoch *n* fetches the commit that removed it under `read_key[n]`, reads
+     `read_key[n+1]` and `write_key[n+1]` out of that commit's cleartext attachment, and chains
+     forward with a fresh ninety-day window each time. With `sender_handle` derivable by any holder
+     of `group_handle_key` (MASTER:650) and stream monotonicity unbounded on the jump
+     (`memory.go:609-611`, no reset path in any spec), ~500 records at the maximum index permanently
+     silence the entire membership.
+
+     **False as published:** MASTER §8's *"A member removed at epoch n keeps metadata access only
+     until epoch n's key falls out of that window"*, and §9.2's *"Revocation is by epoch rotation"*
+     as it reads today. *Blocks:* nothing mechanically; it is a design change rather than an edit,
+     and it decides one M1-1 option comparison — a removed member's residual read of the fan-out is
+     not a discriminator between options when every option grants far more than reading. **Filed,
+     not ruled.** Found 2026-09-12; review finding D.
+
+134. **A stalled fan-out is terminal, not readable-but-not-writable, and a conforming client can
+     cause one.** Measured 2026-09-12, and it is strictly worse than m1's **M1-22** as filed. When
+     `pq_secret[n+1]` is lost: no member can write (`memory.go:581`, `REASON_EPOCH_INCOMPLETE`); no
+     member can commit out, because a commit carries `AttachmentEpoch` and `exemptFromEpochComplete`
+     (`memory.go:937-944`) exempts only `AttachmentWrap` and `AttachmentEpochComplete`; and past that
+     gate it still fails, because `memory.go:578` refuses any record whose epoch is not the current
+     one with `REASON_EPOCH_STALE`, so the escape commit must be submitted **at epoch n+1** and
+     sealed under the class keys that were lost.
+
+     **And no crash is required.** Spec A §5.12 / G10 mandate destroying `pq_secret[n+1]` on *any
+     rejection* of a commit submission, while Spec B `:2234` makes a retried identical commit return
+     `REASON_OK`. A timeout on a commit that actually landed therefore drives a **conforming** client
+     to burn the secret for an epoch that is already open. Spec B's own sentence notices the adjacent
+     hazard — getting idempotency backwards *"burns a `pq_secret`"* — and not that burning it after
+     acceptance is unrecoverable rather than expensive.
+
+     **A third copy of the false sentence.** *"they are all derivable from the epoch state every
+     member holds"* is at `spec-a:1662`, `spec-b:2164` **and** MASTER:852. Every prior write-up
+     reported two. *Blocks:* nothing mechanically. **Filed, not ruled.** Found 2026-09-12; review
+     finding E.
+
+135. **The wrap is the only record class carrying no MLS frame, and MASTER §5.3's own signature rule
+     has nothing to verify.** MASTER **I5** (`:248`) gives sender authentication to MLS and says the
+     storage layer adds no second signature; **I8** (`:254`) requires every field a client validates
+     to be inside the MLS payload or covered by `write_auth`; and Spec A §2.4 (`:300-303`) empties
+     that second arm on the read path — `write_auth` is **zero on read** and a client MUST NOT verify
+     it. A wrap's body is `hybrid_ct` and carries no MLS frame, so **no field of any wrap satisfies
+     I8** under any of the three M1-1 options.
+
+     MASTER §5.3 (`:441-443`) already states the rule that would fix it — *"A client MUST NOT honour
+     a `RecoveryTag` on any record whose `RECOVERY_PUB` body signature it has not verified under the
+     publishing member's `identity` key"* — and every **recovery wrap** carries a `RecoveryTag`. So
+     every option as written publishes ~500 records per epoch that §5.3, in its own words, says a
+     client MUST NOT honour. *Blocks:* M1-1's ruling should carry the answer; the recommendation in
+     the review is to sign every wrap body under the publisher's identity key, at 64 octets in 2,886
+     octets of existing slack. **Filed, not ruled.** Found 2026-09-12; review finding C.
+
+136. **MASTER §8.1's disappearing-message guarantee is a property of behaviour, not of cryptography.**
+     `eph_root[n]` rides in the **device wrap**, which is `PERMANENT` and prunable **never**
+     (`spec-b:907`), encapsulated to a device X-Wing key that never rotates — `ProposeUpdate`'s own
+     header (`connect/mls/group.go:1613`): *"The device wrap key is read off the leaf being REPLACED
+     and re-encoded, so an update publishes the same `urmessage_leaf_keys` the group already wraps
+     to."* One device key obtained once opens every retained device wrap for every epoch, hence every
+     `K_eph[n][b][t]` that ever existed. §8.1's *"after the timer, retained server ciphertext, a
+     seized device, a newly provisioned device, and a seedphrase holder all fail to decrypt"*
+     therefore holds only while every party that ever held an EPH ciphertext deleted it. §8.1 already
+     calls this *"the most easily broken property here."*
+
+     The construction that would make it cryptographic — split the device wrap into a `PERMANENT`
+     record carrying `pq_secret` and an `EPH(5)` record carrying `eph_root` — is offered inside M1-1
+     Option 1's failure list and left unchosen. It doubles the device-wrap count (2,000 rather than
+     1,000 at the design target) and changes `expected_wrap_count`'s shape, so it **cannot be
+     deferred past the M1-1 ruling** and interacts with item 132. *Blocks:* nothing mechanically; it
+     is a sizing decision. **Filed, not ruled.** Found 2026-09-12; review finding F.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
@@ -4035,3 +4133,98 @@ and `messagegroup` compose exactly one path out of a `".."` literal at runtime,
 rather than a directory and cleans to `".."`, which the closure's own two stated exclusions already
 decline. So no scan root is being missed today, and the shape is still the one the next widening
 will arrive in.
+
+### 2026-09-12 — M1-1 and M1-2 red-teamed: four options dead, two halves standing, and the one thing every option was missing
+
+**What this commit is.** One review document,
+`docs/reviews/2026-09-12-m1-wrap-and-welcome-redteam.md`, and five open items. **It rules nothing.**
+Six option write-ups were produced against M1-1 (the device wrap's seal) and M1-2 (the Welcome's
+carrier); three adversarial reviews were run over them; this is what survived, written for the owner
+to rule from. Every load-bearing claim was re-verified in this session rather than inherited — against
+`connect` `beta/message` `1307f15` (`go build ./mls/... ./message/... ./messagegroup/...` green) and
+`msgrepo` HEAD — and **three of the decisive findings are corrections to the red team itself**.
+
+**Four options are dead, and each is shown dead with the attack rather than argued down.**
+
+- **M1-1 Option 1** (MLS-exporter envelope) is dead **for two of the three record shapes**. It puts
+  the RECOVERY wrap in the envelope, and MASTER:818 says a seed-only restorer *"has none [no MLS
+  state] by definition"* — so §5.4's last resort opens nothing, which is correction **E1**
+  (`spec-a:1565`) reintroduced one layer up. It also puts the SNAPSHOT there, which correction **E2**
+  (`spec-a:1566`) already pins under `K_snapshot[n]`, and which is a blob-ref record with **no
+  `ct_body` at all** (`spec-a:1673`). Its headline cost is false too: `(*Group).Export`
+  (`group.go:821`) reads the CURRENT schedule, there is no `ExportAt`, and `PastEpochWindow` is 32
+  with `DeleteGroupStateBefore` on every merged commit — so `env_key[k]` is computable only while the
+  group is AT epoch k. Its device-wrap half survives, and survives on a real property: it is the only
+  outer key neither the server nor a just-removed member can derive.
+- **M1-1 Option 1b** is dead outright. Its only benefit over 1a is a healing commit, a commit carries
+  `AttachmentEpoch`, and `exemptFromEpochComplete` (`memory.go:937-944`) does not exempt it — so it
+  is refused `REASON_EPOCH_INCOMPLETE` exactly when it is needed. Worse, the widening it asks for is
+  the one `store/contract.go:2555` was written to prevent, in that test's own words: *"adding
+  AttachmentEpoch lets a commit through the gate and nothing says so."* The proposal cites
+  `memory.go:939` for its own prerequisite and never runs the same function against its escape hatch.
+- **M1-1 Option 2** is dead twice. The backward chain has **no base case** — it inducts to
+  `storage_root[0]`, which by the option's own text exists on one device for the life of the group —
+  and one dropped wrap is **permanent ejection**, not one lost epoch, because the repair window is
+  bounded by `memory.go:578` (`REASON_EPOCH_STALE`; the wrap exemption is from the epoch-COMPLETE
+  gate, never the epoch-EQUALITY gate) and `memory.go:691-696` (write key NULLed on advance). One
+  correction **in its favour** is recorded, because a rejected option should be rejected for true
+  reasons: its "N sequential round trips" cost is overstated, since every `wrap_target_handle` is
+  locally computable and only the decryption is serial.
+- **M1-2 Option 3**'s sidecar is dead **as a production carrier** and fine in its CP3b form. It
+  carries no authenticator: it encapsulates to a public key from a store the message server operates
+  and binds a hash of transmitted bytes, so the store operator forges one and **chooses** the
+  joiner's `group_handle_key`. Its own headline detector — a wrong `pq_secret` failing "at the
+  server" — names the adversary as the detector.
+
+**Two options are dead as written and repairable, and the repair does not buy what was claimed.**
+**M1-1 Option 3**'s zero-length `ct_head` is refused at `api/submit.go:301`, again at
+`store/memory.go:979`, the column is `NOT NULL`, and `store/contract.go:145` asserts the refusal
+against **both** stores — so *"no server change"* is measurably false. The repair is one line (a real
+head keyed from `wrap_key`) and costs the option nothing; but it does **not** close the server-forgery
+finding, because the server holds `write_key` in the clear and the target's X-Wing public key from the
+store it operates. **M1-2 Option 1**'s slot survives and its contents do not: a group-LIFETIME value
+under an X25519-only Welcome forfeits MASTER §8's unlinkability permanently and retroactively — and
+the live version of that attack needs no quantum computer, only a key-package substitution, because
+ledger 69 requires the handle be derived from the identity KEY and **nowhere requires anyone to verify
+the served package against it**.
+
+**The recommendation, and it is stated with its costs rather than cleaned up.** M1-1: three record
+kinds get three rules — device wrap on Option 1a's envelope, recovery wrap on Option 3's KEM-only rule
+with a real `ct_head`, snapshot unchanged under E2 — plus **a signature over every wrap body under the
+publisher's identity key**, which is not new policy but MASTER §5.3:441 applied where it already
+applies. Residual risk is named, not hidden: it is a target-type-dependent body encoding, which is the
+kind-`0x0000` defect class one level up; the `stream_index`-to-ratchet mapping is still owed and its
+failure mode is Poly1305 key recovery rather than a decryption error, because the nonce is derived
+from the record key; and the `env_key` past-epoch obligation stands and **is the strongest argument
+for ruling Option 3 for the device wrap too**. M1-2: Option 1's `0xF004` slot with Option 2's contents
+— `read_key` and the joiner's own `wrap_target_handle`, both already server-known — and **where
+`group_handle_key` lives is deliberately NOT ruled**, because the determination that would rank the
+three homes has not been made.
+
+**The schedule fact worth reading twice: CP3b is not blocked by that deferral.** Ledger **44a**
+already blesses a gated, test-only hand-off of a public KeyPackage and a sealed Welcome. Extending
+that same hand-off to carry `group_handle_key`, under the same absent-not-placeholder rule, closes
+Task 16 for CP3b **without** ruling the production carrier — provided the ruling says in the
+hand-off's own doc comment that the two are not the same thing.
+
+**Five open items, 132-136, filed and not ruled**, because four of them are not m1's to rule and the
+fifth is a sizing decision. **132:** the fan-out has no coverage check — `memory.go:722` compares two
+client-declared numbers, the wrap index is not unique, nothing binds `sender_handle` to a submitter,
+and `expected_wrap_count` has no upper bound; **this is the single detector every M1-1 option offers
+against M1-22, and it is correct while the coverage is wrong**. **133:** removal revokes nothing —
+epoch keys are plaintext in every commit and `Fetch` has no epoch scoping, which falsifies MASTER §8
+and §9.2 as they read. **134:** a stalled fan-out is terminal rather than readable-but-not-writable,
+and §5.12/G10 plus Spec B:2234 let a **conforming** client cause one on a timeout. **135:** the wrap
+satisfies **I8** in no field under any option, and §5.3's own signature rule has nothing to verify.
+**136:** §8.1's disappearing-message promise is a property of server and client behaviour, not of
+cryptography, because `eph_root` rides a never-pruned record under a key `ProposeUpdate` deliberately
+preserves.
+
+**One correction to the corpus that is not an open item.** §5.11 step 5's false sentence — *"they are
+all derivable from the epoch state every member holds"* — is in **three** documents, `spec-a:1662`,
+`spec-b:2164` and MASTER:852. Every prior write-up and every red-team lens reported two.
+
+**Verified.** `msgrepo`: `go test ./ -run TestThePlanLinter` — `ok`. `git ls-files` equals
+`git ls-tree -r HEAD --name-only` before the commit, checked rather than assumed, per the trap this
+repository has hit once. Both edited files are LF throughout, measured. Nothing in this commit edits a
+spec or a plan; the review document and the five new open-item paragraphs are the whole diff.
