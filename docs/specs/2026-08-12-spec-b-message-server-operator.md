@@ -417,7 +417,11 @@ sequence is the client's, Spec A §5.11 owns it, and whether a stranded wrap may
 later epoch is ledger open item **142** — which, if it is ever ruled *yes*, lands as a `u64 epoch` on
 `RecoveryTag` and therefore in §5.4's encoding and in `WrapFetch`'s neighbours. Recorded now so that an
 operator reading a short recovery arm in the field does not conclude that a client crashed, and so that
-142's wire cost is visible from this document rather than only from Spec A's.
+142's wire cost is visible from this document rather than only from Spec A's. (**Corrected 2026-09-14,
+in the review of this revision:** there is no wire cost. The content epoch is bound inside `wrap_key`'s
+HKDF `info`, so a restorer separates two candidate wraps by **trial decryption** and `RecoveryTag` gains
+no field; §5.4's encoding and `WrapFetch`'s neighbours are untouched by a retry. Item 142 needs a
+normative bound and two MUSTs, all of them on the client. Revision 16, and Spec A §5.11.)
 
 **"Decorative for the recovery arm" is scoped in the one place a server implementer reads the field's
 wire definition.** §5.4's `EpochAttachment` block carried the phrase from Spec A without the meaning
@@ -430,6 +434,37 @@ ledger items 138 and 142 for the consequence that does hold.
 **Not amended, again and deliberately.** Ledger open items **132**, **133** and **134** remain filed
 and unruled; nothing in this revision touches them. Item **135**, the wrap-body signature, is ruled and
 closed in the same pass, but it is Spec A's section and no sentence of this document carried it.
+
+---
+
+**Revision 16 — 2026-09-14 — one design correction and one scoping repair; no SQL, no column, no index,
+no reason code, and nothing this server does changes.**
+
+**Item 142's price was wrong in this document, and it was wrong in the direction that would have kept
+the repair from being built.** Revision 15 and §6.1's step 7 both said that republishing a stranded
+recovery wrap at a later epoch would take a `u64 epoch` on `RecoveryTag`, therefore a change to §5.4's
+encoding **here**. It would not. The content epoch is bound *inside* `wrap_key`'s HKDF `info`
+(MASTER §7), so a wrong candidate **fails AEAD authentication**: a seed-only restorer decapsulates once
+per record — `ss` does not depend on the epoch — and then walks candidate content epochs **downward**
+from the record's own `epoch` field, which is an upper bound because no wrap is published before its
+epoch opens. `RecoveryTag` gains no field, §5.4's encoding is untouched, `WrapFetch`'s neighbours are
+untouched, and **this server sees nothing at all**: a republished wrap is an ordinary record of the
+epoch it is submitted at, MAC'd under that epoch's `write_key`, refused or accepted by the same gate as
+any other. What item 142 needs is a normative **bound** on the lag plus two client-side MUSTs, and the
+bound is required — without one a restorer cannot distinguish a wrong guess from a record that is not
+its own, and searches back to epoch 0. Spec A §5.11 carries the derivation; **142 stays filed and
+unruled**, because the bound's value is a ruling. Corrected in step 7 and in revision 15's own
+paragraph, both in place and both dated.
+
+**"Decorative for the recovery arm" was scoped in §5.4's wire block and left unscoped in §6.1's
+prose** — the paragraph a server implementer reads immediately before the epoch-publication sequence,
+which is the worse of the two places to leave it. Revision 15 scoped the wire block and stopped there.
+Both now carry the same meaning: the field makes **no statement** about the recovery arm; for the two
+device-wrap record kinds and the snapshot it is **exact**, this server enforces it, and the marker's
+`wrap_count` equalling it is the only thing that opens an epoch.
+
+**Not amended, and the list is unchanged.** Ledger open items **132**, **133** and **134** remain filed
+and unruled. MASTER remains un-amended and its four divergences remain ledger item **141**'s.
 
 ---
 
@@ -2280,8 +2315,14 @@ the recovery wraps now land **after** the marker, as ordinary records of the now
 written — that was verified rather than assumed. The alternative fix, exempting `AttachmentRecovery`
 from the gate, was rejected: it reverses a green derived assertion and widens the set of records that
 may land while a group is not writable. Spec A §5.11 is the owner of the sequence and carries the
-ruling in full, including its accepted cost — `expected_wrap_count` is decorative for the recovery arm,
-and **nothing detects a missing recovery wrap**.
+ruling in full, including its accepted cost — `expected_wrap_count` is **decorative for the recovery
+arm** and **nothing detects a missing recovery wrap**. **That phrase is scoped, here as in §5.4's wire
+block, and this paragraph carried it unscoped until 2026-09-14.** It means one thing: the field makes
+**no statement** about the recovery arm, which lands after the count has closed. For what it *does*
+name — the two device-wrap record kinds and the snapshot — the count is **exact, this server enforces
+it, and the marker's `wrap_count` equalling it is the only thing that opens an epoch**. Reading the word
+as licence to stop enforcing that equality reintroduces the permanent brick this section exists to
+prevent.
 
 > **Epoch publication sequence.** A commit is submitted at `epoch == current_epoch = n`, MAC'd under
 > `write_key[n]`, and carries an `EpochAttachment` for epoch `n+1`.
@@ -2318,10 +2359,15 @@ and **nothing detects a missing recovery wrap**.
 >    with `REASON_EPOCH_STALE` — the epoch check precedes the epoch-complete gate and there is no path
 >    that accepts a record at a closed epoch. The window is the recovery arm's own length, about
 >    eighteen round trips at the design target. **No change to this server is proposed for it**: the
->    sequence is the client's and Spec A §5.11 owns it, whether a stranded wrap may be republished at a
->    later epoch is ledger open item **142**, and a `RecoveryTag` gained an epoch would be a wire change
->    reaching §5.4's encoding here. It is recorded so an operator reading a short recovery arm in the
->    field does not conclude a client crashed.
+>    sequence is the client's and Spec A §5.11 owns it, and whether a stranded wrap may be republished
+>    at a later epoch is ledger open item **142**. **Corrected 2026-09-14: that retry costs this
+>    document nothing.** This step read *"a `RecoveryTag` gained an epoch would be a wire change
+>    reaching §5.4's encoding here"*, and the wire change is not needed: the content epoch is bound
+>    inside `wrap_key`'s HKDF `info`, so a seed-only restorer recovers it by **trial decryption** —
+>    one decapsulation per record, then bounded symmetric trials downward from the record's own `epoch`
+>    — and `RecoveryTag` gains no field. §5.4's encoding is **unchanged**, and 142 is now a client-side
+>    normative bound rather than a wire-format decision. It is recorded so an operator reading a short
+>    recovery arm in the field does not conclude a client crashed.
 >
 > **Sizing at the 500-member × 2-device design target, after the 2026-09-13 device-wrap split.** Wraps
 > pad to the ladder like everything else: a device-wrap record carrying one 32-octet secret (~1,178 B)

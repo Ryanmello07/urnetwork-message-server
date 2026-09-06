@@ -2323,8 +2323,10 @@ would make Gate 5's swap a type change rather than a factory change. **Open item
 
   The earlier form of this property — *nothing in this package names `mls.Group`, full stop* —
   contradicted §2.2's own tree, which assigns *"engine.go — the GroupEngine interface (§6) **+ the
-  connect/mls adapter**"* to one file (anchor *"engine.go … the GroupEngine interface (§6),
-  EngineProcessed"*, table row 4), and contradicted Task 9a, which has to exist
+  connect/mls adapter**"* to one file (anchor `engine.go` … `the GroupEngine interface (§6),
+  EngineProcessed`, table row 4 — two strings, joined outside the code spans, because an anchor with an
+  ellipsis *inside* one quoted string is an anchor `grep -F` returns zero hits for), and contradicted
+  Task 9a, which has to exist
   for `GroupSession` to hold anything real. This plan follows §2.2's pairing (M1-36). **After the
   split the full-stop form becomes true of `connect/message` and stays false of
   `connect/messagegroup`,** and that is the ruling working: `mls.Group` is nameable in exactly one
@@ -3211,9 +3213,14 @@ that paragraph as well as against the steps.** After the marker the group is **f
 commit accepted from any member while step 4 is still running advances the epoch and the server refuses
 every recovery wrap still in flight with `REASON_EPOCH_STALE` — permanently, across a window about
 eighteen round trips long, **with no crash of any kind**. A builder must not treat the recovery leg as
-"the part that only fails if we die", and must not silently retry a stranded wrap at the new epoch:
-`RecoveryTag` carries no epoch, so a retry is unaddressable on the wire until ledger open item **142**
-is ruled. Surface it; do not paper over it.
+"the part that only fails if we die", and must not silently retry a stranded wrap at the new epoch —
+**not because a retry cannot work, but because the rule that makes it safe is not ruled yet.**
+(**Corrected 2026-09-14:** this read *"`RecoveryTag` carries no epoch, so a retry is unaddressable on
+the wire"*, and that is false. The content epoch is bound inside `wrap_key`'s HKDF `info`, so a restorer
+separates candidates by **trial decryption**; a retry costs no wire bytes. What ledger open item **142**
+still owes is a normative **bound** on how far a republished wrap may lag plus the two MUSTs that hold
+publisher and restorer to it — without a bound an unbounded restorer searches back to epoch 0.) Surface
+it; do not paper over it.
 
 **Why it moved, because a reader will otherwise put the recovery wraps back.** `AttachmentRecovery` is
 not in the shipped server's exemption set: `exemptFromEpochComplete` (`msgrepo/store/memory.go:937`)
@@ -4131,8 +4138,10 @@ caching obligation `env_key` brings with it, and the fact that a missed window i
 stated in §5.11 as well. **Three costs of the rulings are filed rather than resolved and a builder has
 to read them**: ledger **138** (nothing detects a missing recovery wrap), **142** (after the marker the
 group is fully writable, so a concurrent commit strands every recovery wrap still in flight under
-`REASON_EPOCH_STALE` — no crash required — and a retry is unaddressable because `RecoveryTag` carries
-no epoch) and **143** (the device wrap still owes a normative `stream_index`-to-ratchet-position pin,
+`REASON_EPOCH_STALE` — no crash required — and a retry is possible but unruled: it costs **no wire
+bytes**, because the content epoch is bound inside `wrap_key`'s HKDF `info` and a restorer recovers it
+by trial decryption, and what it still owes is a normative bound on the lag) and **143** (the device
+wrap still owes a normative `stream_index`-to-ratchet-position pin,
 which rulings 2 and 3 sharpen by putting two records per leaf on one ladder).
 
 **What is still open, and it is what still blocks Task 14.** The wrap body's field list beyond what
@@ -4269,8 +4278,9 @@ the carrier rather than of the interface.
 
 **The adapter's home is a choice this plan takes, and the reason is §2.2, not the compiler.** §2.2's
 tree assigns *"engine.go — the GroupEngine interface (§6) + the connect/mls adapter"* to this package
-(anchor *"engine.go … the GroupEngine interface (§6), EngineProcessed"*, table row 4 — the `engine.go`
-row of §2.2's `messagegroup/` block), and Task 9a's adapter is the
+(anchor `engine.go` … `the GroupEngine interface (§6), EngineProcessed`, table row 4 — the `engine.go`
+row of §2.2's `messagegroup/` block; two strings joined outside the code spans, which is the only form
+of a two-part anchor `grep -F` can take), and Task 9a's adapter is the
 one implementation that wants `stagedRef` for the
 `*mls.Processed` it stages. Both reasons are real and neither is a forcing.
 
