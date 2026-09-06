@@ -3789,6 +3789,18 @@ fourteen are dispositioned below.
      (c) **Do not key it on ids alone**, because item **165** shows 55 findings in `docs/reviews/` that
      have no id at all, and a gate keyed on ids reports green over them by construction.
 
+     **MEASURED AGAIN AFTER THIS PASS COMMITTED, BECAUSE THE ARTEFACT CONTAMINATES ITS OWN CONTROLS
+     TOO.** Items 149–166 and the 2026-09-20 edit-log entry publish the premise measurement, and
+     publishing it names the controls. Re-run at the commit that landed them, against `10f0a39`:
+     **`B-6` 4 → 5 and `B-11` 3 → 4**, and the new file is `SPEC-LEDGER.md` in both cases, at the two
+     lines that read *"controls B-1 = 5, B-6 = 4, B-11 = 3"*. `B-1` does not move only because item 146
+     had already contaminated it the same way. **So the phenomenon is not special to the subjects: any
+     id a measurement names, it also inflates.** Nothing about the blockers changed; the number did.
+     This is the strongest form of the argument for repair (a): a gate keyed on **mentions** cannot
+     distinguish a disposition from a measurement of dispositions, and it drifts upward every time
+     anyone measures it — including when the measurement is honest and its conclusion is that nothing
+     was dispositioned.
+
      **And a fourth thing the gate cannot do, recorded because item 152 is the live example.** An id
      count distinguishes *"ignored"* from neither *"silently superseded"* (items 156, 160, 161 — three
      majors closed by revision-4/7 rulings that never cite them) nor *"filed under another name and about
@@ -7297,6 +7309,14 @@ attributes the work to `research/rendezvous-plan.md` and names r8 nowhere.** Tex
 item 146's shape, one round later, against blockers.
 
 ---
+
+**ONE THING THIS ENTRY COULD NOT MEASURE UNTIL IT WAS COMMITTED, AND IT IS THE POINT OF ITEM 166.**
+Re-running the premise query at the commit that lands this pass, against `10f0a39`: **`B-6` 4 → 5 and
+`B-11` 3 → 4**, both new hits `SPEC-LEDGER.md` at the two lines above that read *"controls B-1 = 5,
+B-6 = 4, B-11 = 3"*. `B-1` does not move only because item 146 had already contaminated it the same
+way. **Publishing a measurement of an id inflates that id's count**, so the effect item 166 files
+against the subjects applies equally to the controls, and it is recorded here rather than left for the
+next reader to trip over. Item 166 carries the same paragraph.
 
 **Verified.** `go build ./...` clean **before and after**. `go test ./...` green, all packages, before
 and after. `go test ./ -run TestThePlanLinter` **`ok`** before and after — no plan or spec was edited,
