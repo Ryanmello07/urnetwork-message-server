@@ -24,7 +24,7 @@ section and specifies the **Go types, package boundaries, and test obligations**
 |---|---|
 | MASTER protocol design | Revision 9, owner rulings applied |
 | This spec | Revision A-6, owner rulings applied |
-| Code | None. `beta/message` branches not yet cut. |
+| Code | **`connect` `beta/message` at `33932e0`** — `mls/`, `message/` and `messagegroup/` are m1 wave 0 and wave 1 plus ruling **A1**; 217 Go files, 7,631 tests passing, nine-platform `CGO_ENABLED=0` build green. **`sdk` holds no messaging code**, so every external leg — the durable `StreamIndexReserver` of §5.6 and §8.2 among them — is still unbuilt. Corrected 2026-09-07; this row read *"None. `beta/message` branches not yet cut"* for five weeks after they were. |
 | Go toolchain | 1.26.5, verified on the build host (`go version` → `go1.26.5`) |
 | `crypto/mlkem` | Verified present: `NewDecapsulationKey768(seed)` takes a **64-byte** `d ‖ z` seed |
 | `crypto/sha3` | Verified present: `SumSHAKE256(data, length)`, `Sum256` — X-Wing is stdlib-only |
@@ -100,7 +100,8 @@ Append-only. Newest last. One entry per commit that changes this spec. Every cha
 | 2026-09-15 | A-17 | **A-16's price for a republished recovery wrap was UNSAFE AS SPECIFIED, and the correction is to the procedure rather than to the wire.** A-16 is right that the retry costs **zero wire bytes** and right that a restorer separates candidates by trial decryption; both halves survive. What A-16 did not price is the **seal**. `AAD_head` binds the **record's** epoch and stream index (MASTER §8, §5.1); the recovery wrap's `key_head ‖ nonce_head = HKDF-Expand(wrap_key, "wraphead/v1", 56)` binds **neither**, and `wrap_key` binds the **content** epoch — so the head's `(key, nonce)` is a pure function of `ss` and moves with neither field the shipped server forces a republish to change (`store/memory.go:578` and `:610`, and §5.7's own outbox rule). **A republisher that rebuilds around a stored `ct_xwing` seals a second `AAD_head` under a byte-identical `(key, nonce)`** — Poly1305 one-time-key recovery, the failure §5.11 (5) already names — and §5.9's **G5**, whose defence is the `stream_index` reservation, is **vacuous here** because the wrap head is not on the `record_key[i]` ladder at all. **The escape is a procedure choice and not a format constraint:** `XwingEncapsulate` cannot be derandomized (`connect/messagegroup/xwing.go:236`, `xwing_test.go:277`), so a republisher that re-encapsulates from the wrap **plaintext** gets a fresh pair unconditionally. That cannot ship as a bare MUST — nothing can check it — so §5.11 states it in §5.9 G4's guardrail shape and leaves the ruling to the owner. **Three further prices A-16 omitted:** the body signature MUST be recomputed and MUST NOT be copied (fresh `ss` → fresh `ct_body` → fresh `body_hash`), and a repairer that is not the committer signs under its own identity; the retry is **not** all client-side, because re-encapsulation needs the wrap plaintext — `storage_root[k] ‖ archive_secret[k]` — retained in an outbox, which is a forward-secrecy ruling; and the wrap's **inner** `aead_ct` has **no nonce in any document** (ledger **144**), which decides the whole question, because §5.14's sibling KEM construction seals at `nonce = 0` on the single justification *"Every encapsulation yields a fresh `deposit_key`"*. **`PastEpochWindow` = 32 is withdrawn as the bound**: it bounds *rebuilding from live group state* and an outbox is not group state (`DeleteGroupStateBefore` runs off the live epoch inside commit-apply, `mls/group.go:2594`; `grep -rni outbox connect/mls/` names no file), the two numbers share no premise, and the error is one-sided. **And no normative bound exists anywhere today**, while A-16 moved the walk into descriptive prose — so §5.11 now says in as many words that until item **142** is ruled the walk is a derivation and not a licence and a conforming client does not republish. **142 stays filed and unruled; 144 is new; 143 gains a concrete instantiation** (ruling 2's ladder head has no retention class in it, ruling 3 puts a `PERMANENT` and an `EPH(5)` record on that one root, and §5.5 still sizes the ratchet per class — two ratchets, identical roots, both at `i = 0`). **Also corrected, each measured:** §5.11's opening claimed the three `EpochAttachment` blocks *"disagree field for field"* — the eight field declarations are **byte-identical** in all three documents and exactly **one annotation of one field** diverges normatively; the discriminator's probability was stated **inverted** in two places; and `target_id`, the inner nonce and the wrap head's plaintext are added to (5)'s list of what is not stated, `target_id` because it is defined **nowhere in the corpus** and is the value the whole re-derivation depends on. No wire byte, no ruling and no gate's derived class changed. |
 | 2026-09-18 | A-18 | **MASTER was amended: the three 2026-09-13 rulings transcribed into the normative parent, and red-team finding M-15 adopted four weeks late. Nothing is ruled in THIS document that was not already ruled here.** MASTER had carried the pre-ruling fan-out order, the single-record device wrap and the pre-split sizing since 2026-09-13 — ledger item **141**, which named three locations and was then re-measured to four. **The transcription found six**: the two the list missed are MASTER's step-4 `no_wrap` detector, which was unscoped and therefore claimed for the recovery arm the very detector ruling 1 removes, and a second copy of the pre-split sizing outside the sizing paragraph (*"every join a 6.9 MB download"*). Item 141 closes. **The second half is M-15**, raised by the r3 review on 2026-08-12 with **no disposition of any kind** for four weeks and rediscovered independently as ledger item **144**: MASTER §7's wrap KDF now derives its own 24-octet AEAD nonce and binds `alg_id`, the target's X-Wing public key and `ct_xwing` into `info`, over an Extract-then-Expand under a named salt. **Zero wire bytes, and no code to migrate.** §5.11's quotations of MASTER §7 move with it, in three places. **What this does to item 142, recorded because it is easy to read the other way:** 142's blockers go from four to three and the hazard is **confirmed rather than removed** — `wrap_nonce` is a function of `ss` and `ct_xwing` and of nothing the record carries, so a republish that reuses a stored `ct_xwing` repeats the inner `(wrap_key, wrap_nonce)` exactly as the `nonce = 0` reading would have. **Three inherited gaps are carried forward and named rather than filled**: `target_id` was already undefined, and M-15 brings `u8(target_type)` and `u8(payload_type)`, which have no code point anywhere. Items **132**, **133**, **134**, **142** and **143** stay filed and unruled. |
 | 2026-09-07 | A-19 | **§5.3 says which of two 32-octet values a member persists for the life of a group, because it did not say before and the wrong one is a working program.** m1 open item **M1-4**, ruled by the fix pass over m1 wave 1's batch-C review and recorded there in full. §5.3's block declared `GroupHandleKey(storageRootEpoch0 []byte)` and said **nothing about persistence**, so the only route it left a reader was to hold `storage_root[0]` for the life of the group — epoch zero's **whole key schedule**, from which every class key and that epoch's write and read keys expand — in order to recover a **public routing identifier** every member of the group can already compute. MASTER §8's clause is about what a member *holds* and what it names is the **key**: *"a member that does not hold it cannot compute its own handle and therefore cannot write."* So §5.3 now states that the derivation runs **once, at group creation**, and that its **answer** is what is durably kept while the root it expanded from is dropped with the rest of epoch zero. **`GroupHandleKey`'s signature is unchanged** — it takes the root, because computing the key is what it is for. **The inverse mistake is not closed and is not closeable at this layer**: both values are 32 octets, so a caller handing the constructor the root where it wants the key is accepted in silence and routes on a `sender_handle` no peer computes. That is ledger open item **167**, filed and not ruled, with the three candidate refusals costed there. **No wire byte, no derivation, no gate's derived class and no other section changed.** Dated from the commit calendar rather than from the row above it: the last four revision rows read 2026-09-13 to 2026-09-18 and the commits that landed them are dated 2026-09-05 and 2026-09-06, so this document's internal calendar has drifted ahead of the tree's; this row's date is the tree's. |
-| 2026-09-07 | A-20 | **§5.3 says which ladder seals `ct_head`, because it declared one `record_key[i]` for both AEADs while MASTER §8.1 declared the head DURABLE, and for three of the four retention classes those are different keys.** m1 open item **M1-6**, **RULED 2026-09-07** by the owner. **The rule:** `key_head ‖ nonce_head` comes from a `record_key` on the ladder rooted at `ClassKeys.Durable`, always, whatever the record's class; `key_body ‖ nonce_body` comes from the record's **own** class ladder. For a `DURABLE` record the two are one ladder and nothing observable changes. **The signatures do not move** — `RecordAeadHead` and `RecordAeadBody` still each take one 32-octet secret, so the binding is at the call site, and §5.3's block says so in a comment because it cannot say it in a type. **The owner's reason:** the head is always retained, so it is keyed by the class that is always retained; under the replaced reading an `EPH` record's head would be keyed under a ratchet built to be destroyed, and a retained header would become unopenable at exactly the moment the body is meant to vanish. **The accepted cost is written into §5.3 rather than glossed:** a non-`DURABLE` record now draws head and body from **two ratchets**, so one record's single `stream_index` covers two ratchet positions, and this document says which position each takes nowhere. That is ledger item **143**'s pin, moved from *owed* to **DUE** — a precondition of sealing a non-`DURABLE` record. It cannot take item 143's own proposed form (`i = stream_index` in every ladder), because the head ladder is now shared across classes while `messagegroup.StreamKey` carries the retention-class wire byte and restarts per class: one sender's `DURABLE` and `PERMANENT` records both at `stream_index = 5` would seal two headers under one `(key_head, nonce_head)`. New ledger item **169**, filed and not ruled, and §5.3 carries a MUST NOT against sealing a non-`DURABLE` record before it is. **`EPH` is excluded from the rule and `SealRecord` keeps refusing it**, under ledger item **152** (`M-4`) — which asked that this question not be ruled without it beside it, and was not. 152's claim is that `K_durable[n]` is destroyed nowhere and rides every recovery wrap, so an `EPH` head under it outlives the timer, a seized device, a device provisioned tomorrow and a seedphrase holder; and this ruling's own premise is false for that one class, since Spec B §7.2 sets `ct_head = NULL` for `EPH(1..5)` at `prune_after`. **§5.11 (3)'s snapshot sentence is annotated with the ruling** — the snapshot is `PERMANENT`, so it is inside the lift and owes only the position. **No wire byte and no derivation label changed; every non-`DURABLE` head ciphertext changes**, which is why it is A6-relevant and why it is ruled now. **No Go file in `connect` changed for this row** — the landed `SealRecord` refuses all three non-`DURABLE` classes and widening it to `PERMANENT` and `MEDIA` is m1 wave 2's commit. Dated from the commit calendar, as A-19 was. |
+| 2026-09-07 | A-20 | **§5.3 says which ladder seals `ct_head`, because it declared one `record_key[i]` for both AEADs while MASTER §8.1 declared the head DURABLE, and for three of the four retention classes those are different keys.** m1 open item **M1-6**, **RULED 2026-09-07** by the owner. **The rule:** `key_head ‖ nonce_head` comes from a `record_key` on the ladder rooted at `ClassKeys.Durable`, always, whatever the record's class; `key_body ‖ nonce_body` comes from the record's **own** class ladder. For a `DURABLE` record the two are one ladder and nothing observable changes. **The signatures do not move** — `RecordAeadHead` and `RecordAeadBody` still each take one 32-octet secret, so the binding is at the call site, and §5.3's block says so in a comment because it cannot say it in a type. **The owner's reason:** the head is always retained, so it is keyed by the class that is always retained; under the replaced reading an `EPH` record's head would be keyed under a ratchet built to be destroyed, and a retained header would become unopenable at exactly the moment the body is meant to vanish. **The accepted cost is written into §5.3 rather than glossed:** a non-`DURABLE` record now draws head and body from **two ratchets**, so one record's single `stream_index` covers two ratchet positions, and this document says which position each takes nowhere. That is ledger item **143**'s pin, moved from *owed* to **DUE** — a precondition of sealing a non-`DURABLE` record. It cannot take item 143's own proposed form (`i = stream_index` in every ladder), because the head ladder is now shared across classes while `messagegroup.StreamKey` carries the retention-class wire byte and restarts per class: one sender's `DURABLE` and `PERMANENT` records both at `stream_index = 5` would seal two headers under one `(key_head, nonce_head)`. New ledger item **169**, filed and not ruled, and §5.3 carries a MUST NOT against sealing a non-`DURABLE` record before it is. *(**169 and 143 were both RULED later the same day** — shape **A1**, one class-blind `stream_index` per `(group_id, sender_handle)` — so §5.3's MUST NOT is **lifted for `PERMANENT` and `MEDIA`**, `EPH` stays refused under ledger 152, and this row's *"it cannot take item 143's own proposed form"* is true only of the per-class counter it was written against: A1 removes that counter and the pin is adopted as proposed. Row **A-21**.)* **`EPH` is excluded from the rule and `SealRecord` keeps refusing it**, under ledger item **152** (`M-4`) — which asked that this question not be ruled without it beside it, and was not. 152's claim is that `K_durable[n]` is destroyed nowhere and rides every recovery wrap, so an `EPH` head under it outlives the timer, a seized device, a device provisioned tomorrow and a seedphrase holder; and this ruling's own premise is false for that one class, since Spec B §7.2 sets `ct_head = NULL` for `EPH(1..5)` at `prune_after`. **§5.11 (3)'s snapshot sentence is annotated with the ruling** — the snapshot is `PERMANENT`, so it is inside the lift and owes only the position. **No wire byte and no derivation label changed; every non-`DURABLE` head ciphertext changes**, which is why it is A6-relevant and why it is ruled now. **No Go file in `connect` changed for this row** — the landed `SealRecord` refuses all three non-`DURABLE` classes and widening it to `PERMANENT` and `MEDIA` is m1 wave 2's commit. Dated from the commit calendar, as A-19 was. |
+| 2026-09-07 | A-21 | **The `stream_index` counter is class-blind, because the server and the schema already counted that way and only the client did not.** Ledger items **143** and **169**, **RULED 2026-09-07** by the owner as shape **A1**: one `stream_index` per `(group_id, sender_handle)`, no retention class in it. **The rule:** `i = stream_index` in **every** ladder — head, body, ordinary record and device wrap alike — over one counter per sender per group. **The owner's reason, which is checkable rather than preferential:** Spec B's `message_sender` is `PRIMARY KEY (group_id, sender_handle)`, Spec B's Q7 selects on the same pair, and the shipped server (`msgrepo/store/memory.go:600-610`) gates stream monotonicity on `record.SenderHandle` alone — while m1 wave 1 shipped `StreamKey{GroupId, SenderHandle, RetentionWire}`. The retention byte was not an open question, it was a **client/server split already in the tree**: the server would have refused the second retention class's first record with `REASON_STREAM_INDEX_REGRESSED`. **What moves in this document:** §5.6's interface block becomes the landed shape and gains the class-blind rule and the sender handle; §8.2's `ReserveStreamIndex`/`StreamHighWater` become one allocation and one query on the same key — **a change of direction, not only of keying**, and the fourteen-method bound A8 makes load-bearing is unchanged at fourteen; §5.3's **"A builder MUST NOT seal a non-`DURABLE` record before 169 is ruled"** is **lifted for `PERMANENT` and `MEDIA`** and `EPH` stays refused under ledger **152**; §5.5 gains the measured consequence for its window; §5.10's snapshot note and §5.11 (5)'s two paragraphs are annotated with the ruling that answers them. **Zero wire octets, zero KAT constants, and nothing already sealed breaks** — every record wave 1 sealed came from a sender using one class, whose class-blind counter is identical. **What it costs, measured on the shipped benchmarks rather than on paper:** the ladders go sparse, so an epoch-change rebuild is `k × P` ladder rungs where it was `P` — **130.1 ms** at k=3, P=100,000 against 41.8 ms, and 1.32 s at the `maxLadderWalk` bound — and a class's usable out-of-order window falls from 1,024 of its own records to **341** shared positions, `1,024/k` exactly. The options paper's `(k+1) × P` and its 148 ms and 1.55 s are **corrected in ledger item 169**; the multiplier is `k`. **What it does NOT rule:** `EPH` sealing (ledger **152**), the durable store **row**'s identity (**M1-5**), and whether `EPH(bucket 0)` transients get a counter of their own (**M1-25**), whose starvation hazard is now executable rather than asserted. Five review findings against the implementation are ledger **170**–**174**; none of them says the ruling is wrong. **No Spec B change and no MASTER rule change**, which is the ruling's own strongest argument. Dated from the commit calendar, as A-19 and A-20 were. |
 
 ---
 
@@ -1248,18 +1249,30 @@ replaces, an `EPH` record's head would be keyed under a ratchet whose entire pur
 destroyed on schedule, so a **retained** header becomes unopenable at exactly the moment the body is
 meant to vanish — the failure MASTER §8.1 exists to prevent.
 
-**THE ACCEPTED COST, AND IT IS OWED TO A DOCUMENT THAT DOES NOT YET CARRY IT.** A non-`DURABLE`
-record now draws its head and its body from **two different ratchets**, so one record's single
-`stream_index` covers **two ratchet positions**, and this section says which position each takes
-**nowhere**. That is ledger item **143**'s pin, which this ruling moves from *owed* to **due**: it is
-now a precondition of sealing a non-`DURABLE` record and not a discipline gap. It cannot be closed by
-item 143's own obvious form — *pin `i = stream_index` in every ladder* — because the head ladder is
-now shared by every class of one sender while `messagegroup.StreamKey`, which is what the shipped
-reserver counts on, carries the retention-class wire byte and therefore restarts per class: a
-`DURABLE` record and a `PERMANENT` record of one sender both at `stream_index = 5` would take the
-same durable-ladder position 5 for their heads, seal two different headers under one
-`(key_head, nonce_head)`, and hand the message server the Poly1305 one-time key. That is ledger item
-**169**, filed and not ruled. **A builder MUST NOT seal a non-`DURABLE` record before 169 is ruled.**
+**THE ACCEPTED COST, AND IT IS NOW PAID RATHER THAN OWED.** A non-`DURABLE` record draws its head and
+its body from **two different ratchets**, so one record's single `stream_index` covers **two ratchet
+positions**, and this section said which position each takes **nowhere**.
+
+**THE POSITION RULE, RULED 2026-09-07 as shape A1 — ledger items 143 and 169, ruled together.**
+`i = stream_index` in **every** ladder: the head takes position `stream_index` on the durable ladder
+and the body takes position `stream_index` on its own class ladder, and the `stream_index` counter is
+**class-blind**, one per `(group_id, sender_handle)` (§5.6). Uniqueness of `i` therefore follows from
+§5.12 step 6's existing *"MUST NOT be reused"* rather than from a second, unwritten discipline.
+
+**Why the class-blind counter is what makes the pin safe, which is the part a reader must not skip.**
+The obvious form of the pin was unsafe against the reserver m1 wave 1 shipped, whose `StreamKey`
+carried the retention-class wire byte and therefore restarted per class: a `DURABLE` record and a
+`PERMANENT` record of one sender both at `stream_index = 5` would have taken the same durable-ladder
+position 5 for their heads, sealed two different headers under one `(key_head, nonce_head)`, and handed
+the message server the Poly1305 one-time key. **A1 removes the byte**, so one sender's classes draw
+sparse positions from one monotonic counter and two records of that sender are never at one index. It
+also closes the device wrap's own instance, where the shared root carries no class at all (§5.11 (5))
+and the collision would have been on **both** AEADs.
+
+**The refusal this paragraph used to carry is lifted, and exactly this far.** It read *"A builder MUST
+NOT seal a non-`DURABLE` record before 169 is ruled."* 169 is ruled: `SealRecord` may seal
+**`PERMANENT`** and **`MEDIA`**. It **MUST still refuse `EPH`**, under ledger item **152** and not
+under this ruling — see the paragraph below, whose argument is unchanged by A1.
 
 **And the ruling does NOT reach `EPH`.** Ledger item **152** (`M-4`) holds that `K_durable[n]`
 descends from `storage_root[n]`, is destroyed nowhere, and is delivered to every member's recovery
@@ -1378,6 +1391,25 @@ tracked per group before the oldest is evicted. For a 500-member group with two 
 a worst case of ~2 MB per group, which is why the cap on tracked senders exists. Needs a Spec C memory
 budget to finalize (§14 open item 7).
 
+**THE WINDOW IS REFUSED BY INDEX DISTANCE, AND THE CLASS-BLIND COUNTER MAKES THAT A SMALLER WINDOW
+THAN THE NUMBER SUGGESTS. Added 2026-09-07 with the A1 ruling (§5.6, ledger 143 and 169).** A
+receiver refuses a record when `windowSize < index - head`, not when it is holding 1,024 keys, and
+under A1 one sender's `k` retention classes draw sparse positions out of **one** counter — so a
+class's own records sit `k` positions apart inside one 1,024-position window and its usable
+out-of-order reach is about **`1024/k`**. Measured through the shipped receiver at the default window
+with the three non-`EPH` class keys: **341** of 1,024, which is `1024/3` exactly. This is a cost of
+the ruling and not a defect of it, and it is stated here because §5.5's *"1024 keys"* is the number a
+reader budgets against. The count `k` is the number of class keys, so ledger item **152**'s `EPH`
+ruling would move it.
+
+**And the memory arithmetic above is not what the tree implements**, deliberately: open item **M1-12**
+recommends `connect/mls`'s policy — a **tree-wide** retained bound so sender count costs no memory, and
+eviction from the **fullest** window rather than from the oldest sender, which does not starve a quiet
+member — and that is what shipped. The consequence A1 adds is that the number of tracked
+`(sender, class)` pairs is now a **CPU** bound rather than a memory one: every epoch change drops the
+whole receiver table and each pair is rebuilt by walking to a head that is `k` times further out. That
+cost is ledger item **172**, and §14 open item 7 still owes the budget.
+
 Beyond the window, a record is undecryptable and surfaces as a `Kind == "gap"` entry with
 `GapReason == "out_of_window"` (§7.4) — not as an error. This is a deliberate, visible failure:
 silently skipping is how a message loss becomes invisible.
@@ -1396,9 +1428,43 @@ A device MUST durably record "index *k* consumed" **before** encrypting, and MUS
 record at a consumed index. The server enforces **monotonicity, not contiguity**, so a refused write, a
 crash between reserve and send, or a lost commit leaves a legal gap.
 
+**THE COUNTER IS CLASS-BLIND, AND `i = stream_index` IN EVERY LADDER. RULED 2026-09-07 by the owner as
+shape A1 — ledger items 143 and 169, ruled together.** One counter per `(group_id, sender_handle)`
+carries **every** retention class of that sender, and the `record_key` position a record's head and
+body each take **is** that record's `stream_index`. So the per-class ladders of one sender draw sparse
+positions out of one monotonic counter, and `(key, nonce)` uniqueness follows from index uniqueness
+alone rather than from a second, unwritten discipline. A `DURABLE` and a `PERMANENT` record of one
+sender can no longer both be at `stream_index = 5`, which is the collision ledger item 169 filed and
+the one that would have sealed two headers under one `(key_head, nonce_head)`.
+
+**The reason, recorded because it is checkable rather than preferential.** This is the counter the rest
+of the system already declared. `message_sender` is `PRIMARY KEY (group_id, sender_handle)` (Spec B
+§3.2), Spec B's Q7 selects on the same pair on every submit, and the shipped message server gates
+stream monotonicity on the record's `sender_handle` alone — with no retention class anywhere in the
+counter. The client was the only half that disagreed, and it disagreed in a way the server would have
+**refused**: a second retention class restarting at index 1 is a stream index that went backwards from
+the only counter the server keeps, which is `REASON_STREAM_INDEX_REGRESSED` on the honest path.
+
+**What it costs, measured rather than estimated.** The ladders go sparse, so the epoch-change rebuild
+walks `k × P` rungs where it walked `P` — 130.1 ms at `k = 3`, `P = 100,000`, against 41.8 ms — and a
+class's usable out-of-order window falls to about `1024/k` shared positions (§5.5). Zero wire octets,
+zero key-schedule constants, and nothing already sealed breaks: a sender that has only ever used one
+class has a class-blind counter identical to its per-class one. Ledger item **169** carries the
+measurements and the corrections to the options paper's arithmetic.
+
 `EPH(bucket 0)` transients **do** consume an index locally (so the counter is never rewound) and are
 **never** checked server-side, because the record is never stored and `message_sender.last_stream_index`
 is not advanced for them.
+
+**And under A1 that sentence has a consequence it did not have before, which is filed and NOT ruled.**
+The index a transient consumes now comes out of the **one** counter every retention class of that
+sender shares, so every typing indicator advances the counter a `DURABLE` record will next draw from —
+and because a receiver's window is refused by **distance** (§5.5), 1,025 transients between two
+`DURABLE` records make the second permanently `out_of_window`. That is **open item M1-25**, still filed
+and still not ruled; the hazard is executable in `connect/messagegroup`'s own suite rather than
+asserted here. Nothing in this section forecloses a separate counter for transients and nothing grants
+one — and note that giving transients their own counter re-opens ledger item 169's collision for `EPH`
+heads on the day ledger item **152** rules the `EPH` classes onto the durable root.
 
 Nonce reuse under a repeated `record_key` is a total break of both AEADs for that record, which is why
 the reservation is durable rather than best-effort.
@@ -1408,19 +1474,51 @@ the reservation is durable rather than best-effort.
 // The reservation MUST be durable before the key is produced. This is the
 // caller's obligation and the constructor takes the sink to make it explicit.
 // The DURABLE implementation is not here and is not in connect/messagegroup at
-// all: §8.2's MessageStore declares ReserveStreamIndex and StreamHighWater, method
-// for method, and sdk owns the persistence.
+// all: §8.2's MessageStore declares the same two operations and sdk owns the
+// persistence.
+//
+// RESERVE ALLOCATES; IT DOES NOT ASSERT. Ruled 2026-09-07 with A1: the counter is
+// the store's and there is no second copy of it, so a ladder cannot ask for an
+// index and therefore cannot ask for a consumed one.
 type StreamIndexReserver interface {
-    // returns only after the reservation is durable (fsync'd or equivalent).
-    Reserve(groupId []byte, index uint64) error
-    HighWater(groupId []byte) (uint64, error)
+    // allocates the stream's next index and returns only after that reservation
+    // is durable (fsync'd or equivalent). Two calls are two indices.
+    Reserve(stream StreamKey) (uint64, error)
+    HighWater(stream StreamKey) (uint64, error)
+}
+
+// the stream one reservation belongs to. CLASS-BLIND, per A1. Comparable, with no
+// slice in it, so it is a map key with no second encoding and a group id cannot
+// move under a ratchet between reserve and use.
+type StreamKey struct {
+    GroupId      [32]byte
+    SenderHandle [16]byte
 }
 ```
 
+**Why the shape is an allocation and not an assertion, because the difference is what makes A1 safe.**
+Under `Reserve(stream, index) error` the caller chooses the number and the store answers yes or no,
+and every sender ratchet must keep its own position to choose from. That works while each ladder owns
+a counter and **wedges permanently** the moment two ladders share one: the second ladder offers index
+1, the store answers `ErrStreamIndexConsumed`, and the refusal is permanent, so at most one retention
+class per group could ever send. Ledger item **168** measured exactly that wedge on the interface's
+first shape. A1 puts `k` ladders on one counter by construction, so the assert shape is not merely
+awkward under it — it is unusable. An implementation therefore owes:
+
+1. **`Reserve` allocates.** It hands back the stream's next index; two calls are two indices, and the
+   non-idempotence is structural rather than a rule an implementation could relax. **No index is ever
+   handed out twice.**
+2. **The reservation is durable before `Reserve` returns**, which is unchanged and is the whole reason
+   the interface exists.
+3. **A store that cannot allocate says so permanently**, and the caller may not treat that as
+   transient.
+
 `SealRecord` calls `Reserve` and refuses to proceed on error. On startup, `HighWater` is read and the
-ratchet resumes at `highWater + 1`, never at a recomputed value. A crash between reserve and send
-burns an index, which is fine: the server enforces monotonicity, not contiguity, so a gap does not
-brick the stream.
+ratchet resumes at `highWater + 1`, never at a recomputed value — and under A1 that number bounds the
+ladder from **above** rather than pinning it, because `Next` walks to whatever index the store hands
+back. A ladder that resumed too low is merely slow; a ladder that resumed **above** the store's next
+allocation is the one unsafe case, and it is refused. A crash between reserve and send burns an index,
+which is fine: the server enforces monotonicity, not contiguity, so a gap does not brick the stream.
 
 `TestStreamIndexNeverReused` runs 10,000 seal operations with an injected crash after `Reserve` and
 before the AEAD, restarts the session from the persisted state, and asserts no `index` is ever
@@ -2119,8 +2217,10 @@ conclude otherwise. Correction **E2** (§5.10) already rules it under
 `key_body`"* is not a statement about it in the first place. Its `ct_head` is governed by **M1-6** and
 by nothing in this section. *(**M1-6 was ruled 2026-09-07** and §5.3 now carries it: the snapshot is a
 `PERMANENT` record, so its `ct_head` is sealed under the **DURABLE** class ratchet and its body — it
-has none — would have been under `K_perm`. The snapshot is inside the lift; what it still owes is the
-ladder **position**, ledger items **143** and **169**.)* *(**The `56` is MASTER's 2026-09-19 amendment**, and it changes nothing
+has none — would have been under `K_perm`. The snapshot is inside the lift; what it still owed was the
+ladder **position**, ledger items **143** and **169** — **both RULED 2026-09-07 as shape A1**, so the
+snapshot's head takes durable-ladder position `stream_index` out of the sender's one class-blind
+counter and this record owes nothing further. §5.3 and §5.6 carry the rule.)* *(**The `56` is MASTER's 2026-09-19 amendment**, and it changes nothing
 this paragraph says: the expand was `32` and derived no nonce, which is M-15's defect in a second
 instance, and `K_snapshot[n]`'s value is unchanged by HKDF-Expand's prefix property. The snapshot's own
 AEAD now has a stated nonce and an `AAD_snap`; the residual it does not close — two snapshots sealed
@@ -2210,6 +2310,13 @@ ladder, so the invariant follows from §5.12 step 6's existing *"MUST NOT be reu
 from a second, unwritten discipline. **It is not ruled here** — it reaches every ladder in §5.3 and not
 only the wrap's — and is filed as ledger open item **143**.
 
+> **RULED 2026-09-07, as shape A1, in one sitting with ledger item 169.** The pin is adopted **in the
+> form proposed above**: `i = stream_index` in every ladder, wrap and ordinary alike. What the ruling
+> adds, and what the pin could not have been safely adopted without, is that the `stream_index` counter
+> itself is **class-blind** — one per `(group_id, sender_handle)`, with no retention class in it
+> (§5.6). §5.3 carries the rule; the two paragraphs above are kept because they are the argument it
+> answers.
+
 **A sharper form of 143, added 2026-09-15, because ruling 2's ladder head has no retention class in
 it.** Ruling 2's root is `record_key[0] = HKDF-Expand(env_key[k], "sender/v1" ‖ LP(leaf_index), 32)`.
 For an ordinary record the head of that same ladder is `HKDF-Expand(class_key, "sender/v1" ‖
@@ -2227,6 +2334,15 @@ server recovers `pq_secret[k] ⊕ eph_root[k]` for every leaf of every epoch. Th
 break of the PQ layer and of the disappearing-message property rulings 2 and 3 were adopted to protect.
 **It is the same open item and it is not ruled here either**, but it is a concrete, reachable
 instantiation rather than a general discipline gap, and 143 now carries it.
+
+> **CLOSED 2026-09-07 by the A1 ruling, and this instance is why the position-side shape was taken
+> rather than a derivation-side one.** Under A1 the two device-wrap records for one leaf are two
+> allocations out of the committer's one class-blind counter, so they take **two different positions
+> `i`** on their shared root — which separates `(key_head, nonce_head)` **and**
+> `(key_body, nonce_body)`, and is what makes this the collision the shapes that bind the class into
+> the head's AEAD material only could not have closed. The message server does **not** recover
+> `pq_secret[k] ⊕ eph_root[k]`. Sealing the `EPH(5)` half is still refused, under ledger item **152**,
+> which is a different question.
 
 **The `env_key` caching obligation, which is now live and is the accepted cost of (1).**
 
@@ -4421,8 +4537,10 @@ type MessageStore interface {
     DeleteEntries(groupId []byte, ids []string) error
     ExpireEntriesBefore(nowMs int64) (int, error)
 
-    ReserveStreamIndex(groupId []byte, index uint64) error
-    StreamHighWater(groupId []byte) (uint64, error)
+    // §5.6's reserver, method for method. ALLOCATES the stream's next index; the
+    // key is (group_id, sender_handle) and is CLASS-BLIND, per A1.
+    ReserveStreamIndex(groupId, senderHandle []byte) (uint64, error)
+    StreamHighWater(groupId, senderHandle []byte) (uint64, error)
 
     Vacuum() error
 }
@@ -4430,6 +4548,27 @@ type MessageStore interface {
 
 Fourteen methods. That bound is the point (A8): if `modernc.org/sqlite` has to go, this is what has to
 be reimplemented.
+
+**The two stream methods changed shape on 2026-09-07 and the count did not.** They read
+`ReserveStreamIndex(groupId []byte, index uint64) error` and `StreamHighWater(groupId []byte) (uint64,
+error)` until the A1 ruling (§5.6, ledger items **143** and **169**). Two things moved and both are
+normative. **The key gained the sender handle**, which §5.6's first sentence always required and which
+neither declaration carried — a device removed and re-added at a different leaf has a different
+`sender_handle` in the same group, and a `group_id`-keyed row cannot tell the two apart. **And the
+direction reversed**: the reservation is an **allocation** that returns the index, not an assertion
+that takes one, because under one class-blind counter a caller that chooses its own number meets a
+consumed index and wedges. `messagegroup.StreamIndexReserver` is this pair method for method, and the
+flattening from these two `[]byte` parameters to its comparable `StreamKey` is the implementer's.
+
+**What is still open at this interface, and it is the one piece of durable state that cannot be
+migrated by recomputation.** **M1-5** rules which fields a store **row** is identified by; A1 rules
+which stream a reservation belongs to, and those are different questions. Ledger item **170** is what
+happens if they are ruled in the wrong order: A1 removed a field from the reservation's key, so a
+store already holding rows under the older key answers `HighWater` **0** for the new one — silently,
+because "never seen" is an error-free zero — and the ladder restarts at index 1 under an unmoved class
+key, which is a repeated `(key, nonce)` on both AEADs. No durable implementation exists yet in any
+tree, so this is a transition rule the store plan owes rather than a live defect; it must be ruled in
+the same sitting as M1-5.
 
 **Store-open failure is an explicit value, never an empty result.** `Open` returns a typed error whose
 reason is one of `unseal_failed`, `corrupt`, `disk_full`, `locked_by_another_process`; the client enters

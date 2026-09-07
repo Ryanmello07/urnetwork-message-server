@@ -16,9 +16,15 @@ colliding, and that has cost this project real work before.
 
 | Track | Repo | State |
 |---|---|---|
-| **A — protocol core** | `Ryanmello07/connect`, branch `beta/message` | p1 complete and green in CI; p2 started |
+| **A — protocol core** | `Ryanmello07/connect`, branch `beta/message` | **p1–p7 complete; m1 wave 0 and wave 1 landed, plus ruling A1.** At `33932e0`: 1,105 tracked files, 7,631 tests passing over `mls/`, `message/` and `messagegroup/`, nine-platform `CGO_ENABLED=0` build green. Wave 2 is stopped in front of ledger **152** and M1-1's remainder |
 | **B — Windows client** | `Ryanmello07/urmessage-windows` (private) | CP1 shipped — builds, launches, renders |
-| **C — message server** | `Ryanmello07/urnetwork-message-server` | greenfield; specs written, no code yet |
+| **C — message server** | `Ryanmello07/urnetwork-message-server` | **shipped and under test** — 57 Go files, 26,402 lines; `store/`, `api/`, `peer/`, `blobd/`, `sweep/`, `cmd/`, `go build ./...` and `go test ./...` green. CP3a and CP3c ran through it |
+
+*(**Rows A and C corrected 2026-09-07.** A read *"p1 complete and green in CI; p2 started"* and C read
+*"greenfield; specs written, no code yet"* — the second over a repository that already contained the
+server CP3a and CP3c travelled through. Both are the same class as the ledger's §1
+*"Nothing is implemented yet"*, repaired in the same pass, and both are a state row nobody re-derived
+after the work landed.)*
 
 Brand source for track B is `Ryanmello07/urnetwork-windows` at branch `beta/algorithm-dpi`, read-only.
 
@@ -1262,9 +1268,19 @@ rather than a caveat:
   typed error naming **M1-6**. *(**M1-6 was ruled later the same day** — `ct_head` is always sealed
   under the DURABLE class — which lifts the refusal for `PERMANENT` and `MEDIA` **in the plan**, and
   not in this tree: no code changed, and `SealRecord` at `10cc20c` still refuses all three. `EPH`
-  stays refused on purpose; ledger item **152** is why. See today's ledger entry.)*
+  stays refused on purpose; ledger item **152** is why. See today's ledger entry.)* *(**And the second
+  half of the lift was ruled the same day too** — ledger **143** and **169**, shape **A1**: the
+  `stream_index` counter is class-blind, so a non-`DURABLE` record's head has a stated ladder position.
+  That one **did** change code, in `connect` at `33932e0`, but not this refusal: `SealRecord` at
+  `33932e0` still refuses all three non-`DURABLE` classes and its comment still names M1-6 rather than
+  152. Widening it is wave 2's commit.)*
 - **It has no durable store.** The `StreamIndexReserver` is an interface and a test fake; a test
-  asserts that no production declaration of the package implements it.
+  asserts that no production declaration of the package implements it. *(**Still true at `33932e0`,
+  and ruling A1 made it load-bearing.** A1 changed the interface's key — `StreamKey` lost its
+  retention byte — and the key is the row identity a store would use, so a store already holding rows
+  under the old key would answer `HighWater` 0 for the new one and restart a ladder at index 1 under
+  an unmoved class key. That nothing durable exists yet is what makes the transition rule free to
+  write; ledger item **170** carries it, to be ruled with **M1-5**.)*
 - **It never touches a message server.** Every wave-1 path stops at a `*message.Record` in memory.
   The submit leg and the durable reserver are both `s2`'s, and `s2` has not been written.
 - **There is no sender authentication in the record layer.** Any group member can write a record
@@ -1282,3 +1298,63 @@ invocation selected one of its six tests; a gate satisfied by the sentence recor
 nothing. In every case the number was honest and the corpus was the defect. The rule that follows,
 and it is the one worth carrying into `s2`: **publish the query beside the number**, so the next
 reader can ask what the query could not have seen.
+
+---
+
+## 2026-09-07 — ledger items 143 and 169 ruled as shape A1, and the state rows that said no code existed
+
+**No Go file in this repository changed and `connect` was read and never written.** This is the
+documentation half of a ruling whose implementation landed in `connect` on `beta/message` at
+`33932e0`, three commits on `7a9ad2a`.
+
+**THE RULING.** The `stream_index` counter is **one per `(group_id, sender_handle)` and class-blind**,
+and `i = stream_index` in every ladder — head, body, ordinary record and device wrap. `StreamKey` loses
+`RetentionWire` and keeps `SenderHandle`. Ledger items **143** and **169**, ruled together because one
+choice answers both.
+
+**Why it is the shape that owes nothing.** It is the counter the rest of the system already declared,
+and the client was the only half that disagreed — `message_sender` is `PRIMARY KEY (group_id,
+sender_handle)`, Spec B's Q7 selects on the same pair, and this repository's own server gates stream
+monotonicity on `record.SenderHandle` alone (`store/memory.go:600-610`). So the retention byte the
+client carried was a **client/server split already in the tree**, not an open question: the server
+would have refused the second retention class's first record with `REASON_STREAM_INDEX_REGRESSED`.
+Verified here rather than assumed, which is why **nothing in this repository changed for the ruling**.
+
+**What moved, derived rather than taken from the brief.** Spec A revision **A-21**: §5.6's interface
+block and §8.2's `MessageStore` become the landed shape — and that is a change of **direction**, an
+allocation returning an index rather than an assertion taking one, because under one shared counter a
+ladder that chooses its own number wedges (ledger 168's measurement, with a cause one level under its
+diagnosis). §5.3's *"A builder MUST NOT seal a non-`DURABLE` record before 169 is ruled"* is lifted for
+`PERMANENT` and `MEDIA`; `EPH` stays refused under ledger **152**. §5.5 gains the window's measured
+consequence, §5.10 and §5.11 (5) are annotated with the ruling that answers them, MASTER §8.1's pointer
+carries it under a dated amendment that changes **no MASTER rule**, and m1's Task 6, Task 11(a), its
+wave table, its schedule diagram, its external-leg list and M1-5, M1-12 and M1-25 are brought to the
+ruling.
+
+**The costs are this pass's own measurements, not the options paper's.** One rung **390.7 ns**; the
+epoch-change sender rebuild **130.1 ms** at k=3, P=100,000 against **41.8 ms** per-class; the wall
+**1.32 s**. **The paper's formula is wrong**: it priced the rebuild at `(k+1) × P` and the measured
+ratio is **3.11** against a k of 3, so it is `k × P`. Its arithmetic landed within a fifth of the truth
+by accident, because it also quoted a rung 6% low — the more dangerous of the two errors, because it
+survives a spot-check. A class's usable out-of-order window is **341** of 1,024, which is `1024/k`.
+
+**Five findings against the implementation are filed as ledger 170–174 rather than carried as prose,**
+and each was reproduced here before it was written down: the store-row transition hazard the ruling's
+own wording denies (**170**), a wedge recovery path that cannot be walked and is unsafe for one cause
+(**171**), a receive-side cost larger than the measured send-side one (**172**), two pieces of evidence
+that do not observe the property they name (**173**), and two claims in the implementation's own header
+that A1 made stale (**174**).
+
+**And the state rows that said there was no code.** The ledger's §1 read *"Nothing is implemented yet.
+No code exists"* over a 1,105-file `connect` tree, 7,631 passing tests and a 57-file server in this
+repository; this file's tracks table called track C *"greenfield; specs written, no code yet"* and
+track A *"p1 complete; p2 started"*. All three are repaired with measurements. **The class was derived
+rather than taken from the brief**, which is what found the tracks table, PROGRESS's own wave-1
+bullets, the plan's §8.2 anchor row, M1-12's memory-only arithmetic and the A-20 revision row's now
+lifted MUST NOT — none of which the brief named.
+
+**The rule this stretch adds to the one below.** *"Publish the query beside the number"* has a sibling:
+**publish the formula beside the arithmetic.** The options paper's `(k+1) × P` shipped a wrong model
+under a right-looking number for a week, and only the ratio of two measurements — 3.11, not 4 — could
+tell them apart. A number that agrees by accident is worse than one that disagrees, because nothing
+downstream ever questions it.

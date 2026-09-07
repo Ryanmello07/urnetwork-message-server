@@ -678,9 +678,11 @@ func WrapTargetHandle(groupHandleKey []byte, contentEpoch uint64, leafIndex uint
 
 ```go
 // connect/messagegroup/streamindex.go — §5.6. The STORE ROW's keying is Open item M1-5, still open.
-// The RESERVATION's key shipped as StreamKey and diverges from §5.6 and §8.2 — ledger item 168.
-type StreamIndexReserver interface{ /* Reserve(StreamKey, uint64), HighWater(StreamKey) */ }
-type StreamKey struct{ /* GroupId [32]byte; SenderHandle [16]byte; RetentionWire byte */ }
+// The RESERVATION's key is CLASS-BLIND and Reserve ALLOCATES — ruling A1, ledger 143 and 169,
+// 2026-09-07. §5.6 and §8.2 are amended to it (Spec A revision A-21); ledger item 168's
+// divergence is closed on the document side and ledger 170 is the transition rule s2 owes.
+type StreamIndexReserver interface{ /* Reserve(StreamKey) (uint64, error), HighWater(StreamKey) */ }
+type StreamKey struct{ /* GroupId [32]byte; SenderHandle [16]byte */ }
 ```
 
 ```go
@@ -848,7 +850,7 @@ is the whole argument for it being advisory.
 | §2.2: `engine.go` … `the GroupEngine interface (§6), EngineProcessed` | `200` | cited `197`; the 2026-09-06 table said `199`, which is `session.go  seal.go` at this commit |
 | §5.10 E2: `The per-epoch ratchet-tree snapshot is **one` | `1566`, in **§5.10** *"Corrections adopted in MASTER"* (heading `1557`); §5.11 begins `1574` | cited `1553` **and the wrong section**, §5.11; the 2026-09-06 table said `1556` and `§5.11 does not begin until 1564`, both `ecf0df6` |
 | §6: `type GroupEngine interface {` … `JoinFromWelcome(welcome, ratchetTree []byte)` | block `1907`–`1912`; the method at `1911` | cited `1885–1896`, a range that did not contain the method; the 2026-09-06 table said `1894–1899` / `1898`, which is `ecf0df6` |
-| §8.2: `ReserveStreamIndex(groupId []byte, index uint64) error` | `3719` (`DeleteEntries` at `3716`) | cited `3703`; the 2026-09-06 table said `3706`, which is `ecf0df6` |
+| §8.2: `ReserveStreamIndex(groupId, senderHandle []byte) (uint64, error)` | `3719` (`DeleteEntries` at `3716`) | cited `3703`; the 2026-09-06 table said `3706`, which is `ecf0df6`. **The anchor string itself changed 2026-09-07**: ruling A1 made the reservation an allocation on a class-blind key, so §8.2 no longer declares the `groupId []byte, index uint64` form this row named for five weeks. The row is corrected rather than deleted, because the old string is what a reader with a stale copy will grep for |
 
 **The check is now an anchor check, and it is one an implementer can actually run.** Every inline
 citation in this document names the **same anchor string** as its table row and no longer carries a
@@ -969,7 +971,7 @@ discovered at Task 14.
 | Wave | Tasks | On CP3b? | Note |
 |---|---|---|---|
 | 1 | 1–12, and 9a | **yes** | unblocked: the schedule, the ratchets, the adapter, the session, seal and open |
-| 2 | 13–16 | **yes** | the second client's half. Task 14 has three of M1-1's questions ruled (2026-09-13) and still needs M1-1's remainder **and** the `EPH` half of the seal refusal (ledger **152**) for its `eph_root` wrap; **Task 15 is unblocked** — M1-6 was ruled 2026-09-07 and its snapshot is `PERMANENT`; Task 16's M1-2 is deferred and does **not** block CP3b. Both tasks also owe the `stream_index`-to-ratchet pin the ruling made due (ledger **143**, **169**) |
+| 2 | 13–16 | **yes** | the second client's half. Task 14 has three of M1-1's questions ruled (2026-09-13) and still needs M1-1's remainder **and** the `EPH` half of the seal refusal (ledger **152**) for its `eph_root` wrap; **Task 15 is unblocked** — M1-6 was ruled 2026-09-07 and its snapshot is `PERMANENT`; Task 16's M1-2 is deferred and does **not** block CP3b. **The `stream_index`-to-ratchet pin both tasks owed is RULED — 2026-09-07, ledger 143 and 169 together, as shape A1: `i = stream_index` in every ladder over one class-blind counter per `(group_id, sender_handle)`. Neither task is blocked by it any longer** |
 | 3 | 17–24 | **no** | required before the A6 format freeze; none is required to put a message in front of a person |
 
 **And the two legs this plan does not have.** CP3b's own words are *"through the message server"*. Every
@@ -1934,21 +1936,24 @@ moves and nothing in this task is re-opened** — the landed shape is the ruled 
 - Produces:
 ```go
 // the reservation MUST be durable before the key is produced.
-// CORRECTED 2026-09-07 to what landed: both methods take a StreamKey, not a groupId.
+// CORRECTED TWICE ON 2026-09-07. First to what wave 1 landed — both methods take a StreamKey,
+// not a groupId — and then to the owner's A1 ruling on ledger items 143 and 169, which is what
+// this block now shows: the key is CLASS-BLIND and Reserve ALLOCATES rather than asserts.
 type StreamIndexReserver interface {
-    // returns only after the reservation is durable (fsync'd or equivalent).
-    Reserve(stream StreamKey, index uint64) error
+    // allocates the stream's next index and returns only after that reservation is durable
+    // (fsync'd or equivalent). Two calls are two indices; the non-idempotence is structural.
+    Reserve(stream StreamKey) (uint64, error)
     HighWater(stream StreamKey) (uint64, error)
 }
 // the stream one reservation belongs to. Comparable, no slice in it, so it is a map key with no
 // second encoding and a group id cannot move under a ratchet between reserve and use.
 type StreamKey struct {
-    GroupId       [32]byte
-    SenderHandle  [16]byte
-    RetentionWire byte
+    GroupId      [32]byte
+    SenderHandle [16]byte
 }
 var ErrStreamIndexRewound  error
 var ErrStreamIndexConsumed error
+var ErrLadderWalkTooLong   error   // the third wedge cause A1 made reachable; ledger 171
 ```
 
 **The parameter set diverged from BOTH documents, and the divergence is a repair rather than a
@@ -1961,6 +1966,22 @@ ratchet took index 1 and every later call on the permanent ratchet answered `Err
 **forever**, with its position stuck, so **at most one retention class per group could ever send**.
 That is not a tuning question, it is a permanent wedge, and it is invisible to any test that builds
 one ratchet.
+
+> **RULED 2026-09-07 — shape A1, ledger items 143 and 169 together — and the byte comes back off.**
+> The counter is **one per `(group_id, sender_handle)` and class-blind**, which is what Spec B's
+> `message_sender` primary key, Spec B's Q7 and the shipped message server already keyed on; the
+> retention byte was a **client/server split**, not an open question, and the server would have
+> refused the second class's first record with `REASON_STREAM_INDEX_REGRESSED`. **The wedge does not
+> come back, because the retention byte was never what caused it.** `Reserve`'s *assert* shape was: a
+> ladder that chooses its own number and offers it to a shared counter meets a consumed index and
+> stops. A ladder that is **handed** a number cannot. So `Reserve` becomes an **allocation** —
+> `Reserve(stream StreamKey) (uint64, error)` — the counter is the store's with no second copy of it,
+> and `Next` walks its ladder up to whatever index the store returns, so `i = stream_index` holds by
+> construction and `(key, nonce)` uniqueness follows from index uniqueness alone. Spec A §5.6 and
+> §8.2 are amended to this shape (revision **A-21**). **What the rewritten contract owes:** two calls
+> are two indices, no index is handed out twice, and a store that cannot allocate says so
+> permanently. **What the shape adds:** a third way to wedge a ladder — a walk past `maxLadderWalk` —
+> which is ledger item **171**.
 
 **It does not pre-empt M1-5 and must not be read as doing so.** M1-5 rules which fields a durable
 **store row** is identified by, and it is still open; `StreamKey` fixes which **stream a reservation
@@ -1981,11 +2002,14 @@ version of it did.** Three measured facts, and together they are the argument:
 2. **§8.2 already assigns the persistence, to `sdk`.** `MessageStore` (`sdk/message_store.go`, spec
    line 3719) declares — among its fourteen methods — `ReserveStreamIndex(groupId []byte, index
 
-   uint64) error` and `StreamHighWater(groupId []byte) (uint64, error)`. That is
-   `StreamIndexReserver` method for method — and **no longer parameter for parameter, corrected
-   2026-09-07**: the shipped interface takes a `StreamKey` and §8.2 still takes a `groupId`, which
-   is ledger item **168** and is a second document to amend rather than a defect here — on the
-   interface the sqlite implementation already owes. A second durable implementation here is the second
+   uint64) error` and `StreamHighWater(groupId []byte) (uint64, error)` **until 2026-09-07**, when
+   ruling A1 amended both to `ReserveStreamIndex(groupId, senderHandle []byte) (uint64, error)` and
+   `StreamHighWater(groupId, senderHandle []byte) (uint64, error)`. That is `StreamIndexReserver`
+   method for method **and now parameter for parameter again** — the key gained the sender handle
+   §5.6's first sentence always required, and the direction reversed to an allocation, which is a
+   **shape** change and not only a keying one. Ledger item **168**'s divergence is closed on the
+   document side by that amendment; **fourteen methods stay fourteen**, on the interface the sqlite
+   implementation already owes. A second durable implementation here is the second
    implementation this plan's first paragraph forbids, and A8 makes the fourteen-method bound the
    thing that would have to be reimplemented if `modernc.org/sqlite` goes.
 3. **§5.6 injects the sink for exactly this reason** — *"the constructor takes the sink to make it
@@ -1998,10 +2022,15 @@ shipping durable one is `sdk`'s. If the implementer finds a reason `connect/mess
 durable store after all, that
 reason belongs in a ledger entry against §8.2 before the file is written — not in this file.
 
-**And the same measurement sharpens M1-5.** §8.2's two methods take `groupId` and no
-`senderHandle`, exactly as §5.6's interface does. So M1-5's "the fix is one parameter" is one
-parameter in **two** documents and on a fourteen-method interface A8 pins the size of; the item now
-says so.
+**And the same measurement sharpens M1-5.** §8.2's two methods took `groupId` and no
+`senderHandle`, exactly as §5.6's interface did. So M1-5's "the fix is one parameter" was one
+parameter in **two** documents and on a fourteen-method interface A8 pins the size of; the item says
+so. *(**Both documents are amended 2026-09-07** by ruling A1, and the parameter is added — but that
+does **not** rule M1-5, which is about the durable store **ROW**'s identity and not about the
+reservation's key. What A1 does add to M1-5 is a second thing to rule beside it: A1 **removed** a
+field from the reservation's key, so a store holding rows under the older key answers `HighWater` 0 for
+the new one and restarts a ladder at index 1 under an unmoved class key. That is ledger item **170**,
+and it must be ruled in the same sitting as M1-5.)*
 
 **The rule, quoted whole, because its two halves are usually collapsed into one.** Spec A §5.6:
 
@@ -2037,6 +2066,13 @@ recomputation.** Implement the interface with the parameter set the ruling gives
 > class of any group wedged permanently, so `StreamKey` shipped and the paragraph above no longer
 > describes the landed interface. The distinction that keeps both true is in the block above and in
 > `streamindex.go`'s header.
+>
+> **CORRECTED AGAIN THE SAME DAY, BY THE RULING.** The retention wire byte is **gone** — ruling A1,
+> ledger items 143 and 169 — and the sender handle stays. `Reserve` allocates, which is what makes one
+> counter serve `k` ladders without the wedge, so the second half of the correction above ("or the
+> second class of any group wedged permanently") describes the *assert* shape and not the key. §5.6's
+> paragraph is amended to the ruling and **is** the landed interface again. M1-5 is still open and is
+> still about the row.
 
 **The EPH(0) cost, filed rather than absorbed.** §5.6 states that `EPH(bucket 0)` transients *"do
 consume an index locally (so the counter is never rewound)"*. Every typing indicator therefore costs
@@ -2044,6 +2080,17 @@ a synchronous flush and the transient send rate becomes the fsync rate. §5.5 ha
 deferred to Spec C; §5.6 has no I/O budget and no §14 item. **Open item M1-25.** No EPH record is
 sealed before wave 3, so this does not block, but the interface must not be shaped in a way that
 forecloses a separate transient counter.
+
+**And ruling A1 gave M1-25 a second cost, larger than the fsync one and NOT ruled with it.** Under one
+class-blind counter every transient advances the counter every retention class of that sender draws
+from — and a receiver's window is refused by **distance**, not by retained count, so **1,025
+transients between two `DURABLE` records make the second permanently `out_of_window`**. The hazard is
+executable in `connect/messagegroup`'s suite rather than asserted here, with a one-short-of-the-wall
+control beside it so the failure is attributable to the last transient. It is **still filed and still
+not ruled**: A1's ruling forecloses nothing either way, and note that granting transients their own
+counter re-opens ledger item 169's collision for `EPH` heads on the day ledger **152** rules the `EPH`
+classes onto the durable root. The interface as amended does not foreclose it — a second counter is a
+second `StreamKey`, not a second method.
 
 **Where the durability is tested, given that the implementation is not here.** The properties below
 are the interface's **contract**, and every one of them is testable against a **file-backed reserver
@@ -2836,11 +2883,16 @@ timer, the seized device, the device provisioned tomorrow and the seedphrase hol
 MASTER §8.1's next sentence. An `EPH` record sealed under the wrong reading is wire-visible and
 unrecoverable after the A6 freeze exactly as a `PERMANENT` one was.
 
-**And sealing a non-`DURABLE` record is not unblocked by the class ruling alone.** The head ladder is
-now shared across every class of one sender while the shipped reserver's `StreamKey` is **per class**,
-so *which* position of the durable ladder a `PERMANENT` record's head takes is stated in no document —
-ledger items **143** and **169**. A builder that reaches this decision before those are ruled has a
-second guess to make, and it is the same kind of guess: wire-visible, and inside `AAD_head`.
+**And sealing a non-`DURABLE` record was not unblocked by the class ruling alone — it needed a second
+ruling, which it has.** The head ladder is shared across every class of one sender, so *which* position
+of the durable ladder a `PERMANENT` record's head takes was stated in no document, and the shipped
+reserver's `StreamKey` was **per class**, which made the obvious answer unsafe. **RULED 2026-09-07,
+ledger items 143 and 169 together, as shape A1:** `i = stream_index` in every ladder, over one
+**class-blind** `stream_index` counter per `(group_id, sender_handle)` — so a `PERMANENT` record's head
+takes durable-ladder position `stream_index`, that number is never issued twice to one sender whatever
+the class, and there is no second guess left to make. Spec A §5.3 and §5.6 carry it (revision A-21).
+**This decision is therefore no longer this task's to take**; what it must still do is refuse `EPH`,
+under ledger **152**.
 
 **And that refusal blocked a wave-2 task on this plan's own CP3b path, which is why M1-6 was filed
 under *Blocking CP3b* and not under the A6 freeze — the argument is kept because it is what made the
@@ -2863,7 +2915,8 @@ device wrap two records — a `PERMANENT` one carrying `pq_secret` and an `EPH(5
 every record Task 14 builds, not only every record Task 15 builds, and **M1-6 was a precondition of
 both.** *(After the 2026-09-07 ruling it is a precondition of neither: three of those four records are
 `PERMANENT` and inside the lift. What is left in front of Task 14 is the `EPH(5)` `eph_root` wrap and
-**ledger item 152**, and in front of both tasks the pin of ledger **143** and **169**.)* The
+**ledger item 152** — the pin of ledger **143** and **169** stood in front of both tasks for part of
+that same day and was **ruled** as shape A1 before either started.)* The
 instruction is unchanged and is now worth more: do not carve an exemption for the wrap
 either. It is four record kinds now rather than one, and four exemptions is a refusal that has become
 a sentence.
@@ -3289,8 +3342,11 @@ refusal**, because the lift reaches `PERMANENT` and `MEDIA` and **not `EPH`**, a
 two records is the `EPH(5)` `eph_root` wrap. The item that refuses it is now ledger **152**, not M1-6.
 So the `PERMANENT` `pq_secret` wrap is through the gate and its twin is not, and a fan-out that
 emitted one without the other would break Property 1's *"exactly two"* — which is why this is a block
-on the task and not a partial start. Do not start step 1 against a guess at any of the three, or at
-the `stream_index`-to-ratchet-position pin that the ruling made due (ledger **143**, **169**).
+on the task and not a partial start. Do not start step 1 against a guess at any of the three. The
+`stream_index`-to-ratchet-position pin that the ruling made due (ledger **143**, **169**) is **no
+longer one of them**: it was ruled 2026-09-07 as shape A1 — `i = stream_index` in every ladder over one
+class-blind counter — which also closes this task's own hazard, since the device wrap's two records for
+one leaf share a root carrying no class and now take two different positions on it.
 
 **The caching obligation is this task's, and it is the part most likely to be dropped.** `env_key[k]`
 is computable **only while the group is at epoch k**: `(*Group).Export` reads the current schedule,
@@ -3495,9 +3551,12 @@ is non-`DURABLE`** — a `PERMANENT` `pq_secret` wrap, an `EPH(5)` `eph_root` wr
 recovery wrap and a `PERMANENT` snapshot — so M1-6 was a precondition of the whole task rather than of
 one record in it. **The ruling lifts the refusal for `PERMANENT` and `MEDIA` and not for `EPH`**, so
 three of those four are through the gate and the `EPH(5)` `eph_root` wrap is not; ledger item **152**
-is what refuses it now. The snapshot in particular is **unblocked**. The two blocks that remain on
-this task's own records are ledger **152** for the `EPH(5)` wrap and the `stream_index`-to-ratchet
-pin the ruling made due (ledger **143**, **169**) for any of the three. Until those land,
+is what refuses it now. The snapshot in particular is **unblocked**. The block that remains on
+this task's own records is ledger **152**, for the `EPH(5)` wrap. The second one — the
+`stream_index`-to-ratchet pin the ruling made due, ledger **143** and **169** — was **ruled 2026-09-07
+as shape A1** and is gone: `i = stream_index` in every ladder over one class-blind counter per
+`(group_id, sender_handle)`, which also separates this task's own two device-wrap records for one leaf
+on both AEADs. Until 152 lands,
 this task builds the device-wrap fan-out, the `EpochAttachment`, the marker and the ordering,
 and holds what it cannot seal in the same deferral register as the recovery wraps (below), naming the
 item that refuses each as the reason. Do not seal it under `DURABLE` "for now": the retention class is on the wire, inside
@@ -4151,7 +4210,7 @@ Wave 0  Task 0, the split                                         (not this plan
 Wave 1  1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 9a → 10 → 11 → 12     COMPLETE — seven commits,
                                                                   b9a31e2..34fc072; 7,620 tests
 Wave 2  13 → [14: M1-1's remainder + ledger 152] → [15: UNBLOCKED, M1-6 ruled] → [16: not blocking] (CP3b)
-        both of 14 and 15 also owe the head-ladder position: ledger 143 (now due) and 169
+        the head-ladder position 14 and 15 owed is RULED: ledger 143 and 169, shape A1, 2026-09-07
 Wave 3  17, 18, 19, 20, 21 | 22 → 23 | 24                          (A6 freeze; the three groups are parallel)
 ```
 
@@ -4195,7 +4254,9 @@ landed, and are the largest block that can run entirely in parallel with waves 1
   four records and all of Task 15's. **Task 15 is unblocked. Task 14 is not**, and the item that holds
   it is now **ledger 152** rather than M1-6: the `EPH(5)` wrap is the one record the lift does not
   reach. Two ledger items the ruling made due — **143** and **169**, the `stream_index`-to-ratchet
-  pin — are on the same path and are the schedule fact to watch next.
+  pin — were on the same path and were **ruled the same day** as shape A1, implemented in `connect` at
+  `33932e0`. **The schedule fact to watch next is ledger 152**, which is the whole of what stands in
+  front of Task 14 now.
 
 Everything in wave 1 is buildable and testable without any of them, and a wave-1-complete tree is a
 `connect/messagegroup` that seals and opens records under the real key schedule inside one process —
@@ -4267,7 +4328,9 @@ worse than a list that does not claim to be.
 **Two of the six now have an owner they did not have.** The owner has ruled that the client-side
 submit leg is an **sdk plan, `s2`** — on the reasoning that `sdk` already owns transport and
 storage, and that §8.2's `MessageStore` already declares `ReserveStreamIndex` and `StreamHighWater`,
-which is `messagegroup.StreamIndexReserver` method for method. So legs 4 and 5 are both `s2`'s. **`s2`
+which is `messagegroup.StreamIndexReserver` method for method — **still method for method after ruling
+A1 amended both declarations to a class-blind allocation on 2026-09-07**, which is the point of
+amending §8.2 rather than only §5.6. So legs 4 and 5 are both `s2`'s. **`s2`
 does not exist yet, and it is now on the CP3b critical path** — it is the last unwritten thing
 between a `*Record` in memory and a person reading a message.
 
@@ -4291,7 +4354,9 @@ between a `*Record` in memory and a person reading a message.
 5. **A durable `StreamIndexReserver` implementation — also `s2`'s**, which Task 6 declares the
    interface for and deliberately does not build: neither half of the split imports an I/O package,
    §8.2 assigns the persistence to `sdk`'s `MessageStore` (`ReserveStreamIndex` /
-   `StreamHighWater`, method for method), and what Task 6 ships is the interface plus a file-backed
+   `StreamHighWater`, method for method — **both amended to the class-blind allocation shape
+   2026-09-07 by ruling A1**, so the correspondence is still method for method and is now parameter
+   for parameter too), and what Task 6 ships is the interface plus a file-backed
    fake confined to `streamindex_test.go`. **O-5 is answered**: `s2` inherits Task 6's interface,
    its five properties and its mutation set whole, `TestStreamIndexNeverReused` included. **CP3b says *"no test-only key source anywhere on the path"*, and a
    test-only reserver is not a key source — but it is the thing standing between a reused
@@ -4477,10 +4542,12 @@ for it on 2026-09-14 was unsafe** — rebuilding around a stored `ct_xwing` repe
 `(key, nonce)` against an `AAD_head` the server forces to move — so it owes **three** rulings and not
 one bound; *this read* **"four rulings"** *until 2026-09-18, when the first of the four, item 144, was
 ruled, and the reuse it names got* **worse** *rather than better — the inner seal repeats too*),
-**143** (the device wrap still owes a normative `stream_index`-to-ratchet-position pin,
+**143** (the device wrap owed a normative `stream_index`-to-ratchet-position pin,
 which rulings 2 and 3 sharpen by putting two records per leaf on one ladder, and which as of
 2026-09-15 names a concrete instantiation: ruling 2's ladder head carries no retention class, so two
-per-class ratchets over it share a root) and **144** — which is **CLOSED, ruled 2026-09-18**, and is
+per-class ratchets over it share a root — **CLOSED, ruled 2026-09-07 with ledger 169 as shape A1**: one
+class-blind `stream_index` per `(group_id, sender_handle)` gives the wrap's two records two positions
+on that shared root and separates both AEADs, so this is a cost that was **paid**) and **144** — which is **CLOSED, ruled 2026-09-18**, and is
 therefore a cost that was **paid** rather than one a builder still carries. It read *"the recovery
 wrap's **inner** `aead_ct` has no nonce in any document, which is Task 19's stop sign and which decides
 142"*. MASTER §7 adopts M-15, `aead_ct` is sealed under `(wrap_key, wrap_nonce)`, that stop sign is
@@ -4609,7 +4676,10 @@ its body from **two different ratchets**, so one record's single `stream_index` 
 positions**. Ledger item **143** already named that pin as owed; this ruling is what makes it **due**,
 and it is now a precondition of sealing a non-`DURABLE` record rather than a discipline gap filed for
 later. Ledger item **169** is the concrete instantiation the ruling creates and is the reason the pin
-cannot take its own obvious form.
+cannot take its own obvious form. *(**Both were RULED the same day, 2026-09-07, as shape A1**, and the
+pin was adopted in its obvious form after all — because the ruling changed the counter under it. The
+`stream_index` counter is now class-blind, one per `(group_id, sender_handle)`, so `i = stream_index`
+in every ladder is safe where it was not. This cost is **paid**.)*
 
 **What it unblocks, and exactly how far.** Task 11(a)'s refusal is lifted for **`PERMANENT` and
 `MEDIA`** — and therefore **Task 15**, whose ratchet-tree snapshot §5.11 step 2 fixes as *"one
@@ -4633,9 +4703,10 @@ hold for `EPH` — Spec B §7.2 sets `ct_head = NULL` for `EPH(1..5)` at `prune_
 refusal, under item 152 rather than under this item, and **M1-6 no longer blocks the A6 freeze while
 item 152 still does.**
 
-*Blocks after the ruling:* nothing in wave 1; `EPH` sealing, through ledger item 152; and the
-`stream_index`-to-ratchet-position pin, through ledger items 143 and 169. Task 14 stays blocked on
-M1-1's remainder and on its own `EPH(5)` `eph_root` wrap.
+*Blocks after the ruling:* nothing in wave 1, and `EPH` sealing, through ledger item 152. *(The
+`stream_index`-to-ratchet-position pin — ledger items 143 and 169 — was on this list until it was
+**ruled the same day** as shape A1 and implemented in `connect` at `33932e0`.)* Task 14 stays blocked
+on M1-1's remainder and on its own `EPH(5)` `eph_root` wrap.
 
 *The item as it was filed, which is what the ruling answers half of:*
 
@@ -4854,14 +4925,30 @@ are ruled on their own terms.
 
 ### Blocking the A6 wire-format freeze
 
-**M1-5 — STILL OPEN, and one half of it moved 2026-09-07 without ruling the other.** The item below
-is unchanged. What shipped in wave 1 is `Reserve(stream StreamKey, index uint64)` with
-`StreamKey{GroupId, SenderHandle, RetentionWire}` — which answers *which stream a reservation belongs
-to* and answers **nothing** about *which fields a durable store row is identified by*, which is what
-this item asks and what cannot be migrated by recomputation. The recommendation below is also now
-**narrower than the tree**: it adds `senderHandle` and the shipped key carries the retention wire byte
-as well, because a group's durable and permanent ladders reserving out of one counter is a permanent
-wedge rather than a keying preference. The divergence from §5.6 and §8.2 is **ledger item 168**.
+**M1-5 — STILL OPEN, and the reservation's half moved TWICE on 2026-09-07 without ruling it.** The
+item below is unchanged. What shipped in wave 1 is `Reserve(stream StreamKey, index uint64)` with
+`StreamKey{GroupId, SenderHandle, RetentionWire}`; what the owner then **ruled** the same day, as shape
+A1 (ledger **143** and **169**), is `Reserve(stream StreamKey) (uint64, error)` with
+`StreamKey{GroupId, SenderHandle}` — class-blind, and an allocation rather than an assertion. Both
+shapes answer *which stream a reservation belongs to* and **neither** answers *which fields a durable
+store row is identified by*, which is what this item asks and what cannot be migrated by
+recomputation. **The recommendation below got its KEY and not its SHAPE**: A1 added the
+`senderHandle` this item asked for, to §5.6 and to §8.2, and removed the retention byte the wave-1 key
+carried — but it did **not** take the recommendation's `Reserve(groupId, senderHandle []byte, index
+uint64) error`, because an assert form cannot serve `k` ladders off one counter. What both documents
+now declare is an **allocation** on that key. So **ledger item 168's divergence is closed**, this
+item's one-parameter fix is landed on both declarations, and this item is **not** closed: the row is a
+different question from the reservation.
+
+**AND A1 GAVE THIS ITEM A SECOND THING TO RULE IN THE SAME SITTING, WHICH IS THE PART THAT CANNOT WAIT
+FOR THE STORE TO EXIST.** A1 **removed** a field from the reservation's key, and the key is the row
+identity a reserver keys on. A store already holding rows under the wave-1 key answers `HighWater`
+**0** for an A1 key — silently, because "never seen" is an error-free zero — so the ladder restarts at
+index 1 and re-issues `record_key[1]` under an unmoved class key, which is a repeated `(key, nonce)` on
+**both** of a record's AEADs. That is **ledger item 170**. Reproduced executably against the package's
+own test fake, whose row string is derived by reflecting over `StreamKey`'s fields, so the row identity
+**is** the field set. No durable implementation exists in any tree yet, which is what makes this a
+transition rule to write rather than a defect to repair — and what makes writing it now free.
 
 **M1-5 — the `StreamIndexReserver` is keyed more coarsely than the counter it guards.** §5.6's first
 sentence: *"`stream_index` is a single `u64` counter per `(group_id, sender_handle)`"*. Its interface
@@ -4968,6 +5055,17 @@ from the **fullest** window rather than the oldest sender, so a quiet member is 
 closes §14 item 7 without a Spec C round trip. *Rejected alternative:* §5.5's 64-sender cap as
 written, which is O(senders) memory with a policy that evicts exactly the member most likely to need
 the window.
+
+**AND RULING A1 PUT A SECOND, NON-MEMORY COST ON THIS TABLE, 2026-09-07 — ledger item 172.** The
+recommendation above is adopted and shipped, and it makes the tracked-pair count free in **memory**.
+It does not make it free in **CPU**: `installEpochOnLoop` drops the whole receiver table at every
+commit, so each tracked `(sender, class)` pair is rebuilt by walking from `record_key[0]` to its head —
+and under A1 that head is the class-blind stream index, `k` times further out. Measured on the same
+walk the sender-side benchmark times: **≈130 ms per peer per epoch change** at k=3, P=100,000, against
+≈42 ms for a per-class head, so **≈1.04 s for eight peers**. `Track` caps no entry count, so this
+scales with peers. Whatever §14 item 7's budget says about memory now has a CPU half to say something
+about, and the candidates are a rebuild that is lazy per sender rather than eager per table, a cap on
+tracked pairs, or the number written down and accepted.
 
 **M1-13 — `Next()` cannot report the failure §5.6 requires it to have already survived.** §5.5 gives
 `Next() (index uint64, recordKey []byte)`, no error. §5.6 requires `Reserve(...) error` to complete
@@ -5146,6 +5244,32 @@ claims a never-downloaded record is fully verifiable. If it is `H(nil)` it is a 
 blob record; if it is meant to be `H(blob_ciphertext)` nothing says so. `write_auth` covers `blob_id`
 and not one octet of the object, so the object store can return any bytes it likes. *Blocks:*
 Task 20. Wire-visible.
+
+**M1-25 — STILL FILED, NOT RULED, and ruling A1 made it load-bearing rather than deferred,
+2026-09-07.** The item below is unchanged; what A1 adds is a second cost, larger than the first, and a
+reason the two shapes that close it are no longer symmetric.
+
+**The second cost.** Under one class-blind `stream_index` per `(group_id, sender_handle)` (§5.6, ledger
+**143** and **169**) a transient's index comes out of the counter **every** retention class of that
+sender draws from. A receiver's window is refused by **distance** and not by retained count (§5.5), so
+**1,025 `EPH(0)` transients between two `DURABLE` records make the second permanently
+`out_of_window`** — a durable message lost to a typing indicator, with no attacker in it. The hazard is
+**executable rather than asserted**: `connect/messagegroup`'s
+`TestTransientsOnTheSharedCounterStarveADurableReceiverWindow` drives 1,025 real allocations between
+two `DURABLE` records, takes a real `ErrOutOfWindow`, asserts the loss is permanent with a second
+`PeekFor`, and carries a one-short-of-the-wall control above it so the failure is attributable to the
+last transient. *(One caveat, filed as ledger **173**: the mutation the implementer offered as evidence
+that the case observes the **shared counter** does not bite — the case reserves against a `StreamKey`
+it builds directly, so it never crosses the class-to-key mapping. The hazard is demonstrated; the
+attribution is not.)*
+
+**And the two shapes are no longer symmetric.** *Give transients their own counter* — nothing
+server-side checks them, so nothing breaks **today** — **re-opens ledger item 169's collision for `EPH`
+heads on the day ledger 152 rules the `EPH` classes onto the durable root**, because two counters over
+one root is exactly the shape A1 removed. *State the cost and accept it* leaves a durable message
+losable by a typing indicator. **This item must therefore be ruled with ledger 152 in view**, and A1
+forecloses neither shape: a second counter is a second `StreamKey`, not a second method. *Blocks:*
+nothing before wave 3, unchanged.
 
 **M1-25 — §5.6's durable reservation versus `EPH(bucket 0)`.** Every transient consumes an index and
 therefore costs a synchronous flush, so the transient send rate becomes the fsync rate. §5.5 has a
@@ -5482,20 +5606,29 @@ files again.
 **O-5 — ANSWERED, 2026-09-06: `s2` owns it, and inherits Task 6's interface whole.** The owner
 ruled that both the client-side submit leg and the durable reserver are `s2`'s, on the reasoning
 §8.2 already supplies: `MessageStore` declares `ReserveStreamIndex` and `StreamHighWater`, and that
-is `messagegroup.StreamIndexReserver` method for method. What `s2` inherits is not a suggestion — it is
+is `messagegroup.StreamIndexReserver` method for method — **both sides amended together on 2026-09-07
+by ruling A1**, so the correspondence survived the change of shape rather than being restated after it. What `s2` inherits is not a suggestion — it is
 Task 6's five properties and its whole mutation set, `TestStreamIndexNeverReused` included, which
 §5.9 names as G5's and G11's and which no other plan owns. `s2` is unwritten and is on the CP3b
 critical path. The ask as originally filed, which is still the substance:
 
 *To whoever writes the sdk store plan (s2 by s1's own reckoning).* §8.2's `MessageStore`
-declares `ReserveStreamIndex(groupId []byte, index uint64) error` and `StreamHighWater(groupId
-[]byte) (uint64, error)`, which is `messagegroup.StreamIndexReserver` method for method. Task 6
+declares `ReserveStreamIndex(groupId, senderHandle []byte) (uint64, error)` and
+`StreamHighWater(groupId, senderHandle []byte) (uint64, error)` — **amended 2026-09-07 by ruling A1
+from the `groupId []byte, index uint64` assert form**, which is what this paragraph named until then —
+and that is `messagegroup.StreamIndexReserver` method for method. Task 6
 declares
 the interface and its five properties and deliberately ships **no** durable implementation
 (neither half of the storage layer imports an I/O package and §8.2 assigns the persistence); the
 durable one is that
 plan's, and it inherits Task 6's properties 1–5 and its mutation set whole — in particular
-`TestStreamIndexNeverReused`, which §5.9 names as G5's and G11's and which no other plan owns. Two
-further things travel with it: **M1-5**'s keying question is one parameter on **both** declarations,
-and must be ruled before either has rows on disk; and **M1-25**'s fsync cost lands on that
-implementation, not on this one.
+`TestStreamIndexNeverReused`, which §5.9 names as G5's and G11's and which no other plan owns. **Three**
+further things travel with it. **M1-5**'s keying question is one parameter on **both** declarations,
+and must be ruled before either has rows on disk — A1 **added** that parameter to both and did **not**
+rule M1-5, which is about the store **ROW**. **Ledger item 170** must be ruled in the same sitting: A1
+also **removed** a field from the reservation's key, so a store holding rows under the older key
+answers `HighWater` 0 for the new one and restarts a ladder at index 1 under an unmoved class key —
+a repeated `(key, nonce)` on both AEADs, arriving through the repair. No durable implementation exists
+anywhere yet, so the transition rule is free to write today and is not free later. And **M1-25**'s
+fsync cost lands on that implementation, not on this one — with A1's second, larger half beside it: a
+transient now advances the counter every class of that sender shares.

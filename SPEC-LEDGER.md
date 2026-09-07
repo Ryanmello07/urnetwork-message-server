@@ -10,22 +10,30 @@ document; this ledger is the map, the reasoning, and the audit trail.
 
 ## 1. Current state
 
-**Protocol design at revision 5**, with errata E1–E3 fixed. Group key agreement is MLS (RFC 9420),
-implemented in Go. Storage, retention, deletion, recovery, and identity verification are ours. v1
-targets one operator, one message server, many providers.
+**Protocol design at revision 9**, with errata E1–E3 fixed and four dated amendments on top of it.
+Group key agreement is MLS (RFC 9420), implemented in Go. Storage, retention, deletion, recovery, and
+identity verification are ours. v1 targets one operator, one message server, many providers.
 
-**Nothing is implemented yet.** No code exists.
+**Code exists, and this paragraph said the opposite for five weeks.** It read *"Nothing is implemented
+yet. No code exists."* from the repository's first commit until 2026-09-07, across a `connect` tree of
+**1,105** tracked files and **7,631** passing tests and a message server in this repository of **57**
+Go files and **26,402** lines. It was named as stale by the 2026-09-07 pass that ruled M1-6 and left
+standing because it fell outside that pass's derived class; the ruling below is the pass that repaired
+it. What is true today: **`connect/mls`, `connect/message` and `connect/messagegroup` are m1 wave 1
+plus ruling A1**, on `beta/message` at `33932e0`; **this repository's message server is shipped and
+under test** — `store/`, `api/`, `peer/`, `blobd/`, `sweep/`, `cmd/`; and **`sdk` holds no messaging
+code at all**, which is the gap every external leg in the m1 plan points at.
 
 | Item | State |
 |---|---|
-| MASTER protocol design | Revision 6 — 1,078 lines |
-| Spec A — protocol / sdk / connect | Revision A-3 — 3,127 lines |
-| Spec B — message-server / operator | Revision 3 — 2,411 lines |
-| Spec C — Windows client UI | Revision 3 — 1,506 lines |
+| MASTER protocol design | Revision 9, **five** amendments — 2,107 lines |
+| Spec A — protocol / sdk / connect | Revision A-21 — 5,485 lines |
+| Spec B — message-server / operator | Revision 18 — 3,587 lines |
+| Spec C — Windows client UI | Revision 6 — 1,893 lines |
 | Blockers | **0 from r1–r4** — down from 41. **r8's two are not in that count**; both are fixed in the text and neither is recorded as fixed. Item **165**. |
 | Review findings | **Dispositioned per finding in §5, not counted.** r3's twelve blockers were re-grepped by id; its fourteen remaining majors are items **149–162**, one item per id, each opening with the id and a disposition verb, so `git grep "M-7"` returns a disposition rather than silence. **r2's, r3's and r4's minors, r6's 30 and r8's 25 are NOT dispositioned** — item **165** measures that and publishes the query; those findings carry no ids, so an id-keyed gate cannot see them at all. The count this row used to carry (*"30: 8 major, 22 minor"*) was r6's file, not r3's majors, and the two had been read as one set for five weeks. |
-| Implementation plan | Not written |
-| Code | None |
+| Implementation plan | **Written and part-executed.** Thirteen documents in `docs/plans/`; `m1` (24 tasks) has wave 0 and wave 1 landed and is stopped in front of wave 2 by ledger **152** and by open item **M1-1**'s remainder. `s2` through `s10` are cited as owners of unwritten work and have no document. |
+| Code | **`connect` `beta/message` at `33932e0`** — 1,105 tracked files, 217 Go files across `mls/`, `message/` and `messagegroup/`, 7,631 tests passing / 0 failing / 0 skipped, nine-platform `CGO_ENABLED=0` build green. **This repository** — 57 Go files, 26,402 lines, `go build ./...` and `go test ./...` green. **`sdk`** — nothing; six external legs wait on it. |
 
 **Ready for owner review, and for handoff once the owner has read them.** Four review rounds and two
 edit passes have taken this from 41 blockers to none. What is left is not a count: r3's fourteen
@@ -2384,7 +2392,49 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      ruled.** Found 2026-09-13 in the review of the three rulings; re-derived 2026-09-14 and again
      2026-09-15.
 
-143. **DUE AS OF 2026-09-07, no longer merely owed: the `stream_index`-to-ratchet-position mapping is
+143. **RULED 2026-09-07 by the owner, in one sitting with item 169, as shape A1: one class-blind
+     `stream_index` per `(group_id, sender_handle)`. `i = stream_index` in every ladder is now
+     normative, and this item's device-wrap instantiation is closed by it.** The ruling, its reason,
+     its measured costs and what it leaves open are written into item **169**, because the property is
+     169's and one ruling answers both; this item carries the four things that are its own. The item
+     as filed is kept whole below it.
+
+     **(a) THE PIN IS RULED IN THE FORM THIS ITEM PROPOSED, AND IT IS THE ONLY ONE OF THE SEVEN
+     SHAPES THAT LEAVES IT TRUE.** `i = stream_index` in every ladder, head and body, wrap and
+     ordinary. Under A2 the pin would have had to be rewritten, under B2 its head clause deleted, and
+     under C1/C2/C3/D it would have stayed true per ladder while leaving this item's own wrap
+     instance open. It is ruled as written.
+
+     **(b) THE DEVICE-WRAP INSTANTIATION IS CLOSED, AND CLOSED ON BOTH AEADs.** Ruling 2's wrap root
+     is `record_key[0] = HKDF-Expand(env_key[k], "sender/v1" ‖ LP(leaf_index), 32)`, which carries no
+     class, and ruling 3 puts a `PERMANENT` record and an `EPH(5)` record on it. A class-blind counter
+     gives those two records two different positions, so `(key_head, nonce_head)` **and**
+     `(key_body, nonce_body)` separate — which is what this item needed and what the four
+     derivation-side shapes could not give it, because they bind the class into the head's AEAD
+     material only. The message server does **not** recover `pq_secret[k] ⊕ eph_root[k]`.
+
+     **(c) THE FUNCTIONAL TWIN IS CLOSED TOO, AND IT WAS THE EARLIER GATE.** Sub-item (3) below
+     recorded that the shipped server would refuse the fan-out's second record with
+     `REASON_STREAM_INDEX_REGRESSED` on the honest path, before any of this item's cryptography was
+     reachable. That refusal is gone because the client now counts the way the server counts.
+     Re-verified against the shipped server on the day of the ruling, not taken from the sub-item:
+     `msgrepo/store/memory.go:600-610` gates on `record.SenderHandle` alone under a comment reading
+     *"Stream monotonicity, per (group_id, sender_handle)"*, and `store/migrations.go` gives
+     `message_stream_claim` `PRIMARY KEY (group_id, sender_handle, stream_index)` and `message_sender`
+     a `last_stream_index` on `PRIMARY KEY (group_id, sender_handle)`. No retention class appears in
+     either. **Nothing in this repository changed for the ruling, and that is the ruling's own
+     strongest argument rather than a convenience.**
+
+     **(d) WHAT IS STILL OWED AFTER IT, so this closure is not read as wider than it is.** The pin is
+     ruled; **`EPH` sealing is not** — `SealRecord` still refuses it under item **152**, and the day
+     152 rules the `EPH` classes onto the durable root, A1's counter is what keeps them apart, which
+     is the same argument in the same shape. And **M1-25 is not ruled**: transients consume indices
+     out of the one counter A1 creates, which is item **169**'s recorded cost and is now load-bearing
+     rather than deferred.
+
+     *The item as it was filed, which the ruling answers in full, follows unchanged.*
+
+     **DUE AS OF 2026-09-07, no longer merely owed: the `stream_index`-to-ratchet-position mapping is
      now a precondition of sealing a non-`DURABLE` record, and its own proposed repair is unsafe.**
      Item **128** was ruled that day — `ct_head` is always sealed under the DURABLE class ratchet — and
      the accepted cost the owner named is exactly this item: a non-`DURABLE` record draws its head and
@@ -2494,7 +2544,9 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
 
      **STILL FILED, STILL NOT RULED, AND STILL TO BE RULED WITH 169 BESIDE IT.** Nothing above is a
      ruling, nothing above implements wave 2, and no Go file in either tree changed for it. Written
-     2026-09-07 alongside item 169's options.
+     2026-09-07 alongside item 169's options. *(**Superseded the same day by the ruling at the head of
+     this item.** A1 was taken, with 169, and every option laid out above is closed by it. This
+     paragraph is kept because it is the sentence the ruling answers.)*
 
 144. **CLOSED — RULED 2026-09-18 by adopting r3's M-15, four weeks after it was raised.** MASTER §7 now
      derives `prk = HKDF-Extract(salt = "URmessage/v1/wrap-salt", ikm = ss)` and
@@ -4048,7 +4100,155 @@ fourteen are dispositioned below.
      **And this item is now load-bearing beyond its own question:** the per-class counter it records is
      one of the four facts new item **169** derives its collision from.
 
-169. **THE 2026-09-07 RULING GIVES EVERY CLASS'S HEAD ONE SHARED LADDER WHILE THE SHIPPED RESERVER
+     **WHAT ACTUALLY LANDED, 2026-09-07, AND IT IS THE OPPOSITE OF THE REPAIR THIS ITEM DESCRIBED.**
+     This item recorded the shipped per-class `StreamKey` as a **repair** — a `groupId`-keyed reserver
+     wedged the second retention class permanently, so the retention wire byte was added to the key to
+     un-wedge it. The owner's A1 ruling (items **143** and **169**) **removes that byte again**, and
+     the wedge does not come back, because the thing that actually caused it was not the key's
+     coarseness: it was `Reserve`'s **assert** shape. A ladder that chooses its own number and offers
+     it to a shared counter meets a consumed index and stops; a ladder that is **handed** a number by
+     the counter cannot. So the landed shape is `StreamKey{GroupId, SenderHandle}` — class-blind, with
+     the sender handle this item was right to add — over `Reserve(stream StreamKey) (uint64, error)`.
+     **This item's measurement stands and its diagnosis was one level too shallow**, which is worth
+     keeping rather than erasing: the measurement is what made the wedge real, and the ruling is what
+     found the cause under it.
+
+     **AND ITS "both documents still say `groupId`" HALF IS CLOSED BY THE SAME PASS.** Spec A §5.6's
+     Go block and §8.2's `MessageStore` are amended to the landed shape in revision **A-21**. What
+     they now declare is not merely a wider key but a different **direction** — an allocation that
+     returns an index rather than an assertion that takes one — and §8.2's two methods gain the sender
+     handle they always owed. **The divergence this item exists to record is therefore closed on the
+     document side.** What is NOT closed is **M1-5**, which is a different question and stays open, and
+     the transition hazard that A1's change of row identity creates for a store that already holds
+     wave-1 rows, which is new item **170**.
+
+169. **RULED 2026-09-07 BY THE OWNER — SHAPE A1: ONE CLASS-BLIND `stream_index` PER
+     `(group_id, sender_handle)`. `StreamKey` LOSES `RetentionWire` AND KEEPS `SenderHandle`. RULED IN
+     ONE SITTING WITH ITEM 143, WHICH IT CLOSES.** Implemented in `connect` on `beta/message`,
+     `fa6ab6b` then `7705cbf` then `33932e0`. Spec A §5.3, §5.5, §5.6, §5.10 and §8.2 are amended for
+     it (revision **A-21**); Spec B, its schema and MASTER's constructions need **no change**. The item
+     as filed, and the seven shapes it laid out, are kept whole below.
+
+     **THE OWNER'S REASON, AND IT IS THE PART TO PRESERVE BECAUSE IT IS CHECKABLE.** A1 is the counter
+     the rest of the system **already declares**, and the client was the only half that disagreed.
+     Verified before the ruling was taken, and re-verified by this pass:
+
+     | | keys the counter by |
+     |---|---|
+     | Spec B's schema, `message_sender` | `PRIMARY KEY (group_id, sender_handle)` |
+     | Spec B's Q7, run on every submit | `WHERE group_id = $1 AND sender_handle = $2` |
+     | the shipped server, `msgrepo/store/memory.go:600-610` | *"per (group_id, sender_handle)"*, gating on `record.SenderHandle` alone |
+     | **what m1 wave 1 shipped in the client** | `StreamKey{GroupId, SenderHandle, RetentionWire}` |
+
+     So the retention byte was **not a divergence the documents had left open — it was a client/server
+     split already in the tree**, and the server would have **refused the second class's first
+     record**: a second class starting again at index 1 is a stream index that went backwards from the
+     only counter the server keeps, `REASON_STREAM_INDEX_REGRESSED`. **A1 is therefore not only the
+     repair for this item — it closes a live split**, and it is the only one of the seven shapes that
+     owes no Spec B change. It also closes item **143**'s device-wrap instantiation (ruling 2's wrap
+     root carries no class and ruling 3 puts two classes on it, so a class-blind counter separates
+     both AEADs), costs **zero** wire octets and **zero** KAT constants, **breaks nothing already
+     sealed** — every record wave 1 sealed came from a sender using one class, whose class-blind
+     counter is identical to its per-class one — keeps `i = stream_index` in every ladder, and is
+     **neutral if M1-6 is ever reversed**, which no other shape is for free.
+
+     **THE SHAPE CHANGE A1 FORCED, WHICH IS NOT A DETAIL AND IS THE HALF THE OPTIONS PAPER CALLED
+     "unwritten discipline (i)".** `Reserve` is now an **allocation**, not an assertion:
+     `Reserve(stream StreamKey) (uint64, error)`. Wave 1 shipped `Reserve(stream, index) error` — the
+     caller chose the number and the store said yes or no — and every `SenderRatchet` kept its own
+     `position` to choose from. That works while each ladder owns a counter and **wedges permanently**
+     the moment two ladders share one, which is exactly what item **168** measured. Under A1 two
+     ladders share a counter by construction, so the assert shape is not awkward, it is unusable. The
+     counter is the **store's** and there is no second copy of it: a ladder cannot ask for an index,
+     therefore it cannot ask for a consumed one. The rejected alternative — the session owns the
+     counter and passes the index in — was rejected for three reasons, all recorded in
+     `streamindex.go`'s header: it moves the reserve-before-derive ordering out of `Next`, where
+     `seal_test.go`'s call-graph gate can see it, and back into a convention at every caller; it
+     leaves `Next` as a second door onto the same ladder still choosing its own number; and a store
+     that owes durability cannot implement read-decide-write with an fsync in it atomically as three
+     steps. **The published contract moves with it**: clause 5 is restated (*"two calls are two
+     indices; the non-idempotence is structural"*), clause 3 with it (*"no index is ever handed out
+     twice"*), and `ErrStreamIndexConsumed` now names the store's permanent inability to allocate.
+     **§8.2's `MessageStore` moves the same way** — amended in this pass — and it is a **shape** change
+     and not only a keying one, which is why the correspondence the plan called *"method for method"*
+     had to be restated rather than re-cited.
+
+     **THE ACCEPTED COSTS, MEASURED ON THIS TREE AND NOT TAKEN FROM THE OPTIONS PAPER.** Reproduced
+     2026-09-07 by this pass on the same machine (Intel Core Ultra 9 275HX, windows/amd64) through
+     `connect/messagegroup`'s own `BenchmarkSenderLadderRung` and `BenchmarkEpochChangeRebuild`, at
+     `33932e0`:
+
+     | | this pass | the implementer | the review | the options paper |
+     |---|---|---|---|---|
+     | one ladder rung | **390.7 ns** | 417.7 ns | 402.7 ns | 368.7 ns |
+     | epoch-change sender rebuild, k=3, P=100,000 | **130.1 ms** | 131.5 ms | 118.5 ms | 148 ms |
+     | the same, per-class counters | **41.8 ms** | 41.7 ms | 38.6 ms | (implied P) |
+     | ratio, i.e. the multiplier | **3.11** | 3.15 | 3.07 | — |
+     | last rebuild before the maxLadderWalk wall | **1.32 s** | 1.21 s | 1.32 s | 1.55 s |
+
+     **AND THE FORMULA IN THE OPTIONS PAPER IS WRONG, WHICH THE MEASURED RATIO IS WHAT SHOWS.** The
+     paper priced the epoch-change rebuild at `(k+1) × P` and quoted **148 ms**. It is `k × P`: the
+     rebuild is `k` ladders each walking the whole shared counter, and that is all `installEpochOnLoop`
+     does. The measured ratio is **3.11** against a `k` of 3, not 4. The paper's arithmetic landed
+     within a fifth of the truth **by accident**, because it quoted 368.7 ns a rung against the
+     390–418 ns three independent runs measure — the arithmetic agreed where the formula does not, and
+     that is the more dangerous of the two errors because it survives a spot-check. The extra `P` the
+     paper counted is real work, but it is the epoch's own **sends** walking their gaps rather than
+     anything the rebuild does; that half is `k × P` as well, so the honest per-epoch total is
+     `2k × P` against the `2P` a per-class counter paid. **The 1.55 s wall figure moves to 1.32 s for
+     the same reason.**
+
+     **A class's usable out-of-order window falls to `1,024/k`.** Not a smaller count of retained keys
+     — the receiver refuses **by index distance** (`ratchet.go`'s `classifyLocked`, `windowSize <
+     index - head`), so a class's own records now sit `k` positions apart inside one 1,024-position
+     window. Measured through the shipped `NewReceiverRatchet` at `DefaultRecordWindowSize`: **341**
+     of 1,024, which is 1,024/3 exactly. The case that measures it derives `k` off `ClassKeys`' fields
+     rather than counting to three, so item **152**'s fourth class key moves the divisor without
+     anybody remembering.
+
+     **AND A COST THE RULING WAS TAKEN WITHOUT: THE RECEIVE SIDE IS LARGER THAN THE SEND SIDE.**
+     `installEpochOnLoop` drops the receiver table too — `self.receivers.Zeroize()` deletes every
+     entry — so each tracked `(sender, class)` pair is rebuilt by `NewReceiverRatchet` walking from
+     `record_key[0]` to its head, and under A1 that head is the class-blind index, `k` times further
+     out. The walk is `stepRecordKey` in a loop, the **same** loop the sender-side benchmark measures,
+     so the 130.1 ms above **is** the per-peer receiver cost at k=3, P=100,000 — about **1.04 s for
+     eight peers**, against 334 ms per-class. `ReceiverRatchets.Track` puts no cap on tracked pairs, so
+     this scales with peers and not with a bound. Filed as item **172**; it does not reverse the
+     ruling, and it was not in front of the owner when the ruling was taken, which is the fact worth
+     keeping.
+
+     **WHAT IT UNBLOCKS.** Item **143** closes with it. Spec A §5.3's *"A builder MUST NOT seal a
+     non-`DURABLE` record before 169 is ruled"* is **lifted** for `PERMANENT` and `MEDIA` — `EPH` is
+     still refused, under item **152** and not under this one. m1's **Task 14** and **Task 15** lose
+     this blocker; Task 14 keeps M1-1's remainder and 152, Task 15 is clear of both. m1's **Task 6**
+     and **Task 11(a)** are amended to the landed shape. And `s2`'s unwritten store plan inherits an
+     interface whose shape is now settled — with item **170**'s transition hazard in front of it,
+     which is the one thing about this ruling that is not free.
+
+     **WHAT IT DOES NOT RULE, stated so a later reader does not close it in passing.** **M1-25** —
+     `EPH(bucket 0)` transients consume an index out of this one counter, so every typing indicator
+     advances it, and with the window refused by distance, 1,025 transients between two `DURABLE`
+     records make the second permanently `out_of_window`. That hazard is now **executable rather than
+     asserted** (`TestTransientsOnTheSharedCounterStarveADurableReceiverWindow`, with a
+     one-short-of-the-wall control above it), and it is **still filed, not ruled**: nothing forecloses
+     a separate transient counter and nothing grants one, and giving transients their own counter
+     re-opens this very collision for `EPH` heads the day item **152** rules them onto this root.
+     **M1-5** is also untouched — it rules which fields a durable **store row** is identified by, and
+     A1 rules which stream a reservation belongs to; item **170** is what happens when the two are
+     ruled in the wrong order.
+
+     **FIVE THINGS THE REVIEW OF THE IMPLEMENTATION FOUND, FILED AS ITEMS 170 THROUGH 174 RATHER THAN
+     CARRIED AS PROSE.** Its verdict was `ACCEPT_WITH_FIXES` and none of the five says the ruling is
+     wrong or the implementation unsafe as it stands: **170** the store-row transition hazard, **171**
+     the wedge recovery path that cannot be walked, **172** the unmeasured receive-side cost, **173**
+     two pieces of the evidence that do not observe the property they name, **174** two claims in the
+     implementation's own header that A1 made stale. Every one was reproduced by this pass before it
+     was written down.
+
+     *The item as it was filed, with the seven shapes and their costs, follows unchanged. Where its
+     numbers disagree with the table above, the table above is the measurement.*
+
+     **THE 2026-09-07 RULING GIVES EVERY CLASS'S HEAD ONE SHARED LADDER WHILE THE SHIPPED RESERVER
      COUNTS PER CLASS, SO ITEM 143's OWN PROPOSED PIN PUTS TWO HEADS ON ONE `(key_head, nonce_head)`.
      FILED, NOT RULED. WIRE-VISIBLE. MUST BE RULED IN ONE SITTING WITH ITEM 143.**
 
@@ -4464,7 +4664,160 @@ fourteen are dispositioned below.
      Spec A, Spec B or MASTER: correction 4 says three documents and the shipped server disagree
      with the shipped client about how `stream_index` is keyed, and which of them moves is the
      ruling, not this pass's to take. Found 2026-09-07, laying out the options this item filed as
-     three.
+     three. *(**All of it is superseded the same day by the ruling at the head of this item.** A1 was
+     taken; correction 4's question is answered — **the client moved**; Spec A is amended and Spec B
+     and MASTER are not; wave 2 is still not implemented and item **152** and **M1-1** are still
+     unruled. This paragraph is kept because it is the boundary the ruling crossed.)*
+
+170. **A1 CHANGES THE DURABLE STORE ROW'S IDENTITY, AND THE RULING'S OWN WORDING SAYS IT CHANGES
+     NOTHING. TRUE OF RECORDS, FALSE OF ROWS. FILED, NOT RULED — and it is a TRANSITION hazard, not a
+     live break in either tree.**
+
+     **The claim.** Item **169**'s ruling, and `connect/messagegroup/streamindex.go`'s header carrying
+     it, both say A1 *"breaks nothing already sealed"*. That is true of every **record**: a sender that
+     has only ever used one retention class has a class-blind counter identical to its per-class one,
+     which is every record wave 1 sealed. It is **false of the durable store ROW**. `StreamKey` is what
+     a reserver keys a row on, and A1 removes a field from it, so a store that already holds wave-1
+     rows answers `HighWater` **0** for an A1 key — contract clause 4 makes "never seen" a silent,
+     error-free zero — the ladder resumes at position 1, and `Next` hands out `record_key[1]` under a
+     class key that has not moved. That is a repeated `(key_head, nonce_head)` **and** a repeated
+     `(key_body, nonce_body)`: the total break of both AEADs that the whole of item 143 exists to
+     prevent, arriving through the repair rather than through the defect.
+
+     **Reproduced executably, not argued.** The package's own test fake derives its row string by
+     **reflecting over `StreamKey`'s fields** (`streamIndexRowKey`, `streamindex_test.go:231`), so the
+     row identity **is** the field set, by construction and on purpose. Plant a wave-1 row at
+     `streamIndexRowKey(stream) + "/0x1"` with high water 500, then read with the A1 key: `HighWater`
+     answers 0, `NewSenderRatchet` resumes at position 1, `Next()` returns index 1, and the rung it
+     hands out compares byte-for-byte equal to `RecordKeyNext(RecordKeyZero(classKey, leaf))` —
+     `record_key[1]`, the rung record 1 was already sealed under.
+
+     **The mitigation, stated because it is what sets the severity.**
+     `grep -rn "StreamIndexReserver|ReserveStreamIndex" --include=*.go` over `connect/` and `sdk/`
+     finds the interface, the ratchet, the session and the test fakes **only**. No durable
+     implementation exists anywhere — `sdk` contains no messaging code at all. So no store holds a
+     wave-1 row today and none can, and this is a hazard for `sdk`'s **unwritten** store plan rather
+     than a defect in either tree.
+
+     **Why it is filed here and not left to M1-5.** `streamindex.go` defers row identity to **M1-5**,
+     and M1-5 is written about `sender_handle` and about a device removed and re-added at a different
+     leaf — it is not about the field A1 just dropped. Nothing in either tree names this re-key. The
+     ruling that closes this item is one sentence in `s2`'s store plan — *rows written under a
+     `StreamKey` carrying a retention byte are migrated by taking the maximum over the classes of one
+     `(group_id, sender_handle)`, or the whole key space is versioned and refused* — and it costs
+     nothing while nothing is on disk. *Blocks:* nothing today; it blocks the first durable
+     `StreamIndexReserver`, and **must be ruled in the same sitting as M1-5** or the store row and the
+     reservation are keyed by different things a second time. Found 2026-09-07 in the review of the A1
+     implementation; reproduced by this pass before it was written down.
+
+171. **THE RECOVERY THAT BOTH WEDGE COMMENTS NAME IS IMPOSSIBLE FOR THE WEDGE A1 ADDED AND UNSAFE FOR
+     ONE OF THE OTHER TWO. FILED, NOT RULED.**
+
+     `connect/messagegroup/ratchet.go:170-171` and `errors.go`'s `ErrSenderRatchetWedged` both say: *"A
+     caller that wants to go on rebuilds the ratchet from the store's own high water, which is the one
+     thing that puts a ladder back under its counter."* Three causes wedge a ladder under A1 — the
+     store refused to allocate, the store handed back an index at or below where the ladder stands, or
+     it handed back one so far ahead that walking to it exceeds `maxLadderWalk`. The advice is wrong
+     for two of the three:
+
+     - **`ErrLadderWalkTooLong`** is the cause A1 introduced, and `NewSenderRatchet` **refuses any
+       resume above `maxLadderWalk`** (`ratchet.go:218`), so the rebuild fails the same way the
+       allocation did. And not for one quiet ladder: **every class of that sender is refused**,
+       because the counter they share is what crossed the bound. Reproduced: with the store's high
+       water parked at `maxLadderWalk`, `NewSenderRatchet` answers *"resuming at 1048577 would walk
+       1048577 rungs and the bound is 1048576"* for the durable class key and for **every field of
+       `ClassKeys`**, derived rather than listed.
+     - **`ErrStreamIndexRewound`** makes the advice actively unsafe: rebuilding from a rewound high
+       water resumes **below** indices already handed out and re-issues them, which is precisely the
+       reuse the sentinel exists to report.
+
+     **And the wall arrives `k` times sooner under A1 than under per-class counting**, with transients
+     counting toward it, so **M1-25** composes with this rather than sitting beside it. *Blocks:*
+     nothing in wave 1 — no caller in either tree recovers from a wedge today. What is owed is a
+     recovery **procedure** per cause, or the comment saying there is none: refusal is retryable and
+     the other two are not. The item exists because a comment naming a recovery a reader cannot walk is
+     worse than one naming none. Found 2026-09-07 in the review of the A1 implementation.
+
+172. **A1's RECEIVE-SIDE COST IS LARGER THAN THE SEND-SIDE COST THE RULING WAS TAKEN ON, AND IT WAS
+     NOT IN FRONT OF THE OWNER. FILED, NOT RULED. IT DOES NOT REVERSE THE RULING.**
+
+     `installEpochOnLoop` drops the **receiver** table as well as the sender ratchets —
+     `self.receivers.Zeroize()` deletes every entry (`session.go:455`, `ratchet.go:931`) — so at every
+     commit each tracked `(sender, class)` pair is rebuilt by `NewReceiverRatchet` walking from
+     `record_key[0]` to its head. Under A1 that head is the class-blind stream index, **`k` times
+     further out**. The walk is the same `stepRecordKey` loop the sender-side benchmark measures, so
+     the numbers transfer exactly: at k=3 and P=100,000 the rebuild is **≈130 ms per PEER per epoch
+     change** against ≈42 ms for a per-class head, i.e. **≈1.04 s for eight peers** against ≈334 ms.
+     The implementer's cost report and item 169's options paper both name only the sender-side figure.
+
+     **And nothing bounds the number of pairs.** `ReceiverRatchets.Track` caps no entry count; what the
+     table bounds is **retained rungs**, tree-wide, which is `M1-12`'s recommendation adopted on
+     purpose and is about memory. So A1 turns the tracked-pair count into a **CPU** bound at every
+     epoch change that no document states and no constant limits, and §5.5's own *"capped at 64 senders
+     tracked per group"* — which the shipped table deliberately does not implement, per M1-12 — is not
+     the cap that would bound it either. *Blocks:* nothing; it is a cost to state, and the candidates
+     are a rebuild that is lazy per sender rather than eager per table, a cap on tracked pairs, or the
+     number written down and accepted. **M1-12 gains this**: its arithmetic is about memory and this is
+     the CPU half of the same table. Found 2026-09-07 in the review of the A1 implementation; the
+     figures above are this pass's own reproduction of the sender-side benchmark applied to the
+     identical receiver walk, not a second measurement.
+
+173. **TWO PIECES OF A1's EVIDENCE DO NOT OBSERVE THE PROPERTY THEY NAME. FILED. NEITHER WEAKENS THE
+     RULING; BOTH WEAKEN WHAT WOULD CATCH ITS REVERSAL.**
+
+     **(1) The starvation case does not fail on the mutation offered as its evidence.** The
+     implementation reports of `TestTransientsOnTheSharedCounterStarveADurableReceiverWindow`: *"A
+     mutation giving transients their own counter makes that case fail, which is how I know it observes
+     the shared counter and not arithmetic."* It cannot. The case builds its `StreamKey` with
+     `streamKeyNamed` and calls `reserver.Reserve(stream)` directly, so it never crosses the
+     class-to-`StreamKey` mapping that decides whether transients share a counter. Reproduced: restore
+     `RetentionWire byte` to `StreamKey` and set it in `senderRatchetOnLoop`, and the case **passes**;
+     the suite goes red on a different case (`TestEveryRetentionClassOfOneSessionReservesInOneStream`).
+     Control: the starvation case **does** fail under a mutation that stops `Next` taking the store's
+     index, so it is not inert — it observes the ladder-to-store binding, not the transient-to-counter
+     binding. **M1-25's hazard is still genuinely demonstrated**; what is wrong is the attribution, and
+     the consequence is that on the day M1-25 is ruled the other way the case goes on passing while
+     reporting a starvation that no longer exists.
+
+     **(2) The rule-11 sweep fixed two enumerations and left a third, in the same commit and the same
+     file about a hundred lines away.** `BenchmarkEpochChangeRebuild` still writes
+     `ladderKeys := [][]byte{classKeys.Durable, classKeys.Perm, classKeys.Media}` — a hand-written
+     class list — with `highWater: 100000/3 - 1` and sub-benchmark names that say `k=3`. This is the
+     benchmark that produced the costs item **169** was accepted on, and item **152**'s fourth class
+     key would make it silently measure the wrong `k` while still reporting itself as k=3. The
+     neighbouring case was rewritten in the same commit to derive `k` off
+     `reflect.ValueOf(*classKeys).NumField()` for exactly this reason. **Rule 5's second half applied
+     one altitude down**: a measurement that derives its class and then enumerates its scope is not a
+     derived measurement.
+
+     *Blocks:* nothing. Both are in `connect`'s test suite and neither is this repository's to fix.
+     Found 2026-09-07 in the review of the A1 implementation.
+
+174. **THE FILE THAT CARRIES THE A1 RULING STILL ASSERTS TWO THINGS A1 MADE FALSE. FILED. THE
+     DOCUMENT HALF OF THE FIRST IS CLOSED BY THIS PASS; THE CODE HALF IS NOT.**
+
+     **(1) The §8.2 correspondence, stated in the shape A1 replaced.**
+     `connect/messagegroup/streamindex.go:30-33` says section 8.2's `MessageStore` *"declares
+     `ReserveStreamIndex(groupId []byte, index uint64) error` and `StreamHighWater(groupId []byte)
+     (uint64, error)` — this interface's subject, on the fourteen method interface the sqlite
+     implementation already owes."* Under A1 this package's method is
+     `Reserve(stream StreamKey) (uint64, error)` — an **allocation with no index in** — and the
+     assert-shape signature cannot implement it. The file names the **keying** disagreement (M1-5) at
+     length and never names the **shape** disagreement A1 created, which is the same stale-claim class
+     the implementer did repair one file over. **This pass amends §8.2 and §5.6 to the allocation
+     shape** (revision A-21) and amends the plan's copies of the correspondence, so the documents are
+     now right and the code comment is the half that is stale — the inverse of where it started, and
+     recorded that way on purpose.
+
+     **(2) The cost formula, refuted by the benchmark in the same package.** The same header prices
+     the epoch-change rebuild at *"(k+1) x P expansions where it cost P"*. `BenchmarkEpochChangeRebuild`
+     measures the ratio at **3.11** against k=3, and the benchmark's own comment says so in as many
+     words — *"AND THE MULTIPLIER IS k, NOT k+1"* — so the file states the wrong formula above a
+     benchmark that refutes it. Item **169** carries the corrected number and the reproduction.
+
+     *Blocks:* nothing. Both are comments in `connect`; the item exists because the ruling's own
+     carrier is where a later reader will look first, and because the second one is the exact number a
+     future cost argument will be built on. Found 2026-09-07 in the review of the A1 implementation.
 
 ## 6. Change process
 
@@ -8422,3 +8775,125 @@ disagree with the shipped client about how `stream_index` is keyed and item **16
 the divergence: which of them moves is the ruling, and taking it here would be the divergence
 absorbed rather than recorded. It did not touch `PROGRESS.md`, whose wave-2 blocking sentences are
 accurate until a shape is chosen.
+
+### 2026-09-07 — items 143 and 169 RULED as shape A1, the documents brought to the ruling, and the state rows that said no code existed
+
+**The ruling, and it is one ruling for two items.** The owner ruled items **143** and **169**
+together as shape **A1**: the `stream_index` counter is **one per `(group_id, sender_handle)` and
+class-blind**, and `i = stream_index` in every ladder — head, body, ordinary record and device wrap
+alike. `StreamKey` loses `RetentionWire` and keeps `SenderHandle`. Implemented in `connect` on
+`beta/message` at **`33932e0`**, three commits on `7a9ad2a`; **no Go file in this repository changed
+and `connect` was read and never written by this pass**.
+
+**Why A1, recorded because the reason is checkable rather than preferential.** A1 is the counter the
+rest of the system **already declared**, and the client was the only half that disagreed:
+`message_sender` is `PRIMARY KEY (group_id, sender_handle)`, Spec B's Q7 selects on the same pair on
+every submit, and the shipped server gates stream monotonicity on `record.SenderHandle` alone —
+`store/memory.go:600-610`, under a comment reading *"per (group_id, sender_handle)"*, with
+`store/migrations.go` giving `message_stream_claim` `PRIMARY KEY (group_id, sender_handle,
+stream_index)` and `message_sender` a `last_stream_index` on the same pair. **No retention class
+appears anywhere in the counter.** So the byte m1 wave 1 shipped was not a divergence the documents
+had left open: it was a **client/server split already in the tree**, and the server would have
+refused the second retention class's first record with `REASON_STREAM_INDEX_REGRESSED`. A1 closes
+that split, closes item 143's device-wrap instantiation on **both** AEADs, costs zero wire octets and
+zero KAT constants, breaks nothing already sealed, and is the only one of the seven shapes that owes
+no Spec B change. **Every fact in this paragraph was re-verified here before it was written down.**
+
+**THE SHAPE CHANGE, WHICH IS THE HALF A READER WILL UNDERESTIMATE.** `Reserve` is now an
+**allocation** — `Reserve(stream StreamKey) (uint64, error)` — not an assertion. Item **168**
+measured a permanent wedge and diagnosed it as the key's coarseness; the cause is one level under
+that, and it is the assert shape: a ladder that chooses its own number and offers it to a shared
+counter meets a consumed index and stops, and a ladder that is **handed** a number cannot. So the
+counter is the store's with no second copy, and `Next` walks its ladder to whatever index the store
+returns, which is what makes `i = stream_index` hold by construction and makes `(key, nonce)`
+uniqueness follow from index uniqueness alone. **§8.2 moves the same way**, so the *"method for
+method"* correspondence with `messagegroup.StreamIndexReserver` survives the change rather than being
+restated after it, and fourteen methods stay fourteen.
+
+**What was amended, and the class was derived rather than taken from the brief.** Spec A revision
+**A-21** — §5.6 (the interface block, the class-blind rule, the allocation contract, and M1-25's
+second cost), §8.2 (both methods, and what M1-5 and item 170 still owe at that interface), §5.3 (the
+position rule, and the MUST NOT that is now lifted for `PERMANENT` and `MEDIA`), §5.5 (the window is
+refused by **distance**, so a class's usable reach is about `1024/k`), §5.10 and §5.11 (5)
+(annotated with the ruling that answers them), §0.1's `Code` row, and the **A-20 row's own MUST NOT**,
+annotated where a reader meets it. MASTER takes a dated amendment against **§8.1's ledger pointer and
+nothing else** — *"not a new revision: no rule in this document changed"* — which is the ruling's own
+argument rather than an omission. m1: Task 6's Produces block and its four corrected paragraphs, Task
+11(a)'s second-guess warning, Task 14's two *"do not start against a guess"* sites, the wave table,
+the schedule diagram, the interface-registry sketch, the §8.2 **anchor string** (which the ruling
+changed, so the anchor row is corrected rather than left naming a signature that no longer exists),
+the external-leg list, **M1-5**, **M1-12** and **M1-25**. `PROGRESS.md`: the tracks table and three
+wave-1 bullets, plus today's entry.
+
+**Five things the brief did not name, found by deriving the class.** The plan's §8.2 **anchor row**
+(the ruling changed the string the anchor check greps for). **M1-12**, whose arithmetic is about
+memory and which now has a CPU half, because A1 makes the tracked-pair count a per-epoch walk.
+`PROGRESS.md`'s **tracks table**, which called this repository *"greenfield; specs written, no code
+yet"* over 57 Go files and called track A *"p1 complete; p2 started"* at m1 wave 1. The **A-20
+revision row**, whose closing sentence still directed a reader at a MUST NOT that A-21 lifts. And
+`PROGRESS.md`'s own wave-1 bullets, one of which is the durable-store bullet that item **170** makes
+load-bearing.
+
+**§1 Current state, repaired, and it is the item the brief named.** It read *"Nothing is implemented
+yet. No code exists."* from the first commit until today, over a `connect` tree of **1,105** tracked
+files and **7,631** passing tests and a message server in this repository of **57** Go files and
+**26,402** lines. Its four document rows were stale by up to fourteen revisions and 2,200 lines
+apiece; `Implementation plan | Not written` stood over thirteen plans, one of them half-executed.
+Every replacement row is a measurement. **It was named as stale by the 2026-09-07 M1-6 pass and left
+standing because it fell outside that pass's derived class** — which is the same failure this
+repository has now recorded three times, and the reason this entry says which five things fell
+outside the brief's list.
+
+**THE COSTS ARE THIS PASS'S OWN MEASUREMENTS AND THEY CORRECT A FORMULA, NOT JUST A NUMBER.**
+Reproduced on this machine through `connect/messagegroup`'s own benchmarks at `33932e0`: one rung
+**390.7 ns**; epoch-change sender rebuild **130.1 ms** at k=3, P=100,000 against **41.8 ms**
+per-class; the last rebuild before the `maxLadderWalk` bound **1.32 s**; a class's usable
+out-of-order window **341** of 1,024. **The options paper priced the rebuild at `(k+1) × P` and it is
+`k × P`** — the measured ratio is **3.11** against a `k` of 3, not 4. Its 148 ms landed within a fifth
+of the truth **by accident**, because it also quoted the rung 6% low, and that is the more dangerous
+of the two errors because it survives a spot-check. Three independent runs — this pass, the
+implementer's and the review's — agree on the ratio and disagree on the rung by 7%, which is the
+right shape for a CPU measurement and the reason the ratio is what the correction rests on.
+
+**Five findings against the implementation, filed as items 170–174 rather than carried as prose, and
+every one reproduced before it was written.** **170**: A1 changes the durable **row**'s identity while
+the ruling's own wording says it changes nothing — true of records, false of rows — and a store
+holding wave-1 rows would answer `HighWater` 0 for an A1 key and re-issue `record_key[1]` under an
+unmoved class key. Reproduced against the package's own fake, whose row string is derived by
+reflecting over `StreamKey`'s fields, so the row identity **is** the field set; the mitigation, which
+is what sets the severity, is that no durable implementation exists in `connect` **or** `sdk`.
+**171**: the recovery both wedge comments name is impossible for the wedge A1 added — `NewSenderRatchet`
+refuses any resume above `maxLadderWalk`, for **every** class of that sender — and unsafe for
+`ErrStreamIndexRewound`. **172**: the receive-side rebuild is larger than the measured send-side one,
+`≈130 ms per peer per epoch`, and `Track` caps no pair count. **173**: the mutation offered as
+evidence that the starvation case observes the shared counter does not bite, and the rule-11 sweep
+left a third enumeration beside the two it fixed. **174**: the file carrying the ruling still states
+§8.2's correspondence in the assert shape and still prices the rebuild at `(k+1) × P` above a
+benchmark that refutes it. **None of the five says the ruling is wrong or the implementation unsafe as
+it stands**, and the review's verdict was `ACCEPT_WITH_FIXES`.
+
+**What was checked and left alone.** The receiver **ratchet table** stays keyed
+`ReceiverRatchetKey{SenderHandle, RetentionWire}` and the sender ladder map stays keyed by the
+retention wire byte — both keyed by class **KEY**, which §5.5 mandates and which has no server row,
+so neither is an instance of the class A1 repaired. §5.5's *"capped at 64 senders tracked per group"*
+is **not** implemented and that is deliberate, under M1-12's adopted recommendation; it is annotated,
+not corrected. And `SealRecord` at `33932e0` still refuses all three non-`DURABLE` classes with a
+comment naming M1-6 rather than 152 — a `connect` staleness this pass records and does not reach.
+
+**Verification.** `go build ./...` clean and `go test ./...` green **before and after**.
+`go test ./ -run TestThePlanLinter` **`ok` before and after**. Its coverage of this diff is stated
+rather than implied: this diff **adds five ledger items and cites all five from `docs/plans/*.md`**,
+so check 3d is not vacuous over it — `readLedgerItems`' map goes **175 → 180** distinct ids (query:
+`grep -oE "^[0-9]+[a-z]?\." SPEC-LEDGER.md | sort -u | wc -l`, over 210 → 215 matched lines) and the
+plan's new citations resolve against the additions. **Proved rather than asserted:** renumbering item
+**170** to an id nothing carries turns check 3d fatal with **4 finding(s)** — the four places the plan
+cites it — and the file was restored byte-identical by SHA-256 afterwards. `git ls-files` equals `git ls-tree -r HEAD --name-only` at **102**, checked
+before the commit rather than after it. The cost table above was produced by running
+`BenchmarkSenderLadderRung` and `BenchmarkEpochChangeRebuild` in `connect` — a read of that tree;
+`git -C ../connect status --porcelain` was empty throughout.
+
+**What this pass did NOT do.** It did not rule item **152**, **M1-1**, **M1-5** or **M1-25**, and
+items 170–174 are filed rather than ruled. It did not implement wave 2 and it changed **no Go file, in
+either tree**. It did not amend Spec B or Spec C, and MASTER's amendment changes no rule MASTER
+declares — which is not restraint, it is what A1 being the counter the schema already keeps actually
+means.

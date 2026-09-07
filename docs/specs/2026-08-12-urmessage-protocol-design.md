@@ -253,6 +253,19 @@ seal, `HKDF-Expand(ss, …)`, `hybrid_ct` — and the snapshot is not a KEM seal
 query while being inside the class. The class M-15 actually names is **every AEAD key in this corpus
 derived by a bare 32-octet expand**, and that class is greppable.
 
+**Amendment to revision 9 — 2026-09-07 — §8.1's ledger pointer, and nothing else. Not a new revision:
+no rule in this document changed.** Ledger items **143** and **169** were **ruled** that day, together,
+as shape **A1** — the `stream_index` counter is one per `(group_id, sender_handle)` and carries no
+retention class, and `i = stream_index` in every ladder including the device wrap's. §8.1 pointed a
+reader at 143 *"which is filed and not ruled"* at exactly the place the construction produces the
+hazard, and that pointer now carries the ruling. **What this document declares is unchanged**, and that
+is the ruling's own argument rather than an accident: A1 was chosen because it is the counter §9's
+`message_sender` and the shipped message server already key on, so the client moved and the schema, the
+server and every construction here stayed still. The position rule itself lives in Spec A §5.3 and
+§5.6 (revision A-21), because it is about ladders and this document is about the constructions under
+them. Ledger items **132**, **133**, **134**, **142** and **148** stay filed and unruled; **143** and
+**169** no longer do.
+
 ## 1. Purpose and product target
 
 URmessage is a private messenger built on the URnetwork mesh. It reuses URnetwork's transport and
@@ -982,8 +995,13 @@ opened every `K_eph` that ever existed. §8.2 carries the split and its three ac
 the MLS-exporter envelope §8.2 defines. **No new ladder is introduced and no label below the root
 changes.** `env_key[k]` has **no retention class in it**, and ruling 3 then puts two records of two
 different classes on that one root; the concrete way an implementer reaches a repeated
-`(key, nonce)` from that is ledger open item **143**, which is filed and **not ruled**. Spec A §5.11
-carries the instantiation.
+`(key, nonce)` from that is ledger item **143**. **RULED 2026-09-07** with ledger item **169** as shape
+**A1**: `i = stream_index` in every ladder, over a `stream_index` counter that is **class-blind** — one
+per `(group_id, sender_handle)`, which is the counter §9's `message_sender` and the message server
+already keep. So the two device-wrap records for one leaf are two allocations out of one counter, take
+two different positions on this shared root, and separate both AEADs. **No rule in this document
+changes for it**; the position rule is Spec A §5.3's and §5.6's, and Spec A §5.11 carries the
+instantiation.
 
 ### 8.2 Archive and recovery wraps
 
