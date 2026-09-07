@@ -2441,6 +2441,61 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      ladder head a class — and it is **still not ruled**; what changes is that it now names the concrete
      failure rather than only the missing discipline. Carried into Spec A §5.11 part (5).
 
+     **OPTIONS LAID OUT 2026-09-07 WITH ITEM 169, AND NOT RULED. THE CHOICE IS THE OWNER'S AND IT IS
+     ONE CHOICE FOR BOTH ITEMS.** The seven shapes, their measured costs, the four corrections to
+     169's own text and the recommendation are written into item **169**, because the property is
+     169's. Four things belong on this side, and the first two change what ruling this item means.
+
+     **(1) THE PIN IS ALREADY IMPLEMENTED INSIDE ONE LADDER, so ruling it as written changes no Go
+     file.** `NewSenderRatchet` resumes at `reserver.HighWater(stream) + 1` and walks the ladder that
+     many rungs from `RecordKeyZero`, and `Next()` hands out the rung it is holding at exactly the
+     index it just reserved (`connect/messagegroup/ratchet.go:172-198` and `:218-261`). So
+     `i = stream_index` holds **by construction** within any one ratchet, at `7a9ad2a`, and has since
+     wave 1. What this item still owes is not the pin: it is the rule that says **which ladder and
+     which counter**, and that is item **169**. A ruling that says only *"pin `i = stream_index` in
+     every ladder"* restates what the code does and leaves the question that makes it unsafe open.
+
+     **(2) THIS ITEM'S OWN INSTANTIATION IS A COLLISION ON BOTH AEADS, AND FOUR OF 169'S SEVEN SHAPES
+     CLOSE ONLY THE HEAD.** The device wrap's two records for one leaf share a root that has no class
+     in it — ruling 2's `record_key[0] = HKDF-Expand(env_key[k], "sender/v1" ‖ LP(leaf_index), 32)` —
+     and ruling 3 puts a `PERMANENT` record and an `EPH(5)` record on it, so a repeated `i` there
+     repeats `(key_head, nonce_head)` **and** `(key_body, nonce_body)`, which is how this item gets
+     `pq_secret[k] ⊕ eph_root[k]`. Item 169's derivation-side shapes bind the class, the header hash
+     or an explicit nonce into the **head's** AEAD material only, so under **B2, C1, C2, C3 and D**
+     the wrap's body collision survives untouched. Only the position-side shapes (**A1**, **A2**) and
+     the root-side shape (**B1**) reach it, because only those change something both AEADs of a
+     record are downstream of. **A shape may be ruled for 169 that does not close 143, and this is
+     the sentence that says so.**
+
+     **(3) AND THERE IS A FUNCTIONAL TWIN OF THIS ITEM THAT ARRIVES EARLIER THAN THE CRYPTOGRAPHIC
+     ONE.** The server's stream monotonicity is class-blind — Spec B check (3) at :2221 over
+     `message_sender`, `PRIMARY KEY (group_id, sender_handle)` at :882, and the shipped
+     `msgrepo/store/memory.go:603-609` — while the shipped reserver counts per class. The device-wrap
+     fan-out ruling 3 defines emits a `PERMANENT` record and an `EPH(5)` record **per leaf**, both
+     from the committer's own `sender_handle`, drawing from two independent counters; the second of
+     each pair carries a `stream_index` at or below the server's high water and is refused
+     `REASON_STREAM_INDEX_REGRESSED`. `EPH(5)` has no exemption — only `EPH(0)` does, Spec B :2765.
+     **So m1 Task 14's fan-out is refused by the shipped server on its second record, on the honest
+     path, before any of this item's cryptography is reachable.** That is worth more than the
+     crypto argument as a gate: it is early, it is partial, and it fails on a two-record fan-out that
+     an integration test can run, where the key-reuse property needs an adversary with both
+     ciphertexts. Filed here rather than as a new item because it is this item's own instantiation
+     seen from the server side, and because it is decided by item **168**'s keying.
+
+     **(4) WHAT EACH SHAPE DOES TO THIS ITEM'S PIN, so the two items can be ruled in one sitting.**
+     **A1** (class-blind counter) and **B1** (class in every ladder root) leave the pin true and
+     close this item as written. **D** (item 152's repair) does the same and dissolves 169, but not
+     this item's wrap instance, whose root carries no class key at all. **A2** (an injective map from
+     `(class, stream_index)` to the position) **replaces** the pin — `i` is no longer `stream_index`
+     — so this item's text has to be rewritten rather than adopted. **B2** (no head ladder) leaves
+     the pin true of the body and leaves the head with no position for it to apply to, so the pin's
+     head clause has to go. **C1**, **C2** and **C3** leave the pin true per ladder and leave this
+     item's wrap instance open.
+
+     **STILL FILED, STILL NOT RULED, AND STILL TO BE RULED WITH 169 BESIDE IT.** Nothing above is a
+     ruling, nothing above implements wave 2, and no Go file in either tree changed for it. Written
+     2026-09-07 alongside item 169's options.
+
 144. **CLOSED — RULED 2026-09-18 by adopting r3's M-15, four weeks after it was raised.** MASTER §7 now
      derives `prk = HKDF-Extract(salt = "URmessage/v1/wrap-salt", ikm = ss)` and
      `wrap_key ‖ wrap_nonce = HKDF-Expand(prk, info, 56)` over a nine-element `info`, and `aead_ct`
@@ -4067,6 +4122,349 @@ fourteen are dispositioned below.
      expected to lift, arriving one level down. **FILED, NOT RULED.** Found 2026-09-07, deriving the
      consequences of the M1-6 ruling against the landed reserver rather than against the documents
      alone; nobody asked for it and it is the reason the pin is now a precondition.
+
+     **OPTIONS LAID OUT 2026-09-07, COSTS MEASURED, AND NOTHING BELOW IS RULED. THE CHOICE IS THE
+     OWNER'S, AND IT IS ONE CHOICE WITH ITEM 143.** The three shapes this item names are three
+     points in a space it did not derive. The space is small and it is closed, and deriving it is
+     the first thing below, because two of the shapes an implementer reaches for first are not in
+     it. Four of this item's own claims did not reproduce against the trees and are corrected here
+     rather than carried. Item **143** takes the same amendment from its side: a shape can close
+     this item and leave 143's own device-wrap instantiation open, and **four of the seven below do
+     exactly that**.
+
+     **THE CLASS, DERIVED FROM THE PROPERTY AND NOT FROM THE TWO INSTANCES.** The pair this item is
+     about is `HKDF-Expand(record_key_head[i], "rec/v1/head", 56)`, where `record_key_head[i]` is
+     the `i`-th rung of a chain rooted at `HKDF-Expand(K_durable[n], "sender/v1" ‖ LP(leaf_index),
+     32)`. Those are **all** of its inputs — the shipped `RecordAeadHead(recordKey []byte)`
+     (`connect/messagegroup/keyschedule.go:271`) takes one argument and nothing else is in scope —
+     so the pair is a function of exactly `(K_durable[n], leaf_index, i)`. Every closure of the
+     property is therefore one or more of exactly four moves, and there is no fifth:
+
+     **(A)** make `i` unique across the streams that share the root — a **position** rule;
+     **(B)** make the **root** differ per stream;
+     **(C)** make the AEAD material depend on more than the rung — a **derivation** rule, of which
+     carrying the nonce on the wire is the degenerate case;
+     **(D)** replace `K_durable[n]` with the record's own class key, which is item **152**'s repair
+     and a reversal of M1-6 for the head.
+
+     The seven shapes below are those four moves spelled out. Anything that is none of them does
+     not close the property, and the two such non-closures a reader reaches for are named at the
+     end.
+
+     **FOUR CORRECTIONS TO THIS ITEM, each with the query that produced it.**
+
+     *(1) "shared by all four retention classes" is wrong in both directions.* `EPH` is
+     **excluded** from the M1-6 ruling — Spec A §5.3:1271, *"So `EPH` is excluded from this rule"*,
+     and item **128** at SPEC-LEDGER.md:1609, *"It does not reach `EPH`"* — so the shared head
+     ladder covers **three** Go-side classes today, not four. And the unit that shares it is not
+     the Go-side class at all: the reserver and the session's sender table are keyed on the **wire
+     byte** (`StreamKey.RetentionWire`; `senders map[byte]*SenderRatchet`,
+     `connect/messagegroup/session.go:119`), of which **nine** are legal — `0x00`, `0x01`, `0x02`
+     and `0x10..0x15` (Spec A §5.1's table; `message.RetentionClassWire`, `record.go:260`). So the
+     sharing is over **three** streams today and over **nine** the day item **152** rules `EPH`
+     heads onto this root. That is not pedantry: it is the multiplier every cost below is
+     denominated in, and two of the shapes take a second wire break when it moves from 3 to 9.
+
+     *(2) "No such counter exists in either document or in the shipped code" is refuted four
+     times.* Query: `grep -n 'single .u64. counter per' docs/specs/*.md` returns **three** hits —
+     MASTER §8:914, Spec A §5.6:1394, Spec B:2463 — each reading *"`stream_index` is a single
+     `u64` counter per `(group_id, sender_handle)`, write-once, assigned locally."* That **is** a
+     head-ladder counter monotone across all classes of one sender, stated in three documents, and
+     it is what the shipped **server** enforces (correction 4). What does not exist is an
+     *interface* that expresses it: §5.6's own Go block and §8.2's `MessageStore` declare the
+     reservation over `groupId` **alone**, and `messagegroup.StreamKey` went the other way, to
+     `(group, sender, class)`. That is item **168**, and it is a different sentence from this one.
+     The counter is not missing; three parameter lists are wrong in three different ways.
+
+     *(3) shape (b)'s "a fifteenth method on the `MessageStore`" is not what a shared counter
+     costs.* §8.2's `ReserveStreamIndex(groupId []byte, index uint64)` and
+     `StreamHighWater(groupId []byte)` must change signature under item **168** whatever is ruled,
+     because the shipped reserver already takes a three-field key; a class-blind head counter is a
+     **key value**, not a call. Fourteen methods stay fourteen. What it does cost `s2` and **M1-5**
+     is a row keyed differently, which is real and is priced below — and it is one row per sender
+     rather than up to nine, which is less to key, not more.
+
+     *(4) the stated harm over-reaches, and the measurement that shows it is the one that moves
+     this item.* **The server's stream-monotonicity check is class-blind.** Spec B's submit path,
+     check (3) at :2221 — *"Stream monotonicity, per `(group_id, sender_handle)`"*,
+     `record.stream_index <= last -> REASON_STREAM_INDEX_REGRESSED` — over `message_sender`, whose
+     `PRIMARY KEY (group_id, sender_handle)` at :882 carries **no class column**; and the shipped
+     server does it that way, `msgrepo/store/memory.go:603-609`, keyed
+     `group.senders[string(record.SenderHandle)]`. So a conforming server **refuses** the second of
+     the two colliding records before storing it, and never holds both ciphertexts. The property is
+     still broken — the client has already sealed twice under one `(key_head, nonce_head)`, and any
+     path that sees both halves recovers the Poly1305 one-time key: a retry against a second
+     server, the outbox republish A-17 prices, a compromised or hostile operator, a client that
+     keeps what it could not send. But *"hand the message server the Poly1305 one-time key … for
+     every sender"* describes a server that would have refused the input.
+
+     **AND THE SAME MEASUREMENT PRODUCES A LARGER CONSEQUENCE NEITHER ITEM NAMES.** If the server
+     counts per `(group, sender)` and the client counts per `(group, sender, class)`, then the
+     first `PERMANENT` record a sender emits after any durable traffic carries a `stream_index` at
+     or below the server's high water and is refused `REASON_STREAM_INDEX_REGRESSED` — and the
+     shipped `SenderRatchet` owns its position and goes on offering indices below that high water
+     for as long as the durable stream is ahead. **That is item 168's permanent wedge again, one
+     layer out, on the honest path, landing on m1 Task 14's and Task 15's first record.** It is a
+     functional break of wave 2 rather than a cryptographic one, it is decided by 168's keying
+     rather than by this item's derivation, and it means **every shape that keeps per-class
+     counters also owes a Spec B change**: `message_sender` gains a class column and a wider
+     primary key, Q7 (:1047) gains it too, and the `EPH(0)` exemption at :2765 has to be restated
+     over the wider key. Only the class-blind shapes leave the server alone.
+
+     **THE MEASUREMENTS EVERY COST BELOW IS QUOTED IN**, taken on this machine against `connect`
+     `7a9ad2a` and `msgrepo` `9e5b54d`:
+
+     - **one ladder rung = 368.7 ns** (2^20 `HKDF-Expand(SHA-256, prk, "ratchet/v1", 32)` in
+       386.6 ms), which reproduces `ratchet.go:93`'s *"roughly four hundred nanoseconds per rung"*;
+     - **`maxLadderWalk = 1 << 20`** (`ratchet.go:109`), so the worst-case resume walk is **387 ms**
+       and a stream past that bound cannot be resumed at all — `ErrLadderWalkTooLong`,
+       `ratchet.go:184`;
+     - **the receiver window is 1024** (`mls.RatchetWindowSize`, `mls/secret_tree.go:856`) and is
+       refused **by index distance**, not by retained count: `classifyLocked` fails when
+       `windowSize < index - head` (`ratchet.go:476`);
+     - **a size-bucket-2 record encodes to 4,364 octets** with a 96-octet `ct_head`: `ct_body` is
+       **4,112**, the framing outside the two ciphertexts is **156**, and every length prefix is a
+       fixed 4 octets (`syntax.WriteOpaqueLP` → `WriteUint32`, `mls/syntax/encode.go:168`). So a
+       new `u64` header field is **+8 octets, 4,364 → 4,372, +0.18%**, and `ct_body` — the column
+       Spec B `CHECK`s at 4,112 — **does not move under any shape below**;
+     - **`AAD_head` is 182 octets** and `AAD_body` is 96, for a record with no server attachment and
+       no blob id;
+     - **one 56-octet `HKDF-Expand` = 600 ns**; **one SHA-256 over the 182-octet `AAD_head` = 91 ns**;
+     - **the KAT bill is eleven constants or two.** `connect/messagegroup/recordkey_test.go` pins
+       eleven values downstream of `record_key[0]`'s info string — `record_key[0]` at leaves 0, 3, 7
+       and `0xFFFFFFFF`, `record_key[1]`, `record_key[2]`, `key_head`, `nonce_head`, `key_body`,
+       `nonce_body`, and M1-8's minimal-LP alternative. A change to `recordKeyZeroInfo` invalidates
+       **all eleven**; a change to `recordAeadHeadInfo` alone invalidates **two**. The five in
+       `keyschedule_test.go` and the handle and X-Wing vectors are untouched by either.
+
+     **ONE MEASUREMENT THAT PRICES HALF THE SHAPES AT ONCE, AND IT IS IN NEITHER ITEM.** A
+     forward-only chain cannot serve two independent counters. Under per-class counters the head
+     positions a sender needs from the **one** durable chain are its classes' own indices, in no
+     order — 5, then 3, then 9, then 4 — so the sender must hold **one live copy of that chain per
+     class**, each parked at its own class's position, and the chain's oldest surviving copy is as
+     old as the **least-used** class. The shipped ratchet does the opposite: `Next()` erases as it
+     advances (`ratchet.go:251`). So every shape that keeps per-class counters **and** shares one
+     head chain buys its uniqueness with a **forward-secrecy regression on the head that no
+     document states**, and holds `k` × 32 octets of live key material for it. The shapes that
+     allocate positions monotonically (A1), give each class its own chain (B1), or use no chain at
+     all (B2) do not pay it.
+
+     **AND A MEASUREMENT ABOUT WHAT THE HEAD CHAIN BUYS TODAY, offered as a fact and not as an
+     argument for any shape.** `GroupSession` holds `storageRoot` and `classKeys` for the whole
+     epoch (`session.go:107-108`), erased only in `installEpochOnLoop` and `zeroizeOnLoop`. Every
+     rung of every ladder of that epoch is recomputable from `classKeys.Durable`. So the head
+     chain's forward erasure protects nothing against an adversary holding a live session; what
+     separates epochs is the class keys, which already do. The chain buys forward secrecy against
+     an adversary who takes ratchet state **without** the root, and no document in this corpus
+     distinguishes that case. Query:
+     `grep -n 'storageRoot\|classKeys' connect/messagegroup/session.go`.
+
+     **THE SEVEN SHAPES.** Each states what changes on the wire, what it costs in octets against the
+     4,112-octet bucket, the discipline it still needs that no document states, what it does to the
+     reserver, whether it survives M1-11's device removed and re-added at a different leaf, what a
+     later reversal of M1-6 does to it, and — the column neither item has — **whether it also closes
+     item 143's own device-wrap instantiation**, where the collision is on `(key_body, nonce_body)`
+     as well as on the head.
+
+     **A1 — ONE CLASS-BLIND `stream_index` PER `(group_id, sender_handle)`.** The brief's *"one head
+     counter per sender across all classes"*, and the counter three documents' prose and the
+     server's schema already declare. `i = stream_index` in every ladder — item 143's pin — and the
+     per-class body ladders draw sparse positions from the one counter.
+     *Wire:* nothing changes, and **nothing already sealed breaks**: a sender that has only ever
+     used one class has a class-blind counter identical to its per-class one, which is every record
+     wave 1 has sealed. *Octets:* **0** of 4,364; `ct_body` stays 4,112.
+     *Unwritten discipline, and there are two.* **(i)** The ladders must take their positions
+     **from** the shared counter. The shipped `SenderRatchet` keeps its own `position` field and
+     wedges permanently the moment a second ladder meets a consumed index (`ratchet.go:242`; item
+     168's measured wedge), so `Reserve(index)` must become an allocation — *"give me the next"* —
+     or the session must own the counter and pass the index in. The shipped contract's clause 5,
+     *"Reserve is not idempotent"*, is written for the assert shape and would have to be restated.
+     **(ii)** `EPH(bucket 0)` transients consume an index (§5.6), so every typing indicator advances
+     the one counter; with the receiver window refused by **distance**, 1,025 transients between two
+     `DURABLE` records make the second permanently `out_of_window`. Nothing states that transients
+     get their own counter — `streamindex.go`'s comment says only that nothing forecloses one, open
+     item **M1-25** — and giving them one re-opens this very collision for `EPH` heads the day 152
+     rules them onto this root.
+     *Reserver:* `StreamKey` loses `RetentionWire` and keeps `SenderHandle` — **not** the
+     `groupId`-only form item 168 measured, which is the wedge. §8.2's two methods gain the sender
+     handle, which they owe anyway. One durable row per sender instead of up to nine.
+     *M1-11:* **safe.** A new leaf gives a new `sender_handle`, therefore a fresh counter at zero,
+     and a new root, because `LP(leaf_index)` is in it. Under §5.6's `groupId`-only form it is also
+     safe and merely burns indices.
+     *M1-6 reversed:* **neutral, and it is the only shape that is neutral for free.** A class-blind
+     counter with per-class roots is the right position rule under either reading of the head.
+     *Closes 143's wrap instance:* **yes.** Ruling 2's wrap root has no class in it and ruling 3 puts
+     two classes on it; a class-blind counter gives the two wrap records different positions, so
+     both AEADs separate.
+     *Measured cost:* the ladders go sparse, so the epoch-change rebuild — `installEpochOnLoop` drops
+     every sender ratchet (`session.go:469`) and each is rebuilt by walking from `record_key[0]` —
+     costs `(k+1) × P` rungs where it costs `P` today. At `P = 100,000` and `k = 3` that is **148 ms
+     per commit** at the measured 368.7 ns; at the `1 << 20` bound it is **1.55 s** and then refuses.
+     And a class's usable out-of-order window falls from 1024 of its own records to 1024 **shared
+     positions**, roughly `1024/k` of its own.
+
+     **A2 — A HEAD POSITION INDEPENDENT OF `stream_index`, BY AN INJECTIVE MAP.** The brief's third
+     shape: `i_head = w · stream_index + ordinal(class)`, `w` = the number of streams sharing the
+     root, uniqueness carried by the written map rather than by the counter.
+     *Wire:* nothing. But **every head ciphertext changes, `DURABLE` included**, and that is forced
+     rather than chosen: no injective map can keep `f(DURABLE, s) = s`, because the durable stream
+     already uses every integer and leaves the other classes nowhere to go. M1-6's *"for a `DURABLE`
+     record nothing observable changes"* does not survive this shape. *Octets:* **0**.
+     *Unwritten discipline:* the map and `w` must be normative and identical on both sides, and `w`
+     must be **fixed for the life of the format** — if 152 later rules `EPH` heads onto this root,
+     `w` goes 3 → 9, every head position moves, and that is a **second** wire break. Fixing `w = 9`
+     today prices a ruling that has not been made.
+     *Reserver:* **unchanged — the only shape that needs nothing of it.** The per-class counters that
+     shipped stay exactly as they are, so it also owes the Spec B change correction 4 names.
+     *M1-11:* safe, by A1's argument.
+     *M1-6 reversed:* the interleave becomes dead weight and head positions stay `w`× sparse for
+     ever, or a second break removes it.
+     *Closes 143's wrap instance:* **yes**, if the map is applied to the wrap ladder too — but the
+     wrap's classes are `PERMANENT` and `EPH(5)`, so `w` there is a different number from the
+     ordinary path's, and the two `w`s are a second thing to write down.
+     *Measured cost:* positions are `w`× larger, so `maxLadderWalk`'s `1 << 20` ceiling arrives after
+     **349,525** records at `w = 3` and **116,508** at `w = 9`, after which the stream cannot be
+     resumed at all. And the interleaved positions are **not monotone** across classes — a sender's
+     two counters advance independently — so this shape pays the `k`-live-copies forward-secrecy
+     cost in full. It closes the property and is worse than A1 on every axis except the reserver.
+
+     **B1 — THE RETENTION CLASS IN THE LADDER ROOT, IN EVERY LADDER.** This item's shape (a),
+     corrected: `record_key[0] = HKDF-Expand(class_key, "sender/v1" ‖ LP(leaf_index) ‖
+     u8(retention_wire), 32)`, applied to the **head and the body**. Applied to the head alone it
+     splits a `DURABLE` record into two ladders and loses M1-6's own coincidence, which is the
+     sentence the ruling's accepted cost rests on.
+     *Wire:* **0 octets, and every ciphertext in the system changes** — heads and bodies, every
+     class — because every `record_key[0]` moves. Today that is test material only: no record
+     outside a test exists in either tree. *Octets:* **0** of 4,364.
+     *Unwritten discipline, and one half of it is a live open item.* The byte must be the **wire**
+     byte through `RetentionClassWire`; a root built from the Go-side tag gives `EPH(1)` and `EPH(5)`
+     one root, which is this collision again inside one class. And appending `u8(class)` **after**
+     `LP(leaf_index)` makes the root's info string depend on **M1-8**, which is open: what `LP` of an
+     integer means is unruled, and `recordkey_test.go` pins **both** readings
+     (`recordKeyZeroMinimalLpKatHex`). A shape whose preimage is ambiguous between two
+     implementations is not a closure.
+     *Reserver:* **unchanged**, and `i = stream_index` holds in every ladder, so item 143's pin taken
+     literally becomes correct. The per-class counters stay, so this shape owes the Spec B change.
+     *M1-11:* safe.
+     *M1-6 reversed:* the class byte becomes redundant — the class key already separates the roots —
+     and stays vestigial, or a second break removes it.
+     *Closes 143's wrap instance:* **yes**, and it is the only derivation-side shape that does,
+     because the wrap's collision is on both AEADs and this is the only one that moves the root they
+     share.
+     *Measured cost:* **eleven pinned constants** to recompute in `recordkey_test.go`, plus every
+     head and body fixture. No walk, window, reserver or wire cost at all.
+
+     **B2 — NO HEAD LADDER: DERIVE THE HEAD MATERIAL STRAIGHT FROM `K_durable[n]`.**
+     `key_head ‖ nonce_head = HKDF-Expand(K_durable[n], "rec/v1/head" ‖ LP(leaf_index) ‖
+     u8(retention_wire) ‖ u64(stream_index), 56)`. The head stops being a position and becomes a
+     function of the record's own identity, so uniqueness follows from the **per-class write-once
+     reservation that already shipped**: no shared counter, no interleave, no second chain.
+     *Wire:* **0 octets**; every head ciphertext changes. *Octets:* **0** of 4,364.
+     *Unwritten discipline:* the same M1-8 ambiguity as B1, and a rule that the `stream_index` in the
+     info is the record's own and the one in `AAD_head` — nothing states it.
+     *Reserver:* **unchanged**; owes the Spec B change for the same reason B1 does.
+     *M1-11:* safe.
+     *M1-6 reversed:* **survives verbatim** — replace `K_durable[n]` with the record's own class key
+     and the construction is unchanged. It is the cleanest shape under a future reversal.
+     *Closes 143's wrap instance:* **no.** The wrap's body collision is untouched.
+     *Measured cost:* it **removes** cost. The head derivation goes from a walk plus a 600 ns expand
+     to a **600 ns expand**; the head loses its 1024-key window and its `ErrLadderWalkTooLong`
+     refusal, because a head key is O(1) from the cleartext header. What it gives up is the head's
+     forward secrecy inside an epoch, which the `storageRoot` measurement above says the design does
+     not currently have.
+
+     **C1 — THE CLASS IN THE HEAD'S AEAD EXPAND.** `key_head ‖ nonce_head =
+     HKDF-Expand(record_key[i], "rec/v1/head" ‖ u8(retention_wire), 56)`. The ladder is untouched;
+     the class binds one rung later.
+     *Wire:* **0 octets**; every head ciphertext changes, `DURABLE` included — and exempting
+     `DURABLE` to keep it from changing is exactly the special case that becomes the next unwritten
+     rule. *Octets:* **0**.
+     *Unwritten discipline:* the `k`-live-copies-of-one-chain cost measured above, in full, with the
+     forward-secrecy regression it carries.
+     *Reserver:* unchanged; owes the Spec B change. *M1-11:* safe. *M1-6 reversed:* vestigial.
+     *Closes 143's wrap instance:* **no** — the wrap collides on the body too and this touches only
+     the head. *Measured cost:* **two pinned constants**, and `k` × 32 octets of live head-chain
+     copies per sender.
+
+     **C2 — BIND THE WHOLE AUTHENTICATED HEADER INTO THE HEAD'S MATERIAL.**
+     `key_head ‖ nonce_head = HKDF-Expand(record_key[i], "rec/v1/head" ‖ H(AAD_head), 56)`. It is
+     acyclic: §5.2's construction order fixes `AAD_head` before the head seal.
+     *Wire:* **0 octets**; every head ciphertext changes. *Octets:* **0**. *Measured:* **+91 ns** per
+     seal and per open, one SHA-256 over the 182-octet preimage.
+     *What it closes that the others do not:* two records collide only if their entire `AAD_head`
+     agrees, so it closes the class collision **and** A-17's republished-wrap-head case in one clause.
+     *Unwritten discipline:* C1's `k`-copies cost, **and** a rule nothing in the corpus has —
+     `AAD_head` carries `LP(H(server_attachment))`, a value the **server** supplies (§5.11), so this
+     shape lets a value outside the sender's control enter a key derivation.
+     *Reserver:* unchanged; owes the Spec B change. *M1-11:* safe. *M1-6 reversed:* neutral.
+     *Closes 143's wrap instance:* **no**, for C1's reason.
+
+     **C3 — CARRY `nonce_head` ON THE WIRE.** A 24-octet header field, fresh CSPRNG per record, in
+     `AAD_head` and in the `write_auth` preimage; `key_head = HKDF-Expand(record_key[i],
+     "rec/v1/head", 32)`. XChaCha20's 192-bit nonce is built for exactly this.
+     *Wire:* **+24 octets in the header** — the only shape here that costs any — plus a codec field,
+     a parser rule and a `ParseRecord` refusal, and it is a format break for every record.
+     *Octets:* **4,364 → 4,388, +0.55%**; `AAD_head` 182 → 206; `ct_body` **unchanged at 4,112**, so
+     Spec B's `CHECK (octet_length(ct_body) = …)` does not move. Applying it to the body as well —
+     which is what closing 143's wrap instance this way would take — is **+48, 4,364 → 4,412, +1.1%**.
+     *Unwritten discipline, and this is the class this project has the worst record against:* it
+     turns a reservation property into an **entropy** property. p5 shipped two entropy substitutions
+     in one task that no correctness test could see. The rules it needs and no document has: drawn
+     from the CSPRNG per record, never from a counter, never seeded per process, and tested by *"are
+     two independent draws different, and does the value depend on the source"* rather than by a
+     round trip. It also opens 24 authenticated but otherwise unconstrained octets per record as a
+     covert channel out of the client.
+     *Reserver:* unchanged — and the head **stops depending on it at all**, which is a loss as much
+     as a gain: §5.9's G5 defence, *"§5.6 durable reservation + `TestStreamIndexNeverReused`"*, would
+     no longer cover the head. Owes the Spec B change.
+     *M1-11:* safe, trivially — the nonce does not depend on the leaf.
+     *M1-6 reversed:* unaffected. *Closes 143's wrap instance:* **not as stated**; only with the body
+     field too, at +48 octets.
+
+     **D — KEY `ct_head` UNDER THE RECORD'S OWN CLASS KEY.** This item's shape (c), item **152**'s
+     repair, and a reversal of M1-6 for the head. It **dissolves this item**: one ladder per class,
+     `i = stream_index` holds everywhere, nothing changes on the wire, no reserver moves, no document
+     gains a rule. It is listed because it is the null option, because it is what the owner ruled
+     **against** for `PERMANENT`, `DURABLE` and `MEDIA` on 2026-09-07, and because item 152 is
+     **still unruled for `EPH`** — so the corpus already contains one class whose head is not under
+     `K_durable`, and any shape chosen here has to say what happens to that class.
+     *Closes 143's wrap instance:* **no** — the wrap root has no class key in it at all.
+
+     **TWO SHAPES THAT LOOK LIKE CLOSURES AND ARE NOT.** Both are what a reader reaches for, and
+     neither is in the class derived above.
+
+     **"Bind `stream_index` into the head derivation."** Under item 143's pin `i = stream_index`, so
+     `u64(stream_index)` is a function of `i` and adds **nothing**: the two colliding records carry
+     the same `stream_index`, take the same `i`, and would take the same key. This is the
+     derive-from-the-instance failure in its purest form on this item — the value that **names** the
+     defect is not the value that **separates** the records.
+
+     **"Let the server refuse the second record."** It does (correction 4), which is why the stated
+     harm over-reaches — but the **seal has already happened** when the refusal arrives. Two
+     ciphertexts under one `(key_head, nonce_head)` exist on the client at that moment, and the
+     refusal is `REASON_STREAM_INDEX_REGRESSED` on the honest path and nothing at all on any other.
+     A server-side check is not a closure of a client-side key-reuse property; it is a report that
+     the property was already broken.
+
+     **A RECOMMENDATION, LABELLED AS ONE AND NOT A RULING. A1.** It is the only shape that is already
+     what the rest of the system assumes — three documents' prose, `message_sender`'s primary key,
+     Spec B's check (3) and the shipped server all count per `(group, sender)` — so it is the only
+     one that does not also owe a Spec B schema change; it is one of the two that also close item
+     **143**'s device-wrap instantiation, where the collision is on both AEADs; it costs **zero**
+     wire octets, **zero** KAT constants and **zero** retained chain copies; and it is neutral to a
+     later reversal of M1-6, which no other shape is for free. Its costs are real and are the
+     `(k+1)`× walk multiplier at every commit, a receiver window measured in shared positions rather
+     than in a class's own records, and **M1-25**'s transient counter becoming load-bearing rather
+     than deferred. If the owner wants those costs off the head specifically, **A1 with B2** removes
+     the head's walk and window entirely and gives up a forward secrecy the `storageRoot` measurement
+     says the design does not currently have. **Neither is ruled here.**
+
+     **WHAT THIS AMENDMENT DID NOT DO.** It did not rule this item, item **143**, item **152** or
+     **M1-1**. It did not implement wave 2 and changed no Go file in either tree. It did not amend
+     Spec A, Spec B or MASTER: correction 4 says three documents and the shipped server disagree
+     with the shipped client about how `stream_index` is keyed, and which of them moves is the
+     ruling, not this pass's to take. Found 2026-09-07, laying out the options this item filed as
+     three.
 
 ## 6. Change process
 
@@ -7902,3 +8300,125 @@ rules none, and 152 is the owner's to take with 128's ruling in front of it. It 
 did not repair **§1 Current state**, which still reads *"Nothing is implemented yet. No code exists."*
 over a 1,105-file `connect` tree and 7,623 tests: that staleness predates `29f9778`, is outside the
 class this pass derived, and is named here so it is not found a fourth time by accident.
+---
+
+### 2026-09-07 — the options for items 143 and 169 laid out with their costs measured, four of 169's own claims corrected, and the class-blind server check that decides half of them
+
+**Change:** `SPEC-LEDGER.md` only. Items **143** and **169** are amended in place; **no item was
+added or removed** — `git show HEAD:SPEC-LEDGER.md | grep -oE '^[0-9]+[a-z]?\.'` and the same over
+the working tree are byte-identical at **206** ids, which is what keeps the plan linter's fatal
+check 3d exactly as it was. **No spec, no plan, no `PROGRESS.md`, and no Go file in either tree.**
+`connect` was read and never written: `git -C ../connect status --porcelain` empty before and after,
+and the two micro-benchmarks below ran in scratch modules **outside both checkouts**, removed after.
+This repository is on `main` at `9e5b54d`; `beta/message` is `connect`'s branch.
+
+---
+
+**WHAT WAS ASKED FOR AND WHAT IS HERE.** Not a ruling: the shapes that close item 169's property —
+*every `(key_head, nonce_head)` pair a sender ever uses is used once* — with their costs measured
+rather than estimated, marked as the owner's, to be taken in one sitting with item **143**. Item 169
+filed three shapes. **There are seven**, and the item's own three are (a) = B1 corrected, (b) = A1
+and (c) = D.
+
+**THE CLASS IS DERIVED, NOT ENUMERATED.** `key_head ‖ nonce_head` is
+`HKDF-Expand(record_key_head[i], "rec/v1/head", 56)` over a chain rooted at
+`HKDF-Expand(K_durable[n], "sender/v1" ‖ LP(leaf_index), 32)`, and the shipped
+`RecordAeadHead(recordKey []byte)` takes one argument, so the pair is a function of exactly
+`(K_durable[n], leaf_index, i)`. Every closure is therefore one of four moves — a **position** rule,
+a **root** rule, a **derivation** rule (of which an explicit wire nonce is the degenerate case), or
+replacing `K_durable[n]` — and there is no fifth. The seven shapes are those four spelled out; the
+two non-closures a reader reaches for are named beside them, because *"bind `stream_index` into the
+head"* adds nothing under 143's own pin (`i` **is** `stream_index`, so the two colliding records
+carry the same value) and *"let the server refuse it"* reports a broken property rather than closing
+one.
+
+**FOUR OF ITEM 169's CLAIMS DID NOT REPRODUCE, and they are corrected in the item with their
+queries.**
+
+1. *"shared by all four retention classes."* `EPH` is **excluded** from the M1-6 ruling (Spec A
+   §5.3:1271; this ledger at :1609), so the shared head ladder covers **three** classes today — and
+   the unit that shares it is the **wire byte**, of which nine are legal, so it is nine the day item
+   **152** rules `EPH` heads onto that root. That number is the multiplier every cost is denominated
+   in.
+2. *"No such counter exists in either document or in the shipped code."*
+   `grep -n 'single .u64. counter per' docs/specs/*.md` returns **three** hits — MASTER §8:914,
+   Spec A §5.6:1394, Spec B:2463 — each declaring `stream_index` as one counter per
+   `(group_id, sender_handle)`, which **is** the class-blind counter the item says nothing produces.
+   What does not exist is a parameter list that expresses it. That is item **168**, a different
+   sentence.
+3. *shape (b) "costs a fifteenth method on the `MessageStore`."* §8.2's two stream methods must
+   change signature under item 168 whatever is ruled; a class-blind counter is a **key value**, not
+   a call. Fourteen stay fourteen, and it is one durable row per sender rather than up to nine.
+4. *the harm's reachability.* **The server's stream monotonicity is class-blind** — Spec B check (3)
+   at :2221 over `message_sender`, `PRIMARY KEY (group_id, sender_handle)` at :882, and the shipped
+   `msgrepo/store/memory.go:603-609`. A conforming server **refuses** the second colliding record
+   and never holds both ciphertexts. The property is still broken and every path that sees both
+   halves still recovers the Poly1305 one-time key; what over-reaches is *"hand the message
+   server"*.
+
+**AND CORRECTION 4 PRODUCED THE LARGEST THING THIS PASS FOUND, which nobody asked for.** The server
+counts per `(group, sender)` and the shipped client counts per `(group, sender, class)`, so the
+first `PERMANENT` record a sender emits after any durable traffic is refused
+`REASON_STREAM_INDEX_REGRESSED` — item 168's permanent wedge, one layer out, on the **honest** path,
+landing on m1 Task 14's and Task 15's first record. It is functional rather than cryptographic, it
+arrives **before** the key reuse is reachable, and it is checkable by a two-record integration test
+where the reuse property needs an adversary holding both ciphertexts. It also prices half the
+option space: **every shape that keeps per-class counters owes a Spec B change** — a class column,
+a wider primary key, Q7 at :1047, and the `EPH(0)` exemption at :2765 restated over the wider key.
+
+**TWO MEASUREMENTS THAT ARE NOT IN EITHER ITEM AND THAT SEPARATE THE SHAPES.** A forward-only chain
+cannot serve two independent counters, so every shape that keeps per-class counters **and** shares
+one head chain needs one live copy of that chain per class, parked at that class's position — a
+forward-secrecy regression on the head that no document states, against a ratchet that erases as it
+advances (`ratchet.go:251`). And the head chain's forward erasure buys nothing today against an
+adversary holding a live session: `GroupSession` keeps `storageRoot` and `classKeys` for the whole
+epoch (`session.go:107-108`), from which every rung of every ladder of that epoch is recomputable.
+Both are stated as facts with their queries, not as arguments for a shape.
+
+**A RECOMMENDATION IS GIVEN AND IS LABELLED AS ONE — A1**, the class-blind counter, because it is
+what three documents' prose, `message_sender`'s primary key, Spec B's check (3) and the shipped
+server already assume, costs zero wire octets, zero KAT constants and zero retained chain copies,
+closes item 143's device-wrap instantiation as well, and is the only shape neutral to a later
+reversal of M1-6 for free. Its costs are written beside it: an `(k+1)`× ladder-walk multiplier at
+every commit, a receiver window measured in shared positions, and **M1-25**'s transient counter
+becoming load-bearing. **It is not a ruling.**
+
+**THE MEASUREMENTS, each reproducible.** One ladder rung is **368.7 ns** — 2^20
+`HKDF-Expand(SHA-256, prk, "ratchet/v1", 32)` in 386.6 ms, a nine-line `crypto/hkdf` program in a
+scratch module — which reproduces `ratchet.go:93`'s *"roughly four hundred nanoseconds per rung"*
+and its *"about four tenths of a second"* at `maxLadderWalk = 1 << 20`. A size-bucket-2 record
+encodes to **4,364 octets** with a 96-octet `ct_head`, of which `ct_body` is **4,112** and the
+framing outside the two ciphertexts is **156**; `AAD_head` is **182** octets and `AAD_body` **96**;
+one 56-octet expand is **600 ns** and one SHA-256 over `AAD_head` is **91 ns**. Those came from
+calling `message.EncodeRecord`, `message.AADHead` and `message.AADBody` from a scratch module with
+`replace github.com/urnetwork/connect => ../connect`, which reads the checkout and writes nothing
+in it. **Only one of the seven shapes costs a wire octet** (C3, +24 in the header, 4,364 → 4,388,
++0.55%), and **`ct_body` does not move under any of them**, so Spec B's `CHECK` on
+`octet_length(ct_body)` is untouched throughout. The KAT bill is **eleven** pinned constants in
+`connect/messagegroup/recordkey_test.go` for a change to `record_key[0]`'s info string and **two**
+for a change to `"rec/v1/head"`.
+
+**Reviewed by:** re-derivation against both trees rather than against the items. Every line citation
+this entry and the two amendments make was resolved by printing the cited line: eighteen `*.go`
+citations across `connect` and `msgrepo`, and nine document lines. **Two Spec B citations were wrong
+on the first pass and are corrected here rather than shipped** — check (3) is at :2221 and the
+`message_sender` primary key at :882; both had been written one and eleven lines short, and both
+pointed at blank lines, which is the cheapest possible version of the failure this repository keeps
+finding and is why the citations were printed instead of trusted.
+
+**Verification.** `go build ./...` clean and `go test ./...` green **before and after**.
+`go test ./ -run TestThePlanLinter` **`ok` before and after**, and its coverage of this diff is
+stated rather than implied: check 3d reads `ledger <n>` citations out of `docs/plans/*.md` against
+this file's item ids, and this diff **adds no plan text and no ledger item**, so the check cannot
+move on it — the id list is byte-identical at 206, which is the property that keeps it green rather
+than a property of the amendments. What was checked mechanically instead is every citation the
+amendments make, above. `git ls-files` equals `git ls-tree -r HEAD --name-only` at **102**, checked
+before the commit rather than after it.
+
+**What this pass did NOT do.** It did not rule item **143**, item **169**, item **152** or
+**M1-1**, and it did not implement wave 2. It changed no Go file, in either tree. It did not amend
+Spec A, Spec B or MASTER, although correction 4 says three documents and the shipped server
+disagree with the shipped client about how `stream_index` is keyed and item **168** already records
+the divergence: which of them moves is the ruling, and taking it here would be the divergence
+absorbed rather than recorded. It did not touch `PROGRESS.md`, whose wave-2 blocking sentences are
+accurate until a shape is chosen.
