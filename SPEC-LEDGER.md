@@ -798,7 +798,11 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     first written. The plan's own **Open items** section carries **45**, of which **six** are marked
     wire-visible and block the A6 freeze — M1-6, M1-7, M1-8, M1-24, M1-27 and M1-33 — and four block
     CP3b (items 125–128 here). They are not restated in this ledger, because the plan is where an
-    implementer meets them.
+    implementer meets them. *(**Neither count is live and this row is kept as the record of the day.**
+    The plan carries **50** items now; of the six named, **M1-8 and M1-6 were both ruled 2026-09-07**,
+    so four still need a ruling before A6 — M1-7, M1-24, M1-27 and M1-33. Annotated rather than
+    rewritten because an A6-blocker list is exactly the kind of sentence a reader counts, and the same
+    stale M1-8 was left standing in the plan's own copy by the commit that ruled it.)*
 
 49. **Findings from a workflow review are NOT visible to the next agent, and a brief that says
     "read the review" sends it looking for a file that does not exist.** A reviewer's findings are
@@ -1387,8 +1391,15 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      it checks `Kind`, nil, `closed` and `RemovesSelf()` and **nothing about provenance** -- not the
      group id, not the epoch -- and it overwrites `self.pending` unconditionally where
      `CreateCommit` refuses with `ErrPendingCommitExists`. Measured: **group B applied group A's
-     staged commit, moved from epoch 1 to epoch 3, and derived byte-identical epoch
-     authenticators.** `Processed` and its `Commit` field are exported and `connect/message` is
+     staged commit, moved from epoch 1 to epoch 2, and derived byte-identical epoch
+     authenticators.** *(**"epoch 3" corrected to "epoch 2", 2026-09-07**, here and in `PROGRESS.md`'s
+     2026-09-07 entry, which are the two places it was written. The number was never in the source:
+     `connect/mls/commit_provenance_test.go`'s header says *"moved B out of epoch 1 into the epoch A's
+     commit opened"* and carries no digit, deliberately. Measured through a `go test -overlay` that
+     adds a case and edits no file in `connect`: the two-member fixture leaves both receivers at
+     **epoch 1**, and `receiverA.ApplyCommit` of A's own staged commit moves A **1 → 2**. One commit
+     opens one epoch. The 3 was carried in one agent's notes and repeated for weeks in both
+     documents.)* `Processed` and its `Commit` field are exported and `connect/message` is
      documented as holding `Processed` values across a policy decision, so that is the expected
      caller shape rather than a contrived one.
 111. **The index-paired class was measured properly and the previous pass had covered a fifth of
@@ -1572,7 +1583,43 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      milestone leg that is missing. Found 2026-09-05 repairing m1; filed as m1 Open item M1-42;
      owned 2026-09-06.
 
-128. **BLOCKS CP3b — `ct_head`'s retention class is unruled, and m1's own refusal for it stops a
+128. **RULED 2026-09-07 — `ct_head` is always sealed under the DURABLE class ratchet, whatever the
+     record's own retention class. THE ITEM IS KEPT WHOLE BELOW, and so is item 152's objection,
+     which was NOT beside it when it was ruled although item 152 asked in terms that it be.**
+
+     **The ruling.** MASTER §8.1 stands as written and Spec A §5.3 is the document that changes
+     (revision **A-20**): `RecordAeadHead` takes a `record_key` from the ladder rooted at
+     `ClassKeys.Durable`, always; `RecordAeadBody` takes one from the record's own class ladder. For a
+     `DURABLE` record the two are one ladder. Filed as m1 open item **M1-6**, which carries the same
+     ruling.
+
+     **The owner's reason, recorded because this item asked for a rule.** The head is always retained,
+     so it is keyed by the class that is always retained. Under the reading this replaces, an `EPH`
+     record's head would be keyed under a ratchet whose whole purpose is to be destroyed on schedule,
+     so a **retained** header becomes unopenable at exactly the moment the body is meant to vanish.
+
+     **The accepted cost, and it is this item's own second half.** A non-`DURABLE` record draws head
+     and body from two ratchets, so one record's single `stream_index` covers two ratchet positions —
+     which no document states. That is item **143**'s pin, and this ruling moves it from *owed* to
+     **DUE**; item **169** is the concrete instantiation it creates and why 143 cannot take its own
+     proposed form. **The bookkeeping half of this item is therefore not closed by the ruling; it is
+     handed to 143 and 169.**
+
+     **What the ruling does not reach, and it is the half item 152 owns.** The lift on m1 Task 11(a)'s
+     refusal reaches `PERMANENT` and `MEDIA`. It does **not** reach `EPH`, and `messagegroup.SealRecord`
+     keeps refusing that class under item **152** rather than under this one — see 152 for the
+     argument, which is that `K_durable[n]` is destroyed nowhere and rides every recovery wrap. **The
+     ruling's stated premise is also false for that one class:** *"the head is always retained"* holds
+     for `PERMANENT`, `DURABLE` and `MEDIA` and does not hold for `EPH`, because Spec B §7.2 sets
+     `ct_head = NULL` for `EPH(1..5)` at `prune_after`. Item 152 stays **FILED, NOT RULED**, and it now
+     blocks A6 for the head ciphertext in the place this item used to.
+
+     *Blocks after the ruling:* nothing in m1 wave 1; `EPH` sealing, through **152**; the ladder
+     position, through **143** and **169**. m1 Task 15 is unblocked; m1 Task 14 is not.
+
+     *The item as it was filed, which is what the ruling answers half of:*
+
+     **BLOCKS CP3b — `ct_head`'s retention class is unruled, and m1's own refusal for it stops a
      wave-2 task.** MASTER §8.1: *"`ct_head` is always under the **durable** class, since it is
      always retained."* Spec A §5.3 hands `RecordAeadHead` and `RecordAeadBody` the **same**
      `record_key[i]`. For a `DURABLE` record the two readings coincide; for `PERMANENT`, `MEDIA` and
@@ -1936,7 +1983,9 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      *Blocks:* nothing further of its own. m1 Task 14 is still blocked on M1-1's remainder — the wrap
      body's field list beyond MASTER §8.2, the signature's placement, and M1-7's padding — and on
      **M1-6**, which after ruling 3 blocks Task 14 as well as Task 15, because every record the fan-out
-     writes is now non-`DURABLE`.
+     writes is now non-`DURABLE`. *(**M1-6 was ruled 2026-09-07** and the lift reaches `PERMANENT` and
+     `MEDIA`, so Task 15 is through and Task 14 is not: its `EPH(5)` `eph_root` wrap is refused under
+     item **152** now, and both tasks additionally owe the pin of items **143** and **169**.)*
 
 138. **Nothing detects a missing recovery wrap, and after the 2026-09-13 resequence nothing can
      without a change item 132 owns.** Filed as the named cost of ruling 1 rather than discovered.
@@ -2335,7 +2384,20 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      ruled.** Found 2026-09-13 in the review of the three rulings; re-derived 2026-09-14 and again
      2026-09-15.
 
-143. **The device wrap owes a normative `stream_index`-to-ratchet-position mapping, and it is the one
+143. **DUE AS OF 2026-09-07, no longer merely owed: the `stream_index`-to-ratchet-position mapping is
+     now a precondition of sealing a non-`DURABLE` record, and its own proposed repair is unsafe.**
+     Item **128** was ruled that day — `ct_head` is always sealed under the DURABLE class ratchet — and
+     the accepted cost the owner named is exactly this item: a non-`DURABLE` record draws its head and
+     its body from **two ratchets**, so one record's single `stream_index` covers **two ratchet
+     positions**, and no document says which position each takes. Until the ruling this was a
+     discipline gap on a wrap ladder nobody had built; after it, it stands in front of every
+     `PERMANENT` and `MEDIA` record m1 Tasks 14 and 15 emit. **And the repair this item proposes —
+     *pin `i = stream_index` in every ladder* — does not survive the ruling**: the head ladder is now
+     shared by every class of one sender, while the reserver that shipped counts per class. That is
+     new item **169**, filed the same day, and **143 must be ruled with 169 beside it.** The item as
+     filed follows.
+
+     **The device wrap owes a normative `stream_index`-to-ratchet-position mapping, and it is the one
      residual of the adopted M1-1 recommendation carried into no document.** Residual risk 2 of the
      2026-09-12 review's recommendation. The record nonce is derived from the record key —
      `key_head ‖ nonce_head = HKDF-Expand(record_key[i], "rec/v1/head", 56)`, MASTER §8.1 — so key-nonce
@@ -2921,7 +2983,9 @@ fourteen are dispositioned below.
      **THE MEASUREMENT CORRECTION, AND IT IS THE LOAD-BEARING PART OF THIS ITEM.** M-4's id count is
      zero, and yet its property **is** filed — as item **128**, found 2026-09-04 while writing the m1
      plan, promoted to a CP3b blocker on 2026-09-05, marked wire-visible, filed as m1 open item **M1-6**,
-     and **NOT RULED**. It reaches M-4's question by an entirely different route and never names M-4.
+     and **NOT RULED**. *(**Ruled 2026-09-07 — on item 128's own terms, and without this item beside
+     it. See the 2026-09-07 note at the end of this item.**)* It reaches M-4's question by an entirely
+     different route and never names M-4.
      But it files a **narrower** question — a two-ratchet/one-`stream_index` bookkeeping contradiction
      blocking Task 15's snapshot record — and omits the confidentiality consequence completely: no
      disappearing messages, no seedphrase holder, no §8.1 sentence. **A ruling made on item 128's own
@@ -2939,6 +3003,38 @@ fourteen are dispositioned below.
      freeze. The ladder is not yet implemented in `connect/message`, so the fix still lands in unwritten
      code. *Blocks:* **A6**, and CP3b through item 128. **FILED, NOT RULED — and item 128 must not be
      ruled without this item beside it.** Dispositioned 2026-09-20.
+
+     **2026-09-07 — ITEM 128 WAS RULED WITHOUT THIS ITEM BESIDE IT, WHICH IS THE ONE THING THIS ITEM
+     ASKED NOT HAPPEN. RECORDED HERE RATHER THAN ARGUED, AND THE ITEM STAYS OPEN.** The ruling is
+     *"`ct_head` is always sealed under the DURABLE class"* — the sentence this item names verbatim as
+     *"the reading that ships M-4's harm permanently"* — made on item 128's own terms, with 128's own
+     two-ratchet bookkeeping argument and no mention of the confidentiality consequence. It is the
+     owner's and it is not reversed here.
+
+     **What follows from it, derived rather than asserted, and it is why the item is still live.**
+
+     - **The ruling's stated premise is false for exactly one class, and it is this item's class.** The
+       reason given is *"the head is always retained, so it is keyed by the class that is always
+       retained."* Spec B §7.2 sets `ct_head = NULL` for `EPH(1..5)` at `prune_after` and keeps it for
+       `DURABLE` and `MEDIA` — the table this item already cites. So the premise holds for the three
+       classes where this item says the repair *"costs nothing"*, and fails for the one where it says
+       the harm lands.
+     - **The other half of the reason is answered by this item's own repair rather than by the
+       ruling.** The reason's second clause is that under a shared `record_key` an `EPH` record's
+       retained head becomes unopenable when its ratchet is destroyed. Under this item's repair — key
+       `ct_head` under the record's **own** class key — an `EPH` head is not retained to be unopenable:
+       Spec B erases it in the same statement that erases the body. The failure the ruling prevents is
+       a failure only if the head outlives the body, which for `EPH(1..5)` it does not.
+     - **So the two positions are not in conflict over `PERMANENT`, `DURABLE` or `MEDIA` at all.** They
+       agree there, by this item's own *"it costs nothing for `PERMANENT`/`DURABLE`/`MEDIA`"*. The whole
+       of the disagreement is `EPH`.
+
+     **Therefore the scope of the lift is derived and not chosen.** m1 Task 11(a)'s refusal is lifted
+     for `PERMANENT` and `MEDIA`, where the ruling and this item agree; `EPH` stays refused, under this
+     item. m1's plan, Spec A §5.3 and item 128 all now say so, and Spec A §5.3 carries a MUST NOT
+     against sealing an `EPH` head under `K_durable`. **This item is what an `EPH` record now waits on,
+     it is what blocks A6 for the head ciphertext, and it is not an m1 item — so it will not be found
+     by a reader working the m1 open-item list.** That is the reason this paragraph is long.
 
 153. **`M-5` — STILL OPEN (PARTIAL — one clause of three applied). NEEDS RULING, IN ONE SITTING WITH
      ITEM 155. WIRE-VISIBLE AT MAXIMUM COST.** r3 asked to replace §7's application-layer combiner with
@@ -3850,7 +3946,7 @@ fourteen are dispositioned below.
 168. **THE SHIPPED `StreamIndexReserver` IS KEYED ON A `StreamKey` AND BOTH DOCUMENTS THAT DECLARE IT
      STILL SAY `groupId`. FILED, NOT RULED — and it is NOT open item M1-5.**
 
-     **What shipped**, `connect` `7a50f80`, `messagegroup/streamindex.go`:
+     **What shipped**, `connect` **`095fdd1`**, `messagegroup/streamindex.go`:
 
      ```go
      Reserve(stream StreamKey, index uint64) error
@@ -3882,6 +3978,95 @@ fourteen are dispositioned below.
      together with M1-5, and the two must be ruled in one sitting or the store row and the
      reservation will be keyed by different things. Found 2026-09-07, deriving m1's wave-1
      contradictions against the landed package.
+
+     **Commit citation corrected 2026-09-07, the same day, and the correction matters because this
+     item is an argument about what one commit contains.** It first cited `7a50f80`. At `7a50f80`
+     `messagegroup/streamindex.go` still declares `Reserve(groupId []byte, index uint64) error` and
+     `HighWater(groupId []byte) (uint64, error)` — the very `groupId` form this item says the code
+     diverges **from** — so the citation named a commit that agrees with the documents and refutes the
+     item. `StreamKey` and the two `StreamKey`-taking methods land in **`095fdd1`**, batch C. The
+     query is `git show 7a50f80:messagegroup/streamindex.go` against `git show
+     095fdd1:messagegroup/streamindex.go`. The cause is the same one the 2026-09-07 entry's own batch
+     table had: `7a50f80` was being used as the name of batch B, and batch B's tasks landed in
+     `da0b999`.
+
+     **And this item is now load-bearing beyond its own question:** the per-class counter it records is
+     one of the four facts new item **169** derives its collision from.
+
+169. **THE 2026-09-07 RULING GIVES EVERY CLASS'S HEAD ONE SHARED LADDER WHILE THE SHIPPED RESERVER
+     COUNTS PER CLASS, SO ITEM 143's OWN PROPOSED PIN PUTS TWO HEADS ON ONE `(key_head, nonce_head)`.
+     FILED, NOT RULED. WIRE-VISIBLE. MUST BE RULED IN ONE SITTING WITH ITEM 143.**
+
+     **Property.** Every `(key_head, nonce_head)` pair a sender ever uses is used once.
+
+     **The derivation, from four things all of which are already fixed.**
+
+     1. Item **128**, ruled 2026-09-07: `ct_head` is sealed under the **DURABLE** class ratchet,
+        whatever the record's own retention class.
+     2. Spec A §5.3: `record_key[0] = HKDF-Expand(class_key, "sender/v1" ‖ LP(leaf_index), 32)` and
+        `record_key[i+1] = HKDF-Expand(record_key[i], "ratchet/v1", 32)`. So one sender has **one**
+        head ladder per epoch, rooted at `ClassKeys.Durable`, shared by all four retention classes.
+     3. Spec A §5.3 / MASTER §8.1: `key_head ‖ nonce_head = HKDF-Expand(record_key[i], "rec/v1/head",
+        56)`. The nonce is a function of `(K_durable[n], leaf_index, i)` and of nothing else — no
+        class, no `stream_index`, no AAD.
+     4. What shipped, `connect` `095fdd1`, `messagegroup/streamindex.go`: `type StreamKey struct {
+        GroupId [32]byte; SenderHandle [16]byte; RetentionWire byte }`. The reservation counter is
+        **per retention class**, and item **168** records why — over a `groupId`-keyed reserver the
+        durable and permanent ladders of one group shared one counter and *"at most one retention
+        class per group could ever send."*
+
+     **The collision.** Item 143's repair is *"pin `i = stream_index` in every ladder"*, so that
+     uniqueness of `i` follows from Spec A §5.12 step 6's existing *"MUST NOT be reused"* rather than
+     from a second, unwritten discipline. Apply it: one sender's `DURABLE` record at
+     `stream_index = 5`, and the same sender's `PERMANENT` record at `stream_index = 5` — two records
+     that both exist, because the two counters are independent — both take head position 5 of the
+     **one** durable ladder. Same `key_head`, same `nonce_head`, two different header plaintexts, two
+     different `AAD_head` preimages (the joined retention-class wire byte differs). Under
+     XChaCha20-Poly1305 that is a nonce reuse: the Poly1305 one-time key falls out and header
+     **forgery** follows — the harm item 143 names for the wrap ladder, arriving on the ordinary record
+     path and for every sender rather than once per epoch fan-out.
+
+     **AND IT IS REACHABLE THROUGH THE PUBLISHED CONSTRUCTOR, not only through the documents — the
+     same shape of trap item 143 records for the device wrap.** What shipped is
+     `func NewSenderRatchet(classKey []byte, leaf uint32, stream StreamKey, reserver
+     StreamIndexReserver) (*SenderRatchet, error)` (`messagegroup/ratchet.go:172`): the ladder's root
+     comes from `classKey` and its positions come from `reserver.Reserve(stream, …)`, and **the two
+     arguments are independent**. An implementer taking the ruling the obvious way builds the head
+     ratchet as `NewSenderRatchet(classKeys.Durable, leaf, stream, reserver)` and the body ratchet as
+     `NewSenderRatchet(classKeys.Perm, leaf, stream, reserver)` for a `PERMANENT` record — one root,
+     the `PERMANENT` counter — and, for a `DURABLE` record, `NewSenderRatchet(classKeys.Durable, leaf,
+     otherStream, reserver)` — **the same root**, the `DURABLE` counter. Two ladders with
+     byte-identical roots drawing positions from two counters that each start at zero. Nothing in the
+     signature, in the reserver or in `SealRecord` can see that the two are the same ladder, because
+     the only thing that distinguishes them is the `StreamKey` the reserver was keyed by and the
+     reserver is not what derives the key.
+
+     **And doing nothing is not the safe option, which is what makes this due rather than
+     filed-for-later.** The other reading — the head ladder advances once per record regardless of
+     class — is the owner's stated accepted cost (*"one record's single `stream_index` covers two
+     ratchet positions"*), and it needs a head-ladder counter monotone across **all** classes of one
+     sender. **No such counter exists in either document or in the shipped code**: Spec A §5.6's
+     reserver, §8.2's `MessageStore` and `messagegroup.StreamIndexReserver` all count per stream, and
+     a per-class stream is exactly what `StreamKey` made it. So the two readings available today are
+     one that collides and one that requires a value nothing produces.
+
+     **Three shapes, each costing something, none ruled here.** **(a) Put the class in the head
+     ladder's root** — `record_key_head[0] = HKDF-Expand(K_durable, "sender/v1" ‖ LP(leaf_index) ‖
+     u8(retention_wire), 32)` — which restores `i = stream_index` and costs a new label reading, a KAT
+     set, and an A6 change to every head ciphertext. **(b) A second reserved counter per sender**,
+     head-only and class-blind, which costs a fifteenth method on the `MessageStore` interface whose
+     size Spec A A8 already makes load-bearing, and hands `s2` a second thing to migrate and item
+     **M1-5** a second thing to key. **(c) Key `ct_head` under the record's own class key**, which is
+     item **152**'s repair and dissolves this item entirely — one ladder per class, `i = stream_index`
+     holds — and which the 2026-09-07 ruling is a decision against for `PERMANENT`, `DURABLE` and
+     `MEDIA`.
+
+     **Cost at A6.** Zero wire bytes under every shape; every non-`DURABLE` head ciphertext changes
+     under (a) and (c), which is an interop break if taken after the freeze. *Blocks:* **A6**; sealing
+     any non-`DURABLE` record, and therefore m1 Tasks 14 and 15 — the block item 128's ruling was
+     expected to lift, arriving one level down. **FILED, NOT RULED.** Found 2026-09-07, deriving the
+     consequences of the M1-6 ruling against the landed reserver rather than against the documents
+     alone; nobody asked for it and it is the reason the pin is now a precondition.
 
 ## 6. Change process
 
@@ -7418,9 +7603,16 @@ empty before, during and after, including across the mutation run below, which g
 named `beta/message`, which is `connect`'s branch and not this one's, exactly as the 2026-09-20 entry
 records of its own brief.
 
-**Why:** m1 wave 1 is complete in `connect` — four reviewed commits, `b9a31e2`, `7a50f80`, `69464ae`,
-`34fc072` — and three rulings had accumulated with no home: two the owner made, and one the fix pass
-made that changes what a client must persist.
+**Why:** m1 wave 1 is complete in `connect` — **seven** commits, `b9a31e2` through `34fc072`
+(`git rev-list --count b9a31e2^..34fc072` = 7), in three adversarially reviewed batches and a closing
+commit — and three rulings had accumulated with no home: two the owner made, and one the fix pass
+made that changes what a client must persist. *(**This sentence said "four reviewed commits,
+`b9a31e2`, `7a50f80`, `69464ae`, `34fc072`" and was corrected 2026-09-07, the same day.** Those four
+are one landing commit and three review commits; the three that landed the other two batches —
+`da0b999` (tasks 5–8) and `095fdd1` (tasks 9–12 and 9a), with `fe2a151` between — were named nowhere
+in this repository. It is not a cosmetic slip: item **168** cited `7a50f80` as the commit `StreamKey`
+shipped in, and at `7a50f80` `streamindex.go` still declares the `groupId` form the item is an
+argument against.)*
 
 ---
 
@@ -7472,7 +7664,12 @@ silence and routes on a handle no peer computes.
 
 **AND THE CLASS OF PLAN STATEMENTS THE LANDED PACKAGE REFUTES, DERIVED RATHER THAN TAKEN FROM THE
 BRIEF — which is the part of this pass worth reusing.** The brief named three; deriving found
-**eight**. The class: *every declaration, parameter set or persistence obligation m1 states about a
+**nine**. *(**This read "eight" and was corrected 2026-09-07, the same day.** Nine is what the
+enumeration supports and what the m1 plan and this commit's own message both say: three named in the
+brief, and the six listed immediately below. The paragraph was internally contradictory — a headline
+of eight over a list of six unnamed beside three named — inside one commit, and `PROGRESS.md`'s copy
+said eight/three/**five**, which is a third value again. All three copies now read nine/three/six.)*
+The class: *every declaration, parameter set or persistence obligation m1 states about a
 wave-1 symbol, held against `connect/messagegroup` at `34fc072`.* Enumerated by pulling every
 `func` / `type` / `var Err` line out of the wave-1 task span **and** out of *Interfaces produced by
 this plan* — the two places a consumer writes its `Consumes` block against, so a stale one is a
@@ -7547,11 +7744,161 @@ the intermediate run failed check 3d, fatally, on seven citations of items **167
 before the items existed, and went green when they were added. That is the check doing exactly what
 the 2026-09-15 pass built it to do, on the first pass to cite a new ledger item since. `git ls-files`
 equals `git ls-tree -r HEAD --name-only` at **102**, checked before the commit rather than assumed.
-The four `connect` commits, the 1,104-file tree and the **7,620** test figure were re-measured rather
-than carried: `go test -count=1 ./message/... ./messagegroup/... ./mls/... -v` at `34fc072` counts
+The `connect` commits, the 1,104-file tree and the **7,620** test figure were re-measured rather
+than carried (the commit **span** was not — see the correction under **Why** above):
+`go test -count=1 ./message/... ./messagegroup/... ./mls/... -v` at `34fc072` counts
 **7,620 PASS, 0 FAIL, 0 SKIP**, which is the Definition of done's own three-root invocation.
 `OwnLeafIndex() uint32` is declared exactly twice in `connect/messagegroup`, on the interface and on
 `connectMlsHandle`, so the brief's *"there is no stub handle"* holds by measurement. **The
 byte-for-byte reproduction is recorded as the reviewer's method and was NOT re-run here** — it is a
 review artefact and no test in the tree performs it; what the tree holds instead is the
 `chacha20poly1305` reconstruction of the AEAD itself (`recordaead_test.go`) and the KAT sets.
+*(**True when written and false a few hours later, annotated here rather than struck because the
+sentence is what made the gap visible.** `connect` `10cc20c`, 2026-09-07, adds
+`messagegroup/keysource_test.go`: the whole-record rebuild over three records, a 256-bit negative
+control on the exporter output, and a syntax-tree gate holding the reproduction's independence claim
+to something that can fail. 14 mutations, no survivors; two of them — a constant and an entropy draw
+into the session's write key — are caught by those tests alone. The tree reads 7,623 at `10cc20c`.
+`PROGRESS.md`'s 2026-09-07 entry carries the same correction, which is where item 4 of the check that
+found this asked for it.)*
+---
+
+### 2026-09-07 — M1-6 ruled, the cost written down as two ledger items rather than one sentence, and seven wrong numbers the previous commit introduced
+
+**Change:** `docs/specs/2026-08-12-spec-a-protocol-sdk-connect.md` (revision **A-20**, §5.3 and §5.11
+(3)), `docs/plans/2026-09-04-slice1-m1-message-crypto.md`, this ledger (**one** new item, **169**;
+items **48**, **110**, **128**, **137**, **143**, **152**, **168** annotated) and `PROGRESS.md`. **No
+Go file changed. `connect` was read and never written** — `git -C ../connect status --porcelain` empty
+before, during and after, including across the epoch measurement below, which runs through a
+`go test -overlay` whose overlay file lives outside the checkout. **This repository is on `main`**; the
+brief named `beta/message`, which is `connect`'s branch and not this one's.
+
+---
+
+**THE RULING. M1-6 / ledger item 128 — `ct_head` is always sealed under the DURABLE class ratchet,
+whatever the record's own retention class.** MASTER §8.1 stands and Spec A §5.3 is what changes:
+`RecordAeadHead` takes a `record_key` off the ladder rooted at `ClassKeys.Durable`, `RecordAeadBody`
+off the record's own class ladder, and for a `DURABLE` record the two are one ladder. The signatures
+do not move — both still take one 32-octet secret — so §5.3 states the binding in prose and in a
+comment, because it cannot state it in a type.
+
+**The owner's reason is recorded because the item asked for a rule and not a preference.** The head is
+always retained, so it is keyed by the class that is always retained; under the replaced reading an
+`EPH` record's head would be keyed under a ratchet built to be destroyed on schedule, and a retained
+header would become unopenable at exactly the moment the body is meant to vanish.
+
+**The accepted cost is written down as two open items rather than as a clause.** A non-`DURABLE`
+record now draws head and body from two ratchets, so one record's single `stream_index` covers two
+ratchet positions and no document says which position each takes. Item **143** carried that pin as
+*owed*; it is now **DUE** — a precondition of sealing a non-`DURABLE` record.
+
+**AND THE PIN CANNOT TAKE ITS OWN PROPOSED FORM, WHICH IS NEW ITEM 169 AND IS THE PART OF THIS PASS
+NOBODY ASKED FOR.** Item 143's repair is *"pin `i = stream_index` in every ladder."* Derived against
+the landed code rather than against the documents: the ruling gives one sender **one** head ladder
+shared by all four classes, while `messagegroup.StreamKey` — `{GroupId, SenderHandle, RetentionWire}`,
+`connect` `095fdd1` — counts **per class**, which is the whole reason item 168 exists. So one sender's
+`DURABLE` record at `stream_index = 5` and its `PERMANENT` record at `stream_index = 5` both take head
+position 5 of the one durable ladder: same `key_head`, same `nonce_head`, two headers, two AADs. Under
+XChaCha20-Poly1305 that hands the message server the Poly1305 one-time key and header forgery follows
+— item 143's own named harm, arriving on the ordinary record path instead of the wrap ladder. **And
+the alternative reading is not free either**: a head ladder that advances once per record needs a
+counter monotone across all classes of one sender, and neither document nor the shipped reserver
+produces one. Three shapes are costed in item 169; none is ruled.
+
+**HOW FAR THE REFUSAL IS LIFTED, AND IT IS NARROWER THAN "M1-6 IS RULED" SOUNDS. THE SCOPE IS DERIVED,
+NOT CHOSEN.** m1 Task 11(a)'s refusal is lifted for **`PERMANENT` and `MEDIA`** — so **Task 15 is
+unblocked**, its snapshot being *"one `PERMANENT`-class record"*. **`EPH` stays refused**, and the
+refusal now names ledger item **152** rather than M1-6. Three reasons, each checkable:
+
+- **Item 152 (`M-4`) says in terms that item 128 must not be ruled without it beside it, and names
+  this exact sentence** — *"a ruling made on item 128's own terms — `ct_head` is DURABLE, that settles
+  the ambiguity, `SealRecord` may stop refusing — is the reading that ships M-4's harm permanently."*
+  It was not beside it. The ruling is the owner's and is not reversed here; what is recorded is that
+  the objection stands unanswered.
+- **The ruling's stated premise is false for exactly one class, and it is 152's class.** *"The head is
+  always retained"* holds for `PERMANENT`, `DURABLE` and `MEDIA`; Spec B §7.2 sets `ct_head = NULL`
+  for `EPH(1..5)` at `prune_after`, in the same statement that erases the body and zeroes the sender.
+- **So the two positions do not conflict over the other three classes at all** — item 152's own text
+  says its repair *"costs nothing for `PERMANENT`/`DURABLE`/`MEDIA`"* — and the whole of the
+  disagreement is `EPH`. Lifting there and not there is what the two documents jointly support.
+
+**Nothing was implemented for any of this.** `connect` is untouched; `SealRecord` at `10cc20c` still
+refuses all three non-`DURABLE` classes, and widening it is m1 wave 2's commit. m1's Definition of
+done, Task 11(a) Property 6, Tasks 5, 14 and 15, the wave table, the execution order and the A6
+paragraph all say so.
+
+---
+
+**THE SEVEN WRONG NUMBERS, EACH VERIFIED BEFORE IT WAS CHANGED — because a correction applied to a
+number that was right is the same defect as the original.** The check that ordered this pass listed
+seven; one of the seven turned out to be **two** documents' worth, one was a **third** value in a
+third file, and the class was re-derived rather than taken, which found three more.
+
+1. **`epoch 1 to epoch 3` → `epoch 1 to epoch 2`**, `PROGRESS.md` and ledger item **110**. The source
+   comment carries no digit on purpose. **Measured, not reasoned:** a `go test -overlay` case added
+   outside the checkout logs `fixture epochs: A receiver=1, B receiver=1` and
+   `the epoch A's commit OPENS: receiverA 1 -> 2`. One commit opens one epoch.
+2. **eight/three/five → nine/three/six**, in **three** places that disagreed with each other:
+   `PROGRESS.md` said eight/three/five, this ledger's own entry said eight over a list of six, and the
+   m1 plan and the commit message said nine/three/six. The plan enumerates nine members. Nine.
+3. **Item 168's commit: `7a50f80` → `095fdd1`.** At `7a50f80`, `messagegroup/streamindex.go` still
+   declares `Reserve(groupId []byte, index uint64) error` — the form the item says the code diverges
+   *from*. `StreamKey` lands in `095fdd1`. The query is in the item.
+4. **`PROGRESS.md` now says the byte-for-byte reproduction was a review artefact, and says when it
+   stopped being one:** `connect` `10cc20c`, `messagegroup/keysource_test.go`, three standing tests,
+   14 mutations and no survivors, 7,623 tests. The ledger's own copy of the caveat is annotated the
+   same way.
+5. **The A6-blocker summary still listed M1-8**, ruled by the same commit that left it there — six
+   where five remained. The plan's paragraph and this ledger's item **48** both now separate the six
+   that carry the *wire-visible* label from the **four** that still need a ruling: M1-7, M1-24, M1-27
+   and M1-33. **M1-6 is the second of the two ruled, so the count moved twice in one day** — and it
+   is worth saying plainly that ruling M1-6 did not take a blocker off the board so much as move it,
+   because item **152** blocks A6 for the same head ciphertext and is not an m1 item.
+6. **"four commits, each adversarially reviewed" → seven**, `git rev-list --count b9a31e2^..34fc072`.
+   And the table's commit column named the commit that **closed the review** rather than the one that
+   **landed the tasks** in two of its four rows: batch B landed in `da0b999` and batch C in `095fdd1`,
+   neither of which appeared anywhere in this repository. Both columns are named now, in the plan and
+   in `PROGRESS.md`, and each row's test figure stays attached to the commit that row already
+   attributed it to. **This is the same defect as (3)**, one level up: `7a50f80` was being used as the
+   name of a batch.
+7. **"thirty-two test call sites" → 27**, in the entry whose own closing rule is *"publish the query
+   beside the number"*. Thirty-two is a count of grep **lines**: `git grep -n testTwoMemberGroup
+   dd140bd -- mls/` returns 32 at the commit before `mls/four_member_group_test.go` was added, of
+   which two are `func` declarations and three are comments — **27 invocations**, 26 of them in test
+   bodies. Corrected in all three places `PROGRESS.md` carried it. `connect/mls`'s own file header
+   carries the same 32 and is `connect`'s to fix, which is said rather than left implicit.
+
+**AND THE CLASS WAS RE-DERIVED RATHER THAN TAKEN, which is where the rest of this pass came from.**
+The class: *every claim `29f9778` makes about the `connect` tree or about its own corpus, held against
+`connect` at `10cc20c` and against this repository at HEAD.* Beyond the seven: this ledger's own
+"eight" (a third value for (2)); its closing *"no test in the tree performs it"*, true when written
+and false by that evening; `PROGRESS.md`'s *"M1-6 … is unruled and is the one ruling still on the
+critical path"*, which the same day's ruling falsifies; and item **48**'s stale A6-blocker list, a
+second instance of (5) in a different document.
+
+**ONE CLAIM WAS CHECKED AND LEFT ALONE, and it is the reason the check is worth running in this
+direction.** `PROGRESS.md`'s *"every group runs an epoch 7"* looks like exactly the same kind of
+introduced number as (1). It is not: it is `connect/mls`'s own idiom, at `group.go:4249`,
+`proposal_list.go:1122`, `commit.go:115` and five other sites. Nothing was changed for it.
+
+---
+
+**Verification.** `go build ./...` clean and `go test ./...` green **before and after**.
+`go test ./ -run TestThePlanLinter` **`ok` before and after** — and it is not vacuous over this diff:
+check 3d reads every `ledger <n>` citation in the plan corpus against this file's numbered items, and
+this pass adds **seven** citations of **169** to the m1 plan. Demonstrated rather than asserted:
+renumbering item 169 to `169x` and re-running gives *"check 3d — a ledger citation that resolves to no
+ledger item: 7 finding(s)"*, fatal, naming plan lines 972, 2842, 2866, 3293, 3500, 4611 and 4637; the
+file was restored byte-identical (SHA-256 compared) and the check is green again.
+`git ls-files` equals `git ls-tree -r HEAD --name-only` at **102**, checked before the commit rather
+than assumed. The epoch measurement, the `streamindex.go` comparison at two commits, the commit span
+and the `testTwoMemberGroup` counts were each run against `connect` and are quoted with their queries
+above.
+
+**What this pass did NOT do.** It did not implement wave 2 and it changed no Go file in either
+repository. It did not rule item **143**, item **169** or item **152** — 169 costs three shapes and
+rules none, and 152 is the owner's to take with 128's ruling in front of it. It did not touch
+`docs/reviews/`, whose two `M1-6` sentences are accurate records of what a dated review said. And it
+did not repair **§1 Current state**, which still reads *"Nothing is implemented yet. No code exists."*
+over a 1,105-file `connect` tree and 7,623 tests: that staleness predates `29f9778`, is outside the
+class this pass derived, and is named here so it is not found a fourth time by accident.

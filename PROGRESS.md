@@ -1096,9 +1096,22 @@ move is now aimed at the proposal buckets.
 
 Five days, and the shape of them is one sentence: **the group lifecycle and the record layer both
 finished, and in each of them the most valuable finding was about the fixture rather than about the
-code.** `connect/mls` had thirty-two test call sites running on a group of two. m1's own plan had
-eight statements the code it produced now refutes, and three of them were named in the brief that
-ordered this record while five were not.
+code.** `connect/mls` had **27** test call sites running on a group of two. m1's own plan had
+**nine** statements the code it produced now refutes, and three of them were named in the brief that
+ordered this record while six were not.
+
+**Both of those numbers are corrected from the version of this entry that landed at `29f9778`, and
+they were wrong the same way** — published without the query that produced them, in the entry whose
+own closing rule is *"publish the query beside the number"*. The first read **thirty-two**, which is
+a count of grep **lines**: `git grep -n testTwoMemberGroup dd140bd -- mls/`, at `dd140bd` — the
+commit before `mls/four_member_group_test.go` was added — returns **32 lines**, of which two are
+`func` declarations and three are comments, leaving **27 invocations**: 26 in test bodies and one the
+two-argument fixture's own delegation to `testTwoMemberGroupNamed`. `connect/mls`'s own file header
+carries the same 32 and is `connect`'s to correct, not this file's. The second read
+**eight/three/five** while the m1 plan and the commit message of the very commit that published it
+read **nine/three/six**; the plan enumerates nine members and the ledger entry said *"eight"* and
+then listed six unnamed beside three named, which is nine. **Nine** is the number the enumeration
+supports, and the disagreement was inside one commit.
 
 ### p7 is complete, and the CP3b path through `connect/mls` is closed
 
@@ -1109,8 +1122,13 @@ that are new are unreadable without them.
 
 **New here: a member could apply another group's commit.** `(*Group).ApplyCommit` read the `Kind`,
 the nil, the closed flag and `RemovesSelf` and **nothing about provenance**. Measured: group B, handed
-a `Processed` that group A had staged, answered nil, moved from **epoch 1 to epoch 3**, and then
-derived byte-identical epoch authenticators — so both groups agreed they were in the same epoch. The
+a `Processed` that group A had staged, answered nil, moved from **epoch 1 to epoch 2**, and then
+derived byte-identical epoch authenticators — so both groups agreed they were in the same epoch.
+(**Corrected from "epoch 3", which was introduced here.** `commit_provenance_test.go`'s header
+deliberately carries no number — *"moved B out of epoch 1 into the epoch A's commit opened"* — so the
+3 came from a paraphrase and not from the source. Measured through a `go test -overlay` that adds a
+case and edits nothing: the fixture leaves both receivers at **epoch 1**, and applying A's own staged
+commit in A moves `receiverA` **1 → 2**. One commit opens one epoch.) The
 shape is the expected caller shape and not an abuse: `Processed` and its `Commit` field are exported
 and `connect/message` holds them across a policy decision, which is exactly what §6's `EngineProcessed`
 exists to carry. A `StagedCommit` now carries the group id **and** the epoch it was staged against —
@@ -1126,8 +1144,10 @@ carries the position, and the seal persists **before the ciphertext leaves**, be
 to run only at an epoch boundary where the sender position is always zero.
 
 **And the discovery that reframes the other four.** `mls/four_member_group_test.go` and
-`TestFourIsTheSmallestGroupWhoseMembersEnterTheLadderAboveTheirOwnLeaf` exist because **thirty-two
-call sites of this package's corpus ran on `testTwoMemberGroup` and nothing larger existed.** In a group of two the only
+`TestFourIsTheSmallestGroupWhoseMembersEnterTheLadderAboveTheirOwnLeaf` exist because **27 call
+sites of this package's corpus ran on `testTwoMemberGroup` and nothing larger existed** (the query is
+above; `connect/mls`'s own file header says thirty-two, which is that grep's line count and
+`connect`'s to correct). In a group of two the only
 node of a sender's filtered direct path that covers the receiver is the root, and the receiver's own
 leaf is the whole of that node's copath resolution — so every path secret any commit ever seals to
 this member is sealed to the member's own leaf key, and the own-leaf arm of
@@ -1176,14 +1196,20 @@ failure, and that publishing a measurement inflates the very ids it measures.
 
 ### m1 wave 1: `connect/messagegroup` seals and opens a record under the real key schedule
 
-Four commits on `beta/message`, each adversarially reviewed:
+**Seven** commits on `beta/message` — `git rev-list --count b9a31e2^..34fc072` = 7 — in three
+adversarially reviewed batches and a closing commit. **The first version of this table named four of
+the seven and named the wrong one in two rows**: it gave each batch the commit that *closed* the
+review rather than the commit that *landed the tasks*, so a reader looking for the record-key ladder
+in `7a50f80` finds a gate rewrite, and one looking for seal/open in `69464ae` finds a mutation-run
+repair. Both columns are now named, and the test figure in each row is measured at the last commit
+that row names, which is where it was always attributed:
 
-| batch | tasks | commit | tests |
-|---|---|---|---|
-| A | 1–4 — the record AEAD, zeroization, the storage root and class keys, the three handles | `b9a31e2` | 7,523 |
-| B | 5–8 — the four record-key derivations, the stream index, the two ratchets | `7a50f80` | 7,560 |
-| C | 9, 9a, 10, 11, 12 — the engine, the `connect/mls` adapter, the session, seal and open | `69464ae` | 7,607 |
-| close | the survivors of all three reviews | `34fc072` | **7,620** |
+| batch | tasks | landed | reviewed through | tests |
+|---|---|---|---|---|
+| A | 1–4 — the record AEAD, zeroization, the storage root and class keys, the three handles | `b9a31e2` | — | 7,523 |
+| B | 5–8 — the four record-key derivations, the stream index, the two ratchets | `da0b999` | `7a50f80` | 7,560 |
+| C | 9, 9a, 10, 11, 12 — the engine, the `connect/mls` adapter, the session, seal and open | `095fdd1` | `fe2a151`, `69464ae` | 7,607 |
+| close | the survivors of all three reviews | `34fc072` | — | **7,620** |
 
 Tree clean, `git ls-files` = `git ls-tree -r HEAD` = 1,104, the nine-platform `CGO_ENABLED=0`
 cross-build gate green.
@@ -1199,6 +1225,21 @@ reproduction — which is the thing a coverage argument over the same path canno
 can be fully covered by a test that agrees with the implementation about a wrong value. And there is
 no stub for it to have been green over: exactly one `GroupHandle` implementation exists anywhere in
 the package, the real `connect/mls` adapter.
+
+**Through `34fc072` that reproduction was a REVIEW ARTEFACT and nothing in the tree performed it**,
+which the first version of this entry did not say and should have: it read as a thing the suite does,
+while the suite did the `chacha20poly1305` reconstruction of the AEAD (`recordaead_test.go`) and the
+KAT sets and not the whole-record rebuild. A property that lives in a finished session goes red on
+no commit, and the commit that adds a second key source is the only event it exists to catch.
+**It became a standing test on 2026-09-07, at `connect` `10cc20c`**, `messagegroup/keysource_test.go`:
+`TestEveryKeyedOctetOfARecordIsReproducibleFromTheExporterAndTheTwoInjectedValuesAlone` rebuilds three
+whole records — `sender_handle`, `ct_body`, `body_hash`, `ct_head` and `write_auth` — from the three
+values and none of the package's own derivations, and requires each to open back through the session;
+`TestFlippingAnyBitOfTheExporterOutputChangesEveryKeyedOctetOfARecord` is its negative control over
+all 256 bits; and `TestTheReproductionCallsNothingThisPackageShips` derives the independence claim off
+the syntax tree rather than leaving it a paragraph nothing could fail on. 14 mutations, no survivors,
+and two of them — a constant and an entropy draw into the session's write key — are caught by these
+tests alone. The tree is 7,623 tests at `10cc20c`, up 3 from the 7,620 in the table above.
 
 Three rulings were recorded against it in `SPEC-LEDGER.md` and the m1 plan: **M1-8** (`LP(leaf_index)`
 is the four-octet reading — a confirmation of what landed, and it no longer blocks the A6 freeze),
@@ -1218,7 +1259,10 @@ rather than a caveat:
 - **It cannot join a group.** `JoinFromWelcome` refuses, and the refusal names what is missing rather
   than describing it: `connect/mls` keeps a minted key package's signature private half private.
 - **It seals one retention class.** `DURABLE` only; `PERMANENT`, `MEDIA` and `EPH` are refused with a
-  typed error naming **M1-6**, which is unruled and is the one ruling still on the critical path.
+  typed error naming **M1-6**. *(**M1-6 was ruled later the same day** — `ct_head` is always sealed
+  under the DURABLE class — which lifts the refusal for `PERMANENT` and `MEDIA` **in the plan**, and
+  not in this tree: no code changed, and `SealRecord` at `10cc20c` still refuses all three. `EPH`
+  stays refused on purpose; ledger item **152** is why. See today's ledger entry.)*
 - **It has no durable store.** The `StreamIndexReserver` is an interface and a test fake; a test
   asserts that no production declaration of the package implements it.
 - **It never touches a message server.** Every wave-1 path stops at a `*message.Record` in memory.
@@ -1232,7 +1276,7 @@ rather than a caveat:
 
 The entry below named it as *"a rule decided off a field nobody joined, or a gate deriving its class
 and then writing down its scope."* This stretch adds a narrower and more expensive sibling:
-**a claim measured over a corpus that cannot contain a counterexample.** Thirty-two `connect/mls`
+**a claim measured over a corpus that cannot contain a counterexample.** 27 `connect/mls`
 call sites over a group of two; r3's majors reduced to a count; a plan linter whose documented
 invocation selected one of its six tests; a gate satisfied by the sentence recording that it caught
 nothing. In every case the number was honest and the corpus was the defect. The rule that follows,

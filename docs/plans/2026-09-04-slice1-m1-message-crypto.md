@@ -969,7 +969,7 @@ discovered at Task 14.
 | Wave | Tasks | On CP3b? | Note |
 |---|---|---|---|
 | 1 | 1–12, and 9a | **yes** | unblocked: the schedule, the ratchets, the adapter, the session, seal and open |
-| 2 | 13–16 | **yes** | the second client's half. Task 14 has three of M1-1's questions ruled (2026-09-13) and still needs M1-1's remainder **and M1-6**, which now blocks it too; Task 15 needs M1-6; Task 16's M1-2 is deferred and does **not** block CP3b |
+| 2 | 13–16 | **yes** | the second client's half. Task 14 has three of M1-1's questions ruled (2026-09-13) and still needs M1-1's remainder **and** the `EPH` half of the seal refusal (ledger **152**) for its `eph_root` wrap; **Task 15 is unblocked** — M1-6 was ruled 2026-09-07 and its snapshot is `PERMANENT`; Task 16's M1-2 is deferred and does **not** block CP3b. Both tasks also owe the `stream_index`-to-ratchet pin the ruling made due (ledger **143**, **169**) |
 | 3 | 17–24 | **no** | required before the A6 format freeze; none is required to put a message in front of a person |
 
 **And the two legs this plan does not have.** CP3b's own words are *"through the message server"*. Every
@@ -1311,14 +1311,19 @@ package messagegroup
 
 **WAVE 1 IS COMPLETE, and the thirteen tasks below — 1 through 12 and 9a — are now a record rather
 than a plan.** It landed in
-`connect` on `beta/message` in four commits, each adversarially reviewed:
+`connect` on `beta/message` across **seven** commits — `git rev-list --count b9a31e2^..34fc072` = 7 —
+in three adversarially reviewed batches and a closing commit. **The first version of this table said
+"four commits" and named the review commit rather than the landing commit in two of its four rows**,
+so a reader chasing the record-key ladder to `7a50f80` finds a gate rewrite and one chasing seal and
+open to `69464ae` finds a mutation-run repair. Both columns are named now, and each row's test figure
+is measured at the last commit that row names — which is the commit the row named before:
 
-| batch | tasks | commit | tests |
-|---|---|---|---|
-| A | 1–4 — the record AEAD, zeroization, the storage root and class keys, the three handles | `b9a31e2` | 7,523 |
-| B | 5–8 — the four record-key derivations, the stream index, the sender and receiver ratchets | `7a50f80` | 7,560 |
-| C | 9, 9a, 10, 11, 12 — the engine, the `connect/mls` adapter, the session, seal and open | `69464ae` | 7,607 |
-| close | the survivors of all three reviews | `34fc072` | **7,620** |
+| batch | tasks | landed | reviewed through | tests |
+|---|---|---|---|---|
+| A | 1–4 — the record AEAD, zeroization, the storage root and class keys, the three handles | `b9a31e2` | — | 7,523 |
+| B | 5–8 — the four record-key derivations, the stream index, the sender and receiver ratchets | `da0b999` | `7a50f80` | 7,560 |
+| C | 9, 9a, 10, 11, 12 — the engine, the `connect/mls` adapter, the session, seal and open | `095fdd1` | `fe2a151`, `69464ae` | 7,607 |
+| close | the survivors of all three reviews | `34fc072` | — | **7,620** |
 
 Tree clean, `git ls-files` = `git ls-tree -r HEAD` = 1,104, the nine-platform `CGO_ENABLED=0`
 cross-build gate green. **The last figure was re-measured here rather than carried across:**
@@ -1338,6 +1343,16 @@ And there is no stub for it to have been green over: **exactly one `GroupHandle`
 exists anywhere in the package** — `OwnLeafIndex() uint32` is declared twice in
 `connect/messagegroup`, once on the interface and once on `connectMlsHandle`, the real `connect/mls`
 adapter.
+
+**Through `34fc072` that reproduction was the reviewer's method and NOTHING IN THE TREE PERFORMED
+IT.** It is written above as a method rather than as a suite because that is what it was: a property
+held inside one finished session goes red on no commit, and the commit that adds a second key source
+is the only event it exists to catch. **It became three standing tests on 2026-09-07, `connect`
+`10cc20c`**, `messagegroup/keysource_test.go` — the whole-record rebuild over three records, a
+256-bit negative control on the exporter output, and a syntax-tree gate that holds the reproduction's
+independence claim to something that can fail. 14 mutations, no survivors, two of them caught by
+these tests alone; the tree reads 7,623 at `10cc20c`, up 3 from the table above. **Wave 2 is
+untouched by it** — it adds tests and changes no production declaration this plan states.
 
 **WHERE THE TASKS BELOW NOW DISAGREE WITH THE CODE, THE CLASS WAS DERIVED RATHER THAN SAMPLED, and
 that is the part worth keeping.** The class: *every declaration, parameter set or persistence
@@ -1862,6 +1877,12 @@ two different keys from two different class ratchets, and the spec never says ho
 one `stream_index`. **Open item M1-6.** This task builds the two derivations exactly as §5.3 declares
 them — both taking a `recordKey` — and **Task 11 states which key it passes to each**, which is where
 the ruling actually binds.
+
+**M1-6 was RULED 2026-09-07 and this paragraph's instruction is unchanged, which is the point of
+having written it this way.** The ruling is *"`ct_head` is always sealed under the DURABLE class"*,
+and it binds at the **call site** and not here: `RecordAeadHead` and `RecordAeadBody` still each take
+one `recordKey`, and what changed is which ladder Task 11 draws each from. **No wave-1 declaration
+moves and nothing in this task is re-opened** — the landed shape is the ruled shape.
 
 - [ ] **Step 1: Derive the property and write the failing test**
 
@@ -2799,20 +2820,38 @@ Do not re-derive the order; the signatures already carry it.
 
 **Three decisions this task must take and say it is taking.**
 
-**(a) Which `record_key` seals the head.** MASTER §8.1 says *"`ct_head` is always under the **durable**
-class"* and §5.3 hands both AEAD derivations one `record_key[i]`. **Open item M1-6.** Pending the
-ruling: for a `DURABLE` record the two readings coincide, and CP3b's text record is `DURABLE`.
-`SealRecord` must therefore **refuse a non-`DURABLE` class** until M1-6 is ruled, with a typed error
-naming the item — a refusal, not a guess. A `PERMANENT` record sealed under the wrong reading is
-wire-visible and unrecoverable after the A6 freeze.
+**(a) Which `record_key` seals the head. RULED 2026-09-07 — the head takes the DURABLE ladder's
+`record_key[i]`, whatever the record's class; the body takes its own class ladder's.** MASTER §8.1
+says *"`ct_head` is always under the **durable** class"* and §5.3 hands both AEAD derivations one
+`record_key[i]`; the ruling keeps MASTER and amends §5.3 (revision **A-20**). See open item **M1-6**
+for the owner's reason, the accepted cost and the two ledger items the cost is owed to.
 
-**And that refusal blocks a wave-2 task on this plan's own CP3b path, which is why M1-6 is filed
-under *Blocking CP3b* and not under the A6 freeze.** Task 15 consumes this `SealRecord` and must emit
+**How far the refusal is lifted, which is narrower than "M1-6 is ruled" sounds.** `SealRecord` may
+seal **`DURABLE`, `PERMANENT` and `MEDIA`**. It must still **refuse `EPH`** with a typed error — the
+same shape of refusal, naming **ledger item 152** rather than M1-6, because 152 is the item that is
+still open and 152 is what the refusal is now for. The reason is not caution: 152 asked in terms that
+this question not be ruled without it beside it, it was, and its claim is that an `EPH` head sealed
+under `K_durable[n]` — a key destroyed nowhere and delivered to every recovery wrap — outlives the
+timer, the seized device, the device provisioned tomorrow and the seedphrase holder, which falsifies
+MASTER §8.1's next sentence. An `EPH` record sealed under the wrong reading is wire-visible and
+unrecoverable after the A6 freeze exactly as a `PERMANENT` one was.
+
+**And sealing a non-`DURABLE` record is not unblocked by the class ruling alone.** The head ladder is
+now shared across every class of one sender while the shipped reserver's `StreamKey` is **per class**,
+so *which* position of the durable ladder a `PERMANENT` record's head takes is stated in no document —
+ledger items **143** and **169**. A builder that reaches this decision before those are ruled has a
+second guess to make, and it is the same kind of guess: wire-visible, and inside `AAD_head`.
+
+**And that refusal blocked a wave-2 task on this plan's own CP3b path, which is why M1-6 was filed
+under *Blocking CP3b* and not under the A6 freeze — the argument is kept because it is what made the
+ruling urgent, and because it now runs unchanged through ledger item 152 and the `EPH` half.**
+Task 15 consumes this `SealRecord` and must emit
 the ratchet-tree snapshot, which §5.11 step 2 fixes as *"one **PERMANENT**-class record"*. Property 6
 below and mutation 9 are what hold this refusal in place, and Task 15 meets it at its own second
 step. This is a wave-1 refusal blocking a wave-2 task, and it was invisible while M1-6 sat under a heading about a format freeze
-months out. **Rule M1-6 before Task 15 starts.** What Task 15 does in the meantime is stated in
-Task 15's own text; it is not this task's to weaken. Specifically: do **not** carve a `PERMANENT`
+months out. **Rule M1-6 before Task 15 starts** — done, 2026-09-07; the snapshot is a `PERMANENT`
+record and `PERMANENT` is inside the lift, so Task 15 is through this gate. What Task 15 does in the
+meantime is stated in Task 15's own text; it is not this task's to weaken. Specifically: do **not** carve a `PERMANENT`
 exemption into `SealRecord` for the snapshot. The refusal is the only thing standing between an
 unruled reading and a wire-visible record, and one exemption is how a refusal becomes a sentence.
 
@@ -2821,8 +2860,11 @@ changed.** Before that ruling the only non-`DURABLE` record on this plan's CP3b 
 snapshot. After it, **every record the epoch fan-out writes is non-`DURABLE`**: Spec A §5.11 makes the
 device wrap two records — a `PERMANENT` one carrying `pq_secret` and an `EPH(5)` one carrying
 `eph_root` — beside a `PERMANENT` recovery wrap and a `PERMANENT` snapshot. So `SealRecord` refuses
-every record Task 14 builds, not only every record Task 15 builds, and **M1-6 is a precondition of
-both.** The instruction is unchanged and is now worth more: do not carve an exemption for the wrap
+every record Task 14 builds, not only every record Task 15 builds, and **M1-6 was a precondition of
+both.** *(After the 2026-09-07 ruling it is a precondition of neither: three of those four records are
+`PERMANENT` and inside the lift. What is left in front of Task 14 is the `EPH(5)` `eph_root` wrap and
+**ledger item 152**, and in front of both tasks the pin of ledger **143** and **169**.)* The
+instruction is unchanged and is now worth more: do not carve an exemption for the wrap
 either. It is four record kinds now rather than one, and four exemptions is a refusal that has become
 a sentence.
 
@@ -2888,8 +2930,13 @@ asks for the reading to be promoted into §5.11.
   **Property 5 — `ct_body` is exactly its rung, or absent on the blob rung,** and the record
   `EncodeRecord` refuses is the record `SealRecord` refuses, through the same `checkRecord`.
 
-  **Property 6 — a class other than `DURABLE` is refused with the M1-6 sentinel** until M1-6 is
-  ruled, and the refusal names the item.
+  **Property 6 — a class outside the lift is refused, and the refusal names the item that is still
+  open.** As written before 2026-09-07 this read *"a class other than `DURABLE` is refused with the
+  M1-6 sentinel until M1-6 is ruled"*, and that is what landed. After the ruling the property is
+  `DURABLE`, `PERMANENT` and `MEDIA` seal and **`EPH` is refused naming ledger item 152** — a change
+  to the refused set and not to the shape of the assertion. **Wave 1 is not re-opened for it**: the
+  landed refusal is the pre-ruling one, this plan records what the property becomes, and the commit
+  that widens the set is wave 2's.
 
   **Property 7 — every call of `message.AADHead` and `message.AADBody` in production source, on
   either side of the split, passes `RecordAeadAlgId`.** This is the derived-class half of Task 1
@@ -3236,9 +3283,14 @@ and no longer a warning.
 **What is still open, and it still blocks this task.** M1-1's remainder is real and small: the wrap
 body's field list beyond what MASTER §8.2's payload table and MASTER §7's `hybrid_ct` framing already
 fix; **where the signature sits relative to `hybrid_ct` and precisely which octets it covers**; and the
-padding scheme, which is **M1-7**. And **M1-6 now blocks this task too** — see Task 11(a): both records
-this task builds are non-`DURABLE`, so `SealRecord` refuses both until M1-6 is ruled. Do not start
-step 1 against a guess at any of the three.
+padding scheme, which is **M1-7**. And **M1-6 blocked this task too** — see Task 11(a): both records
+this task builds are non-`DURABLE`. **M1-6 was ruled 2026-09-07 and this task is still blocked by the
+refusal**, because the lift reaches `PERMANENT` and `MEDIA` and **not `EPH`**, and one of this task's
+two records is the `EPH(5)` `eph_root` wrap. The item that refuses it is now ledger **152**, not M1-6.
+So the `PERMANENT` `pq_secret` wrap is through the gate and its twin is not, and a fan-out that
+emitted one without the other would break Property 1's *"exactly two"* — which is why this is a block
+on the task and not a partial start. Do not start step 1 against a guess at any of the three, or at
+the `stream_index`-to-ratchet-position pin that the ruling made due (ledger **143**, **169**).
 
 **The caching obligation is this task's, and it is the part most likely to be dropped.** `env_key[k]`
 is computable **only while the group is at epoch k**: `(*Group).Export` reads the current schedule,
@@ -3250,8 +3302,8 @@ does when it has missed the window; the honest answer to the last is that **that
 `storage_root` is unrecoverable**, and this task's opener must say so with a typed failure rather than
 retry.
 
-- [ ] **Step 1 (after M1-1's remainder and M1-6 are ruled): Derive the property and write the failing
-      test**
+- [ ] **Step 1 (after M1-1's remainder is ruled, and after ledger 152 lifts the `EPH` refusal that
+      M1-6's 2026-09-07 ruling did not reach): Derive the property and write the failing test**
 
   **Property 1 — every active device leaf gets exactly TWO wrap records,** one `PERMANENT` and one
   `EPH(5)`, and no leaf gets one of them. The scope question (R3a): the leaves are the ones the
@@ -3435,16 +3487,20 @@ The server half is **already built and already enforcing this**: `msgrepo/store/
 `TheMarkerIsTheOnlyThingThatOpensAnEpoch` and returns `REASON_EPOCH_INCOMPLETE` to a non-exempt submit.
 A client that does not publish wraps cannot send a second record.
 
-**What this task can and cannot emit before M1-6 is ruled, stated because Task 11 refuses — and after
-2026-09-13 the answer is "nothing".** §5.11 step 2's snapshot is *"one **PERMANENT**-class record"*,
-and Task 11(a) makes `SealRecord` refuse every non-`DURABLE` class until M1-6 lands. That used to leave
-this task the device-wrap fan-out to build. It no longer does: after the device-wrap ruling **every
-record this fan-out writes is non-`DURABLE`** — a `PERMANENT` `pq_secret` wrap, an `EPH(5)` `eph_root`
-wrap, a `PERMANENT` recovery wrap and a `PERMANENT` snapshot. So M1-6 is a precondition of the whole
-task and not of one record in it, and it is a precondition of Task 14 as well. Until it
-lands, this task builds the device-wrap fan-out, the `EpochAttachment`, the marker and the ordering,
-and holds the snapshot in the same deferral register as the recovery wraps (below), naming M1-6 as
-the reason. Do not seal it under `DURABLE` "for now": the retention class is on the wire, inside
+**What this task can and cannot emit — RE-STATED 2026-09-07, because M1-6 was ruled and the answer
+changed from "nothing" to "three of its four records".** §5.11 step 2's snapshot is *"one
+**PERMANENT**-class record"*, and Task 11(a) used to make `SealRecord` refuse every non-`DURABLE`
+class until M1-6 landed; after the device-wrap ruling of 2026-09-13 **every record this fan-out writes
+is non-`DURABLE`** — a `PERMANENT` `pq_secret` wrap, an `EPH(5)` `eph_root` wrap, a `PERMANENT`
+recovery wrap and a `PERMANENT` snapshot — so M1-6 was a precondition of the whole task rather than of
+one record in it. **The ruling lifts the refusal for `PERMANENT` and `MEDIA` and not for `EPH`**, so
+three of those four are through the gate and the `EPH(5)` `eph_root` wrap is not; ledger item **152**
+is what refuses it now. The snapshot in particular is **unblocked**. The two blocks that remain on
+this task's own records are ledger **152** for the `EPH(5)` wrap and the `stream_index`-to-ratchet
+pin the ruling made due (ledger **143**, **169**) for any of the three. Until those land,
+this task builds the device-wrap fan-out, the `EpochAttachment`, the marker and the ordering,
+and holds what it cannot seal in the same deferral register as the recovery wraps (below), naming the
+item that refuses each as the reason. Do not seal it under `DURABLE` "for now": the retention class is on the wire, inside
 `AAD_head` and inside the `write_auth` preimage, and a snapshot written at the wrong class is
 unrecoverable after A6 exactly as Task 11(a) says.
 
@@ -3502,7 +3558,9 @@ member, and a row naming a test that package does not declare."* Build the defer
 
 - the **inventory** is derived from the records the builder emitted, never typed;
 - a table of **deferred wrap kinds** is written down, one row per kind, each row naming the task that
-  lands it (`RecoveryTag` → Task 19; the snapshot → M1-6, then this task). **The `RecoveryTag` row's
+  lands it (`RecoveryTag` → Task 19; the snapshot → M1-6, **ruled 2026-09-07, so this row is the
+  first one the deferral register can retire**, then this task; the `EPH(5)` `eph_root` wrap →
+  ledger 152). **The `RecoveryTag` row's
   meaning changed on 2026-09-13**: the recovery wraps are no longer part of the set the marker closes,
   so the row defers a **post-marker** leg of the sequence and not a member of `expected_wrap_count`.
   The conformance assertion below must therefore hold the inventory against the count for the
@@ -4090,9 +4148,10 @@ Tombstones and `COVER` land here too; `pad.go`'s size-bucket ladder is already i
 
 ```
 Wave 0  Task 0, the split                                         (not this plan's commit)
-Wave 1  1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 9a → 10 → 11 → 12     COMPLETE — b9a31e2, 7a50f80,
-                                                                  69464ae, 34fc072; 7,620 tests
-Wave 2  13 → [14: needs M1-1's remainder + M1-6] → [15: needs M1-6] → [16: M1-2 deferred, not blocking] (CP3b)
+Wave 1  1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 9a → 10 → 11 → 12     COMPLETE — seven commits,
+                                                                  b9a31e2..34fc072; 7,620 tests
+Wave 2  13 → [14: M1-1's remainder + ledger 152] → [15: UNBLOCKED, M1-6 ruled] → [16: not blocking] (CP3b)
+        both of 14 and 15 also owe the head-ladder position: ledger 143 (now due) and 169
 Wave 3  17, 18, 19, 20, 21 | 22 → 23 | 24                          (A6 freeze; the three groups are parallel)
 ```
 
@@ -4127,11 +4186,16 @@ landed, and are the largest block that can run entirely in parallel with waves 1
   production is not ruled, and CP3b does not wait on it: ledger 44a's gated test-only hand-off carries
   it, under the proviso Task 16 states. That proviso is a **requirement on whoever builds the hand-off**,
   not a note.
-- **M1-6 got bigger, and this is the schedule fact that changed.** It used to block Task 15's snapshot
-  alone. After the device-wrap ruling **every record the fan-out writes is non-`DURABLE`** — a
-  `PERMANENT` `pq_secret` wrap, an `EPH(5)` `eph_root` wrap, a `PERMANENT` recovery wrap and a
-  `PERMANENT` snapshot — so Task 11(a)'s refusal now stands in front of **Task 14 as well as Task 15**.
-  M1-6 is the one ruling still on the critical path.
+- **M1-6 got bigger, and then it was RULED — 2026-09-07 — and what is left of it is smaller than what
+  it was and is not the same item.** It used to block Task 15's snapshot alone. After the device-wrap
+  ruling **every record the fan-out writes is non-`DURABLE`** — a `PERMANENT` `pq_secret` wrap, an
+  `EPH(5)` `eph_root` wrap, a `PERMANENT` recovery wrap and a `PERMANENT` snapshot — so Task 11(a)'s
+  refusal stood in front of **Task 14 as well as Task 15**. The ruling — *"`ct_head` is always sealed
+  under the DURABLE class"* — lifts that refusal for `PERMANENT` and `MEDIA`, which is three of those
+  four records and all of Task 15's. **Task 15 is unblocked. Task 14 is not**, and the item that holds
+  it is now **ledger 152** rather than M1-6: the `EPH(5)` wrap is the one record the lift does not
+  reach. Two ledger items the ruling made due — **143** and **169**, the `stream_index`-to-ratchet
+  pin — are on the same path and are the schedule fact to watch next.
 
 Everything in wave 1 is buildable and testable without any of them, and a wave-1-complete tree is a
 `connect/messagegroup` that seals and opens records under the real key schedule inside one process —
@@ -4147,7 +4211,10 @@ progress, because the Definition of done exists to stop a leg being lost silentl
 records under the real key schedule **inside one process**. It **cannot join a group** —
 `JoinFromWelcome` refuses, and the refusal names what is missing rather than describing it, because
 `connect/mls` keeps a minted key package's signature private half private. It seals **only** the
-`DURABLE` class; the other three are refused with `ErrRetentionClassUnruled` pending **M1-6**. It has
+`DURABLE` class; the other three are refused with `ErrRetentionClassUnruled`, which named **M1-6**
+pending its ruling. *(M1-6 was ruled 2026-09-07 and no code changed for it: the tree at `10cc20c`
+still refuses all three, and widening the refusal to `PERMANENT` and `MEDIA` only — with `EPH` left
+refused under ledger 152 — is wave 2's commit and not wave 1's.)* It has
 **no durable store** — `TestNoProductionDeclarationOfThisPackageImplementsTheReserver` holds that as
 a rule and not as an absence. And **it never touches a message server**: every wave-1 path stops at a
 `*message.Record` in memory. There is **no sender authentication in the record layer** — any group
@@ -4295,9 +4362,16 @@ Tasks 12 and 16; and `SPEC-LEDGER.md` gains an edit-log entry per this repositor
   one commit in the `connect` tree, wave 0 in the execution order, and this plan owns none of it.
   What this plan does own is being written for the tree that commit produces rather than the one it
   replaces, so that no task lands a key schedule in the package the server links.
-- **It does not freeze the wire format.** **Six** of the 50 open items below are marked
-  *wire-visible* — M1-6, M1-7, M1-8, M1-24, M1-27 and M1-33 — and each must be ruled before A6
-  closes. That is a count of the items carrying the label, not a claim that the other 44 are
+- **It does not freeze the wire format.** **Six** of the 50 open items below carry the
+  *wire-visible* label — M1-6, M1-7, M1-8, M1-24, M1-27 and M1-33 — and **four of the six still need
+  a ruling before A6 closes: M1-7, M1-24, M1-27 and M1-33.** *(**M1-8** was ruled 2026-09-07 —
+  `LP(leaf_index)` is the four-octet reading — and the same commit that ruled it left it standing in
+  this list, so a reader counting A6 blockers got six where five remained. **M1-6** was ruled later
+  the same day. The label stays on both, because it is a property of the question and not of its
+  status; what was wrong was the sentence saying each of the six must still be ruled. Note that
+  ruling M1-6 did not take an A6 blocker off the board so much as move it: **ledger item 152** blocks
+  A6 for the same head ciphertext, and it is not an m1 item.)* That is a count of the items carrying
+  the label, not a claim that the other 44 are
   format-safe (it read 39 until the 2026-09-07 pass, which is 45 minus six — the item total when the
   sentence was written, and it was not updated by the four passes that added items since): M1-1, M1-2 and M1-6 change bytes on the wire too, and the first two are labelled by
   what they block instead. This plan files all of them; it decides none. The three items added on
@@ -4418,7 +4492,8 @@ rather than resolved, not four.
 MASTER §8.2's payload table and MASTER §7's `hybrid_ct` framing already fix; **where the signature sits
 relative to `hybrid_ct` and precisely which octets it covers**; and the padding scheme, which is
 **M1-7**. *Blocks:* Task 14. **No longer blocks:** Task 16, and therefore no longer CP3b by this route
-— M1-6 does. *A ruling must state:* the three items in the sentence before this one, and nothing more;
+— M1-6 did, until it was ruled 2026-09-07; what holds that route now is ledger item **152**, the `EPH`
+half M1-6's ruling does not reach. *A ruling must state:* the three items in the sentence before this one, and nothing more;
 the rest of this item is answered. (**2026-09-15:** two further values the rulings do not state were
 added to Spec A §5.11 (5) and are **Task 19's** rather than Task 14's — `target_id`, which is defined
 nowhere in the corpus and is an input to `wrap_key`, and the inner nonce of **144**. Neither
@@ -4514,8 +4589,58 @@ exactly one `mls.Group`" where §6 and Gate 5 require a `GroupHandle`. *Blocks:*
 so nothing is blocked — but the design is this plan's and not the spec's, and §5.6's write-once
 guarantee has no other injection point.
 
-**M1-6 — `ct_head`'s class contradicts §5.3's shared `record_key`, and the refusal that follows
-blocks a wave-2 task.** MASTER §8.1: *"`ct_head` is always under the **durable** class, since it is
+**M1-6 — RULED 2026-09-07: `ct_head` is always sealed under the DURABLE class, whatever the
+record's own retention class.** The item is kept whole below, because what it stated is still what a
+builder meets and because half of what it filed is not what the ruling answers.
+
+**The ruling.** MASTER §8.1 is right as written and §5.3 is the document that changes:
+`RecordAeadHead` takes the DURABLE ladder's `record_key[i]` and `RecordAeadBody` takes the record's
+own class ladder's, for every retention class. Spec A §5.3 is amended to carve the head out
+(revision **A-20**).
+
+**The owner's reason, recorded because this item asked for a rule and not a preference.** The head is
+always retained, so it is keyed by the class that is always retained. Under §5.3's reading — one
+`record_key[i]` shared by head and body — an `EPH` record's head would be keyed under a ratchet whose
+entire purpose is to be destroyed on schedule, so a **retained** header becomes unopenable at exactly
+the moment the body is meant to vanish. That is the failure MASTER §8.1 exists to prevent.
+
+**The accepted cost, written down rather than glossed.** A non-`DURABLE` record now draws its head and
+its body from **two different ratchets**, so one record's single `stream_index` covers **two ratchet
+positions**. Ledger item **143** already named that pin as owed; this ruling is what makes it **due**,
+and it is now a precondition of sealing a non-`DURABLE` record rather than a discipline gap filed for
+later. Ledger item **169** is the concrete instantiation the ruling creates and is the reason the pin
+cannot take its own obvious form.
+
+**What it unblocks, and exactly how far.** Task 11(a)'s refusal is lifted for **`PERMANENT` and
+`MEDIA`** — and therefore **Task 15**, whose ratchet-tree snapshot §5.11 step 2 fixes as *"one
+**PERMANENT**-class record"*. It is **not** lifted for **`EPH`**, and that is derived rather than
+withheld: see below.
+
+**WHAT THE RULING DOES NOT REACH, AND THIS IS THE PART A READER MUST NOT SKIP.** Ledger item **152**
+(`M-4`, dispositioned 2026-09-20) files the same question with a wider argument and says in terms that
+*"item 128 must not be ruled without this item beside it"* — item 128 is this item's ledger twin — and
+names the exact sentence this ruling is: *"a ruling made on item 128's own terms — `ct_head` is
+DURABLE, that settles the ambiguity, `SealRecord` may stop refusing — is the reading that ships M-4's
+harm permanently."* That did not happen; the ruling was made on this item's terms. What item 152 holds
+is that `K_durable[n]` descends from `storage_root[n]`, is destroyed nowhere, and is delivered to every
+member's recovery wrap for the life of the group — so an `EPH` record's metadata (the MLS
+`PrivateMessage` header, `type`, `sent_at`, sender) sealed under it survives the timer, a seized
+device, a device provisioned tomorrow and a seedphrase holder, which falsifies MASTER §8.1's own next
+sentence and §12.4's required UI string. **And the ruling's stated premise is false for exactly that
+class:** *"the head is always retained"* holds for `PERMANENT`, `DURABLE` and `MEDIA` and does not
+hold for `EPH` — Spec B §7.2 sets `ct_head = NULL` for `EPH(1..5)` at `prune_after`, which is why item
+152 calls the erasure operational and the guarantee cryptographic. So `EPH` keeps Task 11(a)'s
+refusal, under item 152 rather than under this item, and **M1-6 no longer blocks the A6 freeze while
+item 152 still does.**
+
+*Blocks after the ruling:* nothing in wave 1; `EPH` sealing, through ledger item 152; and the
+`stream_index`-to-ratchet-position pin, through ledger items 143 and 169. Task 14 stays blocked on
+M1-1's remainder and on its own `EPH(5)` `eph_root` wrap.
+
+*The item as it was filed, which is what the ruling answers half of:*
+
+`ct_head`'s class contradicts §5.3's shared `record_key`, and the refusal that follows
+blocks a wave-2 task. MASTER §8.1: *"`ct_head` is always under the **durable** class, since it is
 always retained."* §5.3 gives `RecordAeadHead` and `RecordAeadBody` the same `record_key[i]`. For a
 `DURABLE` record the two readings coincide and CP3b's text record cannot tell them apart; for
 `PERMANENT`, `MEDIA` and `EPH` they are two keys from two ratchets, and one record then has one
