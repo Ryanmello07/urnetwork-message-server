@@ -3809,6 +3809,80 @@ fourteen are dispositioned below.
      directions.** *Blocks:* nothing mechanically. **Whether any of this becomes a gate is the owner's
      and is not ruled here.** Found 2026-09-20, while dispositioning r3's majors.
 
+167. **THE EPOCH-ZERO HANDLE KEY'S INVERSE MISTAKE IS ACCEPTED IN SILENCE AND ROUTES THE DEVICE ONTO
+     A HANDLE NO PEER COMPUTES. FILED, NOT RULED.** The ruling that produced it is m1 open item
+     **M1-4**, 2026-09-07, and Spec A §5.3 revision **A-19** carries the amendment; this item is the
+     half the amendment does not close.
+
+     **What was ruled.** `connect/messagegroup`'s `GroupSession` persists **`group_handle_key`** —
+     `HKDF-Expand(storage_root[0], "gh/v1", 32)` — for the life of a group, and **not**
+     `storage_root[0]`. MASTER §8's clause is about what a member *holds* and it names the key;
+     `storage_root[0]` is epoch zero's whole key schedule, and keeping it forever in order to recover
+     a public routing identifier every member can already compute is strictly worse. The defect that
+     forced the ruling was internal: `installEpochOnLoop` took its argument verbatim as
+     `group_handle_key` on one branch and expanded a root through `GroupHandleKey` on the other,
+     while the parameter's name, the constructor's doc and `handle.go` all said *"storage root"*.
+
+     **The inverse is undefended, and it is undefended for a reason rather than by oversight.** A
+     caller who follows §5.3 as it stood — hold `storage_root[0]`, it is the only value §5.3's block
+     takes — and hands `NewGroupSession` that root where it wants the key is **accepted in silence**.
+     Both values are exactly **32 octets**, so `ErrGroupHandleKeyLength`'s width refusal passes;
+     `keyScheduleExpand` produces a well-formed key from either; every key of the session then
+     derives cleanly; every round trip that member makes with **itself** succeeds. What breaks is
+     only visible from another member: the device writes on a `sender_handle` no peer computes and no
+     peer's `ReceiverRatchetKey` matches, so its records route nowhere and its stream is invisible.
+     Reproduced by the batch-C review at `sender_handle dc272587…` where the group computes
+     `3e774ae1…`.
+
+     **Why no refusal is proposed here.** There is no value-level check this layer can make: the two
+     candidates are the same width, both are uniformly random, and the key is by construction an
+     expansion of the root, so "is this the expansion or the pre-image" is not answerable from the 32
+     octets alone. Three shapes exist and each costs something: (a) a **typed wrapper** —
+     `GroupHandleKey` returns a named type the constructor demands, which makes the mistake a compile
+     error and makes the persisted value's encoding a wire-adjacent decision for whoever writes the
+     durable store; (b) a **self-check at construction**, only available at epoch 0, where the
+     session can expand the current root itself and compare — it catches the founding device and
+     nothing restored; (c) **leave it and document it**, which is what shipped. *Blocks:* nothing
+     mechanically today, because the only caller is a test. It becomes real the moment `s2` writes
+     the durable store, which is the first code that decodes this value from disk. Found 2026-09-07,
+     verifying m1 wave 1's batch-C fix pass.
+
+168. **THE SHIPPED `StreamIndexReserver` IS KEYED ON A `StreamKey` AND BOTH DOCUMENTS THAT DECLARE IT
+     STILL SAY `groupId`. FILED, NOT RULED — and it is NOT open item M1-5.**
+
+     **What shipped**, `connect` `7a50f80`, `messagegroup/streamindex.go`:
+
+     ```go
+     Reserve(stream StreamKey, index uint64) error
+     HighWater(stream StreamKey) (uint64, error)
+     type StreamKey struct { GroupId [32]byte; SenderHandle [16]byte; RetentionWire byte }
+     ```
+
+     **What the documents say.** Spec A §5.6's own Go block declares `Reserve(groupId []byte, index
+     uint64) error` and `HighWater(groupId []byte) (uint64, error)`. Spec A §8.2's `MessageStore`
+     declares `ReserveStreamIndex(groupId []byte, index uint64) error` and
+     `StreamHighWater(groupId []byte) (uint64, error)` — the same coarse key, on the fourteen-method
+     interface `sdk`'s sqlite implementation owes and whose size A8 makes load-bearing.
+
+     **Why it diverged, measured rather than argued.** A sender ratchet is per `(class_key, leaf)`,
+     because `record_key[0]` binds the class key, so one group has one ratchet **per retention
+     class**. Over a `groupId`-keyed reserver the durable and the permanent ladders of one group
+     reserve out of one counter: measured on the shape the plan declared, the durable ratchet took
+     index 1 and every later call on the permanent ratchet answered `ErrStreamIndexConsumed`
+     **forever** with its position stuck, so at most one retention class per group could ever send.
+     A permanent wedge, and invisible to any test that builds one ratchet.
+
+     **Why this is not M1-5, and the distinction is the whole item.** M1-5 asks which fields a
+     durable **store row** is identified by, and it is the one piece of state on this project that
+     cannot be migrated by recomputation, so it is the owner's. `StreamKey` fixes which **stream a
+     reservation belongs to** — the only half in `connect/messagegroup`'s reach — and the flattening
+     from the one to the other is the implementer's. Neither document has been amended, because
+     amending §5.6's block would state a keying that M1-5 has not ruled, and this project's rule is
+     that a divergence is recorded rather than absorbed. *Blocks:* nothing today; `s2` inherits it
+     together with M1-5, and the two must be ruled in one sitting or the store row and the
+     reservation will be keyed by different things. Found 2026-09-07, deriving m1's wave-1
+     contradictions against the landed package.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
@@ -7331,3 +7405,153 @@ of which publishes its exclusion rule rather than leaving the gap for the next r
 `connect`'s branch (README:43, PROGRESS.md:19) and not this repository's, so the work was done on
 `main` at `10f0a39` as every prior pass has been. **`connect` was read and never written**, which
 `git -C ../connect status --porcelain` confirms empty.
+
+---
+
+### 2026-09-07 — m1 wave 1 recorded, two owner rulings and one the code made written in, and the class of plan statements the landed package refutes derived rather than sampled
+
+**Change:** `docs/plans/2026-09-04-slice1-m1-message-crypto.md`, `docs/specs/2026-08-12-spec-a-protocol-sdk-connect.md`
+(revision **A-19**, §5.3 only), this ledger (**two** new items, **167** and **168**) and `PROGRESS.md`.
+**No Go file changed. `connect` was read and never written** — `git -C ../connect status --porcelain`
+empty before, during and after, including across the mutation run below, which goes through a
+`go test -overlay` rather than through the working tree. **This repository is on `main`**; the brief
+named `beta/message`, which is `connect`'s branch and not this one's, exactly as the 2026-09-20 entry
+records of its own brief.
+
+**Why:** m1 wave 1 is complete in `connect` — four reviewed commits, `b9a31e2`, `7a50f80`, `69464ae`,
+`34fc072` — and three rulings had accumulated with no home: two the owner made, and one the fix pass
+made that changes what a client must persist.
+
+---
+
+**THE THREE RULINGS.**
+
+**M1-8 — RULED. `LP(leaf_index)` is the four-octet big-endian reading**, `00 00 00 04` followed by
+the index, eight octets, wherever `LP` wraps this integer. The owner's reasons are recorded because
+the item asked for a *rule* and not a preference: the width is fixed so no encoder ambiguity exists;
+it matches `wrap_target_handle`, which already writes `u32(leaf_index)` raw at that width; and the 3
+octets it costs over a minimal encoding are invisible against a 4,112-octet size bucket. **A
+confirmation, not a change** — it is what landed, confined to `leafIndexLP` and KAT-pinned. **It no
+longer blocks the A6 freeze**, which it was filed as blocking. Spec A still owes §5.3's missing
+`SenderHandle` formula and that half is untouched.
+
+**M1-16 — RULED. `StorageRoot` delegates to `mls.CryptoProvider.Extract(salt, ikm)`** — shape (a),
+the item's own labelled recommendation. The reason recorded is about the guardrail rather than the
+call: the tree keeps exactly one direct `crypto/hkdf` extraction, so **Gate A needed no allow-list
+widening at all**, and the rejected alternative is worse than one row — `hkdfAllowedPathsFor`
+concatenates `hkdfExtractAllowedPaths` into the allowance for **every** needle, so one path added
+there excuses `hkdf.Extract(`, `hkdf.Expand(` **and** `hkdf.Key(` together, and `hkdf.Key` is the one
+the gate's own comment calls the worst to transpose. **G1 confirmed by execution, and the number is
+six rather than the four the brief states** — re-measured here rather than carried:
+
+```
+sed 's|Extract(salt, ikm)|Extract(ikm, salt)|' messagegroup/keyschedule.go > <copy outside the tree>
+go test -count=1 -overlay <overlay mapping keyschedule.go to the copy> ./messagegroup/ -v
+```
+
+`TestStorageRootKAT`, `TestSwappingTheStorageRootArgumentsChangesTheRoot`,
+`TestTheThreeClassKeysAreDistinctAndPinned`, `TestTheThreeHandleDerivationsAreDistinctAndPinned`,
+`TestRecordKeyLadderKAT`, `TestRecordKeyZeroTakesTheFourOctetReadingOfLP`. The confinement is
+structural as well as derived: `crypto/hkdf` is on `connect/messagegroup`'s **forbidden**-import list,
+so the package cannot spell the library's argument order at all.
+
+**The epoch-zero handle key — ruled by the fix pass, and it changes what a client must persist, which
+is why it is here and not only in a commit message.** `installEpochOnLoop` took its argument verbatim
+as `group_handle_key` on one branch and expanded a root on the other, while the parameter's name, its
+doc and `handle.go` all said *"storage root"*; both values are 32 octets, so nothing refused the
+disagreement. The pass ruled **the parameter IS `group_handle_key`**, renamed it
+`groupHandleKeyEpoch0` throughout and added a typed width refusal. Its argument is preserved in
+**M1-4**: MASTER §8's clause is about what a member *holds* and names the key, while `storage_root[0]`
+is epoch zero's whole key schedule, so persisting it for the life of the group to recover a public
+routing identifier every member can compute is strictly worse. **Spec A §5.3 is amended (A-19)**,
+because it said nothing about persistence and its only route left a reader holding the root. **The
+inverse is undefended and is now item 167**: a caller following §5.3 as it stood is accepted in
+silence and routes on a handle no peer computes.
+
+---
+
+**AND THE CLASS OF PLAN STATEMENTS THE LANDED PACKAGE REFUTES, DERIVED RATHER THAN TAKEN FROM THE
+BRIEF — which is the part of this pass worth reusing.** The brief named three; deriving found
+**eight**. The class: *every declaration, parameter set or persistence obligation m1 states about a
+wave-1 symbol, held against `connect/messagegroup` at `34fc072`.* Enumerated by pulling every
+`func` / `type` / `var Err` line out of the wave-1 task span **and** out of *Interfaces produced by
+this plan* — the two places a consumer writes its `Consumes` block against, so a stale one is a
+consumer that does not compile — and holding each against the landed declaration.
+
+**The six the brief did not name, and what each would have cost a reader:**
+
+- **Task 4's epoch-zero paragraph** sends a reader to persist the **first storage root**. It is the
+  same ruling as Task 10's, one task earlier and stated more definitely, and a sweep keyed on Task
+  10's wording would have walked past it.
+- **`WrapTargetHandle(… epoch uint64 …)`**, in the task and in the produced block, shipped as
+  `contentEpoch`. **A name and not a shape**, so this plan's own R2 lets it through — which is the
+  reason it is listed: `handle.go` argues the name *is* the mechanism, and a caller reaching for
+  `RecordHeader.Epoch` gets a well-formed handle no fetcher resolves, with no error anywhere.
+- **Task 7's `NewSenderRatchet` and `Next`** were two shapes behind: the constructor gained a
+  `StreamKey`, a reserver and an error, and `Next` took M1-13's three-valued form under this task's
+  own instruction. **M1-13 is annotated and still unruled** — implementing a shape a plan told you to
+  implement is not a ruling.
+- **Task 8's `ReceiverRatchet`** shipped with a constructor, a `PeekFor`/`Commit` split, a
+  `ReceiverRatchets` table and a `ReceiverRatchetKey`. **M1-14 is annotated and still open** — the
+  spec still gives the type one method.
+- **Three of the four blocks in *Interfaces produced by this plan*** were stale, including the one a
+  consumer needs most: `SealRecord` and `OpenRecord` are declared over unqualified `Record`,
+  `RetentionClass` and `ServerAttachment`, and after the split every one of those is
+  `connect/message`'s.
+- **Tasks 8 and 10 say the ratchet tables are "keyed per M1-11's ruling"** and there is no ruling.
+  Wave 1 implemented **both** of M1-11's readings, in two places: the receiver table is keyed on
+  `(sender_handle, retention wire)` — the prose reading — and the ratchet's key material binds the
+  **leaf** — the declaration's. They agree until a device is removed and re-added at a different
+  leaf, which is the one case M1-11 exists for. **M1-11 stays open**, annotated, because a split that
+  happens to agree in the common case reads exactly like a decision and is not one.
+
+**Two members the class caught that no ruling covers are FILED rather than fixed**, because fixing
+either means answering a question the owner has not been asked: **167** (the epoch-zero inverse) and
+**168** (the shipped `StreamIndexReserver` is keyed on a `StreamKey` while Spec A §5.6 **and** §8.2
+both still declare `groupId`). **168 is deliberately not M1-5**: M1-5 rules which fields a durable
+*store row* is identified by and is the one piece of state that cannot be migrated by recomputation;
+`StreamKey` fixes which *stream a reservation belongs to*, which is the only half in this package's
+reach. Amending §5.6's block would state a keying M1-5 has not ruled, so neither spec is amended and
+the divergence is recorded instead.
+
+---
+
+**WHAT THIS PASS DID NOT DO, AND WHY, because a brief's claims are claims too.**
+
+**The brief says four workstreams have closed since `PROGRESS.md`'s last entry and none is in it.
+Two of the four are already there, in that entry.** Its heading names *"the store on real
+PostgreSQL"*, its **What landed** list carries *"The pgx store passes the contract against real
+PostgreSQL — 241 passing, both implementations reporting 'ran the contract'"*, and its defect-class
+section already carries three of the five p7 findings the brief lists as new — the `RefHash` panic
+class, the unvalidated Update leaf and the commit that removes its own committer. `git log -- store/`
+returns nothing after 2026-08-30. So **the store workstream is not re-narrated** in today's entry;
+what is new about p7 is written as new and what was already recorded is named as already recorded.
+
+**The "51-subtest contract" figure in the brief is stale and is not republished.** It comes from open
+item **28**, dated 2026-08-30. `store/contract.go` at HEAD has **72** `t.Run` sites; the 2026-09-02
+`PROGRESS.md` entry publishes **241 passing** instead. Item 28 is left as written, because it is a
+record of what was decided on the day and not a live count.
+
+**The document calendar has drifted ahead of the tree's, and today's rows say so rather than
+matching it.** The four revision rows above A-19 read 2026-09-13 to 2026-09-18 and the commits that
+landed them are dated 2026-09-05 and 2026-09-06; the entry above this one is headed 2026-09-20 and
+its commit is `a13aad8`, 2026-09-06. Today is **2026-09-07** by the same clock that dates every
+commit in both repositories, so that is the date on A-19, on items 167 and 168, on this entry and on
+`PROGRESS.md`'s. It sorts last by position and not by date, and no earlier date was changed.
+
+---
+
+**Verification.** `go build ./...` clean and `go test ./...` green **before and after**.
+`go test ./ -run TestThePlanLinter` **`ok` before and after** — and it was not vacuous in between:
+the intermediate run failed check 3d, fatally, on seven citations of items **167** and **168** written
+before the items existed, and went green when they were added. That is the check doing exactly what
+the 2026-09-15 pass built it to do, on the first pass to cite a new ledger item since. `git ls-files`
+equals `git ls-tree -r HEAD --name-only` at **102**, checked before the commit rather than assumed.
+The four `connect` commits, the 1,104-file tree and the **7,620** test figure were re-measured rather
+than carried: `go test -count=1 ./message/... ./messagegroup/... ./mls/... -v` at `34fc072` counts
+**7,620 PASS, 0 FAIL, 0 SKIP**, which is the Definition of done's own three-root invocation.
+`OwnLeafIndex() uint32` is declared exactly twice in `connect/messagegroup`, on the interface and on
+`connectMlsHandle`, so the brief's *"there is no stub handle"* holds by measurement. **The
+byte-for-byte reproduction is recorded as the reviewer's method and was NOT re-run here** — it is a
+review artefact and no test in the tree performs it; what the tree holds instead is the
+`chacha20poly1305` reconstruction of the AEAD itself (`recordaead_test.go`) and the KAT sets.

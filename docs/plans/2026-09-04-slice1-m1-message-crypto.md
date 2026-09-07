@@ -669,20 +669,26 @@ func RecordAeadBody(recordKey []byte) (key, nonce []byte)
 
 ```go
 // connect/messagegroup/handle.go — §5.3 and §5.11
+// GroupHandleKey takes the ROOT and is called ONCE, at group creation; what a member persists for
+// the life of the group is its ANSWER. M1-4, ruled 2026-09-07, and Spec A §5.3 revision A-19.
 func GroupHandleKey(storageRootEpoch0 []byte) []byte
 func SenderHandle(groupHandleKey []byte, leaf uint32) [16]byte
-func WrapTargetHandle(groupHandleKey []byte, epoch uint64, leafIndex uint32) [16]byte
+func WrapTargetHandle(groupHandleKey []byte, contentEpoch uint64, leafIndex uint32) [16]byte
 ```
 
 ```go
-// connect/messagegroup/streamindex.go — §5.6. The interface's KEYING is Open item M1-5.
-type StreamIndexReserver interface{ /* Reserve, HighWater */ }
+// connect/messagegroup/streamindex.go — §5.6. The STORE ROW's keying is Open item M1-5, still open.
+// The RESERVATION's key shipped as StreamKey and diverges from §5.6 and §8.2 — ledger item 168.
+type StreamIndexReserver interface{ /* Reserve(StreamKey, uint64), HighWater(StreamKey) */ }
+type StreamKey struct{ /* GroupId [32]byte; SenderHandle [16]byte; RetentionWire byte */ }
 ```
 
 ```go
 // connect/messagegroup/ratchet.go — §5.5
-type SenderRatchet struct{ /* stateLock-guarded */ }
-type ReceiverRatchet struct{ /* stateLock-guarded */ }
+type SenderRatchet struct{ /* stateLock-guarded; Next is three-valued, M1-13 */ }
+type ReceiverRatchet struct{ /* stateLock-guarded; PeekFor derives, Commit moves the head */ }
+type ReceiverRatchets struct{ /* the table, and the tree-wide retained bound M1-12 recommends */ }
+type ReceiverRatchetKey struct{ /* SenderHandle [16]byte; RetentionWire byte */ }
 ```
 
 ```go
@@ -705,10 +711,18 @@ func NewConnectMlsEngine(...) (GroupEngine, error)
 ```
 
 ```go
-// connect/messagegroup/session.go, seal.go — §5.2
+// connect/messagegroup/session.go, seal.go — §5.2. The record types are connect/message's after
+// the split, so every Record, RetentionClass and ServerAttachment below is message-qualified.
 type GroupSession struct{ /* one GroupHandle, one command loop */ }
-func (self *GroupSession) SealRecord(...) (*Record, error)
-func (self *GroupSession) OpenRecord(record *Record) (headPlain, bodyPlain []byte, err error)
+func NewGroupSession(handle GroupHandle, pqSecret []byte, groupHandleKeyEpoch0 []byte,
+    reserver StreamIndexReserver, nowMs func() int64, serverNonce []byte) (*GroupSession, error)
+func (self *GroupSession) SealRecord(...) (*message.Record, error)
+func (self *GroupSession) OpenRecord(record *message.Record) (headPlain, bodyPlain []byte, err error)
+func (self *GroupSession) TrackSender(...) error   // installs a peer's receiver ratchet
+func (self *GroupSession) AdvanceEpoch(pqSecret []byte) error
+func (self *GroupSession) SenderHandle() ([16]byte, error)
+func (self *GroupSession) Epoch() (uint64, error)
+func (self *GroupSession) Close() error
 ```
 
 ```go
@@ -1295,6 +1309,68 @@ package messagegroup
 
 # Wave 1 — the CP3b prefix, unblocked
 
+**WAVE 1 IS COMPLETE, and the thirteen tasks below — 1 through 12 and 9a — are now a record rather
+than a plan.** It landed in
+`connect` on `beta/message` in four commits, each adversarially reviewed:
+
+| batch | tasks | commit | tests |
+|---|---|---|---|
+| A | 1–4 — the record AEAD, zeroization, the storage root and class keys, the three handles | `b9a31e2` | 7,523 |
+| B | 5–8 — the four record-key derivations, the stream index, the sender and receiver ratchets | `7a50f80` | 7,560 |
+| C | 9, 9a, 10, 11, 12 — the engine, the `connect/mls` adapter, the session, seal and open | `69464ae` | 7,607 |
+| close | the survivors of all three reviews | `34fc072` | **7,620** |
+
+Tree clean, `git ls-files` = `git ls-tree -r HEAD` = 1,104, the nine-platform `CGO_ENABLED=0`
+cross-build gate green. **The last figure was re-measured here rather than carried across:**
+`go test -count=1 ./message/... ./messagegroup/... ./mls/... -v` at `34fc072` counts **7,620 PASS, 0
+FAIL, 0 SKIP**, which is the Definition of done's own three-root invocation and not a narrower one.
+
+**The verification that closed the wave is the METHOD and not the result, which is why it is written
+down here.** The final reviewer derived the class as *"every octet used as an AEAD key, an AEAD nonce
+or a MAC key by `SealRecord` or `OpenRecord`"* and tested it by **exact byte-for-byte reproduction**:
+from `mls.Group.Export("URmessage/v1/storage", nil, 32)` plus the injected `pq_secret` and
+`server_nonce` **alone**, using `chacha20poly1305` directly rather than this package's sealer, it
+rebuilt `ct_body` (272 octets — the 256-octet rung plus one tag), `ct_head` (34 octets), `write_auth`
+and `sender_handle` exactly. Any second key source, any constant and any entropy draw anywhere on the
+seal path breaks that reproduction; a coverage argument over the same path cannot say the same thing,
+because a path can be covered by a test that agrees with the implementation about a wrong value.
+And there is no stub for it to have been green over: **exactly one `GroupHandle` implementation
+exists anywhere in the package** — `OwnLeafIndex() uint32` is declared twice in
+`connect/messagegroup`, once on the interface and once on `connectMlsHandle`, the real `connect/mls`
+adapter.
+
+**WHERE THE TASKS BELOW NOW DISAGREE WITH THE CODE, THE CLASS WAS DERIVED RATHER THAN SAMPLED, and
+that is the part worth keeping.** The class: *every declaration, parameter set or persistence
+obligation this document states about a wave-1 symbol, held against `connect/messagegroup` at
+`34fc072`.* Enumerated by pulling every `func` / `type` / `var Err` line out of the wave-1 span **and**
+out of **Interfaces produced by this plan** — the two places a consumer writes its `Consumes` block
+against — and holding each against the landed declaration. **Nine members. Three were named in the
+brief that ordered this pass; six were not**, which is the reason for deriving instead of taking the
+list:
+
+1. **Task 4's epoch-zero sentence** — *derived.* It says the group's first **storage root** is what
+   is persisted. Ruled otherwise; see **M1-4**.
+2. **Task 4's and the produced block's `WrapTargetHandle(… epoch uint64 …)`** — *derived, and it is a
+   NAME rather than a shape, so this plan's own R2 lets it through.* That is exactly why it is
+   listed: `handle.go` argues the name **is** the mechanism — *"WHICH epoch is the one thing about
+   this function a caller can get wrong, so the argument is named for it"* — and a caller reaching for
+   `RecordHeader.Epoch` produces a well-formed handle no fetcher resolves, with no error anywhere.
+3. **Task 6's reserver parameter set** — *named in the brief.* `StreamKey`, not `groupId`.
+4. **Task 7's `NewSenderRatchet` and `Next`** — *derived.* Both are two shapes behind the code.
+5. **Task 8's `ReceiverRatchet` surface** — *derived.* A constructor, a table and three methods the
+   block does not carry.
+6. **Task 10's "the epoch-zero storage root, *or* the `group_handle_key` derived from it"** —
+   *named in the brief.* The "or" is ruled.
+7. **The three stale blocks in Interfaces produced by this plan** — *derived.*
+8. **Task 8's and Task 10's "keyed per M1-11's ruling"** — *derived.* There was no ruling; wave 1
+   implemented **both** of M1-11's readings, in two different places. **M1-11** is annotated with
+   what that does and does not settle.
+9. **The wave-1 row of the execution order and the Definition of done** — *named in the brief.*
+
+Each is annotated where it stands rather than rewritten, per this repository's convention. **Two
+things the class caught that no ruling covers are filed rather than fixed:** the reserver's key
+(**ledger item 168**) and the epoch-zero inverse (**ledger item 167**).
+
 ## Task 1: The record AEAD, and the `alg_id` nothing in the package can name
 
 **Files:**
@@ -1657,8 +1733,19 @@ func GroupHandleKey(storageRootEpoch0 []byte) []byte
 // sender_handle = HKDF-Expand(group_handle_key, "sh/v1" ‖ LP(leaf_index), 16)
 func SenderHandle(groupHandleKey []byte, leaf uint32) [16]byte
 // wrap_target_handle = HKDF-Expand(group_handle_key, "wt/v1" ‖ u64(epoch) ‖ u32(leaf_index), 16)
-func WrapTargetHandle(groupHandleKey []byte, epoch uint64, leafIndex uint32) [16]byte
+// CORRECTED 2026-09-07 to what landed: the argument is contentEpoch, not epoch.
+func WrapTargetHandle(groupHandleKey []byte, contentEpoch uint64, leafIndex uint32) [16]byte
 ```
+
+**The one argument name in this task that is load-bearing, corrected 2026-09-07.** `epoch` shipped as
+`contentEpoch`. Under R2 that is a spelling and not a shape, and it would have passed this plan's own
+rule — which is the reason it is called out rather than quietly matched: it is the **content** epoch,
+the epoch whose secrets the wrap carries, and deliberately **not** the record's own `epoch` field.
+§5.11 annotates the sibling wrap `info` block in exactly those words and sets it against an `AAD_head`
+block annotated *"the RECORD's epoch and the RECORD's stream index"*. A caller reaching for
+`RecordHeader.Epoch` here gets a well-formed 16-octet handle that no fetcher resolves, with no error
+anywhere — the same failure mode as `GroupHandleKey`'s argument one derivation up, and the reason
+both are named for the epoch they must come from.
 
 **`SenderHandle`'s derivation is in MASTER, not in Spec A, and that matters.** Spec A §5.3 declares
 `func SenderHandle(groupHandleKey []byte, leaf uint32) [16]byte` and gives **no formula**; every
@@ -1692,6 +1779,18 @@ group's **first** storage root must therefore be computed and durably persisted 
 separately from the current one, for the life of the group. No section of any spec says where that
 lives. Task 10 gives it a home in `GroupSession`'s construction; **Open item M1-4** records that the
 spec does not.
+
+> **CORRECTED 2026-09-07 — the last two sentences of the paragraph above are wrong about WHICH value
+> is kept, and the ruling is in M1-4.** What is persisted is **`group_handle_key`**, not
+> `storage_root[0]`. Both are 32 octets, so nothing in this layer can tell them apart, and the
+> paragraph as written sends a reader to keep epoch zero's **whole key schedule** for the life of the
+> group — every class key, the write key and the read key expand from that root — in order to recover
+> a public routing identifier every member can already compute. The derivation runs **once**, at
+> group creation, and its answer is what is durably kept. `GroupHandleKey`'s own signature is
+> unchanged and correct: it takes the root, because computing the key is what it is for. The
+> paragraph stands as written because this repository annotates rather than erases, and because the
+> half of it that is true — that the obligation is persistence and that no spec said where it lives —
+> is what made the defect findable.
 
 - [ ] **Step 1: Derive the property and write the failing test**
 
@@ -1814,14 +1913,39 @@ the ruling actually binds.
 - Produces:
 ```go
 // the reservation MUST be durable before the key is produced.
+// CORRECTED 2026-09-07 to what landed: both methods take a StreamKey, not a groupId.
 type StreamIndexReserver interface {
     // returns only after the reservation is durable (fsync'd or equivalent).
-    Reserve(groupId []byte, index uint64) error
-    HighWater(groupId []byte) (uint64, error)
+    Reserve(stream StreamKey, index uint64) error
+    HighWater(stream StreamKey) (uint64, error)
+}
+// the stream one reservation belongs to. Comparable, no slice in it, so it is a map key with no
+// second encoding and a group id cannot move under a ratchet between reserve and use.
+type StreamKey struct {
+    GroupId       [32]byte
+    SenderHandle  [16]byte
+    RetentionWire byte
 }
 var ErrStreamIndexRewound  error
 var ErrStreamIndexConsumed error
 ```
+
+**The parameter set diverged from BOTH documents, and the divergence is a repair rather than a
+choice — CORRECTED 2026-09-07, and filed as ledger item 168.** §5.6's interface and §8.2's
+`MessageStore` both declare the reservation over `groupId` alone. A sender ratchet is per
+`(class_key, leaf)`, because `record_key[0]` binds the class key, so one group has **one ratchet per
+retention class** — and over a `groupId`-keyed reserver the durable and the permanent ladders of one
+group reserve out of one counter. Measured on the shape this task originally declared: the durable
+ratchet took index 1 and every later call on the permanent ratchet answered `ErrStreamIndexConsumed`
+**forever**, with its position stuck, so **at most one retention class per group could ever send**.
+That is not a tuning question, it is a permanent wedge, and it is invisible to any test that builds
+one ratchet.
+
+**It does not pre-empt M1-5 and must not be read as doing so.** M1-5 rules which fields a durable
+**store row** is identified by, and it is still open; `StreamKey` fixes which **stream a reservation
+belongs to**, which is the only half in this package's reach. The flattening from the one to the
+other is the implementer's, and `streamindex.go` says so in as many words. What the type buys is that
+the unruled question cannot be answered by an accident of a parameter list.
 
 **This task declares the interface and does not implement a file-backed store, and the earlier
 version of it did.** Three measured facts, and together they are the argument:
@@ -1837,8 +1961,10 @@ version of it did.** Three measured facts, and together they are the argument:
    line 3719) declares — among its fourteen methods — `ReserveStreamIndex(groupId []byte, index
 
    uint64) error` and `StreamHighWater(groupId []byte) (uint64, error)`. That is
-   `StreamIndexReserver`, method for method and parameter for parameter, on the interface the
-   sqlite implementation already owes. A second durable implementation here is the second
+   `StreamIndexReserver` method for method — and **no longer parameter for parameter, corrected
+   2026-09-07**: the shipped interface takes a `StreamKey` and §8.2 still takes a `groupId`, which
+   is ledger item **168** and is a second document to amend rather than a defect here — on the
+   interface the sqlite implementation already owes. A second durable implementation here is the second
    implementation this plan's first paragraph forbids, and A8 makes the fourteen-method bound the
    thing that would have to be reimplemented if `modernc.org/sqlite` goes.
 3. **§5.6 injects the sink for exactly this reason** — *"the constructor takes the sink to make it
@@ -1883,6 +2009,13 @@ on any local state divergence, lets a fresh handle start at 1 while a stale row 
 fix is one parameter. **Open item M1-5**, and it is the highest-priority of the non-blocking items,
 because **this is the one piece of durable on-disk state that cannot be migrated by
 recomputation.** Implement the interface with the parameter set the ruling gives; do not choose.
+
+> **CORRECTED 2026-09-07.** The instruction stands for the **store row**, which is what M1-5 rules
+> and which is still open. It did **not** survive contact with a second retention class: the
+> reservation's own key had to carry the sender handle and the retention wire byte or the second
+> class of any group wedged permanently, so `StreamKey` shipped and the paragraph above no longer
+> describes the landed interface. The distinction that keeps both true is in the block above and in
+> `streamindex.go`'s header.
 
 **The EPH(0) cost, filed rather than absorbed.** §5.6 states that `EPH(bucket 0)` transients *"do
 consume an index locally (so the counter is never rewound)"*. Every typing indicator therefore costs
@@ -1963,13 +2096,24 @@ rather than leaving it to be discovered at the milestone.
   `zeroize`.
 - Produces:
 ```go
+// CORRECTED 2026-09-07 to what landed. Both lines were two shapes behind the code.
 type SenderRatchet struct {
     stateLock sync.Mutex
     // ...
 }
-func NewSenderRatchet(classKey []byte, leaf uint32, /* see the note on the reserver */) *SenderRatchet
-func (self *SenderRatchet) Next() (index uint64, recordKey []byte /*, see M1-13 */)
+func NewSenderRatchet(classKey []byte, leaf uint32, stream StreamKey,
+    reserver StreamIndexReserver) (*SenderRatchet, error)
+func (self *SenderRatchet) Next() (uint64, []byte, error)   // M1-13's three-valued form
+func (self *SenderRatchet) Position() uint64
+func (self *SenderRatchet) Zeroize()
 ```
+
+**Why the constructor grew two parameters and an error.** It takes the reserver because §5.6 injects
+the sink, it takes the `StreamKey` because that is what a reservation is keyed on (Task 6, corrected),
+and it **returns an error** because it reads `HighWater` in the constructor to resume at
+`highWater + 1` — §5.6's *"never at a recomputed value"* — and a store that cannot be read is not a
+ratchet that can be built. `Next` took M1-13's three-valued form, which is what this task's own text
+instructed in the absence of a ruling; M1-13 is annotated with what landed and is **still unruled**.
 
 **§5.5's text, quoted:**
 
@@ -2091,10 +2235,33 @@ whether a member's stream survives an epoch change, and §5.5 states both. **Ope
 - Consumes: Task 5's derivations; Task 2's `zeroize`.
 - Produces:
 ```go
-type ReceiverRatchet struct{ /* stateLock-guarded; keyed per M1-11's ruling */ }
+// CORRECTED 2026-09-07 to what landed. §5.5 gave this type one method and no constructor, which
+// is M1-14; the block below is what the task had to design to close that.
+type ReceiverRatchet struct{ /* stateLock-guarded; its KEY MATERIAL binds the leaf, M1-11 */ }
+func NewReceiverRatchet(classKey []byte, leaf uint32, headIndex uint64,
+    windowSize int) (*ReceiverRatchet, error)
 func (self *ReceiverRatchet) KeyFor(index uint64) ([]byte, error)   // fills and prunes the window
+func (self *ReceiverRatchet) PeekFor(index uint64) ([]byte, error)  // derives without moving the head
+func (self *ReceiverRatchet) Commit(index uint64) error             // moves the head, once
+func (self *ReceiverRatchet) Retained() int
+func (self *ReceiverRatchet) Zeroize()
+
+// and the table, which is where the bound of property 4 actually lives: the retained-key bound is
+// tree-wide, per M1-12's labelled recommendation, so adding senders adds no memory.
+type ReceiverRatchets struct{ /* tableLock-guarded */ }
+func NewReceiverRatchets(retainedBound int) (*ReceiverRatchets, error)
+func (self *ReceiverRatchets) Track(key ReceiverRatchetKey, ratchet *ReceiverRatchet)
+type ReceiverRatchetKey struct{ SenderHandle [16]byte; RetentionWire byte }  // the TABLE's key, M1-11
+
 var ErrOutOfWindow error   // see M1-15: the sentinel OpenRecord turns into a gap
 ```
+
+**The split between `PeekFor`/`Commit` and `KeyFor` is not decoration, and it is the one thing in
+this block a reader should not collapse.** The index arrives in the record's **cleartext** header, so
+a head that moved on a forged index would burn every rung between here and there — property 3's
+whole subject. The open path therefore derives the rung first and moves the head only after the AEAD
+has authenticated the record, which is the gate `mls/secret_tree.go`'s `peekFor` gets for free from
+`sender_data_secret` and this layer does not have.
 
 **§5.5's numbers, quoted:**
 
@@ -2531,8 +2698,10 @@ Spec A for `GroupSession` returns exactly three lines: §5.2's two method signat
 concurrency row, and §5.6's sentence that *"the constructor takes the sink to make it explicit"*.
 There is no `type GroupSession struct`, no `func NewGroupSession(...)`, no statement of what it holds
 or how it is closed — while §5.6 silently adds a `StreamIndexReserver` to its constructor and §5.3
-adds an epoch-zero storage root it must have persisted since group creation. **Open item M1-4.** This
-task designs it; the design is this plan's, not the spec's, and the doc comment must say so.
+adds an epoch-zero **`group_handle_key`** it must have persisted since group creation
+(**corrected 2026-09-07**: §5.3 declares the derivation over `storage_root[0]` and the *key* is what
+is kept — M1-4's ruling, and Spec A §5.3 revision A-19). **Open item M1-4.** This task designs it;
+the design is this plan's, not the spec's, and the doc comment must say so.
 
 **The concurrency contract, quoted, because its shape is the reason it exists.** §3.6:
 
@@ -2547,8 +2716,11 @@ task designs it; the design is this plan's, not the spec's, and the doc comment 
 **What the session must hold, derived from what its consumers need:**
 
 - one `GroupHandle` (Task 9), reached only from the loop goroutine;
-- the **epoch-zero** storage root, or the `group_handle_key` derived from it — persisted at group
-  creation and never recomputed from a later epoch (Task 4's property 6 mutation is why);
+- the epoch-zero **`group_handle_key`** — **the "or" here is RULED, 2026-09-07: it is the key and
+  not the root** (M1-4). Persisted at group creation, never recomputed from a later epoch (Task 4's
+  property 6 mutation is why), refused with a typed error at any width but 32, and it shipped as
+  `NewGroupSession`'s `groupHandleKeyEpoch0` parameter — nil only at epoch 0, where the current root
+  **is** epoch zero's and the constructor expands it;
 - the current epoch's `storage_root`, its `ClassKeys`, and its `write_key`/`read_key`;
 - one `StreamIndexReserver`, injected — §5.6's "the constructor takes the sink to make it explicit";
 - the sender ratchet table and the receiver ratchet table, keyed per M1-11's ruling;
@@ -3918,7 +4090,8 @@ Tombstones and `COVER` land here too; `pad.go`'s size-bucket ladder is already i
 
 ```
 Wave 0  Task 0, the split                                         (not this plan's commit)
-Wave 1  1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 9a → 10 → 11 → 12     (CP3b prefix, unblocked)
+Wave 1  1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 9a → 10 → 11 → 12     COMPLETE — b9a31e2, 7a50f80,
+                                                                  69464ae, 34fc072; 7,620 tests
 Wave 2  13 → [14: needs M1-1's remainder + M1-6] → [15: needs M1-6] → [16: M1-2 deferred, not blocking] (CP3b)
 Wave 3  17, 18, 19, 20, 21 | 22 → 23 | 24                          (A6 freeze; the three groups are parallel)
 ```
@@ -3967,6 +4140,20 @@ which is worth having and **is not CP3b**.
 ---
 
 ## Definition of done
+
+**Where this stands, 2026-09-07: 13 of the 25 are committed** — wave 1's twelve plus Task 9a, in
+four `connect` commits on `beta/message`. What that tree is, stated as a boundary rather than as
+progress, because the Definition of done exists to stop a leg being lost silently: it seals and opens
+records under the real key schedule **inside one process**. It **cannot join a group** —
+`JoinFromWelcome` refuses, and the refusal names what is missing rather than describing it, because
+`connect/mls` keeps a minted key package's signature private half private. It seals **only** the
+`DURABLE` class; the other three are refused with `ErrRetentionClassUnruled` pending **M1-6**. It has
+**no durable store** — `TestNoProductionDeclarationOfThisPackageImplementsTheReserver` holds that as
+a rule and not as an absence. And **it never touches a message server**: every wave-1 path stops at a
+`*message.Record` in memory. There is **no sender authentication in the record layer** — any group
+member can write a record attributed to any other member's leaf and it opens cleanly — which is now
+pinned by `TestAnyMemberCanWriteARecordAttributedToAnotherLeaf`, a test asserting that a **forged
+record OPENS**, and whose failing direction is the day sender authentication arrives.
 
 **For the plan:** **25 tasks committed — the 24 numbered ones and Task 9a. Task 0 is wave 0's and
 is not one of the 25**, for the reason its own header gives: it lands in `connect` before or beneath
@@ -4276,6 +4463,49 @@ it. *Blocks:* nothing after Task 13, which supplies the sampler — the **delive
 because the absence is what makes a zero-filled stand-in so easy: `HKDF-Extract(mls_secret, 32 zero
 bytes)` produces a storage root both clients agree on, with every test green and the PQ half gone.
 
+**M1-4 — PARTLY RULED 2026-09-07: the epoch-zero obligation is `group_handle_key` and NOT
+`storage_root[0]`, Spec A §5.3 is amended to say so, and the inverse mistake is undefended and filed.
+The rest of the item — that no spec declares `GroupSession` at all — stands unchanged below.**
+
+**Who ruled it, and why it needs an owner-visible record.** The fix pass over m1 wave 1's batch-C
+review ruled it, not the owner; it is recorded here because it changes **what a client must persist
+for the life of a group**, which is not a decision that belongs inside a rename. `installEpochOnLoop`
+took its argument **verbatim** as `group_handle_key` on one branch and **expanded a storage root**
+through `GroupHandleKey` on the other, while the parameter's name, the constructor's doc comment and
+`handle.go` all said *"storage root"*. Both values are 32 octets, so nothing refused the
+disagreement. The pass ruled **the parameter IS `group_handle_key`**, renamed it
+`groupHandleKeyEpoch0` throughout, and gave it a typed width refusal — a persisted value comes out of
+durable storage, so a wrong width is its plausible shape, and it used to reach `SenderHandle`, whose
+refusal is a **panic** carrying the sentinel, out of a constructor whose every other refusal is a
+typed error.
+
+**The argument, preserved because it is the part a later reader needs and the rename is not.**
+MASTER §8's clause is about what a member **holds** — *"a member that does not hold it cannot compute
+its own handle and therefore cannot write"* — and what it names is the **key**. `storage_root[0]` is
+strictly more: it is epoch zero's **whole key schedule**, and every class key, the write key and the
+read key of that epoch expand from it. Persisting it for the life of the group in order to recover a
+**public routing identifier** every member of the group can already compute is strictly worse than
+persisting the identifier's key. So the derivation runs **once**, at group creation, and its
+**answer** is what is durably kept; the root it was expanded from is dropped with the rest of the
+epoch. Held by `TestTheEpochZeroHandleKeyIsTheSameKindOfValueOnBothBranches`, which asserts it from
+**both** sides — the epoch-zero branch must expand, the restore branch must accept exactly what that
+branch produced — because either branch alone can be made to agree with a wrong reading of the other.
+
+**This contradicted Spec A §5.3, and §5.3 is amended.** §5.3 declared
+`GroupHandleKey(storageRootEpoch0 []byte)` and said nothing about persistence at all, so the only
+route it left a reader was to hold `storage_root[0]` for the life of the group — the thing the ruling
+says not to do. Spec A revision **A-19** states the obligation in the ruling's terms, inside §5.3's
+own block, and says which of the two values is kept.
+
+**And the inverse mistake is undefended, which is what the verifier flagged.** A caller who follows
+§5.3 as it stood and hands `NewGroupSession` the epoch-zero **root** where it wants the **key** is
+**accepted in silence**: both values are 32 octets, so the width refusal passes; every key of the
+session then derives cleanly; and the device routes on a `sender_handle` no other member of the group
+computes and no peer's `ReceiverRatchetKey` matches. Reproduced by the review at `sender_handle
+dc272587…` against a group computing `3e774ae1…`. That is **ledger open item 167**, **filed and not
+ruled** — the refusal it would take is a value-level one this layer cannot make out of 32 octets
+alone, so it is a design question and not an oversight.
+
 **M1-4 — `GroupSession` is declared nowhere.** Grepping Spec A for it returns three lines: §5.2's two
 method signatures, §3.6's concurrency row, and §5.6's "the constructor takes the sink". No struct, no
 constructor, no statement of what it holds — while §5.6 adds a reserver to its constructor and §5.3
@@ -4499,6 +4729,15 @@ are ruled on their own terms.
 
 ### Blocking the A6 wire-format freeze
 
+**M1-5 — STILL OPEN, and one half of it moved 2026-09-07 without ruling the other.** The item below
+is unchanged. What shipped in wave 1 is `Reserve(stream StreamKey, index uint64)` with
+`StreamKey{GroupId, SenderHandle, RetentionWire}` — which answers *which stream a reservation belongs
+to* and answers **nothing** about *which fields a durable store row is identified by*, which is what
+this item asks and what cannot be migrated by recomputation. The recommendation below is also now
+**narrower than the tree**: it adds `senderHandle` and the shipped key carries the retention wire byte
+as well, because a group's durable and permanent ladders reserving out of one counter is a permanent
+wedge rather than a keying preference. The divergence from §5.6 and §8.2 is **ledger item 168**.
+
 **M1-5 — the `StreamIndexReserver` is keyed more coarsely than the counter it guards.** §5.6's first
 sentence: *"`stream_index` is a single `u64` counter per `(group_id, sender_handle)`"*. Its interface
 takes `groupId` and not `senderHandle`, in both methods. A device removed and re-added at a different
@@ -4528,6 +4767,29 @@ plaintext, matching §5.14's own `u16(body_len) ‖ body ‖ zeros` deposit padd
 `0x80 ‖ 0x00*`; or the body's own §7.4 framing carrying its length, which pushes the decision into
 `sdk` and out of the frozen format.
 
+**M1-8 — RULED 2026-09-07 by the owner: `LP(leaf_index)` is the four-octet big-endian reading, and
+it no longer blocks the A6 freeze.** The item is kept whole below rather than rewritten, because the
+question it asked is the one a second implementer asks again.
+
+**The ruling.** `LP(leaf_index)` is `00 00 00 04` followed by the four-octet big-endian index —
+**eight octets** — wherever `LP` wraps this integer, which is `"sh/v1" ‖ LP(leaf_index)` in
+`sender_handle` (MASTER §8) and `record_key[0] = HKDF-Expand(class_key, "sender/v1" ‖ LP(leaf_index),
+32)` in §5.3, and nowhere else. **The owner's three reasons, recorded because the item asked for a
+rule and not a preference:** the width is fixed, so no encoder ambiguity exists at any leaf; it
+matches what `wrap_target_handle` already does in the same family, which writes `u32(leaf_index)`
+**raw** at that width; and the 3 octets it costs over a minimal encoding are invisible against a
+4,112-octet size bucket.
+
+**This is a confirmation and not a change — it is already what landed.** `connect` `b9a31e2`,
+`messagegroup/handle.go:167`: one helper, `leafIndexLP`, whose comment states the reading and names
+the alternative it rejected, with `leafLabelledInfo` the one assembly both call sites reach it
+through. It is KAT-pinned — `TestRecordKeyZeroTakesTheFourOctetReadingOfLP` and the two KAT sets —
+and `TestEveryLeafIndexDerivationDeclaresItsReadingAndSharesOneHelper` derives the class of
+leaf-prefixing derivations off the tree, so a second spelling cannot appear beside it. **No longer
+blocks:** the A6 wire-format freeze, which this item was filed as blocking. **Still owed and NOT
+ruled here:** §5.3 declares `SenderHandle` with no formula at all, which is the *related, and
+separate* half below.
+
 **M1-8 — `LP(leaf_index)` wraps an integer, and it is the only `LP` in the project that does.** §5.11
 defines `LP(x)` as a 32-bit big-endian length prefix then `x`, and every other use wraps a byte
 string. `sender_handle = HKDF-Expand(group_handle_key, "sh/v1" ‖ LP(leaf_index), 16)` (MASTER §8) and
@@ -4555,6 +4817,17 @@ reading only Spec A picks its own value; one that picks a 12-octet-nonce AEAD si
 octets of the 56-octet expansion and still round-trips against itself. Task 1 pins the constant from
 MASTER. *Blocks:* nothing — MASTER is normative. Filed as a Spec A repair.
 
+**M1-11 — STILL OPEN, and wave 1 implemented BOTH readings in different places, 2026-09-07.** Not a
+ruling and not a defect: the receiver **table** is keyed `ReceiverRatchetKey{SenderHandle,
+RetentionWire}`, which is §5.5's prose reading, while the ratchet's **key material** comes from
+`NewReceiverRatchet(classKey, leaf, …)` and `record_key[0]`'s `LP(leaf_index)`, which is the
+declaration's. The two agree exactly as long as a device's leaf does not move, because
+`sender_handle` is a function of the leaf under a `group_handle_key` fixed at group creation — so the
+one case that separates them is the one M1-11 is about: **a device removed and re-added at a
+different leaf**, which then has a new table key *and* a new ladder, and whose in-flight stream is
+unreachable under either. The item is what decides whether that is correct. Recorded here because the
+split is easy to read as an answer and is not one.
+
 **M1-11 — §5.5 states the ratchet's keying two incompatible ways.** The prose scopes the window to
 `(sender_handle, retention class)`; `NewSenderRatchet(classKey []byte, leaf uint32)` and
 `record_key[0]`'s `LP(leaf_index)` bind the **leaf**. §5.3 makes the handle deliberately epoch-stable;
@@ -4579,6 +4852,21 @@ convention again, which §5.2 forbids — or `Next()` panics on a disk error. *B
 signature. *Two shapes close it:* a third return value, or the reserver moves into `SealRecord`
 between the index draw and the key draw.
 
+**M1-13 — STILL OPEN; the three-valued form landed under this plan's own instruction, 2026-09-07.**
+`Next() (uint64, []byte, error)` is what shipped, which is Task 7's *"implement the three-valued form,
+because it is the one that can be narrowed later without losing information"* applied in the absence
+of a ruling. That is not the ruling: §5.5 still declares a two-valued `Next()`, and whether the
+reserver stays in the ratchet or moves into `SealRecord` between the index draw and the key draw is
+still the owner's. What the landed shape adds to the item is a measurement — the constructor reads
+`HighWater` too, so it returns an error as well, and narrowing `Next` later does not by itself narrow
+the type back to §5.5's declaration.
+
+**M1-14 — STILL OPEN as a specification defect; the declarations it names were designed by Task 8,
+2026-09-07.** What shipped is a constructor, a `PeekFor`/`Commit` split, `Retained`, `Zeroize`, a
+`ReceiverRatchets` table that owns the 64-sender question and a `ReceiverRatchetKey` that answers
+what the ratchet is keyed by. None of that is in any spec, which is the item, and §5.5 is still the
+document a second implementer reads.
+
 **M1-14 — `ReceiverRatchet` is declared with one method and nothing else.** No constructor, no
 statement of what it is keyed by, no statement of who owns the 64-sender table. *Blocks:* Task 8's
 construction, and Task 10's ownership of the table.
@@ -4592,6 +4880,43 @@ function can return — carries neither name. *Blocks:* Task 12's signature, and
 rendering. *Two shapes close it:* a third return value on `OpenRecord`, or two pinned sentinels `sdk`
 matches with `errors.Is` — in which case A-9's reachability rule adds two lines to §12.1 in the same
 commit.
+
+**M1-16 — RULED 2026-09-07 by the owner: `StorageRoot` delegates to `mls.CryptoProvider.Extract(salt,
+ikm)` — shape (a), this item's own labelled recommendation.** The item is kept whole below.
+
+**The reasons are about the guardrail rather than about the call.** The tree keeps exactly **one**
+direct `crypto/hkdf` extraction, so **Gate A needed no allow-list widening at all**:
+`hkdfExtractAllowedPaths` (`mls/crypto_forbidden_test.go:94`) is still `{"crypto.go", "hpke.go"}` and
+`hkdfExtraCallSites` still carries its single reviewed row, `"hkdf.Expand(" → ../message/writeauth.go`.
+The rejected alternative is worse than "one more row" makes it sound, and that is why it is recorded
+as rejected rather than merely not chosen: `hkdfAllowedPathsFor` concatenates
+`hkdfExtractAllowedPaths` into the allowance for **every** needle, so one path added there excuses
+`hkdf.Extract(`, `hkdf.Expand(` **and** `hkdf.Key(` at once — and `hkdf.Key` is the entry point the
+gate's own comment calls the worst of the three to transpose, *"because the whole schedule it
+produces is internally consistent and wrong."*
+
+**G1 was confirmed by execution, and the number is six rather than the four the ruling states.**
+Transposing salt and ikm inside `keyScheduleExtract` turns **six** tests red: `TestStorageRootKAT`,
+`TestSwappingTheStorageRootArgumentsChangesTheRoot`, `TestTheThreeClassKeysAreDistinctAndPinned`,
+`TestTheThreeHandleDerivationsAreDistinctAndPinned`, `TestRecordKeyLadderKAT` and
+`TestRecordKeyZeroTakesTheFourOctetReadingOfLP`. The query is published beside the number, because a
+number with no query behind it is not a thing a later reader can check, and it runs through a
+`-overlay` so the mutation never touches the `connect` working tree:
+
+```
+go test -count=1 -overlay <overlay replacing messagegroup/keyschedule.go with a copy whose
+                           keyScheduleExtract calls Extract(ikm, salt)> ./messagegroup/ -v
+```
+
+**Already landed**, `connect` `b9a31e2`: one unexported helper, `keyScheduleExtract`
+(`messagegroup/keyschedule.go:104`), one call site, `StorageRoot`, held by
+`TestTheKeySchedulesOnlyExtractionIsStorageRoots`. The confinement is structural as well as derived —
+`crypto/hkdf` is on this package's **forbidden**-import list (`imports_test.go`, *"an extraction with
+the arguments in the LIBRARY's order, ikm first"*), so the package cannot spell the library's order
+at all. **No longer blocks:** Task 3's shape, and the Gate A amendment Tasks 3, 5, 22 and 23 were
+each said to owe — there is nothing to amend. **Unchanged:** Task 18's obligation below.
+`message/recovery.go` is server-side, it does not exist yet, and Gate A refuses an entry whose file
+does not make the call, so that second `hkdf.Expand(` row is still owed by the commit that writes it.
 
 **M1-16 — G1's "only call site" is contradicted by the tree and by §5.14.** G1 forbids `hkdf.Extract`
 "anywhere else in" the storage layer "**and `connect/mls`**". `connect/mls` cannot satisfy that: RFC

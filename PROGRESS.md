@@ -1091,3 +1091,150 @@ in a neighbouring file.
 Where a check kept failing, the answer was to make the bad state unrepresentable instead: the
 `VerifiedGroupContext` type ended a five-round arms race that no AST walk could win, and the same
 move is now aimed at the proposal buckets.
+
+## 2026-09-07 — p7 closed, m1 wave 1 sealed and opened its first record, and the fixture size that made a whole class of defect invisible
+
+Five days, and the shape of them is one sentence: **the group lifecycle and the record layer both
+finished, and in each of them the most valuable finding was about the fixture rather than about the
+code.** `connect/mls` had thirty-two test call sites running on a group of two. m1's own plan had
+eight statements the code it produced now refutes, and three of them were named in the brief that
+ordered this record while five were not.
+
+### p7 is complete, and the CP3b path through `connect/mls` is closed
+
+Legs 1 and 2 of m1's Definition of done — p2 Tasks 19–20 and p7 Tasks 7–13, 15, 16, 18, 19 and 22 —
+are landed. Five defects are worth naming, and three of the five are already in the 2026-09-02 entry
+below because they were found while it was being written; they are named again only where the two
+that are new are unreadable without them.
+
+**New here: a member could apply another group's commit.** `(*Group).ApplyCommit` read the `Kind`,
+the nil, the closed flag and `RemovesSelf` and **nothing about provenance**. Measured: group B, handed
+a `Processed` that group A had staged, answered nil, moved from **epoch 1 to epoch 3**, and then
+derived byte-identical epoch authenticators — so both groups agreed they were in the same epoch. The
+shape is the expected caller shape and not an abuse: `Processed` and its `Commit` field are exported
+and `connect/message` holds them across a policy decision, which is exactly what §6's `EngineProcessed`
+exists to carry. A `StagedCommit` now carries the group id **and** the epoch it was staged against —
+both halves, since every group runs an epoch 7.
+
+**New here: a restored member drew generation 0 again.** `groupStateBlob` carried the TreeKEM ladder
+and no consumed-generation state, and `LoadGroup` rebuilt the epoch with `NewSecretTree` — every
+ratchet at zero. A member restored into an epoch it had already spoken in sent messages every peer
+dropped until it burned past that peer's head, and sealed **two different plaintexts under one
+`(key, base nonce)` pair** for that leaf and generation. Only the 32-bit `reuse_guard` stood between
+that and an AEAD nonce collision. The repair is two halves and either alone is useless — the blob
+carries the position, and the seal persists **before the ciphertext leaves**, because `persist` used
+to run only at an epoch boundary where the sender position is always zero.
+
+**And the discovery that reframes the other four.** `mls/four_member_group_test.go` and
+`TestFourIsTheSmallestGroupWhoseMembersEnterTheLadderAboveTheirOwnLeaf` exist because **thirty-two
+call sites of this package's corpus ran on `testTwoMemberGroup` and nothing larger existed.** In a group of two the only
+node of a sender's filtered direct path that covers the receiver is the root, and the receiver's own
+leaf is the whole of that node's copath resolution — so every path secret any commit ever seals to
+this member is sealed to the member's own leaf key, and the own-leaf arm of
+`(*TreeKEMPrivate).NodePrivateKey` answers every question the receive path asks. **Anything that
+loses, mispairs or never stored the rungs above the leaf is invisible.** The reasoning that opened
+that work predicted three members would separate nothing, and it was wrong: at three, two of six
+ordered sender/receiver pairs enter above their own leaf. **Four** is the smallest size at which
+*every* member has a sender whose commit it must open above its own leaf. The property is the
+member's **position**, not the group's size — at five, leaf 4 stands alone under the right subtree
+exactly as leaf 2 does at three — so *"a group of four or more"* is a false way to state it, and it
+had been written that way twice in `group.go`. What the fixture still does not reach is written down
+rather than repaired: it holds zero unmerged leaves at every size, so no group fixture in the package
+puts a member in a resolution reached through one.
+
+### The store on real PostgreSQL was already recorded, and is not re-narrated here
+
+The brief that ordered this entry lists it as a fourth closed workstream absent from this file. It is
+in the entry below: that entry's own heading names it, and its **What landed** list carries *"The pgx
+store passes the contract against real PostgreSQL — 241 passing, both implementations reporting 'ran
+the contract'."* `git log -- store/` returns nothing after 2026-08-30. Recorded here only because a
+second narration of a closed workstream is how a file like this stops being trustworthy about which
+things are new.
+
+### The specification passes: MASTER caught up, and a count that could not be checked replaced
+
+**MASTER was brought into agreement with the three wrap rulings** — the resequenced fan-out, the
+exporter envelope and the two-record device wrap — four weeks after Spec A carried them, and the
+location list of what needed amending was short for the **third** time.
+
+**Red-team finding M-15 was adopted**: the wrap KDF now derives a real AEAD nonce and binds `alg_id`,
+in place of a 32-octet key sealing at a fixed nonce. Then **a second instance of M-15's own class was
+found in `K_snapshot`** — `HKDF-Expand(storage_root[n], "snap/v1", 32)`, a 32-octet AEAD key with no
+nonce, no `alg_id` and no AAD anywhere — by the sweep that closed the first, and only because the
+sweep was re-run as a property rather than as a search for the instance already named. Two more
+members of the class are filed and unruled, and one of them the producer-side query **cannot reach at
+all**, because the blob object's AEAD key is not derived anywhere to be found.
+
+**And r3's fourteen undispositioned majors were dispositioned, one per ledger item.** The measurement
+that forced it is the durable part: `M-1` through `M-14` were named **nowhere in this repository
+outside the review that raised them** — zero files each — while all twelve of r3's **blockers** had a
+disposition. **The cause is plain and it is not diligence.** The blockers were re-grepped by id; the
+majors were **counted** — *"8 majors and 22 minors remaining"* — and **a count cannot be checked
+against a document.** Nobody could have noticed, because there was nothing to notice with. The same
+pass then found the gate proposed to prevent a repeat is satisfied by the sentence that records the
+failure, and that publishing a measurement inflates the very ids it measures.
+
+### m1 wave 1: `connect/messagegroup` seals and opens a record under the real key schedule
+
+Four commits on `beta/message`, each adversarially reviewed:
+
+| batch | tasks | commit | tests |
+|---|---|---|---|
+| A | 1–4 — the record AEAD, zeroization, the storage root and class keys, the three handles | `b9a31e2` | 7,523 |
+| B | 5–8 — the four record-key derivations, the stream index, the two ratchets | `7a50f80` | 7,560 |
+| C | 9, 9a, 10, 11, 12 — the engine, the `connect/mls` adapter, the session, seal and open | `69464ae` | 7,607 |
+| close | the survivors of all three reviews | `34fc072` | **7,620** |
+
+Tree clean, `git ls-files` = `git ls-tree -r HEAD` = 1,104, the nine-platform `CGO_ENABLED=0`
+cross-build gate green.
+
+**The verification that closed it is worth more than the number, and it is a method this project
+should reuse.** The final reviewer derived the class as *"every octet used as an AEAD key, an AEAD
+nonce or a MAC key by `SealRecord` or `OpenRecord`"* and tested it by **exact byte-for-byte
+reproduction**: from `mls.Group.Export("URmessage/v1/storage", nil, 32)` plus the injected `pq_secret`
+and `server_nonce` **alone**, using `chacha20poly1305` directly rather than this package's sealer, it
+rebuilt `ct_body` (272 octets), `ct_head` (34 octets), `write_auth` and `sender_handle` exactly. Any
+second key source, any constant and any entropy draw anywhere on the seal path breaks that
+reproduction — which is the thing a coverage argument over the same path cannot say, because a path
+can be fully covered by a test that agrees with the implementation about a wrong value. And there is
+no stub for it to have been green over: exactly one `GroupHandle` implementation exists anywhere in
+the package, the real `connect/mls` adapter.
+
+Three rulings were recorded against it in `SPEC-LEDGER.md` and the m1 plan: **M1-8** (`LP(leaf_index)`
+is the four-octet reading — a confirmation of what landed, and it no longer blocks the A6 freeze),
+**M1-16** (`StorageRoot` delegates to `mls.CryptoProvider.Extract`, so Gate A needed no allow-list
+widening at all), and the **epoch-zero handle key** — ruled by the fix pass, not the owner, because it
+changes what a client must persist for the life of a group. Spec A §5.3 said nothing about
+persistence and left a reader holding `storage_root[0]`, which is epoch zero's whole key schedule,
+kept forever to recover a public routing identifier every member can already compute. §5.3 is
+amended. The **inverse** mistake is undefended and is filed: both values are 32 octets, so a caller
+who follows §5.3 as it stood is accepted in silence and routes on a handle no peer computes.
+
+### What wave 1 does NOT reach, stated here because this file is where a leg gets lost
+
+This is a record layer inside one process, and every one of the following is a fact about the tree
+rather than a caveat:
+
+- **It cannot join a group.** `JoinFromWelcome` refuses, and the refusal names what is missing rather
+  than describing it: `connect/mls` keeps a minted key package's signature private half private.
+- **It seals one retention class.** `DURABLE` only; `PERMANENT`, `MEDIA` and `EPH` are refused with a
+  typed error naming **M1-6**, which is unruled and is the one ruling still on the critical path.
+- **It has no durable store.** The `StreamIndexReserver` is an interface and a test fake; a test
+  asserts that no production declaration of the package implements it.
+- **It never touches a message server.** Every wave-1 path stops at a `*message.Record` in memory.
+  The submit leg and the durable reserver are both `s2`'s, and `s2` has not been written.
+- **There is no sender authentication in the record layer.** Any group member can write a record
+  attributed to any other member's leaf and it opens cleanly. That is now pinned by a test that
+  asserts a **forged record OPENS** — `TestAnyMemberCanWriteARecordAttributedToAnotherLeaf` — whose
+  failing direction is the day sender authentication arrives.
+
+### The defect class this stretch added to the one below
+
+The entry below named it as *"a rule decided off a field nobody joined, or a gate deriving its class
+and then writing down its scope."* This stretch adds a narrower and more expensive sibling:
+**a claim measured over a corpus that cannot contain a counterexample.** Thirty-two `connect/mls`
+call sites over a group of two; r3's majors reduced to a count; a plan linter whose documented
+invocation selected one of its six tests; a gate satisfied by the sentence recording that it caught
+nothing. In every case the number was honest and the corpus was the defect. The rule that follows,
+and it is the one worth carrying into `s2`: **publish the query beside the number**, so the next
+reader can ask what the query could not have seen.
