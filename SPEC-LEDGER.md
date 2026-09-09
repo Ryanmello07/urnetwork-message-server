@@ -10369,3 +10369,176 @@ neither, because §8.2 is not this plan's to edit. It supplied **no test code** 
 a property, the refusal it owes and the mutations that must kill it, per R1. And it did not execute
 any `s2` task: `sdk`'s three preconditions (S2-13) were re-measured 2026-09-09 and **all three are
 still unmet** — `../goidenticons` absent, no `beta/message` branch, no `.github` directory.
+---
+
+### 2026-09-09 — the two properties the last repair wrote mutually unsatisfiable, and the five more the sweep for their class found
+
+**Change:** Repaired `docs/plans/2026-09-09-slice2-s2-client-submit-leg.md` against the four
+`msgrepo`-side findings of its ACCEPT_WITH_FIXES verification **and against the class those findings
+belong to, derived and swept rather than applied as a list**. +396 / −89 lines; 2,896 → 3,203.
+**Seven**
+mutually-unsatisfiable or self-contradicting property pairs resolved, of which **five were found by
+the sweep and named by no review**. Three open items added — **S2-20**, **S2-21**, **S2-22**. Seven
+mutations added (Task 1 ×3, Task 2a ×2, Task 12 ×1, Task 13 ×2, less renumbering), one mutation set
+re-ordered (Task 11's ran 7, 10, 8, 9). No Go file in any tree changed, no spec amended, and no test
+code supplied — every repair states a property, the refusal it owes and the mutations that must kill
+it, per R1.
+
+**Why:** The pass before this one was commissioned to remove properties no correct implementation can
+satisfy, and it introduced two more while doing it — **in the same pass, by the same author, four
+hundred lines apart**. Task 2a put an OS-held exclusion on *"a guard file inside `dir`"*; Task 1
+Property 2 required `StreamHighWater` to **enumerate** `dir` and stated categorically that *"a file
+in `dir` that is not a row of either tag is `ErrStreamStoreState`"*. So the store read its own lock
+as data, every `StreamHighWater` after `OpenStreamStore` refused, and — because *"Task 2a lands with
+Task 2, not after it"* — Wave 1 was red on the commit that completed it. That is this ledger's oldest
+lesson restated one altitude above the code: **a repair is as capable of shipping the class as a
+first draft is, and a fix applied to a reported pair is not a sweep.**
+
+**THE RESOLUTION IS A CONSTRUCTION, NOT AN EXCEPTION, AND THE ALTERNATIVES ARE NAMED.** The
+enumerated object and the excluded object are now **different directories, one nested in the other**:
+`OpenStreamStore` creates a **row directory** inside `dir` which holds rows and nothing else and is
+the only thing the enumeration ever reads, and the guard entry sits beside it in `dir` and never
+inside it. Nothing is exempted, no reader has to know the guard's name, and Task 1 Property 2's
+categorical rule gets **stronger** rather than weaker — nothing legitimate is ever written into the
+row directory, so anything found there is a real finding. *Rejected:* exempting the guard **by name**
+from the enumeration, which is an ignore-list and the ledger-21 defect in one line — it goes on
+silently ignoring the second non-row somebody writes there tomorrow. *Rejected:* a guard **outside
+`dir`**, which puts this store's lock in a directory the store does not own (`sdk`'s shared
+`LocalState` home), where two stores' guards collide by name and the exclusion no longer sits on the
+tree it protects. Task 12's `ReceiveState` consumes both halves of the collision — *"Task 1's row
+identity and its three refusals"* and *"Task 2a's exclusion"* — so it gets the same two levels, and
+`ErrReceiveStateState` is safe for the same reason.
+
+**THE SIBLING FINDING, AND WHICH SIDE WAS WRONG.** Task 1 mutation 7 (*"truncate a row file to half
+its length; Property 4 must fail with `ErrStreamStoreState`"*) and Task 2 mutation 10 (*"truncate the
+row's last record to half a record's width; a torn tail is discarded"*) demanded **opposite answers
+to one fault**, and Task 1 lands first, so an implementer dispatched on Task 1 alone writes the store
+Task 2's own mutation then fails. **Task 1 is the wrong one.** The reason is not seniority, it is
+direction: the discard rule is what makes a crash mid-append survivable, and it is safe for a stated
+reason — *a torn tail can only be an append whose flush had not returned, and a `Reserve` whose flush
+had not returned had not returned an index, so discarding it discards nothing that was handed out*.
+Refusing a torn tail instead makes every crash mid-append a store **no later process can open**,
+which is a permanent wedge on the exact path Task 2 Property 1 and Task 2a Property 4 exist to make
+survivable. So Task 1 Property 4 now states **three** cases with a discriminator that is position and
+size rather than content — absent row, torn tail, corrupt body — and the bound on case 2 is
+**derived, not chosen**: the allocation path appends one record and flushes, so at most one record
+can be un-flushed. Task 1 mutations 7, 8, 9 and 10 exercise both sides, mutation **9** being the
+control that a torn tail must **not** be refused. Task 2's stated-and-undischarged obligation is
+marked discharged, in place, with a pointer to where it landed.
+
+**AND THE SWEEP FOUND FIVE MORE THAT NO REVIEW NAMED.** The derivation is mechanical and is written
+into the plan so the next pass runs it rather than re-inventing it: index every **constraint site**
+in every task — not every Property, which is the derivation that misses this pass's own headline
+finding, because Task 2a states its guard placement in task **prose** — by the objects it names, then
+read every object two or more tasks constrain. 173 constraint sites, 17 tasks, 142 mutations.
+
+1. **Task 2 Property 1's second reported number.** *"The allocation path performs no directory-entry
+   mutation at all"* is unsatisfiable for the **first** allocation against a never-before-seen
+   stream, which must create that key's row — and S2-16 had already rejected pre-creating rows for
+   want of a key set at open time. The property now reports both readings: first allocation for a
+   key, one create and one flush; every allocation after, zero creates and one flush. Mutation 2 is
+   bounded to the steady-state path.
+2. **Task 2 mutation 10's second clause.** *"Property 4 must fail if it answers `(0, nil)` for a key
+   whose row is present"* convicts the correct answer on a row of one record, where the same cut
+   leaves nothing verifying. Bounded to a row carrying at least two records, with the reason stated.
+3. **Task 8a Property 4.** A class of *"two members … in whatever stands the client up"* over
+   `OpenStreamStore` / `OpenReceiveState` **call expressions in production files** — in a plan where
+   both stores arrive **injected** and nothing stands the client up. The class is **zero**.
+   Re-derived onto the config's own durable-store field set (two, read off the struct), with the
+   call-expression walk reported separately as scope: files walked, call expressions found. A walk of
+   zero files is the broken gate; a count of zero call expressions is the correct reading.
+4. **Task 10 Property 5.** A class of *"one member — Task 11's `Fetch`"* at a task whose landing
+   order is `9, 10, 11`. **Zero at its own commit.** Now stated as empty, with the count half
+   relocated to **Task 11 Property 1** and reciprocated there — which is the plan's own precedent
+   (Task 4 Property 2 → Task 8a Property 1) and which the linter's fatal check 2b now verifies.
+5. **Task 13 Property 4.** *"Beyond the two this plan promotes from indirect to direct"* against its
+   own measurement of 8 direct → 9 direct, the *Dependency policy*'s *"one require-block line"* and
+   the Definition of done's *"one line"*. Re-measured in `sdk` at `432986f`: **36** require lines,
+   **8** direct, **28** indirect, `google.golang.org/protobuf v1.36.11 // indirect` at `go.mod:42`.
+   The number is **one**; mutation 8 now promotes a **second**, not a third.
+
+All seven are added to the plan's own **R5** register beside the thirteen already there, because that
+list is what a later pass checks a new property against — and the register now carries the derivation
+as well as the instances.
+
+**The two remaining verification findings, both reproduced here before repair rather than taken.**
+**Task 13 Property 1** offered *"read off the syntax tree or off `go list -f` on the package itself"*
+as interchangeable readings and they are not. Reproduced in a scratch module with the project
+toolchain: a package with `a.go` (imports `fmt`) and `b_unix.go` (`//go:build unix`, imports
+`crypto/sha256`) prints `fmt` alone under `go list -f '{{range .Imports}}'` on `windows/amd64`, and
+`{{.GoFiles}} {{.IgnoredGoFiles}}` prints `[a.go] [b_unix.go]`; `GOOS=linux` prints both imports.
+Measured on the subject with `go/build`'s own `MatchFile` — the evaluator `go list` uses — over `sdk`
+at `432986f`: of **57** root production files a `windows/amd64` context reads **51** and skips
+**six** — `device_local_ioloop.go`, `device_rpc_platform_js.go`, `glog_android.go`, `glog_ios.go`,
+`glog_macos.go`, `stderr_mobile.go`. **The verification put that at 5 and 52; it missed
+`device_rpc_platform_js.go` (`//go:build js`), and the query is published beside the corrected
+number.** Task 2a's own Files block adds two more a Windows runner never reads. The scope is now the
+unfiltered file set, the gate reports **files read and files on disk and they must be equal**, the
+Definition of done's `go list -f` row is demoted to corroboration behind a `GOOS` sweep with the
+normative row being the gate itself, and mutation 9 plants a forbidden import in a file the runner's
+context excludes — a mutant the old reading passes on Windows and kills on Linux.
+
+**Task 2a's fail-closed third file** had `js/wasm` in its constituency unnamed and unpriced, and the
+probe found something sharper. Compile-probed 2026-09-09, `CGO_ENABLED=0`, building the three-file
+split exactly as the Files block names it: OK on windows, linux, darwin, ios, android, freebsd,
+openbsd, netbsd, dragonfly, illumos, js/wasm, wasip1/wasm and plan9 — and **FAIL on `solaris/amd64`
+and `aix/ppc64` with `undefined: syscall.Flock`**, because both satisfy `go/build`'s `unix` term and
+neither declares the primitive. So a platform the fail-closed file was written to **refuse** on is a
+**build break** instead, and the property's gate never runs there to say so. The Unix file is now
+constrained by **the `GOOS` set on which `syscall.Flock` is declared** — derived from the primitive
+per R4, not from the `unix` term, which is an instance of it — a cross-compile row is added to the
+Definition of done, and mutation 11 is the `unix`-term regression. The fallback's real constituency
+is js/wasm, wasip1/wasm, plan9, solaris and aix, and **`js/wasm` is a target the root `sdk` module
+already builds for**: `device_rpc_platform_js.go` carries `//go:build js` and
+`device_rpc_platform_native.go` carries `//go:build !js`. The priced consequence — the wasm artifact
+gets a store that refuses to open, so it gets no messaging — is stated rather than discovered, and
+whether messaging is in scope there at all is **S2-20**.
+
+**Three ambiguities filed rather than decided, per the brief.** **S2-20**, whether the `js` target
+needs messaging and what a browser tab's single-writer story would be, since it has neither `Flock`
+nor `CreateFile`. **S2-21**, whether `StreamStore` and `ReceiveState` may be handed the **same**
+`dir` and whose exclusion covers which — Task 12 consumes *"Task 2a's exclusion"* without saying,
+Task 8a's config carries two separate injected stores and says nothing about their directories, and
+§8.2 declares the receive-side store not at all. **S2-22**, that the torn-tail bound rests on a write
+discipline **no document states as a contract** — one record appended and flushed per allocation — so
+a later batched allocation would invalidate Task 1 Property 4's discriminator without touching a line
+of it, and the failure mode is a two-record loss read as a torn tail and silently discarded.
+
+**What was NOT resolved, and it is two of the verification's six.** Findings 1 and 5 are both in
+`connect/messagegroup/epoch_test.go` — `epochSliceAnsweringAccessors` deriving its class off the
+instance one layer in, and `epochIsTheDestroyedFlag`'s observational exemption admitting a bool
+accessor that leaks a bit **of** the secret. **This pass changed no file in
+`C:/Users/ryanm/Downloads/claude_sandbox_message/connect`**, where another session was working
+concurrently, and both findings stay open for whoever holds that tree.
+
+**Verification.** `go build ./...` clean and `go test ./...` green **before and after**.
+`go test ./ -run TestThePlanLinter` **`ok` before and after**, with every reporting count identical
+across the diff — 1b **7**, 1c **1**, 1d **189**, 2a **18**, 3a **4**, 3c **3**, 4b **5** — and the
+fatal checks 2b, 3b, 3d and 4a clean on both sides. The derived classes grew where the diff grew
+them: the task-reference class **2015 → 2100**, the open-item-reference class **580 → 593**, the
+plan-reference class **2139 → 2140**; the property class is **245** on both sides and the
+class-deriving property class **56** on both sides, because this pass added no Property block and
+rewrote the scope of four. **Proved rather than asserted, twice.** Removing **both** mentions of
+"Task 10 Property 5" from Task 11 Property 1 turns the fatal check **2b** red with 1 finding — that
+reciprocal is what this pass's relocation owes, and the first attempt at this control failed to turn
+it red because it removed only one of the two, so the control was corrected rather than the finding
+reported. Renaming the new **S2-22** definition to an id nothing carries turns the fatal check **3b**
+red with 1 finding. The file was restored **byte-identical by SHA-256**
+(`0fd5a597a0b22e2415189eb519f06f7d915c3b9278ef9365cd7db9d9b7e324d2`) after each control and the
+linter re-run green. `git ls-files` equals `git ls-tree -r HEAD --name-only` at **103**, checked
+before the commit rather than after it.
+
+**A process failure worth recording, because it nearly cost the pass.** Reverting the first control
+with `git checkout -- <path>` discarded **every uncommitted edit in the working tree**, not the
+control mutation. The work was recovered byte-exact from the dangling stash commit `59b2764` left by
+the before/after linter comparison, verified by SHA-256 against the hash recorded before the control
+ran, and every control after that used a plain file copy. **On this repository `git checkout --` is
+not an undo for a scratch mutation while uncommitted work is in the tree** — take a byte-exact copy
+first, the way the mutation-testing discipline on the `connect` side already does.
+
+**What this pass did NOT do.** It closed **no** open item — not S2-1 through S2-19, not M1-5, not
+ledger items 170 or 171 — and it added three rather than resolving any. It changed **no Go file in
+any tree**. It amended **no spec**: S2-17, S2-18, S2-21 and S2-22 all owe §8.2 amendments and this
+pass wrote none, because §8.2 is not this plan's to edit. It supplied **no test code**. And it
+executed no `s2` task: `sdk`'s three preconditions (**S2-13**) are still unmet — `../goidenticons`
+absent, no `beta/message` branch, no `.github` directory.

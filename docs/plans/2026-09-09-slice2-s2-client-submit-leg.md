@@ -110,9 +110,31 @@ against:
 | Task 1 mutation 3 | unkillable | the version tag was not required to be readable independently of the identity |
 | Task 8 mutation 5 | survivable | the prose pointed the mutation set at the three classes where the tag and the wire byte are numerically identical |
 
+**And the 2026-09-09 repair pass shipped SEVEN more of the same class while fixing the ones above,
+which is why they are in the same table and not in a footnote.** A repair is as capable of
+introducing this class as a first draft is, and the two above it that came from one pass are the
+argument for sweeping every pair rather than fixing the pair somebody reported.
+
+| Where | Which half failed | Why |
+|---|---|---|
+| Task 1 Property 2 against Task 2a's guard placement | unsatisfiable **as a pair** | one pass put an OS-held guard file *inside* `dir` and, in the same pass, made "a file in `dir` that is not a row is `ErrStreamStoreState`" categorical. A correct Task 2a made every later `StreamHighWater` refuse, and Task 2a lands **with** Task 2, so Wave 1 was red on the commit that completed it |
+| Task 1 Property 4 with mutation 7, against Task 2 mutation 10 | contradictory | the same truncation had to be `ErrStreamStoreState` at Task 1 and a **discarded torn tail** at Task 2. Task 1 lands first, so an implementer dispatched on it alone writes the store Task 2's own mutation then fails |
+| Task 2 mutation 10's second clause | unsatisfiable, unbounded | *"Property 4 must fail if it answers `(0, nil)` for a key whose row is present"*, applied to a row of one record, convicts the correct answer |
+| Task 2 Property 1's second reported number | unsatisfiable | *"the allocation path performs no directory-entry mutation at all"* on a store whose **first** allocation for a key must create that key's row, having had no key set at open time to pre-create from |
+| Task 8a Property 4 | unsatisfiable | a class of *"two members … in whatever stands the client up"* over `OpenStreamStore` / `OpenReceiveState` **call expressions in production files**, in a plan where both stores arrive injected and nothing stands the client up. The class is zero |
+| Task 10 Property 5 | unsatisfiable at its own commit | a class of *"one member — Task 11's `Fetch`"* at a task whose landing order is `9, 10, 11`. Zero at Task 10 |
+| Task 13 Property 4 | unsatisfiable | *"beyond the two this plan promotes"* against its own measurement of 8 direct → 9 direct, which is **one** |
+
 **The class, not the list, is the rule**: run the derivation the property states, on this tree, with
 this toolchain, on the platform the plan tells the implementer to use — and check that the number
-that comes back is the number the property states, and that the stated mutation compiles.
+that comes back is the number the property states, and that the stated mutation compiles. **And run
+it over PAIRS, not properties**: five of the seven above are individually readable and only fail
+against a second sentence somewhere else in the document. The derivation that finds them is
+mechanical — index every constraint site in every task by the objects it names (backticked
+identifiers plus the document's own uncoded nouns: the row, the guard, the allocation path, the
+torn tail, the directory entry), then read every object two or more tasks constrain. Doing it over
+Property blocks alone is **not** the derivation and misses the first row of this table outright,
+because Task 2a states its guard placement in task prose and not inside a Property.
 
 ### Repository, branch, toolchain
 
@@ -683,15 +705,34 @@ Two reasons, and the second is the one that matters.
   stream and which is exactly what makes item 170's hazard silent.
   *And the mechanism has a precondition the property is useless without.* The tag must be
   **separable**: a fixed-width, self-delimiting field readable off the row's name **independently of
-  the identity**, and `StreamHighWater` must **enumerate** `dir` rather than stat one path. If the
-  tag is folded into the derived identity hash, a foreign-key-space row is simply a file whose name
-  this build never computes — an absent row — `HighWater` answers `(0, nil)`, and mutation 3 below,
-  which this task calls the single most important mutation in the wave, **cannot be killed at all**.
-  What that costs is one directory read per call, and it is priced here rather than discovered: the
-  enumeration is held behind Task 2a's exclusion and refreshed on write.
-  *And `dir` is this store's own subdirectory, never `sdk`'s shared `LocalState` home*, created by
-  `OpenStreamStore`; otherwise every unrelated `sdk` file in that directory reads as a foreign-tag
-  row. A file in `dir` that is not a row of either tag is `ErrStreamStoreState`.
+  the identity**, and `StreamHighWater` must **enumerate the row directory** rather than stat one
+  path. If the tag is folded into the derived identity hash, a foreign-key-space row is simply a file
+  whose name this build never computes — an absent row — `HighWater` answers `(0, nil)`, and
+  mutation 3 below, which this task calls the single most important mutation in the wave, **cannot be
+  killed at all**. What that costs is one directory read per call, and it is priced here rather than
+  discovered.
+  *And the enumerated directory is not `dir`.* `dir` is this store's own directory, never `sdk`'s
+  shared `LocalState` home, and `OpenStreamStore` creates **two** things inside it: a **row
+  directory**, which holds rows and nothing else and is the only thing the enumeration ever reads;
+  and, beside it and never inside it, whatever single entry Task 2a's exclusion is held on. This plan
+  spells the row directory `dir/rows` for readability and the spelling is not normative; **what is
+  normative is that the enumerated directory holds rows and nothing else, by construction**. Then
+  the rule this property rests on can be categorical without an exception in it: **an entry in the
+  row directory that is not a row of either tag is `ErrStreamStoreState`.**
+  *Why two levels rather than one directory and an exempted name, because this is the collision the
+  2026-09-09 repair introduced and this pass removes.* That repair put Task 2a's OS-held exclusion on
+  a guard file **inside `dir`** and, in the same pass, wrote the categorical rule above over `dir` —
+  so a correct implementation of Task 2a made every `StreamHighWater` after it refuse, and Wave 1 was
+  red on the commit that completed it (Task 2a lands with Task 2). Two repairs were available and
+  only one of them is a construction. *Rejected:* exempting the guard **by name** from the
+  enumeration, which is an ignore-list — the ledger-21 defect in one line, and it goes on silently
+  ignoring the second non-row somebody writes there tomorrow. *Rejected:* a guard **outside `dir`**,
+  which puts this store's lock in a directory the store does not own — `sdk`'s shared home — where
+  two stores' guards collide by name and the exclusion no longer sits on the tree it protects.
+  *Taken:* the enumerated object and the excluded object are **different directories**, one nested in
+  the other, so nothing has to be excluded from the enumeration at all and the refusal above gets
+  **stronger** rather than weaker: nothing legitimate is ever written into the row directory, so
+  anything found there is a real finding. Task 2a Property 1 names this back.
 
   **Property 3 — a key of the wrong width is refused at the boundary, before anything derives from
   it.** §8.2's parameters are `[]byte` and declare no length rule; `StreamKey`'s fields are
@@ -704,11 +745,37 @@ Two reasons, and the second is the one that matters.
   This task is the thing that makes that value a row read off a disk. The width check here is what
   keeps that argument true; the panic is not a substitute for it. **S2-8**.
 
-  **Property 4 — a present-but-unreadable row is an error, and it is a DIFFERENT error from an absent
-  one.** Clause 4's error-free zero is correct for a stream never seen and catastrophic for a stream
-  whose row cannot be read, and the two are one `os.IsNotExist` apart.
-  *Refusal owed:* `ErrStreamStoreState` for a row that exists and does not parse; `(0, nil)` only for
-  a row that is genuinely absent.
+  **Property 4 — a present-but-unreadable row is an error, it is a DIFFERENT error from an absent
+  one, and a TORN TAIL is neither.** Clause 4's error-free zero is correct for a stream never seen
+  and catastrophic for a stream whose row cannot be read, and the two are one `os.IsNotExist` apart.
+  The third case is the one an earlier draft of this property did not have, and it is not a
+  refinement: under the row format step 3 mandates — fixed-width checksummed records, appended one
+  per allocation — a trailing record that does not verify is the **ordinary** outcome of a crash
+  mid-append, and answering it with an error is a store no later process can open.
+  **The three cases, and the discriminator is POSITION and SIZE, not content.**
+  1. **Absent row.** `(0, nil)`. This is clause 4's answer for a stream never seen.
+  2. **Torn tail.** A failing **suffix** — trailing bytes that are not a whole record, and/or a
+     final whole record whose checksum does not verify — with **no verifying record after it**, and
+     no larger than **one record plus a partial**. Discard it and answer the last record that does
+     verify; if none does, answer `(0, nil)`, because a row carrying no verifying record is the state
+     `OpenStreamStore` creates a row in **before** it hands out an index for that key, and that is the
+     same state a stream never seen is in. No error in either sub-case.
+  3. **Corrupt body.** A record that fails to verify with a **verifying record after it**, or a
+     failing suffix **larger than one record plus a partial**, or a row whose name parses but whose
+     records are not a whole number of record widths in a way case 2 cannot explain.
+     `ErrStreamStoreState` — never `(0, nil)`, and never the last surviving record's value.
+  **The bound in case 2 is derived, not chosen.** The allocation path appends **one** record and
+  flushes, so at most one record can be un-flushed when a process dies; a failing suffix bigger than
+  that cannot be an interrupted append and is therefore corruption. That derivation is what makes
+  the discard safe, and Task 2 states its other half: a `Reserve` whose flush had not returned had
+  not returned an index, so discarding a torn tail discards nothing that was ever handed out.
+  **The bound is also the thing a later change breaks silently** — a batched allocation that appended
+  two records per flush would invalidate it without touching a line of this property. That is
+  **S2-22**.
+  *Refusal owed:* `ErrStreamStoreState` for case 3, naming which of the three shapes it found;
+  `(0, nil)` for case 1 and for case 2's no-verifying-record sub-case; and **never**
+  `ErrStreamStoreState` for a torn tail, which is the half Task 2's own design requires and this
+  property now carries. Task 2 Property 2 and Task 2a Property 4 both read this answer.
 
 - [ ] **Step 2: Run to verify it fails**
 - [ ] **Step 3: Write the minimal implementation**
@@ -717,20 +784,25 @@ Two reasons, and the second is the one that matters.
   R2 statement and the three-way §8.2 divergence of **S2-15**, so the next reader finds it before
   writing a call rather than after.
 
-  The row is one file per `StreamKey` under `dir`, named by the version tag and the derived identity
+  The row is one file per `StreamKey` **in the row directory** — the subdirectory of `dir` that
+  Property 2 requires hold rows and nothing else — named by the version tag and the derived identity
   — **in that order**, so the tag is readable off the name without computing the identity, which is
   what Property 2's refusal rests on. One file per key rather than one file for all keys is not a
   performance choice: it makes the flush of Task 2 a single-file flush, and it makes a corrupt row
-  cost one stream instead of every stream.
+  cost one stream instead of every stream. Nothing but a row is ever written into that directory,
+  and Task 2a's guard entry sits beside it in `dir` for exactly that reason.
 
-  **The row has two lifecycle events and only one of them is on the allocation path.** It is
-  *created* — a directory entry — the first time the store touches that key, before any index for it
-  has been handed out; it is *appended to and flushed in place* on every allocation after that.
-  Task 2 Property 1 is why: the allocation path mutates no directory entry, because the one platform
-  this plan tells the implementer to work on cannot force a directory entry's durability at all. The
-  row's format therefore carries its own integrity — fixed-width, checksummed records, and a rule
-  that discards a tail whose checksum does not verify — rather than relying on an atomic replacement
-  it no longer performs. S2-16 is the residual on the create half.
+  **The row has two lifecycle events and only one of them recurs.** It is *created* — a directory
+  entry, inside the row directory — the first time the store touches that key, **before any index for
+  it has been handed out**; it is *appended to and flushed in place* on every allocation after that.
+  Task 2 Property 1 is why: no allocation against a row that already exists mutates a directory
+  entry, because the one platform this plan tells the implementer to work on cannot force a directory
+  entry's durability at all. The row's format therefore carries its own integrity — fixed-width,
+  checksummed records, and a rule that discards a tail whose checksum does not verify — rather than
+  relying on an atomic replacement it no longer performs. **The create is inside the first
+  `ReserveStreamIndex` for that key** and is the one directory-entry mutation the design admits,
+  exactly once per key; Task 2 Property 1's second number is written over the steady-state path for
+  that reason, and S2-16 is the residual it leaves.
 
 - [ ] **Step 4: Run to verify it passes**
 - [ ] **Step 5: Mutation-test**
@@ -747,9 +819,22 @@ Two reasons, and the second is the one that matters.
   6. Pass a 31-octet `groupId` and let it be zero-padded to 32. Property 3 must fail — a silent pad
      collides two streams onto one row, which is Property 3's whole point and is invisible to a test
      that only checks lengths that are too long.
-  7. Truncate a row file to half its length. Property 4 must fail with `ErrStreamStoreState` and
-     must **not** answer zero.
-  8. Return `(0, nil)` for a row whose file exists but cannot be parsed. Property 4 must fail.
+  7. Truncate a row carrying **at least three** records to half its length, removing more than one
+     record. Property 4 must fail with `ErrStreamStoreState`, and it must not answer the last
+     surviving record's value and must not answer zero. **This mutation was re-aimed on 2026-09-09**:
+     as written before, it truncated a row *"to half its length"* with no bound and demanded
+     `ErrStreamStoreState` for exactly the cut Task 2 mutation 10 requires the store to **discard**,
+     so the two tasks demanded opposite answers to one fault and Task 1 lands first.
+  8. Corrupt one record in the middle of a row and leave every record after it verifying. Property 4
+     must fail with `ErrStreamStoreState` — a failure with a verifying record after it is case 3 no
+     matter how small it is.
+  9. Answer `ErrStreamStoreState` for a torn tail rather than discarding it. Property 4 must fail,
+     and Task 2 Property 1 and Task 2a Property 4 must fail with it. **This is the control that
+     separates a corrupt body from an interrupted append**: a store that refuses a torn tail is a
+     store no process can open after any crash mid-append, which is a permanent wedge on the exact
+     path Task 2a Property 4 exists to make survivable, and a suite that cannot fail here has written
+     the refusal Task 1 mutation 7 used to demand.
+  10. Return `(0, nil)` for a row whose body is corrupt in the sense of case 3. Property 4 must fail.
 
 - [ ] **Step 6: Commit**
 
@@ -820,12 +905,18 @@ stated as two members fails for the correct implementation and mutation 2 cannot
 There is no user-space lever for the other half: `FlushFileBuffers` on a volume handle needs
 administrator privilege and flushes the whole volume, which is not something a client SDK may do.
 
-**So the plan constrains the DESIGN rather than the platform, and prices what that costs.** The
-allocation path performs **no directory-entry mutation at all** — no create, no rename, no remove.
-A row file's directory entry is established when the store first touches that key, at a point where
-**no index has been handed out for it**, and every allocation after that is an in-place durable write
-of a file that already exists. The one flush on the allocation path is then a *file contents* flush,
-which `os.File.Sync` forces on every platform this plan ships to.
+**So the plan constrains the DESIGN rather than the platform, and prices what that costs.** An
+allocation against a key whose row already exists performs **no directory-entry mutation at all** —
+no create, no rename, no remove — and every such allocation is an in-place durable write of a file
+that already exists. The one exception is **exactly once per key and is the create itself**: a row
+file's directory entry is established when the store first touches that key, inside that key's first
+`ReserveStreamIndex`, at a point where **no index has been handed out for it**. Saying *"the
+allocation path performs no directory-entry mutation at all"* without that clause — which is how an
+earlier version of this paragraph read — states a property no correct implementation can satisfy,
+because the store has no key set at open time to pre-create from and S2-16 rejects requiring one. The
+one flush on the allocation path is then a *file contents* flush, which `os.File.Sync` forces on
+every platform this plan ships to, and the create is the one durability boundary Windows will not
+force — S2-16.
 
 **What that costs, stated rather than absorbed.** Three things. (1) There is no atomic replacement on
 the allocation path any more, so a torn write must be survivable by the row's own format — a
@@ -833,11 +924,18 @@ fixed-width, checksummed record and a rule that discards a tail whose checksum d
 rule is safe for exactly one reason and the reason must be written into the implementation's comment:
 a torn tail can only be a write whose flush had not returned, and a `Reserve` whose flush had not
 returned had not returned an index, so discarding it discards nothing that was handed out. (2) Task 1
-Property 4's *present-but-unreadable* refusal now has to distinguish a torn **tail** (discard, answer
-the last good record) from a corrupt **body** (`ErrStreamStoreState`), and those are different
-conditions in the same file. (3) The FIRST allocation against a never-before-seen stream still rests
-on a directory entry whose durability Windows will not force. That residual is real, it is not closed
-by anything in this plan, and it is **S2-16**.
+Property 4's *present-but-unreadable* refusal has to distinguish a torn **tail** (discard, answer the
+last good record) from a corrupt **body** (`ErrStreamStoreState`), and those are different conditions
+in the same file. **That obligation is DISCHARGED, and stating it here without discharging it is what
+left Task 1 mutation 7 and this task's mutation 10 demanding opposite answers to one truncation for a
+day.** It is discharged at **Task 1 Property 4**, which states the three cases and the size-and-
+position discriminator between them, and at Task 1 mutations 7, 8, 9 and 10, which exercise both
+sides of it — mutation 9 being the control that a torn tail must NOT be refused. (3) The FIRST
+allocation against a never-before-seen stream still rests on a directory entry whose durability
+Windows will not force, and it is also the one directory-entry mutation this design admits: it
+happens inside that key's first `ReserveStreamIndex`, before any index for the key has been handed
+out, which is why Property 1's second number below is written over the steady-state path. That
+residual is real, it is not closed by anything in this plan, and it is **S2-16**.
 
 **And the crash-recovery rule, stated as a rule rather than as a procedure.** On open, the store
 answers `StreamHighWater` from **persisted state only**, never from a recomputed value and never from
@@ -857,13 +955,21 @@ so a refused write or a crash between reserve and send is not a permanent wedge.
   after a failed flush has handed out an index it cannot prove it recorded.
   *Scope to derive, separately from the class (R3):* the class is **every forced flush on the
   allocation path**, and that class is **one** member at this task — the row file's contents —
-  because the allocation path is required to mutate no directory entry, so there is no second
-  durability boundary for any platform to differ about. The gate reports **two** numbers: the number
-  of forced flushes it observed on the path, and the number of directory-entry mutations it observed
-  on the path. The scope is the whole allocation path and everything it calls, not the row write
-  alone; a gate that reads the `Reserve` body and not what the body calls has read half of it. The
-  second number is what makes the property platform-independent, and a gate that reports only the
-  first is the gate the earlier draft asked for.
+  because an allocation against a row that already exists is required to mutate no directory entry,
+  so there is no second durability boundary for any platform to differ about. The gate reports **two**
+  numbers: the number of forced flushes it observed on the path, and the number of directory-entry
+  mutations it observed on the path. The scope is the whole allocation path and everything it calls,
+  not the row write alone; a gate that reads the `Reserve` body and not what the body calls has read
+  half of it. The second number is what makes the property platform-independent, and a gate that
+  reports only the first is the gate the earlier draft asked for.
+  *And the second number is stated over TWO cases, not one, because a correct implementation cannot
+  make it zero in both.* The row for a never-before-seen key does not exist until the store creates
+  it, and the store has no key set at open time to pre-create from (S2-16 rejects requiring one), so
+  the **first** allocation against a key necessarily creates a directory entry. The gate therefore
+  runs the path twice and reports both readings: **first allocation for a key — one create, one
+  forced flush; every allocation after it — zero creates, one forced flush.** A property that
+  demanded zero creates on both readings is one no correct implementation can satisfy, which is the
+  class R5 exists to catch, and it is what the earlier draft's single-number-zero phrasing asked for.
 
   **Property 2 — `StreamHighWater` is answered from persisted state and never rewinds.** After a
   restart it is at least what it was, for every key, under every interleaving the test can produce.
@@ -896,12 +1002,15 @@ so a refused write or a crash between reserve and send is not a permanent wedge.
 
   1. Return from `Reserve` before the flush. Property 1 must fail. **This is the mutation the whole
      wave exists for**, and a suite that cannot kill it has tested a file format.
-  2. Create, rename or remove a directory entry on the allocation path — write the new high water to
-     a temporary file and rename it over the row, which is what the earlier draft of this task
-     prescribed. Property 1 must fail on its **second** reported number, on every platform. It must
-     **not** be expected to fail on the first: on Windows the mutant and the correct implementation
-     both force exactly one flush, and a gate that tried to tell them apart by counting flushes would
-     be red at baseline there.
+  2. Create, rename or remove a directory entry on the allocation path **for a key whose row already
+     exists** — write the new high water to a temporary file and rename it over the row, which is what
+     the earlier draft of this task prescribed. Property 1 must fail on its **second** reported number
+     for the steady-state reading, on every platform. It must **not** be expected to fail on the
+     first: on Windows the mutant and the correct implementation both force exactly one flush, and a
+     gate that tried to tell them apart by counting flushes would be red at baseline there. **Nor may
+     it be expected to fail on the first-allocation reading**, where the correct implementation
+     creates one entry too — a mutation applied without the "already exists" bound convicts the
+     implementation the plan mandates.
   3. Swallow the flush error and return `nil`. Property 1 must fail.
   4. Answer `StreamHighWater` from an in-memory cache that survives the injected crash. Property 2
      must fail — the cache is exactly the recomputed value the rule forbids.
@@ -914,10 +1023,14 @@ so a refused write or a crash between reserve and send is not a permanent wedge.
   8. Return `ErrStreamStoreState` for a stream never seen. Property 4 must fail.
   9. Make `Reserve` answer the same index twice for the same key. Property 3 and Property 5 must
      both fail.
-  10. Truncate the row's last record to half a record's width and reopen. Property 2 must fail if the
-     store answers a high water **above** the last record whose checksum verifies, and Property 4
-     must fail if it answers `(0, nil)` for a key whose row is present. A torn tail is discarded; a
-     torn tail read as data is a high water nothing recorded.
+  10. Truncate the row's last record to half a record's width and reopen, **on a row carrying at
+     least two records**. Property 2 must fail if the store answers a high water **above** the last
+     record whose checksum verifies, and Property 4 must fail if it answers `(0, nil)` for a row that
+     still carries a verifying record. A torn tail is discarded; a torn tail read as data is a high
+     water nothing recorded. **The two-record bound is load-bearing and was added on 2026-09-09**:
+     on a row carrying exactly one record the same cut leaves no verifying record at all, `(0, nil)`
+     is then the correct answer — Task 1 Property 4's case 2 — and a mutation applied without the
+     bound convicts a correct implementation on its own second clause.
 
 - [ ] **Step 6: Commit**
 
@@ -932,7 +1045,9 @@ so a refused write or a crash between reserve and send is not a permanent wedge.
 - Test: `sdk/message_stream_store_test.go` (extend)
 
 **Interfaces:**
-- Consumes: Task 1's `StreamStore` and `OpenStreamStore`; Task 2's allocation path. Nothing from
+- Consumes: Task 1's `StreamStore` and `OpenStreamStore`, and **Task 1 Property 2's two-level
+  directory construction** — the row directory the enumeration reads, and `dir` itself, which is where
+  this task's guard entry goes and where it may not be; Task 2's allocation path. Nothing from
   `connect/messagegroup`.
 - Produces:
 ```go
@@ -971,15 +1086,55 @@ in one statement does not have."* An allocation done in one statement is what th
 and §8.2 says nothing at all about concurrent openers — that silence is **S2-17**.
 
 **Position taken: the exclusion is held by the OPERATING SYSTEM, never by a lock file with contents.**
-On Windows, an exclusive `syscall.CreateFile` on a guard file inside `dir` with
-`dwShareMode = 0`; on Unix, `syscall.Flock` with `LOCK_EX|LOCK_NB` on the same file. Both are in the
-standard library's `syscall` package on their own `GOOS`, so this costs **no module dependency** —
-see *Dependency policy*. A `GOOS` with neither primitive gets a third file whose body is
-`ErrStreamStoreLocked` unconditionally: **a platform this store cannot make safe is a platform it
-refuses to open on**, and a build tag that quietly compiled to a no-op is the single-writer property
-deleted by a build constraint. *Rejected:* a lock file carrying a pid and a timestamp, because it has
-no liveness oracle — it either survives a crash and wedges every later open of that directory, or it
-is stolen from a live writer on a heuristic, and the SDK cannot tell those apart.
+On Windows, an exclusive `syscall.CreateFile` on a guard entry with `dwShareMode = 0`; on Unix,
+`syscall.Flock` with `LOCK_EX|LOCK_NB` on the same entry. Both are in the standard library's
+`syscall` package on their own `GOOS`, so this costs **no module dependency** — see *Dependency
+policy*. A `GOOS` with neither primitive gets a third file whose body is `ErrStreamStoreLocked`
+unconditionally: **a platform this store cannot make safe is a platform it refuses to open on**, and
+a build tag that quietly compiled to a no-op is the single-writer property deleted by a build
+constraint. *Rejected:* a lock file carrying a pid and a timestamp, because it has no liveness oracle
+— it either survives a crash and wedges every later open of that directory, or it is stolen from a
+live writer on a heuristic, and the SDK cannot tell those apart.
+
+**WHERE the guard entry sits, because an earlier version of this paragraph put it somewhere that made
+Task 1 unsatisfiable.** It sits **in `dir`, beside the row directory and never inside it**. Task 1
+Property 2 requires `StreamHighWater` to **enumerate** the directory that holds rows and states, as a
+categorical rule with no exception in it, that an entry there which is not a row of either tag is
+`ErrStreamStoreState`. A guard entry inside the enumerated directory therefore *is* a finding: the
+store reads its own lock as data, every `StreamHighWater` after `OpenStreamStore` refuses, and — since
+this task lands **with** Task 2 rather than after it — Wave 1 is red on the commit that completes it.
+Both halves of that collision were written in one repair pass on 2026-09-09 and it is removed here by
+**construction rather than by exception**: the enumerated object and the excluded object are
+different directories, one nested inside the other, so no task has to exempt anything, no reader has
+to know the guard's name, and the categorical rule gets stronger rather than weaker. Task 1
+Property 2 states the same shape from the row's side and names this task back.
+
+**WHICH `GOOS` gets which file, measured rather than asserted — and the `unix` build term is the
+wrong constituency.** Compile-probed 2026-09-09 with the project toolchain (Go 1.26.5,
+`CGO_ENABLED=0`), building the three-file split exactly as this task's Files block names it, with the
+Unix file carrying `//go:build unix` and the fallback carrying `//go:build !unix && !windows`:
+
+```
+OK    windows/amd64  linux/amd64  darwin/arm64  android/arm64  ios/arm64
+OK    freebsd/amd64  openbsd/amd64  netbsd/amd64  dragonfly/amd64  illumos/amd64
+OK    js/wasm  wasip1/wasm  plan9/amd64          (the fallback file: a refusal, as intended)
+FAIL  solaris/amd64  aix/ppc64   x_unix.go: undefined: syscall.Flock
+```
+
+`solaris` and `aix` **satisfy the `unix` term** — `go/build`'s `unix` covers aix, android, darwin,
+dragonfly, freebsd, hurd, illumos, ios, linux, netbsd, openbsd and solaris — and `syscall.Flock` is
+**not declared on either**. So the split as named does not compile there at all: a platform the
+fail-closed file was written to *refuse* on becomes a **build break** instead, and the property's own
+gate never runs to say so. *Position taken:* the Unix file's constraint is **the `GOOS` set on which
+`syscall.Flock` is declared**, spelled as an explicit term list (or `unix && !solaris && !aix`), and
+the fallback's is its complement — derived from the primitive, per R4, and not from the `unix` term
+which is an instance of it. **The fallback's real constituency is then `js/wasm`, `wasip1/wasm`,
+`plan9`, `solaris` and `aix`** — and `js/wasm` is a target **this module already builds for**:
+measured 2026-09-09 over `sdk`'s 57 root production files, `device_rpc_platform_js.go` carries
+`//go:build js` and `device_rpc_platform_native.go` carries `//go:build !js`. So the priced
+consequence, stated rather than discovered, is that **the message store refuses to open on the wasm
+artifact, and `NewGroupSession` refuses a nil reserver, so that artifact has no messaging** until
+somebody supplies an exclusion for it. Whether it should is **S2-20**.
 
 - [ ] **Step 1: Derive the property and write the failing test**
 
@@ -997,6 +1152,12 @@ is stolen from a live writer on a heuristic, and the SDK cannot tell those apart
   directory — with the gate reporting the number of paths it exercised. The scope is **the
   directory**, not the process: a gate that only holds the in-process case is measuring a mutex, and
   a mutex is invisible to the second process, which is the case CP3b's two clients actually create.
+  *And a fifth thing the gate must report, because it is what keeps this task from breaking Task 1:*
+  **where the guard entry sits.** It is in `dir`, beside the row directory and never inside it, and
+  the gate reports the path it acquired the exclusion on together with the path it enumerates, so a
+  guard that moved into the enumerated directory is visible as a number a reader can compare rather
+  than as a `StreamHighWater` refusing three tasks later. **Task 1 Property 2** states the same
+  construction from the row's side.
 
   **Property 2 — the exclusion is released by the death of the process that held it, and by nothing
   else.** A store whose process died without calling `Close` leaves a directory a later process can
@@ -1043,7 +1204,21 @@ is stolen from a live writer on a heuristic, and the SDK cannot tell those apart
   8. Crash after the flush and before `Reserve` returns, then reopen. Property 4 must fail if the
      reopened store answers a high water **below** the flushed index.
   9. Crash before the flush, then reopen. Property 4 must fail if the reopened store answers a high
-     water **at or above** the unflushed index.
+     water **at or above** the unflushed index, and it must fail if the reopen **errors** — the
+     unflushed record is a torn tail and Task 1 Property 4 case 2 requires it discarded, not refused.
+  10. Acquire the exclusion on a guard entry **inside the row directory** — the directory Task 1
+     Property 2's enumeration reads — rather than beside it in `dir`. **Task 1 Property 2 must fail
+     with `ErrStreamStoreState` on the first `StreamHighWater` after a successful `OpenStreamStore`**,
+     and this task's Property 1 must not: the exclusion still holds, and that is the point. **This is
+     the mutation that reproduces the collision the 2026-09-09 repair introduced** — a guard file
+     inside `dir` against a categorical rule that every entry there is a row — and until it was
+     written nothing in Tasks 1, 2, 2a, 3, 4 or 12 exercised it, which is why two properties written
+     in one pass could be mutually unsatisfiable and every gate stay green.
+  11. Constrain the Unix file with the `unix` build term rather than with the measured `GOOS` set on
+     which `syscall.Flock` is declared. The **build** must fail on `solaris` and `aix` with
+     `undefined: syscall.Flock`, and the Definition of done's cross-compile row is what makes it
+     visible: a platform the fail-closed file was written to refuse on becomes a compile error
+     instead, and Property 1's gate never runs there to say so.
 
 - [ ] **Step 6: Commit**
 
@@ -1728,11 +1903,23 @@ Task 9 Property 2's gate is over this call site.
   from inside `sdk` itself.
   *Refusal owed:* `newMessageClient` refuses a config whose `Streams` or `Receive` is nil, rather than
   opening its own.
-  *Scope to derive, separately from the class (R3):* the class is **every `OpenStreamStore` and
-  `OpenReceiveState` call expression in `package sdk`'s production files**, read off the syntax tree;
-  the scope is the whole package. That class is **two** members at this task — one of each, both
-  outside this file, in whatever stands the client up — and the gate reports the number it read. A
-  third member is a second store over one directory and is the hazard Task 2a exists for.
+  *Scope to derive, separately from the class (R3):* the class is **the durable-store fields of
+  `messageClientConfig`**, read off the struct's own field set rather than spelled; that class is
+  **two** members at this task — `Streams` and `Receive` — and the gate reports the number it read,
+  so a third durable store added to the config tomorrow fails here until this property is taught
+  about it. The **scope** is a different question and is answered separately: it is every production
+  file of `package sdk`, walked for `OpenStreamStore` and `OpenReceiveState` **call expressions**, of
+  which the gate reports the number it found **and the number of production files it walked** — a
+  walk of zero files is the broken gate, a count of zero call expressions is the correct reading, and
+  the finding is any call expression at all.
+  *The count of call expressions is ZERO at this task and that is deliberate, not an oversight — an
+  earlier draft of this scope said "two members … in whatever stands the client up", and no task in
+  this plan stands the client up.* Every declaration here is package-internal, both stores arrive on
+  the config **injected**, and the surfacing that would open them is s1's (**S2-19**). So a gate
+  written to expect two call expressions reads zero and is red at its own commit, which is the same
+  empty-class defect this plan's Task 8a was created to close, one altitude up. The property that
+  survives is the **prohibition** — the seam opens no store — and it is falsified by mutation 9,
+  which puts a member there.
 
   **Property 5 — §5.9 G11: a commit lost between reserve and re-seal never re-uses the index.** The
   session re-seals after a lost commit and the second seal takes a **new** allocation, not the one
@@ -1966,10 +2153,18 @@ about the protocol that the protocol does not make.
   *Refusal owed:* none; the finding is a reachable call.
   *Scope to derive, separately from the class (R3):* the class is **every call to
   `message.ComputeRequestAuth` in `package sdk`'s production files, with the exported entry points
-  each is reachable from**, read off the call graph rather than off the file it sits in; that class
-  is **one** member at this task — Task 11's `Fetch` — and the gate reports the number it read. The
-  scope is the whole package's call graph, not the send path's own file, because the defect is a
-  helper called from both halves rather than a line written into `SubmitRecord`.
+  each is reachable from**, read off the call graph rather than off the file it sits in. **That class
+  has no member at this task**, and saying so is the repair rather than the defect: Task 11's `Fetch`
+  is the one legitimate call this plan ever makes, the landing order is `9, 10, 11`, and a gate
+  written here to expect one member reports a count it cannot read on its own commit — the empty
+  derived class this plan's Task 8a exists to have closed. The count half **lands at Task 11
+  Property 1**, which is where that one call comes into existence; what this task holds is the
+  **prohibition**, and its gate reports **the number of call-graph nodes it walked from
+  `SubmitRecord`** rather than the class size, so a walk of zero nodes is the broken gate and a class
+  of zero here is the correct reading. The mutations are what put a member in the class: 7 writes one
+  into `SubmitRecord` and 8 writes one into a helper both halves call. The scope is the whole
+  package's call graph, not the send path's own file, because the defect is a helper called from both
+  halves rather than a line written into `SubmitRecord`.
 
 - [ ] **Step 2: Run to verify it fails**
 - [ ] **Step 3: Write the minimal implementation**
@@ -2051,6 +2246,12 @@ undecidable at the signature and the property unfalsifiable.
   populated, verifies against nothing.
   *Refusal owed:* none locally; the observable failure is `REASON_REJECTED`, which is why the
   property is asserted against `message.ComputeRequestAuth`'s own output and not against a server.
+  *And this is the one `message.ComputeRequestAuth` call `package sdk` ever makes.* It is where
+  **Task 10 Property 5**'s empty class first has a member: at Task 10's own commit that class is
+  zero, because Task 11 lands after Task 10, and from **this** commit onward it is one. **Task 10
+  Property 5** is unchanged by that — its finding is a call reachable from `SubmitRecord`, and this
+  one must not be. The two properties are the same subject seen from the two halves of §4.3.8, which
+  requires the authenticator on Fetch and exempts Submit.
 
   **Property 2 — the op byte is read off the compiled descriptor, never written down.** It is the
   oneof arm's field number and `connect/protocol` already holds a test that pins the correspondence.
@@ -2101,10 +2302,10 @@ undecidable at the signature and the property unfalsifiable.
   7. Set `read_epoch` to a value that is not the supplied `readKeyRef.Epoch`. Property 3 must fail
      locally, and it must fail before the MAC is computed — a MAC under the wrong epoch's key is
      still a MAC, and a path that computes one has turned a local mismatch into a wire refusal.
-  10. Supply a `readKeyRef` with a nil or zero-length `Key`. Property 3 must fail locally, for the
+  8. Supply a `readKeyRef` with a nil or zero-length `Key`. Property 3 must fail locally, for the
      same reason and before the MAC — a MAC under a zero-length key is still a MAC.
-  8. Treat `since_record_id` as inclusive. Property 4 must fail with a duplicate.
-  9. Page with `since_record_id = last + 1`. Property 4 must fail with a skip — off-by-one in the
+  9. Treat `since_record_id` as inclusive. Property 4 must fail with a duplicate.
+  10. Page with `since_record_id = last + 1`. Property 4 must fail with a skip — off-by-one in the
      other direction, and it is the one that loses a message rather than repeating one.
 
 - [ ] **Step 6: Commit**
@@ -2241,6 +2442,21 @@ says so.
   worse on this side: on the send side a silent zero re-allocates an index, which the server refuses
   with `REASON_STREAM_INDEX_REGRESSED`; on the receive side a silent zero walks a ratchet to the
   wrong head and every record below it becomes permanently unopenable with no error anywhere.
+  *And it inherits Task 1 Property 2's DIRECTORY SHAPE as well as its tag, because the collision that
+  property removes reaches this store through this task's own `Consumes` block.* This task consumes
+  both *"Task 1's row identity and its three refusals"* — of which `ErrReceiveStateState` is the
+  analogue — and *"Task 2a's exclusion"*, so a guard entry inside the enumerated directory would make
+  every `HeadIndex` after `OpenReceiveState` refuse, exactly as it would have on the send side. So
+  `OpenReceiveState` creates the same two levels: a **row directory** under its `dir` that holds rows
+  and nothing else and is the only thing the enumeration reads, and, beside it and never inside it,
+  whatever single entry its exclusion is held on. **An entry in that row directory which is not a row
+  of either tag is `ErrReceiveStateState`.**
+  *What this does NOT rule, and it is filed rather than decided:* whether `StreamStore` and
+  `ReceiveState` may be handed the **same** `dir`, and whether `OpenReceiveState` acquires its own
+  exclusion over its own directory or shares the one `OpenStreamStore` holds. This task's `Consumes`
+  block names *"Task 2a's exclusion"* and does not say which, Task 8a's config carries the two stores
+  as separate injected values and says nothing about their directories, and no document rules it.
+  **S2-21.**
 
 - [ ] **Step 2: Run to verify it fails**
 - [ ] **Step 3: Write the minimal implementation**
@@ -2275,6 +2491,10 @@ says so.
      receive side, where it costs messages rather than a server refusal.**
   14. Fold the version tag into the derived identity hash so it cannot be read off the name.
      Property 7 must fail — a foreign-tag row is then an absent file and the store answers zero.
+  15. Acquire this store's exclusion on a guard entry **inside its row directory**. Property 7 must
+     fail with `ErrReceiveStateState` on the first `HeadIndex` after a successful `OpenReceiveState`.
+     This is Task 2a mutation 10 on the receive side, and it is here because this task consumes both
+     halves of the collision that mutation reproduces.
 
 - [ ] **Step 6: Commit**
 
@@ -2348,10 +2568,29 @@ else it covered was satisfiable.
   `github.com/urnetwork/connect/mls/syntax` and `github.com/urnetwork/message-server` — and the gate
   reports the number of forbidden paths it was given, because a gate that was given none reports
   clean over everything. The **scope** is the **import specs of `package sdk`'s own non-test files**,
-  read off the syntax tree or off `go list -f` on the package itself — **never** `go list -deps`,
-  whose answer over the four packages this plan links is 414 packages across 30 module prefixes and
-  necessarily contains both `mls` packages. The gate reports the number of production files it read,
-  and a read of zero files is a broken gate rather than a clean one.
+  read off the **syntax tree over every `.go` file in the package directory, unfiltered by any build
+  context** — **never** `go list -deps`, whose answer over the four packages this plan links is 414
+  packages across 30 module prefixes and necessarily contains both `mls` packages. The gate reports
+  **two** numbers: the number of production files it read, and the number of production `.go` files
+  the directory holds. **They must be equal**, and a read of zero files is a broken gate rather than
+  a clean one.
+  *And `go list -f '{{range .Imports}}'` is NOT an interchangeable reading of that scope, which is
+  what an earlier version of this sentence offered.* `go list` answers for **one** build context and
+  reports only the files that satisfy the runner's `GOOS`/`GOARCH`. Reproduced 2026-09-09 with the
+  project toolchain in a scratch module holding `a.go` (imports `fmt`) and `b_unix.go`
+  (`//go:build unix`, imports `crypto/sha256`): on `windows/amd64`,
+  `go list -f '{{range .Imports}}{{println .}}{{end}}' .` prints `fmt` alone and
+  `go list -f '{{.GoFiles}} {{.IgnoredGoFiles}}'` prints `[a.go] [b_unix.go]`; with `GOOS=linux` it
+  prints `crypto/sha256` and `fmt`. Measured on the subject itself with `go/build`'s own `MatchFile`
+  — the evaluator `go list` uses — over `sdk` at `432986f`: of **57** `package sdk` root production
+  files a `windows/amd64` context reads **51** and skips **six** — `device_local_ioloop.go`
+  (`!windows`), `device_rpc_platform_js.go` (`js`), `glog_android.go`, `glog_ios.go`,
+  `glog_macos.go`, `stderr_mobile.go`. **Task 2a's own Files block adds two more a Windows runner
+  never reads** — `message_stream_exclusion_unix.go` and `message_stream_exclusion_other.go` — and
+  this plan directs Windows runs. A gate that cannot see a file cannot fail on what that file
+  imports, which is why the two numbers above are reported side by side: the file-set reading is the
+  property, and the equality of the two numbers is the check that the reading was not filtered.
+  Property 3 below reads the same unfiltered file set for the same reason.
 
   **Property 2 — `sdk` does not import `github.com/urnetwork/message-server` at all**, in production
   or in test. `msgrepo/harness` is the reference for Tasks 5–11 and is read, never linked; it is also
@@ -2372,9 +2611,15 @@ else it covered was satisfiable.
   package, not the files this plan creates, because an `sdk` file that already existed is as able to
   spell a new path as a new one is.
 
-  **Property 4 — the module gains no new require-block entry beyond the two this plan promotes from
+  **Property 4 — the module gains no new require-block entry beyond the ONE this plan promotes from
   indirect to direct, and no new module at all.** This is the half Property 1's old transitive scope
-  was reaching for and could not decidably hold.
+  was reaching for and could not decidably hold. *The number is one, and it read "two" until
+  2026-09-09* — while this property's own measurement says 8 direct and 28 indirect before and 9 and
+  27 after, the *Dependency policy* says *"One require-block line"*, and the Definition of done's row
+  says *"one line"*. Re-measured 2026-09-09 in `sdk` at `432986f`: **36** require lines, **8** direct,
+  **28** indirect, and `google.golang.org/protobuf v1.36.11 // indirect` at `go.mod:42`. A gate
+  written to the header's "two" is red on the commit that makes the one promotion, which is the same
+  unsatisfiable shape one countable line lower down.
   *Refusal owed:* a failure naming the module path and whether it arrived as direct or indirect.
   *Scope to derive, separately from the class (R3):* the class is **every module path in
   `sdk/go.mod`'s require blocks**, read off the parsed file rather than grepped; that class is
@@ -2406,7 +2651,17 @@ else it covered was satisfiable.
      must fail, on `connect/mls/syntax` reported as `connect/mls`, so the gate's own matcher is held
      to the distinction the two properties turn on.
   7. Add a module to `sdk/go.mod`'s indirect require block. Property 4 must fail.
-  8. Promote a third module from indirect to direct. Property 4 must fail on the count that moved.
+  8. Promote a **second** module from indirect to direct. Property 4 must fail on the count that
+     moved — one promotion is this plan's whole budget, so the second is the finding.
+  9. Import `connect/mls` from a production file **this runner's build context excludes** — on a
+     Windows runner, `sdk/message_stream_exclusion_unix.go`, which Task 2a creates and which a
+     Windows `go list` never reads. Property 1 must fail, on Windows and on Linux alike. **A gate
+     built on `go list -f '{{range .Imports}}'` passes this mutant on Windows and kills it on
+     Linux**, which is the build-context filtering the scope above exists to avoid, and this plan
+     directs Windows runs.
+  10. Read the file set from `go list`'s `GoFiles` rather than from the directory. Property 1 must
+     fail on the **second** reported number — files read against files on disk — because `GoFiles`
+     is the filtered set and the equality is the whole check.
 
 - [ ] **Step 6: Commit**
 
@@ -2558,9 +2813,11 @@ creates the first workflow. Nothing below can be run until the first is closed.
 | Every task's tests pass | `go test . -count=1` | ok |
 | Race-clean | `go test . -race -count=1` | ok |
 | The reserver never reuses an index | `go test . -run TestStreamIndexNeverReused -v` | PASS, and the run reports the number of allocations and the number of restarts it performed. A run that does not print both has not said whether it tested anything |
-| Every derived-class gate reports its class size | `go test . -v` | every gate in Tasks 1, 2, 2a, 3, 4, 5, 6, 8, 8a, 10, 11, 12, 13, 14 and 15 prints the number of members it read. **A class size of zero is a broken gate, not a clean one** |
+| Every derived-class gate reports its class size AND the scope it walked | `go test . -v` | every gate in Tasks 1, 2, 2a, 3, 4, 5, 6, 8, 8a, 10, 11, 12, 13, 14 and 15 prints the number of members it read **and the size of the scope it read them out of**. **A gate that READ NOTHING is broken, not clean** — zero files walked, zero call-graph nodes, zero descriptor fields. A class that is legitimately **empty over a scope the gate did walk** is a different thing and is not broken: Task 10 Property 5's prohibition is empty at its own commit by construction, says so, and relocates its count half to Task 11 Property 1. **The two were one sentence until 2026-09-09, and conflating them is what turns an honest prohibition into a row nothing can satisfy** |
 | The single writer holds against a second PROCESS | `go test . -run TestStreamStoreSingleWriter -v` | PASS, and the run reports which of the two paths it exercised. A run that exercised only the in-process path has measured a mutex |
-| No `sdk` FILE spells `connect/mls` | `go list -f '{{range .Imports}}{{println .}}{{end}}' . \| grep -xE 'github.com/urnetwork/connect/mls(/syntax)?'` | no matches. **`-x` and the group are the row**: unanchored, `connect/mls` matches `connect/mls/syntax`, and `-deps` in place of `-f` makes this row red at baseline — measured, `go list -deps` over the four packages this plan links prints both `mls` paths among 414 packages |
+| No `sdk` FILE spells `connect/mls` — **normative row** | `go test . -run TestSdkLayering -v` | PASS, and the run prints **the number of production files it read and the number the directory holds, equal**, plus the three forbidden paths it was given. This is the row, not the `go list` one below it: the gate reads the file set off the directory, unfiltered by a build context |
+| The same question asked from a shell, corroboration only | `for goos in windows linux darwin ios android js; do GOOS=$goos go list -f '{{range .Imports}}{{println .}}{{end}}' . ; done \| sort -u \| grep -xE 'github.com/urnetwork/connect/mls(/syntax)?'` | no matches. **Two things are the row.** `-x` and the group: unanchored, `connect/mls` matches `connect/mls/syntax`, and `-deps` in place of `-f` makes it red at baseline — `go list -deps` over the four packages this plan links prints both `mls` paths among 414. And the `GOOS` loop: a single `go list -f` answers for the runner's build context only — measured 2026-09-09, a `windows/amd64` context reads 51 of `sdk`'s 57 root production files, and Task 2a's `message_stream_exclusion_unix.go` is one of the files it cannot see. Even swept, this row misses any file no listed `GOOS` reads, which is why the gate above is the normative one |
+| Task 2a's three files compile everywhere the module ships, and REFUSE where they cannot be safe | `for t in windows/amd64 linux/amd64 darwin/arm64 ios/arm64 android/arm64 freebsd/amd64 openbsd/amd64 netbsd/amd64 dragonfly/amd64 illumos/amd64 solaris/amd64 aix/ppc64 js/wasm wasip1/wasm plan9/amd64; do CGO_ENABLED=0 GOOS=${t%/*} GOARCH=${t#*/} go build ./... ; done` | exit 0 on **every** one. Measured 2026-09-09 with the `unix` build term in the Unix file, `solaris/amd64` and `aix/ppc64` fail with `undefined: syscall.Flock` — they satisfy `unix` and lack the primitive — so this row is what keeps the fail-closed file a refusal rather than a compile error |
 | The transitive edge that IS legal is still there | `go list -deps . \| grep -c 'connect/mls'` | **2**, not 0. `sdk` → `connect/messagegroup` → `connect/mls` and `sdk` → `connect/message` → `connect/mls/syntax` are §2.3's own layering and Wave 1 requires the first. A run that reports 0 here means the reserver is not linked |
 | No edge to the message server | `go list -deps -test ./... \| grep message-server` | no matches |
 | The require blocks moved by one line and no more | `git diff --stat -- go.mod` | one line, `google.golang.org/protobuf` from indirect to direct |
@@ -2869,6 +3126,56 @@ seam exists and is gated, and the **surfacing** onto `MessageClient` stays s1's 
 *Rejected:* declaring a partial `MessageClient` here, for the same reason S2-12 declines to declare a
 partial `MessageStore`. **Blocks:** nothing in this plan; it is why the plan produces no exported
 messaging surface. **Owed:** s1's `MessageClient`, and then one task that is not in this plan.
+
+**S2-20 — the fail-closed exclusion file's real constituency includes `js/wasm`, a target this module
+already builds for, and `solaris`/`aix`, where the `unix` build term does not compile at all.**
+Compile-probed 2026-09-09 with the project toolchain, `CGO_ENABLED=0`, over the three-file split
+exactly as Task 2a's Files block names it: `syscall.Flock` is declared on linux, darwin, ios,
+android, freebsd, openbsd, netbsd, dragonfly and illumos, and **not** on solaris, aix, js/wasm,
+wasip1/wasm or plan9 — while `go/build`'s `unix` term **includes solaris and aix**, so a Unix file
+constrained with `unix` fails to build on both with `undefined: syscall.Flock`. *Position taken:*
+Task 2a constrains the Unix file by **the `GOOS` set on which the primitive is declared**, not by the
+`unix` term, and the Definition of done carries a cross-compile row so the distinction is a command
+rather than a comment. *What that leaves, priced rather than absorbed:* the fallback's real
+constituency is js/wasm, wasip1/wasm, plan9, solaris and aix, and **js/wasm is a target the root
+`sdk` module already builds for** — measured over its 57 root production files,
+`device_rpc_platform_js.go` carries `//go:build js` and `device_rpc_platform_native.go` carries
+`//go:build !js`. So the wasm artifact gets a store that refuses to open, and `NewGroupSession`
+refuses a nil reserver, so it gets no messaging. *Not resolved:* whether messaging is in scope for
+the wasm artifact at all, and if it is, what its single-writer story is — a browser tab has neither
+`Flock` nor `CreateFile` and the answer is probably not a file at all. **Blocks:** nothing in this
+plan; the refusal is correct and this item is the thing it costs. **Owed:** a ruling from whoever
+owns the `js` target.
+
+**S2-21 — nothing rules whether the two durable stores may share a directory, or whose exclusion
+covers which.** Task 12's `Consumes` block takes *"Task 2a's exclusion"* without saying whether
+`OpenReceiveState` acquires its own over its own directory or shares the one `OpenStreamStore`
+holds; Task 8a's config carries `Streams` and `Receive` as two separate injected values and says
+nothing about their `dir`s; §8.2 declares the receive-side store not at all (S2-6). Both readings
+have a failure mode: two stores over one directory collide on the row directory and on the guard,
+and two exclusions over two directories leave a caller free to point them at the same one anyway.
+*Position taken:* each store creates its own two-level layout — a row directory holding rows and
+nothing else, and a guard entry beside it — so that whichever way this is ruled, a shared directory
+is **refused at open** by the other store's exclusion rather than silently interleaved. *Not
+resolved:* whether the two `dir`s must be distinct, and whether that is a precondition the
+constructor checks or a caller's obligation. **Blocks:** nothing in this plan. **Owed:** a ruling
+alongside S2-6's §8.2 amendment.
+
+**S2-22 — the torn-tail discard rule's bound is derived from a write discipline no document states
+as a contract.** Task 1 Property 4 separates a torn **tail** from a corrupt **body** by size and
+position: a failing suffix no larger than one record plus a partial, with no verifying record after
+it, is an interrupted append and is discarded; anything larger is corruption. That bound is correct
+**because the allocation path appends one record and flushes** — one record is the most that can be
+un-flushed when a process dies. Nothing declares that as a contract: not §8.2, not
+`streamindex.go`'s five clauses, not this plan outside Task 2's own prose. A later change that
+batched two allocations into one flush would invalidate the discriminator **without touching a line
+of Task 1 Property 4**, and the failure mode is a two-record loss read as a torn tail and silently
+discarded — a high water below what was handed out, which is the item-170 shape reached through the
+row format instead of through the key derivation. *Position taken:* Task 1 Property 4 states the
+derivation beside the rule so the coupling is visible, and Task 2's implementation comment must carry
+it. *Not resolved:* whether the one-record-per-flush discipline belongs in §8.2 as a sixth contract
+clause, beside the concurrent-opener clause S2-17 asks for. **Blocks:** nothing today. **Owed:** a
+§8.2 amendment, or a written statement that the row format's integrity rule is the implementer's.
 
 ## Open asks on other plans
 
