@@ -1994,6 +1994,11 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      writes is now non-`DURABLE`. *(**M1-6 was ruled 2026-09-07** and the lift reaches `PERMANENT` and
      `MEDIA`, so Task 15 is through and Task 14 is not: its `EPH(5)` `eph_root` wrap is refused under
      item **152** now, and both tasks additionally owe the pin of items **143** and **169**.)*
+     *(**2026-09-09:** `M1-1`'s remainder — the field list, the signature's placement and coverage,
+     and `M1-7`'s padding — now has an options amendment at item **175**, which records all
+     twenty-one shapes the three independently produced option sets offered, composes them against
+     each other, and files the five things they disagree about as items **176** through **180**.
+     Nothing there is ruled and this ruling is unchanged by it.)*
 
 138. **Nothing detects a missing recovery wrap, and after the 2026-09-13 resequence nothing can
      without a change item 132 owns.** Filed as the named cost of ruling 1 rather than discovered.
@@ -4818,6 +4823,1023 @@ fourteen are dispositioned below.
      *Blocks:* nothing. Both are comments in `connect`; the item exists because the ruling's own
      carrier is where a later reader will look first, and because the second one is the exact number a
      future cost argument will be built on. Found 2026-09-07 in the review of the A1 implementation.
+
+175. **THE THREE `M1-1` OPTION SETS, COMPOSED — AN AMENDMENT TO m1's OPEN ITEM `M1-1` AND TO `M1-7`.
+     THEY DO COMPOSE INTO ONE DECODABLE WRAP BODY. THEY DO NOT COMPOSE AT THE SETTINGS ALL THREE
+     RECOMMEND, AND THE THING THAT BREAKS IS THE SIGNATURE'S COVERAGE. FILED WITH OPTIONS AND
+     MEASURED COSTS. NOT RULED — `M1-1` AND `M1-7` ARE THE OWNER'S AND NOTHING BELOW IS A RULING.**
+
+     Three option sets were produced **independently** against the three questions `M1-1` and `M1-7`
+     leave open: the wrap body's **field list** (shapes W0–W6), **where the signature sits and which
+     octets it covers** (S1–S6), and the **padding scheme** (P1–P8). Each recommended one shape —
+     **W1+W5**, **S1**, **P2**. **All twenty-one shapes are recorded in §8 below**, with their own
+     costs and their own recommendations, so the owner rules on shapes rather than on this pass's
+     summary of them; nothing here re-derives or re-litigates any of them. What this pass adds is the
+     one question none of the three could ask of itself: *do the three answers describe one body that
+     a second implementation can build, walk and verify?*
+
+     **WHAT THIS PASS DID AND DID NOT DO.** It ruled nothing. `M1-1`, `M1-7`, and ledger items
+     **132**, **142**, **148** and **152** stay filed and unruled. It implemented nothing: m1 wave 2
+     is not started, Task 14 is still blocked, and **no Go file in either tree changed**. It amended
+     no spec: Spec A §5.11 (2)'s *"the recovery wrap's `ct_body` **is** `hybrid_ct`, followed by zeros
+     to its rung"* (`spec-a:2199`) is still the normative sentence, and four of the five composites
+     below would falsify it — which of them is taken is the ruling, not this pass's to make.
+     `connect` was **read and never written**. A recommendation is given and is **labelled as one**.
+
+     **EVERY NUMBER BELOW IS MEASURED BY CALLING THE SHIPPED ENCODER**, from a scratch module outside
+     both checkouts with an absolute `replace` onto `connect`, which reads it and writes nothing in
+     it. `message.SizeBucketBytes(2)` = **4,096**; `ct_body` at that rung = **4,112**;
+     `EncodeServerAttachment` gives a `WrapTag` of **34** octets and a `RecoveryTag` of **64**;
+     `message.EncodeRecord` gives **4,364** octets for a record with no attachment, **4,398** for a
+     device wrap and **4,428** for a recovery wrap, at the corpus's own 96-octet `ct_head`;
+     `message.AADHead` is **182** for **both** wrap kinds, because it carries
+     `LP(H(server_attachment))` and not the attachment; `message.AADBody` is **96**. The epoch
+     fan-out at the 500-member × 2-device target is `2,000 × 4,398 + 500 × 4,428` = **11.01 MB**,
+     against the **≈ 11.5 MB** MASTER §8.2 and Spec B §6 both publish.
+
+     ---
+
+     **§1. THE COMPOSITE, WALKED FIELD BY FIELD. IT IS ONE BODY AND A PARSER CAN WALK IT.**
+
+     Taking the three recommendations exactly as written — **W1+W5** for the fields, **S1** for the
+     signature, **P2** for the padding — a device wrap's body plaintext is:
+
+     ```
+     LP32(1257) ‖ u8(version=0x01) ‖ u8(target_type) ‖ u8(payload_type) ‖ u64(content_epoch)
+                ‖ u32(publisher_leaf_index) ‖ u16(alg_id) ‖ LP(ct_xwing) ‖ LP(aead_ct) ‖ zeros
+     ```
+
+     where `aead_ct` decrypts to `secret ‖ sig`. Measured: the envelope is **15** octets, `hybrid_ct`
+     with the 64-octet signature inside `aead_ct` is **1,242**, the body is **1,257**, `padBody`
+     writes `LP(bodyPlain)` so occupancy is **1,261** of the 4,096 rung, and the zero tail is
+     **2,835**. The recovery wrap, whose `ct_body` is the body itself under no record AEAD, is
+     **1,321** of **4,112** with a **2,791**-octet tail. `ct_body` stays 4,112 on both, so Spec B's
+     `octet_length(ct_body)` CHECK never moves, and the records stay **4,398** and **4,428**.
+
+     **The walk is unambiguous and every step is a fixed width or a length prefix.** Four octets of
+     LP32 give the body's exact extent; eleven fixed octets give the version, the two type bytes and
+     the content epoch; four more give the publisher's leaf; `hybrid_ct` is self-delimiting
+     (`u16 ‖ LP ‖ LP`, MASTER §7); the remainder to the rung is the tail P2 refuses. **No step needs
+     a key, a payload type, or the record's class.** That is the property the plan assumes it has,
+     and under this composite it genuinely holds — for the fields. It does **not** hold for the
+     signature, which is §2's first finding.
+
+     **The three sets' arithmetic reconciles on the device wrap and not on the recovery wrap.** Sets
+     1 and 2 both give 1,242 and a 2,850-octet tail for the unenveloped device body; measured, both
+     are right. Sets 2 and 3 both give the recovery wrap 4,112 octets of room; set 1 prices it
+     against 4,092. Filed as item **177**.
+
+     ---
+
+     **§2. WHAT DOES NOT COMPOSE. FIVE FINDINGS, EACH WITH ITS REPAIR AND THE REPAIR'S MEASURED
+     COST. A BUILDER HITS ALL FIVE AT TASK 14 STEP 1.**
+
+     **(1) THE SIGNATURE DOES NOT COVER THE FIELDS. THIS IS THE ONE THAT MATTERS.** S1's preimage,
+     written out in full by its own set, is
+
+     ```
+     "URmessage/v1/wrapsig" ‖ u16(alg_id) ‖ LP(group_id) ‖ LP(sender_handle) ‖ u64(epoch)
+       ‖ u64(stream_index) ‖ u8(is_commit) ‖ u8(retention_class_wire) ‖ u8(size_bucket)
+       ‖ u64(expire_at) ‖ LP(blob_id) ‖ LP(H(server_attachment)) ‖ LP(ct_xwing) ‖ LP(payload)
+     ```
+
+     — measured at **1,305** octets for a 32-octet secret, of which the header block is **145**. It
+     reaches the record header, the KEM transcript and the payload. **It does not reach one octet of
+     W1+W5's envelope**, because the envelope sits outside `hybrid_ct` and S1 sits inside `aead_ct`,
+     with `LP(ct_xwing)` between them. So under the composite as recommended, the four fields the
+     field-list ruling exists to add are signed by nobody. Filed as item **176**.
+
+     **What saves three of the four, and it is not the signature.** MASTER §7's nine-element `info`
+     already binds `u8(target_type)`, `u8(payload_type)` and `u64(epoch)` into `wrap_key` itself. A
+     receiver that derives `wrap_key` from the envelope's own values and finds that `aead_ct` does
+     not open has detected the disagreement — fail-closed, at the cost of one AEAD open. **The
+     envelope is therefore safe to read as a HINT without being authenticated**, and that is the
+     sentence the ruling owes, because it is the difference between a field a receiver may act on
+     before opening and one it may only act on after. Set 1 names **two** authorities for the payload
+     kind — the body and the header's retention class — and misses the third; there are **three**,
+     and three for the content epoch as well. Filed as item **178**.
+
+     **What is not saved is W5's `u32(publisher_leaf_index)`.** It is in no `info`, in no AAD on the
+     recovery wrap — that record's `ct_body` is under no record AEAD — and in no signature. On the
+     recovery wrap it is four octets any party may rewrite with no effect any receiver can observe
+     except a failed leaf-to-key resolution; on the device wrap it is authenticated only under
+     `env_key[k]`, which **every member holds**. Filed as item **179**.
+
+     **The repair is one term and it is measured: put `LP(wrap_envelope)` into the preimage**, ahead
+     of `LP(ct_xwing)`. Preimage **1,305 → 1,324** octets, or **1,320** without W5. **Zero** octets
+     in the body, **zero** on the wire, no new field, and no ordering problem — the envelope is
+     plaintext the sealer chooses before it encapsulates, so `envelope → encapsulate → sign → seal
+     aead_ct` is acyclic.
+
+     **(2) `u8(size_bucket)` IS INSIDE THE SIGNATURE, SO `M1-7` IS AN INPUT TO `M1-1`'s SIGNATURE
+     AND THE TWO ARE NOT SEPARABLE. THE THIRD SET SAID SO; THE SECOND SAID THE OPPOSITE.** Set 3
+     closes with *"rule `M1-7` in one sitting with `M1-1`'s second remaining question… They are not
+     separable."* Set 2 answers *"Under S1, S4 and S5 the two stay independent."* The composition
+     settles it: `bucketForBody` (`connect/messagegroup/seal.go:485`) picks the rung from
+     `len(body) + lpPrefixBytes`, `lpPrefixBytes` is **4**, measured off the writer rather than
+     written down (`seal.go:467`, `:470`), and S1's preimage carries `u8(size_bucket)` — so the
+     padding rule's prefix width is an input to a **signed** byte, and under P2's own scope sentence
+     the two wrap classes compute that byte under two different rules. Not reachable today: 1,257 and
+     1,321 both land on rung 2 whichever rule applies. **That is exactly what makes it item 143's
+     shape** — a discipline nobody wrote, invisible in every round-trip test, reachable the first
+     time a body lands within 64 octets of a rung boundary. Filed as item **180**.
+
+     **(3) S1's UNCOVERED PAD IS SAFE ONLY UNDER P2. P2 IS A DEPENDENCY OF S1, AND NEITHER SET SAYS
+     SO.** S1 covers neither the pad nor the zero tail — `LP(payload)` is its last term and the pad
+     is outside `hybrid_ct` entirely. On a device wrap the tail is inside the record body AEAD, whose
+     `record_key[i]` descends from `env_key[k]`, which **every member of the epoch holds** — so any
+     member can rewrite any other member's wrap tail and the signature still verifies. `connect/mls`
+     refuses exactly this one layer in, for exactly this reason: *"a covert channel of unbounded
+     width inside every message, invisible to every signature because the padding is inside the AEAD
+     but outside the FramedContent that gets signed"* (`mls/framing_protect.go:817`). **If `M1-7` is
+     ruled P1 — the status quo, `unpadBody`'s tail deliberately unchecked (`seal.go:538-542`) — the
+     composite ships a ~2.8 KB member-writable channel inside every wrap that no signature covers.**
+     P2's accumulating, position-free refusal is the only thing that closes it. Stated as a
+     dependency and not as a preference: **a ruling that takes S1 and defers `M1-7` has not deferred
+     an independent question.**
+
+     **(4) P2's SCOPE SENTENCE RE-CREATES THE DEFECT CLASS SET 1 REJECTS W6 FOR.** Set 1 rejects W6 —
+     device wrap takes one body shape, recovery wrap another — because it is *"a target-type-dependent
+     body encoding… the defect class the 2026-08-26 kind-`0x0000` ruling was written against, one
+     level up."* P2's scope sentence produces one: *"the ordinary record body and the two device-wrap
+     bodies pad to 4,096 as an AEAD plaintext; the recovery wrap's `ct_body`… keeps its own no-prefix
+     form, and is EXCLUDED."* Under the composite a parser must know the record's class **before** it
+     can decide whether the first four octets are a length or
+     `version ‖ target_type ‖ payload_type ‖ …`, and the only thing that tells it is the server
+     attachment's kind. The two are distinguishable in practice — an LP32 of 1,257 begins `0x00` and
+     the version octet is `0x01` — but by an accident of magnitude that no document states and that a
+     16 MiB body would end. **The repair costs four octets of a 2,791-octet tail and zero on the
+     wire: prefix the recovery wrap too.** It is nearly free because W1 already amends the sentence
+     the exclusion exists to protect — §5.11 (2)'s *"`ct_body` **is** `hybrid_ct`"* — so under any
+     composite that takes W1, leaving the recovery wrap unprefixed buys nothing and costs one
+     grammar. Filed with item **177**.
+
+     **(5) W5 DOES NOT DO WHAT SET 1 SAYS IT DOES, AND SET 2's `LP(identity_pub)` IS NOT
+     INTERCHANGEABLE WITH IT.** Set 1 calls `u32(publisher_leaf_index)` *"the only candidate field
+     that makes the signature checkable from `record_bytes` alone."* It is not: `sender_handle` is
+     **already** in `record_bytes`, raw and in the clear, at a fixed offset — `codec.go` writes it
+     third, after the format version and the group id — and set 1's own measurement, **474 µs** to
+     invert it over a 1,000-leaf group at 418.5 ns a candidate, is the cost W5 removes. W5 buys
+     **speed**, not decidability, and it buys it only for a **member**. For the recovery wrap's only
+     intended reader it buys nothing at all: a seed-only restorer holds no `group_handle_key` and no
+     MLS state, so it can resolve neither a `sender_handle` nor a leaf index to an identity key.
+     **The field that closes that is set 2's `LP(identity_pub)` inside `aead_ct`, and no field list on
+     the board carries it.** The two are not substitutes, and the composite needs the second one.
+     Filed as item **179**.
+
+     ---
+
+     **§3. IS EACH SHAPE WIRE-DECIDABLE BY A RECEIVER HOLDING ONLY THE BYTES? JUDGED HERE
+     INDEPENDENTLY, BECAUSE THREE OF THIS PROJECT'S DEFECTS WERE RULES THAT COULD NOT BE EVALUATED
+     FROM WHAT THE WIRE CARRIES.**
+
+     "Wire-decidable" is not one property, and collapsing it is how the three sets reach three
+     different verdicts about the same composite. It is **three** questions asked of **three** parties
+     holding different key material, and the honest answer is a matrix rather than a yes:
+
+     | can this party, from `record_bytes` alone, decide… | the message server | a group member | a seed-only restorer |
+     |---|---|---|---|
+     | …that the record is a wrap, and which kind | **yes** — the attachment kind is cleartext | **yes** | **yes** |
+     | …the body's extent and framing — W0/W1/W2/W5 | recovery wrap only | after the record AEAD | recovery wrap only |
+     | …the payload kind and content epoch — W0 | no | from the header, not the body | no |
+     | …the payload kind and content epoch — W1 | **recovery: yes, in the clear** | yes, after the record AEAD | **yes** |
+     | …the payload kind — W3 | no | only by a successful decryption | only by a successful decryption |
+     | …that a signature is present at all — S1/S6 | **no** | **no** | **no**, until it decapsulates |
+     | …that a signature is present at all — S2/S3 | recovery wrap only | yes, after the record AEAD | recovery wrap only |
+     | …that a signature is present at all — S4/S5 | **yes** | **yes** | **yes** |
+     | …that the signature verifies — S1 | no | **only if it is the wrap's target**, after opening `aead_ct` | after decapsulating, and only with `LP(identity_pub)` |
+     | …that the signature verifies — S4/S5 | **yes** | **yes** | only with `LP(identity_pub)` |
+     | …the padded body's length — P1/P2/P3/P6 | no (device), yes (recovery) | **yes**, before any payload knowledge | recovery wrap only |
+     | …the padded body's length — P4 | as above, by an O(rung) scan | by a scan that must be constant-time | as above |
+     | …the padded body's length — P5 | **no** | **no** — only a decoder that already knows the payload type | **no** |
+
+     **Three readings follow from the matrix, and no one of the three sets states all three.**
+
+     - **The field question and the signature question have opposite answers under the recommended
+       composite.** W1+W5 is decidable; S1 is the least decidable shape on its own board. The
+       composite is therefore **decidable in its fields and undecidable in its authentication**, and
+       set 1's first reason for its own recommendation — *"the only shape under which the wrap body
+       is decidable from its own octets"* — is true of the fields and false of the record. Both sets
+       are individually right; the composite's advertised property is neither.
+     - **"A client MUST NOT honour an unverified wrap" (Spec A §5.11 (4)) is enforceable only by the
+       decapsulating target under every S1 composite.** No other party — not the server, not a member
+       who is not the target, not a client triaging its own inbox — can tell a signed wrap from an
+       unsigned one. That is a legitimate ruling to take; it must be a **stated** one, because the
+       sentence is already normative and reads today as though anyone could apply it.
+     - **P5's undecidability is the one the plan would inherit silently.** It is the only shape whose
+       failure is invisible: `SealRecord(…, mlsCiphertext)` compiles, round-trips against itself, and
+       is unopenable by a conforming second implementation with no error anywhere. Set 3 is right to
+       reject it and right about why.
+
+     ---
+
+     **§4. THE OPTIONS. FIVE COMPOSITES, COSTED. NOT RULED — THIS IS THE OWNER'S DECISION.**
+
+     Every one is **zero octets on the wire** except C4: `ct_body` stays 4,112, the records stay
+     4,398 and 4,428, and Spec B's `octet_length(ct_body)` CHECK never moves. What separates them is
+     what a receiver can decide, which normative sentence has to be amended, and what the message
+     server reads off a recovery wrap in the clear.
+
+     | | body plaintext | device occupied / tail | recovery occupied / tail | wire | amends §5.11 (2) |
+     |---|---|---|---|---|---|
+     | **C0** W0 + S1 + P2 | `hybrid_ct` | 1,246 / **2,850** | 1,306 / **2,806** | 0 | **no** |
+     | **C1** W1+W5 + S1 + P2 — *the three sets as written* | `envelope(15) ‖ hybrid_ct` | 1,261 / **2,835** | 1,321 / **2,791** | 0 | yes |
+     | **C2** C1 + `LP(wrap_envelope)` in the preimage | as C1 | 1,261 / **2,835** | 1,321 / **2,791** | 0 | yes |
+     | **C3** W1 + `LP(identity_pub)` + C2's preimage + P2 over all three bodies | `envelope(11) ‖ hybrid_ct` | 1,293 / **2,803** | 1,357 / **2,755** | 0 | yes |
+     | **C4** W1+W5 + **S4** + P2 | as C1, signature in the attachment | 1,261 / 2,835 | 1,321 / 2,791 | **+68 / +104 per record** | yes |
+
+     **C0 — the null composite.** The only one that falsifies no normative sentence: with the
+     signature inside `aead_ct`, §5.11 (2)'s *"`ct_body` **is** `hybrid_ct`, followed by zeros"* stays
+     literally true. Nothing in the body is decidable — the payload kind comes from
+     `header.RetentionClass`, the target from `AAD_head`, the content epoch from item **142**'s
+     downward trial-decryption walk, and the publisher from inverting `sender_handle`. Four
+     disciplines, none of them written down anywhere today. **Cheapest to rule, most expensive to
+     build against, and the shape most exposed to a second implementation guessing differently.**
+
+     **C1 — the three recommendations exactly as they arrived.** Buys the field decidability. Carries
+     §2's finding (1) unrepaired: `publisher_leaf_index` authenticated by nothing on the recovery
+     wrap, and the ruling silently relying on `wrap_key`'s `info` for the other three without saying
+     so. **C1 should not be ruled as written**, and that is the single most useful thing this
+     composition has to say.
+
+     **C2 — C1 with the coverage gap closed by one term.** Preimage 1,305 → 1,324. Zero further cost
+     anywhere: no body octet, no wire octet, no document beyond the one C1 already amends. This is C1
+     made sound, and it is the smallest edit that makes the three recommendations true together.
+
+     **C3 — one grammar, one leak fewer, and the field the recovery wrap actually needs.** Drops W5,
+     which is redundant with `sender_handle` for a member, useless to a restorer, and the composite's
+     only new cleartext leak; adds `LP(identity_pub)` inside `aead_ct`, the only field that makes a
+     recovery wrap's signature verifiable by the party it exists for; extends P2's prefix to the
+     recovery wrap so all three wrap bodies have **one** parse. Costs 32 more octets of body than C2
+     out of a 2,835-octet budget, and **zero** on the wire.
+
+     **C4 — the maximal-decidability composite.** The only one under which any party, the server
+     included, can refuse an unsigned or wrongly-signed wrap on the wire bytes alone. Its price,
+     stated rather than hedged: **+68 octets per record with `LP(sig)` and +104 with the identity
+     key** — measured 4,398 → 4,466 and 4,428 → 4,496, about **+170 KB** per epoch fan-out on an
+     11.01 MB bundle — a Spec B §5.1 check-3 change and a new width in
+     `connect/message/attachment.go`, and a publicly verifiable Ed25519 signature, under a key
+     MASTER §5.2 publishes in the KT log, on **all 2,501** wrap records per epoch, which hands the
+     operator per-epoch attribution of the committer and cuts against MASTER §4.2. **If the owner's
+     priority is that an unverified wrap be refusable on the wire by anyone, this is the shape and
+     that is its price. The two cannot both be had.**
+
+     ---
+
+     **§5. A RECOMMENDATION, LABELLED AS ONE. IT IS NOT A RULING AND I DID NOT MAKE ONE.**
+
+     **C3** — and if the owner wants the smallest change from what the three sets already
+     recommended, **C2**, with the understanding that C2 leaves `publisher_leaf_index` doing work no
+     party can check and leaves two body grammars behind. Three reasons, each checkable rather than
+     preferential.
+
+     **(1) It is the only composite in which every field a receiver acts on is either authenticated
+     or fail-closed.** The envelope is bound by `wrap_key`'s `info`, so a lie costs one failed open;
+     the signature's preimage reaches the envelope; the identity key travels where the restorer can
+     read it; and the pad is closed by P2's refusal rather than by a signature that does not cover
+     it. C0 and C1 each leave at least one field a receiver acts on authenticated by nothing.
+
+     **(2) It leaves one body grammar rather than two** — the property set 1 rejects W6 to get and
+     P2's scope sentence gives back. Four octets of a 2,791-octet tail.
+
+     **(3) It is neutral to every reversal on the board, for the half a body field can address.** A
+     reversal of **A1** re-creates the keystream reuse no field list can fix — but a `payload_type`
+     in the body turns a silent misread into a refusal, which C0 does not. **M1-6** and item **152**
+     both sit in the head; C3's discriminator is in the body and survives whatever they rule. And
+     item **142**'s downward candidate-epoch walk is **bounded to one candidate** by `content_epoch`
+     read as a hint — the one place the composite is strictly better than either set claims, because
+     set 2's own cost of S1 is that each unopenable record *"also cannot be classified"*, and W1's
+     eight octets are what classify it.
+
+     **The budget is not close to binding, and the cliff is real.** C3 spends 1,293 of the 4,096-octet
+     rung. Exceeding 4,092 moves to rung 3: `ct_body` **4,112 → 16,400**, measured **+12,288 octets
+     per record × 2,000 device wraps = +24.6 MB per commit**. C3 leaves **2,803** octets between the
+     body and that cliff.
+
+     ---
+
+     **§6. WHAT A RULING MUST STATE, OR IT IS NOT A CLOSURE. SIX SENTENCES, AND THE FIRST THREE ARE
+     THE ONES THE COMPOSITION FOUND RATHER THAN INHERITED.**
+
+     1. **Which octets the signature covers, written out as a preimage**, and whether the wrap
+        envelope is among them. A ruling that names a placement without naming a preimage has ruled
+        the half that decides nothing.
+     2. **That the envelope is a HINT the open verifies, and not an authority** — a wrong
+        `target_type`, `payload_type` or `content_epoch` produces a `wrap_key` that does not open
+        `aead_ct`, and that failure **is** the check. Without this sentence one implementer trusts an
+        unauthenticated field and another refuses to use it, and the two diverge only on an
+        attacker's record.
+     3. **`M1-7`'s scope, in the same sitting and over three body classes**, because `u8(size_bucket)`
+        is inside the signature and the pad is outside it. Deferring `M1-7` past a signature ruling
+        defers an input to that ruling.
+     4. **The order is open → verify → honour**, in those words, with "honour" defined as installing
+        `pq_secret[k]` / `eph_root[k]` / `storage_root[k]` into the session — because under every S1
+        composite the signature is unreachable until after the open, while §5.11 (4) and Task 14
+        Property 7 say *"before it honours anything in the record"*.
+     5. **How a verifier finds the key it verifies under**, for both wrap kinds: a member resolves the
+        leaf whose `sender_handle` matches and reads `Member.IdentityPub`; a seed-only restorer has
+        **no such route at all** and needs `LP(identity_pub)` carried and anchored in the KT log.
+     6. **A typed refusal for an absent or short signature** — at S1's position that is a
+        payload-parse outcome and not a wire-parse one — and a typed refusal for a non-zero tail,
+        accumulating over the whole tail and **naming no position**, copying the reasoning
+        `connect/mls`'s own sentinel already carries (`mls/framing_protect.go:744-750`).
+
+     **And the honest limit, which all three sets reached separately.** Even a complete ruling on all
+     three questions does not start Task 14. `connect/messagegroup/seal.go:119` still refuses every
+     non-`DURABLE` class on the seal path and `:387` mirrors it on the open path, so **both**
+     device-wrap records are unsealable by the shipped code until item **152** lifts the `EPH` half.
+     Task 14 is blocked by a **landed refusal** as well as by an unruled field list, and the two are
+     independent of each other.
+
+     ---
+
+     **§7. WHAT THIS PASS MEASURED THAT THE SETS GOT WRONG, WITH THE QUERIES.** The disagreements are
+     items **176** through **180**. Three smaller corrections belong here rather than as items:
+
+     - **The *"about 4.6 KB on the wire"* figure is in Spec B §3 and §6, not in a §9 retention
+       table.** Set 1 attributes it to *"Spec B §9's retention table"*; measured, the three `~4.6 KB`
+       rows are at `spec-b:1092-1094`, inside **§3 Data model**, and the `≈ 11.5 MB` sizing block is
+       at `spec-b:2453`, inside **§6**. The numbers are exactly where set 1 says they are wrong —
+       4,398 and 4,428 measured against ~4.6 KB published — and only the section labels move.
+     - **Two of the sets' own line citations had drifted and are corrected in §8 rather than
+       reproduced.** `codec.go:20` is the `server_attachment` row of the layout table; the *"never
+       `syntax.WriteOpaque`"* rule set 3 attributes to it is at **`codec.go:29`**. And `master:840` is
+       a blank line; *"the MLS PrivateMessage payload"* is at **`master:837`**. Both were caught by
+       printing the cited line, which is the only reason to write a citation as a line number.
+     - **`ErrBodyPadding` already exists** (`connect/messagegroup/errors.go:248`) and `unpadBody`
+       already returns it for both of its refusals, so P2's tail check needs **no new sentinel** —
+       one declaration fewer than set 3 prices. `messagegroup` is on neither §12.1 block, so no
+       amendment is owed either way.
+     - **The `env_key`-versus-`ClassKeys.Durable` contradiction reproduces exactly as set 1 states
+       it.** Query, re-run here: `env_key` occurs **18×** in Spec A, **10×** in MASTER and **16×** in
+       this ledger, and `grep -Ei 'K_durable|ClassKeys\.Durable'` over those hits returns **0**. The
+       device wrap's `ct_head` root is genuinely unstated, and it blocks Task 14 independently of
+       every shape above.
+     - **All three sets report the `connect` tree as dirty against a brief that calls it clean, and it
+       moved twice while this pass was running — so the tree every figure above was measured against
+       is named rather than assumed.** At the start: `33932e0`, with `messagegroup/epoch.go`,
+       `epoch_test.go` and `testdata/epoch/control.go` **staged**, where two of the sets had seen
+       `epoch.go` untracked, alongside modified `errors.go`, `entropy_test.go` and `mls/crypto_test.go`.
+       At the end: **`7868d65`** — *"m1 task 13 — `pq_secret`'s sampler, and the provisional epoch
+       state G10 destroys"*, 8 files and 1,819 insertions — with only `messagegroup/epoch.go` modified.
+       **Task 13 landed during this pass.** Every `connect` anchor cited above was re-verified at
+       `7868d65` and every one holds: that commit does **not** touch `seal.go`, so `:119`, `:387`,
+       `:467`, `:470`, `:485`, `:498`, `:512`, `:538` and `:543` are unmoved; it does touch `errors.go`
+       (+29/−8) and `ErrBodyPadding` is still at `:248`, checked rather than assumed. **The two
+       refusals that block Task 14 are unchanged by Task 13's landing**, which is the fact that
+       matters here.
+
+     ---
+
+     **§8. THE THREE SETS AS THEY ARRIVED, RECORDED IN FULL, SO THE OWNER RULES ON SHAPES AND NOT ON
+     THIS PASS'S SUMMARY OF THEM.** Each shape keeps its own set's five axes: what changes **on the
+     wire**, what it costs in **octets**, the discipline it still needs that **no document states**,
+     what a reversal of **A1** or of **M1-6** does to it, and whether it is **wire-decidable**. *Where
+     a shape's numbers disagree with §1's measurements above, §1 is the measurement and the shape's
+     figure is left as its set published it, so the disagreement stays visible rather than being
+     tidied away.* The three recommendations are the sets' own and are labelled as theirs.
+
+     **SET 1 — THE FIELD LIST, beyond what MASTER §8.2's payload table and MASTER §7's `hybrid_ct`
+     framing already fix.**
+
+     - **W0 — the body IS `hybrid_ct`** (the null shape; what three documents' arithmetic already
+       assumes). *Wire:* nothing new; `ct_body` plaintext is `hybrid_ct` (‖ signature) through the
+       landed `padBody`, sealed to 4,112. The only shape under which MASTER §8.2's `2 + (4+1120) +
+       (4+32+16) = 1,178`, Spec A §5.11's table and §5.11's *"the recovery wrap's `ct_body` **is**
+       `hybrid_ct`, followed by zeros"* all stay literally true. Nothing sealed breaks:
+       `messagegroup/wrap.go` does not exist and `grep -rn 'wrap_body|WrapBody|wrapBody'` over both
+       trees returns **0**. *Octets:* device 1,178 + 64 = **1,242** of 4,092 usable at rung 2, slack
+       **2,850**; recovery **1,306**, slack 2,786 *(§1 measures 2,806 — item **177**)*; `ct_body`
+       4,112, records 4,398 / 4,428. *Unwritten:* three, and this is the shape most exposed to the
+       trap. (i) The opener must take the payload kind from `header.RetentionClass` — PERMANENT ⇒
+       `pq_secret`, EPH(5) ⇒ `eph_root` — and refuse any other class; MASTER §8.2 only *describes*
+       this and no document makes it a refusal. (ii) With no target in the body, the signature binds
+       `wrap_target_handle` only if its preimage reaches into the `WrapTag`; otherwise the target is
+       authenticated by `AAD_head` alone, whose key **every member holds** — red-team finding C,
+       unrepaired by the seal ruling. (iii) The verifier must learn whose identity key to check with
+       no field naming it: the only route is inverting `sender_handle` by leaf enumeration (**474 µs**
+       over 1,000 leaves, 418.5 ns a candidate), a rule no document states and which §5.11 step 6's
+       *"any member may re-publish"* makes load-bearing. *Vs rulings:* rests on **A1** completely —
+       A1 gives the leaf's two wrap records two positions on one class-blind root, the only thing
+       separating their two AEADs. Reverse A1 and §5.11's own measured outcome returns verbatim:
+       *"the message server recovers `pq_secret[k] ⊕ eph_root[k]` for every leaf of every epoch"*,
+       with no in-body defence and no misread detector. Against **M1-6** the shape is undefined
+       rather than safe. *Wire-decidable:* yes at the record level, **no** at the body level.
+     - **W1 — a versioned, typed body envelope:** `u8(wrap_format_version=0x01) ‖ u8(target_type) ‖
+       u8(payload_type) ‖ u64(content_epoch) ‖ hybrid_ct`. *Wire:* +11 octets of plaintext inside an
+       unchanged 4,112-octet `ct_body`; contradicts exactly one normative sentence, §5.11 (2)'s
+       *"`ct_body` **is** `hybrid_ct`"*, which must be **amended, not annotated**. The version octet
+       must be first, for `codec.go`'s own stated reason: every offset below it is meaningful only
+       under that version. *Octets:* device **1,253** of 4,092, slack **2,839**; recovery **1,317**,
+       slack 2,775 *(§1: 2,795)*; 0 wire octets. *Unwritten:* two authorities for one fact —
+       `payload_type` in the body and `retention_class` in the header both name the secret and both
+       are authenticated (`AAD_body` differs between PERMANENT and EPH(5), measured) — so the ruling
+       must say the opener **refuses a disagreement**. Same for `content_epoch` against
+       `header.Epoch`. *(Item **178**: there is a **third** authority, `wrap_key`'s `info`, and it
+       changes the shape of the ruling this owes.)* *Vs rulings:* the only shape neutral to an **A1**
+       reversal on the misread half — it converts a silent misread into a refusal, without making the
+       keystream reuse safe. Neutral to **M1-6** and to item **152**, because the discriminator is in
+       the body. Its own cost falls on the **recovery** wrap alone: that record's `ct_body` is under
+       no record AEAD, so the 11 octets sit in the clear at a fixed offset and the server reads them;
+       `RecoveryTag` already announces the kind and `header.Epoch` already gives the epoch, so the
+       marginal leak is small — but it is a leak the device wrap does not have. *Wire-decidable:*
+       **yes, fully.**
+     - **W2 — minimal discriminator:** `u8(payload_type) ‖ hybrid_ct`. *Wire:* +1 octet of plaintext,
+       0 on the wire; gives `u8(payload_type)` — which MASTER §7 names as an inherited gap with *"no
+       code point anywhere"* — an encoding a KAT can pin. Same contradiction with §5.11 as W1, one
+       octet's worth. *Octets:* device **1,243**, slack **2,849**; recovery 1,307, slack 2,785 *(§1:
+       2,805)*. *Unwritten:* W1's refusal with none of W1's room — no version octet means a second
+       body field later is a **flag day** rather than a negotiation, which the A6 freeze makes
+       expensive; and `target_type` is carried nowhere while still needing its code point, so the
+       ruling closes half a gap on the wire and the other half only in a derivation. *Vs rulings:*
+       W1's neutrality, for the payload discriminator only; nothing for the target and nothing for
+       the publisher, so W0's disciplines (ii) and (iii) survive intact. *Wire-decidable:* yes for
+       the payload kind; **no** for the target, the publisher or the content epoch.
+     - **W3 — bind, do not carry:** assign the code points and let them live only inside `wrap_key`'s
+       `info`. *Wire:* **zero, everywhere** — byte-identical to W0; the whole difference is in the key
+       derivation MASTER §7 already declares *"normative modulo those three"*, so this is the
+       completion of §7 rather than an addition to §8.2 and needs no amendment to §5.11. *Octets:*
+       identical to W0. Its cost is CPU: two `wrap_key`s from **one** decapsulation (X-Wing
+       decapsulate measured at **58.3 µs**, paid once) and the inner AEAD run twice over ~48 octets —
+       not a second KEM operation. *Unwritten:* the discriminator becomes **trial decryption**, and a
+       failure is then indistinguishable from a corrupt record, a wrong `target_id` (undefined
+       corpus-wide, Task 19's), a wrong type assignment, and the *unrecoverable* missed-`env_key[k]`
+       case §5.11 requires to be a typed visible failure with no member of `GapReason`'s closed set to
+       carry it. Worse: an implementer who defaults `payload_type` to a constant — the natural thing
+       for a value with no code point, and what MASTER §7 warns about — collapses the inner AEAD's
+       separation onto `AAD_body`'s class byte. *Vs rulings:* strictly **worse than W0** under an
+       **A1** reversal — the two records would share `(key_body, nonce_body)` *and* the receiver would
+       be trial-decrypting, so a swapped pair is a decryption **success under the wrong label**.
+       *Wire-decidable:* **no — explicitly not.**
+     - **W4 — frame inside `aead_ct`:** `aead_ct` plaintext = `u8(payload_type) ‖ u64(content_epoch) ‖
+       secret`. *Wire:* `aead_ct` 48 → 57, so `hybrid_ct` **1,178 → 1,187**, moving a number printed
+       in MASTER §8.2, Spec A §5.11 and Spec B's retention table — three documents' arithmetic, none
+       of it code. Leaves §5.11's *"`ct_body` **is** `hybrid_ct`"* true as written, which W1 and W2 do
+       not. *Octets:* device **1,251**, slack **2,841**; recovery 1,315, slack 2,777 *(§1: 2,797)*.
+       *Unwritten:* the only shape that makes the discriminator **confidential** as well as
+       authenticated, which matters on exactly one record — the recovery wrap, whose outer body is
+       under no record AEAD. But it puts the discriminator behind the KEM, so a device learns a wrap's
+       kind only after a successful decapsulation: it cannot sort its inbox, dedupe a re-published
+       wrap, or report a gap without the private key on hand, and no document contemplates that.
+       *Vs rulings:* neutral to **M1-6** and to an **A1** reversal for misreads — but under an A1
+       reversal the two bodies share `(key_body, nonce_body)` and are now 9 octets longer in
+       *known-structure* plaintext, which is 9 more octets of keystream a XOR hands the server free.
+       *Wire-decidable:* **no.**
+     - **W5 — name the publisher:** add `u32(publisher_leaf_index)`; orthogonal, composable with
+       W0–W4. *Wire:* +4 octets of plaintext, 0 on the wire. *Octets:* W0+W5 = **1,246**, slack 2,846;
+       W1+W5 = **1,257**, slack **2,835** — 15 octets, 0.37% of the rung, out of a 2,850-octet budget.
+       *Unwritten:* without it a verifier recovers the publisher's identity key by inverting
+       `sender_handle` through leaf enumeration (**474 µs** over 1,000 leaves), which works only
+       because a member holds `group_handle_key` and which **no document states**; §5.11's own
+       recommendation (6) makes the publisher genuinely variable rather than "the committer", so
+       every shape that omits this field makes the enumeration rule normative by omission. With the
+       field, the discipline moves rather than vanishing: the opener MUST check the carried leaf
+       against `sender_handle` and refuse a disagreement. *Vs rulings:* independent of **A1** and of
+       **M1-6**. *Wire-decidable:* yes. *(Item **179** disputes this shape's stated benefit.)*
+     - **W6 — two kinds, two answers** (the shape the seal ruling itself took): device wrap takes W0,
+       recovery wrap takes W1. *Wire:* device nothing new, recovery +11. *Octets:* device 1,242, slack
+       2,850; recovery 1,317, slack 2,775 *(§1: 2,795)*. *Unwritten:* it is a **target-type-dependent
+       body encoding**, the residual the 2026-09-12 red team filed against its own recommendation —
+       *"the defect class the 2026-08-26 kind-`0x0000` ruling was written against, one level up."* A
+       parser must know the record kind before it can parse the body, so `AttachmentWrap` vs
+       `AttachmentRecovery` becomes a **parsing** authority as well as a routing one. *Vs rulings:*
+       it puts the in-body defence on the record that does **not** have the collision and leaves it
+       off the two that do; against **M1-6**/152 it is likewise backwards, since the `EPH(5)` device
+       wrap is the record whose head is unruled and W6 gives it no body discriminator. *Wire-decidable:*
+       yes, but in two steps — parse the attachment's kind, then parse the body under that kind's rule.
+
+     **Set 1's recommendation, labelled by its own author as a recommendation and not a ruling:**
+     **W1 + W5** uniformly across both wrap kinds, signature placement left to the second question.
+     Four reasons: it is the only shape under which the wrap body is decidable from its own octets; it
+     closes MASTER §7's inherited gap by putting `u8(target_type)` and `u8(payload_type)` on the wire
+     where a KAT pins them; it is neutral to a reversal of A1 and of M1-6 for the half a body field
+     can address; and the budget is not close to binding — the rung-3 cliff is **+12,288 octets ×
+     2,000 device wraps = +24.6 MB per commit**, and W1+W5 spends 15 of the 2,850 octets in front of
+     it. Its stated costs: it contradicts §5.11 (2), which must be amended; and on the recovery wrap
+     alone the 15 octets sit in the clear and the server reads them, the marginal leak being
+     `publisher_leaf_index`.
+
+     **SET 2 — WHERE THE SIGNATURE SITS RELATIVE TO `hybrid_ct`, AND PRECISELY WHICH OCTETS IT
+     COVERS.**
+
+     - **S1 — innermost:** last field of the wrap payload, inside `aead_ct`. Coverage: `label ‖
+       u16(alg_id) ‖ header block H ‖ LP(ct_xwing) ‖ LP(payload)`. *Wire:* `hybrid_ct`'s shape
+       unchanged; only `aead_ct` grows by 64. No document sentence is falsified — §5.11 (2) stays
+       literally true. Because the signature lives inside the payload, this ruling and the field-list
+       remainder land in one edit rather than two. *Octets:* **zero** — records stay 4,398 / 4,428,
+       `ct_body` 4,112; device rung free space **2,914 → 2,850**; recovery zero tail **2,870 → 2,806**;
+       preimage **1,305** for a 32-octet secret; `LP(identity_pub)` costs a further 36 in the payload
+       and still zero on the wire. *Unwritten:* four. (i) The order encapsulate → sign → seal
+       `aead_ct` is not expressible in the shipped staging types — `seal.go`'s `recordBuilder →
+       recordBodySealed → recordBodyBound → recordHeadSealed` chain starts at the record layer and the
+       wrap is built above it. (ii) The publisher's identity **private** key has no route to the
+       signer: `GroupSession` holds no signing key and `grep -rn 'ed25519' messagegroup/*.go` outside
+       tests returns nothing, so the whole sign-and-verify surface is new and Task 14's Consumes list
+       names none of it. (iii) *"Verify before honour"* must be written as **open → verify → honour**.
+       (iv) Resolving *which* identity key to verify under is unwritten, and for a recovery wrap there
+       is no route at all. *Vs rulings:* **A1** — the preimage's header block carries
+       `u64(stream_index)`, so the ladder position is *signed* rather than merely disciplined, which
+       is what item 143's trap asks for; an A1 reversal costs nothing given `u8(retention_class)`,
+       which the block carries. **M1-6:** neutral both directions — this shape never touches
+       `ct_head`. **Item 142:** this position converts A-17's uncheckable *"the signature MUST be
+       recomputed and MUST NOT be copied"* into a property of the format, because a signature inside
+       `aead_ct` is not addressable outside it. *Wire-decidable:* **no**, and this is the shape's real
+       cost: a receiver holding only the wire bytes cannot locate the signature, cannot tell a signed
+       wrap from an unsigned one, and cannot reject a wrap for being unsigned.
+     - **S2 — beside `hybrid_ct`, appended:** body = `hybrid_ct ‖ LP(sig)` ‖ zeros. Coverage: `label ‖
+       u16(alg_id) ‖ H ‖ LP(hybrid_ct)`. *Wire:* ciphertext on the device wrap, **in the clear on the
+       recovery wrap**; falsifies *"`ct_body` **is** `hybrid_ct`, followed by zeros"* in three
+       documents, and moves the offset at which §5.11's named typed refusal on the tail begins — so
+       M1-7's padding ruling and this one now share an edge. *Octets:* zero on the wire; device
+       occupancy 1,246 → LP-framed 1,250, slack 2,846; recovery `ct_body` 1,310, tail 2,802; preimage
+       1,327 device / 1,391 recovery. *Unwritten:* S1's (i), (ii), (iv), plus (v) a
+       **publisher-deanonymisation** rule nobody has written — on the recovery wrap the 64 signature
+       octets are cleartext, Ed25519 verification is public, and `identity` is published in the KT log
+       (MASTER §5.2), so a server holding ~500 recovery wraps per epoch can learn which member
+       committed each epoch; and (vi) the parse is verify-after-parse, reading two attacker-chosen
+       32-bit length prefixes to find the signature. *Vs rulings:* identical to S1 on A1 and M1-6;
+       unlike S1 it does **not** make item 142's no-copy rule structural. *Wire-decidable:* **split** —
+       fully decidable with no key on the recovery wrap, not decidable on the two device wraps. That
+       split is the red team's residual risk 1 reaching the signature as well as the seal.
+     - **S3 — beside `hybrid_ct`, prepended:** `u16(sig_alg_id) ‖ LP(sig) ‖ hybrid_ct` ‖ zeros. Same
+       coverage as S2. *Wire:* same field set, reversed, so the signature sits at a fixed offset a
+       verifier reaches before parsing any attacker-controlled length; the same three-document
+       sentence is falsified more sharply, because the body no longer *begins* with `hybrid_ct`.
+       *Octets:* identical to S2; the suite id costs 2 more inside the rung. *Unwritten:* S2's (i),
+       (ii), (iv), (v); removes (vi); adds a second `alg_id` in one body with no document saying
+       whether the two may differ. *Vs rulings:* identical to S2. *Wire-decidable:* same split,
+       strictly better than S2 within the decidable half.
+     - **S4 — outside the body:** `WrapTag` and `RecoveryTag` gain `LP(sig) ‖ LP(identity_pub)`.
+       *Wire:* both attachments gain two fields; `AAD_head` and the `write_auth` preimage cover the
+       attachment only as `LP(H(server_attachment))`, so both stay 182 and 249 octets. There is
+       precedent — `RecoveryTag` already carries an Ed25519 public key — but it is a **Spec B change**:
+       §5.1 check 3 validates each attachment field's exact width, so two new widths must be added
+       there and in `connect/message/attachment.go`. *Octets:* **+68 per record** with `LP(sig)`,
+       **+104** with the identity key; device 4,398 → **4,466**, recovery 4,428 → **4,496**; ~**+170 KB**
+       per epoch fan-out. *Unwritten:* S1's (i) and (ii); plus (vii) the construction order inverts
+       relative to MASTER §8's *"build `server_attachment` → encrypt `ct_body`"*, which is legal but
+       reads backwards and no document says so; and (viii) the cleartext-signature deanonymisation of
+       S2 (v) applying to **all 2,501** wrap records per epoch and additionally shipping the
+       publisher's identity public key to the server in the clear. *Vs rulings:* M1-6-neutral,
+       A1-neutral; interacts with item **132** — a server-visible, server-verifiable signature is the
+       first thing that would let the server refuse a wrap it cannot attribute, which is a capability
+       132 and finding B have been asking for and which **I5** says this layer does not provide.
+       *Wire-decidable:* **yes, completely, for all three wrap kinds, with no key material at all** —
+       the only shape under which *"a client MUST NOT honour an unverified wrap"* is enforceable
+       before any decapsulation.
+     - **S5 — a fifteenth record field,** `LP(wrap_sig)` after `ct_body`. Coverage: the maximal set —
+       `AAD_head` (182 octets, already carrying `body_hash` and `LP(H(server_attachment))`) ‖
+       `LP(ct_body)`. *Wire:* a codec change; `codec.go` publishes fourteen fields and states that
+       `record_id` *"is not in this encoding and never will be"*. It is the only shape whose signature
+       can cover `ct_body` as sealed, `body_hash` and `ct_head` — i.e. the only one that authenticates
+       the padding and the zero tail. Every codec, AAD and `write_auth` KAT in `connect/message` moves,
+       and Spec A §12.1 and Spec B §12.1 — asserted to be the same list character for character — both
+       change. *Octets:* **+68 per record**, on *every* record if unconditional; `AAD_head` and the
+       `write_auth` preimage grow 182 → 218 and 249 → 285 if extended to cover it, and if not, the
+       signature is a malleable trailer nothing binds. *Unwritten:* (ix) the signature and `write_auth`
+       contend for last position in a construction order MASTER §8 declares acyclic — no document has
+       ever had to order two authenticators over one record; (x) it breaks the A6 wire-format freeze
+       premise items 128 and 143 both cite. *Vs rulings:* **the only shape where an M1-6 reversal is
+       not free** — every non-DURABLE head ciphertext changes value, so the signed bytes change and
+       every wrap KAT is reissued. *Wire-decidable:* **yes, completely**, with S4's deanonymisation at
+       full scope.
+     - **S6 — the minimal one an implementer reaches for by default:** S1's position, covering only
+       the wrap payload plaintext and nothing of the header and nothing of `hybrid_ct`. *Wire:*
+       identical to S1; no sentence falsified. Listed because it is what *"sign the wrap body"* reads
+       as if the ruling does not enumerate octets, and because its deficiency is invisible in every
+       round-trip test Task 14's Properties 1–8 describe. *Octets:* zero; preimage ~64 rather than
+       1,305. *Unwritten:* all of S1's, plus the one that makes it not a closure — **it does not close
+       finding C, which is the entire stated reason the signature exists.** Finding C enumerates six
+       fields authenticated by nothing on a wrap and a payload-only signature authenticates none of
+       them; for the recovery wrap, which has no record AEAD over the body and a head keyed off
+       `wrap_key` that anyone holding the target's published X-Wing key can produce, **every** header
+       field remains forgeable by anyone. *Vs rulings:* **it reverses A1's benefit** — omitting
+       `stream_index` and `retention_class` re-opens the splice A1 closed. *Wire-decidable:* **no**,
+       and worse than S1: a successful verification is not evidence about anything the client acts on.
+
+     **Set 2's recommendation, labelled by its own author as a recommendation:** **S1, with the
+     header block written out and with `LP(identity_pub)` carried beside the signature inside the
+     payload.** The preimage it proposes for §5.11 (4) is the one quoted in §2 (1) above — the
+     `write_auth` preimage minus `LP(server_nonce)` and the two values that do not exist yet, plus the
+     KEM transcript; the corpus's own house style, so no new framing convention. Five reasons: zero
+     octets on both wrap kinds; one rule for all three wrap kinds, where S2/S3 extend the red team's
+     residual risk 1 from the seal to the signature; no cleartext signature anywhere, where S2–S5 hand
+     the operator per-epoch attribution across 500 or 2,501 records; it closes item 143's trap on its
+     own terms, since `i = stream_index` becomes a *signed* fact and A-17's no-copy MUST becomes
+     structural; and it is neutral to both rulings and to reversing either. Its stated costs: S1 is the
+     **worst** shape on wire-decidability, and if the owner's priority is that any receiver can reject
+     an unsigned wrap on the wire, **S4** is the shape and its price is +68/+104 octets per record, a
+     Spec B check-3 change and the deanonymisation. The set adds three things the ruling must then
+     also say: **open → verify → honour** in those words; `LP(identity_pub)` beside the signature with
+     the verifier's obligation stated for each wrap kind; and a typed refusal for an absent or short
+     signature.
+
+     **SET 3 — THE PADDING SCHEME, which is open item `M1-7`.**
+
+     - **P1 — LP32 prefix, zero fill, tail unchecked (STATUS QUO;** `seal.go:512` and `:543`**).**
+       *Wire:* nothing changes; this is what wave 1 seals today. `unpadBody` refuses a buffer that is
+       not exactly the rung and a prefix that overruns it, and deliberately does **not** check the tail
+       (`seal.go:538`). *Octets:* 0; `ct_body` 4,112. The cost is the rung boundary, not the record:
+       `bucketForBody` picks the rung from `len(body) + 4`, so exactly **4 body lengths per rung
+       climb** — 253–256 (524 → 1,292, ×2.47), 1021–1024 (×3.38), 4093–4096 (×3.82), 16381–16384
+       (×3.95) — and 65,533–65,536 are refused outright with `ErrBodyTooLong`. *Unwritten:* five.
+       (i) **The fill byte** is inside the AEAD so it is the sealer's free choice, and two clients
+       choosing differently produce different `ct_body` and different `body_hash` for one message;
+       `m1w1repairs_test.go:765` pins it octet by octet and `seal.go:498` says the scheme is *"THIS
+       FILE'S AND NOT A DOCUMENT'S"*. (ii) **The unchecked tail is a ~4 KB covert channel per record
+       that no signature covers**, and `connect/mls` refuses exactly this one layer in for exactly this
+       reason; it is worse at the record layer, because `record_key` descends from `storage_root[n]`,
+       which every member holds, so the channel is writable by any member and not only by the sender.
+       (iii) **The real inline ceiling is 65,532** while Spec A:2494, MASTER:1260 and Spec B:2854 all
+       publish *"the 64 KiB inline ceiling"* and no document subtracts the prefix. (iv) **Which `LP`** —
+       `syntax.WriteOpaqueLP`'s fixed 32 bits, never MLS's varint — is stated at `codec.go:29` for the
+       record and nowhere for the body. (v) **It does not answer the recovery wrap**, whose `ct_body`
+       §5.11:2199 already makes normative as `hybrid_ct` *"followed by zeros to its rung"* with a named
+       typed refusal — no prefix, and a refusal. Ruling P1 as written leaves the corpus with two
+       schemes and must say so out loud. *Vs rulings:* neutral to **M1-6** and **A1** in both
+       directions — the pad is a body construct that touches no ladder and no counter. One positive
+       interaction: `bucketForBody` runs at `seal.go:176`, **before** `ratchet.Next()` at `:184`, so
+       the rung is chosen before an index is consumed and the call-graph gate stays green; any shape
+       that made the **rung** depend on the reserved index would invert that order and break it.
+       *Wire-decidable:* yes for a receiving member — the length is the first four octets of the
+       authenticated plaintext, read with no knowledge of the payload type. No for the server on an
+       ordinary record, and that is the point (§9.5); but on the recovery wrap `ct_body` is cleartext,
+       so a prefix there would be server-readable and would hand the server the wrap's true payload
+       length.
+     - **P2 — P1 with the tail REFUSED** (accumulating, position-free). *Wire:* byte-identical for a
+       conforming sealer; the change is a refusal on the open path. *Octets:* 0; same rung arithmetic
+       and ceiling as P1. *Unwritten:* three, two of them cheap. (i) **The refusal must accumulate
+       over the whole tail and name no position**, or it is a padding oracle —
+       `mls/framing_protect.go:744` states that rule in as many words for MLS's own tail and the record
+       layer states it nowhere. (ii) It still owes the fill byte **in a document**. (iii) **It
+       overturns a written argument** rather than filling a silence: `seal.go:538` currently argues
+       against the check — *"a reader that refused a record whose tail was not zero would be refusing a
+       record its own key opened"* — and the ruling must say why that is wrong, which it is, because
+       the key that opened it is one every member holds. *Vs rulings:* same neutrality as P1. It is the
+       only ordinary-record shape that **agrees with the one padding sentence the corpus has already
+       ruled** — §5.11:2199's named typed refusal — so it is the only one that leaves one scheme rather
+       than two. *Wire-decidable:* as P1, and it additionally makes the encoding **canonical**: one
+       message has exactly one legal `ct_body`, which is what `body_hash` comparison wants and what
+       item 148's byte-identical-republish argument needs.
+     - **P3 — u16 prefix, zero fill** (§5.14's written scheme, lifted from `spec-a:2653`, the
+       rendezvous deposit — *"padded to exactly 4096 bytes as u16(body_len) ‖ body ‖ zeros"*, the
+       corpus's **only** written padding scheme, disagreeing with the landed one by two octets).
+       *Wire:* `ct_body` changes on every record. *Octets:* 0 on the wire; **2 lengths climb per rung**
+       and the ceiling is 65,534. *Unwritten:* (i) **a u16 cannot express 65,536** — the top rung is
+       representable only because the prefix already costs 2, a coincidence, and a rung added above
+       breaks it silently; (ii) it puts a **second length-prefix width** inside the record layer beside
+       `syntax.WriteOpaqueLP`'s 32 bits, which `codec.go:29` declares is the record layer's one prefix;
+       (iii) P1's fill-byte and tail-check silences unmodified; (iv) §5.14's deposit pads to a fixed
+       4,096 with no ladder, so the precedent has never had a boundary or a top rung. *Vs rulings:*
+       neutral to both. *Wire-decidable:* yes, from the two leading octets.
+     - **P4 — ISO/IEC 7816-4:** `body ‖ 0x80 ‖ 0x00*`. *Wire:* the prefix disappears, a delimiter
+       appears. *Octets:* the cheapest **framed** shape — 1 octet of overhead, **1 body length climbs
+       per rung**, ceiling 65,535, one octet short of the number three documents publish. *Unwritten:*
+       (i) **the opener scans backwards for the `0x80`, and the scan is the oracle** — it must be
+       constant-time over the whole tail and name no position, and unlike P1 the scan is not optional,
+       so this shape silently takes P2's side of the tail argument without stating that it has; (ii) it
+       is the only shape whose failure mode is a **timing side channel** rather than a typed refusal,
+       so its correctness lives in the instruction count and not in the return value; (iii) the same
+       fill-byte silence; (iv) a body of exactly the rung is unrepresentable, a boundary nothing
+       states. *Vs rulings:* neutral to both. *Wire-decidable:* yes, but by a **scan** rather than a
+       read — O(rung), and its refusal must be indistinguishable in time from its success. That is a
+       weaker form of decidability and the form that has historically been got wrong.
+     - **P5 — self-framing: no length octets, zeros to the rung, tail refused.** *Wire:* the prefix
+       disappears entirely and the body's own encoding delimits it. It is the **only** shape that
+       agrees with §5.11:2199, and the shape `connect/mls` already implements for MLS's own content
+       (`unmarshalPrivateMessageContent`: read the content arm, read the auth data, *"everything left
+       is padding"*, accumulate, refuse). *Octets:* **0 overhead in the rung** — no body length climbs
+       a rung anywhere, and the inline ceiling is exactly the 65,536 three documents publish. On paper
+       the cheapest shape on the board. *Unwritten:* **one, and it is the whole of the shape, and it is
+       item 143's trap exactly.** P5 requires that **every body plaintext be self-delimiting**. No
+       document states it, no type enforces it, and nothing in either tree can check it. MASTER §8's record
+       table (`master:837`) calls `ct_body` *"the MLS PrivateMessage payload"*; an MLS `PrivateMessage.Ciphertext` is an
+       `opaque<V>` field **inside** the struct and the record layer would carry the raw octets, so as
+       things stand the ordinary record's body is **not** self-delimiting. And `SealRecord`'s signature
+       is `(…, headPlain []byte, bodyPlain []byte, …)` with **no production caller anywhere**, so the
+       obligation falls entirely on code that does not exist, held by a sentence in a document. The
+       wrong reading is `SealRecord(…, mlsCiphertext)`: it compiles, round-trips against itself, and is
+       unopenable by a conforming second implementation, with no error anywhere. *Vs rulings:* neutral
+       to both; and it is the only shape needing no scope sentence for the recovery wrap, because it
+       already **is** the recovery wrap's ruled scheme. *Wire-decidable:* **no**, and that is
+       disqualifying against the question asked — the length is decidable only by a decoder that
+       already knows the payload type, and pushing that into `sdk` does not make it decidable, it makes
+       it undecidable in the layer that freezes.
+     - **P6 — trailing fixed-offset length:** `body ‖ zeros ‖ u32(len)` in the rung's last four octets.
+       *Wire:* the same four octets move from the front to the back. *Octets:* rung arithmetic
+       **identical to P1**; it buys nothing over P1 on cost. *Unwritten:* (i) the fixed offset makes a
+       short buffer a refusal before it is a read, which `unpadBody` already gets for free by refusing
+       any buffer that is not exactly the rung, so the advantage is notional; (ii) P1's two silences;
+       (iii) an **ordering** drawback nothing states — the length is the last thing in the plaintext,
+       so any future path reading a partially-available buffer reads the body before it knows how much
+       of it is body; (iv) it contradicts §5.14:2653 and MASTER §7:661, both of which put every length
+       in front of what it measures, and would be the only backwards length in the format. *Vs
+       rulings:* neutral to both. *Wire-decidable:* yes, in O(1), and the only shape where the length's
+       **position** does not depend on the body at all.
+     - **P7 — a cleartext `u16 body_len` header field, covered by `AAD_head`.** *Wire:* **the only
+       shape that changes `record_bytes` and the only one that breaks the codec** — a layout change in
+       `EncodeRecord`/`ParseRecord`, a change to the `AAD_head` preimage, a Spec B column, and a new
+       row in the A-8 interop vector file A6 requires. *Octets:* +2 → 4,366 (+0.05%); `AAD_head`
+       182 → 184; rung overhead 0, ceiling 65,536. *Unwritten:* **it is disqualified rather than
+       costed, and the reason should be written down once so nobody proposes it again**: it hands the
+       message server the message's **true length** on every record, which is the single thing the size
+       ladder exists to deny. MASTER §9.5:1549 lists *"records are padded into size buckets"* as the
+       first mitigation of what the server sees, and §9.5's disclosure list says the server sees
+       *"record sizes by bucket"* — by bucket, not by octet. *Vs rulings:* neutral to A1; against M1-6
+       neutral in substance but expensive in the same currency, since every head ciphertext moves. It
+       moves no KAT constant. *Wire-decidable:* yes — **by everyone, including the message server,
+       which is precisely the reason not to rule it.**
+     - **P8 — keyed pseudorandom fill,** riding P1/P2/P3's framing:
+       `fill = HKDF-Expand(record_key[i], "pad/v1", rung − prefix − len)`. *Wire:* only the fill
+       differs. *Octets:* 0, and the same rung arithmetic as its framing. The only shape with a
+       **compute** cost: one HKDF-Expand of up to 4,092 octets per record on the seal path and again on
+       the open path if the opener re-derives — roughly 128 SHA-256 blocks against the 2 a measured
+       56-octet expand (600 ns) costs, paid twice per record. *Unwritten:* **it buys nothing and
+       forecloses something.** The fill is inside the AEAD, so the only party who sees it is the holder
+       of the key that produced it; meanwhile it forecloses P2's cheap tail check, since there is no
+       constant to compare against unless the opener re-derives the whole fill. The one place it would
+       buy something is the place it cannot ride — the recovery wrap, whose `ct_body` is cleartext and
+       whose reader has no record key by construction. *Vs rulings:* **the only shape on this board
+       that is not neutral to a reversal of A1** — under a reversal, two records of two classes at one
+       index share `record_key[i]` and therefore share the fill as well as the AEAD nonce, adding a
+       plaintext XOR over up to 4 KB of pad to the header forgery item 169 already names. It inherits
+       the exposure rather than creating it, but it is the one shape that **widens** the blast radius.
+       *Wire-decidable:* as whichever framing it rides.
+
+     **Set 3's recommendation, labelled by its own author as a recommendation:** **P2** — the landed
+     `LP32(len) ‖ body ‖ zeros` framing with the zero tail **refused** by an accumulating,
+     position-free check, ruled with an explicit **three-class scope sentence**. Three reasons: it is
+     the only shape both decidable to a receiver holding the bytes and the key with no payload-type
+     knowledge **and** consistent with §5.11:2199, the one padding sentence already normative; it costs
+     zero — zero wire octets, `ct_body` unmoved, **zero pinned KAT constants** (the eleven hex values
+     at `recordkey_test.go:48–59` are key material upstream of the padder and no test in either tree
+     pins a padded body or a `body_hash`), and zero records already sealed; and P5 is genuinely cheaper
+     on paper and should be rejected anyway, because its safety rests on *"every body plaintext is
+     self-delimiting"*, which nothing states, nothing enforces and the one plausible body does not
+     satisfy. **P2 is only a closure if the ruling states five things**, and a ruling that states fewer
+     is item 143 again: **(a)** the **scope**, over three body classes and not one — the ordinary record
+     body and the two device-wrap bodies pad to 4,096 as an AEAD plaintext, the recovery wrap's
+     `ct_body` is `hybrid_ct` to 4,112 raw, keeps its own no-prefix form and is **excluded** *(item
+     **177** disputes this clause)*; **(b)** the **fill octet is zero**, in a document and not only in
+     `m1w1repairs_test.go:765`; **(c)** the refusal **accumulates over the whole tail and names no
+     position**; **(d)** the real inline ceiling is **65,532**, not the *"64 KiB"* three documents
+     publish — either amend those three or rule the four lost lengths acceptable, but do not leave the
+     number wrong in three places; **(e)** it **overturns a written argument** at `seal.go:538` and the
+     ruling should say why. And finally: **rule `M1-7` in one sitting with the signature question. They
+     are not separable** — if the signature covers only `hybrid_ct` the wrap's pad is attributable to
+     nobody, and if it covers the padded plaintext the fill becomes signed and every republisher of an
+     interrupted fan-out must emit byte-identical fill, which is item 148's constraint arriving on the
+     wrap. *(Item **180** confirms the non-separability by a second route.)*
+
+     **THE SETS' OWN OPEN PROBLEMS, KEPT BECAUSE FOUR OF THEM BLOCK TASK 14 INDEPENDENTLY OF EVERY
+     SHAPE ABOVE.** (1) **The device wrap's `ct_head` ladder is contradictory as written**: §5.3
+     (A-20, M1-6) sends every head to a ladder rooted at `ClassKeys.Durable`, which descends from
+     `storage_root[k]` — the value the wrap delivers — while §5.11 (1) says the head is derived
+     *"beneath [`env_key`] exactly as §5.3 declares"*; the only non-circular reading is that
+     `env_key[k]` replaces the head's class key too, and **no sentence says so** (query reproduced in
+     §7). (2) **Neither device-wrap record can be sealed by the shipped code at all**:
+     `seal.go:119` and `:387` refuse every non-DURABLE class, under a file comment naming M1-6 rather
+     than item **152**. (3) **A wrap's `ct_head` PLAINTEXT is unstated** for the device wrap and
+     filed-but-unstated for the recovery wrap, and **every octet figure in the corpus, including this
+     item's, assumes a 96-octet `ct_head`** that no document defines. (4) **`u8(target_type)` and
+     `u8(payload_type)` need code points under EVERY shape**, because MASTER §7's nine-element `info`
+     names them unconditionally and `wrap_key` is underivable without them — a ruling that answers the
+     field list and not the encoding leaves the KEM key undefined. (5) **§7.1 requires an `alg_id`
+     inside the signed bytes of every signature and the device wrap has nowhere to put one**: the
+     `RecoveryTag` carries `u16(alg_id)` and the `WrapTag` carries none, so under every shape the
+     device wrap's body signature has no `alg_id` anywhere unless the body carries one or the preimage
+     supplies one that is never transmitted — a field-list consequence not in `M1-1`'s own list.
+     (6) **`aead_ct` has no stated AAD**: MASTER §7 fixes `wrap_key ‖ wrap_nonce` and names no AAD, so
+     every shape that puts the signature inside `aead_ct` inherits whatever that turns out to be.
+     (7) **The recovery wrap's signature is unverifiable by its only intended reader, and the chain is
+     circular**: Spec B (`:2605`) routes a seed-only restorer to the epoch snapshot, which is sealed
+     under `HKDF-Expand(storage_root[n], "snap/v1", 56)` — the value the recovery wrap delivers. Two
+     exits, both rulings: carry `LP(identity_pub)` and anchor it in the KT log, or state that *"MUST
+     NOT honour"* permits opening first. The snapshot is itself unsigned, so the anchor at the end of
+     that chain is not a signature either. (8) **Nothing in `connect/messagegroup` can sign or verify
+     anything**, and Task 14's Consumes list is short by both halves of the signature. (9) **§5.11 (2)
+     requires a record the shipped sealer cannot build** — a `ct_body` that is not an AEAD output —
+     so Task 19 needs a second builder that bypasses the record body AEAD. (10) **Four padding schemes
+     exist across the corpus and no two agree**: `seal.go:512`, `msgrepo/harness/seal.go:129` (no
+     prefix, fill `byte(index*31)`, to 4,112, never unpadded), §5.11:2199 and §5.14:2653.
+     (11) **`ct_head` is not padded at all**, so `octet_length(ct_head)` is exact and in the clear on
+     every record while `ct_body` is bucketed — whether `M1-7`'s scope reaches the head is not asked by
+     the item and is the adjacent leak. (12) **Item 148 is the other half of the fill question and is
+     not ruled.**
+
+     *Blocks:* nothing of its own — it files options, not obligations. m1 **Task 14** remains blocked
+     on `M1-1`'s remainder, on `M1-7` and on item **152**. Found 2026-09-09, composing the three
+     independently produced option sets against each other.
+
+176. **S1's SIGNATURE PREIMAGE AND W1's FIELD LIST DO NOT OVERLAP: THE COMPOSITE SIGNS EVERY OCTET
+     OF THE WRAP EXCEPT THE ONES THE FIELD-LIST RULING EXISTS TO ADD. FILED, NOT RULED. THE REPAIR IS
+     ONE TERM, ZERO BODY OCTETS AND ZERO WIRE OCTETS.**
+
+     **The claim.** Set 1 recommends `u8(wrap_format_version) ‖ u8(target_type) ‖ u8(payload_type) ‖
+     u64(content_epoch) ‖ u32(publisher_leaf_index)` **outside** `hybrid_ct`. Set 2 recommends a
+     signature **inside** `aead_ct` whose preimage ends `‖ LP(ct_xwing) ‖ LP(payload)`. Between the
+     two lies `hybrid_ct`'s own framing, so the preimage cannot reach backwards past `ct_xwing` to
+     the envelope. Composed, the wrap's body signature covers the record header, the KEM transcript
+     and the secret, and **none of the fifteen octets the field-list ruling adds.**
+
+     **Measured rather than argued.** The preimage is **1,305** octets for a 32-octet secret, of which
+     the header block — label through `LP(H(server_attachment))` — is **145**. Adding
+     `LP(wrap_envelope)` ahead of `LP(ct_xwing)` makes it **1,324** with set 1's five fields, or
+     **1,320** with W1's four. The body does not move: 1,257 octets either way, occupancy 1,261 of the
+     4,096 rung, tail 2,835. `ct_body` stays 4,112 and the records stay 4,398 and 4,428.
+
+     **Why no test would catch it.** Every property Task 14 states is a round trip: seal, submit,
+     fetch, open, compare. A signature that omits a field round-trips perfectly, because the sealer
+     and the opener agree about a field neither of them is asked to defend. The defect is only
+     visible to a party that *changes* the field, which is the party no round trip has.
+
+     **What it costs if it is not repaired**, precisely and not rhetorically. Three of the four W1
+     fields are re-bound by `wrap_key`'s HKDF `info` (item **178**), so a lie about them fails the
+     AEAD open. The fourth, `u32(publisher_leaf_index)`, is bound by nothing at all on the recovery
+     wrap and by a group-wide key on the device wrap (item **179**). So the unrepaired composite is
+     not immediately exploitable — it is *accidentally* safe, by a binding neither set names, on
+     three fields out of four. **That is the item-143 failure mode stated in one sentence: safety
+     resting on a rule nobody wrote.**
+
+     *Blocks:* nothing mechanically — no wrap has ever been sealed. It blocks a **closure**: a ruling
+     that takes both recommendations without this term has ruled a field list that nothing
+     authenticates. Found 2026-09-09, composing the three option sets.
+
+177. **THE THREE OPTION SETS PUBLISH THREE DIFFERENT DENOMINATORS FOR ONE BODY. THE DISAGREEMENT IS
+     `padBody`'s LENGTH PREFIX, AND WHAT IT ACTUALLY DECIDES IS WHETHER THE CORPUS ENDS WITH ONE
+     WRAP-BODY GRAMMAR OR TWO. FILED, NOT RULED.**
+
+     **The three answers.** For the recovery wrap's body, set 1 prices every shape against **4,092**
+     octets — the 4,096 rung less `padBody`'s four-octet LP32. Sets 2 and 3 price it against
+     **4,112** — the raw `ct_body`, because Spec A §5.11 (2) makes that record's `ct_body` the wrap
+     body itself, under no record AEAD, with no prefix and no 16-octet tag to subtract. Sets 2 and 3
+     are right and set 1 is **20 octets low on every recovery-wrap figure it publishes**: its 2,786,
+     2,785, 2,777 and 2,775 are 2,806, 2,805, 2,797 and 2,795. Measured: the W0 recovery body is
+     1,306 of 4,112, tail **2,806**; W1 is 1,317, tail **2,795**; W1+W5 is 1,321, tail **2,791**.
+
+     **And a fourth figure, inside set 3, disagrees with set 3.** Its cross-reference paragraph prices
+     a signed device wrap as leaving *"2,854 of a 4,096 rung as pad"*, which is `4,096 − 1,242` with
+     the prefix dropped — while its own P1 shape states, correctly and four paragraphs earlier, that
+     `bucketForBody` *"picks the rung from `len(body) + 4`"*. Sets 1 and 2 both say **2,850**, and
+     2,850 is what `padBody` produces: occupancy is `4 + 1,242 = 1,246`. Set 2 is the only set that
+     is right about both bodies — it states the device wrap's free space as **2,914 → 2,850** and the
+     recovery wrap's zero tail as **2,870 → 2,806**, and both reproduce. Set 1 is right about the
+     device wrap and wrong about the recovery wrap; set 3 is right about the recovery wrap (its
+     open-problem list gives *"2,806 of 4,112"*) and wrong about the device wrap, in the direction
+     that flatters the budget. (A fifth, minor: set 1's W4 line reads *"Recovery wrap 1,251 + 32 =
+     1,315"*; the operand is the payload difference, which is 64, and 1,315 is the answer to
+     `1,251 + 64`. The arithmetic landed; the operand printed did not.)
+
+     **The disagreement is not about arithmetic, and that is why it is filed.** It is about whether
+     the wrap bodies share one framing rule. Set 3's `M1-7` recommendation states the split
+     normatively — the ordinary body and the two device-wrap bodies carry `LP32`, the recovery wrap's
+     `ct_body` *"keeps its own no-prefix form, and is EXCLUDED"* — and set 1's arithmetic assumes the
+     opposite, silently, in every row of every shape. **A ruling that adopts both writes two grammars
+     and calls them one.** Under the split, a parser cannot decide whether the body's first four
+     octets are a length or `version ‖ target_type ‖ payload_type ‖ …` until it has read the server
+     attachment's kind — which is the target-type-dependent body encoding set 1 rejects W6 for, and
+     the defect class the kind-`0x0000` ruling was written against.
+
+     **The repair, measured: four octets of a 2,791-octet tail, zero on the wire — prefix the recovery
+     wrap too.** It is nearly free under any composite that takes W1, because W1 already amends
+     §5.11 (2)'s *"`ct_body` **is** `hybrid_ct`"*, which is the only sentence the exclusion exists to
+     keep true.
+
+     *Blocks:* nothing mechanically. It decides which of `M1-1`'s and `M1-7`'s rulings has to be
+     written first, and it is the reason they should be written together. Found 2026-09-09.
+
+178. **THREE AUTHORITIES NAME A WRAP'S PAYLOAD KIND AND THREE NAME ITS CONTENT EPOCH. THE FIELD-LIST
+     SET COUNTS TWO AND MISSES THE ONE THAT MAKES THE OTHER TWO SAFE. FILED, NOT RULED — AND THE
+     RULING OWES ONE SENTENCE, NOT A MECHANISM.**
+
+     **The claim.** Set 1's W1 says *"two authorities for one fact… `payload_type` in the body and
+     `retention_class` in the header both name the secret, and **both are authenticated**"*, and asks
+     the ruling to state a refusal on disagreement. There is a **third**, and it is upstream of both:
+     MASTER §7's `info` — nine elements since the 2026-09-18 M-15 amendment — binds
+     `u8(target_type)`, `u8(payload_type)` **and** `u64(epoch)` into `wrap_key ‖ wrap_nonce` itself.
+     The same is true of the content epoch: `header.Epoch`, W1's `u64(content_epoch)`, and `info`'s
+     `u64(epoch)`.
+
+     **Why the third one changes the answer rather than lengthening the list.** A value bound inside
+     a key is a value the key's holder tests for, and an AEAD is the test — item **142** already
+     states that rule, in those terms, and builds the recovery wrap's whole epoch-recovery procedure
+     on it. So a receiver that derives `wrap_key` **from the envelope's own values** and finds that
+     `aead_ct` does not open has already detected the disagreement, fail-closed, at the price of one
+     AEAD open. **The envelope does not need to be authenticated to be safe to read; it needs to be
+     read as a hint that the open confirms.** That is a cheaper ruling than the refusal set 1 asks
+     for, and it is a different one: a refusal compares two carried values, and this compares one
+     carried value against a key derivation. **m1 Task 14 already states the binding as a property it
+     will test** — Property 4, *"the epoch is bound. A wrap for epoch n+1 does not open as a wrap for
+     epoch n"* — so the mechanism is not only normative, it is on the task's own list; what is missing
+     is the sentence saying a receiver may therefore read the field before it trusts it.
+
+     **The half this does NOT cover, so nobody reads it as covering the whole.** `u32(publisher_leaf_index)`
+     is in no `info` (item **179**). `header.RetentionClass` is not in `info` either — it is bound by
+     `AAD_body` on a device wrap, measured 96 octets and carrying the retention wire byte, and by
+     nothing on a recovery wrap. So the ruling still owes a sentence about the header-versus-body
+     disagreement; what it does not owe is a mechanism, because for three fields out of four the
+     mechanism already exists and is already normative.
+
+     **One benefit nobody claimed, and it is the composite's best property.** Item **142**'s stranded
+     recovery wrap is recovered by a restorer walking candidate content epochs **downward** from the
+     record's own `epoch` field, decapsulating once per record and testing each candidate by AEAD —
+     a walk with no stated bound. W1's `u64(content_epoch)`, read as a hint, **bounds that walk to one
+     candidate**, and a lie costs exactly one failed open. Eight octets, zero on the wire, against an
+     unbounded walk. Set 2 records that S1 makes each unopenable record *"also cannot be classified"*;
+     W1's eight octets are what classify it, and neither set connects the two.
+
+     *Blocks:* nothing. It is a sentence the ruling owes and an argument that makes the sentence
+     cheap. Found 2026-09-09.
+
+179. **`u32(publisher_leaf_index)` AND `LP(identity_pub)` ARE NOT SUBSTITUTES, AND THE SET THAT
+     RECOMMENDS THE FIRST CLAIMS THE SECOND'S PROPERTY FOR IT. FILED, NOT RULED.**
+
+     **The claim.** Set 1 recommends W5 and calls it *"the only candidate field that makes the
+     signature checkable from `record_bytes` alone, which is what 'a client MUST NOT honour an
+     unverified wrap' has to mean operationally."* Set 2 recommends `LP(identity_pub)` beside the
+     signature inside the payload, and states that without it a recovery wrap's signature *"is
+     unverifiable by the only party it exists for."* Both are recommended into one body and they are
+     doing different jobs.
+
+     **What W5 actually buys.** `sender_handle` is already in `record_bytes`, raw, in the clear, at a
+     fixed offset — `connect/message/codec.go` writes it third, after the format version and the
+     group id. A **member** already holds `group_handle_key`, so it can resolve `sender_handle` to a
+     leaf by enumeration; set 1 measures that at **474 µs** over a 1,000-leaf group, 418.5 ns a
+     candidate. W5 replaces that walk with a read. It buys **speed**, not decidability, and it buys it
+     only for a member.
+
+     **What W5 does not buy, and cannot.** For the recovery wrap's only intended reader it is inert.
+     A seed-only restorer holds no MLS state and no `group_handle_key` **by definition** (MASTER §8.2,
+     §5.4), so it can resolve neither a `sender_handle` nor a bare leaf index to an identity key: the
+     index names a position in a tree it does not have. **Only a carried key closes that**, which is
+     set 2's field and not set 1's, and it must be carried where a restorer can reach it — inside
+     `aead_ct`, which it opens, and not in the cleartext body, which the message server also reads.
+
+     **And W5 has a cost the composite does not otherwise have.** On the recovery wrap its four octets
+     are in the clear at a fixed offset on ~500 records per epoch. The marginal leak is **the leaf's
+     position in the ratchet tree**, and it should be stated that precisely rather than as "a real
+     leak": `sender_handle` is already a stable per-leaf pseudonym the server sees on every record, so
+     W5 adds no new correlation — it converts a pseudonym into an index, which discloses tree
+     position and therefore group shape. Small, real, and absent from the device wrap.
+
+     **The composite therefore needs `LP(identity_pub)` and does not need W5.** Measured: dropping W5
+     and adding `LP(identity_pub)` inside `aead_ct` gives a device body of **1,293** of the 4,096
+     rung, tail **2,803**, and a recovery `ct_body` of **1,357** of 4,112, tail **2,755** — zero
+     octets on the wire in both cases, records still 4,398 and 4,428.
+
+     *Blocks:* nothing. It decides one field of `M1-1`'s remainder and it is the field the recovery
+     wrap's verification depends on. Found 2026-09-09.
+
+180. **`u8(size_bucket)` IS INSIDE THE PROPOSED SIGNATURE, SO THE PADDING RULE IS AN INPUT TO THE
+     SIGNATURE AND `M1-7` IS NOT SEPARABLE FROM `M1-1`'s SIGNATURE QUESTION. TWO OF THE THREE SETS
+     SAY IT IS. FILED, NOT RULED — AND IT IS NOT REACHABLE TODAY, WHICH IS THE POINT.**
+
+     **The disagreement, quoted.** Set 3: *"rule `M1-7` in one sitting with `M1-1`'s second remaining
+     question, where the wrap signature sits and which octets it covers. They are not separable."*
+     Set 2: *"Under S1, S4 and S5 the two stay independent."* Set 1 lists the padding scheme as a
+     third, separate question throughout.
+
+     **The composition settles it, and by a route none of the three took.** S1's preimage carries
+     `u8(size_bucket)`. The size bucket is chosen by `bucketForBody`
+     (`connect/messagegroup/seal.go:485`) from `len(body) + lpPrefixBytes`, and `lpPrefixBytes` is
+     **4**, derived from the writer rather than written down (`seal.go:467`, `:470`) precisely so a
+     change to the record layer's prefix moves it. So the padding rule's prefix width is an input to a
+     **signed** byte. Under set 3's own scope sentence the two wrap classes compute that byte under
+     two different rules — `len + 4` for the device wraps, `len` for the recovery wrap — and nothing
+     says the preimage's `u8(size_bucket)` is derived per class.
+
+     **Two consequences a builder meets and no document states.**
+
+     - **An ordering obligation.** The bucket must be chosen from the **post-signature** body length,
+       because the bucket is inside the preimage. The natural implementation order — build the body,
+       sign it, pad it, pick the rung — computes the bucket from a body 64 octets shorter than the one
+       it pads, and agrees with the correct order only when both lengths fall in the same rung.
+     - **A silent failure mode.** A body within 64 octets of a rung boundary signs one bucket and pads
+       into another. The record still round-trips against its own sealer, because the sealer used the
+       same wrong byte twice.
+
+     **Not reachable today, measured: 1,257 and 1,321 both land on rung 2 under either rule**, and no
+     wrap has ever been sealed — `connect/messagegroup/wrap.go` does not exist,
+     `grep -rn 'wrap_body|WrapBody|wrapBody'` over both trees returns **0**, and `SealRecord` has no
+     production caller in `connect`, `msgrepo` or `sdk`. **That is what makes it worth a number rather
+     than a footnote.** It is item 143's shape exactly — a discipline that holds by arithmetic
+     coincidence, in a constructor that makes the wrong reading the obvious one — filed while it costs
+     one sentence, before the A6 wire-format freeze makes it a flag day.
+
+     **The second half of the same non-separability, from the other direction.** S1's signature covers
+     neither the pad nor the zero tail. On a device wrap the tail sits inside the record body AEAD
+     under `env_key[k]`, which **every member of the epoch holds**, so any member can rewrite any
+     other member's wrap tail without disturbing the signature. `connect/mls` refuses exactly this
+     one layer in and says why (`mls/framing_protect.go:817`). If `M1-7` is ruled P1 — the landed
+     shape, whose `unpadBody` deliberately does not check the tail (`seal.go:538-542`) — the composite
+     ships a ~2.8 KB member-writable covert channel inside every wrap that no signature covers.
+     **P2's accumulating, position-free tail refusal is therefore a dependency of S1 and not an
+     independent ruling.**
+
+     *Blocks:* nothing mechanically. It says the two questions must be ruled in one sitting, which is
+     what set 3 asked for and what the other two sets' recommendations assume is unnecessary. Found
+     2026-09-09.
+
 
 ## 6. Change process
 
@@ -9058,3 +10080,136 @@ did not correct `connect/messagegroup/streamindex.go`'s stale §8.2 quote or m1'
 parameter"* sentence — both are filed as **S2-15** and both are somebody else's commit. And it did
 not touch `PROGRESS.md`, whose CP3b state rows this plan's existence does not change: `s2` being
 written moves nothing on the bar, which is the plan's own first paragraph read back to it.
+
+---
+
+### 2026-09-09 — the three `M1-1` option sets composed against each other: they describe one walkable body, the recommended signature does not cover the recommended fields, and five disagreements filed
+
+**Change:** `SPEC-LEDGER.md` gains open items **175** through **180**. Item **175** is the amendment
+to m1's open item `M1-1` (and to `M1-7`): the three independently produced option sets — the wrap
+body's field list W0–W6, the signature's placement and coverage S1–S6, and the padding scheme P1–P8 —
+composed into one body, with a wire-decidability matrix, five costed composites, a recommendation
+labelled as one, and the six sentences a ruling must carry to be a closure. **All twenty-one shapes
+are recorded in the item's §8** with their own costs, their own unwritten disciplines, their own
+behaviour under a reversal of A1 or M1-6, and each set's own recommendation labelled as its author's —
+so the owner rules on the shapes and not on a summary of them, and so the sets stop living only in a
+brief. Their twelve open problems are carried with them. Items **176**–**180** are
+the five things the three sets disagree about. Item **137**, the anchor entry for the 2026-09-13
+`M1-1` rulings, gains a pointer. The m1 plan's `M1-1` item gains an eight-line paragraph naming the
+amendment and saying nothing is ruled.
+
+**Why:** Three answers to three questions about one body were produced independently and had never
+been held against each other. A field list, a signature placement and a padding scheme have to
+describe **one** decodable body; the only way to learn whether they do is to build the body out of
+all three and walk it. They do — and one thing breaks, and it breaks silently.
+
+**NOTHING IS RULED.** `M1-1`, `M1-7` and ledger items **132**, **142**, **148** and **152** stay filed
+and unruled. Wave 2 is not implemented. **No Go file in either tree changed.** No spec changed: Spec
+A §5.11 (2)'s *"the recovery wrap's `ct_body` **is** `hybrid_ct`, followed by zeros to its rung"* is
+still normative, and four of the five composites would falsify it — which is the ruling and not this
+pass's to take. `connect` was read and never written.
+
+**The finding, and it is the one a builder would otherwise meet at Task 14 step 1.** The three
+recommendations — **W1+W5** for the fields, **S1** for the signature, **P2** for the padding — do
+compose into one body a parser can walk with no key and no payload-type knowledge:
+`LP32(1257) ‖ envelope(15) ‖ hybrid_ct ‖ zeros`, occupancy **1,261** of the 4,096 rung, tail
+**2,835**, `ct_body` unmoved at 4,112 and the record unmoved at 4,398. But **S1's preimage does not
+reach one octet of W1+W5's envelope**: the envelope sits outside `hybrid_ct` and the signature sits
+inside `aead_ct`, with `LP(ct_xwing)` between them. So the composite signs the record header, the KEM
+transcript and the secret, and leaves the four fields the field-list ruling exists to add signed by
+nobody. Three of the four are re-bound by MASTER §7's nine-element `info` — a binding neither set
+names, and the thing that makes the composite *accidentally* safe rather than safe. The fourth,
+`u32(publisher_leaf_index)`, is bound by nothing at all on the recovery wrap and by a key every
+member holds on the device wrap. **The repair is one term — `LP(wrap_envelope)` in the preimage,
+1,305 → 1,324 octets, zero body octets and zero wire octets.**
+
+**Wire-decidability was judged independently and the answer is a matrix, not a yes.** It is three
+questions asked of three parties holding different key material, and collapsing them is how the three
+sets reach three verdicts about one composite: the recommended shape is **decidable in its fields and
+undecidable in its authentication**. Set 1's first reason for its own recommendation — *"the only
+shape under which the wrap body is decidable from its own octets"* — is true of the fields and false
+of the record, because S1 is the least decidable shape on its own board. Under every S1 composite,
+Spec A §5.11 (4)'s *"a client MUST NOT honour an unverified wrap"* is enforceable **only** by the
+decapsulating target: no other party can tell a signed wrap from an unsigned one. That is a
+legitimate ruling to take and it has to be a stated one. The composite that gives the property up is
+priced beside the four that do not — **C4**, signature in the attachment, **+68 octets per record**
+(4,398 → 4,466 measured), ~+170 KB per epoch fan-out, a Spec B §5.1 check-3 change, and a publicly
+verifiable Ed25519 signature on all 2,501 wrap records that hands the operator per-epoch attribution
+of the committer.
+
+**The five disagreements, filed rather than reconciled in prose.** **176**: the signature preimage
+and the field list do not overlap. **177**: the three sets publish three denominators for one body —
+set 1 prices the recovery wrap against 4,092 where sets 2 and 3 use 4,112, so every recovery-wrap
+slack figure set 1 publishes is 20 octets low, and set 3 contradicts its own P1 by dropping
+`padBody`'s prefix from one cross-reference; underneath the arithmetic is the real question, whether
+the corpus ends with one wrap-body grammar or two. **178**: three authorities name the payload kind
+and three name the content epoch, and the field-list set counts two — the third, `wrap_key`'s `info`,
+is what makes the other two safe and turns item **142**'s unbounded downward epoch walk into one
+candidate. **179**: `u32(publisher_leaf_index)` and `LP(identity_pub)` are not substitutes, and the
+set recommending the first claims the second's property for it — `sender_handle` is already in
+`record_bytes`, so W5 buys 474 µs and not decidability, and a seed-only restorer can use neither a
+handle nor a leaf index. **180**: `u8(size_bucket)` is inside the proposed signature, so the padding
+rule is an input to the signature and `M1-7` is **not** separable from `M1-1` — set 3 said so, set 2
+said the opposite, and the composition settles it.
+
+**A recommendation is given and labelled as one:** **C3**, or **C2** for the smallest change from
+what the three sets already recommended. C3 drops W5, adds `LP(identity_pub)` inside `aead_ct`, puts
+`LP(wrap_envelope)` in the preimage, and extends P2's prefix to the recovery wrap so all three wrap
+bodies have one parse — measured at **1,293** of the 4,096 rung, tail **2,803**, and **zero octets on
+the wire**. Its costs are stated: it amends §5.11 (2), and it is 32 octets of body more than C2.
+
+**Costs are measured rather than estimated**, by calling the shipped encoder from a scratch module
+outside both checkouts with an absolute `replace` onto `connect`, which reads it and writes nothing
+in it: `SizeBucketBytes(2)` **4,096**, `ct_body` **4,112**, `WrapTag` **34**, `RecoveryTag` **64**,
+records **4,364** with no attachment / **4,398** device / **4,428** recovery, `AAD_head` **182** for
+both wrap kinds, `AAD_body` **96**, the S1 header block **145** and its preimage **1,305**, the rung-3
+cliff **+12,288 octets per record = +24.6 MB** over 2,000 device wraps, and the epoch fan-out
+**11.01 MB** against the ≈ 11.5 MB two documents publish.
+
+**Three smaller corrections, with their queries.** `ErrBodyPadding` already exists
+(`connect/messagegroup/errors.go:248`, identical at HEAD and in the working tree) and `unpadBody`
+already returns it twice, so P2 needs no new sentinel — one declaration fewer than set 3 prices. The
+*"about 4.6 KB on the wire"* rows are in Spec B **§3** (`spec-b:1092-1094`) and the ≈ 11.5 MB sizing
+block in **§6** (`spec-b:2453`), not in a *"§9 retention table"*. And the `env_key`-versus-
+`ClassKeys.Durable` contradiction reproduces exactly: `env_key` occurs **18×** in Spec A, **10×** in
+MASTER and **16×** in this ledger, and `grep -Ei 'K_durable|ClassKeys\.Durable'` over those hits
+returns **0** — the device wrap's `ct_head` root is unstated and blocks Task 14 independently of every
+shape on the board.
+
+**The `connect` tree moved twice while this pass ran, and the tree every figure was measured against
+is named rather than assumed.** It began at `33932e0` with Task 13 staged in another session — already
+two states past what two of the three sets recorded — and ended at **`7868d65`**, *"m1 task 13 —
+`pq_secret`'s sampler, and the provisional epoch state G10 destroys"*. **Task 13 landed during this
+pass.** Every `connect` anchor cited was re-verified at `7868d65` and every one holds: that commit
+does not touch `seal.go`, so all nine seal-path citations are unmoved, and it does touch `errors.go`
+(+29/−8) where `ErrBodyPadding` is still at `:248` — checked, not assumed. The two refusals that block
+Task 14, `seal.go:119` and `:387`, are unchanged by Task 13's landing. **Two consequences are recorded
+and not edited.** §1's code row names `connect` at `33932e0` and `connect` is at `7868d65` as of this
+commit; and `SPEC-LEDGER.md` was rewritten by a concurrent session while this pass was writing it —
+the `s2` entry immediately above, landed as **`a3bb625`** — which discarded an earlier application of
+this amendment wholesale. It was re-applied on top of `a3bb625` and committed at once, and **nothing
+of the `s2` entry, of the `s2` plan, or of §1's row was changed by this pass**: racing another
+session's edit is a worse failure than a stale row the next pass over §1 will catch. The index check
+below is the reason that clobber was caught rather than shipped.
+
+**Reviewed by:** the composition itself — three documents produced independently, held against each
+other and against the shipped encoder, which is the review this pass exists to be. Every line
+citation was verified by printing the cited line, which caught the two Spec B section labels above
+before they shipped.
+
+**Verification.** `go build ./...` clean and `go test ./...` green **before and after**.
+`go test ./ -run TestThePlanLinter` **`ok` before and after**. Its coverage of this diff is stated
+rather than implied: the diff adds **six** ledger items and the m1 plan cites **all six**, so check 3d
+is not vacuous over it — `readLedgerItems`' map goes **180 → 186** distinct ids (query:
+`grep -oE "^[0-9]+[a-z]?\." SPEC-LEDGER.md | sort -u | wc -l`, over 215 → 221 matched lines, measured
+against `a3bb625`). **Proved rather than asserted, twice:** renumbering item **175** to an id nothing
+carries turns check 3d fatal with **1 finding**, and renumbering **176** through **180** turns it
+fatal with **5**; the file was restored byte-identical by SHA-256 after each. `git ls-files` equals
+`git ls-tree -r HEAD --name-only` at **103** — 102 at the start of this pass, plus the `s2` plan
+`a3bb625` added — checked before the commit rather than after it.
+
+**What this pass did NOT do.** It did not rule `M1-1`, `M1-7`, or items **132**, **142**, **148** or
+**152**. It filed options and disagreements; items 175–180 are filed rather than ruled. It did not
+implement wave 2, it changed **no Go file in either tree**, and it amended no spec — which matters
+here, because four of the five composites require Spec A §5.11 (2) to be **amended and not annotated**,
+and choosing that is the owner's.

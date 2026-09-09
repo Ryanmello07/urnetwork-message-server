@@ -4572,6 +4572,29 @@ Task 19's; and it is the **fifth** input to the nine-element `info`, not the *"f
 carried from the pre-M-15 shape. `u8(target_type)` and `u8(payload_type)` arrive with M-15 and are
 undefined on the same terms.)
 
+**AMENDED 2026-09-09 — the three questions above now have option sets, composed against each other,
+in ledger item 175.** Three sets were produced independently — the field list (W0–W6), the signature's
+placement and coverage (S1–S6), and M1-7's padding (P1–P8) — each recommending one shape. Item **175**
+records all twenty-one shapes with their costs and each set's own recommendation, and composes
+them: they **do** describe one body a parser can walk, and they **do not** compose at the
+settings all three recommend, because the recommended signature's preimage does not reach one octet of
+the recommended field list. Five composites are costed there against a measured 4,398-octet device wrap
+and a 4,428-octet recovery wrap, a recommendation is given and labelled as one, and the five things the
+sets disagree about are ledger items 176, 177, 178, 179 and 180. **Nothing is ruled**: this item and
+M1-7 are still open and Task 14 is still blocked on both, and on ledger 152.
+
+**AMENDED 2026-09-09 — the three questions above now have option sets, recorded in full and composed
+against each other, in ledger item 175.** Three sets were produced independently — the field list
+(W0–W6), the signature's placement and coverage (S1–S6), and M1-7's padding (P1–P8) — each
+recommending one shape. Item **175** records all twenty-one shapes with their costs and each set's own
+recommendation, and composes them: they **do** describe one body a parser can walk, and they **do
+not** compose at the settings all three recommend, because the recommended signature's preimage does
+not reach one octet of the recommended field list. Five composites are costed there against a measured
+4,398-octet device wrap and a 4,428-octet recovery wrap, a recommendation is given and labelled as
+one, and the five things the sets disagree about are ledger items 176, 177, 178, 179 and 180.
+**Nothing is ruled**: this item and M1-7 are still open, and Task 14 is still blocked on both and on
+ledger 152.
+
 **M1-2 — DELIBERATELY DEFERRED 2026-09-13, and no longer a CP3b blocker. `group_handle_key` and the
 joining epoch's `read_key` still have no production carrier.** MASTER §8 and Spec A §5.7 both say "in
 the `Welcome`". `grep -rn 'group_handle_key\|GroupHandleKey'` over `connect` still returns **0**; there
