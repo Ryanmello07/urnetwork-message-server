@@ -32,7 +32,7 @@ code at all**, which is the gap every external leg in the m1 plan points at.
 | Spec C — Windows client UI | Revision 6 — 1,893 lines |
 | Blockers | **0 from r1–r4** — down from 41. **r8's two are not in that count**; both are fixed in the text and neither is recorded as fixed. Item **165**. |
 | Review findings | **Dispositioned per finding in §5, not counted.** r3's twelve blockers were re-grepped by id; its fourteen remaining majors are items **149–162**, one item per id, each opening with the id and a disposition verb, so `git grep "M-7"` returns a disposition rather than silence. **r2's, r3's and r4's minors, r6's 30 and r8's 25 are NOT dispositioned** — item **165** measures that and publishes the query; those findings carry no ids, so an id-keyed gate cannot see them at all. The count this row used to carry (*"30: 8 major, 22 minor"*) was r6's file, not r3's majors, and the two had been read as one set for five weeks. |
-| Implementation plan | **Written and part-executed.** Thirteen documents in `docs/plans/`; `m1` (24 tasks) has wave 0 and wave 1 landed and is stopped in front of wave 2 by ledger **152** and by open item **M1-1**'s remainder. `s2` through `s10` are cited as owners of unwritten work and have no document. |
+| Implementation plan | **Written and part-executed.** Fourteen documents in `docs/plans/`; `m1` (24 tasks) has wave 0 and wave 1 landed and is stopped in front of wave 2 by ledger **152** and by open item **M1-1**'s remainder. **`s2` is now written** — 15 tasks, of which Tasks 1–12 are the CP3b prefix — and its own first paragraph states that it does **not** reach CP3b alone: four upstream `connect` blockers (**S2-1** through **S2-4**) sit outside both of its legs and none of the four has an owner. `s3` through `s10` are still cited as owners of unwritten work and have no document. |
 | Code | **`connect` `beta/message` at `33932e0`** — 1,105 tracked files, 217 Go files across `mls/`, `message/` and `messagegroup/`, 7,631 tests passing / 0 failing / 0 skipped, nine-platform `CGO_ENABLED=0` build green. **This repository** — 57 Go files, 26,402 lines, `go build ./...` and `go test ./...` green. **`sdk`** — nothing; six external legs wait on it. |
 
 **Ready for owner review, and for handoff once the owner has read them.** Four review rounds and two
@@ -8897,3 +8897,164 @@ items 170–174 are filed rather than ruled. It did not implement wave 2 and it 
 either tree**. It did not amend Spec B or Spec C, and MASTER's amendment changes no rule MASTER
 declares — which is not restraint, it is what A1 being the counter the schema already keeps actually
 means.
+
+### 2026-09-09 — `s2` written: the two legs the owner assigned, the four blockers that sit outside both of them, and a method count four independent reads got wrong
+
+**The document.** `docs/plans/2026-09-09-slice2-s2-client-submit-leg.md` — 15 tasks in five waves,
+written to the shape p1–p8, s1 and m1 are written to: Global Constraints, Interfaces consumed,
+Interfaces produced, File Structure, then per task a **Files** list, an **Interfaces** block naming
+what is consumed and what is produced, numbered steps, and a mutation set. It supplies **no test
+code**, per R1 and per the roughly thirty plan-supplied tests p1–p8 shipped that could not fail.
+
+**What it says that the assignment did not.** The 2026-09-06 ruling gave `s2` legs 4 and 5 on the
+reasoning that *"`sdk` already owns transport and storage."* Measured at `sdk` `432986f`, half of
+that holds. `sdk` owns a **VPN** transport — one production `connect.Client`, inside
+`deviceLocalProvider` — and no request/response correlator, no fragmenter and no message-server
+binding at all. Its storage is `os.WriteFile`, one value per file, with **zero `Sync()` calls in
+production code**; contract clause 1 is *"Reserve returns only after the reservation survives a
+process death"*, and there is no precedent in that tree to copy. `s2` is not a plan that wires two
+existing things together. It builds both.
+
+**Four blockers sit outside both legs, all four in `connect`, and none has an owner.** Filed as
+**S2-1** through **S2-4** and stated in the plan's **first paragraph** rather than discovered at a
+task, because plans here have been read as milestones before. **S2-1:** `GroupSession`'s complete
+exported method set is **seven** methods and none returns `read_key`, `write_key`, `storage_root` or
+`group_handle_key` — yet `req_auth` is REQUIRED on every Fetch, `bootstrap_write_key` is
+`write_key[0]`, and every `EpochAttachment` carries both keys of epoch *n+1*. The only derivation
+runs through an **unexported** exporter label, so the workaround is a second copy of the one
+derivation the m1 standing test proves the whole record layer against. Corroborating rather than
+asserted: `msgrepo/harness`'s own `Fetch` takes `readKey []byte` as an explicit parameter *because it
+has no session to ask*. **S2-2:** `server_nonce` is copied once at construction with no setter, while
+the server rotates it at every Hello — so the first reconnect of a real `connect.Client` makes every
+later record `REASON_REJECTED`, which CP3c already proves. **S2-3:** `pq_secret` has no delivery
+channel, so the only thing making two clients agree on a storage root is a test constant — the exact
+thing CP3b forbids. **S2-4:** `JoinFromWelcome` is an unconditional refusal, so there is no exported
+path by which two clients share one group at all. **A finished `s2` does not reach CP3b**, and the
+plan's Definition of done says so in the row that would otherwise be read as the milestone.
+
+**Leg 4's one sentence hides an entire subsystem, and this is the largest correction the plan makes
+to the assignment.** Read out of `msgrepo` source rather than from a document: `api/submit.go`'s
+`CreateGroup` refuses unless the initial commit is `IsCommit` with header `Epoch == 0` and carries an
+`AttachmentEpoch` whose `Epoch.Epoch == 1`; `store/memory.go`'s `wellFormedEpochAttachment` refuses
+that attachment unless both keys are 32 octets **and `ExpectedWrapCount != 0`**, so group creation
+*promises* a fan-out; and the store then refuses every ordinary submit with
+`REASON_EPOCH_INCOMPLETE`, exempting only wraps and the marker. **CP3b's one text message is the
+FOURTH thing the client submits**, not the first, and Task 9 is that sequence.
+
+**Leg 5 is only half the durability CP3b needs.** `TrackSender`'s `headIndex` is documented as the
+caller's own state that must **never** be read off a record header — the reason is adversarial, since
+a peer that chose the number would choose how much work the receiver does — and §8.2's `MessageStore`
+declares nothing for the receive side. That second store is **S2-6** and Task 12 builds it.
+
+**Ledger item 170 gets a MECHANISM rather than the sentence it asked for, and the plan says why.**
+Item 170 proposed one sentence in this plan: migrate pre-A1 rows by taking the maximum over the
+classes, *or* version and refuse the key space. The plan requires the second and requires it as a
+mechanism, on two grounds. First, the migration half is **vacuous**: `s2` is the first durable
+reserver in any tree — a grep for the interface and for `ReserveStreamIndex` over `connect` and `sdk`
+finds the interface, the ratchet, the session and the test fakes only — so a store that has never
+existed cannot hold a pre-A1 row, and dead code on a safety path is worse than none. Second, and this
+is the R4 half: the **property** is *"a row this build cannot key is answered as a silent zero"*, and
+pre-A1 rows are one **instance** of it — a later M1-5 ruling that moves row identity again is
+another, and a half-written file is a third. A version tag in the key derivation refuses all three
+identically, so **the plan is safe whichever way M1-5 is ruled**. It still asks for the ruling
+(**S2-5**), and Task 1's mutation 3 — plant a pre-A1 row, read with an A1 key, and require a refusal
+rather than a silent zero — is item 170 reproduced in `sdk` as a mutation that must kill.
+
+**The scheduling fact worth having: `s1` does NOT block this plan.** s1's own items say **S1-9**
+*"blocks s2 entirely"* and **S1-4** and **S1-8** *"blocks s2's schema"*. Measured, all three are
+narrower than they read. Legs 4 and 5 name **no s1 symbol**. `StoredEntry` appears in exactly **four**
+of §8.2's fourteen methods — `PutEntries`, `EntriesBefore`, `EntryById`, `SearchEntries` — and **none
+is a stream method**, so S1-9 blocks the entry half and not the reserver. S1-4 and S1-8 block the
+`pin` and entry schemas, which are not on the CP3b prefix at all. What genuinely waits for s1 is
+**surfacing** onto `MessageClient`, and the plan does not do that. The plan therefore also declines
+to declare a **partial** `MessageStore`: A8 makes the fourteen-method bound the point of the
+interface, so it declares the concrete store with the two stream methods spelled as §8.2 spells them
+and no interface at all (**S2-12**).
+
+**The §8.2 correspondence question, answered by measurement rather than left open.** m1's plan text
+says §8.2 is `messagegroup.StreamIndexReserver` *"method for method and now parameter for parameter
+too"*. It is not, and **Spec A §8.2 itself says so** in the paragraph the A1 amendment added: *"the
+flattening from these two `[]byte` parameters to its comparable `StreamKey` is the implementer's."*
+The method **names** differ and the parameter **shapes** differ; what is method for method is the
+direction and the key. So an adapter is **mandatory**, a task dispatched on m1's wording would not
+compile, and Task 3 is the adapter. Worse, `connect/messagegroup/streamindex.go` still quotes the
+**pre-A1** §8.2 — so three documents state this three ways and the **source comment is the stale
+one**, which inverts the usual read-it-from-source rule. Filed as **S2-15** with the one-line
+corrections it owes to `connect` and to m1, neither of which this pass may make.
+
+**And one number this pass got by counting rather than by reading.** Four independent reads of
+`messagegroup.GroupHandle` during this plan's preparation returned **18, 22, 24 and 26** methods.
+Counted off the syntax tree it is **23** (`GroupEngine` is 4). Every one of the four was a hand count
+and every one was wrong; the plan writes the number down **with its derivation attached** and with
+the instruction *count it, do not read it*, because a plan's Interfaces block is the one place a
+wrong method count is copied forward silently. This is the same defect class as ledger **25**'s seven
+call sites spelling a signature that had moved.
+
+**Two claims corrected before they were written down, each with its query published.** *"`connect`
+holds no fragmenter"* — a grep for `MessageServerFragment` over `connect`, generated files excluded,
+returns **one** hit at `33932e0`, a name-to-number entry in a test, and no cut, no reassembler and no
+part-size constant; the plan says that rather than *"returns nothing"*. And *"X-Wing has zero
+production callers"* — the only production file matching the two X-Wing entry points is `xwing.go`,
+which **declares** them.
+
+**Measured against a moving tree, and said so.** `connect`'s working tree carried **uncommitted and
+actively changing** work throughout this pass — an untracked-then-staged `messagegroup/epoch.go`
+declaring `NewPqSecret` and a `ProvisionalEpoch` with `StorageRoot()`, `WriteKey()` and `PqSecret()`
+accessors, which is m1 Task 13 in flight. The plan is written against the **commit** `33932e0` and
+reports that work as measured, not as landed. **S2-1 was re-measured against the working tree and
+survives it:** `GroupSession` still has the same seven exported methods and still no key accessor
+there, so the gap is in the interface and not an artefact of reading an old commit.
+`ProvisionalEpoch` does not close it either — it takes `storageRoot` as a **constructor parameter**,
+so it derives nothing, and it covers epoch *n+1* rather than the live one.
+
+**Verification.** `go build ./...` clean and `go test ./...` green **before and after**.
+`go test ./ -run TestThePlanLinter` **ok before and after**, and its coverage of this diff is stated
+rather than implied: the corpus grew by one document, so every derived class grew with it — the
+property class **176 → 233**, the class-deriving property class **34 → 48**, the task-reference class
+**1,645 → 1,843**, the open-item-reference class **458 → 546**, the ledger-reference class
+**110 → 122**, and the Consumes-entry class **231 → 246**. **Those six are measured against the tree
+this commit actually contains, and getting there took two corrections worth recording.** The draft's
+run gave three of them differently, because the draft was still being repaired. The run after *that*
+gave the same three differently again — **1,844**, **548** and **129** — because by then the working
+tree also held **another agent's uncommitted amendment to `m1`**, citing six ledger items that are
+not in this commit. Both wrong sets would have read as measurements. A class size is a property of a
+**tree**, and on a shared checkout the tree under a measurement is not automatically the tree under
+the commit. **Every fatal check is clean and stayed
+clean**: 1a, 1d-fatal, 2b, 3b, 3d and 4a all report *no findings*, so the new document's **15** tasks,
+its **57** properties, its **15** `S2-n` definitions and its ledger citations all resolve. **Every
+reporting check returned to its exact baseline** — 1b **7**, 1c **1**, 2a **18**, 3a **4**, 4b **5** —
+which is the measurement that matters, because it says the new document contributed **zero** findings
+to any of them; the first linter run over the draft reported 1b at **9** and 2a at **26**, and both
+were repaired rather than accepted. The one class that moved is 3c, and it moved the right way: `s2`
+now having a document **removes** its own dangling references from the corpus, taking s1 from
+**107 → 96** findings and m1 from **43 → 14**, against **8** added by this document's own references
+to `s5`, which has no plan and is truthfully named as the owner of the engine factory and the
+layering gate. `git ls-files` equals `git ls-tree -r HEAD --name-only` at **102** before the commit,
+checked before rather than after. `git -C ../connect status --porcelain` and
+`git -C ../sdk status --porcelain` confirm **no file in either tree was written by this pass**;
+`connect`'s non-empty status is another agent's in-flight work, described above and not touched.
+
+**And this repository was not a clean checkout either, which changed what got committed.** When this
+pass came to commit, `git status` showed `SPEC-LEDGER.md` **and** `docs/plans/2026-09-04-slice1-m1-message-crypto.md`
+modified — and the ledger's working copy was **836 lines** ahead of `HEAD`, of which roughly 700 were
+another agent's: **ledger items 175–180** and the `m1` amendment that cites them, none of it
+committed. Appending to that file and staging it would have swept an unreviewed 700-line change into
+this commit under this commit's message. So this commit was built by reconstructing the ledger as
+`HEAD` **plus this pass's two edits only** — the state-table row and the entry you are reading —
+staging that and the new plan file and **nothing else**, and restoring the other agent's work to the
+working tree afterwards untouched, so their diff against the new `HEAD` is exactly what it was. The
+committed diff is **two files**: one new plan, and `SPEC-LEDGER.md` at **+162/−1**. Items 175–180 are
+**not** in this commit, which is why the ledger-item map here still holds **180** distinct ids and not
+186, and why the three class sizes above are the ones they are.
+
+**What this pass did NOT do.** It ruled **nothing**. Items **152**, **170**, **M1-1**, **M1-5** and
+**M1-25** are still open and still unruled, and the plan files **fifteen** new open items as **S2-1**
+through **S2-15** rather than resolving any of them — including the one place two defensible readings
+exist (whether the §4.3.3 projection should be promoted into `connect/message` or stay two
+independent builders, **S2-9**), where the plan names both readings with their costs and takes a
+position only because something has to compile. It wrote **no Go**, in any tree. It amended no spec:
+the §8.2 question above was answered by reading Spec A as it already stands, not by editing it. It
+did not correct `connect/messagegroup/streamindex.go`'s stale §8.2 quote or m1's *"parameter for
+parameter"* sentence — both are filed as **S2-15** and both are somebody else's commit. And it did
+not touch `PROGRESS.md`, whose CP3b state rows this plan's existence does not change: `s2` being
+written moves nothing on the bar, which is the plan's own first paragraph read back to it.
