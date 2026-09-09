@@ -10213,3 +10213,159 @@ fatal with **5**; the file was restored byte-identical by SHA-256 after each. `g
 implement wave 2, it changed **no Go file in either tree**, and it amended no spec — which matters
 here, because four of the five composites require Spec A §5.11 (2) to be **amended and not annotated**,
 and choosing that is the owner's.
+
+
+---
+
+### 2026-09-09 — the `s2` plan repaired: the gate that convicted its own required edges, the hazard the leg was commissioned to prevent, and the seam nothing owned
+
+**Change:** Repaired `docs/plans/2026-09-09-slice2-s2-client-submit-leg.md` against its
+ACCEPT_WITH_FIXES review (17 findings) **and against the defect class those findings are instances
+of**, which is the half the brief asked for and the half a finding list does not give. +1,065 / −201
+lines; 2,032 → 2,896. Two tasks added — **2a**, the single writer, and **8a**, the seam — four open
+items added (**S2-16** through **S2-19**), and one rule added (**R5**). No Go file in any tree
+changed, and no spec was amended.
+
+**Why:** The brief that commissioned `s2` named one failure mode specifically — the `s1` plan shipped
+four properties no correct implementation could satisfy — and `s2` shipped nine more of that class
+plus four whose mutation could not be applied at all. The largest was structural rather than local:
+`s2`'s own layering gate was **red before a single mutation**, and it convicted the edges every task
+from Task 1 onward requires.
+
+**The four that mattered, each reproduced on this machine before it was repaired.**
+
+- **The layering gate.** Task 13 Property 1 scoped itself to the *transitive* non-test dependency
+  set, and its Definition-of-done row was `go list -deps ./... | grep connect/mls` → no matches.
+  Measured at `connect` `7868d65`: `connect/messagegroup` imports `connect/mls` or `connect/mls/syntax`
+  on **eight import lines across seven production files** — the review said *eight files*, and the
+  correction is this pass's, from `grep -rn 'urnetwork/connect/mls' messagegroup/*.go | grep -v _test`,
+  where `engine.go` supplies two of the eight. `go list -deps ./message` alone prints
+  `connect/mls/syntax`, and the grep string `connect/mls` matches `connect/mls/syntax` **as a
+  substring**. Re-derived from Gate 5 rather than exempted: the decidable property is the **direct
+  import set of `package sdk`'s own files**, and what the transitive scope was reaching for — a new
+  module arriving through a transitive path — is now Property 4 over `go.mod`'s require blocks, where
+  it is decidable. **What is no longer defended is written into the task**, not dropped silently.
+  The Definition of done now carries the inverse row too: `go list -deps . | grep -c 'connect/mls'`
+  must be **2**, not 0, because a 0 there means the reserver is not linked.
+- **The single writer.** Over 2,032 lines the plan had **no** property, refusal or mutation about a
+  second writer: `grep -iE 'lock|mutex|concurren|single.writer|exclusive|two processes|second
+  process|flock|O_EXCL'` returned zero hits on any of those terms. Two `StreamStore` instances over
+  one directory each read the same high water and each allocate the same index, which §5.6 calls
+  *"a total break of both AEADs for that record"* — the exact hazard leg 5 exists to prevent. New
+  **Task 2a**: an exclusion held by the operating system (`syscall.CreateFile` with `dwShareMode = 0`
+  on Windows, `syscall.Flock` on Unix, a **refusal** on a `GOOS` with neither), four properties and
+  nine mutations, including the crash-mid-allocation answer in both directions. A pid-and-timestamp
+  lock file is named and rejected: it has no liveness oracle.
+- **The seam.** `messageSender` and `messageReceiver` were method receivers in three `Produces`
+  blocks and were **declared by no task**; `NewGroupSession` was called by nothing the plan produced;
+  `messageTransportCounts` was named in a return signature and declared nowhere. So leg 4's defining
+  sentence was produced by nothing and two derived-class gates (Task 4 Property 2, Task 9
+  Property 2) each claimed *one member* over a construction the plan never made — a class of zero,
+  which the plan's own Definition of done calls a broken gate. New **Task 8a** declares the seam, is
+  the one `NewGroupSession` call site and the one `SealRecord` call site, and carries §5.9 **G11**'s
+  lost-commit extension, which the plan had cited and never stepped.
+- **The second durable store's key.** Task 12 keyed `ReceiveState` by
+  `(groupId, leaf, message.RetentionClass)`; the ratchet it feeds is keyed by
+  `ReceiverRatchetKey{SenderHandle, RetentionWire}`, and `RetentionEph` is one class value spanning
+  six buckets, so all six EPH buckets of one sender collided onto one persisted head index — item
+  **170**'s defect class, on the side where the failure is silent message loss rather than a server
+  refusal, because `NewReceiverRatchet` walks to `headIndex` and everything below it leaves the
+  window. Re-keyed to the wire byte, given Task 1's version-tag mechanism (which it had none of), and
+  the row identity is now derived by reflection off `ReceiverRatchetKey` itself.
+
+**And the one that is not the plan's fault but was the plan's problem: Task 2 Property 1 was
+unsatisfiable on Windows.** Reproduced here with the project toolchain: after `os.Create` / `Write` /
+`Sync` / `Rename`, `os.Open(dir)` succeeds and `d.Sync()` returns `Access is denied.`; so does
+`os.OpenFile(dir, os.O_RDONLY, 0)`. A correct implementation there performs exactly **one** forced
+flush, so a class stated as *two members* fails for the correct implementation. The repair constrains
+the **design** rather than the platform — the allocation path now mutates no directory entry at all,
+so the one durability boundary is a file-contents flush, forceable everywhere — and **prices what
+that costs**: no atomic replacement on the allocation path, so the row format carries a checksum and
+a discard rule; Task 1 Property 4 must now separate a torn tail from a corrupt body; and the *first*
+allocation against a never-before-seen stream still rests on a directory entry Windows will not
+force. That residual is **S2-16** and it is filed rather than closed. NTFS journalling is named as a
+practical argument and explicitly **not** claimed as a guarantee.
+
+**The class was derived rather than taken from the list, and it is now R5 in the plan** — a
+twelve-row table naming every property that is unsatisfiable, unfalsifiable, undecidable or whose
+mutation does not compile, with which half failed and why. Six of the twelve are this pass's own
+finding rather than the review's: Task 13 Property 3 (five declared edges against a transitive set of
+**414 packages across 30 module prefixes**, measured); Task 3 Property 1 (a class pinned to one
+member that a correct *inlined* adapter makes two); Task 11 Property 3 (*"an epoch this client cannot
+key"* is undecidable against a bare `readKey []byte`, so the signature now carries a `readKeyRef`
+with its epoch); Task 10 Property 4 (the seal-time nonce epoch it compares against was recorded
+nowhere, so a correct-looking path compares a number with itself — Task 8a Property 3 now records
+it); Task 9 Property 2 (the second instance of the zero-class defect the review found once); and
+`messageTransportCounts`.
+
+**Three of the review's own claims are corrected here, with the measurement.** The `messagegroup`
+→ `mls` edge is **seven production files / eight import lines**, not eight files. Tasks 1–4 stated
+**16 properties and 29 mutations** (4/8, 5/9, 4/7, 3/5), not eighteen and twenty-two. And the review's
+parenthetical that *"the store owing a rewind sentinel at all is a plan invention that the ratchet
+does not read"* is half wrong: `streamindex.go`'s contract clause 2 says in terms that *"A persisted
+state behind an index already handed out is `ErrStreamIndexRewound`"*, and `ratchet.go:318` raises it
+itself while reading only `ErrStreamIndexConsumed` off the reserver. The real defect the finding named
+survives and is repaired: Task 2 now owes the two **conditions** under `sdk`'s own names and Task 3
+remains the only place either becomes a `messagegroup` sentinel, which is what Task 2's
+`messagegroup`-free `Consumes` block and Task 3 Property 3's uniqueness claim both require.
+
+**The plan's fifteen open items all stay open. Three carried measurements that had gone stale while
+the review ran, and those are corrected without closing anything.** m1 Task 13 **landed** at
+`7868d65` during this window: `messagegroup/epoch.go` is tracked, `NewPqSecret` and `ProvisionalEpoch`
+exist, and the plan's *"untracked in the working tree"* framing is now *"landed, and still not an
+answer"* — `NewProvisionalEpoch` takes `storageRoot` as a parameter, so **S2-1** survives it, and
+there is still no `wrap*.go` and no production caller of `XwingEncapsulate` outside `xwing.go`, so
+**S2-3** survives it too. **S2-7**'s *"`sdk`'s only production `connect.Client` is the VPN's"* is
+wrong: there are **two**, `device_local_provider.go:109` and `sim_device.go:115`, the second in
+`package sdk` with no build tag and standing up its own `ApiOutOfBandControl` from `config.ByJwt` —
+so the standalone authenticated client S2-7 says is unprecedented has a precedent, and the item stays
+open because it is still unspecified for messaging. **S2-9** grew a fourth value it had omitted: the
+op-byte derivation, whose only implementation is `msgrepo/api/api.go:339`'s `opOf`, in a module `sdk`
+may not import.
+
+**The Definition of done's closing claim was overstated and is corrected.** It authorised *"one
+client, one group, one real durable record, sealed and submitted and fetched and opened"* while
+S2-1 blocks Tasks 9–11 against a real server and S2-7 leaves the client construction unresolved.
+**Every row in that table is a unit invocation; no row runs against a message server and no task
+builds the fixture that would.** The honest statement now says what the tasks actually produce.
+
+**The `connect` tree moved once while this pass ran, and every anchor was re-verified at the tree it
+ended on.** It began at `7868d65` — the commit every measurement above cites — and ended at
+**`81b97ca`**, *"messagegroup: close task 13's eleven survivors, and the width one door over"*, landed
+by a concurrent session in that checkout. Every load-bearing anchor was re-run at `81b97ca` and every
+one holds: eight `mls` import lines across seven `messagegroup` production files; `go list -deps
+./message` still prints one `connect/mls` path; `ReceiverRatchetKey` is still
+`{SenderHandle [16]byte, RetentionWire byte}`; `GroupSession` still has seven exported methods (two
+in `seal.go`, five in `session.go`); `maxLadderWalk` is still `1 << 20`; `NewProvisionalEpoch` still
+takes `storageRoot` as a parameter, so **S2-1** is unmoved; there is still no `wrap*.go` and still
+zero production callers of `XwingEncapsulate`/`XwingDecapsulate` outside `xwing.go`, so **S2-3** is
+unmoved; and `JoinFromWelcome` is still the unconditional refusal at `engine.go:308`, so **S2-4** is
+unmoved. **This pass changed no file in that checkout**, and the plan cites `7868d65` deliberately,
+because that is the tree the numbers were taken on.
+
+**Reviewed by:** the ACCEPT_WITH_FIXES review of the `s2` plan, 17 findings — all 17 reproduced on
+this machine before repair, three of them corrected in the process, and the defect class they belong
+to derived and swept rather than the list applied.
+
+**Verification.** `go build ./...` clean and `go test ./...` green **before and after**.
+`go test ./ -run TestThePlanLinter` **`ok` before and after**, and its coverage of this diff is
+stated rather than implied. The reporting checks are unmoved at their pre-existing baselines — 1b
+**7**, 1c **1**, 2a **18**, 3a **4**, 4b **5** — and **none of those findings is `s2`'s**, before or
+after; check 2a's count is identical at 18 with zero `s2` rows on either side. The derived classes
+grew where the diff grew them: the property class **233 → 245** (+12: Task 2a's four, Task 8a's five,
+Task 12's two, Task 13's one), the class-deriving property class **48 → 56**, the `Consumes`-entry
+class **246 → 248** (+2 tasks), the task-reference class **1845 → 2015**, the open-item-reference
+class **550 → 580**. **Proved rather than asserted:** renaming the new `S2-18` definition to an id
+nothing carries turns the fatal check 3b red with **4** findings; the file was restored
+byte-identical by SHA-256 afterwards and the linter re-run green. `git ls-files` equals
+`git ls-tree -r HEAD --name-only` at **103**, checked before the commit rather than after it.
+
+**What this pass did NOT do.** It closed **no** open item — not S2-1 through S2-15, not M1-5, not
+ledger items 170 or 171 — and it added four rather than resolving any: an ambiguity the specs leave
+open is filed, not decided. It changed **no Go file in any tree**, and specifically nothing in
+`C:/Users/ryanm/Downloads/claude_sandbox_message/connect`, where another session was working
+concurrently. It amended **no spec**: S2-17 and S2-18 both owe §8.2 amendments and this pass wrote
+neither, because §8.2 is not this plan's to edit. It supplied **no test code** — every repair states
+a property, the refusal it owes and the mutations that must kill it, per R1. And it did not execute
+any `s2` task: `sdk`'s three preconditions (S2-13) were re-measured 2026-09-09 and **all three are
+still unmet** — `../goidenticons` absent, no `beta/message` branch, no `.github` directory.

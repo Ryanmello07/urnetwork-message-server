@@ -48,10 +48,11 @@ already in the graph. **No new module dependency, and specifically not `modernc.
 
 ## Global Constraints
 
-### The four rules this plan is written under
+### The five rules this plan is written under
 
-These come from this project's own ledger and from the nine plans before it. They are stated first
-because they change how every task below is meant to be read.
+These come from this project's own ledger, from the nine plans before it, and — R5 — from this
+plan's own first review. They are stated first because they change how every task below is meant to
+be read.
 
 **R1 — this plan supplies no test code, and neither may a task.** Roughly **thirty** plan-supplied
 tests across p1–p8 could not fail: nine consecutive p1 tasks each carried one, and a `GroupContext`
@@ -87,6 +88,32 @@ instance is Task 8: the projection's class is **what the message descriptor decl
 server-indexed**, not the eleven field names anybody can type, and a gate written over the names
 passes on the day a twelfth field is added and the client stops populating it.
 
+**R5 — a property must be SATISFIABLE by a correct implementation and FALSIFIABLE by an incorrect
+one, and both halves are checked by running the derivation the property mandates.** The s1 plan
+shipped four properties no correct implementation could satisfy, and the first draft of this plan
+shipped nine more of the same class plus four whose mutation could not be applied at all. They are
+listed here rather than only repaired, because the list is what a later pass checks a new property
+against:
+
+| Where | Which half failed | Why |
+|---|---|---|
+| Task 13 Properties 1 and 3, and two Definition-of-done rows | unsatisfiable | the scope was the transitive dependency set, which necessarily contains `connect/mls` and `connect/mls/syntax` — Wave 1's own required edges — and the grep string matched the second as a substring of the first |
+| Task 2 Property 1 | unsatisfiable | a two-member sync class on a platform whose directory-handle `Sync()` returns *"Access is denied."* |
+| Task 3 Property 1 | unsatisfiable | a class pinned to one member that a correct inlined implementation makes two |
+| Task 4 Property 2 and Task 9 Property 2 | unsatisfiable | a class of "one member" over a `GroupSession` construction the plan never made, i.e. zero |
+| Task 6 Property 3 with mutation 8 | unfalsifiable | a class of integer **literals** cannot see `1 << 11` |
+| Task 11 Property 2 | unsatisfiable | the oneof descriptor the property reads has fifteen arms and the property stated four |
+| Task 11 Property 3 | undecidable | *"an epoch this client cannot key"* against a signature carrying a bare `[]byte` and no epoch |
+| Task 10 Property 4 | unfalsifiable | the seal-time nonce epoch it compares against was recorded nowhere, so a correct-looking path compares a number with itself |
+| Task 10 Property 5 with mutation 7 | unfalsifiable | `protocol.SubmitRequest` has no `req_auth` field, so the mutation does not compile |
+| Task 7 mutation 6 | inapplicable | nothing in `msgrepo` constructs a `CapabilityChange` or emits `MessageMessageServerPush` |
+| Task 1 mutation 3 | unkillable | the version tag was not required to be readable independently of the identity |
+| Task 8 mutation 5 | survivable | the prose pointed the mutation set at the three classes where the tag and the wire byte are numerically identical |
+
+**The class, not the list, is the rule**: run the derivation the property states, on this tree, with
+this toolchain, on the platform the plan tells the implementer to use — and check that the number
+that comes back is the number the property states, and that the stated mutation compiles.
+
 ### Repository, branch, toolchain
 
 - Work happens in `sdk`. `connect` is on `beta/message`; `msgrepo` is on `main`. **This plan changes
@@ -111,17 +138,21 @@ each is closed. They are **S2-13**.
 
 ### Where the CP3b line falls, said plainly
 
-**Tasks 1–12 are the CP3b prefix. Tasks 13–15 are not.** The prefix is not a guess about effort; it
-is the set of things without which the run cannot happen at all.
+**Tasks 1–12, including 2a and 8a, are the CP3b prefix. Tasks 13–15 are not.** The prefix is not a
+guess about effort; it is the set of things without which the run cannot happen at all.
 
-- **Tasks 1–4** — without a durable reserver, `NewGroupSession` will not construct: it refuses a nil
-  one. A run over m1 Task 6's test fake proves the record layer and not the client. §5.6's reasoning
+- **Tasks 1–4, and 2a** — without a durable reserver, `NewGroupSession` will not construct: it
+  refuses a nil one. Task 2a is on the prefix and not beside it: two openers of one directory
+  allocate the same index, and §5.6 calls a reused `stream_index` under a reused `record_key` *"a
+  total break of both AEADs for that record"*. A run over m1 Task 6's test fake proves the record layer and not the client. §5.6's reasoning
   is that a reused `stream_index` is a reused nonce under a reused `record_key`, *"a total break of
   both AEADs for that record"*.
 - **Tasks 5–7** — without the binding there is no way to reach the server, and without Hello there
   is no `server_nonce`, so there is no `write_auth` and no `req_auth`.
-- **Tasks 8–10** — without the projection every submit is refused by §5.1 check 3; without the
-  group-opening ceremony every ordinary submit is refused with `REASON_EPOCH_INCOMPLETE`.
+- **Tasks 8–10, and 8a** — without the projection every submit is refused by §5.1 check 3; without
+  the group-opening ceremony every ordinary submit is refused with `REASON_EPOCH_INCOMPLETE`. Task 8a
+  is the seam: it is the only place a `GroupSession` is constructed, so without it the reserver of
+  Wave 1 is never wired to the send path and leg 4's defining sentence is produced by nothing.
 - **Tasks 11–12** — *"a person reading a message"* is the bar, and reading is Fetch plus
   `OpenRecord` plus the receiver bookkeeping `OpenRecord` refuses without.
 
@@ -172,10 +203,16 @@ The 2026-09-06 ruling assigned both legs to `s2` on the reasoning that *"`sdk` a
 and storage."* Half of that is true, and the half that fails is the load-bearing half. Measured in
 `sdk` at `432986f`:
 
-- **Transport — true of the VPN, not of messaging.** There is exactly one production `connect.Client`
-  in `sdk`, constructed in `device_local_provider.go` and owned by `deviceLocalProvider`, i.e. by the
-  VPN device. There is no request/response correlator, no fragmenter, and no message-server binding
-  of any kind. `grep -ril 'urmessage|messagegroup|MessageStore'` over `sdk` returns **zero files**.
+- **Transport — true of the VPN, not of messaging.** There are **two** production `connect.Client`
+  constructions in `sdk`, not one: `device_local_provider.go:109`, owned by `deviceLocalProvider`,
+  i.e. by the VPN device; and `sim_device.go:115`, `client := connect.NewClient(cancelCtx,
+  config.ClientId, clientOob, clientSettings)` (a commented-out third is at `device_local.go:3238`).
+  `sim_device.go` is `package sdk` with **no build tag** and builds its own `ApiOutOfBandControl`
+  from `config.ByJwt` and `config.ApiUrl` — so the standalone authenticated client **S2-7** says has
+  no precedent does have one, in the simulation surface, and S2-7 records that below. What is true
+  and load-bearing is the rest: there is no request/response correlator, no fragmenter, and no
+  message-server binding of any kind, and `grep -ril 'urmessage|messagegroup|MessageStore'` over
+  `sdk` returns **zero files**.
 - **Storage — false in the one respect leg 5 needs.** `sdk`'s storage is `LocalState`: one JSON or
   raw value per file under its storage home, written with `os.WriteFile`. There is no database, no
   transaction, no atomic rename, and a grep for `.Sync()` over `sdk` production code returns one hit,
@@ -218,15 +255,23 @@ ruled the type already satisfies the interface — and declares no interface und
 
 ### Dependency policy
 
-- **New dependencies in the root `sdk` module: none.** Everything Tasks 1–15 need is the standard
-  library plus `github.com/urnetwork/connect`, already replaced to `../connect`.
+- **New MODULES in the root `sdk` module: none. One require-block line, and it is scheduled rather
+  than discovered.** Everything Tasks 1–15 need is the standard library plus
+  `github.com/urnetwork/connect`, already replaced to `../connect` — **with one exception the earlier
+  draft's blanket sentence hid**. Task 5's `Call` takes a `proto.Message`, so
+  `google.golang.org/protobuf` becomes a **direct** requirement; it sits in `sdk/go.mod`'s second
+  require block today as `// indirect` (`v1.36.11`, measured 2026-09-09), so this is a `go.mod` edit
+  and **not a fetch**. `sdk/go.mod` is therefore in Task 5's Files list, and Task 13 Property 4 gates
+  the require blocks so a second promotion is visible on the commit that makes it. Task 2a's
+  per-`GOOS` exclusion adds nothing: `syscall` is the standard library.
 - **`modernc.org/sqlite` is deliberately kept OFF the CP3b prefix**, and this is a position rather
   than an omission. Spec A A8 / A-ASSUME-1 calls it *"CONFIRMED, not an assumption"* and cites a
   gomobile `android/arm` CI gate as having settled it. Measured 2026-09-09: the module is **not in
   the module cache**, so adopting it is a network fetch of a large transitive tree into the one
   module that feeds the AAR, the Apple framework and the DLL — and `sdk` has **no `.github`
   directory**, so the gate said to have settled it **cannot have run**. The reserver needs an fsync,
-  not a query planner: one row per `StreamKey`, written and flushed and renamed. §8.1's own table
+  not a query planner: one row per `StreamKey`, created once and thereafter written in place and
+  flushed — see Task 2 for why the rename an earlier draft prescribed is off the allocation path. §8.1's own table
   marks the `stream` high-water rows *"no"* for encryption, so the CP3b half of `s2` needs no
   `Sealer` and no DPAPI either. Filed as **S2-11**. SQLite remains A8's choice for the **entry and
   search** store, which is off this prefix entirely.
@@ -369,7 +414,7 @@ than leaving a stale reference for the next reader.
 |---|---|---|---|
 | a reachable `read_key[e]` / `write_key[e]` for a live session | `connect` — unowned | Tasks 9, 10, 11 | **absent.** `GroupSession` has seven exported methods and none returns a key. **S2-1** |
 | a `server_nonce` rebind on a live `GroupSession` | `connect` — unowned | Task 7 | **absent.** No setter exists. **S2-2** |
-| a `pq_secret` DELIVERY channel (the device wrap) | m1 Task 14 | Task 9 | **blocked** on M1-1's remainder and ledger item 152. The sampler is m1 Task 13 and was in flight, uncommitted, in the `connect` working tree on 2026-09-09. **S2-3** |
+| a `pq_secret` DELIVERY channel (the device wrap) | m1 Task 14 | Tasks 8a and 9 | **blocked** on M1-1's remainder and ledger item 152. The SAMPLER landed while this plan was being reviewed — `messagegroup/epoch.go` is tracked at `connect` `7868d65` and declares `NewPqSecret` — and the delivery did not: there is no `wrap*.go` in `messagegroup`, and `XwingEncapsulate` / `XwingDecapsulate` still have **zero production callers outside `xwing.go`**, re-measured at `7868d65`. **S2-3** |
 | a working `GroupEngine.JoinFromWelcome` | m1 Task 16, and `connect/mls` upstream of it | any two-client run | **absent.** An unconditional refusal on every input. **S2-4** |
 | an injected `GroupEngine` / `GroupHandle` factory | s5 | Tasks 9–12 | absent; Gate 5 forbids `s2` from constructing one |
 | a production `mls.StateStore` | s5, or unowned | any run across a process boundary | **absent.** The interface has eight methods and zero production implementations in any tree. **S2-14** |
@@ -421,12 +466,50 @@ type messageTransportConfig struct {
     Timeout         time.Duration
 }
 
+type messageTransportCounts struct{ /* unexported */ }
+
 func newMessageTransport(config *messageTransportConfig) (*messageTransport, error)
 func (self *messageTransport) Close()
 func (self *messageTransport) Call(ctx context.Context, body proto.Message) (*protocol.MessageServerResponse, error)
 func (self *messageTransport) Hello(ctx context.Context, versions ...uint32) (protocol.Reason, *protocol.HelloResponse, error)
 func (self *messageTransport) Nonce() []byte
+func (self *messageTransport) NonceEpoch() uint64
 func (self *messageTransport) Capabilities() *protocol.Capabilities
+func (self *messageTransport) Counts() messageTransportCounts
+```
+
+```go
+// sdk/message_stream_exclusion_*.go — leg 5's single writer. One declaration
+// per GOOS; the fallback file's body is a refusal, not a no-op.
+var ErrStreamStoreLocked error
+
+func acquireStreamStoreExclusion(dir string) (io.Closer, error)
+```
+
+```go
+// sdk/message_client.go — the seam. The ONLY place package sdk constructs a
+// GroupSession, and the declaration of the two halves every later Produces
+// block writes a method on. Package-internal: the surfacing onto s1's
+// MessageClient is s1's declaration and not this plan's (S2-19).
+type messageClientConfig struct{ /* Transport, Handle, PqSecretZero, StorageRootZero,
+    Streams, Receive, NowMs, GroupId */ }
+type messageClient struct{ /* unexported */ }
+type messageSender struct{ /* unexported */ }
+type messageReceiver struct{ /* unexported */ }
+
+type sealedRecord struct {
+    Record     *message.Record
+    Attachment *message.ServerAttachment
+    NonceEpoch uint64
+}
+
+func newMessageClient(config *messageClientConfig) (*messageClient, error)
+func (self *messageClient) Sender() *messageSender
+func (self *messageClient) Receiver() *messageReceiver
+func (self *messageClient) Close() error
+func (self *messageSender) Seal(class message.RetentionClass, ephBucket uint8, isCommit bool,
+    headPlain []byte, bodyPlain []byte, expireAt uint64,
+    attachment *message.ServerAttachment) (*sealedRecord, error)
 ```
 
 ```go
@@ -440,22 +523,27 @@ func recordProjection(record *message.Record, attachment *message.ServerAttachme
 // sdk/message_send.go and sdk/message_group_open.go — the send path and the
 // group-opening ceremony the server's epoch gate requires before it.
 func (self *messageSender) OpenGroup(ctx context.Context, spec *groupOpenSpec) error
-func (self *messageSender) SubmitRecord(ctx context.Context, record *message.Record,
-    attachment *message.ServerAttachment) (*protocol.SubmitResult, error)
+func (self *messageSender) SubmitRecord(ctx context.Context,
+    sealed *sealedRecord) (*protocol.SubmitResult, error)
 ```
 
 ```go
 // sdk/message_fetch.go and sdk/message_receive_state.go — the receive path and
 // the second durable store nobody had been given: the per-peer head index that
 // TrackSender takes and that a record header must never supply.
+type readKeyRef struct {
+    Epoch uint64
+    Key   []byte
+}
+
 func (self *messageReceiver) Fetch(ctx context.Context, request *protocol.FetchRequest,
-    readKey []byte) (*protocol.FetchResponse, error)
+    readKey *readKeyRef) (*protocol.FetchResponse, error)
 
 type ReceiveState struct{ /* unexported */ }
 
 func OpenReceiveState(dir string) (*ReceiveState, error)
-func (self *ReceiveState) HeadIndex(groupId []byte, leaf uint32, class message.RetentionClass) (uint64, error)
-func (self *ReceiveState) AdvanceHeadIndex(groupId []byte, leaf uint32, class message.RetentionClass, index uint64) error
+func (self *ReceiveState) HeadIndex(groupId []byte, leaf uint32, retentionWire byte) (uint64, error)
+func (self *ReceiveState) AdvanceHeadIndex(groupId []byte, leaf uint32, retentionWire byte, index uint64) error
 func (self *ReceiveState) Close() error
 ```
 
@@ -469,25 +557,29 @@ Every file created or modified by this plan, and its single responsibility.
 |---|---|
 | `sdk/message.go` | Package-level doc for the messaging client; the R2 statement, in the source, that every signature on this leg is read from the file that declares it — and the three-way divergence S2-15 records |
 | `sdk/message_stream_store.go` | `StreamStore`: the on-disk row, the key-space version tag, the width refusals, `OpenStreamStore`, `Close`, `ReserveStreamIndex`, `StreamHighWater`, and the fsync boundary |
+| `sdk/message_stream_exclusion_windows.go`, `sdk/message_stream_exclusion_unix.go`, `sdk/message_stream_exclusion_other.go` | Task 2a. The single-writer exclusion, one declaration per `GOOS`, held by the operating system. The `other` file's body is `ErrStreamStoreLocked`: a platform this store cannot make safe is one it refuses to open on |
 | `sdk/message_stream_adapter.go` | The `StreamKey` flattening and the sentinel mapping, in exactly one place |
 | `sdk/message_errors.go` | The typed refusals this plan owns, each usable with `errors.Is` |
 | `sdk/message_transport.go` | The `connect.Client` binding: frame build, `AddReceiveCallback` demux, `request_id` correlation, timeouts, counters |
 | `sdk/message_transport_fragment.go` | §4.6 fragmentation and reassembly, both directions, and the one home for the part-size bound |
 | `sdk/message_transport_hello.go` | Hello, the per-connection `server_nonce`, and the `Capabilities` cache |
 | `sdk/message_projection.go` | The `*message.Record` → `*protocol.Record` projection |
+| `sdk/message_client.go` | Task 8a. The seam: the one `NewGroupSession` call in `package sdk`, the one `SealRecord` call site, the `messageSender` and `messageReceiver` declarations, and the sealed record that carries its own nonce epoch |
 | `sdk/message_group_open.go` | The ceremony: `CreateGroupRequest`, the `EpochAttachment`, the wraps, the `EpochComplete` marker |
 | `sdk/message_send.go` | Seal → project → `SubmitRequest` → `SubmitResult` disposition |
 | `sdk/message_fetch.go` | `FetchRequest` with `read_epoch` and `req_auth`, and `ParseRecord` on the way back |
 | `sdk/message_receive_state.go` | `ReceiveState`, the durable per-peer head index, and the `sender_handle` → leaf map |
-| `sdk/message_stream_store_test.go` | Tasks 1, 2 and 4's gates, including the crash-restart harness |
+| `sdk/message_stream_store_test.go` | Tasks 1, 2, 2a and 4's gates, including the crash-restart harness, the two-process exclusion gate, and the torn-tail gate |
 | `sdk/message_stream_adapter_test.go` | Task 3's gates |
 | `sdk/message_transport_test.go`, `sdk/message_transport_fragment_test.go`, `sdk/message_transport_hello_test.go` | Tasks 5, 6 and 7's gates |
 | `sdk/message_projection_test.go` | Task 8's descriptor-derived gate |
+| `sdk/message_client_test.go` | Task 8a's gates: the construction count, the seal-site count, and the G11 lost-commit re-seal |
 | `sdk/message_group_open_test.go`, `sdk/message_send_test.go` | Tasks 9 and 10's gates |
 | `sdk/message_fetch_test.go`, `sdk/message_receive_state_test.go` | Tasks 11 and 12's gates |
 | `sdk/message_layering_test.go` | Task 13: the production dependency set of `sdk`, and the two edges it must not contain |
 | `sdk/.github/workflows/messaging-client.yml` | Task 14. The repository has **no** `.github` directory today |
 | `sdk/.gitattributes` | Task 14: `eol=lf` for Go and module files. `sdk` has none, and this project has already lost 84 source anchors to a carriage return |
+| `sdk/go.mod` | **modify:** Task 5 promotes `google.golang.org/protobuf` from the indirect require block to the direct one. No fetch; see *Dependency policy* |
 | `msgrepo/docs/plans/2026-08-12-slice1-interface-registry.md` | **modify:** Task 15 adds `s2`'s produced surface and its pending pins |
 
 ---
@@ -589,6 +681,17 @@ Two reasons, and the second is the one that matters.
   *Refusal owed:* `ErrStreamKeySpace`, a typed fatal error per §5.9 G7 — never a bool, never a log
   line, and specifically **never `(0, nil)`**, which is the answer contract clause 4 gives an unseen
   stream and which is exactly what makes item 170's hazard silent.
+  *And the mechanism has a precondition the property is useless without.* The tag must be
+  **separable**: a fixed-width, self-delimiting field readable off the row's name **independently of
+  the identity**, and `StreamHighWater` must **enumerate** `dir` rather than stat one path. If the
+  tag is folded into the derived identity hash, a foreign-key-space row is simply a file whose name
+  this build never computes — an absent row — `HighWater` answers `(0, nil)`, and mutation 3 below,
+  which this task calls the single most important mutation in the wave, **cannot be killed at all**.
+  What that costs is one directory read per call, and it is priced here rather than discovered: the
+  enumeration is held behind Task 2a's exclusion and refreshed on write.
+  *And `dir` is this store's own subdirectory, never `sdk`'s shared `LocalState` home*, created by
+  `OpenStreamStore`; otherwise every unrelated `sdk` file in that directory reads as a foreign-tag
+  row. A file in `dir` that is not a row of either tag is `ErrStreamStoreState`.
 
   **Property 3 — a key of the wrong width is refused at the boundary, before anything derives from
   it.** §8.2's parameters are `[]byte` and declare no length rule; `StreamKey`'s fields are
@@ -614,10 +717,20 @@ Two reasons, and the second is the one that matters.
   R2 statement and the three-way §8.2 divergence of **S2-15**, so the next reader finds it before
   writing a call rather than after.
 
-  The row is one file per `StreamKey` under `dir`, named by the derived identity plus the version
-  tag. One file per key rather than one file for all keys is not a performance choice: it makes the
-  fsync of Task 2 a single-file fsync with no read-modify-write window, and it makes a corrupt row
+  The row is one file per `StreamKey` under `dir`, named by the version tag and the derived identity
+  — **in that order**, so the tag is readable off the name without computing the identity, which is
+  what Property 2's refusal rests on. One file per key rather than one file for all keys is not a
+  performance choice: it makes the flush of Task 2 a single-file flush, and it makes a corrupt row
   cost one stream instead of every stream.
+
+  **The row has two lifecycle events and only one of them is on the allocation path.** It is
+  *created* — a directory entry — the first time the store touches that key, before any index for it
+  has been handed out; it is *appended to and flushed in place* on every allocation after that.
+  Task 2 Property 1 is why: the allocation path mutates no directory entry, because the one platform
+  this plan tells the implementer to work on cannot force a directory entry's durability at all. The
+  row's format therefore carries its own integrity — fixed-width, checksummed records, and a rule
+  that discards a tail whose checksum does not verify — rather than relying on an atomic replacement
+  it no longer performs. S2-16 is the residual on the create half.
 
 - [ ] **Step 4: Run to verify it passes**
 - [ ] **Step 5: Mutation-test**
@@ -649,14 +762,34 @@ Two reasons, and the second is the one that matters.
 - Test: `sdk/message_stream_store_test.go`
 
 **Interfaces:**
-- Consumes: Task 1's `StreamStore`, its row identity and its four refusals.
+- Consumes: Task 1's `StreamStore`, its row identity and its four refusals. **Nothing from
+  `connect/messagegroup`, deliberately** — see the sentinel note below.
 - Produces:
 ```go
 // §8.2's two stream methods, spelled as §8.2 spells them. ALLOCATION, not
 // assertion: Reserve takes no index and returns one.
 func (self *StreamStore) ReserveStreamIndex(groupId, senderHandle []byte) (uint64, error)
 func (self *StreamStore) StreamHighWater(groupId, senderHandle []byte) (uint64, error)
+
+// the two CONDITIONS this task owes, as sdk's own typed errors. The NAMES
+// messagegroup branches on are Task 3's and are reached by wrapping these.
+var ErrStreamStoreRewound  error // persisted state behind an index already handed out
+var ErrStreamStoreConsumed error // the store can never allocate for this key again
 ```
+
+**Why this task owes the CONDITION and not `messagegroup`'s NAME.** Task 3 Property 1 declares the
+adapter *"the only code that maps a store failure onto `messagegroup`'s sentinels"*, and this task's
+Consumes block names nothing from `messagegroup`. Both are deliberate and the earlier draft broke
+them: it made Property 2 owe `messagegroup.ErrStreamIndexRewound` directly, which an implementer
+dispatched on Task 2 alone can satisfy only by importing `messagegroup` here (contradicting Task 3's
+uniqueness) or by declaring a shadow sentinel in `sdk` (after which `errors.Is` against
+`messagegroup`'s fails at the adapter). The source settles which half is which:
+`connect/messagegroup/streamindex.go`'s contract clause 2 says *"A persisted state behind an index
+already handed out is `ErrStreamIndexRewound`"* — a statement about the **composite** a caller sees,
+which is store-plus-adapter. `ratchet.go` reads only one of the two sentinels off the reserver
+(`errors.Is(err, ErrStreamIndexConsumed)` at `Next`; it raises `ErrStreamIndexRewound` itself at
+`ratchet.go:318` from `index < self.position`), so the rewind name matters to a human reader and the
+consumed name matters to a branch. The store owes both conditions; the adapter owes both names.
 
 **This task implements m1 Task 6's five clauses and states no new ones.** m1 Task 6 declares the
 contract and holds a file-backed fake to it; what a *durable production* implementation owes beyond
@@ -665,10 +798,46 @@ and 2 below. The other three are m1 Task 6's, restated only because a mutation s
 
 **The fsync obligation, and why "durable" here is not the retention class.** Clause 1 is *"`Reserve`
 returns only after the reservation SURVIVES A PROCESS DEATH. Not after the write is issued, not after
-it is buffered: after it is durable."* In this tree that means: write the new high water to a
-temporary file in the same directory, `Sync()` **the file**, rename it over the row, and `Sync()`
-**the directory** — a rename is not durable until the directory entry is. `sdk` has no precedent for
-any of this; its entire storage is `os.WriteFile` with no flush anywhere in production code.
+it is buffered: after it is durable."* `sdk` has no precedent for any of this; its entire storage is
+`os.WriteFile` with no flush anywhere in production code.
+
+**And the recipe an earlier draft of this task gave — temp file, `Sync()` the file, rename, `Sync()`
+the DIRECTORY — cannot be run on the platform this plan tells the implementer to work on.** Measured
+2026-09-09 on this machine with the project toolchain (Go 1.26.5, `GOROOT` at
+`claude_sandbox_message/toolchain/go`, Windows 11, NTFS): a program that does
+`os.Create` / `Write` / `Sync` / `Rename` and then opens the containing directory prints
+
+```
+file Sync: <nil>
+rename: <nil>
+open dir: <nil>
+dir Sync: sync C:\Users\...\Temp\dsync1057162880: Access is denied.
+```
+
+and `os.OpenFile(dir, os.O_RDONLY, 0)` gives the same handle and the same refusal. **A correct
+implementation on Windows can perform exactly one forced flush on the allocation path, so a class
+stated as two members fails for the correct implementation and mutation 2 cannot discriminate.**
+There is no user-space lever for the other half: `FlushFileBuffers` on a volume handle needs
+administrator privilege and flushes the whole volume, which is not something a client SDK may do.
+
+**So the plan constrains the DESIGN rather than the platform, and prices what that costs.** The
+allocation path performs **no directory-entry mutation at all** — no create, no rename, no remove.
+A row file's directory entry is established when the store first touches that key, at a point where
+**no index has been handed out for it**, and every allocation after that is an in-place durable write
+of a file that already exists. The one flush on the allocation path is then a *file contents* flush,
+which `os.File.Sync` forces on every platform this plan ships to.
+
+**What that costs, stated rather than absorbed.** Three things. (1) There is no atomic replacement on
+the allocation path any more, so a torn write must be survivable by the row's own format — a
+fixed-width, checksummed record and a rule that discards a tail whose checksum does not verify. That
+rule is safe for exactly one reason and the reason must be written into the implementation's comment:
+a torn tail can only be a write whose flush had not returned, and a `Reserve` whose flush had not
+returned had not returned an index, so discarding it discards nothing that was handed out. (2) Task 1
+Property 4's *present-but-unreadable* refusal now has to distinguish a torn **tail** (discard, answer
+the last good record) from a corrupt **body** (`ErrStreamStoreState`), and those are different
+conditions in the same file. (3) The FIRST allocation against a never-before-seen stream still rests
+on a directory entry whose durability Windows will not force. That residual is real, it is not closed
+by anything in this plan, and it is **S2-16**.
 
 **And the crash-recovery rule, stated as a rule rather than as a procedure.** On open, the store
 answers `StreamHighWater` from **persisted state only**, never from a recomputed value and never from
@@ -680,31 +849,36 @@ so a refused write or a crash between reserve and send is not a permanent wedge.
 
 - [ ] **Step 1: Derive the property and write the failing test**
 
-  **Property 1 — `Reserve` returns only after the reservation survives a process death.** The test
-  needs an **injected failure point between the write and the flush**, not a `time.Sleep`: the
-  observable difference between a durable and a buffered write is only visible if the process can be
-  stopped between them.
+  **Property 1 — `Reserve` returns only after the reservation is on stable storage by a mechanism
+  this platform can force.** The test needs an **injected failure point between the write and the
+  flush**, not a `time.Sleep`: the observable difference between a durable and a buffered write is
+  only visible if the process can be stopped between them.
   *Refusal owed:* a flush error is returned, never swallowed. A `Reserve` that returns `(n, nil)`
   after a failed flush has handed out an index it cannot prove it recorded.
-  *Scope to derive, separately from the class (R3):* the class is **every durable write on the
-  allocation path**, and that class is **two** members at this task — the row file's contents and the
-  directory entry the rename creates — with the gate reporting the number of syncs it observed. The
-  scope is the whole allocation path, not the row write alone. A gate that syncs the file and not the
-  directory passes on a filesystem that happens to order them and fails on one that does not, which
-  is a gate that measures the filesystem rather than the store.
+  *Scope to derive, separately from the class (R3):* the class is **every forced flush on the
+  allocation path**, and that class is **one** member at this task — the row file's contents —
+  because the allocation path is required to mutate no directory entry, so there is no second
+  durability boundary for any platform to differ about. The gate reports **two** numbers: the number
+  of forced flushes it observed on the path, and the number of directory-entry mutations it observed
+  on the path. The scope is the whole allocation path and everything it calls, not the row write
+  alone; a gate that reads the `Reserve` body and not what the body calls has read half of it. The
+  second number is what makes the property platform-independent, and a gate that reports only the
+  first is the gate the earlier draft asked for.
 
   **Property 2 — `StreamHighWater` is answered from persisted state and never rewinds.** After a
   restart it is at least what it was, for every key, under every interleaving the test can produce.
-  *Refusal owed:* `ErrStreamIndexRewound`, matched by `errors.Is`, when the persisted state is behind
-  an index already handed out.
+  *Refusal owed:* `ErrStreamStoreRewound`, matched by `errors.Is`, when the persisted state is behind
+  an index already handed out. Task 3 is what makes that findable as
+  `messagegroup.ErrStreamIndexRewound`; this task owes the condition and the `sdk` name.
 
   **Property 3 — no index is ever handed out twice, for the life of the stream and across every
   restart.** Under the allocation shape the caller has nothing to repeat, so the obligation lands on
   the counter.
-  *Refusal owed:* `ErrStreamIndexConsumed`, matched by `errors.Is`, for the store's **permanent**
+  *Refusal owed:* `ErrStreamStoreConsumed`, matched by `errors.Is`, for the store's **permanent**
   refusal to allocate — the next position is one it has already handed out and it has no way past it.
-  A typed fatal error per §5.9 G7, never a bool and never a log line. The mapping onto that sentinel
-  is Task 3's; this task owes the condition.
+  A typed fatal error per §5.9 G7, never a bool and never a log line. The mapping onto
+  `messagegroup.ErrStreamIndexConsumed` is Task 3's; this task owes the condition and the `sdk`
+  name, and Task 3 Property 3 is what makes `SenderRatchet.Next` able to branch on it.
 
   **Property 4 — the store is total over its key space.** A stream never seen answers `HighWater` 0
   **with no error**, so the first allocation is 1.
@@ -722,20 +896,154 @@ so a refused write or a crash between reserve and send is not a permanent wedge.
 
   1. Return from `Reserve` before the flush. Property 1 must fail. **This is the mutation the whole
      wave exists for**, and a suite that cannot kill it has tested a file format.
-  2. Sync the row file and not the directory. Property 1 must fail on its **scope**, not on its
-     class.
+  2. Create, rename or remove a directory entry on the allocation path — write the new high water to
+     a temporary file and rename it over the row, which is what the earlier draft of this task
+     prescribed. Property 1 must fail on its **second** reported number, on every platform. It must
+     **not** be expected to fail on the first: on Windows the mutant and the correct implementation
+     both force exactly one flush, and a gate that tried to tell them apart by counting flushes would
+     be red at baseline there.
   3. Swallow the flush error and return `nil`. Property 1 must fail.
   4. Answer `StreamHighWater` from an in-memory cache that survives the injected crash. Property 2
      must fail — the cache is exactly the recomputed value the rule forbids.
   5. Resume at `HighWater()` rather than `HighWater() + 1`. Property 2 must fail, and note that this
      mutation is invisible without the restart.
   6. Let a rewound persisted state answer normally. Property 2 must fail with
-     `ErrStreamIndexRewound`.
+     `ErrStreamStoreRewound`.
   7. Return a bare filesystem error where the store is permanently unable to allocate. Property 3
-     must fail: `errors.Is(err, ErrStreamIndexConsumed)` must find the sentinel.
+     must fail: `errors.Is(err, ErrStreamStoreConsumed)` must find the sentinel.
   8. Return `ErrStreamStoreState` for a stream never seen. Property 4 must fail.
   9. Make `Reserve` answer the same index twice for the same key. Property 3 and Property 5 must
      both fail.
+  10. Truncate the row's last record to half a record's width and reopen. Property 2 must fail if the
+     store answers a high water **above** the last record whose checksum verifies, and Property 4
+     must fail if it answers `(0, nil)` for a key whose row is present. A torn tail is discarded; a
+     torn tail read as data is a high water nothing recorded.
+
+- [ ] **Step 6: Commit**
+
+---
+
+### Task 2a: The single writer, and what a second opener must do
+
+**Files:**
+- Modify: `sdk/message_stream_store.go`, `sdk/message_errors.go`
+- Create: `sdk/message_stream_exclusion_windows.go`, `sdk/message_stream_exclusion_unix.go`,
+  `sdk/message_stream_exclusion_other.go`
+- Test: `sdk/message_stream_store_test.go` (extend)
+
+**Interfaces:**
+- Consumes: Task 1's `StreamStore` and `OpenStreamStore`; Task 2's allocation path. Nothing from
+  `connect/messagegroup`.
+- Produces:
+```go
+// the exclusion, and the refusal a second opener gets. One declaration per
+// GOOS, and the fallback file is a REFUSAL rather than a no-op.
+var ErrStreamStoreLocked error // another StreamStore holds this directory
+
+func acquireStreamStoreExclusion(dir string) (io.Closer, error)
+```
+
+**THIS TASK EXISTS BECAUSE THE HAZARD THE WHOLE LEG WAS COMMISSIONED TO PREVENT HAD NO PROPERTY.**
+An earlier draft of Tasks 1–4 stated **sixteen** properties and **twenty-nine** mutations — 4/8,
+5/9, 4/7 and 3/5, counted off that draft rather than taken from the review that found this gap, which
+put the mutation total at twenty-two — and not one of them was about a second writer. Measured over
+that draft: a grep for `lock`, `mutex`, `concurren`, `single.writer`, `exclusive`, `two processes`,
+`second process`, `flock` and `O_EXCL` returned zero hits on any of those terms across its
+2,032 lines. Task 2 Property 3's scope was *"the life of the stream
+and across every restart"* — restarts, never concurrent openers — and Task 4's crash-restart gate is
+sequential by construction.
+
+**What that leaves open, in the words of the spec the leg cites.** Two `StreamStore` instances over
+one directory — two processes, or two `OpenStreamStore` calls in one process — each read the same
+persisted high water and each allocate **the same next index**. §5.6 says what that is: a reused
+`stream_index` is a reused nonce under a reused `record_key`, *"a total break of both AEADs for that
+record."* The exposure is not hypothetical under ruling A1: `connect/messagegroup/ratchet.go` puts
+every retention class of one sender on **one** `StreamKey`, and `NewSenderRatchet` takes the reserver
+per ladder, so several ladders already call `Reserve` on the same stream inside one session. And the
+durable write recipe Task 2 gives is a read-modify-write of one row, which is not atomic against a
+second writer no matter how many times it is flushed.
+
+**`streamindex.go` names the shape of the answer without naming the mechanism**, and it is quoted
+here rather than paraphrased because the sentence is the argument: the session-owns-the-counter shape
+was rejected in part because *"the store that owes the persistence cannot implement it atomically: a
+read, then a caller's decision, then a write with an fsync in it is a window that an allocation done
+in one statement does not have."* An allocation done in one statement is what this task makes true,
+and §8.2 says nothing at all about concurrent openers — that silence is **S2-17**.
+
+**Position taken: the exclusion is held by the OPERATING SYSTEM, never by a lock file with contents.**
+On Windows, an exclusive `syscall.CreateFile` on a guard file inside `dir` with
+`dwShareMode = 0`; on Unix, `syscall.Flock` with `LOCK_EX|LOCK_NB` on the same file. Both are in the
+standard library's `syscall` package on their own `GOOS`, so this costs **no module dependency** —
+see *Dependency policy*. A `GOOS` with neither primitive gets a third file whose body is
+`ErrStreamStoreLocked` unconditionally: **a platform this store cannot make safe is a platform it
+refuses to open on**, and a build tag that quietly compiled to a no-op is the single-writer property
+deleted by a build constraint. *Rejected:* a lock file carrying a pid and a timestamp, because it has
+no liveness oracle — it either survives a crash and wedges every later open of that directory, or it
+is stolen from a live writer on a heuristic, and the SDK cannot tell those apart.
+
+- [ ] **Step 1: Derive the property and write the failing test**
+
+  **Property 1 — at most one `StreamStore` allocates against one directory at a time, and a second
+  opener is REFUSED rather than admitted.** The refusal is what a second opener must do with it:
+  surface it. A retry loop here is a busy-wait against a live process, and a retry that eventually
+  succeeds because the first store closed is a store that started allocating against state it never
+  read.
+  *Refusal owed:* `ErrStreamStoreLocked`, matched by `errors.Is`, naming the directory and — where
+  the platform can tell — whether the holder is this process or another. `OpenStreamStore` refuses;
+  it does not open a store that cannot allocate.
+  *Scope to derive, separately from the class (R3):* the class is **every path by which a second
+  allocator over one directory can come to exist**, and that class is **two** members at this task —
+  a second `OpenStreamStore` call inside this process, and a second process opening the same
+  directory — with the gate reporting the number of paths it exercised. The scope is **the
+  directory**, not the process: a gate that only holds the in-process case is measuring a mutex, and
+  a mutex is invisible to the second process, which is the case CP3b's two clients actually create.
+
+  **Property 2 — the exclusion is released by the death of the process that held it, and by nothing
+  else.** A store whose process died without calling `Close` leaves a directory a later process can
+  open; a store whose process is alive leaves one no other process can.
+  *Refusal owed:* none for the release. The finding is a **stale-lock heuristic**: any code that
+  decides whether the holder is alive by reading a pid, a timestamp or a file's age.
+
+  **Property 3 — `Reserve` is atomic against every other call on this store, across the read, the
+  increment AND the flush.** Two goroutines calling `Reserve` on one `StreamStore` for one key get
+  two different indices, and no `StreamHighWater` observes the incremented value before the flush
+  that made it durable returned.
+  *Refusal owed:* none; the failure is a duplicate index or a high water above what is on disk, and
+  the gate runs under `-race` as well as under a plain run because only one of the two shows a torn
+  guard.
+
+  **Property 4 — a crash between the flush and `Reserve`'s return burns the index and never reuses
+  it; a crash before the flush burns nothing.** The next opener's `StreamHighWater` is the flushed
+  value in the first case and the previous value in the second, and it never rewinds below either.
+  A burned index is a legal gap: the server enforces monotonicity, not contiguity.
+  *Refusal owed:* none; this is the crash-mid-allocation answer Task 2's Property 1 makes possible
+  and this task states.
+
+- [ ] **Step 2: Run to verify it fails**
+- [ ] **Step 3: Write the minimal implementation**
+- [ ] **Step 4: Run to verify it passes**
+- [ ] **Step 5: Mutation-test**
+
+  1. Drop the exclusion entirely and open the directory twice, then `Reserve` on both for one key.
+     Property 1 must fail on two equal indices. **This is the mutation the task exists for**, and
+     no mutation in Tasks 1, 2, 3 or 4 reaches it.
+  2. Hold the exclusion with a package-level `sync.Mutex` only. Property 1 must fail on its second
+     path — the second process — and a gate that only exercises the first will pass this mutant.
+  3. Hold it with a lock file whose contents are a pid and a timestamp, and treat a file older than
+     a threshold as stale. Property 2 must fail, and the failure must name which of the two
+     directions the mutant chose: a wedge after a crash, or a live holder's lock stolen.
+  4. Release the exclusion at the end of `ReserveStreamIndex` rather than at `Close`. Property 1
+     must fail.
+  5. Compile the fallback `GOOS` file as a no-op that returns a `nil` closer and a `nil` error.
+     Property 1 must fail on that build — the fail-closed file is a property, not a placeholder.
+  6. Take the guard across the read and the increment but release it before the flush. Property 3
+     must fail.
+  7. Let `StreamHighWater` read the in-memory counter rather than the flushed row while a `Reserve`
+     is in flight. Property 3 must fail, and Task 2 Property 2 must fail with it.
+  8. Crash after the flush and before `Reserve` returns, then reopen. Property 4 must fail if the
+     reopened store answers a high water **below** the flushed index.
+  9. Crash before the flush, then reopen. Property 4 must fail if the reopened store answers a high
+     water **at or above** the unflushed index.
 
 - [ ] **Step 6: Commit**
 
@@ -782,16 +1090,20 @@ array after the call returns. **The adapter copies at the boundary**, and no doc
 
 - [ ] **Step 1: Derive the property and write the failing test**
 
-  **Property 1 — the adapter is the only flattening in `sdk`.** Anything else that converts between a
-  `StreamKey` and a `(groupId, senderHandle)` pair is a second implementation of one mapping, which
-  is the §12.1 A-1 shape.
-  *Refusal owed:* none — this is a gate, and its finding is a call site.
-  *Scope to derive, separately from the class (R3):* the class is **every production function in
-  `sdk` that reads both `StreamKey.GroupId` and `StreamKey.SenderHandle`**, read off the syntax tree
-  rather than off a file name; the scope is **the whole of `package sdk`'s production files**, not
-  the two files this task creates. That class is **one** member at this task, and the gate must
-  report the number it read, because a derived-class gate that fatals on an empty class and a gate
-  that passes vacuously over one look identical in a log that prints neither.
+  **Property 1 — every flattening in `sdk` is inside the adapter type.** Anything else that converts
+  between a `StreamKey` and a `(groupId, senderHandle)` pair is a second implementation of one
+  mapping, which is the §12.1 A-1 shape.
+  *Refusal owed:* none — this is a gate, and its finding is a call site outside the adapter.
+  *Scope to derive, separately from the class (R3):* the class is **every production declaration in
+  `sdk` whose body reads both `StreamKey.GroupId` and `StreamKey.SenderHandle`**, read off the syntax
+  tree rather than off a file name; the scope is **the whole of `package sdk`'s production files**,
+  not the two files this task creates. That class is **one** member at this task if the flattening is
+  written once as a helper and **two** if it is written into each of `Reserve` and `HighWater`, and
+  **both are correct implementations** — so the count is not the finding. The gate reports the
+  number it read and fails on a member whose enclosing declaration is not a method of the adapter
+  type, which is the question the property actually asks. A gate that pinned the count to one would
+  convict the inlined implementation, which is the defect class R4 exists to catch: it would derive
+  from an instance of the design rather than from the property.
 
   **Property 2 — the adapter copies the key at the boundary, in both directions.** A caller that
   mutates the slice it passed, or that keeps the slice the adapter passed on, must not be able to
@@ -844,7 +1156,7 @@ array after the call returns. **The adapter copies at the boundary**, and no doc
 - Test: `sdk/message_stream_store_test.go` (extend)
 
 **Interfaces:**
-- Consumes: Tasks 1, 2 and 3's whole surface.
+- Consumes: Tasks 1, 2, 2a and 3's whole surface.
 - Produces: no declaration. This task produces the one **named** test on this leg. §5.9 G5 and G11
   name it, which is why it is spelled here at all — R1 forbids naming a test, and a test the spec
   names by name is the stated exception rather than a lapse.
@@ -852,6 +1164,24 @@ array after the call returns. **The adapter copies at the boundary**, and no doc
 **§5.6 states its shape and this task does not invent one:** *"runs 10,000 seal operations with an
 injected crash after `Reserve` and before the AEAD, restarts the session from the persisted state,
 and asserts no `index` is ever produced twice."*
+
+**What this task discharges of that sentence, and what it does not — because the two halves are in
+different waves and an earlier draft claimed both.** §5.6's shape has three subjects: a SEAL, a
+SESSION and a STORE. This task's Files list is one test file, its Consumes list is Tasks 1, 2, 2a
+and 3, and Wave 1's own header says the wave needs *"no `GroupHandle`"* — so the seal and the session
+are not reachable here, and a task that said it ran 10,000 *seal* operations and restarted a
+*session* would be describing work no wave-1 task can do. What lands here is the **store half**: ten
+thousand allocations with an injected crash after `Reserve` and before the value is used, and a
+reopen of the persisted directory. That is the half that can fail, because a non-durable `Reserve` is
+distinguishable from a durable one only in that window.
+
+**The session half lands at Task 8a**, which is the one place a `GroupSession` is constructed and
+therefore the first place a seal exists to crash inside. §5.9 **G11**'s own extension — *"an
+injected commit loss between reserve and re-seal"* — needs a commit and so needs a session; it is
+Task 8a Property 5's and is named there rather than left cited and unstepped. **The name
+`TestStreamIndexNeverReused` stays on this task** because §5.9 G5 names it and R1's exception is for
+a test the spec names; Task 8a's half extends the same name rather than starting a second one, and
+the Definition of done's row runs both.
 
 - [ ] **Step 1: Derive the property and write the failing test**
 
@@ -866,12 +1196,18 @@ and asserts no `index` is ever produced twice."*
   its file-backed fake to the same property; a `sdk` gate that ran over another fake would prove the
   contract twice and the implementation never.
   *Refusal owed:* none.
-  *Scope to derive, separately from the class (R3):* the class is **every reserver a `GroupSession`
-  in `package sdk` can be constructed with**, and that class is **one** member at this task — the
-  type Task 2 produces, reached through Task 3's constructor. The scope is the construction path, not
-  the test file: the store must be obtained the way the production caller obtains it, never as a
-  struct literal assembled in the test. A gate that constructs the store differently from the
-  production caller is testing a configuration nothing ships.
+  *Scope to derive, separately from the class (R3):* the class is **every
+  `messagegroup.StreamIndexReserver` implementation declared in `package sdk`'s production files**,
+  read off the syntax tree; that class is **one** member at this task — `streamReserver`, the type
+  Task 3 produces — and the gate reports the number it read. The scope is the package's production
+  files, not the test file, and the store must be obtained the way the production caller obtains it:
+  through `OpenStreamStore` and `NewStreamIndexReserver`, never as a struct literal assembled in the
+  test. A gate that constructs the store differently from the production caller is testing a
+  configuration nothing ships. **This class is deliberately NOT stated as "every reserver a
+  `GroupSession` in `package sdk` can be constructed with"**, which is what an earlier draft said:
+  Wave 1 constructs no `GroupSession` at all, so that class has no member here and the gate would be
+  the empty gate this plan's own Definition of done calls broken. The `GroupSession` half — that the
+  one production construction is handed this reserver and no other — is Task 8a Property 1's.
 
   **Property 3 — the restart is a real restart of the store, not a reset of a variable.** The
   persisted directory is reopened; nothing in memory crosses the boundary.
@@ -909,6 +1245,8 @@ server with opaque bytes, which is precisely what CP3c already proved end to end
 
 **Files:**
 - Create: `sdk/message_transport.go`
+- Modify: `sdk/go.mod` — `google.golang.org/protobuf` moves from the indirect require block to the
+  direct one, because `Call` takes a `proto.Message`. No fetch; see *Dependency policy*.
 - Test: `sdk/message_transport_test.go`
 
 **Interfaces:**
@@ -920,6 +1258,11 @@ server with opaque bytes, which is precisely what CP3c already proved end to end
 ```go
 type messageTransport struct{ /* unexported */ }
 type messageTransportConfig struct{ /* Client, Server, ProtocolVersion, PartBytes, Timeout */ }
+
+// the counters Properties 2 and 3 make readable. Declared HERE, with the
+// transport that owns them: an earlier draft named this type in a return
+// signature and declared it in no task.
+type messageTransportCounts struct{ /* unexported */ }
 
 func newMessageTransport(config *messageTransportConfig) (*messageTransport, error)
 func (self *messageTransport) Close()
@@ -1042,11 +1385,15 @@ deadline.
 
   **Property 3 — the part size has exactly one declaration in `sdk`.**
   *Refusal owed:* none; the finding is a second literal.
-  *Scope to derive, separately from the class (R3):* the class is **every integer literal in
-  `package sdk`'s production files that equals the part size**, read off the syntax tree; the scope
-  is the whole package, not this file. That class is one member at this task, and the gate reports
-  the number it read. A gate scoped to this file passes on the day somebody writes the number into
-  the send path, which is exactly the divergence the property exists to prevent.
+  *Scope to derive, separately from the class (R3):* the class is **every constant EXPRESSION in
+  `package sdk`'s production files whose evaluated value equals the part size**, read off the
+  type-checked syntax tree — `go/types`' `Info.Types[expr].Value` — and never off the literal text;
+  the scope is the whole package, not this file. That class is **one** member at this task, and the
+  gate reports the number it read. Two things turn on the word *expression*: a gate scoped to this
+  file passes on the day somebody writes the number into the send path, which is the divergence the
+  property exists to prevent; and a gate that scans **literals** cannot see `1 << 11`, which contains
+  no literal equal to 2048, so mutation 8 below would survive a gate written to the earlier draft's
+  own words.
 
 - [ ] **Step 2: Run to verify it fails**
 - [ ] **Step 3: Write the minimal implementation**
@@ -1139,7 +1486,13 @@ imports that cost into a plan that cannot pay it and because it needs `pq_secret
      mutation is the one that makes Task 10's refusal unreachable, which is why it is here and not
      only there.
   5. Skip the `Capabilities` read and submit anyway. Property 3 must fail.
-  6. Enforce a stale `Capabilities` after a `CapabilityChange`. Property 3 must fail.
+  6. Enforce a stale `Capabilities` after a second Hello that advertised a **smaller** bound.
+     Property 3 must fail. An earlier draft wrote this mutation as *"enforce a stale `Capabilities`
+     after a `CapabilityChange`"*, which cannot be applied: measured 2026-09-09,
+     `grep -rn 'CapabilityChange' --include=*.go` over `msgrepo` returns **nothing** and so does
+     `grep -rn 'MessageMessageServerPush'` — no emitter, no handler — and Task 5 above establishes
+     that the push code point is dead. A re-Hello is the only path on which the advertised bounds
+     actually move, and it is a path a real `connect.Client` takes on every reconnect.
   7. Use a part budget for Hello that differs from Task 6's constant. Property 4 must fail, and
      Task 6 Property 3 must fail with it.
 
@@ -1147,13 +1500,19 @@ imports that cost into a plan that cannot pay it and because it needs `pq_secret
 
 ---
 
-## Wave 3 — the send path (Tasks 8–10)
+## Wave 3 — the seam and the send path (Tasks 8, 8a, 9, 10)
 
 **This wave is where the upstream blockers bite.** Tasks 9 and 10 cannot be completed against a real
 server without a reachable `write_key[0]` and the epoch keys (**S2-1**). They are written so that the
 half that does not need them — the projection, the ordering, the result disposition — lands and is
 gated now, and the key access is a single injected parameter rather than a re-derivation scattered
 through the path.
+
+**And Task 8a is in this wave rather than beside it, even though it lands after Wave 4.** It is the
+seam: the one place `package sdk` constructs a `GroupSession`, the one call site of `SealRecord`, and
+the declaration of the `messageSender` and `messageReceiver` that Tasks 9, 10 and 11 write methods
+on. Its position in the **landing order** is not its position in this wave, and the Execution order
+table states both.
 
 ### Task 8: The §4.3.3 projection, derived from the descriptor rather than from a field list
 
@@ -1180,11 +1539,22 @@ and it is R4 in one sentence: derive from the descriptor, not from the eleven na
 
 **Two traps, both of which produce `REASON_REJECTED` with no diagnostic.**
 
-- **`retention_class` carries the WIRE byte, not the enum value.** The server projects
-  `uint32(RetentionClassWire(header.RetentionClass, header.EphBucket))`. A client that writes
-  `uint32(header.RetentionClass)` agrees for `DURABLE` **by coincidence** and diverges for every
-  other class. `RetentionClassWire` is the one place the class and the bucket join, and a second copy
-  of that join is the §12.1 A-1 divergence.
+- **`retention_class` carries the WIRE byte, not the enum value — and the divergence is narrower
+  and nastier than it sounds.** The server projects
+  `uint32(RetentionClassWire(header.RetentionClass, header.EphBucket))`. Measured in
+  `connect/message/record.go` on 2026-09-09: the tags are `RetentionPermanent = 0`,
+  `RetentionDurable = 1`, `RetentionMedia = 2`, `RetentionEph = 3`, and the wire bytes are
+  `0x00`, `0x01`, `0x02` and `0x10 | bucket`. So `uint32(header.RetentionClass)` agrees with the
+  wire byte for **all three** non-EPH classes — `nonEphWireBytes` maps each to its own numeric value
+  and the file's own comment says *"the tag values and the wire values happen to agree for these
+  three today, and a conversion would silently make that coincidence the encoding"* — and diverges
+  **only** for EPH. An earlier draft of this task said it agreed for `DURABLE` *"by coincidence"* and
+  diverged *"for every other class"*, which points a mutation set at `PERMANENT` and `MEDIA`, the two
+  classes M1-6 lifted, where the mutant is indistinguishable from the correct implementation. **The
+  only killing case is an EPH record**, and `SealRecord` refuses that class, so the gate must call
+  the projection with a hand-built `message.RecordHeader` rather than with a sealed record.
+  `RetentionClassWire` is the one place the class and the bucket join, and a second copy of that
+  join is the §12.1 A-1 divergence.
 - **`record_id` is server-assigned and must be left unset.** The server zeroes it before comparing,
   so populating it is not refused — it is *ignored*, which means a client that populates it wrongly
   learns nothing until something else reads it.
@@ -1231,13 +1601,172 @@ and it is R4 in one sentence: derive from the descriptor, not from the eleven na
      path, which is why the scope is the descriptor and not the path.
   4. Drop `wrap_target_handle`. Property 1 must fail, for the same reason and on the record class
      Task 9 actually sends.
-  5. Write `uint32(header.RetentionClass)` into `retention_class`. Property 2 must fail. A suite that
-     only exercises `DURABLE` will not see it, so the gate must cover the class ladder even though
-     `SealRecord` refuses the rest.
+  5. Write `uint32(header.RetentionClass)` into `retention_class`. Property 2 must fail — and it can
+     fail **only** on an EPH record, because the tag and the wire byte are numerically identical for
+     `PERMANENT` (0/`0x00`), `DURABLE` (1/`0x01`) and `MEDIA` (2/`0x02`). A suite that exercises any
+     or all of those three will not see it. `SealRecord` refuses every class but `DURABLE`, so the
+     gate reaches EPH through a hand-built header rather than through a seal.
   6. Re-implement the class-and-bucket join locally. Property 2 must fail on the second
      implementation, not on the answer.
   7. Populate `record_id` with the record's own field. Property 4 must fail.
   8. Project from the header before `SealRecord` set `stream_index`. Property 3 must fail.
+
+- [ ] **Step 6: Commit**
+
+---
+
+### Task 8a: The seam — the session, the two halves, and the record that carries its own nonce epoch
+
+**Files:**
+- Create: `sdk/message_client.go`
+- Test: `sdk/message_client_test.go`
+
+**Interfaces:**
+- Consumes: Task 2a's `StreamStore` under its exclusion, Task 3's `NewStreamIndexReserver`,
+  Task 5's `messageTransport`, Task 7's `Nonce` and `NonceEpoch`, Task 12's `OpenReceiveState`;
+  `messagegroup.NewGroupSession`, `messagegroup.GroupSession.SealRecord`,
+  `messagegroup.GroupHandleKey`, `messagegroup.StorageRoot`; `message.Record`. Consumes an
+  **injected** `GroupHandle` — never a constructed one (Gate 5).
+- Produces:
+```go
+// the seam. Package-internal on purpose: the surfacing onto s1's MessageClient
+// is s1's declaration and not this plan's (S2-19).
+type messageClientConfig struct {
+    Transport       *messageTransport
+    Handle          messagegroup.GroupHandle // injected; Gate 5 forbids constructing one
+    PqSecretZero    []byte                   // injected; S2-3
+    StorageRootZero []byte                   // injected; S2-1
+    Streams         *StreamStore
+    Receive         *ReceiveState
+    NowMs           func() int64
+    GroupId         [32]byte
+}
+
+type messageClient struct{ /* unexported */ }
+type messageSender struct{ /* unexported */ }
+type messageReceiver struct{ /* unexported */ }
+
+func newMessageClient(config *messageClientConfig) (*messageClient, error)
+func (self *messageClient) Sender() *messageSender
+func (self *messageClient) Receiver() *messageReceiver
+func (self *messageClient) Close() error
+
+// a sealed record and the nonce epoch it was sealed under, together, because
+// Task 10 Property 4 cannot be decided from a *message.Record alone.
+type sealedRecord struct {
+    Record     *message.Record
+    Attachment *message.ServerAttachment
+    NonceEpoch uint64
+}
+
+func (self *messageSender) Seal(class message.RetentionClass, ephBucket uint8, isCommit bool,
+    headPlain []byte, bodyPlain []byte, expireAt uint64,
+    attachment *message.ServerAttachment) (*sealedRecord, error)
+```
+
+**THIS TASK EXISTS BECAUSE THE PLAN'S PARTS EACH COMPILED AND NEVER MET.** An earlier draft wrote
+`messageSender` and `messageReceiver` as method receivers in three `Produces` blocks — Tasks 9, 10
+and 11 — and **declared neither type in any task**, listed neither in File Structure, and named
+neither in any `Consumes` entry. It called `NewGroupSession` nowhere, so leg 4's defining sentence
+— *"a send path that calls `SealRecord` and submits the `*message.Record` it returns"* — was
+produced by nothing, Wave 1's reserver was never wired to Wave 3, and two derived-class gates
+(Task 4 Property 2 and Task 9 Property 2) each declared a class of one member over a construction
+the plan never made, which is a class of **zero** and which this plan's own Definition of done calls
+a broken gate rather than a clean one. A plan whose parts each compile and never meet is a plan that
+discovers its own gap at the last task.
+
+**Where it sits and why.** First in Wave 3 after the projection, because Task 9's ceremony and
+Task 10's send are both methods on `messageSender` and Task 11's fetch is a method on
+`messageReceiver`; all three need the type declared before they can be dispatched. It needs Waves 1
+and 2 whole — it is the first task that does — and Task 12's `OpenReceiveState`, which is why the
+Execution order table now sequences Wave 4 before this task rather than after it.
+
+**And this is where the one-way door of `NewGroupSession` is closed once rather than at every caller.**
+The constructor says a session opened at MLS epoch 0 *"may leave `groupHandleKeyEpoch0` nil, because
+the current root IS the epoch zero root and the constructor expands it"*, and there is no accessor
+that hands the value back — the seven exported methods again. This task passes it, never nil, and
+Task 9 Property 2's gate is over this call site.
+
+- [ ] **Step 1: Derive the property and write the failing test**
+
+  **Property 1 — `package sdk` constructs a `GroupSession` in exactly one place, and that place is
+  handed the reserver Task 3 produces and a non-nil `groupHandleKeyEpoch0`.**
+  *Refusal owed:* `newMessageClient` refuses — typed, naming which of the two it lacked — rather than
+  constructing a session with a nil reserver (which `NewGroupSession` refuses anyway) or a nil epoch
+  zero handle key (which it accepts, and which bricks the group at the next restart).
+  *Scope to derive, separately from the class (R3):* the class is **every `NewGroupSession` call
+  expression in `package sdk`'s production files**, read off the syntax tree; the scope is the whole
+  package, not this file, because the second call site is the one that will take the convenience.
+  That class is **one** member at this task, and **this task is what makes it one rather than none**:
+  before this task, nothing in `package sdk` constructs a session at all, so every gate written over
+  that construction reads nothing and reports clean. Task 4 Property 2 and Task 9 Property 2 derive
+  over the same construction from two other angles and both name this property.
+
+  **Property 2 — the seam is the only caller of `SealRecord` in `package sdk`.** Every record the
+  send path submits and every record the ceremony sends came out of one call site, and no
+  `message.Record` is assembled by hand anywhere in the package.
+  *Refusal owed:* none for the count; the finding is a second call site or a `message.Record`
+  composite literal in production code.
+  *Scope to derive, separately from the class (R3):* the class is **every call to
+  `(*messagegroup.GroupSession).SealRecord` in `package sdk`'s production files**, resolved through
+  the type checker rather than matched on the method name, so a wrapper that renames it is still a
+  member; the scope is the whole package's production files. That class is **one** member at this
+  task and stays one at Tasks 9 and 10, because both route through `Seal`. The gate reports the
+  number it read.
+
+  **Property 3 — a record carries the nonce epoch it was sealed under, and nothing recomputes it.**
+  `Seal` records `Transport.NonceEpoch()` at the moment it seals; `SubmitRecord` compares that
+  recorded number with the epoch at submit time.
+  *Refusal owed:* a typed refusal when a `*message.Record` reaches the submit path without a
+  recorded seal-time epoch, naming the record's stream index — because the alternative is submitting
+  it under the *current* epoch, which makes Task 10 Property 4 true by construction and therefore
+  unfalsifiable. This is the half Task 10 Property 4 compares against and an earlier draft recorded
+  nowhere.
+
+  **Property 4 — the send half and the receive half share one session, one transport and one pair of
+  stores.** Two `messageSender`s over one directory would be Task 2a Property 1's refusal reached
+  from inside `sdk` itself.
+  *Refusal owed:* `newMessageClient` refuses a config whose `Streams` or `Receive` is nil, rather than
+  opening its own.
+  *Scope to derive, separately from the class (R3):* the class is **every `OpenStreamStore` and
+  `OpenReceiveState` call expression in `package sdk`'s production files**, read off the syntax tree;
+  the scope is the whole package. That class is **two** members at this task — one of each, both
+  outside this file, in whatever stands the client up — and the gate reports the number it read. A
+  third member is a second store over one directory and is the hazard Task 2a exists for.
+
+  **Property 5 — §5.9 G11: a commit lost between reserve and re-seal never re-uses the index.** The
+  session re-seals after a lost commit and the second seal takes a **new** allocation, not the one
+  the lost commit burned.
+  *Refusal owed:* none; a duplicate index is the failure, and the message must print the index and
+  both seal ordinals. This is the session half of the shape §5.6 describes; Task 4 Property 1 holds
+  the store half, and the two together are what §5.9 G5 and G11 name.
+
+- [ ] **Step 2: Run to verify it fails**
+- [ ] **Step 3: Write the minimal implementation**
+- [ ] **Step 4: Run to verify it passes**
+- [ ] **Step 5: Mutation-test**
+
+  1. Construct a second `GroupSession` in another `sdk` production file. Property 1 must fail on the
+     count and name both call sites.
+  2. Delete the seam's construction so the package constructs none. Property 1 must fail on a class
+     of zero — **not pass** — which is the control that separates this gate from the vacuous one an
+     earlier draft of Task 4 and Task 9 wrote.
+  3. Pass nil as `groupHandleKeyEpoch0`. Property 1 must fail at the call site, before any restart.
+  4. Call `SealRecord` directly from the send path, bypassing `Seal`. Property 2 must fail on the
+     count.
+  5. Wrap `SealRecord` in a renamed helper and call the helper. Property 2 must still fail — the
+     class is resolved through the type checker, not matched on a name.
+  6. Build a `message.Record` as a composite literal in production code. Property 2 must fail.
+  7. Read `NonceEpoch()` at submit time and use it for both sides of the comparison. Property 3 must
+     fail, and Task 10 Property 4 must fail with it: a comparison of a number with itself is the
+     unfalsifiable shape this property exists to prevent.
+  8. Drop the seal-time epoch and submit the bare `*message.Record`. Property 3 must fail with the
+     typed refusal, not by succeeding.
+  9. Open a second `StreamStore` inside the receiver. Property 4 must fail on the count, and Task 2a
+     Property 1 must fail with it.
+  10. Re-seal after a lost commit at the index the lost commit reserved. Property 5 must fail with a
+     duplicate, and Task 4 Property 1 must not — the store handed out two numbers and the session
+     used one twice, which is the half a store gate cannot see.
 
 - [ ] **Step 6: Commit**
 
@@ -1250,19 +1779,22 @@ and it is R4 in one sentence: derive from the descriptor, not from the eleven na
 - Test: `sdk/message_group_open_test.go`
 
 **Interfaces:**
-- Consumes: Task 5's `messageTransport.Call`, Task 7's `Nonce`, Task 8's `recordProjection`;
-  `messagegroup.GroupSession.SealRecord`, `messagegroup.GroupHandleKey`,
-  `messagegroup.StorageRoot`, `messagegroup.WrapTargetHandle`, `message.WriteKey`,
-  `message.ReadKey`, `message.EpochAttachment`, `message.WrapTag`, `message.EpochComplete`;
-  `protocol.CreateGroupRequest`. Consumes an **injected** `GroupHandle` — never a constructed one
-  (Gate 5).
+- Consumes: Task 5's `messageTransport.Call`, Task 7's `Nonce`, Task 8's `recordProjection`,
+  **Task 8a's `messageSender` and its `Seal`** — which is where the `GroupHandle`, the
+  `StorageRootZero`, the `PqSecretZero` and the one `GroupSession` already are;
+  `messagegroup.GroupHandleKey`, `messagegroup.StorageRoot`, `messagegroup.WrapTargetHandle`,
+  `message.WriteKey`, `message.ReadKey`, `message.EpochAttachment`, `message.WrapTag`,
+  `message.EpochComplete`; `protocol.CreateGroupRequest`. The `GroupHandle` is **injected** and
+  never constructed (Gate 5), and it is injected once, at Task 8a, rather than again here.
 - Produces:
 ```go
+// what the ceremony needs BEYOND the seam. The handle, the storage root and
+// the pq_secret are Task 8a's config and are deliberately not repeated here:
+// two structs carrying the same injected key is two places to inject it
+// differently.
 type groupOpenSpec struct {
-    Handle          messagegroup.GroupHandle
-    StorageRootZero []byte   // injected; see S2-1
-    PqSecretZero    []byte   // injected; see S2-3
-    ExpectedWraps   uint32
+    ExpectedWraps uint32
+    WrapBodies    [][]byte // one per expected wrap; S2-3 is what supplies them
 }
 
 func (self *messageSender) OpenGroup(ctx context.Context, spec *groupOpenSpec) error
@@ -1317,11 +1849,14 @@ is where the answer lands.
   reconstructed by anything.
   *Refusal owed:* `OpenGroup` refuses to proceed if the persist failed, rather than continuing with a
   value only memory holds.
-  *Scope to derive, separately from the class (R3):* the class is **every `NewGroupSession` call in
-  `package sdk`'s production files**, read off the syntax tree, and the gate requires a non-nil third
-  argument at every one. That class is one member at this task, and the gate reports the number it
-  read. The scope is the package, not this file, because the second call site is the one that will
-  take the convenience.
+  *Scope to derive, separately from the class (R3):* the class is **every `NewGroupSession` call
+  expression in `package sdk`'s production files**, read off the syntax tree, and the gate requires a
+  non-nil third argument at every one. That class is **one** member at this task — Task 8a's, which
+  is the construction that gives this gate something to read; until Task 8a lands, nothing in
+  `package sdk` constructs a session and this gate reads nothing while reporting clean. The gate
+  reports the number it read, and a count of zero is the broken gate the Definition of done names. The scope is the package, not this file, because the second call site
+  is the one that will take the convenience. Task 8a Property 1 is the same construction seen from
+  the seam's side and names this property back.
 
   **Property 3 — `ExpectedWrapCount` is a promise the client keeps.** The marker's `WrapCount` equals
   the number of wrap records this client actually submitted, and both equal the count the attachment
@@ -1334,9 +1869,10 @@ is where the answer lands.
   path on which a CP3b run would exercise **no `pq_secret` delivery at all** while appearing to pass.
   This property is what keeps `s2` off it.
 
-  **Property 4 — every record in the ceremony is sealed by `SealRecord` and none is assembled by
-  hand.** Including the initial commit and the marker.
-  *Refusal owed:* none; the finding is a `message.Record` literal in production code.
+  **Property 4 — every record in the ceremony is sealed through Task 8a's one `SealRecord` call and
+  none is assembled by hand.** Including the initial commit and the marker.
+  *Refusal owed:* none; the finding is a `message.Record` literal in production code, or a second
+  `SealRecord` call site, which is Task 8a Property 2's count.
 
 - [ ] **Step 2: Run to verify it fails**
 - [ ] **Step 3: Write the minimal implementation**
@@ -1369,12 +1905,15 @@ is where the answer lands.
 
 **Interfaces:**
 - Consumes: Task 3's `NewStreamIndexReserver`, Task 5's `Call`, Task 7's `Nonce` and `NonceEpoch`,
-  Task 8's `recordProjection`, Task 9's `OpenGroup`; `messagegroup.GroupSession.SealRecord`;
-  `protocol.SubmitRequest`, `protocol.SubmitResult`, `protocol.Reason`.
+  Task 8's `recordProjection`, Task 8a's `messageSender`, `Seal` and `sealedRecord`, Task 9's
+  `OpenGroup`; `protocol.SubmitRequest`, `protocol.SubmitResult`, `protocol.Reason`.
 - Produces:
 ```go
-func (self *messageSender) SubmitRecord(ctx context.Context, record *message.Record,
-    attachment *message.ServerAttachment) (*protocol.SubmitResult, error)
+// takes the SEALED record, not a bare *message.Record: the nonce epoch the
+// record was sealed under travels with it, because Property 4 below cannot be
+// decided from the record alone (Task 8a Property 3).
+func (self *messageSender) SubmitRecord(ctx context.Context,
+    sealed *sealedRecord) (*protocol.SubmitResult, error)
 ```
 
 **`SubmitRequest` is the one authenticated arm that carries NO `req_auth`.** §4.3.8 requires an
@@ -1404,12 +1943,33 @@ about the protocol that the protocol does not make.
   *Refusal owed:* the refusal carries it; dropping it strands the caller.
 
   **Property 4 — a record sealed under a superseded `server_nonce` is not submitted.** The nonce
-  epoch at seal time is compared with the nonce epoch at submit time.
+  epoch **recorded at seal time by Task 8a Property 3** is compared with the nonce epoch read at
+  submit time. The two numbers must have different provenance: a path that reads `NonceEpoch()` twice
+  compares a number with itself and the property becomes true by construction, which is the
+  unfalsifiable shape R1 exists to prevent.
   *Refusal owed:* a typed refusal naming both epochs, so the caller can tell this from a server
-  rejection. This is the local half of **S2-2**; the recovery is not this plan's.
+  rejection; and a second typed refusal for a record that arrives with no recorded seal-time epoch,
+  because submitting it under the current epoch is the same defect wearing a success. This is the
+  local half of **S2-2**; the recovery is not this plan's.
 
-  **Property 5 — `Submit` carries no `req_auth`.**
-  *Refusal owed:* none; the finding is a populated field.
+  **Property 5 — no `req_auth` is COMPUTED on the submit path.** §4.3.8 exempts Submit, and the
+  earlier draft of this property said *"`Submit` carries no `req_auth`; the finding is a populated
+  field"* — which cannot fail and whose mutation cannot be applied: measured 2026-09-09,
+  `protocol.SubmitRequest` declares `group_id` and `records` and **nothing else**, the envelope
+  `MessageServerRequest` carries no `req_auth` either, and an `awk` pass over `message.proto` finds
+  the field only on `BlobGrantRequest`, `FetchRequest`, `GroupStatusRequest`, `RetentionApplied`,
+  `SubscribeRequest`, `TransientPush` and `WrapFetchRequest`. There is no field to populate, so
+  *"the finding is a populated field"* names a finding no incorrect implementation can produce and
+  a mutation that does not compile. What CAN be wrong is the computation, and it is worth catching:
+  a `req_auth` computed for Submit is a claim about the protocol that the protocol does not make,
+  and it burns a MAC under `read_key[e]` over bytes nobody verifies.
+  *Refusal owed:* none; the finding is a reachable call.
+  *Scope to derive, separately from the class (R3):* the class is **every call to
+  `message.ComputeRequestAuth` in `package sdk`'s production files, with the exported entry points
+  each is reachable from**, read off the call graph rather than off the file it sits in; that class
+  is **one** member at this task — Task 11's `Fetch` — and the gate reports the number it read. The
+  scope is the whole package's call graph, not the send path's own file, because the defect is a
+  helper called from both halves rather than a line written into `SubmitRecord`.
 
 - [ ] **Step 2: Run to verify it fails**
 - [ ] **Step 3: Write the minimal implementation**
@@ -1424,13 +1984,23 @@ about the protocol that the protocol does not make.
   6. Compare nonce **bytes** instead of nonce epoch. Property 4 must still fail — two connections can
      in principle draw the same nonce, and a gate that compares the value is a gate that tests the
      CSPRNG.
-  7. Populate `req_auth` on `SubmitRequest`. Property 5 must fail.
+  7. Compute a `req_auth` inside `SubmitRecord` and discard the result. Property 5 must fail on
+     **reachability**, not on a wire field — there is no wire field to fail on.
+  8. Move the `req_auth` computation into a helper that both `Fetch` and `SubmitRecord` call.
+     Property 5 must still fail, on the call graph rather than on the call site.
 
 - [ ] **Step 6: Commit**
 
 ---
 
 ## Wave 4 — the receive path (Tasks 11–12)
+
+**Task 12's store half lands BEFORE Task 8a and its call-site half lands after it**, and saying so is
+what keeps the two from being dispatched as one unit that cannot compile. `OpenReceiveState` and its
+row (Properties 5, 6 and 7) need nothing from the seam and are a dependency of Task 8a's config;
+Properties 1 to 4 are gates over argument expressions and call orderings inside the receiver, which
+is a type Task 8a declares. Task 11's `Fetch` is a method on that same type and lands after it
+whole.
 
 ### Task 11: Fetch, `req_auth`, and the op byte that is read rather than written down
 
@@ -1439,12 +2009,21 @@ about the protocol that the protocol does not make.
 - Test: `sdk/message_fetch_test.go`
 
 **Interfaces:**
-- Consumes: Task 5's `Call`, Task 7's `Nonce`; `message.ComputeRequestAuth`, `message.ParseRecord`;
-  `protocol.FetchRequest`, `protocol.FetchResponse`.
+- Consumes: Task 5's `Call`, Task 7's `Nonce`, Task 8a's `messageReceiver`;
+  `message.ComputeRequestAuth`, `message.ParseRecord`; `protocol.FetchRequest`,
+  `protocol.FetchResponse`.
 - Produces:
 ```go
+// the key travels WITH the epoch it belongs to. A bare []byte cannot answer
+// "is this the key for read_epoch?", so Property 3 below would be undecidable
+// at this signature -- which is what an earlier draft asked for.
+type readKeyRef struct {
+    Epoch uint64
+    Key   []byte
+}
+
 func (self *messageReceiver) Fetch(ctx context.Context, request *protocol.FetchRequest,
-    readKey []byte) (*protocol.FetchResponse, error)
+    readKey *readKeyRef) (*protocol.FetchResponse, error)
 ```
 
 **The recipe, from §4.3.8 and from `msgrepo/api/fetch.go`'s verifier rather than from memory.**
@@ -1455,12 +2034,15 @@ those bytes and therefore inside the MAC, which is what makes the server's key s
 authenticated choice rather than a hint. The server refuses an absent `req_auth` outright, before the
 comparison, because the length of a tag is public.
 
-**`readKey` is an explicit parameter, and that is a finding rather than a style choice.**
-`msgrepo/harness/client.go`'s own `Fetch` takes `readKey []byte` for exactly this reason: it has no
-session to ask. `s2` **will** have a session, and the session will not tell it — `GroupSession` holds
-`readKey` privately and exposes none of its seven methods to reach it. Making the parameter explicit
-keeps the gap visible at every call site instead of burying a re-derivation inside the fetch path.
-**S2-1.**
+**The read key is an explicit parameter, and that is a finding rather than a style choice — but it
+carries its EPOCH, which the earlier draft's bare `[]byte` did not.** `msgrepo/harness/client.go`'s
+own `Fetch` takes `readKey []byte` for exactly the first reason: it has no session to ask. `s2`
+**will** have a session, and the session will not tell it — `GroupSession` holds the read key
+privately and exposes none of its seven methods to reach it. Making the parameter explicit keeps the
+gap visible at every call site instead of burying a re-derivation inside the fetch path. **S2-1.**
+Making it a `readKeyRef` rather than a `[]byte` is Property 3's precondition: a bare slice cannot
+answer *"is this the key for `read_epoch`?"*, so the local refusal that property owes would be
+undecidable at the signature and the property unfalsifiable.
 
 - [ ] **Step 1: Derive the property and write the failing test**
 
@@ -1473,16 +2055,30 @@ keeps the gap visible at every call site instead of burying a re-derivation insi
   **Property 2 — the op byte is read off the compiled descriptor, never written down.** It is the
   oneof arm's field number and `connect/protocol` already holds a test that pins the correspondence.
   *Refusal owed:* an error for a body that is not a known arm, never a default of zero.
-  *Scope to derive, separately from the class (R3):* the class is **every request body type this
-  binding can send**, read off the request message's oneof descriptor rather than listed; that class
-  is **four** members at this task — Hello, `CreateGroup`, `Submit` and `Fetch`, which are also the
-  only four arms `msgrepo/peer` dispatches — and the gate reports the number it read. The scope is
-  the descriptor's whole arm set, because an arm added tomorrow gets an op byte whether or not this
-  plan sends it.
+  *Scope to derive, separately from the class (R3):* the class is **every arm of
+  `MessageServerRequest`'s `body` oneof**, read off the compiled descriptor rather than listed; that
+  class is **fifteen** members at this task — `hello` = 10 through `rendezvous_retire` = 24, counted
+  off `connect/protocol/message.proto` on 2026-09-09 — and the gate reports the number it read, so a
+  sixteenth arm added upstream fails here. The scope is the descriptor's whole arm set, because an
+  arm added tomorrow gets an op byte whether or not this plan sends it.
+  **The four arms this binding SENDS are a different, smaller statement and must not be conflated
+  with the class.** An earlier draft said the descriptor-derived class *"is four members — Hello,
+  `CreateGroup`, `Submit` and `Fetch`, which are also the only four arms `msgrepo/peer` dispatches"*.
+  The four is right about `peer` and wrong about the descriptor: `peer/peer.go` registers exactly
+  those four handlers, but that is the **server's dispatch table**, and a gate that does what the
+  sentence says — read the class off the oneof descriptor — reports 15 and fails the stated count on
+  its first run. `sdk` cannot import `peer` (Task 13 Property 2), so the four are a documented subset
+  with their own, separate refusal: `Call` refuses a body outside those four with a typed error
+  naming the arm and its op byte, rather than sending a request no handler serves.
 
-  **Property 3 — a `FetchRequest` whose `read_epoch` names an epoch this client cannot key is refused
-  locally**, rather than sent to be refused.
-  *Refusal owed:* a typed refusal naming the epoch.
+  **Property 3 — a `FetchRequest` whose `read_epoch` is not the epoch of the key supplied is refused
+  locally, before the MAC is computed**, rather than sent to be refused.
+  *Refusal owed:* a typed refusal naming **both** epochs — the request's and the key's. The earlier
+  draft said *"an epoch this client cannot key"*, which is not decidable at this signature: a bare
+  `readKey []byte` carries no epoch, so nothing in the produced surface could tell a key for epoch 3
+  from a key for epoch 4 and the property could neither be satisfied deliberately nor failed by a
+  wrong implementation. `readKeyRef` carries the epoch beside the key for exactly this reason, and
+  the key is still injected because — S2-1 — the session does not hand one back.
 
   **Property 4 — `since_record_id` is EXCLUSIVE and 0 means from the beginning**, and the paging loop
   never re-requests a record it has already seen nor skips one.
@@ -1502,9 +2098,11 @@ keeps the gap visible at every call site instead of burying a re-derivation insi
   5. Default an unknown arm's op byte to zero. Property 2 must fail.
   6. Send with an empty `req_auth`. Property 1 must fail locally; the server refuses it outright and
      a client that relies on that has moved its own check onto somebody else's machine.
-  7. Send a `read_epoch` naming an epoch this client holds no key for. Property 3 must fail locally,
-     and it must fail before the MAC is computed — a MAC under a zero-length key is still a MAC, and
-     a path that computes one has turned a missing key into a wire refusal.
+  7. Set `read_epoch` to a value that is not the supplied `readKeyRef.Epoch`. Property 3 must fail
+     locally, and it must fail before the MAC is computed — a MAC under the wrong epoch's key is
+     still a MAC, and a path that computes one has turned a local mismatch into a wire refusal.
+  10. Supply a `readKeyRef` with a nil or zero-length `Key`. Property 3 must fail locally, for the
+     same reason and before the MAC — a MAC under a zero-length key is still a MAC.
   8. Treat `since_record_id` as inclusive. Property 4 must fail with a duplicate.
   9. Page with `since_record_id = last + 1`. Property 4 must fail with a skip — off-by-one in the
      other direction, and it is the one that loses a message rather than repeating one.
@@ -1520,19 +2118,49 @@ keeps the gap visible at every call site instead of burying a re-derivation insi
 - Test: `sdk/message_receive_state_test.go`
 
 **Interfaces:**
-- Consumes: Task 11's `Fetch`; `messagegroup.GroupSession.TrackSender`,
-  `messagegroup.GroupSession.OpenRecord`, `messagegroup.SenderHandle`,
-  `messagegroup.ErrOutOfWindow`, `messagegroup.ErrNoWrap`, `messagegroup.ErrNoReceiverRatchet`;
+- Consumes: Task 11's `Fetch`, Task 1's row identity and its three refusals, Task 2a's exclusion;
+  `messagegroup.GroupSession.TrackSender`, `messagegroup.GroupSession.OpenRecord`,
+  `messagegroup.SenderHandle`, `messagegroup.ReceiverRatchetKey`, `messagegroup.ErrOutOfWindow`,
+  `messagegroup.ErrNoWrap`, `messagegroup.ErrNoReceiverRatchet`; `message.RetentionClassWire`;
   `GroupHandle.MemberCount` and `GroupHandle.MemberAt`, off an injected handle.
 - Produces:
 ```go
+// keyed by the retention WIRE byte, which is what the ratchet this row feeds is
+// keyed by. NOT by message.RetentionClass -- see below.
 type ReceiveState struct{ /* unexported */ }
 
 func OpenReceiveState(dir string) (*ReceiveState, error)
-func (self *ReceiveState) HeadIndex(groupId []byte, leaf uint32, class message.RetentionClass) (uint64, error)
-func (self *ReceiveState) AdvanceHeadIndex(groupId []byte, leaf uint32, class message.RetentionClass, index uint64) error
+func (self *ReceiveState) HeadIndex(groupId []byte, leaf uint32, retentionWire byte) (uint64, error)
+func (self *ReceiveState) AdvanceHeadIndex(groupId []byte, leaf uint32, retentionWire byte, index uint64) error
 func (self *ReceiveState) Close() error
+
+var ErrReceiveStateKeySpace error // a row written under a key derivation this build does not produce
+var ErrReceiveStateWidth    error // a groupId of the wrong width, or a wire byte no join produces
+var ErrReceiveStateState    error // a row that is present and unreadable, never a silent zero
 ```
+
+**THE KEY IS THE RATCHET'S KEY, AND AN EARLIER DRAFT GOT IT WRONG IN THE SAME WAY LEDGER ITEM 170
+DESCRIBES.** That draft keyed the row by `(groupId, leaf, class message.RetentionClass)`. The ratchet
+the row feeds is keyed by the retention **wire** byte: `connect/messagegroup/session.go`'s
+`trackSenderOnLoop` computes `retentionWire, err := message.RetentionClassWire(class, ephBucket)` and
+tracks under `ReceiverRatchetKey{SenderHandle: SenderHandle(groupHandleKey, leaf), RetentionWire:
+retentionWire}` — a two-field comparable struct whose second field carries the bucket. `RetentionEph`
+is **one** class value (3) spanning buckets 0..5 at wire `0x10|bucket`, so a row keyed by the class
+collapses **all six EPH buckets of one sender onto one persisted head index**.
+
+**Why this is not a latent tidiness problem.** A wrong head index on receive is **silent message
+loss, not a stall**: `NewReceiverRatchet(classKey, leaf, headIndex, windowSize)` walks `headIndex`
+rungs before it returns, so everything below the number it was given falls outside the skipped-key
+window and can never be opened. Nothing is broken today only because `SealRecord` refuses every class
+but `DURABLE` (`seal.go`: `if class != message.RetentionDurable { return nil, ...
+ErrRetentionClassUnruled }`) — which is precisely the argument ledger item 170 makes about a store
+that has no rows yet, one layer down. **So this store gets Task 1's mechanism too**, and the earlier
+draft gave it none: a version tag in the row name derived from the same field set the identity is
+derived from, a key-space refusal, and a width refusal. A row this build cannot key is
+`ErrReceiveStateKeySpace` and never `(0, nil)`.
+
+The row identity's field set has an authority and it is not this plan: **`ReceiverRatchetKey` as
+`connect/messagegroup` declares it**, plus the group. Whether §8.2 should say so is **S2-18**.
 
 **This is a SECOND durable store, and no leg was given it.** `TrackSender`'s doc is explicit that
 `headIndex` *"is the CALLER'S state, never a number read off a record header"*, and the reason is
@@ -1586,6 +2214,34 @@ says so.
   comment must say that it is a copy and where the original is — the same obligation Task 6 carries
   for the part size, and **S2-9** covers both.
 
+  **Property 6 — a row is identified by exactly the fields the RATCHET is keyed by, and the identity
+  is derived from `messagegroup.ReceiverRatchetKey`'s own field set rather than spelled.** The wire
+  byte the row is keyed by must be the one `message.RetentionClassWire(class, ephBucket)` produces
+  and never a second computation of the class-and-bucket join — the same §12.1 A-1 rule Task 8
+  Property 2 holds on the send side.
+  *Refusal owed:* `ErrReceiveStateWidth` for a `groupId` of the wrong width or a wire byte
+  `RetentionClassWire` does not produce, naming which and what it was. A wire byte accepted without
+  that check is how bucket 3 and bucket 4 land on one row.
+  *Scope to derive, separately from the class (R3):* the class is **the type
+  `messagegroup.ReceiverRatchetKey` as `connect/messagegroup` declares it today**, read through
+  reflection at test time and not copied into `sdk`; that class is **two** members at this task —
+  `SenderHandle` and `RetentionWire` — and the gate reports the number it read, so a field added or
+  removed in `connect` fails here rather than silently re-keying every row. The scope is the type,
+  not the row's file name: a gate that listed the two field names survives the day a third returns
+  and is therefore not this gate. The group is carried by `SenderHandle`'s own derivation
+  (`SenderHandle(groupHandleKey, leaf)`), and the row still names `groupId` explicitly so that a
+  store shared by two groups cannot collide on a truncated handle.
+
+  **Property 7 — a row whose key space this build did not produce is REFUSED, never answered zero.**
+  The row's on-disk name carries a version tag, readable off the name independently of the identity,
+  derived from the same field set Property 6 derives.
+  *Refusal owed:* `ErrReceiveStateKeySpace`, a typed fatal error per §5.9 G7 — never a bool, never a
+  log line, and specifically **never `(0, nil)`**. This is Task 1 Property 2's mechanism applied to
+  the second durable store, and the reason it is owed here rather than assumed is that the failure is
+  worse on this side: on the send side a silent zero re-allocates an index, which the server refuses
+  with `REASON_STREAM_INDEX_REGRESSED`; on the receive side a silent zero walks a ratchet to the
+  wrong head and every record below it becomes permanently unopenable with no error anywhere.
+
 - [ ] **Step 2: Run to verify it fails**
 - [ ] **Step 3: Write the minimal implementation**
 - [ ] **Step 4: Run to verify it passes**
@@ -1605,6 +2261,20 @@ says so.
   8. Call `OpenRecord` before `TrackSender`. Property 4 must fail with the local refusal, not with
      `ErrNoReceiverRatchet` from inside the session.
   9. Persist a head index of `maxLadderWalk + 1` and reopen. Property 5 must fail at the store.
+  10. Key the row by `message.RetentionClass` rather than by the retention wire byte. Property 6 must
+     fail, and it must fail on an **EPH** pair — buckets 3 and 4 of one sender — because the two
+     keyings agree for `PERMANENT`, `DURABLE` and `MEDIA` and a gate that only exercises `DURABLE`
+     passes this mutant. `SealRecord` refuses every class but `DURABLE`, so the gate reaches EPH by
+     calling the store directly rather than through a seal.
+  11. Add a third field to a local copy of `ReceiverRatchetKey` and key rows off the copy.
+     Property 6 must fail on the count, not on a comparison of names.
+  12. Compute the class-and-bucket join locally instead of calling `message.RetentionClassWire`.
+     Property 6 must fail on the second implementation, not on the answer.
+  13. Plant a row under a key derivation this build does not produce and read it. Property 7 must
+     fail with `ErrReceiveStateKeySpace`. **A `(0, nil)` here is ledger item 170 reproduced on the
+     receive side, where it costs messages rather than a server refusal.**
+  14. Fold the version tag into the derived identity hash so it cannot be read off the name.
+     Property 7 must fail — a foreign-tag row is then an absent file and the store answers zero.
 
 - [ ] **Step 6: Commit**
 
@@ -1625,34 +2295,97 @@ says so.
 
 **Why it is here and not in s5.** s1's open item S1-13 records that `sdk/layering_test.go` does not
 exist and that s1 creates the first **test-only** `sdk` → `connect/mls` edge, so the gate must be
-written against the **non-test** dependency set. `s2` is the first plan that would introduce a wrong
+written against the **non-test** import set. `s2` is the first plan that would introduce a wrong
 **production** edge — to `connect/mls`, or to the message-server module — so the gate belongs with the
 plan that could break it, not with the plan that will eventually own the engine factory.
 
+**THE FIRST VERSION OF THIS GATE CONVICTED THE PLAN'S OWN REQUIRED EDGES, AND THE REPAIR IS A
+RE-DERIVATION RATHER THAN AN EXEMPTION.** It is written out here because the s1 plan shipped four
+properties no correct implementation could satisfy and the brief that commissioned this one named
+that failure mode specifically. The first version scoped Property 1 to *"the whole non-test
+dependency set — `go list -deps` … every package in that set, transitively"*, and its
+Definition-of-done row was `go list -deps ./... | grep connect/mls` → no matches. Measured on this
+tree 2026-09-09, at `connect` `7868d65` with Go 1.26.5:
+
+- `grep -rn 'urnetwork/connect/mls' connect/messagegroup/*.go | grep -v _test` returns **eight import
+  lines in seven production files** — `engine.go:38` and `:39`, `epoch.go:56`, `handle.go:55`,
+  `keyschedule.go:52`, `ratchet.go:80`, `seal.go:77`, `xwing.go:36`. Five are `connect/mls`; three
+  are `connect/mls/syntax`.
+- `go list -deps ./message` alone prints `github.com/urnetwork/connect/mls/syntax`, and
+  `go list -deps ./messagegroup` prints `github.com/urnetwork/connect/mls` as well.
+- The grep string `connect/mls` matches `connect/mls/syntax` **as a substring**, so even an
+  `sdk` that touched neither package but reached `connect/message` would fail that row.
+
+Task 1 Consumes `messagegroup.StreamKey` and Task 8 Consumes `connect/message`, so **both** edges
+are on the CP3b prefix from Task 1 onward. A transitive-set gate is therefore red before a single
+mutation, and every Task 13 mutation would have run against a red baseline.
+
+**What the gate actually needs to defend, re-derived from Gate 5 rather than from the old scope.**
+§4.5's engine seam exists so that no `connect/mls` **type** appears in an `sdk` declaration and no
+`sdk` file can construct a `GroupEngine`; `NewConnectMlsEngine`'s five parameters are all
+`connect/mls` types, and that is the edge s5 owns. Nothing in §4.5 or §2.3 is a claim about the
+*transitive closure* — `sdk` → `connect/messagegroup` → `connect/mls` is §2.3's own layering, drawn
+in §2.3's own arrow order, and a gate that forbids it forbids the layering it cites. The decidable
+property is the **direct import set of `package sdk`'s own files**.
+
+**And what is no longer defended, said plainly rather than dropped.** The transitive scope would
+have caught a **new module** arriving through a transitive path — a dependency `sdk` never names and
+that appears anyway. A direct-import gate cannot see that. Property 4 below replaces exactly that
+half, over the module's own `require` block, which is where a new module actually becomes visible
+and is a smaller and decidable class. Nothing else the old scope covered is lost, because nothing
+else it covered was satisfiable.
+
 - [ ] **Step 1: Derive the property and write the failing test**
 
-  **Property 1 — no production file in `sdk` imports `connect/mls`.** Gate 5 (§4.5) permits exactly
-  one such edge and it is s5's engine factory, which this plan does not write.
-  *Refusal owed:* a failure naming the importing file and the imported path.
+  **Property 1 — no production file of `package sdk` DIRECTLY imports `connect/mls` or
+  `connect/mls/syntax`.** Gate 5 (§4.5) permits exactly one such edge and it is s5's engine factory,
+  which this plan does not write.
+  *Refusal owed:* a failure naming the importing file and the imported path, and — because the two
+  paths are one a substring of the other — matching them **anchored**, never by `strings.Contains`.
   *Scope to derive, separately from the class (R3):* the class is **the import paths §2.3 and Gate 5
-  forbid `sdk`**, which those two rules fix rather than this gate; that class is **two** members at
-  this task — `connect/mls` and `github.com/urnetwork/message-server` — and the gate reports the
-  number of forbidden paths it was given, because a gate that was given none reports clean over
-  everything. The **scope** is the whole **non-test** dependency set — `go list -deps`, never
-  `-deps -test` — for the reason S1-13 states: s1's agreement check is a legitimate test-only edge
-  and a gate over the test graph convicts it. The scope is every package in that set, transitively,
-  and never a list of the ones this plan imports; the gate reports the number of packages it walked,
-  and a walk of zero is a broken gate rather than a clean one.
+  forbid an `sdk` FILE from spelling**, which those two rules fix rather than this gate; that class
+  is **three** members at this task — `github.com/urnetwork/connect/mls`,
+  `github.com/urnetwork/connect/mls/syntax` and `github.com/urnetwork/message-server` — and the gate
+  reports the number of forbidden paths it was given, because a gate that was given none reports
+  clean over everything. The **scope** is the **import specs of `package sdk`'s own non-test files**,
+  read off the syntax tree or off `go list -f` on the package itself — **never** `go list -deps`,
+  whose answer over the four packages this plan links is 414 packages across 30 module prefixes and
+  necessarily contains both `mls` packages. The gate reports the number of production files it read,
+  and a read of zero files is a broken gate rather than a clean one.
 
   **Property 2 — `sdk` does not import `github.com/urnetwork/message-server` at all**, in production
   or in test. `msgrepo/harness` is the reference for Tasks 5–11 and is read, never linked; it is also
   gated test-only on its own side, so an import here would fail there.
-  *Refusal owed:* a failure naming the path.
+  *Refusal owed:* a failure naming the path. This is the one forbidden path whose scope IS the whole
+  graph — `go list -deps -test` — because the module is not in `sdk`'s graph at all, so a walk that
+  finds it has found a real arrival rather than a legal layer.
 
-  **Property 3 — the production edges this plan DOES create are exactly the ones it declares.**
-  `connect`, `connect/message`, `connect/messagegroup`, `connect/protocol`, and the standard library.
-  *Refusal owed:* a failure naming an undeclared edge, so a dependency arriving through a transitive
-  path is visible on the commit that adds it rather than at the next audit.
+  **Property 3 — the `github.com/urnetwork/*` paths `package sdk`'s production files spell directly
+  are exactly the ones this plan and the tree already declare.**
+  *Refusal owed:* a failure naming the undeclared path and the file that spells it.
+  *Scope to derive, separately from the class (R3):* the class is **every `github.com/urnetwork/*`
+  import path appearing in an import spec of a `package sdk` production file**, read off the syntax
+  tree; that class is **six** members at this task — `connect`, `connect/protocol`, `glog` and
+  `goidenticons`, which the tree already spells (measured 2026-09-09 over `sdk`'s production files:
+  37 sites, 6, 3 and 1 respectively), plus `connect/message` and `connect/messagegroup`, which this
+  plan adds — and the gate reports the number it read. The scope is every production file of the
+  package, not the files this plan creates, because an `sdk` file that already existed is as able to
+  spell a new path as a new one is.
+
+  **Property 4 — the module gains no new require-block entry beyond the two this plan promotes from
+  indirect to direct, and no new module at all.** This is the half Property 1's old transitive scope
+  was reaching for and could not decidably hold.
+  *Refusal owed:* a failure naming the module path and whether it arrived as direct or indirect.
+  *Scope to derive, separately from the class (R3):* the class is **every module path in
+  `sdk/go.mod`'s require blocks**, read off the parsed file rather than grepped; that class is
+  **36** members at this task — 8 direct and 28 `// indirect`, counted 2026-09-09 — and the
+  gate reports the number it read and the number in each block, so a module added or a module
+  promoted both move a number a reader can see. The scope is both require blocks, direct and
+  indirect, because a module that arrives indirect today is a module that can be spelled tomorrow.
+  After this plan it is 36 still, at 9 direct and 27 indirect. The one promotion this plan makes is `google.golang.org/protobuf`, because Task 5's
+  `Call` takes a `proto.Message`; it is in the graph today as `// indirect`, so this is **a `go.mod`
+  line and not a fetch** — see *Dependency policy*. Task 2a's per-`GOOS` exclusion adds nothing at
+  all: `syscall` is the standard library.
 
 - [ ] **Step 2: Run to verify it fails**
 - [ ] **Step 3: Write the minimal implementation**
@@ -1663,9 +2396,17 @@ plan that could break it, not with the plan that will eventually own the engine 
   2. Import it from a `_test.go` file. Property 1 must **pass** — a gate that fails here has the
      wrong scope and would convict s1's Task 3.
   3. Import `msgrepo/harness`. Property 2 must fail.
-  4. Add an undeclared third-party dependency. Property 3 must fail.
-  5. Reach `connect/mls` transitively through a new package rather than directly. Property 1 must
-     still fail — the class is the dependency set, not the import block.
+  4. Import an undeclared `github.com/urnetwork/*` path from a production file. Property 3 must fail.
+  5. Reach `connect/mls` transitively through `connect/messagegroup` — which is what every task from
+     Task 1 does. Property 1 must **PASS**. This is the mutation the first version of this gate got
+     backwards: the transitive edge is §2.3's own layering and is required by Wave 1, and a gate that
+     fails here is red at baseline, so every other mutation in this set would have run against a red
+     gate.
+  6. Match the forbidden paths with `strings.Contains` rather than an anchored comparison. Property 1
+     must fail, on `connect/mls/syntax` reported as `connect/mls`, so the gate's own matcher is held
+     to the distinction the two properties turn on.
+  7. Add a module to `sdk/go.mod`'s indirect require block. Property 4 must fail.
+  8. Promote a third module from indirect to direct. Property 4 must fail on the count that moved.
 
 - [ ] **Step 6: Commit**
 
@@ -1694,10 +2435,11 @@ vacuously** because a matcher did not strip a carriage return. `sdk` has no `.gi
   from the test files this plan creates rather than typed.
   *Refusal owed:* a red build.
   *Scope to derive, separately from the class (R3):* the class is **the test files this plan's File
-  Structure declares**, and that class is **eleven** members at this task — the ten `message_*_test.go`
-  files of Tasks 1–12 plus Task 13's layering test. The scope is the whole `sdk` root module, because
-  a gate that runs only the files this plan names stops covering the package the moment another plan
-  adds one.
+  Structure declares**, and that class is **twelve** members at this task — the eleven
+  `message_*_test.go` files of Tasks 1–12, including Task 8a's `message_client_test.go` (Task 2a
+  extends `message_stream_store_test.go` and adds none), plus Task 13's layering test. The scope is
+  the whole `sdk` root module, because a gate that runs only the files this plan names stops covering
+  the package the moment another plan adds one.
 
   **Property 2 — the crash-restart gate runs in CI and its run length is not silently reduced there.**
   Ten thousand allocations with an injected crash is the one gate on this leg with a runtime cost,
@@ -1739,10 +2481,11 @@ vacuously** because a matcher did not strip a carriage return. `sdk` has no `.gi
   *Refusal owed:* a missing row is a finding naming the symbol.
   *Scope to derive, separately from the class (R3):* the class is **the `Produces` blocks of
   Tasks 1–12 that declare a symbol**, which is where every exported and package-internal declaration
-  this plan makes is stated; that class is **eleven** members at this task — every task from 1 to 12
-  except Task 4, whose `Produces` block deliberately declares nothing. The scope is this document,
-  not the `sdk` tree, because a registry that reads the tree records what was built and a registry
-  that reads the plan records what was promised, and the gap between them is the finding.
+  this plan makes is stated; that class is **thirteen** members at this task — Tasks 1, 2, 2a, 3, 5,
+  6, 7, 8, 8a, 9, 10, 11 and 12, i.e. every task from 1 to 12 except Task 4, whose `Produces` block
+  deliberately declares nothing. The scope is this document, not the `sdk` tree, because a registry
+  that reads the tree records what was built and a registry that reads the plan records what was
+  promised, and the gap between them is the finding.
 
   **Property 2 — every pending pin fails when its producer lands.** A pin that stays green after the
   symbol exists is a stale reference the next reader will trust.
@@ -1766,14 +2509,31 @@ vacuously** because a matcher did not strip a carriage return. `sdk` has no `.gi
 
 | Wave | Tasks | Why here |
 |---|---|---|
-| 1 | 1, 2, 3, 4 | The durable reserver. Needs nothing — no transport, no s1 symbol, no `GroupHandle`, no new dependency — and gates every seal by construction, because `NewGroupSession` refuses a nil reserver. It should land **first and alone**. Task 1 must be committed **before any row exists on disk**, because the key-space version tag is what makes ledger item 170's hazard unreachable and adding it afterwards is the migration nobody can perform by recomputation |
+| 1 | 1, 2, 2a, 3, 4 | The durable reserver. Needs nothing — no transport, no s1 symbol, no `GroupHandle`, no new dependency — and gates every seal by construction, because `NewGroupSession` refuses a nil reserver. It should land **first and alone**. Task 1 must be committed **before any row exists on disk**, because the key-space version tag is what makes ledger item 170's hazard unreachable and adding it afterwards is the migration nobody can perform by recomputation. **Task 2a lands with Task 2, not after it**: a store that ships without the exclusion ships the hazard the leg exists to prevent, and a directory that has been allocated against by two openers cannot be repaired by adding a lock later |
 | 2 | 5, 6, 7 | The transport. Independent of Wave 1 and buildable in parallel: CP3c already proved this shape end to end over opaque bytes with no key schedule at all |
-| 3 | 8, 9, 10 | The send path. Task 8 needs neither wave; Tasks 9 and 10 need both, and Task 9 needs Task 7's nonce before it can seal anything the server will accept |
-| 4 | 11, 12 | The receive path. Nothing in the send path depends on it, which is why it is last on the prefix |
+| 3 | 8, 8a, 9, 10 | The seam and the send path. Task 8 needs neither wave. **Task 8a needs both waves whole and Task 12's `OpenReceiveState`**, which is why the landing order below puts part of Wave 4 in front of it; it constructs the one `GroupSession`, wires Wave 1's reserver to it, and declares the two halves Tasks 9, 10 and 11 write methods on. Tasks 9 and 10 are those methods, and Task 9 needs Task 7's nonce before it can seal anything the server will accept |
+| 4 | 11, 12 | The receive path. Task 12's **store** half is a dependency of Task 8a's config and lands before it; Task 12's **call-site** half and the whole of Task 11 are gates over a type Task 8a declares and land after it |
 | 5 | 13, 14, 15 | The gates. Task 13 goes as early as it can be made to pass — it is cheap and it is the only thing preventing the forbidden edge — but it is listed here because it is off the CP3b prefix |
 
+**The landing order is not the wave order on this plan, and both are stated because the difference is
+where a dispatched task fails to compile:**
+
+```
+1, 2, 2a, 3, 4        (wave 1, first and alone)
+5, 6, 7               (wave 2, may run in parallel with wave 1)
+8                     (needs neither)
+12 steps 1-4          (OpenReceiveState, the row, Properties 5, 6, 7)
+8a                    (the seam: needs waves 1 and 2 whole, and OpenReceiveState)
+9, 10, 11             (methods on the types 8a declares)
+12 steps 5-6          (Properties 1-4: the call-site gates over the receiver)
+13, 14, 15            (the gates, off the prefix)
+```
+
 **Waves 1 and 2 may be worked in parallel by two implementers.** They share no file, no type and no
-property. Waves 3 and 4 are sequential with each other and with both.
+property. Everything from Task 8a onward is sequential with both. **An implementer dispatched on
+Task 9, 10 or 11 before Task 8a has landed cannot compile**, because all three declare methods on a
+receiver type Task 8a declares — and an earlier draft of this plan had no task declaring it at all,
+which is the defect Task 8a exists to close.
 
 **And one ordering that is invisible in the leg's description:** `group_handle_key[0]` must be
 computed and persisted at group creation, **before the group's first commit**. After the group leaves
@@ -1798,9 +2558,12 @@ creates the first workflow. Nothing below can be run until the first is closed.
 | Every task's tests pass | `go test . -count=1` | ok |
 | Race-clean | `go test . -race -count=1` | ok |
 | The reserver never reuses an index | `go test . -run TestStreamIndexNeverReused -v` | PASS, and the run reports the number of allocations and the number of restarts it performed. A run that does not print both has not said whether it tested anything |
-| Every derived-class gate reports its class size | `go test . -v` | every gate in Tasks 1, 3, 6, 8, 10, 11, 12, 13 and 15 prints the number of members it read. **A class size of zero is a broken gate, not a clean one** |
-| No production edge to `connect/mls` | `go list -deps ./... \| grep connect/mls` | no matches |
+| Every derived-class gate reports its class size | `go test . -v` | every gate in Tasks 1, 2, 2a, 3, 4, 5, 6, 8, 8a, 10, 11, 12, 13, 14 and 15 prints the number of members it read. **A class size of zero is a broken gate, not a clean one** |
+| The single writer holds against a second PROCESS | `go test . -run TestStreamStoreSingleWriter -v` | PASS, and the run reports which of the two paths it exercised. A run that exercised only the in-process path has measured a mutex |
+| No `sdk` FILE spells `connect/mls` | `go list -f '{{range .Imports}}{{println .}}{{end}}' . \| grep -xE 'github.com/urnetwork/connect/mls(/syntax)?'` | no matches. **`-x` and the group are the row**: unanchored, `connect/mls` matches `connect/mls/syntax`, and `-deps` in place of `-f` makes this row red at baseline — measured, `go list -deps` over the four packages this plan links prints both `mls` paths among 414 packages |
+| The transitive edge that IS legal is still there | `go list -deps . \| grep -c 'connect/mls'` | **2**, not 0. `sdk` → `connect/messagegroup` → `connect/mls` and `sdk` → `connect/message` → `connect/mls/syntax` are §2.3's own layering and Wave 1 requires the first. A run that reports 0 here means the reserver is not linked |
 | No edge to the message server | `go list -deps -test ./... \| grep message-server` | no matches |
+| The require blocks moved by one line and no more | `git diff --stat -- go.mod` | one line, `google.golang.org/protobuf` from indirect to direct |
 | Vet and format | `go vet ./... && gofmt -l message*.go` | no output |
 | CI is green | the `messaging-client` workflow on the pushed branch | green, and its log shows the crash-restart gate's reported allocation count |
 | The plan linter is green in `msgrepo` | `go test ./ -run TestThePlanLinter` | ok |
@@ -1810,10 +2573,25 @@ mutation number, targeted or full run, killed or survived. A survivor with no re
 incomplete task. This project has thirty plan-supplied tests that could not fail; the mutation record
 is the only thing that distinguishes a test from a test-shaped object.
 
-**And the claim this Definition of done does NOT authorise.** Completing every row above does **not**
-mean CP3b. CP3b needs S2-1, S2-2, S2-3 and S2-4 closed, and all four are somebody else's commits in
-`connect`. The honest statement at the end of this plan is *"one client, one group, one real durable
-record, sealed and submitted and fetched and opened, over a durable reserver"*.
+**And the claim this Definition of done does NOT authorise — which an earlier draft overstated in a
+way its own open items contradict.** Completing every row above does **not** mean CP3b. CP3b needs
+S2-1, S2-2, S2-3 and S2-4 closed, and all four are somebody else's commits in `connect`.
+
+**It does not mean a run against a server either, and that is a smaller and more easily missed
+claim.** Every row above is a unit invocation. **No row runs against a message server, no task in
+this plan stands up a client that could reach one, and S2-7 leaves it unresolved whether CP3b runs
+over two loopback clients or two authenticated ones.** S2-1 blocks Tasks 9, 10 and 11 against a real
+server independently. So the earlier draft's closing sentence — *"one client, one group, one real
+durable record, sealed and submitted and fetched and opened"* — describes an end-to-end run that no
+row here performs and no task here builds the fixture for.
+
+**The honest statement at the end of this plan is what its tasks actually produce:** *a durable
+stream reserver under a single writer, with a crash-restart gate over the production store; a
+message-server binding that speaks the four arms `msgrepo/peer` serves, with fragmentation and a
+per-connection nonce; a projection the server's own re-projection would accept; a durable
+receive-side head index keyed the way the ratchet is keyed; and one seam that constructs one
+`GroupSession`, seals through it and would submit what it sealed — with no run against a server in
+any row, and the fixture that would perform one filed as S2-7.*
 
 ---
 
@@ -1831,9 +2609,12 @@ record, sealed and submitted and fetched and opened, over a durable reserver"*.
   `GroupStatus`, `BlobGrant`, `RecoveryFetch`, `WrapFetch` and the rendezvous arms.** None is
   implemented server-side; the receive path is a poll of Fetch and nothing else.
 - **`FetchAttestation` verification, key-transparency gossip, `ServerKey` rotation and fleet-root
-  pinning.** Two server-side absences this plan inherits and must not claim around: `HelloResponse`
-  carries no `server_keys` and no `kt_gossip`, so a client cannot verify a fleet key chain against a
-  compiled-in root; and Hello replaces a connection keyed on the source id unconditionally, so unless
+  pinning.** Two server-side absences this plan inherits and must not claim around, stated
+  about the SERVER rather than about the message, because the two differ and this plan's own repair
+  turned on exactly that distinction elsewhere: `protocol.HelloResponse` **declares** `server_keys`
+  (field 3) and `kt_gossip` (field 8) and `msgrepo` **populates neither** — `peer/hello.go:68` says
+  so in a comment and `peer/peer_test.go:355` pins it as a test — so a client cannot verify a fleet
+  key chain against a compiled-in root; and Hello replaces a connection keyed on the source id unconditionally, so unless
   the platform authenticates that identifier a Hello naming another client destroys that client's
   nonce.
 - **Every EPH, MEDIA and PERMANENT path**, including M1-25's transient/window interaction.
@@ -1867,17 +2648,22 @@ epoch *n+1* for the `EpochAttachment` every commit carries. The only derivation 
 `GroupHandle.Export(<label>, nil, 32)`, and the label and the length are **unexported constants**
 inside `messagegroup`. Corroborating evidence that this is a real gap and not a misreading:
 `msgrepo/harness`'s `Fetch` takes `readKey []byte` as an explicit parameter *precisely because it has
-no session to ask*. Measured 2026-09-09: an untracked `messagegroup/epoch.go` in the `connect` working
-tree declares a `ProvisionalEpoch` with `StorageRoot()`, `WriteKey()` and `PqSecret()` accessors — but
-it **takes `storageRoot` as a constructor parameter**, so it does not derive it either, and it covers
-the provisional epoch *n+1* rather than the live one. That work was **uncommitted and actively
-changing** while this plan was written; it is reported as measured, not as landed. **And the finding
+no session to ask*. Re-measured 2026-09-09 after this plan's review: the `messagegroup/epoch.go` that
+was an untracked working-tree file when this plan was written **has since landed**, at `connect`
+`7868d65`, and is tracked. It declares a `ProvisionalEpoch` with `StorageRoot()`, `WriteKey()`,
+`EphRoot()`, `PqSecret()` and `Wraps()` accessors — but `NewProvisionalEpoch` **takes `storageRoot`
+as a constructor parameter**, so it does not derive it either, and it covers the provisional epoch
+*n+1* rather than the live one. **The landing does not close this item**, and the plan's earlier
+"uncommitted, reported as measured" framing is corrected to "landed, and still not an answer". **And the finding
 survives it:** re-measured against that working tree rather than only against the commit,
 `grep 'func (self \*GroupSession) [A-Z]'` still returns the same **seven** methods and still returns
 no accessor for `readKey`, `writeKey`, `storageRoot` or `groupHandleKey`. This is a gap in the
 interface, not an artefact of reading an old commit. *Position taken:* every key crosses this plan's
-boundary as an **injected parameter** (`groupOpenSpec.StorageRootZero`, `Fetch`'s `readKey`), so `s2`
-contains no copy of the label and the gap stays visible at every call site. *Rejected:* spelling the
+boundary as an **injected parameter** — `messageClientConfig.StorageRootZero` and
+`messageClientConfig.PqSecretZero` at the seam (Task 8a), and `Fetch`'s `readKeyRef`, which carries
+the epoch the key is for — so `s2` contains no copy of the label and the gap stays visible at every
+call site. The injection point is **one struct** rather than one per task, which is the repair the
+review forced: two structs carrying the same injected key are two places to inject it differently. *Rejected:* spelling the
 exporter label in `sdk`, which is the §12.1 A-1 defect by construction and defeats the session's own
 zeroize discipline. **Blocks:** Tasks 9, 10 and 11 against a real server; CP3b. **Owner:** `connect`,
 and nobody has it.
@@ -1900,9 +2686,12 @@ bar violation rather than a shortcut.** `NewGroupSession` refuses an empty `pq_s
 `AdvanceEpoch`, so `s2` cannot construct a session without one. The X-Wing primitives exist and have
 **no production caller**, and the query is published beside the claim: over the non-test production
 files of `connect/messagegroup` at `33932e0`, the only file matching
-`XwingEncapsulate|XwingDecapsulate` is `xwing.go`, which **declares** them. m1 Task 13 supplies the sampler and was in the `connect`
-working tree uncommitted on 2026-09-09; m1 Task 14 supplies the device wrap that **delivers** it and
-is blocked on M1-1's remainder and ledger item 152. Until delivery exists, the only thing making two
+`XwingEncapsulate|XwingDecapsulate` is `xwing.go`, which **declares** them. m1 Task 13 supplies the sampler and **has landed** — `NewPqSecret` is
+tracked at `connect` `7868d65`, which corrects this plan's earlier "in the working tree, uncommitted"
+reading; m1 Task 14 supplies the device wrap that **delivers** it, has not landed, and is blocked on
+M1-1's remainder and ledger item 152. Re-measured at `7868d65`: no `wrap*.go` in `messagegroup`, and
+`XwingEncapsulate` and `XwingDecapsulate` have no production caller outside `xwing.go`, which
+declares them. Until delivery exists, the only thing making two
 sessions agree on a storage root is a test constant — which is exactly the *"no test-only key source
 anywhere on the path"* the bar forbids. **Blocks:** CP3b, unconditionally, no matter how well `s2` is
 built. **Owner:** m1.
@@ -1930,18 +2719,25 @@ recomputation.
 documented as the caller's own state that must never be read off a record header, and §8.2's
 `MessageStore` declares nothing for the receive side. Leg 5 as stated is only the sender half of the
 durability CP3b needs. *Position taken:* Task 12 builds it as `ReceiveState`, separate from
-`StreamStore`, because the two have different keys and different failure modes. **Blocks:** a
+`StreamStore`, because the two have different keys and different failure modes — and, after this
+plan's review, keyed by the retention **wire** byte rather than by `message.RetentionClass`, with
+Task 1's version-tag mechanism applied to it. What the key must be is **S2-18**. **Blocks:** a
 restarted client that must not re-walk from zero. **Owed:** a §8.2 amendment naming it.
 
 **S2-7 — how a client reaches the message server is specified nowhere in this plan's span.** §4.2 says
 frames are addressed to the instance's `client_id`; no discovery, no settings field and no directory
 lookup is specified. §9.3's `settings_json` carries `storage_dir`, `network_space_host` and
-`message_server_id` and deliberately **no** `ByJwt`, while §10.2's own table says contracts need one —
-and `sdk`'s only production `connect.Client` is the VPN's, inside `deviceLocalProvider`. So `s2`
-either stands up a second authenticated client or CP3b runs over two loopback clients the way
-`msgrepo`'s own fixture does, with no network space and no operator. The second is far cheaper and is
-what CP3c actually did. **Not resolved.** **Blocks:** Task 5's construction on a real network; not the
-gates.
+`message_server_id` and deliberately **no** `ByJwt`, while §10.2's own table says contracts need one.
+**And the "no precedent" half of this item was wrong and is corrected here rather than left:**
+measured 2026-09-09, `sdk` has **two** production `connect.NewClient` sites, not one —
+`device_local_provider.go:109` (the VPN device) and `sim_device.go:115`, which is `package sdk` with
+no build tag and stands up its own `ApiOutOfBandControl` from `config.ByJwt` and `config.ApiUrl`. So
+a standalone authenticated client in this module is not unprecedented; it is unspecified for
+messaging. `s2` either stands up a second authenticated client on that pattern or CP3b runs over two
+loopback clients the way `msgrepo`'s own fixture does, with no network space and no operator. The
+second is far cheaper and is what CP3c actually did. **Not resolved.** **Blocks:** Task 5's
+construction on a real network; the end-to-end row the Definition of done deliberately does not
+have; not the gates.
 
 **S2-8 — §8.2 declares no length rule for its `[]byte` key, and `messagegroup` panics on one.**
 `[32]byte` and `[16]byte` are total; `[]byte` is not, and clause 4 makes an unrecognised key an
@@ -1952,11 +2748,17 @@ holds only while the persisted value is trustworthy, and `s2` is the thing that 
 off a disk. *Position taken:* Tasks 1 and 3 refuse at the boundary with `ErrStreamKeyWidth`. *Not
 resolved:* whether §8.2 should declare the refusal, which is a spec edit.
 
-**S2-9 — three wire-shaped values have no shared home and `s2` writes the second or third copy of
+**S2-9 — FOUR wire-shaped values have no shared home and `s2` writes the second or third copy of
 each.** The §4.3.3 **projection** exists in `msgrepo/api/submit.go` (server, authoritative) and
 `msgrepo/harness/seal.go` (test-only) and **nowhere in `connect`**; §4.6's **part size** exists only
-in `msgrepo/peer/frame.go`, the server module; and **`maxLadderWalk`** is unexported in
-`messagegroup`. Two readings of the projection are both defensible and this plan does **not** choose
+in `msgrepo/peer/frame.go`, the server module; **`maxLadderWalk`** is unexported in `messagegroup`;
+and the fourth, which an earlier draft of this item omitted while Task 11 required `s2` to
+reimplement it, is the **op-byte derivation**. The authoritative implementation is
+`msgrepo/api/api.go:339`, `func opOf(body proto.Message) (uint8, error)`, which walks
+`MessageServerRequest`'s fields, filters on `field.ContainingOneof() != nil`, bounds the number to a
+`u8` and returns `uint8(field.Number())`. `sdk` cannot import module
+`github.com/urnetwork/message-server` (Task 13 Property 2), so Task 11 Property 2 writes a second
+one, and this item's own framing applies to it identically. Two readings of the projection are both defensible and this plan does **not** choose
 between them: promoting one builder into `connect/message` makes §5.1 check 3 verify that
 encode-then-parse round-trips (a real property, differently shaped), while keeping two independent
 builders makes it verify that the client's projection agrees with the server's parse (which is what
@@ -2013,6 +2815,61 @@ sentence, neither of which this plan may make.
 
 ---
 
+**S2-16 — Windows cannot force the durability of a directory entry, so the FIRST allocation against a
+never-before-seen stream has a crash window no user-space code closes.** Measured 2026-09-09 on this
+machine with the project toolchain: `os.Open(dir)` and `os.OpenFile(dir, os.O_RDONLY, 0)` both
+succeed and both give a handle whose `Sync()` returns `Access is denied.` The only other lever,
+`FlushFileBuffers` on a volume handle, needs administrator privilege and flushes the whole volume,
+which a client SDK may not do. *Position taken:* Task 2 removes every directory-entry mutation from
+the allocation path, so the one durability boundary there is a file-contents flush, which
+`os.File.Sync` forces on every platform; a row's directory entry is established when the store first
+touches the key, **before any index for it has been handed out**. *What that leaves:* if a crash
+loses that entry after indices were served under it, the next open sees no row, answers `HighWater`
+0 and re-allocates from 1 — the item-170 shape, reached through the filesystem rather than through a
+key derivation. On NTFS the entry is metadata-journaled and lands within seconds, which is a strong
+practical argument and **not a guarantee**, and this plan does not claim it as one. *Rejected:*
+declaring the store Windows-unsafe, which would make CP3b unreachable on the platform the plan is
+written for; and requiring the caller to pre-create every row, which needs a key set nobody has at
+open time. **Blocks:** nothing in this plan; it is the residual under Task 2 Property 1 and the one
+durability claim `s2` cannot make. **Owed:** a ruling on whether the SDK may hold an
+already-fsynced spare row per group, which trades disk for the window.
+
+**S2-17 — §8.2 says nothing about concurrent openers, and a `StreamIndexReserver`'s five contract
+clauses say nothing either.** Clause 1 is about a process death, clause 3 about the life of the
+stream and every restart; neither is about two live allocators. `streamindex.go` gets close — it
+rejects the session-owns-the-counter shape partly because *"a read, then a caller's decision, then a
+write with an fsync in it is a window that an allocation done in one statement does not have"* — but
+it states no exclusion and §8.2 declares none. *Position taken:* Task 2a holds the exclusion in the
+operating system, per `GOOS`, with a fail-closed fallback, and a second opener is refused rather than
+queued. *Not resolved:* whether §8.2 should declare a sixth contract clause, and whether the
+exclusion is per **directory** (this plan's choice) or per **stream** (which would let two processes
+share one store and is a larger design). **Blocks:** nothing in this plan. **Owed:** a §8.2 amendment,
+or a written statement that the exclusion is the implementer's.
+
+**S2-18 — nothing rules what field set a RECEIVE-side row is keyed by, and the two candidates differ
+by six.** M1-5 rules the send-side row; §8.2 declares nothing for the receive side at all (S2-6). The
+ratchet the row feeds is keyed by `ReceiverRatchetKey{SenderHandle, RetentionWire}`, and
+`RetentionEph` is one class value spanning six buckets — so a row keyed by `message.RetentionClass`
+collapses all six EPH buckets of one sender onto one head index, which is ledger item **170**'s
+defect class reproduced on the side where a wrong answer is silent message loss rather than a server
+refusal. *Position taken:* Task 12 keys by the retention **wire** byte, derived through
+`message.RetentionClassWire` and never by a second copy of the join, because that is the key the
+consumer of the row already uses. *Not resolved:* whether §8.2 should declare the receive-side row at
+all, and whether a future transient counter (item 152, M1-25) would re-key it again — which is the
+same question M1-5 asks on the send side and has the same answer shape: a versioned key space, which
+Task 12 Property 7 now carries. **Blocks:** nothing in this plan. **Owed:** a §8.2 amendment and a
+ruling alongside M1-5.
+
+**S2-19 — no document says which object owns the `GroupSession`, the transport and the two stores,
+and the first draft of this plan therefore owned them nowhere.** §8.2 declares a store, §10 declares
+a transport, and `messagegroup` declares a session; nothing declares the thing that holds all three,
+and s1's `MessageClient` — the natural owner — is written and unexecuted. *Position taken:* Task 8a
+declares a package-internal `messageClient` with `messageSender` and `messageReceiver` halves, so the
+seam exists and is gated, and the **surfacing** onto `MessageClient` stays s1's declaration to make.
+*Rejected:* declaring a partial `MessageClient` here, for the same reason S2-12 declines to declare a
+partial `MessageStore`. **Blocks:** nothing in this plan; it is why the plan produces no exported
+messaging surface. **Owed:** s1's `MessageClient`, and then one task that is not in this plan.
+
 ## Open asks on other plans
 
 - **To `connect`, unowned:** a reachable `read_key[e]` and `write_key[e]` for a live `GroupSession`,
@@ -2026,7 +2883,14 @@ sentence, neither of which this plan may make.
 - **To `connect/mls`, upstream of m1 Task 16:** publish the joiner's signature private key so
   `JoinFromWelcome` can work (S2-4).
 - **To the owner:** rule M1-5 and ledger item 170 (S2-5); rule where the projection, the §4.6 part
-  size and `maxLadderWalk` live (S2-9); and rule whether CP3b runs over two loopback clients or two
-  authenticated ones (S2-7).
+  size, `maxLadderWalk` and the op-byte derivation live (S2-9); rule whether CP3b runs over two
+  loopback clients or two authenticated ones (S2-7); and rule the receive-side row's key alongside
+  M1-5 (S2-18).
+- **To whoever owns §8.2:** declare the single-writer exclusion, or state that it is the
+  implementer's (S2-17); and declare the receive-side store, which §8.2 does not mention at all
+  (S2-6, S2-18).
+- **To nobody, and it stays open:** the Windows directory-entry window under a store's first
+  allocation for a stream (S2-16). It is named here because a plan that did not name it would have
+  been read as having closed it.
 - **To s1:** nothing blocking. S1-9 blocks the four `StoredEntry` methods and not this plan's prefix,
   and that is the scheduling fact this document most wants read.
