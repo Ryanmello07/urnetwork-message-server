@@ -637,7 +637,7 @@ func VerifyWriteAuth(writeKey, serverNonce []byte, r *Record) bool
 | Symbol | Producer | Consumed by | State on 2026-09-04 |
 |---|---|---|---|
 | `pq_secret[n]`, as a value with a type and a sampler | **this plan, Task 13** | `StorageRoot`'s second argument | absent everywhere: no type, no file, no spec section |
-| the device wrap's body encoding and its seal | **PARTLY RULED 2026-09-13 — three of the five questions; M1-1's remainder is still open** | Task 14 | Spec A §5.11 now carries the outer seal, the two-record split, the body signature and the fan-out sequence. Still absent: the body's field list beyond MASTER §8.2's payload table, where the signature sits relative to `hybrid_ct`, and the padding scheme (M1-7) |
+| the device wrap's body encoding and its seal | **RULED IN FULL — 2026-09-13 for the seal, the record count and the signature; 2026-09-09 for the remainder, as composite `C3`** | Task 14 | Spec A §5.11 carries the outer seal, the two-record split, the body signature, the fan-out sequence and now the body grammar: an 11-octet envelope outside `hybrid_ct`, `LP(identity_pub)` beside the signature inside `aead_ct`, `LP(wrap_envelope)` in the signature preimage, and `P2`'s `LP32` prefix and tail refusal over all three wrap bodies. **What still blocks Task 14 is ledger 152 and nothing of M1-1's or M1-7's** |
 | the joiner's channel for `group_handle_key` | **DELIBERATELY DEFERRED 2026-09-13 — still unruled, and CP3b is NOT blocked by it** | Task 16 | `grep -rn 'group_handle_key\|GroupHandleKey'` over `connect` still returns **0**. Ledger 44a's already-blessed gated test-only hand-off carries it for CP3b, under the proviso Task 16 now states |
 | `mls.CheckGroupSize`, `mls.CheckDeviceCount` | p7 Task 20 | nothing in this plan | absent; the two constants exist, the two checks do not |
 | `SubmitResult.winning_commit` | Spec B / `msgrepo` | Task 21 (§5.12) | Spec B's type; `msgrepo/store` serves `Submit` today |
@@ -918,7 +918,9 @@ the five still unnamed:
 **Two files §2.2 names that this plan does not create,** and only one was accounted for:
 
 - **`pad.go`** — accounted for. Task 24 records that its size-bucket ladder is already in `record.go`
-  and `codec.go`, and the body padder M1-7 rules on goes in `seal.go` beside its unpadder.
+  and `codec.go`, and the body padder M1-7 rules on goes in `seal.go` beside its unpadder. *(**M1-7
+  was ruled 2026-09-09 as `P2`** and the landed pair is the ruled shape, so `pad.go` stays uncreated
+  by design rather than by omission; the ruling's one new obligation is the unpadder's tail refusal.)*
 - **`tombstone.go`** — **not** accounted for before this line. Task 24 absorbs *"tombstones and
   `COVER`"* into `reaction.go` in one clause. That is a file §2.2 names disappearing into a file
   §2.2 does not, for no stated reason. Either Task 24 creates `tombstone.go` as §2.2 says, or it
@@ -971,7 +973,7 @@ discovered at Task 14.
 | Wave | Tasks | On CP3b? | Note |
 |---|---|---|---|
 | 1 | 1–12, and 9a | **yes** | unblocked: the schedule, the ratchets, the adapter, the session, seal and open |
-| 2 | 13–16 | **yes** | the second client's half. Task 14 has three of M1-1's questions ruled (2026-09-13) and still needs M1-1's remainder **and** the `EPH` half of the seal refusal (ledger **152**) for its `eph_root` wrap; **Task 15 is unblocked** — M1-6 was ruled 2026-09-07 and its snapshot is `PERMANENT`; Task 16's M1-2 is deferred and does **not** block CP3b. **The `stream_index`-to-ratchet pin both tasks owed is RULED — 2026-09-07, ledger 143 and 169 together, as shape A1: `i = stream_index` in every ladder over one class-blind counter per `(group_id, sender_handle)`. Neither task is blocked by it any longer** |
+| 2 | 13–16 | **yes** | the second client's half. **Task 14's M1-1 and M1-7 are RULED IN FULL — 2026-09-13 and 2026-09-09** — and what it still needs is the `EPH` half of the seal refusal (ledger **152**) for its `eph_root` wrap, which no ruling of either date touches; **Task 15 is unblocked** — M1-6 was ruled 2026-09-07 and its snapshot is `PERMANENT`; Task 16's M1-2 is deferred and does **not** block CP3b. **The `stream_index`-to-ratchet pin both tasks owed is RULED — 2026-09-07, ledger 143 and 169 together, as shape A1: `i = stream_index` in every ladder over one class-blind counter per `(group_id, sender_handle)`. Neither task is blocked by it any longer** |
 | 3 | 17–24 | **no** | required before the A6 format freeze; none is required to put a message in front of a person |
 
 **And the two legs this plan does not have.** CP3b's own words are *"through the message server"*. Every
@@ -2930,7 +2932,12 @@ caller cannot tell the message from the padding. `msgrepo/harness/seal.go` pads 
 and never unpads, because CP3a's harness does not encrypt and never reads a body back. **Open item
 M1-7**, wire-visible, blocks the A6 freeze. Pending the ruling, put the padder and the unpadder in
 **one unexported pair in `seal.go`** so the ruling is one edit, and make `OpenRecord`'s round trip
-the test that binds them.
+the test that binds them. *(**RULED 2026-09-09 as `P2`**: `LP32(len) ‖ body ‖ zeros` — which is what
+this task landed — plus an accumulating, position-free typed refusal of a non-zero tail, over all
+three wrap bodies. The advice above held: the ruling **is** one edit, on the unpadder. What the
+ruling does not say is whether the refusal also reaches the **ordinary** record body this pair
+serves; `unpadBody` is one function, so a wrap-only refusal would be a class-dependent unpadder.
+See `M1-7`.)*
 
 **(c) The empty attachment.** §5.2 says `serverAttachment` *"is nil for an ordinary record and MUST
 then encode zero-length (§5.11)"*; §5.11 says a parser MUST refuse an **encoded** kind `0x0000`.
@@ -3282,7 +3289,7 @@ already says "destroyed as one thing"; mutation 7 is what makes it fail.
 
 ---
 
-## Task 14: The device wrap — **two records; three of M1-1's questions ruled 2026-09-13, and the rest still blocks**
+## Task 14: The device wrap — **two records; M1-1 and M1-7 are RULED IN FULL (2026-09-13 and 2026-09-09) and ledger 152 is what still blocks**
 
 **Files:**
 - Create: `connect/messagegroup/wrap.go`
@@ -3333,16 +3340,45 @@ count, the outer seal and the order. Spec A §5.11 remains the place the **measu
 accepted costs, the residuals and the open items — so read it for those; that is a division of labour
 and no longer a warning.
 
-**What is still open, and it still blocks this task.** M1-1's remainder is real and small: the wrap
-body's field list beyond what MASTER §8.2's payload table and MASTER §7's `hybrid_ct` framing already
-fix; **where the signature sits relative to `hybrid_ct` and precisely which octets it covers**; and the
-padding scheme, which is **M1-7**. And **M1-6 blocked this task too** — see Task 11(a): both records
-this task builds are non-`DURABLE`. **M1-6 was ruled 2026-09-07 and this task is still blocked by the
-refusal**, because the lift reaches `PERMANENT` and `MEDIA` and **not `EPH`**, and one of this task's
-two records is the `EPH(5)` `eph_root` wrap. The item that refuses it is now ledger **152**, not M1-6.
-So the `PERMANENT` `pq_secret` wrap is through the gate and its twin is not, and a fan-out that
-emitted one without the other would break Property 1's *"exactly two"* — which is why this is a block
-on the task and not a partial start. Do not start step 1 against a guess at any of the three. The
+**5. The wrap body's grammar, its signature preimage and its padding — RULED 2026-09-09 as composite
+`C3`, and this is the ruling that took M1-1 and M1-7 off this task.** Spec A §5.11 (6) is the
+normative text and MASTER §7 and §8.2 carry the shape; read those rather than this list. In outline:
+every wrap body is `LP32(len) ‖ wrap_envelope ‖ hybrid_ct ‖ zeros`, with
+`wrap_envelope = u8(wrap_format_version = 0x01) ‖ u8(target_type) ‖ u8(payload_type) ‖
+u64(content_epoch)` (11 octets, version first) and **no `publisher_leaf_index`**; `aead_ct`'s
+plaintext is `secret ‖ LP(identity_pub) ‖ sig`; the signature preimage is `S1`'s **with
+`LP(wrap_envelope)` inserted ahead of `LP(ct_xwing)`**, which is the term without which the envelope
+this ruling adds is signed by nobody; and the `LP32` prefix and an **accumulating, position-free**
+refusal of a non-zero tail apply to all three wrap bodies, the recovery wrap included. Measured:
+device occupancy **1,293** of the 4,096 rung, tail **2,803**; recovery `ct_body` **1,357** of 4,112,
+tail **2,755**; `ct_body` 4,112, records 4,398 and 4,428 — **zero octets on the wire**. **Four things
+the ruling does not state and this task meets at step 1** are enumerated in open item **M1-1**: the
+envelope-as-hint sentence, the **open → verify → honour** order (which contradicts Property 7's
+*"before it honours anything in the record"* as written), how a **member** finds the identity key it
+verifies under, and a typed refusal for an absent or short signature. And one number: whether
+`LP(identity_pub)` enters the preimage's own `LP(payload)` term is settled by no document — the
+preimage is **1,320** octets if it does not and **1,356** if it does, and a builder must have that
+answer before it signs anything.
+
+**What is still open, and it still blocks this task — and it is no longer M1-1's or M1-7's.** Both
+were ruled (2026-09-13 and 2026-09-09) and neither blocks this task any more. **M1-6 blocked this task
+too** — see Task 11(a): both records this task builds are non-`DURABLE`. **M1-6 was ruled 2026-09-07
+and this task is still blocked by the refusal**, because the lift reaches `PERMANENT` and `MEDIA` and
+**not `EPH`**, and one of this task's two records is the `EPH(5)` `eph_root` wrap. The item that
+refuses it is ledger **152**, not M1-6. So the `PERMANENT` `pq_secret` wrap is through the gate and its
+twin is not, and a fan-out that emitted one without the other would break Property 1's *"exactly two"*
+— which is why this is a block on the task and not a partial start. **Ledger 152 is now the whole of
+what blocks this task**, and the 2026-09-09 ruling is explicit that the two were always independent:
+a complete answer to the field list, the signature and the padding does not start Task 14 while
+`connect/messagegroup/seal.go:119` and `:387` refuse every non-`DURABLE` class.
+
+**And two things this task's Consumes list does not name and now must.** Nothing in
+`connect/messagegroup` can **sign or verify** anything — `grep -rn 'ed25519' messagegroup/*.go`
+outside tests returns nothing and `GroupSession` holds no signing key — so both halves of the
+signature surface are new work this ruling makes due. And the construction order the ruling requires,
+`envelope → encapsulate → sign → seal aead_ct → seal record`, is **not expressible in the shipped
+staging types**: `seal.go`'s `recordBuilder → recordBodySealed → recordBodyBound → recordHeadSealed`
+chain starts at the record layer and the wrap is built above it. The
 `stream_index`-to-ratchet-position pin that the ruling made due (ledger **143**, **169**) is **no
 longer one of them**: it was ruled 2026-09-07 as shape A1 — `i = stream_index` in every ladder over one
 class-blind counter — which also closes this task's own hazard, since the device wrap's two records for
@@ -3358,8 +3394,9 @@ does when it has missed the window; the honest answer to the last is that **that
 `storage_root` is unrecoverable**, and this task's opener must say so with a typed failure rather than
 retry.
 
-- [ ] **Step 1 (after M1-1's remainder is ruled, and after ledger 152 lifts the `EPH` refusal that
-      M1-6's 2026-09-07 ruling did not reach): Derive the property and write the failing test**
+- [ ] **Step 1 (M1-1's remainder and M1-7 are RULED — 2026-09-09; this step now waits only on
+      ledger 152 lifting the `EPH` refusal that M1-6's 2026-09-07 ruling did not reach): Derive the
+      property and write the failing test**
 
   **Property 1 — every active device leaf gets exactly TWO wrap records,** one `PERMANENT` and one
   `EPH(5)`, and no leaf gets one of them. The scope question (R3a): the leaves are the ones the
@@ -3442,7 +3479,16 @@ retry.
 
 ---
 
-## Task 15: The epoch fan-out, the snapshot, and `expected_wrap_count`
+## Task 15: The epoch fan-out, the snapshot, and `expected_wrap_count` — **not blocked by any open item; blocked only by Task 14's file**
+
+**Blocker state, 2026-09-09.** This task has **no open item in front of it**: M1-6 was ruled
+2026-09-07 and every record this task writes is `PERMANENT`, so ledger 152's `EPH` refusal does not
+reach it, and the `stream_index`-to-ratchet pin it owed was ruled the same day as shape A1. **What it
+waits on is a file, not a ruling** — it *modifies* `wrap.go`, which **Task 14 creates**, and Task 14
+is blocked by ledger **152**. `M1-1` and `M1-7`, which used to sit in front of Task 14 and therefore
+in front of this task, were **RULED 2026-09-09** as composite `C3`; the wrap body's grammar, its
+signature preimage and its padding are settled and this task builds against them rather than around
+them.
 
 **Files:**
 - Modify: `connect/messagegroup/wrap.go`, `connect/messagegroup/wrap_test.go`
@@ -3743,6 +3789,13 @@ test that is red on purpose is indistinguishable from one that is red by regress
 ---
 
 ## Task 16: The joining member — **M1-2 deliberately deferred 2026-09-13; this task is NOT blocked by the deferral**
+
+**Blocker state, 2026-09-09.** Unchanged by the `M1-1`/`M1-7` ruling of that date except in one
+respect worth stating, because this task also *modifies* the `wrap.go` Task 14 creates: the wrap
+body's grammar is now settled, so the opener this task calls has a field list to read rather than one
+to guess. **What still stands in front of CP3b through this task is not an m1 item at all**: `s2`'s
+**S2-4** — `JoinFromWelcome` is an unconditional refusal, so there is no exported path by which two
+clients share one group — and it is `connect/mls`'s, upstream of everything m1 and s2 can do.
 
 **Files:**
 - Modify: `connect/messagegroup/session.go`, `connect/messagegroup/wrap.go`,
@@ -4209,8 +4262,9 @@ Tombstones and `COVER` land here too; `pad.go`'s size-bucket ladder is already i
 Wave 0  Task 0, the split                                         (not this plan's commit)
 Wave 1  1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 9a → 10 → 11 → 12     COMPLETE — seven commits,
                                                                   b9a31e2..34fc072; 7,620 tests
-Wave 2  13 → [14: M1-1's remainder + ledger 152] → [15: UNBLOCKED, M1-6 ruled] → [16: not blocking] (CP3b)
+Wave 2  13 → [14: ledger 152 ONLY — M1-1 and M1-7 RULED 2026-09-09] → [15] → [16] (CP3b)
         the head-ladder position 14 and 15 owed is RULED: ledger 143 and 169, shape A1, 2026-09-07
+        the wrap body, its signature preimage and its padding are RULED: composite C3, 2026-09-09
 Wave 3  17, 18, 19, 20, 21 | 22 → 23 | 24                          (A6 freeze; the three groups are parallel)
 ```
 
@@ -4237,10 +4291,13 @@ landed, and are the largest block that can run entirely in parallel with waves 1
 **Three rulings gated the schedule; the owner has moved two of them and the third grew.** Amended
 2026-09-13.
 
-- **M1-1 is three-fifths ruled.** Spec A §5.11 now carries the fan-out sequence, the outer seal of both
-  wrap kinds, the body signature and the two-record device-wrap split. What is left is the body's field
-  list beyond MASTER §8.2, the signature's placement, and M1-7's padding scheme. Task 14 is written
-  against the ruling and blocked on that remainder.
+- **M1-1 is RULED IN FULL, and so is M1-7 — 2026-09-09, as composite `C3`.** Spec A §5.11 carried the
+  fan-out sequence, the outer seal of both wrap kinds, the body signature and the two-record
+  device-wrap split from 2026-09-13; it now carries the remainder as well — the body's field list, the
+  signature's placement and preimage, and M1-7's padding scheme, with the two repairs the option sets
+  did not contain (`LP(wrap_envelope)` in the preimage, and `P2`'s prefix extended over the recovery
+  wrap). **Neither item is a schedule gate any more. Ledger 152 is the only one left in front of
+  Task 14**, and the two were always independent.
 - **M1-2 is deliberately deferred and is no longer a schedule gate.** Where `group_handle_key` lives in
   production is not ruled, and CP3b does not wait on it: ledger 44a's gated test-only hand-off carries
   it, under the proviso Task 16 states. That proviso is a **requirement on whoever builds the hand-off**,
@@ -4428,8 +4485,12 @@ Tasks 12 and 16; and `SPEC-LEDGER.md` gains an edit-log entry per this repositor
   What this plan does own is being written for the tree that commit produces rather than the one it
   replaces, so that no task lands a key schedule in the package the server links.
 - **It does not freeze the wire format.** **Six** of the 50 open items below carry the
-  *wire-visible* label — M1-6, M1-7, M1-8, M1-24, M1-27 and M1-33 — and **four of the six still need
-  a ruling before A6 closes: M1-7, M1-24, M1-27 and M1-33.** *(**M1-8** was ruled 2026-09-07 —
+  *wire-visible* label — M1-6, M1-7, M1-8, M1-24, M1-27 and M1-33 — and **three of the six still need
+  a ruling before A6 closes: M1-24, M1-27 and M1-33.** *(**M1-7** was ruled 2026-09-09 as `P2` over
+  all three wrap bodies, in one sitting with M1-1; the label stays, because it is a property of the
+  question and not of its status. What M1-7's ruling leaves for A6 is not a scheme but three numbers
+  and a sentence: the fill octet in a document, the **65,532** inline ceiling three documents publish
+  as *"64 KiB"*, and whether the tail refusal reaches the ordinary record body.)* *(**M1-8** was ruled 2026-09-07 —
   `LP(leaf_index)` is the four-octet reading — and the same commit that ruled it left it standing in
   this list, so a reader counting A6 blockers got six where five remained. **M1-6** was ruled later
   the same day. The label stays on both, because it is a property of the question and not of its
@@ -4511,9 +4572,148 @@ given.
 
 ### Blocking CP3b
 
+**M1-1 — RULED IN FULL 2026-09-09 BY THE OWNER, AS THE REPAIRED COMPOSITE `C3`. The wrap body's
+field list, the signature's placement and coverage, and — in the same sitting, with `M1-7` — the
+padding scheme are settled.** The item is kept whole below rather than rewritten, because what it
+asked is what a second implementer asks again, and because the *reasoning* for one term of this
+ruling is worth more than its shape.
+
+**THE RULING, 2026-09-09. Four sentences, and the third and fourth are repairs the three option sets
+did not contain.**
+
+1. **`W1`'s four-field envelope sits OUTSIDE `hybrid_ct`.**
+   `u8(wrap_format_version = 0x01) ‖ u8(target_type) ‖ u8(payload_type) ‖ u64(content_epoch)` —
+   **11 octets**, version octet first — ahead of `hybrid_ct` in every wrap body.
+   **`W5`'s `u32(publisher_leaf_index)` is dropped** (ledger **179**).
+2. **`LP(identity_pub)` sits beside the signature INSIDE `aead_ct`**, so `aead_ct`'s plaintext is
+   `secret ‖ LP(identity_pub) ‖ sig`. It is the only field that makes a recovery wrap's signature
+   verifiable by the party the record exists for — a seed-only restorer, which holds no MLS state
+   and no `group_handle_key` and can therefore resolve neither a `sender_handle` nor a leaf index to
+   an identity key.
+3. **`S1`'s signature preimage is extended by `LP(wrap_envelope)`**, inserted ahead of
+   `LP(ct_xwing)`. **This is the first repair, and the paragraph below is why it is the point of the
+   ruling.**
+4. **`P2` applies to all three wrap bodies, the recovery wrap included** — the `LP32` length prefix
+   and an accumulating, position-free refusal of a non-zero tail. **This is the second repair**; it
+   is the whole of `M1-7` for the wrap classes and `M1-7` is ruled with it.
+
+**MEASURED, and every figure below reproduces from ledger item 175's shipped-encoder measurements.**
+Device wrap: body plaintext **1,289** octets, occupancy **1,293** of the 4,096 rung, zero tail
+**2,803**. Recovery wrap: `ct_body` occupancy **1,357** of 4,112, zero tail **2,755**. `ct_body`
+stays **4,112** on both, so Spec B's `octet_length(ct_body)` CHECK never moves; the records stay
+**4,398** and **4,428**; the 500-member × 2-device fan-out stays **11.01 MB**. **Zero octets on the
+wire.** The arithmetic, so a reader re-derives rather than trusts: `aead_ct` is
+`32 + (4+32) + 64 + 16 = 148`, `hybrid_ct` is `2 + (4+1120) + (4+148) = 1,278`, the body is
+`11 + 1,278 = 1,289`, and `padBody` writes a four-octet `LP32`, so occupancy is 1,293. The recovery
+wrap carries `storage_root` (32) and `archive_secret` (64), so its `aead_ct` is
+`32 + 64 + (4+32) + 64 + 16 = 212`, its `hybrid_ct` is `2 + (4+1120) + (4+212) = 1,342`, its body
+`1,353`, and its prefixed occupancy **1,357**.
+
+**ONE FIGURE IN THE RULING AS TRANSMITTED DOES NOT REPRODUCE, AND IT IS NOT WRITTEN DOWN HERE.** The
+ruling carried the signature preimage as *"1,305 → **1,324** octets"*. **1,324 is the `W1+W5`
+figure** — ledger item **176** measures the repair term as *"**1,324** with set 1's five fields, or
+**1,320** with W1's four"* — and this ruling drops `W5`, so the envelope is 11 octets,
+`LP(wrap_envelope)` is 15, and the preimage is **1,320**. 1,324 is the number for the composite the
+owner did **not** take. The figure recorded here is **1,320**, and it is recorded with the term the
+ruling leaves under-determined stated beside it: **whether `LP(identity_pub)` also enters the
+preimage's own `LP(payload)` term is settled by no document.** `S1`'s `LP(payload)` was measured over
+a 32-octet secret (`1,269 + 4 + 32 = 1,305`), while set 2's own `S1` line prices `LP(identity_pub)`
+as *"a further 36 **in the payload**"*. Under the first reading the preimage is **1,320**; under the
+second, **1,356**. This pass measured neither and writes neither as *the* number — it writes 1,320,
+which is item 176's own measurement for the field set that was ruled, and files the second reading.
+**A builder must have the answer before it signs anything**, which makes this the one term of the
+preimage Task 14 cannot start against a guess at.
+
+**WHY THE REPAIR TERM IS THE POINT OF THE RULING, AND THIS PARAGRAPH IS THE ONE TO KEEP.** Three
+analysts worked independently — one on the field list, one on the signature, one on the padding — and
+each recommended a piece. Composed as they arrived (`C1`), the result **signs the record header, the
+KEM transcript and the secret, and leaves all fifteen envelope octets — the very fields the field-list
+ruling exists to add — signed by nobody.** `S1`'s preimage sits inside `aead_ct` and ends
+`‖ LP(ct_xwing) ‖ LP(payload)`; `W1`'s envelope sits outside `hybrid_ct`; `hybrid_ct`'s own framing
+lies between them, so the preimage cannot reach backwards past `ct_xwing`. **It survived three
+independent analyses because a sealer and an opener agree about a field neither is asked to defend, so
+no round-trip test can see it** — every property Task 14 states is a round trip, and the defect is
+visible only to a party that *changes* the field, which is the party no round trip has.
+`LP(wrap_envelope)` is what closes it: one term, **zero body octets, zero wire octets**, no new field,
+and no ordering problem, because the envelope is plaintext the sealer chooses before it encapsulates
+(`envelope → encapsulate → sign → seal aead_ct` is acyclic). Ledger item **176** carries the finding
+and **closes with this ruling**.
+
+**AND WHY THE SECOND REPAIR IS NOT COSMETIC.** `P2` as its own set recommended it **excluded** the
+recovery wrap, whose `ct_body` keeps a no-prefix form. Under that exclusion a parser must know the
+record's class **before** it can decide whether the body's first four octets are a length or
+`version ‖ target_type ‖ payload_type` — and the only thing that tells it is the server attachment's
+kind. That is a target-type-dependent body encoding: the defect class the 2026-08-26 kind-`0x0000`
+ruling was written against, one level up, and the class set 1 rejects `W6` for. Extending the prefix
+to the recovery wrap **collapses the two body grammars into one** and costs four octets of a
+2,755-octet tail and nothing on the wire. Ledger item **177** carries it and **closes with this
+ruling**.
+
+**WHAT THE OWNER RULED AGAINST, AND IT WAS A REAL CHOICE RATHER THAN A DEFAULT. Record the trade,
+because a later reader will otherwise re-open it.** `C4` — the signature moved out of the body and
+into the server attachment (`S4`) — is the only shape under which **any** party, the message server
+included, can refuse an unsigned or wrongly-signed wrap **from the wire bytes alone**, with no key
+material at all. Under `C3` that check is available only to the decapsulating target, after it opens
+`aead_ct`; Spec A §5.11 (4)'s *"a client MUST NOT honour an unverified wrap"* is therefore
+enforceable by the target and by nobody else. `C4`'s price, measured: **+68 octets per record** with
+`LP(sig)` and **+104** with the identity key (4,398 → 4,466 and 4,428 → 4,496), about **+170 KB per
+epoch fan-out** on an 11.01 MB bundle; a **Spec B §5.1 check-3** change plus a new width in
+`connect/message/attachment.go`; and a **publicly verifiable Ed25519 signature, under a key MASTER
+§5.2 publishes in the KT log, on all 2,501 wrap records per epoch** — which hands the operator
+per-epoch attribution of the committer and cuts against MASTER §4.2. The composition is explicit that
+**C4's property and C3's privacy cannot both be had. The owner took the privacy.**
+
+**WHAT THIS RULING UNBLOCKS, AND WHAT IT DOES NOT — AND THE SECOND HALF IS SAID IN THE SAME BREATH.**
+It removes `M1-1` and `M1-7` from **Task 14**'s blocker list, and through Task 14 from **Tasks 15 and
+16**, which both modify the `wrap.go` Task 14 creates. **It does not remove ledger item 152.** Task 14
+builds an `EPH(5)` record and `connect/messagegroup/seal.go:119` refuses every non-`DURABLE` class on
+the seal path with `:387` mirroring it on the open path; M1-6's 2026-09-07 lift reaches `PERMANENT`
+and `MEDIA` and not `EPH`. **Task 14 is blocked by a landed refusal after this ruling, and the two
+were always independent** — ledger item 175 §6 says so in as many words. **And it does not touch
+CP3b's own blocker, `S2-4`:** `JoinFromWelcome` is an unconditional refusal, so there is **no exported
+path by which two clients share one group**. That is `connect/mls`'s, upstream of everything `m1` and
+`s2` can do, and it blocks CP3b outright.
+
+**WHAT `C3` DOES NOT STATE. Ledger item 175 §6 lists six sentences a ruling owes before it is a
+closure; this ruling states three of them whole, and a builder meets the rest at Task 14 step 1.**
+
+- **STATED (1)** — which octets the signature covers, written out as a preimage, and that the wrap
+  envelope is among them.
+- **NOT STATED (2)** — *that the envelope is a **hint** the open verifies rather than an authority.*
+  This is **not** made moot by the repair: the signature lives inside `aead_ct`, so it is unreachable
+  until after the open, and a receiver still derives `wrap_key` **from the envelope's own values**
+  before it has anything to verify. MASTER §7's nine-element `info` binds `u8(target_type)`,
+  `u8(payload_type)` and `u64(epoch)`, so a lie costs one failed AEAD open and that failure **is** the
+  check — but no sentence in the corpus says a receiver may therefore read the field before it trusts
+  it. Ledger **178**, still owed.
+- **STATED (3)** — `M1-7`'s scope, in the same sitting. See the caveat in `M1-7` about the **fourth**
+  body class.
+- **NOT STATED (4)** — the order **open → verify → honour**, in those words, with *honour* defined as
+  installing `pq_secret[k]` / `eph_root[k]` / `storage_root[k]` into the session. Under every `S1`
+  composite the signature is unreachable until after the open, while §5.11 (4) and this plan's Task 14
+  Property 7 both say *"before it honours anything in the record"*. **Those two sentences do not agree
+  and a builder must be told which one governs.**
+- **HALF STATED (5)** — how a verifier finds the key it verifies under. `LP(identity_pub)` closes the
+  seed-only restorer's half. The **member's** half is unwritten: resolve the leaf whose
+  `sender_handle` matches and read `Member.IdentityPub`. And the restorer's half is only half closed —
+  a carried key is a key the wrap's own sealer chose, so it must be **anchored in the KT log**, and
+  nothing says so.
+- **HALF STATED (6)** — a typed refusal for a non-zero tail is ruled (`P2`). A typed refusal for an
+  **absent or short signature** is not, and at `S1`'s position that is a payload-parse outcome rather
+  than a wire-parse one.
+
+**And three of the option sets' twelve open problems are unchanged by this ruling and are Task 14's or
+Task 19's rather than `M1-1`'s.** `u8(target_type)` and `u8(payload_type)` still have **no code point
+anywhere** — the ruling puts them on the wire and does not say which octet each class takes, so MASTER
+§7's `wrap_key` is still underivable by a second implementation. `aead_ct` still has **no stated AAD**,
+and this ruling puts the signature and the identity key inside it. And §7.1's *"every signature carries
+`alg_id` inside the signed bytes"* is satisfied by the preimage's `u16(alg_id)` only if that identifier
+is the **signature's** and not the KEM's, which no line says.
+
+**The item as it stood, kept whole because the question is what a second implementer asks again:**
+
 **M1-1 — PARTLY RULED 2026-09-13. The device wrap's seal, its record count and its signature are
-settled; its body encoding is not.** The item is kept whole rather than rewritten, because what it
-still asks is the part an implementer will otherwise guess at.
+settled; its body encoding is not.**
 
 **What it asked.** `wrap.go` is named in §2.2's package tree and had **no section in any spec**. §5.11
 specified the server-visible `WrapTag` and nothing about `ct_body`'s contents. MASTER §8.2 said what a
@@ -4555,12 +4755,14 @@ gone from Task 19, and the way 144 decided 142 is to **confirm** its hazard: the
 a `ct_xwing` reuse exactly as the `nonce = 0` reading would have. So **three** costs are still filed
 rather than resolved, not four.
 
-**What is still open, and it is what still blocks Task 14.** The wrap body's field list beyond what
+**What was still open, and what it blocked — ANSWERED 2026-09-09 by the ruling at the head of this
+item, and kept because it is the question that ruling answers.** The wrap body's field list beyond what
 MASTER §8.2's payload table and MASTER §7's `hybrid_ct` framing already fix; **where the signature sits
 relative to `hybrid_ct` and precisely which octets it covers**; and the padding scheme, which is
-**M1-7**. *Blocks:* Task 14. **No longer blocks:** Task 16, and therefore no longer CP3b by this route
-— M1-6 did, until it was ruled 2026-09-07; what holds that route now is ledger item **152**, the `EPH`
-half M1-6's ruling does not reach. *A ruling must state:* the three items in the sentence before this one, and nothing more;
+**M1-7**. *Blocked:* Task 14 — **no longer**. **No longer blocks:** Task 16, and therefore no longer
+CP3b by this route — M1-6 did, until it was ruled 2026-09-07; what holds that route now is ledger item
+**152**, the `EPH` half M1-6's ruling does not reach **and which the 2026-09-09 ruling does not touch**.
+*A ruling must state:* the three items in the sentence before this one, and nothing more;
 the rest of this item is answered. (**2026-09-15:** two further values the rulings do not state were
 added to Spec A §5.11 (5) and are **Task 19's** rather than Task 14's — `target_id`, which is defined
 nowhere in the corpus and is an input to `wrap_key`, and the inner nonce of **144**. Neither
@@ -4572,28 +4774,20 @@ Task 19's; and it is the **fifth** input to the nine-element `info`, not the *"f
 carried from the pre-M-15 shape. `u8(target_type)` and `u8(payload_type)` arrive with M-15 and are
 undefined on the same terms.)
 
-**AMENDED 2026-09-09 — the three questions above now have option sets, composed against each other,
-in ledger item 175.** Three sets were produced independently — the field list (W0–W6), the signature's
-placement and coverage (S1–S6), and M1-7's padding (P1–P8) — each recommending one shape. Item **175**
-records all twenty-one shapes with their costs and each set's own recommendation, and composes
-them: they **do** describe one body a parser can walk, and they **do not** compose at the
-settings all three recommend, because the recommended signature's preimage does not reach one octet of
-the recommended field list. Five composites are costed there against a measured 4,398-octet device wrap
-and a 4,428-octet recovery wrap, a recommendation is given and labelled as one, and the five things the
-sets disagree about are ledger items 176, 177, 178, 179 and 180. **Nothing is ruled**: this item and
-M1-7 are still open and Task 14 is still blocked on both, and on ledger 152.
-
-**AMENDED 2026-09-09 — the three questions above now have option sets, recorded in full and composed
-against each other, in ledger item 175.** Three sets were produced independently — the field list
-(W0–W6), the signature's placement and coverage (S1–S6), and M1-7's padding (P1–P8) — each
-recommending one shape. Item **175** records all twenty-one shapes with their costs and each set's own
-recommendation, and composes them: they **do** describe one body a parser can walk, and they **do
-not** compose at the settings all three recommend, because the recommended signature's preimage does
-not reach one octet of the recommended field list. Five composites are costed there against a measured
-4,398-octet device wrap and a 4,428-octet recovery wrap, a recommendation is given and labelled as
-one, and the five things the sets disagree about are ledger items 176, 177, 178, 179 and 180.
-**Nothing is ruled**: this item and M1-7 are still open, and Task 14 is still blocked on both and on
-ledger 152.
+**AMENDED 2026-09-09 — the three questions above got option sets, recorded in full and composed
+against each other, in ledger item 175; RULED the same day, at the head of this item.** Three sets
+were produced independently — the field list (W0–W6), the signature's placement and coverage (S1–S6),
+and M1-7's padding (P1–P8) — each recommending one shape. Item **175** records all twenty-one shapes
+with their costs and each set's own recommendation, and composes them: they **do** describe one body a
+parser can walk, and they **do not** compose at the settings all three recommend, because the
+recommended signature's preimage does not reach one octet of the recommended field list. Five
+composites are costed there against a measured 4,398-octet device wrap and a 4,428-octet recovery
+wrap, a recommendation is given and labelled as one, and the five things the sets disagree about are
+ledger items 176, 177, 178, 179 and 180. *(**This paragraph stood twice, in two near-identical
+copies, from the pass that wrote it until 2026-09-09**, when the ruling pass collapsed them. Both
+copies ended* **"Nothing is ruled: this item and M1-7 are still open and Task 14 is still blocked on
+both, and on ledger 152"** *— true when written, and made false the same day by the ruling above.
+`M1-1` and `M1-7` are ruled; **ledger 152 still blocks Task 14** and is now the whole of what does.)*
 
 **M1-2 — DELIBERATELY DEFERRED 2026-09-13, and no longer a CP3b blocker. `group_handle_key` and the
 joining epoch's `read_key` still have no production carrier.** MASTER §8 and Spec A §5.7 both say "in
@@ -4729,7 +4923,9 @@ item 152 still does.**
 *Blocks after the ruling:* nothing in wave 1, and `EPH` sealing, through ledger item 152. *(The
 `stream_index`-to-ratchet-position pin — ledger items 143 and 169 — was on this list until it was
 **ruled the same day** as shape A1 and implemented in `connect` at `33932e0`.)* Task 14 stays blocked
-on M1-1's remainder and on its own `EPH(5)` `eph_root` wrap.
+on its own `EPH(5)` `eph_root` wrap **and, as of 2026-09-09, on nothing else**: `M1-1`'s remainder
+and `M1-7` were ruled that day as composite `C3`, so ledger 152 is the whole of Task 14's blocker
+list.
 
 *The item as it was filed, which is what the ruling answers half of:*
 
@@ -4992,15 +5188,62 @@ fourteen-method interface whose size A8 makes load-bearing (*"if `modernc.org/sq
 this is what has to be reimplemented"*). Rule it before either implementation is written, not after
 one of them has rows on disk. Task 6 declares only the interface, for the same reason.
 
+**M1-7 — RULED 2026-09-09 BY THE OWNER, IN ONE SITTING WITH `M1-1`, AS `P2` OVER ALL THREE WRAP
+BODIES.** The scheme is the landed one with the tail closed: **`LP32(len) ‖ body ‖ zeros`, and a
+non-zero tail is a typed refusal that accumulates over the whole tail and names no position.** The
+prefix and the refusal apply to the `pq_secret` device wrap, the `eph_root` device wrap **and the
+recovery wrap** — set 3's own `P2` scope sentence excluded the recovery wrap, and extending it is the
+second of `M1-1`'s two repairs (ledger **177**). One grammar, four octets of a 2,755-octet tail, zero
+on the wire. **`ct_body` does not move: 4,112 on both wrap kinds.** The item is kept whole below.
+
+**Why the tail refusal is not a preference but a dependency of `M1-1`'s signature.** `S1` covers
+neither the pad nor the zero tail. On a device wrap that tail sits inside the record body AEAD, whose
+`record_key[i]` descends from `env_key[k]`, **which every member of the epoch holds** — so under
+`P1`, the status quo whose `unpadBody` deliberately does not check the tail
+(`connect/messagegroup/seal.go:538-542`), any member could rewrite any other member's wrap tail and
+the signature would still verify: a **~2.8 KB member-writable covert channel inside every wrap that no
+signature covers**. `connect/mls` refuses exactly this one layer in and says why
+(`mls/framing_protect.go:817`); the accumulating, position-free form is `mls/framing_protect.go:744`'s
+own rule, and the reason it must accumulate and name no position is that anything else is a padding
+oracle. Ledger **180** reaches the same non-separability by a second route: `u8(size_bucket)` is
+inside `S1`'s preimage, so the padding rule's prefix width is an input to a **signed** byte.
+
+**FOUR THINGS THE RULING AS TRANSMITTED DOES NOT STATE, and set 3 said a `P2` ruling is only a
+closure if it states five. A builder meets all four.**
+
+- **The fourth body class.** The ruling names *"all three wrap bodies"*. Set 3's own scope sentence
+  (a) also names **the ordinary record body**, and `unpadBody` is **one function** serving every
+  class — so a tail refusal scoped to the wraps alone would be a class-dependent unpadder, which is
+  the grammar split this ruling's own second repair exists to remove. Read as written, the ruling
+  settles the three wrap bodies and leaves the ordinary record's tail where `P1` left it. **Filed,
+  not assumed.**
+- **The fill octet is zero, in a document.** Today it is pinned only in a test —
+  `connect/messagegroup/m1w1repairs_test.go:765` — and `seal.go:498` says the scheme is *"THIS FILE'S
+  AND NOT A DOCUMENT'S"*. Two conforming sealers choosing different fill produce different `ct_body`
+  and different `body_hash` for one message, which is item **148**'s constraint arriving on the wrap.
+- **The real inline ceiling is 65,532, not the "64 KiB" three documents publish** (`spec-a:2494`,
+  `master:1260`, `spec-b:2854`) — the prefix costs four and no document subtracts it. Either amend
+  the three or rule the four lost lengths acceptable; do not leave the number wrong in three places.
+- **It overturns a written argument rather than filling a silence.** `seal.go:538` argues *against*
+  the check — *"a reader that refused a record whose tail was not zero would be refusing a record its
+  own key opened"* — and the ruling should say why that is wrong, which it is: the key that opened it
+  is one every member holds.
+
+**No longer blocks:** the A6 wire-format freeze, and Task 14. **Still true and not ruled here:**
+`msgrepo/harness/seal.go:129` pads with `byte(index*31)` to 4,112 with no prefix and never unpads, and
+Spec A §5.14's rendezvous deposit uses `u16(body_len)` — so the corpus still carries more than one
+padding scheme, and both survivors are outside the record body. The item as it stood:
+
 **M1-7 — the body padding scheme has no length recovery.** §5.1 fixes `octet_length(ct_body)` at
 `size_bucket_bytes[b] + 16`, so the plaintext is padded — and **no document says how the receiver
 recovers the true length.** `pad.go` is named in §2.2 with no section anywhere; MASTER §9.5 is "What
 the server sees" and is not it. `msgrepo/harness/seal.go` pads with `byte(index*31)` and never
-unpads, because CP3a never reads a body back. *Blocks:* interoperable `SealRecord`/`OpenRecord`.
+unpads, because CP3a never reads a body back. *Blocked:* interoperable `SealRecord`/`OpenRecord`.
 Wire-visible. *Candidates a ruling should choose among:* `u32(len) ‖ body ‖ zeros` inside the
 plaintext, matching §5.14's own `u16(body_len) ‖ body ‖ zeros` deposit padding; ISO/IEC 7816-4
 `0x80 ‖ 0x00*`; or the body's own §7.4 framing carrying its length, which pushes the decision into
-`sdk` and out of the frozen format.
+`sdk` and out of the frozen format. *(**The ruling took the first candidate**, which is also what
+wave 1 landed, and closed the tail the candidate list did not mention.)*
 
 **M1-8 — RULED 2026-09-07 by the owner: `LP(leaf_index)` is the four-octet big-endian reading, and
 it no longer blocks the A6 freeze.** The item is kept whole below rather than rewritten, because the

@@ -16,7 +16,7 @@ colliding, and that has cost this project real work before.
 
 | Track | Repo | State |
 |---|---|---|
-| **A — protocol core** | `Ryanmello07/connect`, branch `beta/message` | **p1–p7 complete; m1 wave 0 and wave 1 landed, plus ruling A1.** At `33932e0`: 1,105 tracked files, 7,631 tests passing over `mls/`, `message/` and `messagegroup/`, nine-platform `CGO_ENABLED=0` build green. Wave 2 is stopped in front of ledger **152** and M1-1's remainder |
+| **A — protocol core** | `Ryanmello07/connect`, branch `beta/message` | **p1–p7 complete; m1 wave 0 and wave 1 landed, plus ruling A1.** At `33932e0`: 1,105 tracked files, 7,631 tests passing over `mls/`, `message/` and `messagegroup/`, nine-platform `CGO_ENABLED=0` build green. Wave 2 is stopped in front of ledger **152** — **and, since 2026-09-09, by nothing else**: the owner ruled `M1-1`'s remainder and `M1-7` together that day as composite `C3`, so Task 14's blocker list is item 152 alone. **CP3b itself is still blocked outright by `S2-4`** — `JoinFromWelcome` is an unconditional refusal, so no exported path lets two clients share one group |
 | **B — Windows client** | `Ryanmello07/urmessage-windows` (private) | CP1 shipped — builds, launches, renders |
 | **C — message server** | `Ryanmello07/urnetwork-message-server` | **shipped and under test** — 57 Go files, 26,402 lines; `store/`, `api/`, `peer/`, `blobd/`, `sweep/`, `cmd/`, `go build ./...` and `go test ./...` green. CP3a and CP3c ran through it |
 

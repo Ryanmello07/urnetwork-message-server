@@ -253,6 +253,41 @@ seal, `HKDF-Expand(ss, …)`, `hybrid_ct` — and the snapshot is not a KEM seal
 query while being inside the class. The class M-15 actually names is **every AEAD key in this corpus
 derived by a bare 32-octet expand**, and that class is greppable.
 
+**Amendment to revision 9 — 2026-09-09 — §7 and §8.2: the wrap body's grammar, its signature preimage
+and its padding, ruled as composite `C3`. This one changes rules.** m1 open items `M1-1` and `M1-7`
+were **ruled together** on that date and this document is where the shape lives; Spec A §5.11 keeps
+the measurements and the residuals. **What is now normative:** an 11-octet
+`u8(wrap_format_version) ‖ u8(target_type) ‖ u8(payload_type) ‖ u64(content_epoch)` envelope **outside**
+`hybrid_ct` in every wrap body, with **no `publisher_leaf_index`**; `aead_ct`'s plaintext as
+`secret ‖ LP(identity_pub) ‖ sig`; a written-out signature preimage carrying **`LP(wrap_envelope)`**
+ahead of `LP(ct_xwing)`; and one padding rule — `LP32(len) ‖ body ‖ zeros` with an accumulating,
+position-free refusal of a non-zero tail — over **all three** wrap bodies, the recovery wrap included.
+**Zero wire octets:** `ct_body` stays 4,112 on both wrap kinds, the records stay 4,398 and 4,428, and
+the epoch fan-out stays ≈ 11.5 MB.
+
+- **Two of the four terms are repairs the three independent option sets did not contain**, and they
+  are the reason this is worth an amendment rather than a transcription. `LP(wrap_envelope)` closes a
+  signature that otherwise covers the record header, the KEM transcript and the secret and **not one
+  octet of the envelope this ruling adds** — a defect three independent analyses missed, because a
+  sealer and an opener agree about a field neither is asked to defend and **no round-trip test can
+  see it**. The `LP32` prefix over the recovery wrap collapses two body grammars into one, so a parser
+  no longer needs the server attachment's kind to decide whether the body's first four octets are a
+  length. Ledger items **176** and **177** close with this amendment.
+- **What was ruled against, and it was a choice.** Putting the signature in the server attachment
+  would let any party, the operator included, refuse an unsigned wrap on the wire bytes alone; its
+  price is +68/+104 octets a record, ~+170 KB an epoch, a Spec B §5.1 check-3 change, and publicly
+  verifiable per-epoch attribution of the committer across all 2,501 wrap records — §4.2's own
+  boundary. **The two cannot both be had**; the privacy was taken, and §8.2 says so where a reader of
+  the *"MUST NOT honour"* sentence will meet it.
+- **What it does NOT settle, named so no implementer concludes it did.** `target_type` and
+  `payload_type` still have **no code point** — this ruling puts them on the wire and does not say
+  which octet each class takes, so §7's `wrap_key` stays underivable by a second implementation.
+  `aead_ct` still has **no stated AAD**, and this ruling puts a signature and a public key inside it.
+  Whether `LP(identity_pub)` joins the preimage's own `LP(payload)` term is stated nowhere, so the
+  preimage is 1,320 octets or 1,356 and a builder must be told which. And **`target_id` is still
+  undefined.** Ledger items **132**, **133**, **134**, **142**, **148**, **152** and **178** stay
+  filed and unruled; **176**, **177** and **179** no longer do.
+
 **Amendment to revision 9 — 2026-09-07 — §8.1's ledger pointer, and nothing else. Not a new revision:
 no rule in this document changed.** Ledger items **143** and **169** were **ruled** that day, together,
 as shape **A1** — the `stream_index` counter is one per `(group_id, sender_handle)` and carries no
@@ -663,6 +698,85 @@ hybrid_ct       = u16(alg_id) ‖ LP(ct_xwing) ‖ LP(aead_ct)
 
 `urmessage_leaf_keys` therefore publishes a single X-Wing public key rather than separate X25519 and
 ML-KEM halves; §5.2 and §5.3 read accordingly.
+
+**The wrap body: what is around `hybrid_ct`, what is inside `aead_ct`, and what the signature covers.
+RULED 2026-09-09, as composite `C3`.** `hybrid_ct` is the middle of a wrap body and not the whole of
+it. **All three wrap bodies take one grammar** — the `pq_secret` device wrap, the `eph_root` device
+wrap and the recovery wrap, with no exception for any of them:
+
+```
+wrap_envelope = u8(wrap_format_version = 0x01) ‖ u8(target_type) ‖ u8(payload_type)
+                ‖ u64(content_epoch)                                        // 11 octets
+wrap_body     = wrap_envelope ‖ hybrid_ct
+ct_body_plain = LP32(len(wrap_body)) ‖ wrap_body ‖ 0x00 × (rung − 4 − len(wrap_body))
+
+aead_ct       = AEAD(wrap_key, wrap_nonce, secret ‖ LP(identity_pub) ‖ sig)
+sig           = Sign(identity_priv, wrapsig_preimage)          // under the publisher's identity key
+wrapsig_preimage
+              = "URmessage/v1/wrapsig" ‖ u16(alg_id) ‖ LP(group_id) ‖ LP(sender_handle)
+                ‖ u64(epoch) ‖ u64(stream_index) ‖ u8(is_commit) ‖ u8(retention_class_wire)
+                ‖ u8(size_bucket) ‖ u64(expire_at) ‖ LP(blob_id) ‖ LP(H(server_attachment))
+                ‖ LP(wrap_envelope) ‖ LP(ct_xwing) ‖ LP(payload)
+```
+
+**Every step of the walk is a fixed width or a length prefix, and no step needs a key, a payload type
+or the record's class.** Four octets of `LP32` give the body's exact extent; eleven fixed octets give
+the version, the two type bytes and the content epoch; `hybrid_ct` is self-delimiting by the line
+above it; the remainder to the rung is a tail that MUST be all zero and whose refusal is stated in
+§8.2. **`u16(alg_id)` in the preimage is `hybrid_ct`'s own KEM identifier as written above; whether
+§7.1's *"every signature carries `alg_id` inside the signed bytes"* is thereby satisfied for the
+SIGNATURE's suite, or whether a second identifier is owed, is not ruled — Spec A §5.11 files it.**
+
+**Which rung, and it differs by wrap kind for a reason that is not this ruling's.** The two
+device-wrap bodies are AEAD plaintexts, so they pad to `SizeBucketBytes(b)` — **4,096** at bucket 2 —
+and the record AEAD's 16-octet tag makes `ct_body` 4,112. The recovery wrap's `ct_body` is under **no**
+record AEAD, so the padded body **is** `ct_body` and its rung is **4,112**. One grammar, two
+denominators, and the difference is the outer seal rather than the body.
+
+**What each part is there for, and the two terms that are repairs rather than adoptions.**
+
+- **The version octet is first**, for the reason every offset below it is meaningful only under that
+  version. It is what makes a second body field later a negotiation rather than a flag day.
+- **`u8(target_type)` and `u8(payload_type)` travel in the body as well as inside `info`.** They are
+  bound into `wrap_key` above, so a receiver that derives the key **from the envelope's own values**
+  and finds `aead_ct` does not open has detected the disagreement fail-closed. Their **encoding** is
+  still undefined — see the gap list below, which this ruling does not fill.
+- **`u32(publisher_leaf_index)` is deliberately NOT carried.** `sender_handle` is already in
+  `record_bytes` in the clear, so a member can resolve the publisher without it; a seed-only restorer
+  cannot resolve a bare leaf index at all, holding no ratchet tree; and on the recovery wrap, whose
+  body is under no record AEAD, four cleartext octets would convert a per-leaf pseudonym the server
+  already sees into a **tree position**.
+- **`LP(identity_pub)` is inside `aead_ct` and not in the cleartext body**, because the party that
+  needs it is the one that opens `aead_ct`: a seed-only restorer holds no MLS state and no
+  `group_handle_key`, so without a carried key a recovery wrap's signature is unverifiable by the only
+  reader it exists for. **What this ruling does not state is that the carried key must be anchored in
+  the KT log (§10.1)**, and a carried key is one the wrap's own sealer chose.
+- **`LP(wrap_envelope)` in the preimage is the first repair, and it is the term that makes the rest of
+  the ruling worth anything.** Without it the signature reaches the record header, the KEM transcript
+  and the secret, and reaches **not one octet of the envelope** — because the envelope is outside
+  `hybrid_ct`, the signature is inside `aead_ct`, and `LP(ct_xwing)` lies between them. It costs
+  **zero body octets and zero wire octets**, and it is acyclic: the envelope is plaintext the sealer
+  fixes before it encapsulates.
+- **The `LP32` prefix over all three bodies is the second repair.** Without it on the recovery wrap a
+  parser cannot decide whether the body's first four octets are a length or
+  `version ‖ target_type ‖ payload_type` until it has read the server attachment's kind — a
+  target-type-dependent body encoding, which is the defect class the kind-`0x0000` ruling was written
+  against.
+
+**What this ruling deliberately did NOT take, recorded because it is a trade and not an oversight.**
+The alternative shape put `LP(sig) ‖ LP(identity_pub)` into the **server attachment**, where any
+party — the message server included — could refuse an unsigned or wrongly-signed wrap from the wire
+bytes alone. Its price was **+68 / +104 octets per record**, about **+170 KB per epoch fan-out**, a
+Spec B §5.1 check-3 change, and a **publicly verifiable signature under a key §5.2 publishes in the KT
+log on all 2,501 wrap records of every epoch** — per-epoch attribution of the committer, to the
+operator, which cuts against §4.2. **The two properties cannot both be had.** The privacy was taken,
+and the cost is that *"a client MUST NOT honour an unverified wrap"* is enforceable by the
+decapsulating target and by nobody else.
+
+**One term of the preimage is under-determined and a builder must have it ruled before it signs.**
+`LP(payload)` was measured over a 32-octet secret. Whether `payload` now means the secret alone or
+`secret ‖ LP(identity_pub)` is stated by no document; the preimage is 1,320 octets under the first
+reading and 1,356 under the second. Spec A §5.11 carries the measurement and files the residual.
 
 **The wrap KDF derives its own AEAD nonce and binds `alg_id`. ADOPTED 2026-09-18 from red-team finding
 M-15.** Until this amendment `wrap_key` was a bare `HKDF-Expand(ss, …, 32)` over a four-element
@@ -1114,7 +1228,11 @@ env_key[k] = MLS-Exporter("URmessage/v1/envelope", "", 32)          RFC 9420 §8
   second ruling.** Its only intended reader is a seed-only restorer (§5.4), which has no MLS state by
   definition — therefore no `mls_secret[k]`, therefore no `env_key[k]` — and no `storage_root` of any
   epoch. Any outer key derived from either makes this record unopenable by the one party it is for. So
-  its `ct_body` **is** `hybrid_ct`, padded to its rung, and its `ct_head` is a real AEAD keyed
+  its `ct_body` is the wrap body under **no record AEAD** — *(**amended 2026-09-09**: this clause read
+  *"its `ct_body` **is** `hybrid_ct`, padded to its rung"*, and the `C3` ruling makes that false in two
+  places. The body is `wrap_envelope ‖ hybrid_ct` under §7's grammar, and it carries the same `LP32`
+  length prefix the two device-wrap bodies do — one grammar for all three, which is the whole of the
+  ruling's second repair)* — and its `ct_head` is a real AEAD keyed
   `key_head ‖ nonce_head = HKDF-Expand(wrap_key, "wraphead/v1", 56)`. The head is not optional: the
   shipped server refuses a zero-length `ct_head` at four independent points, which Spec A §5.11
   measures. Keying it off `wrap_key` is not circular, because `wrap_key` comes from decapsulation.
@@ -1141,6 +1259,26 @@ signature over them before. It is required because the wrap is the only record c
 frame** — so without it every field a client validates on a wrap is authenticated by nothing, and
 §9.2's stated mitigation for server injection, *"any record it injects fails MLS verification at every
 client (I5)"*, has no referent for a wrap. 64 octets fit inside the rung with room to spare.
+
+**Where the signature sits and which octets it covers — RULED 2026-09-09.** The signature is the last
+field of `aead_ct`'s plaintext, with `LP(identity_pub)` beside it, and its preimage is written out in
+§7. It therefore lives **inside** the KEM seal: no party but the decapsulating target can locate it,
+and no party but the decapsulating target can tell a signed wrap from an unsigned one. That is the
+accepted cost of keeping the committer unattributable to the operator, and it is stated here rather
+than left to be discovered, because the *"MUST NOT honour"* sentence above reads as though anyone
+could apply it. **The order in which a target opens, verifies and honours a wrap — and therefore what
+*"honour"* means — is not ruled here** and is filed in Spec A §5.11.
+
+**How every wrap body is padded — RULED 2026-09-09, and it is one scheme over all three.** A wrap body
+is `LP32(len) ‖ body ‖ zeros` to its rung, and **a non-zero tail is a typed refusal**: the check
+accumulates over the whole tail and **names no position**, because anything that reports where the
+first non-zero octet lay is a padding oracle. The refusal is not optional and it is not decoration: a
+device wrap's tail sits inside the record body AEAD, whose key descends from `env_key[k]` — which
+**every member of the epoch holds** — so an unchecked tail is a ~2.8 KB member-writable channel inside
+every wrap that the body signature does not cover. **Three things this rule still owes a document**
+and Spec A §5.11 files them: the fill octet is zero; the true inline ceiling is **65,532** rather than
+the *"64 KiB"* this document publishes below; and whether the same tail refusal reaches the **ordinary
+record body**, whose unpadder is the same function.
 
 **Epoch publication sequence.** A commit is submitted at `epoch == current_epoch = n`, MAC'd under
 `write_key[n]`, and carries an `EpochAttachment` for epoch `n+1`.
@@ -1239,10 +1377,14 @@ wrap is padded to the ladder like any other record, and the arithmetic is §7's 
 octets, an X-Wing ciphertext of 1120 and a 16-octet AEAD tag. A device-wrap record carrying **one**
 32-octet secret is `2 + (4+1120) + (4+32+16)` = **1,178 B** of plaintext (the pre-split two-secret wrap
 was 1,210 B); a recovery wrap carrying `storage_root` (32) and `archive_secret` (64) is
-`2 + (4+1120) + (4+96+16)` = **1,242 B**; and the body signature adds 64 octets to each. Every one of
+`2 + (4+1120) + (4+96+16)` = **1,242 B**; and the body signature adds 64 octets to each. **The
+2026-09-09 ruling adds three more terms and no wire octet:** `LP(identity_pub)` costs 36 inside
+`aead_ct`, the wrap envelope 11 outside `hybrid_ct`, and the `LP32` body prefix 4 — so the ruled
+device-wrap body occupies **1,293** of the 4,096 rung with a **2,803**-octet zero tail, and the ruled
+recovery wrap's `ct_body` occupies **1,357** of 4,112 with a **2,755**-octet tail. Every one of
 them still lands in `size_bucket 2`, so each is a `ct_body` of exactly 4,112 bytes plus its head and
-header, about **4.6 KB on the wire**, with roughly 2.8 KB of the rung unused — so the signature costs
-nothing on the wire. One commit + 2,000 device-wrap records + 1 snapshot record + 1 marker + 500
+header, about **4.6 KB on the wire**, with roughly 2.8 KB of the rung unused — so the signature, the
+identity key, the envelope and the prefix together cost nothing on the wire. One commit + 2,000 device-wrap records + 1 snapshot record + 1 marker + 500
 recovery wraps is ≈ **2,503 records ≈ 11.5 MB**, plus the ~300 KB snapshot object on the bulk plane
 (≈ 1,503 records and ≈ 6.9 MB before the split). Per-record size caps apply to individual wrap records,
 never to the commit as a whole. `max_records_per_submit` is 256 and `max_submit_bytes` is 131072; the

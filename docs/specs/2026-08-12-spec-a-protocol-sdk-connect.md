@@ -102,6 +102,7 @@ Append-only. Newest last. One entry per commit that changes this spec. Every cha
 | 2026-09-07 | A-19 | **§5.3 says which of two 32-octet values a member persists for the life of a group, because it did not say before and the wrong one is a working program.** m1 open item **M1-4**, ruled by the fix pass over m1 wave 1's batch-C review and recorded there in full. §5.3's block declared `GroupHandleKey(storageRootEpoch0 []byte)` and said **nothing about persistence**, so the only route it left a reader was to hold `storage_root[0]` for the life of the group — epoch zero's **whole key schedule**, from which every class key and that epoch's write and read keys expand — in order to recover a **public routing identifier** every member of the group can already compute. MASTER §8's clause is about what a member *holds* and what it names is the **key**: *"a member that does not hold it cannot compute its own handle and therefore cannot write."* So §5.3 now states that the derivation runs **once, at group creation**, and that its **answer** is what is durably kept while the root it expanded from is dropped with the rest of epoch zero. **`GroupHandleKey`'s signature is unchanged** — it takes the root, because computing the key is what it is for. **The inverse mistake is not closed and is not closeable at this layer**: both values are 32 octets, so a caller handing the constructor the root where it wants the key is accepted in silence and routes on a `sender_handle` no peer computes. That is ledger open item **167**, filed and not ruled, with the three candidate refusals costed there. **No wire byte, no derivation, no gate's derived class and no other section changed.** Dated from the commit calendar rather than from the row above it: the last four revision rows read 2026-09-13 to 2026-09-18 and the commits that landed them are dated 2026-09-05 and 2026-09-06, so this document's internal calendar has drifted ahead of the tree's; this row's date is the tree's. |
 | 2026-09-07 | A-20 | **§5.3 says which ladder seals `ct_head`, because it declared one `record_key[i]` for both AEADs while MASTER §8.1 declared the head DURABLE, and for three of the four retention classes those are different keys.** m1 open item **M1-6**, **RULED 2026-09-07** by the owner. **The rule:** `key_head ‖ nonce_head` comes from a `record_key` on the ladder rooted at `ClassKeys.Durable`, always, whatever the record's class; `key_body ‖ nonce_body` comes from the record's **own** class ladder. For a `DURABLE` record the two are one ladder and nothing observable changes. **The signatures do not move** — `RecordAeadHead` and `RecordAeadBody` still each take one 32-octet secret, so the binding is at the call site, and §5.3's block says so in a comment because it cannot say it in a type. **The owner's reason:** the head is always retained, so it is keyed by the class that is always retained; under the replaced reading an `EPH` record's head would be keyed under a ratchet built to be destroyed, and a retained header would become unopenable at exactly the moment the body is meant to vanish. **The accepted cost is written into §5.3 rather than glossed:** a non-`DURABLE` record now draws head and body from **two ratchets**, so one record's single `stream_index` covers two ratchet positions, and this document says which position each takes nowhere. That is ledger item **143**'s pin, moved from *owed* to **DUE** — a precondition of sealing a non-`DURABLE` record. It cannot take item 143's own proposed form (`i = stream_index` in every ladder), because the head ladder is now shared across classes while `messagegroup.StreamKey` carries the retention-class wire byte and restarts per class: one sender's `DURABLE` and `PERMANENT` records both at `stream_index = 5` would seal two headers under one `(key_head, nonce_head)`. New ledger item **169**, filed and not ruled, and §5.3 carries a MUST NOT against sealing a non-`DURABLE` record before it is. *(**169 and 143 were both RULED later the same day** — shape **A1**, one class-blind `stream_index` per `(group_id, sender_handle)` — so §5.3's MUST NOT is **lifted for `PERMANENT` and `MEDIA`**, `EPH` stays refused under ledger 152, and this row's *"it cannot take item 143's own proposed form"* is true only of the per-class counter it was written against: A1 removes that counter and the pin is adopted as proposed. Row **A-21**.)* **`EPH` is excluded from the rule and `SealRecord` keeps refusing it**, under ledger item **152** (`M-4`) — which asked that this question not be ruled without it beside it, and was not. 152's claim is that `K_durable[n]` is destroyed nowhere and rides every recovery wrap, so an `EPH` head under it outlives the timer, a seized device, a device provisioned tomorrow and a seedphrase holder; and this ruling's own premise is false for that one class, since Spec B §7.2 sets `ct_head = NULL` for `EPH(1..5)` at `prune_after`. **§5.11 (3)'s snapshot sentence is annotated with the ruling** — the snapshot is `PERMANENT`, so it is inside the lift and owes only the position. **No wire byte and no derivation label changed; every non-`DURABLE` head ciphertext changes**, which is why it is A6-relevant and why it is ruled now. **No Go file in `connect` changed for this row** — the landed `SealRecord` refuses all three non-`DURABLE` classes and widening it to `PERMANENT` and `MEDIA` is m1 wave 2's commit. Dated from the commit calendar, as A-19 was. |
 | 2026-09-07 | A-21 | **The `stream_index` counter is class-blind, because the server and the schema already counted that way and only the client did not.** Ledger items **143** and **169**, **RULED 2026-09-07** by the owner as shape **A1**: one `stream_index` per `(group_id, sender_handle)`, no retention class in it. **The rule:** `i = stream_index` in **every** ladder — head, body, ordinary record and device wrap alike — over one counter per sender per group. **The owner's reason, which is checkable rather than preferential:** Spec B's `message_sender` is `PRIMARY KEY (group_id, sender_handle)`, Spec B's Q7 selects on the same pair, and the shipped server (`msgrepo/store/memory.go:600-610`) gates stream monotonicity on `record.SenderHandle` alone — while m1 wave 1 shipped `StreamKey{GroupId, SenderHandle, RetentionWire}`. The retention byte was not an open question, it was a **client/server split already in the tree**: the server would have refused the second retention class's first record with `REASON_STREAM_INDEX_REGRESSED`. **What moves in this document:** §5.6's interface block becomes the landed shape and gains the class-blind rule and the sender handle; §8.2's `ReserveStreamIndex`/`StreamHighWater` become one allocation and one query on the same key — **a change of direction, not only of keying**, and the fourteen-method bound A8 makes load-bearing is unchanged at fourteen; §5.3's **"A builder MUST NOT seal a non-`DURABLE` record before 169 is ruled"** is **lifted for `PERMANENT` and `MEDIA`** and `EPH` stays refused under ledger **152**; §5.5 gains the measured consequence for its window; §5.10's snapshot note and §5.11 (5)'s two paragraphs are annotated with the ruling that answers them. **Zero wire octets, zero KAT constants, and nothing already sealed breaks** — every record wave 1 sealed came from a sender using one class, whose class-blind counter is identical. **What it costs, measured on the shipped benchmarks rather than on paper:** the ladders go sparse, so an epoch-change rebuild is `k × P` ladder rungs where it was `P` — **130.1 ms** at k=3, P=100,000 against 41.8 ms, and 1.32 s at the `maxLadderWalk` bound — and a class's usable out-of-order window falls from 1,024 of its own records to **341** shared positions, `1,024/k` exactly. The options paper's `(k+1) × P` and its 148 ms and 1.55 s are **corrected in ledger item 169**; the multiplier is `k`. **What it does NOT rule:** `EPH` sealing (ledger **152**), the durable store **row**'s identity (**M1-5**), and whether `EPH(bucket 0)` transients get a counter of their own (**M1-25**), whose starvation hazard is now executable rather than asserted. Five review findings against the implementation are ledger **170**–**174**; none of them says the ruling is wrong. **No Spec B change and no MASTER rule change**, which is the ruling's own strongest argument. Dated from the commit calendar, as A-19 and A-20 were. |
+| 2026-09-09 | A-22 | **The wrap body has a field list, the signature has a preimage, and the pad has a refusal — `M1-1`'s remainder and `M1-7`, RULED TOGETHER 2026-09-09 by the owner as the repaired composite `C3`.** §5.11 gains **(6)**, which is (5)'s three questions answered; §5.11 (2)'s *"the recovery wrap's `ct_body` **is** `hybrid_ct`, followed by zeros"* is **amended, not annotated**, because the ruling makes it false in two places; and the sizing paragraph gains the three new body terms. MASTER §7 and §8.2 carry the normative grammar (MASTER's own 2026-09-09 amendment); this document keeps the measurements, the trade and the residuals, which is the division of labour A-18 established. **The rule:** an 11-octet `u8(wrap_format_version) ‖ u8(target_type) ‖ u8(payload_type) ‖ u64(content_epoch)` envelope **outside** `hybrid_ct` in every wrap body with **no `publisher_leaf_index`**; `aead_ct`'s plaintext as `secret ‖ LP(identity_pub) ‖ sig`; the signature preimage extended by **`LP(wrap_envelope)`** ahead of `LP(ct_xwing)`; and `LP32(len) ‖ body ‖ zeros` with an **accumulating, position-free** typed refusal of a non-zero tail over **all three** wrap bodies. **Measured, and zero octets on the wire:** device occupancy **1,293** of the 4,096 rung, tail **2,803**; recovery `ct_body` **1,357** of 4,112, tail **2,755**; `ct_body` 4,112, records 4,398 and 4,428, fan-out 11.01 MB, Spec B's `octet_length(ct_body)` check unmoved. **Two of the four terms are repairs the three independent option sets did not contain, and the first is why this row matters:** composed as they arrived, the recommendations signed the record header, the KEM transcript and the secret and **not one octet of the envelope the field-list ruling exists to add** — a defect three independent analyses missed, because a sealer and an opener agree about a field neither is asked to defend and **no round-trip test can see it**. The second collapses two body grammars into one. Ledger items **176**, **177** and **179** close here. **What the owner ruled AGAINST, recorded because it was a choice:** a signature in the server attachment (`C4`) would let any party, the operator included, refuse an unsigned wrap on the wire bytes alone, at +68/+104 octets a record, ~+170 KB an epoch, a Spec B §5.1 check-3 change, and publicly verifiable per-epoch attribution of the committer across all 2,501 wrap records — MASTER §4.2's own boundary. **The two cannot both be had; the privacy was taken**, and §5.11 (6) states the consequence, that (4)'s *"MUST NOT honour"* is enforceable by the decapsulating target and by nobody else. **What it does NOT do:** it does not lift ledger **152**, so m1 Task 14 is blocked by a landed `EPH` seal refusal after this ruling and by nothing of `M1-1`'s or `M1-7`'s; and it does not touch CP3b's own blocker, `JoinFromWelcome`'s unconditional refusal. **Six residuals are filed in (6)** — the envelope-as-hint sentence (ledger **178**), the **open → verify → honour** order, which contradicts m1 Task 14 Property 7 as written, how a member finds the identity key and how a restorer's carried key is anchored, a typed refusal for an absent signature, `M1-7`'s silence about the ordinary record body, and **one number**: `LP(payload)` is measured over a 32-octet secret, so the preimage is **1,320** if `LP(identity_pub)` is outside that term and **1,356** if it is inside, and no document says which. **The ruling as transmitted carried "1,305 → 1,324", which is the figure for the five-field envelope it does not take**; 1,324 is recorded in (6) as the rejected shape's number and is not written into the derivation. **No wire octet, no derivation label, no Go file and no gate's derived class changed.** |
 
 ---
 
@@ -2196,8 +2197,14 @@ of why correction **E1** exists. Any outer key derived from MLS state or from an
 this record unopenable by the one party it is for, reducing §5.4's *"documented last resort"* to a
 no-op for every group. So, normatively:
 
-- the recovery wrap's `ct_body` **is** `hybrid_ct`, followed by zeros to its rung; the tail
-  zero-assertion is a **named typed refusal**, never a silent tolerance;
+- the recovery wrap's `ct_body` is its **wrap body** followed by zeros to its rung, under no record
+  AEAD; the tail zero-assertion is a **named typed refusal**, never a silent tolerance. *(**AMENDED
+  2026-09-09 by (6) below.** This clause read *"`ct_body` **is** `hybrid_ct`, followed by zeros to
+  its rung"* from 2026-09-13 until then, and the `C3` ruling makes it false in two places: the body
+  is `wrap_envelope ‖ hybrid_ct`, and it carries the same four-octet `LP32` length prefix the two
+  device-wrap bodies carry. **The typed refusal survives verbatim and gets stronger** — it is now one
+  rule over three bodies rather than the only one of the three that had it, and the ruling fixes its
+  form: the check accumulates over the whole tail and names no position.)*
 - and its `ct_head` is a real AEAD, keyed
   `key_head ‖ nonce_head = HKDF-Expand(wrap_key, "wraphead/v1", 56)`.
 
@@ -2255,10 +2262,13 @@ and acts on — are authenticated by nothing, and MASTER §9.2's stated mitigati
 **What the signature does not close:** ledger open items **132**, **133** and **134**. Those are
 server-side and are not this section's.
 
-**(5) What these rulings do NOT state, so that no implementer concludes they did.** The wrap body's
+**(5) What these rulings do NOT state, so that no implementer concludes they did — ALL THREE RULED
+2026-09-09; see (6).** The wrap body's
 field list beyond what MASTER §8.2's payload table and MASTER §7's `hybrid_ct` framing already fix;
 where the signature sits relative to `hybrid_ct` and precisely which octets it covers; and the padding
-scheme (**M1-7**). That is M1-1's and M1-7's remainder, and m1 Task 14 stays blocked on it.
+scheme (**M1-7**). That was M1-1's and M1-7's remainder, and m1 Task 14 was blocked on it until
+2026-09-09. **It is not what blocks Task 14 now**: ledger item **152**'s `EPH` seal refusal is, and
+the two were always independent.
 
 **Three more were added to this list on 2026-09-15, and the first two are load-bearing for the
 republish block above rather than merely absent.**
@@ -2288,6 +2298,126 @@ republish block above rather than merely absent.**
   record class carrying **no MLS frame**, so the table's answer is not this record's answer. It matters
   for the paragraph below: whether a repeated `(key, nonce)` yields a plaintext XOR as well as a forgery
   depends on whether the two heads differ, and a head carrying a `sent_at` differs on every rebuild.
+
+**(6) THE WRAP BODY — RULED 2026-09-09, AS THE REPAIRED COMPOSITE `C3`. This is (5)'s three
+questions, answered.** MASTER §7 carries the grammar and MASTER §8.2 carries the padding rule and the
+signature's placement; **this section carries the measurements, the trade the owner declined, and the
+residuals**, which is the division of labour the 2026-09-18 amendment established. In outline, and
+normatively in MASTER:
+
+```
+wrap_envelope = u8(wrap_format_version = 0x01) ‖ u8(target_type) ‖ u8(payload_type)
+                ‖ u64(content_epoch)                                        // 11 octets
+wrap_body     = wrap_envelope ‖ hybrid_ct
+ct_body_plain = LP32(len(wrap_body)) ‖ wrap_body ‖ zeros to the rung        // all THREE wrap bodies
+aead_ct       = AEAD(wrap_key, wrap_nonce, secret ‖ LP(identity_pub) ‖ sig)
+wrapsig_preimage = … ‖ LP(H(server_attachment)) ‖ LP(wrap_envelope) ‖ LP(ct_xwing) ‖ LP(payload)
+```
+
+**Four terms, and two of them are repairs the three independent option sets did not contain.** The
+envelope is `W1`'s four fields and **not** `W5`'s five: `u32(publisher_leaf_index)` is dropped.
+`LP(identity_pub)` travels inside `aead_ct`. `LP(wrap_envelope)` enters the signature preimage ahead
+of `LP(ct_xwing)`. And `P2`'s `LP32` prefix and accumulating, position-free tail refusal reach **all
+three** wrap bodies, the recovery wrap included.
+
+**MEASURED — the occupancies and tails are ledger item 179's, taken by calling the shipped encoder;
+the arithmetic below is derived here from MASTER §7's framing and reproduces them exactly, so a
+reader re-derives rather than trusts.** A device wrap's `aead_ct` is `32 + (4+32) + 64 + 16 = 148`, so `hybrid_ct` is
+`2 + (4+1120) + (4+148) = 1,278`, the body is `11 + 1,278 = 1,289`, and `padBody`'s four-octet prefix
+puts occupancy at **1,293** of the 4,096 rung with a **2,803**-octet zero tail. A recovery wrap
+carries `storage_root` (32) and `archive_secret` (64), so its `aead_ct` is
+`32 + 64 + (4+32) + 64 + 16 = 212`, its `hybrid_ct` `1,342`, its body `1,353`, and its prefixed
+`ct_body` occupancy **1,357** of 4,112 with a **2,755**-octet tail. **`ct_body` stays 4,112 on both**,
+so Spec B §5.1's `octet_length(ct_body)` check never moves; the records stay **4,398** and **4,428**;
+the 500-member × 2-device fan-out stays **11.01 MB** against the ≈ 11.5 MB published below.
+**Zero octets on the wire.** The rung-3 cliff — `ct_body` 4,112 → 16,400, **+24.6 MB per commit** —
+is 2,803 octets away, so the budget is not close to binding.
+
+**WHY `LP(wrap_envelope)` IS THE POINT OF THE RULING, AND THIS PARAGRAPH IS WHAT A LATER READER
+NEEDS.** Three analysts worked independently — the field list, the signature, the padding — and each
+recommended a shape. **Composed as they arrived, the result signs the record header, the KEM
+transcript and the secret, and leaves all fifteen envelope octets — the very fields the field-list
+ruling exists to add — signed by nobody**, because the envelope sits outside `hybrid_ct`, the
+signature sits inside `aead_ct`, and `LP(ct_xwing)` lies between them. **It survived three independent
+analyses because a sealer and an opener agree about a field neither is asked to defend, so no
+round-trip test can see it**: every property m1 Task 14 states is a seal-submit-fetch-open-compare
+round trip, and this defect is visible only to a party that *changes* the field — the party no round
+trip has. The repair is one term, **zero body octets and zero wire octets**, and it is acyclic
+(`envelope → encapsulate → sign → seal aead_ct`). Ledger item **176** filed it and closes here.
+
+**AND WHY THE PREFIX OVER THE RECOVERY WRAP IS NOT COSMETIC.** `P2` as its set recommended it
+excluded that record. Under the exclusion a parser must read the **server attachment's kind** before
+it can decide whether the body's first four octets are a length or
+`version ‖ target_type ‖ payload_type` — a target-type-dependent body encoding, which is the defect
+class the 2026-08-26 kind-`0x0000` ruling was written against, one level up. Four octets of a
+2,755-octet tail buys one grammar. Ledger item **177** filed it and closes here.
+
+**WHAT THE OWNER RULED AGAINST, AND IT WAS A CHOICE RATHER THAN A DEFAULT. Recorded so a later reader
+does not re-open it.** The alternative (`C4`) put `LP(sig) ‖ LP(identity_pub)` in the **server
+attachment**, and it is the only shape under which **any** party — the message server included — can
+refuse an unsigned or wrongly-signed wrap from `record_bytes` alone, with no key material at all. Its
+price, measured: **+68 octets per record** with `LP(sig)` and **+104** with the identity key
+(4,398 → 4,466, 4,428 → 4,496), about **+170 KB per epoch fan-out** on an 11.01 MB bundle; a **Spec B
+§5.1 check-3** change plus two new widths in `connect/message/attachment.go`; and a **publicly
+verifiable Ed25519 signature, under a key MASTER §5.2 publishes in the KT log, on all 2,501 wrap
+records per epoch** — which hands the operator per-epoch attribution of the committer and cuts against
+MASTER §4.2. **`C4`'s property and `C3`'s privacy cannot both be had. The owner took the privacy**, and
+the consequence is stated rather than hedged: **(4)'s *"a client MUST NOT honour an unverified wrap"*
+is enforceable by the decapsulating target and by nobody else** — not the server, not a member who is
+not the target, not a client triaging its own inbox.
+
+**AND WHAT THE RULING DOES NOT REACH, because the honest half is the useful half.** It does not lift
+ledger item **152**: `connect/messagegroup/seal.go:119` refuses every non-`DURABLE` class on the seal
+path and `:387` mirrors it on the open path, so the `EPH(5)` `eph_root` record is unsealable by the
+shipped code and **m1 Task 14 is blocked by a landed refusal after this ruling**. The two were always
+independent. And it does not touch CP3b's own blocker, which is neither m1's nor this section's:
+`JoinFromWelcome` is an unconditional refusal, so **no exported path lets two clients share one
+group**.
+
+**SIX RESIDUALS. Five are sentences this ruling owes and did not state, and the sixth is a number.**
+
+1. **The envelope is a HINT the open verifies, not an authority — and this sentence is still owed.**
+   MASTER §7's nine-element `info` binds `u8(target_type)`, `u8(payload_type)` and `u64(epoch)` into
+   `wrap_key ‖ wrap_nonce`, so a receiver that derives the key **from the envelope's own values** and
+   finds `aead_ct` does not open has detected the disagreement fail-closed, at the price of one AEAD
+   open. **`LP(wrap_envelope)` does not make this moot**: the signature is inside `aead_ct` and is
+   unreachable until after the open, so the envelope is still read before anything can verify it.
+   Without the sentence, one implementer trusts an unauthenticated field and another refuses to use
+   it, and the two diverge only on an attacker's record. It also buys something nobody claimed:
+   `u64(content_epoch)` read as a hint **bounds item 142's downward candidate-epoch walk to one
+   candidate**. Ledger **178**.
+2. **The order is open → verify → honour, and it is not written in those words.** Under every `S1`
+   composite the signature is unreachable until after the open, while (4) above and m1 Task 14
+   Property 7 both say *"before it honours anything in the record"*. **Those two do not agree.**
+   *Honour* must be defined as installing `pq_secret[k]` / `eph_root[k]` / `storage_root[k]` into the
+   session.
+3. **How a verifier finds the key it verifies under.** For a member: resolve the leaf whose
+   `sender_handle` matches and read its identity key — `sender_handle` is in `record_bytes` in the
+   clear at a fixed offset and a member holds `group_handle_key`, so the walk is a leaf enumeration,
+   measured at **474 µs** over 1,000 leaves. For a seed-only restorer there is no such route at all,
+   which is what `LP(identity_pub)` exists for — **and a carried key is one the wrap's own sealer
+   chose, so it must be anchored in the KT log (MASTER §10.1). That anchoring is not ruled.**
+4. **A typed refusal for an absent or short signature**, which at this position is a payload-parse
+   outcome and not a wire-parse one. The tail's typed refusal **is** ruled; this one is not.
+5. **`M1-7`'s scope is ruled over the three wrap bodies and says nothing about the ordinary record
+   body**, whose unpadder is the same function (`connect/messagegroup/seal.go:538-542`) — so a
+   wrap-only tail refusal would be a class-dependent unpadder, which is the grammar split this
+   ruling's own second repair removes. With it: **the fill octet is zero** is still pinned only in a
+   test, and **the true inline ceiling is 65,532** where §5.11 below, MASTER and Spec B all publish
+   *"64 KiB"*.
+6. **One term of the preimage is under-determined.** `LP(payload)` was measured over a 32-octet
+   secret, giving **1,305** octets before the repair and **1,320** after it for the four-field
+   envelope. Whether `payload` now means the secret alone or `secret ‖ LP(identity_pub)` is stated by
+   no document; under the second reading the preimage is **1,356**. **A builder must have this before
+   it signs anything.** *(The ruling as transmitted carried "1,305 → 1,324". 1,324 is the figure for
+   the five-field `W1+W5` envelope this ruling does **not** take; with `W5` dropped the envelope is 11
+   octets, `LP(wrap_envelope)` is 15, and the arithmetic gives 1,320. The five-field number is
+   recorded here rather than written into the derivation.)*
+
+**Two further gaps this ruling puts more weight on without closing.** `u8(target_type)` and
+`u8(payload_type)` now travel on the wire and **still have no code point anywhere**, so MASTER §7's
+`wrap_key` remains underivable by a second implementation; and `aead_ct` still has **no stated AAD**,
+which this ruling fills with a signature and a public key. Both are in the list of three below.
 
 **And one more, filed by the red team as a residual of this very recommendation and carried by no
 document until now: the device wrap still owes a normative `stream_index`-to-ratchet-position
@@ -2481,9 +2611,13 @@ everything else, and the arithmetic is MASTER §7's framing with `LP` = 4 octets
 `XwingCiphertextSize` = 1120 and a 16-octet AEAD tag. A device-wrap record carrying **one** 32-octet
 secret is `2 + (4+1120) + (4+32+16)` = **1,178 B** (the pre-split two-secret wrap was 1,210 B); a
 recovery wrap carrying `storage_root` (32) and `archive_secret` (64) is `2 + (4+1120) + (4+96+16)` =
-**1,242 B**; and the signature of (4) adds 64 octets to each. Every one of them still lands in
+**1,242 B**; and the signature of (4) adds 64 octets to each. **Ruling (6) adds three more terms and
+no wire octet** — `LP(identity_pub)` 36 inside `aead_ct`, the envelope 11 outside `hybrid_ct`, and the
+`LP32` body prefix 4 — so the ruled bodies occupy **1,293** of the 4,096 rung (device, zero tail
+**2,803**) and **1,357** of 4,112 (recovery, zero tail **2,755**). Every one of them still lands in
 `size_bucket 2` — a `ct_body` of exactly 4,112 bytes, about 4.6 KB on the wire — with roughly 2.8 KB of
-slack unused, so the signature costs nothing on the wire. One commit + 2,000 device-wrap records + 1
+slack unused, so the signature, the identity key, the envelope and the prefix cost nothing on the
+wire. One commit + 2,000 device-wrap records + 1
 snapshot + 1 marker + 500 recovery wraps ≈ **2,503 records ≈ 11.5 MB**, plus a ~300 KB snapshot object.
 Per-record size caps apply to individual wrap records, never to the commit as a whole.
 `max_records_per_submit` is 256 and `max_submit_bytes` is 131072; the byte cap binds first at about 28

@@ -26,13 +26,13 @@ code at all**, which is the gap every external leg in the m1 plan points at.
 
 | Item | State |
 |---|---|
-| MASTER protocol design | Revision 9, **five** amendments — 2,107 lines |
-| Spec A — protocol / sdk / connect | Revision A-21 — 5,485 lines |
+| MASTER protocol design | Revision 9, **six** amendments — 2,249 lines. The sixth is 2026-09-09: §7 and §8.2 gain the wrap body's grammar, its signature preimage and its padding, ruled as composite `C3` |
+| Spec A — protocol / sdk / connect | Revision A-22 — 5,618 lines |
 | Spec B — message-server / operator | Revision 18 — 3,587 lines |
 | Spec C — Windows client UI | Revision 6 — 1,893 lines |
 | Blockers | **0 from r1–r4** — down from 41. **r8's two are not in that count**; both are fixed in the text and neither is recorded as fixed. Item **165**. |
 | Review findings | **Dispositioned per finding in §5, not counted.** r3's twelve blockers were re-grepped by id; its fourteen remaining majors are items **149–162**, one item per id, each opening with the id and a disposition verb, so `git grep "M-7"` returns a disposition rather than silence. **r2's, r3's and r4's minors, r6's 30 and r8's 25 are NOT dispositioned** — item **165** measures that and publishes the query; those findings carry no ids, so an id-keyed gate cannot see them at all. The count this row used to carry (*"30: 8 major, 22 minor"*) was r6's file, not r3's majors, and the two had been read as one set for five weeks. |
-| Implementation plan | **Written and part-executed.** Fourteen documents in `docs/plans/`; `m1` (24 tasks) has wave 0 and wave 1 landed and is stopped in front of wave 2 by ledger **152** and by open item **M1-1**'s remainder. **`s2` is now written** — 15 tasks, of which Tasks 1–12 are the CP3b prefix — and its own first paragraph states that it does **not** reach CP3b alone: four upstream `connect` blockers (**S2-1** through **S2-4**) sit outside both of its legs and none of the four has an owner. `s3` through `s10` are still cited as owners of unwritten work and have no document. |
+| Implementation plan | **Written and part-executed.** Fourteen documents in `docs/plans/`; `m1` (24 tasks) has wave 0 and wave 1 landed and is stopped in front of wave 2 by ledger **152** — **and by nothing else, since 2026-09-09**, when the owner ruled `M1-1`'s remainder and `M1-7` together as composite `C3` (item **175**), closing items **176**, **177** and **179** with them. **`s2` is now written** — 15 tasks, of which Tasks 1–12 are the CP3b prefix — and its own first paragraph states that it does **not** reach CP3b alone: four upstream `connect` blockers (**S2-1** through **S2-4**) sit outside both of its legs and none of the four has an owner. `s3` through `s10` are still cited as owners of unwritten work and have no document. |
 | Code | **`connect` `beta/message` at `33932e0`** — 1,105 tracked files, 217 Go files across `mls/`, `message/` and `messagegroup/`, 7,631 tests passing / 0 failing / 0 skipped, nine-platform `CGO_ENABLED=0` build green. **This repository** — 57 Go files, 26,402 lines, `go build ./...` and `go test ./...` green. **`sdk`** — nothing; six external legs wait on it. |
 
 **Ready for owner review, and for handoff once the owner has read them.** Four review rounds and two
@@ -807,8 +807,9 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
     wire-visible and block the A6 freeze — M1-6, M1-7, M1-8, M1-24, M1-27 and M1-33 — and four block
     CP3b (items 125–128 here). They are not restated in this ledger, because the plan is where an
     implementer meets them. *(**Neither count is live and this row is kept as the record of the day.**
-    The plan carries **50** items now; of the six named, **M1-8 and M1-6 were both ruled 2026-09-07**,
-    so four still need a ruling before A6 — M1-7, M1-24, M1-27 and M1-33. Annotated rather than
+    The plan carries **50** items now; of the six named, **M1-8 and M1-6 were both ruled 2026-09-07**
+    and **M1-7 was ruled 2026-09-09** as `P2` over all three wrap bodies, so **three** still need a
+    ruling before A6 — M1-24, M1-27 and M1-33. Annotated rather than
     rewritten because an A6-blocker list is exactly the kind of sentence a reader counts, and the same
     stale M1-8 was left standing in the plan's own copy by the commit that ruled it.)*
 
@@ -1754,7 +1755,12 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      *Why this is filed here and not in m1.* **The single detector every M1-1 option offers against
      M1-22's omission attack is this count**, and it is correct while the coverage is wrong — so no
      M1-1 ruling means anything until it is fixed, and the fix is Spec B's. *Blocks:* the value of
-     any M1-1 ruling. **Filed, not ruled.** Found 2026-09-12 by the M1-1/M1-2 red team; see
+     any M1-1 ruling. **Filed, not ruled.** *(**Unchanged by the 2026-09-09 `C3` ruling**, and the
+     ruling makes this item's sentence load-bearing rather than hypothetical: `M1-1` is now ruled in
+     full and this coverage defect is still not, so the detector the ruling's field list leans on is
+     still wrong. The one thing the ruling adds is a second, independent detector for **one** of the
+     failures — `u64(content_epoch)` in the body turns a misread into a refusal — which is not the
+     omission this item is about.)* Found 2026-09-12 by the M1-1/M1-2 red team; see
      `docs/reviews/2026-09-12-m1-wrap-and-welcome-redteam.md` finding B.
 
      **Two interactions added 2026-09-13 by the owner's rulings, neither of which resolves this item
@@ -1994,11 +2000,14 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      writes is now non-`DURABLE`. *(**M1-6 was ruled 2026-09-07** and the lift reaches `PERMANENT` and
      `MEDIA`, so Task 15 is through and Task 14 is not: its `EPH(5)` `eph_root` wrap is refused under
      item **152** now, and both tasks additionally owe the pin of items **143** and **169**.)*
-     *(**2026-09-09:** `M1-1`'s remainder — the field list, the signature's placement and coverage,
-     and `M1-7`'s padding — now has an options amendment at item **175**, which records all
-     twenty-one shapes the three independently produced option sets offered, composes them against
-     each other, and files the five things they disagree about as items **176** through **180**.
-     Nothing there is ruled and this ruling is unchanged by it.)*
+     *(**2026-09-09, and this parenthesis was superseded the same day it was written:** `M1-1`'s
+     remainder — the field list, the signature's placement and coverage, and `M1-7`'s padding — first
+     got an options amendment at item **175**, recording all twenty-one shapes the three independently
+     produced option sets offered, composing them against each other, and filing the five things they
+     disagree about as items **176** through **180**; and it was then **RULED, as composite `C3`**,
+     which is the head of item 175. **So `M1-1` and `M1-7` no longer block Task 14 and the *Blocks*
+     line above is stale in exactly that respect: what blocks Task 14 is item 152, alone.** This
+     ruling of 2026-09-13 is unchanged by either the options pass or the ruling.)*
 
 138. **Nothing detects a missing recovery wrap, and after the 2026-09-13 resequence nothing can
      without a change item 132 owns.** Filed as the named cost of ruling 1 rather than discovered.
@@ -4225,7 +4234,9 @@ fourteen are dispositioned below.
      **WHAT IT UNBLOCKS.** Item **143** closes with it. Spec A §5.3's *"A builder MUST NOT seal a
      non-`DURABLE` record before 169 is ruled"* is **lifted** for `PERMANENT` and `MEDIA` — `EPH` is
      still refused, under item **152** and not under this one. m1's **Task 14** and **Task 15** lose
-     this blocker; Task 14 keeps M1-1's remainder and 152, Task 15 is clear of both. m1's **Task 6**
+     this blocker; Task 14 keeps M1-1's remainder and 152, Task 15 is clear of both. *(**Corrected
+     2026-09-09:** `M1-1`'s remainder and `M1-7` were ruled that day as composite `C3`, so **Task 14
+     keeps 152 and nothing else**.)* m1's **Task 6**
      and **Task 11(a)** are amended to the landed shape. And `s2`'s unwritten store plan inherits an
      interface whose shape is now settled — with item **170**'s transition hazard in front of it,
      which is the one thing about this ruling that is not free.
@@ -4824,7 +4835,82 @@ fourteen are dispositioned below.
      carrier is where a later reader will look first, and because the second one is the exact number a
      future cost argument will be built on. Found 2026-09-07 in the review of the A1 implementation.
 
-175. **THE THREE `M1-1` OPTION SETS, COMPOSED — AN AMENDMENT TO m1's OPEN ITEM `M1-1` AND TO `M1-7`.
+175. **RULED 2026-09-09 BY THE OWNER — COMPOSITE `C3`, §4's fourth row. THE THREE `M1-1` OPTION SETS,
+     COMPOSED. The item is kept whole below because the owner ruled on the shapes recorded in it, and
+     because §2's finding (1) — the one the composition found rather than inherited — is the reasoning
+     the ruling was taken on.**
+
+     **THE RULING. Four terms, and the third and fourth are repairs no option set contained.**
+     `W1`'s four-field envelope — `u8(wrap_format_version = 0x01) ‖ u8(target_type) ‖
+     u8(payload_type) ‖ u64(content_epoch)`, **11 octets** — sits **outside** `hybrid_ct`, and
+     `W5`'s `u32(publisher_leaf_index)` is **dropped**. **`LP(identity_pub)` sits beside the signature
+     inside `aead_ct`.** **`S1`'s signature preimage is extended by `LP(wrap_envelope)`**, ahead of
+     `LP(ct_xwing)`. And **`P2`'s `LP32` prefix and accumulating, position-free tail refusal apply to
+     all three wrap bodies, the recovery wrap included** — so `M1-7` is ruled in the same sitting, as
+     item **180** said it had to be.
+
+     **Measured, and every figure is §4's C3 row and item 179's:** device occupancy **1,293** of the
+     4,096 rung, tail **2,803**; recovery `ct_body` **1,357** of 4,112, tail **2,755**; `ct_body`
+     stays **4,112**; records **4,398** and **4,428**; fan-out 11.01 MB. **Zero octets on the wire.**
+
+     **ONE FIGURE IN THE RULING AS TRANSMITTED DOES NOT REPRODUCE AGAINST THIS ITEM, AND IT IS NOT
+     WRITTEN INTO ANY DOCUMENT.** The ruling carried the preimage as *"1,305 → **1,324**"*. §2 (1)
+     and item **176** both measure that repair as *"**1,324** with set 1's five fields, or **1,320**
+     with W1's four"*, and `C3` takes `W1`'s four — an 11-octet envelope, `LP(wrap_envelope)` = 15,
+     preimage **1,320**. **1,324 is the number for the composite the owner did not take.** What the
+     documents record is 1,320, with the term that is genuinely undetermined stated beside it:
+     `LP(payload)` was measured over a 32-octet secret, and set 2's own `S1` line prices
+     `LP(identity_pub)` as *"a further 36 **in the payload**"* — so the preimage is **1,320** if the
+     identity key is outside that term and **1,356** if it is inside, and **no document says which**.
+     Neither was measured by this pass and neither is asserted as *the* number. A builder needs the
+     answer before it signs anything.
+
+     **WHY THE REPAIR TERM IS THE POINT OF THE RULING.** Three analysts worked independently and each
+     recommended a piece; composed as they arrived (`C1`), the result **signs the record header, the
+     KEM transcript and the secret, and leaves all fifteen envelope octets — the fields the field-list
+     ruling exists to add — signed by nobody.** **It survived three independent analyses because a
+     sealer and an opener agree about a field neither is asked to defend, so no round-trip test can
+     see it.** `LP(wrap_envelope)` closes it at zero body octets and zero wire octets.
+
+     **THE SECOND REPAIR** collapses the two body grammars into one, so a parser can decide whether
+     the body's first four octets are a length or `version ‖ target_type ‖ payload_type` **without
+     first reading the server attachment's kind** — the target-type-dependent body encoding §2 (4)
+     names as the kind-`0x0000` defect class one level up.
+
+     **WHAT THE OWNER RULED AGAINST, AND IT WAS A REAL CHOICE. Recorded so a later reader does not
+     re-open it.** `C4` — the signature in the server attachment — is the only shape under which any
+     receiver, **the message server included**, can refuse an unsigned wrap from the wire bytes alone.
+     Its price is **+68 / +104 octets per record**, about **+170 KB per epoch fan-out**, a **Spec B
+     §5.1 check-3** change, and **publicly verifiable per-epoch attribution of the committer across
+     all 2,501 wrap records**. §4 is explicit that **`C4`'s property and `C3`'s privacy cannot both be
+     had. The owner took the privacy**, and the consequence — that Spec A §5.11 (4)'s *"MUST NOT
+     honour"* is enforceable by the decapsulating target and by nobody else — is now stated in
+     §5.11 (6) rather than left to be discovered.
+
+     **WHAT THE RULING UNBLOCKS AND WHAT IT DOES NOT.** It takes `M1-1` and `M1-7` off m1 **Task 14**,
+     and through Task 14 off **Tasks 15 and 16**, which both modify the `wrap.go` Task 14 creates.
+     **It does not lift item 152** — §6's *"honest limit"* holds verbatim: `seal.go:119` and `:387`
+     refuse every non-`DURABLE` class, so the `EPH(5)` record is unsealable by the shipped code and
+     **Task 14 is blocked by a landed refusal after this ruling**. And it does not touch **`S2-4`**:
+     `JoinFromWelcome` is an unconditional refusal, so **no exported path lets two clients share one
+     group**, which blocks CP3b outright and is `connect/mls`'s.
+
+     **WHAT §6 ASKED FOR AND THE RULING DID NOT SAY.** Of §6's six sentences the ruling states (1),
+     (3) and half of (6). **Not stated:** (2) that the envelope is a **hint** the open verifies — and
+     the signature does **not** make this moot, because it lives inside `aead_ct` and is unreachable
+     until after the open (item **178**, still owed); (4) the order **open → verify → honour** in
+     those words, which m1 Task 14 Property 7's *"before it honours anything in the record"*
+     contradicts as written; (5) how a **member** finds the key it verifies under, and how a
+     restorer's carried `identity_pub` is anchored in the KT log; and (6)'s other half, a typed
+     refusal for an absent or short signature. `M1-7`'s ruling likewise leaves set 3's clauses (b),
+     (d) and (e) — the fill octet in a document, the **65,532** ceiling three documents publish as
+     *"64 KiB"*, and the written argument at `seal.go:538` it overturns — and says nothing about the
+     **ordinary record body**, whose unpadder is the same function. **Filed in Spec A §5.11 (6) and in
+     m1's `M1-1` and `M1-7`.**
+
+     **The item as it was filed, which is what the ruling ruled on:**
+
+     **THE THREE `M1-1` OPTION SETS, COMPOSED — AN AMENDMENT TO m1's OPEN ITEM `M1-1` AND TO `M1-7`.
      THEY DO COMPOSE INTO ONE DECODABLE WRAP BODY. THEY DO NOT COMPOSE AT THE SETTINGS ALL THREE
      RECOMMEND, AND THE THING THAT BREAKS IS THE SIGNATURE'S COVERAGE. FILED WITH OPTIONS AND
      MEASURED COSTS. NOT RULED — `M1-1` AND `M1-7` ARE THE OWNER'S AND NOTHING BELOW IS A RULING.**
@@ -5631,7 +5717,17 @@ fourteen are dispositioned below.
      on `M1-1`'s remainder, on `M1-7` and on item **152**. Found 2026-09-09, composing the three
      independently produced option sets against each other.
 
-176. **S1's SIGNATURE PREIMAGE AND W1's FIELD LIST DO NOT OVERLAP: THE COMPOSITE SIGNS EVERY OCTET
+176. **CLOSED 2026-09-09 BY THE OWNER'S `C3` RULING — the repair was adopted verbatim.
+     `LP(wrap_envelope)` is in the signature preimage, ahead of `LP(ct_xwing)`, in MASTER §7 and Spec
+     A §5.11 (6). The item is kept whole because the reasoning below — why three independent analyses
+     missed it, and why no round-trip test could have — is the reason the ruling took the repair, and
+     is worth more than the shape.** *(One figure of this item's own is what the ruling as transmitted
+     got wrong and what the documents therefore do not carry: `C3` takes `W1`'s **four** fields, so
+     the preimage is this item's **1,320** and not its 1,324. And this item's measurement predates
+     `LP(identity_pub)`: whether that field joins the preimage's `LP(payload)` term — which would make
+     it 1,356 — is settled by no document and is filed in Spec A §5.11 (6).)*
+
+     **S1's SIGNATURE PREIMAGE AND W1's FIELD LIST DO NOT OVERLAP: THE COMPOSITE SIGNS EVERY OCTET
      OF THE WRAP EXCEPT THE ONES THE FIELD-LIST RULING EXISTS TO ADD. FILED, NOT RULED. THE REPAIR IS
      ONE TERM, ZERO BODY OCTETS AND ZERO WIRE OCTETS.**
 
@@ -5661,11 +5757,23 @@ fourteen are dispositioned below.
      three fields out of four. **That is the item-143 failure mode stated in one sentence: safety
      resting on a rule nobody wrote.**
 
-     *Blocks:* nothing mechanically — no wrap has ever been sealed. It blocks a **closure**: a ruling
-     that takes both recommendations without this term has ruled a field list that nothing
-     authenticates. Found 2026-09-09, composing the three option sets.
+     *Blocked:* nothing mechanically — no wrap has ever been sealed. It blocked a **closure**: a
+     ruling that takes both recommendations without this term has ruled a field list that nothing
+     authenticates. Found 2026-09-09, composing the three option sets. **Ruled the same day, with the
+     term in it.**
 
-177. **THE THREE OPTION SETS PUBLISH THREE DIFFERENT DENOMINATORS FOR ONE BODY. THE DISAGREEMENT IS
+177. **CLOSED 2026-09-09 BY THE OWNER'S `C3` RULING — the corpus ends with ONE wrap-body grammar.
+     `P2`'s `LP32` prefix and its accumulating, position-free tail refusal reach all three wrap
+     bodies, the recovery wrap included, which is this item's own repair taken verbatim: four octets
+     of a 2,755-octet tail and zero on the wire.** The arithmetic half was already settled by
+     measurement in item 175 §1 — the recovery wrap's denominator is **4,112** and set 1 was 20 octets
+     low on every recovery-wrap figure it published. The substantive half is what the ruling decided,
+     and it decided it the way this item argued: a parser no longer needs the server attachment's kind
+     to know whether the body's first four octets are a length. **Spec A §5.11 (2) is amended rather
+     than annotated**, because *"the recovery wrap's `ct_body` **is** `hybrid_ct`, followed by zeros"*
+     is now false in two places. The item is kept whole.
+
+     **THE THREE OPTION SETS PUBLISH THREE DIFFERENT DENOMINATORS FOR ONE BODY. THE DISAGREEMENT IS
      `padBody`'s LENGTH PREFIX, AND WHAT IT ACTUALLY DECIDES IS WHETHER THE CORPUS ENDS WITH ONE
      WRAP-BODY GRAMMAR OR TWO. FILED, NOT RULED.**
 
@@ -5705,10 +5813,23 @@ fourteen are dispositioned below.
      §5.11 (2)'s *"`ct_body` **is** `hybrid_ct`"*, which is the only sentence the exclusion exists to
      keep true.
 
-     *Blocks:* nothing mechanically. It decides which of `M1-1`'s and `M1-7`'s rulings has to be
-     written first, and it is the reason they should be written together. Found 2026-09-09.
+     *Blocked:* nothing mechanically. It decided which of `M1-1`'s and `M1-7`'s rulings had to be
+     written first, and it was the reason they should be written together. Found 2026-09-09. **They
+     were ruled together the same day, and this item's repair is in the ruling.**
 
-178. **THREE AUTHORITIES NAME A WRAP'S PAYLOAD KIND AND THREE NAME ITS CONTENT EPOCH. THE FIELD-LIST
+178. **STILL OPEN AFTER THE 2026-09-09 `C3` RULING, AND THE RULING MAKES IT SHARPER RATHER THAN
+     MOOT. The sentence this item asks for was not stated.** `C3` puts `LP(wrap_envelope)` inside the
+     signature, so the envelope is now **authenticated** — but the signature lives inside `aead_ct`
+     and is unreachable until after the open, while a receiver still derives `wrap_key` **from the
+     envelope's own values** in order to attempt that open. So the field is still read before anything
+     can verify it, the AEAD open is still the check, and **no sentence in the corpus says a receiver
+     may read the field before it trusts it.** Two implementers still diverge, and still only on an
+     attacker's record. Spec A §5.11 (6) files this as residual 1 of six. *(One number in this item
+     moves with the ruling and is corrected here rather than below: it prices W1's `u64(content_epoch)`
+     at **eight** octets, which is the field's own width; the envelope the ruling adopts is **eleven**
+     octets and the bound-to-one-candidate benefit is the same.)*
+
+     **THREE AUTHORITIES NAME A WRAP'S PAYLOAD KIND AND THREE NAME ITS CONTENT EPOCH. THE FIELD-LIST
      SET COUNTS TWO AND MISSES THE ONE THAT MAKES THE OTHER TWO SAFE. FILED, NOT RULED — AND THE
      RULING OWES ONE SENTENCE, NOT A MECHANISM.**
 
@@ -5751,7 +5872,17 @@ fourteen are dispositioned below.
      *Blocks:* nothing. It is a sentence the ruling owes and an argument that makes the sentence
      cheap. Found 2026-09-09.
 
-179. **`u32(publisher_leaf_index)` AND `LP(identity_pub)` ARE NOT SUBSTITUTES, AND THE SET THAT
+179. **CLOSED 2026-09-09 BY THE OWNER'S `C3` RULING — this item's conclusion taken whole.**
+     `u32(publisher_leaf_index)` is **dropped** and `LP(identity_pub)` is **carried inside
+     `aead_ct`**, which is exactly *"the composite therefore needs `LP(identity_pub)` and does not
+     need W5"*. The measurement in this item's last paragraph — device body **1,293** of the 4,096
+     rung, tail **2,803**; recovery `ct_body` **1,357** of 4,112, tail **2,755**; zero octets on the
+     wire, records still 4,398 and 4,428 — **is the ruling's own sizing** and is what Spec A §5.11 (6)
+     and MASTER §8.2 now publish. **One half is carried forward rather than closed and is filed in
+     §5.11 (6) as residual 3:** a carried key is one the wrap's own sealer chose, so it is an anchor
+     only once it is anchored in the KT log, and the ruling does not say that. The item is kept whole.
+
+     **`u32(publisher_leaf_index)` AND `LP(identity_pub)` ARE NOT SUBSTITUTES, AND THE SET THAT
      RECOMMENDS THE FIRST CLAIMS THE SECOND'S PROPERTY FOR IT. FILED, NOT RULED.**
 
      **The claim.** Set 1 recommends W5 and calls it *"the only candidate field that makes the
@@ -5787,10 +5918,24 @@ fourteen are dispositioned below.
      rung, tail **2,803**, and a recovery `ct_body` of **1,357** of 4,112, tail **2,755** — zero
      octets on the wire in both cases, records still 4,398 and 4,428.
 
-     *Blocks:* nothing. It decides one field of `M1-1`'s remainder and it is the field the recovery
-     wrap's verification depends on. Found 2026-09-09.
+     *Blocked:* nothing. It decided one field of `M1-1`'s remainder and it is the field the recovery
+     wrap's verification depends on. Found 2026-09-09, **and ruled the same day, its way.**
 
-180. **`u8(size_bucket)` IS INSIDE THE PROPOSED SIGNATURE, SO THE PADDING RULE IS AN INPUT TO THE
+180. **HALF CLOSED 2026-09-09 BY THE OWNER'S `C3` RULING, AND THE HALF THAT CLOSED IS THE ONE THIS
+     ITEM ASKED FOR: `M1-1` and `M1-7` were ruled in ONE SITTING**, which is what set 3 asked and what
+     the other two sets' recommendations assumed unnecessary. **The two-rules half closes by
+     construction**: under `P2` over all three wrap bodies every wrap class computes `u8(size_bucket)`
+     from `len(body) + 4` under one rule, so the *"two wrap classes compute that byte under two
+     different rules"* condition no longer exists. **What does NOT close, and is now an obligation on
+     m1 Task 14 rather than a disagreement between option sets:** the **ordering obligation** — the
+     bucket must be chosen from the **post-signature, post-envelope** body length, because the bucket
+     is inside the preimage — and its **silent failure mode**, a body within 64 octets of a rung
+     boundary that signs one bucket and pads into another and still round-trips against its own
+     sealer. Still not reachable, and re-measured against the ruled shape rather than the composed
+     one: the ruled bodies are **1,293** and **1,357**, and both land on rung 2 whichever length the
+     bucket is taken from. The item is kept whole.
+
+     **`u8(size_bucket)` IS INSIDE THE PROPOSED SIGNATURE, SO THE PADDING RULE IS AN INPUT TO THE
      SIGNATURE AND `M1-7` IS NOT SEPARABLE FROM `M1-1`'s SIGNATURE QUESTION. TWO OF THE THREE SETS
      SAY IT IS. FILED, NOT RULED — AND IT IS NOT REACHABLE TODAY, WHICH IS THE POINT.**
 
@@ -10542,3 +10687,123 @@ any tree**. It amended **no spec**: S2-17, S2-18, S2-21 and S2-22 all owe §8.2 
 pass wrote none, because §8.2 is not this plan's to edit. It supplied **no test code**. And it
 executed no `s2` task: `sdk`'s three preconditions (**S2-13**) are still unmet — `../goidenticons`
 absent, no `beta/message` branch, no `.github` directory.
+
+
+---
+
+### 2026-09-09 — `M1-1` and `M1-7` RULED as composite `C3`: the envelope nothing signed, the grammar that needed the attachment's kind to parse, and the wire-decidability the owner declined to buy
+
+**Change.** The owner's ruling on the remainder of m1 open item **`M1-1`** — the wrap body's field
+list, where the signature sits and which octets it covers — and on **`M1-7`**, the padding scheme,
+**taken together in one sitting** as item 175 §4's fourth composite, **`C3`**. Five documents move.
+Item **175** gains the ruling at its head and is otherwise kept whole; items **176**, **177** and
+**179** **close**; items **178** and **180** are annotated with what the ruling does and does not do
+to each; §1's implementation-plan row and the two spec rows move with them. m1's `M1-1` and `M1-7`
+become RULED with the reasoning, the measurements and the residuals, and Tasks 14, 15 and 16, the
+execution order, the pending-pins table, the wave-2 row and the A6 wire-visible list follow.
+**MASTER §7 and §8.2** gain the normative grammar under a new dated amendment. **Spec A §5.11** gains
+**(6)**, amends **(2)**, and carries the measurements, the declined trade and six residuals (revision
+**A-22**). And the two documents that cite Task 14's blocker list from outside m1 — `s2`'s
+interface-inventory row and its **S2-3**, and `PROGRESS.md`'s component row — are corrected to name
+**item 152 alone**, which is the class this ruling makes false rather than a list taken from the
+ruling.
+
+**The rule.** `W1`'s four-field envelope — `u8(wrap_format_version = 0x01) ‖ u8(target_type) ‖
+u8(payload_type) ‖ u64(content_epoch)`, **11 octets**, version first — outside `hybrid_ct` in every
+wrap body, with `W5`'s `u32(publisher_leaf_index)` **dropped**. `aead_ct`'s plaintext as
+`secret ‖ LP(identity_pub) ‖ sig`. `S1`'s signature preimage extended by **`LP(wrap_envelope)`**,
+ahead of `LP(ct_xwing)`. And `P2` — `LP32(len) ‖ body ‖ zeros` with an **accumulating, position-free**
+typed refusal of a non-zero tail — over **all three** wrap bodies, the recovery wrap included.
+
+**Measured, and the derivation is published beside the numbers so a reader re-derives rather than
+trusts.** `aead_ct` `32 + (4+32) + 64 + 16 = 148` → `hybrid_ct` `2 + (4+1120) + (4+148) = 1,278` →
+body `11 + 1,278 = 1,289` → occupancy **1,293** of the 4,096 rung, tail **2,803**. Recovery:
+`aead_ct` `32 + 64 + (4+32) + 64 + 16 = 212` → `hybrid_ct` **1,342** → body **1,353** → `ct_body`
+occupancy **1,357** of 4,112, tail **2,755**. `ct_body` stays **4,112**, records **4,398** and
+**4,428**, fan-out **11.01 MB**, Spec B's `octet_length(ct_body)` check unmoved. **Zero octets on the
+wire.**
+
+**Why the repair term is the point of the ruling, which is what this entry exists to record.** Three
+analysts worked independently — the field list, the signature, the padding — and each recommended a
+piece. Composed as they arrived, **the result signs the record header, the KEM transcript and the
+secret, and leaves all fifteen envelope octets — the very fields the field-list ruling exists to add —
+signed by nobody**, because the envelope is outside `hybrid_ct`, the signature is inside `aead_ct`,
+and `LP(ct_xwing)` lies between them. **It survived three independent analyses because a sealer and an
+opener agree about a field neither is asked to defend, so no round-trip test can see it**: every
+property m1 Task 14 states is a seal-submit-fetch-open-compare round trip, and the defect is visible
+only to a party that *changes* the field, which is the party no round trip has. `LP(wrap_envelope)`
+closes it for zero body octets and zero wire octets. **The second repair** — the `LP32` prefix
+extended over the recovery wrap — collapses two body grammars into one, so a parser can decide whether
+the body's first four octets are a length or `version ‖ target_type ‖ payload_type` **without first
+reading the server attachment's kind**, which was a target-type-dependent body encoding and therefore
+the kind-`0x0000` defect class one level up.
+
+**What the owner ruled against, and it was a real choice rather than a default.** `C4` — the signature
+in the server attachment — is the only shape under which any receiver, **the message server
+included**, can refuse an unsigned wrap on the wire bytes alone. Its price: **+68 / +104 octets per
+record**, ~**+170 KB per epoch fan-out**, a **Spec B §5.1 check-3** change, and **publicly verifiable
+per-epoch attribution of the committer across all 2,501 wrap records**, under a key MASTER §5.2
+publishes in the KT log — MASTER §4.2's own boundary. Item 175 §4 is explicit that **C4's property and
+C3's privacy cannot both be had. The owner took the privacy**, and the consequence is now stated where
+a reader meets it: Spec A §5.11 (4)'s *"a client MUST NOT honour an unverified wrap"* is enforceable by
+the decapsulating target and by nobody else.
+
+**ONE FIGURE IN THE RULING AS TRANSMITTED DID NOT REPRODUCE AND WAS NOT WRITTEN DOWN.** The ruling
+carried the preimage as *"1,305 → **1,324**"*. Item 175 §2 (1) and item **176** both measure the
+repair as *"**1,324** with set 1's five fields, or **1,320** with W1's four"*, and `C3` takes `W1`'s
+four — so the envelope is 11 octets, `LP(wrap_envelope)` is 15, and the preimage is **1,320**; 1,324
+is the number for the composite the owner did **not** take. **1,320 is what the documents carry**, and
+it is carried with the term that is genuinely undetermined stated beside it: `LP(payload)` was
+measured over a 32-octet secret, while set 2's own `S1` line prices `LP(identity_pub)` as *"a further
+36 in the payload"*, so the preimage is **1,320** if the identity key is outside that term and
+**1,356** if it is inside, and **no document says which**. Neither was measured here and neither is
+asserted as *the* number. **A builder needs the answer before it signs anything**, so it is filed as
+Spec A §5.11 (6)'s sixth residual rather than guessed at.
+
+**What this pass unblocked, and what it did not — said in the same breath, because the second half is
+the useful one.** `M1-1` and `M1-7` come off m1 **Task 14**, and through Task 14 off **Tasks 15 and
+16**, which both modify the `wrap.go` Task 14 creates. **Ledger item 152 is untouched and is now the
+whole of Task 14's blocker list**: `connect/messagegroup/seal.go:119` refuses every non-`DURABLE`
+class on the seal path and `:387` mirrors it on the open path, so the `EPH(5)` `eph_root` record is
+unsealable by the shipped code — item 175 §6's *"honest limit"* holds verbatim, and the two blockers
+were always independent. **And CP3b is still blocked outright by `S2-4`**, which this ruling does not
+touch: `JoinFromWelcome` is an unconditional refusal, so there is **no exported path by which two
+clients share one group**. That is `connect/mls`'s, upstream of everything `m1` and `s2` can do.
+
+**What the ruling did not say, derived from item 175 §6's own list of six rather than taken from the
+ruling's summary of itself.** It states (1), (3) and half of (6). **Not stated:** (2) the envelope is
+a **hint** the open verifies — and `LP(wrap_envelope)` does **not** make this moot, because the
+signature lives inside `aead_ct` and is unreachable until after the open, so a receiver still derives
+`wrap_key` from the envelope's own values before it has anything to verify (item **178**, still
+owed); (4) the order **open → verify → honour** in those words, which m1 Task 14 Property 7's
+*"before it honours anything in the record"* contradicts as written; (5) how a **member** resolves the
+identity key it verifies under, and how a restorer's carried `identity_pub` is anchored in the KT log;
+and (6)'s other half, a typed refusal for an absent or short signature. `M1-7`'s ruling leaves set 3's
+clauses (b), (d) and (e) — the fill octet in a document, the true **65,532** inline ceiling three
+documents publish as *"64 KiB"*, and the written argument at `seal.go:538` it overturns — and says
+nothing about the **ordinary record body**, whose unpadder is the same function, so a wrap-only tail
+refusal would be a class-dependent unpadder and therefore the grammar split the ruling's own second
+repair removes. All of it is filed in Spec A §5.11 (6) and in m1's `M1-1` and `M1-7` rather than
+resolved.
+
+**Two gaps the ruling puts more weight on without closing:** `u8(target_type)` and `u8(payload_type)`
+now travel on the wire and **still have no code point anywhere**, so MASTER §7's `wrap_key` stays
+underivable by a second implementation; and `aead_ct` still has **no stated AAD**, which this ruling
+fills with a signature and a public key.
+
+**One document defect found and repaired in passing, recorded because it is the kind that survives by
+being invisible.** m1's `M1-1` carried the 2026-09-09 options amendment **twice**, in two
+near-identical paragraphs written by the same pass, and both copies ended with the sentence the ruling
+falsifies. They are collapsed into one, with the duplication named in place.
+
+**What this pass did NOT do.** It ruled nothing of its own — every ruling recorded here is the
+owner's. It closed **no** item other than 176, 177 and 179, which the ruling closes: **152**, **178**,
+**180**'s residual, **132**, **133**, **134**, **142** and **148** stay filed and unruled. It changed
+**no Go file in any tree**, supplied **no test code**, and **did not touch `connect`**. It implemented
+no part of m1 wave 2: Task 14 is still not started, and the reason is item 152 rather than anything
+this ruling settles.
+
+**Verification.** `go build ./...` clean; `go test ./...` green; `go test ./ -run TestThePlanLinter`
+ok. Every linter reporting count identical across the diff (1b 7, 1c 1, 1d 189, 2a 18, 3a 4, 3c 3,
+4b 5) and the four fatal checks (2b, 3b, 3d, 4a) clean on both sides. `git ls-files` equals
+`git ls-tree -r HEAD` at **103**, checked before the commit and again after.

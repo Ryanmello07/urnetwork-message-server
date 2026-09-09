@@ -436,7 +436,7 @@ than leaving a stale reference for the next reader.
 |---|---|---|---|
 | a reachable `read_key[e]` / `write_key[e]` for a live session | `connect` — unowned | Tasks 9, 10, 11 | **absent.** `GroupSession` has seven exported methods and none returns a key. **S2-1** |
 | a `server_nonce` rebind on a live `GroupSession` | `connect` — unowned | Task 7 | **absent.** No setter exists. **S2-2** |
-| a `pq_secret` DELIVERY channel (the device wrap) | m1 Task 14 | Tasks 8a and 9 | **blocked** on M1-1's remainder and ledger item 152. The SAMPLER landed while this plan was being reviewed — `messagegroup/epoch.go` is tracked at `connect` `7868d65` and declares `NewPqSecret` — and the delivery did not: there is no `wrap*.go` in `messagegroup`, and `XwingEncapsulate` / `XwingDecapsulate` still have **zero production callers outside `xwing.go`**, re-measured at `7868d65`. **S2-3** |
+| a `pq_secret` DELIVERY channel (the device wrap) | m1 Task 14 | Tasks 8a and 9 | **blocked** on ledger item 152 **alone, since 2026-09-09** — `M1-1`'s remainder and `M1-7` were ruled that day as composite `C3`, so Task 14's field list, signature preimage and padding are settled and its only remaining blocker is the landed `EPH` seal refusal. The SAMPLER landed while this plan was being reviewed — `messagegroup/epoch.go` is tracked at `connect` `7868d65` and declares `NewPqSecret` — and the delivery did not: there is no `wrap*.go` in `messagegroup`, and `XwingEncapsulate` / `XwingDecapsulate` still have **zero production callers outside `xwing.go`**, re-measured at `7868d65`. **S2-3** |
 | a working `GroupEngine.JoinFromWelcome` | m1 Task 16, and `connect/mls` upstream of it | any two-client run | **absent.** An unconditional refusal on every input. **S2-4** |
 | an injected `GroupEngine` / `GroupHandle` factory | s5 | Tasks 9–12 | absent; Gate 5 forbids `s2` from constructing one |
 | a production `mls.StateStore` | s5, or unowned | any run across a process boundary | **absent.** The interface has eight methods and zero production implementations in any tree. **S2-14** |
@@ -2946,7 +2946,9 @@ files of `connect/messagegroup` at `33932e0`, the only file matching
 `XwingEncapsulate|XwingDecapsulate` is `xwing.go`, which **declares** them. m1 Task 13 supplies the sampler and **has landed** — `NewPqSecret` is
 tracked at `connect` `7868d65`, which corrects this plan's earlier "in the working tree, uncommitted"
 reading; m1 Task 14 supplies the device wrap that **delivers** it, has not landed, and is blocked on
-M1-1's remainder and ledger item 152. Re-measured at `7868d65`: no `wrap*.go` in `messagegroup`, and
+ledger item 152 — **and, since 2026-09-09, on nothing else**: the owner ruled `M1-1`'s remainder and
+`M1-7` together that day as composite `C3`, so what stands in front of Task 14 is the landed
+non-`DURABLE` seal refusal at `seal.go:119`/`:387` and not an unruled field list. Re-measured at `7868d65`: no `wrap*.go` in `messagegroup`, and
 `XwingEncapsulate` and `XwingDecapsulate` have no production caller outside `xwing.go`, which
 declares them. Until delivery exists, the only thing making two
 sessions agree on a storage root is a test constant — which is exactly the *"no test-only key source
