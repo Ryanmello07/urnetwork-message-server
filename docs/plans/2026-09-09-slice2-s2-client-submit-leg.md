@@ -817,13 +817,18 @@ Two reasons, and the second is the one that matters.
   1. **Absent row.** `(0, nil)`. This is clause 4's answer for a stream never seen.
   2. **Torn tail.** A failing **suffix** — trailing bytes that are not a whole record, and/or a
      final whole record whose checksum does not verify — with **no verifying record after it**, and
-     no larger than **one record plus a partial**. Discard it and answer the last record that does
+     of one of exactly **two** shapes: a partial alone, or **one** whole failing record with **no**
+     partial after it. Discard it and answer the last record that does
      verify; if none does, answer `(0, nil)`, because a row carrying no verifying record is the state
      `OpenStreamStore` creates a row in **before** it hands out an index for that key, and that is the
-     same state a stream never seen is in. No error in either sub-case.
+     same state a stream never seen is in. No error in either sub-case. **Those two shapes are the
+     two an interrupted append can leave and there is no third**; the derivation is below, and the
+     pass that wrote it down found this case stated one whole record wider than the derivation
+     reaches — *one record plus a partial*, which is two records' worth of damage.
   3. **Corrupt body.** A record that fails to verify with a **verifying record after it**, or a
-     failing suffix **larger than one record plus a partial**, or a row whose name parses but whose
-     records are not a whole number of record widths in a way case 2 cannot explain.
+     failing suffix of **two or more whole records**, or **one failing whole record with a partial
+     after it**, or a row whose name parses but whose records are not a whole number of record widths
+     in a way case 2 cannot explain.
      `ErrStreamStoreState` — never `(0, nil)`, and never the last surviving record's value.
   **AND THE ONE THING THE THREE CASES DO NOT SETTLE ON THEIR OWN: a truncated row and an interrupted
   append are the SAME BYTES, and the store answers them the same way.** A three-record row truncated
@@ -851,34 +856,111 @@ Two reasons, and the second is the one that matters.
   2. Let `f` be the least `j` whose `R_j` fails its checksum, or `k+1` if every record verifies.
      **If any `R_j` with `j > f` verifies → case 3.**
   3. Otherwise the failing suffix is `R_f … R_k` plus the partial: `k − f + 1` whole records and `r`
-     octets. **If `k − f + 1 ≥ 2` → case 3**, a failing suffix larger than one record plus a partial.
-  4. Otherwise (`k − f + 1 ≤ 1`) → **case 2**: discard from offset `(f−1)·W` to the end and answer
-     `R_{f−1}`'s value; if `f = 1`, answer `(0, nil)`.
+     octets. **If `k − f + 1 ≥ 2` → case 3**, a failing suffix of two or more whole records. **And if
+     `k − f + 1 = 1` while `r > 0` → case 3 as well**: one failing whole record with a partial after
+     it is two records' worth of damage, and the derivation below says no single interrupted append
+     produces it. *The second clause was added by the pass that found the procedure admitting one
+     whole record more than the derivation offered to justify it*, and mutation 15 is what pins it.
+  4. Otherwise — `k − f + 1 = 0`, or `k − f + 1 = 1` with `r = 0` → **case 2**: discard from offset
+     `(f−1)·W` to the end and answer `R_{f−1}`'s value; if `f = 1`, answer `(0, nil)`.
 
   **The procedure is total, and it is the whole of the rule.** Case 3's third clause — *"a row whose
   name parses but whose records are not a whole number of record widths in a way case 2 cannot
-  explain"* — names no row step 3 does not already reach: `r > 0` on its own is always explained by
-  case 2's partial, and `r > 0` beside two or more failing records is already case 3 by step 3. The
-  clause is kept as prose and it **adds no case**. A reading under which it adds one is a reading in
-  which the rule is not a function of the row's bytes, which is the defect this paragraph removes.
+  explain"* — names no row step 3 does not already reach: `r > 0` with every whole record verifying
+  is always explained by case 2's partial, and `r > 0` beside one or more failing whole records is
+  already case 3 by step 3. The clause is kept as prose and it **adds no case**. A reading under
+  which it adds one is a reading in which the rule is not a function of the row's bytes, which is the
+  defect this paragraph removes.
 
   **What the ruling costs, said here because it is a price and not a gap.** An out-of-band truncation
   that removes whole **flushed** records is undetectable, and it rewinds the high water silently.
   Task 2 Property 2's `ErrStreamStoreRewound` catches it only while the process that handed out the
   higher index is still alive; across a restart there is nothing left to compare against. **S2-23.**
 
-  **The bound in case 2 is derived, not chosen.** The allocation path appends **one** record and
-  flushes, so at most one record can be un-flushed when a process dies; a failing suffix bigger than
-  that cannot be an interrupted append and is therefore corruption. That derivation is what makes
-  the discard safe, and Task 2 states its other half: a `Reserve` whose flush had not returned had
-  not returned an index, so discarding a torn tail discards nothing that was ever handed out.
+  **WHERE THE NEXT APPEND LANDS — the thing the discard made load-bearing and which nothing in this
+  plan defined.** *"Discard from offset `(f−1)·W` to the end"* has two readings: **TRUNCATE** the row
+  to that offset, or merely **SKIP** the region when computing the answer and leave the octets on
+  disk. Until this pass no sentence chose between them — a search of this document for `truncat`,
+  `discard`, `offset`, `seek`, `O_APPEND` and *end of the row* returns nothing that settles it — and
+  the two readings do not merely differ in tidiness; one of them breaks a property this plan states.
+
+  *Position taken, and it is a position rather than a ruling:* **the discard is a TRUNCATION; it is
+  performed by the WRITER, at OPEN, exactly once, under Task 2a's exclusion, before
+  `OpenStreamStore` returns and therefore before any index for that key has been handed out; and it
+  is forced durable before that return.** *On the ordering, because a dispatcher on this task alone
+  will ask:* the exclusion is **Task 2a's** and Task 2a lands **with** Task 2, in this wave, not
+  after it — so at this task's own commit the repair is single-writer because nothing has opened the
+  directory twice yet, and Task 2a is what turns that from an accident into a property. Task 2a
+  Property 4 states this half from the exclusion's side and names this property back.
+  Three consequences are the argument:
+
+  1. **It keeps `StreamHighWater` a read.** Every later call classifies a row whose length is already
+     a whole multiple of `W`, and writes nothing. A repair performed lazily inside `StreamHighWater`
+     makes a read a write, puts a second writer to one row inside one store beside a live `Reserve`
+     — which Task 2a Property 3's guard would then have to cover and does not say it does — and makes
+     the repair's timing data-dependent. Mutation 14 is that store.
+  2. **It is on the OPEN path and not the allocation path**, so it moves neither of Task 2
+     Property 1's two numbers. It is not a forced flush on the allocation path, and it is not a
+     directory-entry mutation at all: it is a truncation of a file that already exists. A gate that
+     counts it against Task 2 Property 1 has measured the wrong path, and Task 2 Property 1's scope
+     sentence — *the whole allocation path and everything it calls* — is what says so.
+  3. **Its own durability is not load-bearing, and that is what makes it safe to perform at open at
+     all.** The repair hands out nothing, so a crash between the truncation and its flush leaves a
+     row the next open repairs identically. **The repair is idempotent; a `Reserve` is not** — which
+     is exactly why one may run before the store's first index and the other may not.
+
+  *Rejected — SKIP-ONLY, and it is rejected on a worked consequence rather than on taste.* Leave the
+  torn octets in place and append at EOF. A crash mid-append leaves `R1 ‖ half-R2` at `L = 1.5W`; the
+  reopened store answers `R1`, correctly, and Task 2a mutation 9 is green. The next
+  `ReserveStreamIndex` appends a whole record at EOF, so the row becomes `R1 ‖ half-R2 ‖ R2′` at
+  `L = 2.5W`; on the NEXT open `k = 2`, `R_1` verifies, `R_2` spans `half-R2 ‖ head of R2′` and
+  fails, `r = W/2` and `f = 2`. Under the pre-repair procedure that was `k − f + 1 = 1` → case 2 →
+  answer `R1`, **so the store hands out the same index it handed out before the restart, and does so
+  after every restart, for the life of the row.** A reused `stream_index` under a reused `record_key`
+  is what §5.6 calls *"a total break of both AEADs for that record"*, and it is the exact hazard
+  Task 2a was commissioned to prevent — arriving through the row format instead of through a second
+  writer. **Nothing in Tasks 1, 2, 2a or 4 reached it before this pass**, because no mutation planted
+  a torn tail and *then* allocated; Task 2a mutation 8's fixture is the assertion that would have
+  caught it and it has no prior torn tail.
+  *Rejected — a lazy truncation inside `StreamHighWater`*, for consequence 1 above.
+
+  **The two repairs in this paragraph compose, and that is the argument for both.** Under the
+  position taken, the row's length is a whole multiple of `W` at every moment an append begins, so
+  `r > 0` can only be an in-flight append's own partial and every whole record before it was flushed
+  and verifies — which is exactly `k − f + 1 = 0`. Under skip-only it is not, and the shape skip-only
+  reaches on its second open is `k − f + 1 = 1` with `r > 0`: **the shape step 3 now sends to case
+  3.** So the tightened bound turns the rejected reading from a silent index reuse into an
+  `ErrStreamStoreState`, and the open-time truncation is what makes the tightened bound derivable
+  rather than chosen. *Not resolved, and filed rather than assumed:* whether the repair is
+  `OpenStreamStore`'s obligation as a sixth §8.2 contract clause, beside the concurrent-opener clause
+  S2-17 asks for and the write-discipline clause S2-22 asks for — **S2-24**.
+
+  **The bound in case 2 is derived, not chosen — and this pass corrected it, because the procedure
+  admitted one whole record more than the derivation reaches.** The allocation path appends **one**
+  record of exactly `W` octets at a `W`-aligned offset and flushes, so an interrupted append can
+  leave two shapes and no others: a trailing partial with every whole record verifying
+  (`k − f + 1 = 0`, `r > 0`), or a final whole record torn within its own octets
+  (`k − f + 1 = 1`, `r = 0`). **`k − f + 1 = 1` with `r > 0` is two records' worth of damage, which
+  the derivation says an interrupted append cannot produce** — so it is corruption and step 3 refuses
+  it. The earlier procedure sent `k − f + 1 ≤ 1` to case 2 *regardless of `r`* and answered
+  `R_{f−1}` for it, which is the gap this pass closes; mutation 12 pinned the `2W` off-by-one on the
+  other side of the bound and nothing pinned this one. That derivation is what makes the discard
+  safe, and Task 2 states its other half: a `Reserve` whose flush had not returned had not returned
+  an index, so discarding a torn tail discards nothing that was ever handed out.
   **The bound is also the thing a later change breaks silently** — a batched allocation that appended
   two records per flush would invalidate it without touching a line of this property. That is
   **S2-22**.
-  *Refusal owed:* `ErrStreamStoreState` for case 3, naming which of the three shapes it found;
+  *Refusal owed:* `ErrStreamStoreState` for case 3, naming which of its shapes it found — a failing
+  record with a verifying record after it, a failing suffix of two or more whole records, or one
+  failing whole record with a partial after it;
   `(0, nil)` for case 1 and for case 2's no-verifying-record sub-case; and **never**
   `ErrStreamStoreState` for a torn tail, which is the half Task 2's own design requires and this
   property now carries. Task 2 Property 2 and Task 2a Property 4 both read this answer.
+  *And two numbers this property REPORTS, because the position taken above is invisible to every
+  assertion that reads only an answer:* the number of row writes `OpenStreamStore` performs — **0
+  when it found no torn tail, 1 when it found one** — and the number `StreamHighWater` performs,
+  which is **always 0**. A store that repairs lazily answers every question this property asks
+  correctly and is red on the second number, which is the whole reason the number is here.
 
 - [ ] **Step 2: Run to verify it fails**
 - [ ] **Step 3: Write the minimal implementation**
@@ -895,10 +977,13 @@ Two reasons, and the second is the one that matters.
   cost one stream instead of every stream. Nothing but a row is ever written into that directory,
   and Task 2a's guard entry sits beside it in `dir` for exactly that reason.
 
-  **The row has two lifecycle events and only one of them recurs.** It is *created* — a directory
+  **The row has THREE lifecycle events and only one of them recurs.** It is *created* — a directory
   entry, inside the row directory — the first time the store touches that key, **before any index for
-  it has been handed out**; it is *appended to and flushed in place* on every allocation after that.
-  Task 2 Property 1 is why: no allocation against a row that already exists mutates a directory
+  it has been handed out**; it is *repaired*, at most once per open, when `OpenStreamStore` finds a
+  torn tail and truncates it away before returning; and it is *appended to and flushed in place* on
+  every allocation after that.
+  Task 2 Property 1 is why the second and third are separate: no allocation against a row that
+  already exists mutates a directory
   entry, because the one platform this plan tells the implementer to work on cannot force a directory
   entry's durability at all. The row's format therefore carries its own integrity — fixed-width,
   checksummed records, and a rule that discards a tail whose checksum does not verify — rather than
@@ -906,6 +991,16 @@ Two reasons, and the second is the one that matters.
   `ReserveStreamIndex` for that key** and is the one directory-entry mutation the design admits,
   exactly once per key; Task 2 Property 1's second number is written over the steady-state path for
   that reason, and S2-16 is the residual it leaves.
+
+  **The repair is the event this step used to leave undefined, and Property 4 now names it: the
+  writer performs it, at open, under Task 2a's exclusion, before any index has been handed out, and
+  it is a `Truncate` of a file that already exists — no directory-entry mutation, and not on the
+  allocation path at all.** After it returns, the row's length is a whole multiple of the record
+  width, which is the invariant every later classification rests on and the reason case 2's bound is
+  derivable rather than chosen. **The implementation's comment must carry both halves**: that a torn
+  tail can only be a write whose flush had not returned, and that leaving it in place instead of
+  truncating it hands the same index out after every restart — the worked consequence in Property 4,
+  and mutation 13.
 
 - [ ] **Step 4: Run to verify it passes**
 - [ ] **Step 5: Mutation-test**
@@ -955,12 +1050,35 @@ Two reasons, and the second is the one that matters.
       with it, and so must Task 2 mutation 10's fixture. **This is the store that "detects
       truncation"**, and it is here because Property 4 now rules that it cannot: the same bytes are
       an interrupted append, and refusing them wedges every open after any crash mid-append.
-  12. Take case 2's bound as *"a failing suffix no larger than `2W`"* rather than *"at most one whole
-      record plus a partial"*. Property 4 must fail on a row whose last **two** whole records fail
+  12. Take case 2's bound as *"a failing suffix no larger than `2W`"* rather than the two shapes
+      step 4 admits. Property 4 must fail on a row whose last **two** whole records fail
       with no partial after them: the failing suffix is exactly `2W`, which the mutant admits to
       case 2 and answers `R_{k−2}` for, and which step 3 sends to case 3. This is the off-by-one the
       prose invites and the procedure removes, and it is what separates a suite that read the
       procedure from one that read the paragraph above it.
+  13. **Skip the discard rather than truncating**: leave the torn octets on disk and append the next
+      record at EOF. Plant `R1 ‖ half-R2` at `L = 1.5W`, open the store, `ReserveStreamIndex` once,
+      close, and reopen. **Property 4 must fail twice** — on the first open's reported
+      `OpenStreamStore` row-write count, which is **0** where **1** was owed, and on the second
+      open's answer, which is `ErrStreamStoreState` for a row a correct implementation had already
+      repaired before it ever appended. **This is the mutation the *where the next append lands*
+      paragraph exists for**, and nothing in Tasks 1, 2, 2a or 4 reached it before: no other mutation
+      plants a torn tail and *then* allocates, and Task 2a mutation 8's fixture — the one assertion
+      shaped to catch it — has no prior torn tail.
+  14. Perform the repair **lazily, inside `StreamHighWater`**, on every call, rather than once at
+      open. Every answer this property asserts is correct under the mutant, which is why it is here.
+      **Property 4 must fail on its second reported number** — the row writes `StreamHighWater`
+      performs, which must be **0** — and **Task 2a Property 3 must fail with it** under `-race`: a
+      `StreamHighWater` concurrent with a `Reserve` is then two writers to one row inside one store,
+      which Task 2a Property 3's guard is not stated to cover.
+  15. Take case 2's bound as *"`k − f + 1 ≤ 1`, whatever `r` is"* — the procedure as it read before
+      this pass — **applied together with mutation 13's skip-only discard, because that is the only
+      way the shape is reachable.** Property 4 must fail on the row `R1 ‖ half-R2 ‖ R2′` at
+      `L = 2.5W`, where `k − f + 1 = 1` and `r = W/2`: that is two records' worth of damage, which
+      step 3 now sends to case 3 and which the mutant answers `R1` for. **Answering `R1` there is a
+      `stream_index` handed out twice across a restart** — §5.6's *"total break of both AEADs for
+      that record"* — so this is not an off-by-one with a tidy consequence. **Mutation 12 pins the
+      `2W` end of the bound and until this pass nothing pinned this one.**
 
 - [ ] **Step 6: Commit**
 
@@ -1055,8 +1173,10 @@ last good record) from a corrupt **body** (`ErrStreamStoreState`), and those are
 in the same file. **That obligation is DISCHARGED, and stating it here without discharging it is what
 left Task 1 mutation 7 and this task's mutation 10 demanding opposite answers to one truncation for a
 day.** It is discharged at **Task 1 Property 4**, which states the three cases and the size-and-
-position discriminator between them, and at Task 1 mutations 7, 8, 9 and 10, which exercise both
-sides of it — mutation 9 being the control that a torn tail must NOT be refused. (3) The FIRST
+position discriminator between them, and at Task 1 mutations 7, 8, 9, 10, 13 and 15, which exercise
+both sides of it — mutation 9 being the control that a torn tail must NOT be refused, and mutations
+13 and 15 the controls, added after the discriminator was written, that a discarded tail must not
+still be on the disk when the next append lands. (3) The FIRST
 allocation against a never-before-seen stream still rests on a directory entry whose durability
 Windows will not force, and it is also the one directory-entry mutation this design admits: it
 happens inside that key's first `ReserveStreamIndex`, before any index for the key has been handed
@@ -1309,6 +1429,14 @@ somebody supplies an exclusion for it. Whether it should is **S2-20**.
   A burned index is a legal gap: the server enforces monotonicity, not contiguity.
   *Refusal owed:* none; this is the crash-mid-allocation answer Task 2's Property 1 makes possible
   and this task states.
+  *And the half of it that is THIS task's, because it is the exclusion that makes the answer safe:*
+  the torn tail the crash left is **truncated away by the reopening writer, at open, under the
+  exclusion this task acquires, before any index has been handed out** — so the repair is never
+  concurrent with anything, and `StreamHighWater` stays a read for the life of the store. Without the
+  exclusion the repair would be a second writer to a row a live store is appending to. **Task 1
+  Property 4 states the position from the row's side and names this task back**, and Task 1 mutations
+  13 and 14 are its two controls: the store that discards without truncating, and the store that
+  truncates from inside a read.
 
 - [ ] **Step 2: Run to verify it fails**
 - [ ] **Step 3: Write the minimal implementation**
@@ -3329,6 +3457,31 @@ too) but would make an out-of-order splice detectable, and whether that is worth
 **Blocks:** nothing. **Owed:** a sentence in §8.2 stating that the row format detects a torn tail and
 not a truncated history, beside the one S2-22 asks for.
 
+**S2-24 — nothing declares WHERE THE NEXT APPEND LANDS after a torn tail is discarded, and the
+discard is the thing this plan's own repair made load-bearing.** Task 1 Property 4 says *"discard
+from offset `(f−1)·W` to the end"*, and the sentence has two readings that no document separates:
+truncate the row to that offset, or skip the region when computing the answer and leave the octets on
+disk. **Both were reachable and one of them breaks a property this plan states.** Under skip-only the
+next allocation appends at EOF, the row becomes `R1 ‖ half-R2 ‖ R2′`, and the store hands out the
+same index after every restart — a reused `stream_index` under a reused `record_key`, which §5.6
+calls a total break of both AEADs for that record, reached through the row format rather than through
+a second writer. Under a lazy truncation performed inside `StreamHighWater`, a read becomes a write
+and sits beside a live `Reserve` inside one store. *Position taken:* the discard is a **truncation**,
+performed by the **writer** at **open**, once, **under Task 2a's exclusion**, before any index for the
+key has been handed out and forced durable before `OpenStreamStore` returns — a file-contents
+operation on a file that already exists, so it is neither a directory-entry mutation nor a step on
+the allocation path, and neither of Task 2 Property 1's two numbers moves. Its own durability is not
+load-bearing because the repair hands out nothing and is idempotent. Task 1 Property 4 reports two
+numbers for it (`OpenStreamStore` row writes: 0 or 1; `StreamHighWater` row writes: always 0) and
+Task 1 mutations 13, 14 and 15 are its controls. *Rejected:* skip-only, and the lazy repair, both on
+the worked consequences above rather than on taste. *Not resolved:* whether the repair is
+`OpenStreamStore`'s obligation in normative text — a sixth §8.2 contract clause beside the
+concurrent-opener clause **S2-17** asks for and the one-record-per-flush clause **S2-22** asks for —
+or the implementer's, and whether a store that opens a directory it will only READ from (there is no
+such caller today, and Task 2a's exclusion is what keeps there from being one) may skip the repair.
+**Blocks:** nothing in this plan; the position compiles and the mutations hold it. **Owed:** the §8.2
+sentence, alongside S2-17's and S2-22's.
+
 ## Open asks on other plans
 
 - **To `connect`, unowned:** a reachable `read_key[e]` and `write_key[e]` for a live `GroupSession`,
@@ -3346,8 +3499,10 @@ not a truncated history, beside the one S2-22 asks for.
   loopback clients or two authenticated ones (S2-7); and rule the receive-side row's key alongside
   M1-5 (S2-18).
 - **To whoever owns §8.2:** declare the single-writer exclusion, or state that it is the
-  implementer's (S2-17); and declare the receive-side store, which §8.2 does not mention at all
-  (S2-6, S2-18).
+  implementer's (S2-17); declare the receive-side store, which §8.2 does not mention at all
+  (S2-6, S2-18); and declare the row's repair — that a torn tail is truncated away by the writer at
+  open, before any index is handed out — which is the sentence the discard rule needs and does not
+  have (S2-24), beside the one-record-per-flush clause S2-22 asks for.
 - **To nobody, and it stays open:** the Windows directory-entry window under a store's first
   allocation for a stream (S2-16). It is named here because a plan that did not name it would have
   been read as having closed it.

@@ -5869,8 +5869,23 @@ fourteen are dispositioned below.
      unbounded walk. Set 2 records that S1 makes each unopenable record *"also cannot be classified"*;
      W1's eight octets are what classify it, and neither set connects the two.
 
-     *Blocks:* nothing. It is a sentence the ruling owes and an argument that makes the sentence
-     cheap. Found 2026-09-09.
+     **AND A PROPERTY NOW DEPENDS ON WHICH WAY THIS IS READ, WHICH IT DID NOT WHEN THE ITEM WAS
+     FILED.** m1 Task 14 Property 9's authority table — *which* of the wrap envelope's eleven octets
+     is refused by the AEAD and which reaches the signature — is a **function of residual 1**. Under
+     the reading above, in which the opener derives `wrap_key` from the envelope's carried values,
+     ten octets are AEAD rows and one is a signature row. Under the second implementer this item's
+     own words admit — the one who *"refuses to use it"* and derives from his own authoritative epoch
+     and type values — `wrap_key` does not move for any envelope edit, `aead_ct` opens, and **all
+     eleven are signature rows**. `LP(wrap_envelope)` does strictly more work under the second
+     reading, so this is not an argument against the ruled term; it is the reason a fixed eleven-row
+     table cannot be asserted while the sentence is owed. The plan-local filing is **M1-55**, lifted
+     out for the same procedural reason M1-51, M1-52 and M1-53 were: `M1-1` is marked RULED and an
+     item filed inside a closed item is an item nobody meets.
+
+     *Blocks:* no implementation. It **does** decide what m1 Task 14 Property 9 can claim it showed,
+     which is why Property 9 now measures the reading and reports it rather than assuming it. It is a
+     sentence the ruling owes and an argument that makes the sentence cheap. Found 2026-09-09;
+     the property dependence recorded 2026-09-09 by the pass that repaired Property 9.
 
 179. **CLOSED 2026-09-09 BY THE OWNER'S `C3` RULING — this item's conclusion taken whole.**
      `u32(publisher_leaf_index)` is **dropped** and `LP(identity_pub)` is **carried inside
@@ -10932,6 +10947,152 @@ M1-52 and M1-53 are filings of three of them, not answers to them. It closed **n
 blocked by 152's `EPH` refusal at `connect/messagegroup/seal.go:119` and `:387`. **CP3b is still
 blocked outright by `S2-4`.** It supplied **no test code** — every addition is a property, a refusal
 owed, or a mutation an implementer must apply.
+
+**Verification.** `go build ./...` clean; `go test ./...` green; `go test ./ -run TestThePlanLinter`
+ok. Every linter reporting count identical across the diff (1b 7, 1c 1, 1d 189, 2a 18, 3a 4, 3c 3,
+4b 5) and the four fatal checks (2b, 3b, 3d, 4a) clean on both sides. `git ls-files` equals
+`git ls-tree -r HEAD` at **103**, checked before the commit and again after.
+
+### 2026-09-09 — the C3 defence's own precondition, which no document rules, and the truncation repair's undefined next append
+
+**What this pass did.** It repaired the two things the verification of `b020f92` found: the `C3`
+ruling's headline term was given a defence in that commit, and **that defence's single killing
+assertion was itself decided by a behaviour no document rules**; and the truncation repair in the
+same commit made something new load-bearing — where the next append lands after a torn tail is
+discarded — which nothing defined. **It ruled nothing of the owner's, reopened no line of `C3`,
+wrote no test code, changed no Go file, and did not touch `connect`.** Two plan documents changed and
+this file gained one item amendment and this entry.
+
+**THE RULE THIS PASS WROTE DOWN, because it is the finding and not a preamble: a property resting on
+an undecided document is not defended, it is deferred.** A plan may defer. What it may not do is
+defer at the property and read as defended at the ledger. Both repairs below are instances.
+
+**THE DEFENCE'S PRECONDITION. `LP(wrap_envelope)`'s only behavioural killer required the opener NOT
+to validate the one octet whose entire stated purpose is to be validated.** m1 Task 14 Property 9
+assertion 1 said: flip `u8(wrap_format_version)` between the seal and the open; the open succeeds,
+the opener refuses with the **signature** refusal, and it installs nothing. That is true only of an
+opener that admits an unrecognised version octet as far as the AEAD. **Nothing states what an opener
+does with an unrecognised version, and MASTER §7's own rationale for the octet argues the other way**
+— *"The version octet is first, for the reason every offset below it is meaningful only under that
+version"* — under which the ten octets below it, which are exactly `wrap_key`'s envelope-carried
+`info` inputs, may not be read at all once the version is unrecognised. Measured and empty: over
+`msgrepo`, `grep -rniE 'unsupported version|unknown version'` across `docs/` and the root Markdown
+returns **zero**, and every `version octet` hit is rationale. Under the reading the rationale invites,
+assertion 1 was **red on a conforming clean build** and mutation 13 survived — the very defect the
+defence was written to close, one level in.
+
+**Repaired by restating the assertion over a MEASURED regime instead of an assumed one, and by
+filing the ruling rather than making it.** Property 9 now names the two unruled sentences ahead of
+the assertions that depend on them — **U1**, the opener's version validation (**M1-54**, new), and
+**U2**, ledger **178** residual 1's envelope-as-hint sentence (**M1-55**, new) — derives from them
+that *an envelope octet kills mutation 13 behaviourally iff a record exists in which that octet
+differs from what the sealer signed and every authority the opener holds except the signature accepts
+it*, and prints the resulting four-cell table. **Assertion 1 measures the killing set with a
+CONSISTENT CONTROL** — the octet changed *and* the signature recomputed over the changed envelope —
+and reports it; asserts the signature refusal only for octets the measurement puts in the set; asserts
+that every octet outside the set was refused by the AEAD or by a version refusal and not by anything
+else, which is what stops an opener that refuses everything from reporting an empty set and passing;
+and **requires the suite to say so in as many words when the set is empty**, in which cell mutation 13
+is carried by assertion 3 structurally and by nothing behavioural. **Assertion 2 is restated over the
+regime-independent half — all eleven flips are refused and nothing is installed — with WHICH authority
+refused each reported beside it rather than asserted.** The tripwire the fixed table was written for
+is kept whole: an `info` amendment moves the octet's row, the printed table and the reported set size
+change, and the record is still refused.
+
+**THE HEADLINE MEASUREMENT IS CORRECTED, AND THE LOG IS APPEND-ONLY SO IT IS CORRECTED FORWARD.** The
+entry above this one published *"of the envelope's eleven octets, exactly ONE can kill that
+mutation"* as a property of MASTER §7's `info`. **It is a property of one implementer's unruled
+choice: row 1 of a four-row table, true there and nowhere else.** Under U2's second reading —
+`wrap_key` from the opener's own authoritative values — flipping the ten `info`-bound octets does not
+move the key, `aead_ct` opens, and all eleven octets reach the **signature**, so ten of that entry's
+eleven rows are wrong there. **The direction matters and is recorded: this does not weaken
+`LP(wrap_envelope)`. Under the second reading the term does strictly MORE work**, and the octets that
+can convict a builder who dropped it go from one to ten or eleven. Ledger item **178** gains the
+dependence in place, and its *Blocks* line is corrected from *nothing* to *no implementation, but it
+decides what Property 9 can claim it showed*.
+
+**Two mutations were added and both are NAMED, DELIBERATELY UNREFUTED** — the shape m1 Task 15
+already carries for *"omit the recovery leg entirely"*. **23** validates the version octet before
+deriving `wrap_key`; **24** derives `wrap_key` from the opener's own values. Each is a legal
+implementation until its item is ruled and nothing may convict either. What each must do is **move a
+reported number**: a suite in which they move no number has not measured the regime it is running in,
+and its Property 9 verdict is decided by an undecided document rather than by the implementation.
+
+**NEITHER ITEM IS RULED HERE, AND THE ITEMS SAY WHICH WAY THE DOCUMENTS POINT.** **M1-54** names the
+three behaviours consistent with everything landed — no validation; refusal before deriving
+`wrap_key`; refusal after the open and before installation — records that MASTER §7's rationale points
+at the second, records the empty grep, and records the refusal that becomes owed under the second or
+third: **a typed refusal for an unrecognised `wrap_format_version`, separable by `errors.Is` from both
+the AEAD-open failure and the signature refusal, which no document declares.** **M1-55** carries 178's
+first residual with the same treatment. Neither blocks Task 14 step 1; both decide what step 1 can
+claim it showed, which is a different obligation, and both are named at the task as well as in the
+item list. Fifty-five items, of which one is closed.
+
+**AND THE RULE WAS APPLIED RATHER THAN ADMIRED, WHICH FOUND A SECOND INSTANCE ONE PROPERTY OVER.**
+m1 Task 14 **Property 4**'s third clause — *"assert that the **body** binds it too"* — presupposes the
+same unruled sentence as Property 9's assertion 2. The first two bindings it names, the
+`wrap_target_handle` and `env_key[k]`, are the opener's own derivations and are observable under
+either reading of ledger 178 residual 1; the **body's** binding is observable only if the opener uses
+the carried `u64(content_epoch)`. Under the reading where it does not, a wrap whose body carries the
+wrong epoch opens exactly as well as one that does not, and **the clause is red on a conforming
+implementation** — the identical shape, in a property nobody had looked at, filed inside a task whose
+headline defect had just been repaired. It is restated the same way and by the same method: the
+body's epoch is bound through *whichever* authority the implementation gives it — the AEAD under the
+first reading, Property 9's signature under the second, since `LP(wrap_envelope)` covers those eight
+octets either way — **and the suite reports which**. A body-epoch edit that is neither refused nor
+reported is the finding. Task 14 mutation 3 is expanded to say what it must fail *on*, because it
+round-trips under both readings and neither authority refuses it: the sealer and the opener agree
+about a field neither is asked to defend, which is Property 9's own shape one property over. **One
+repaired property is an instance; an instance is not the rule** — and the two instances found so far
+both sit in the same task, which is a statement about where this pass looked and not about where the
+class ends.
+
+**THE TRUNCATION REPAIR'S UNDEFINED NEXT APPEND, AND IT IS A GAP RATHER THAN A NIT.** s2 Task 1
+Property 4's decision procedure says *"discard from offset `(f−1)·W` to the end"*. **Discard has two
+readings — truncate the row, or skip the region when computing the answer — and no sentence in the
+plan chose.** Both break something. Skip-only: a crash mid-append leaves `R1 ‖ half-R2`, the reopened
+store answers `R1` correctly, the next allocation appends at EOF, and on the following open
+`R_2` spans `half-R2 ‖ head of R2′` and fails — so the store **hands out the same index after every
+restart, for the life of the row**, which is a reused `stream_index` under a reused `record_key`,
+§5.6's *"total break of both AEADs for that record"*, arriving through the row format instead of
+through a second writer. Nothing in Tasks 1, 2, 2a or 4 reached it, because no mutation planted a
+torn tail and *then* allocated. Lazy truncation inside `StreamHighWater`: a read becomes a write,
+beside a live `Reserve`, inside one store.
+
+**Position taken — the discard is a TRUNCATION, performed by the WRITER at OPEN, once, under Task
+2a's exclusion, before any index for that key has been handed out, and forced durable before
+`OpenStreamStore` returns.** It is a file-contents operation on a file that already exists, so it is
+neither a directory-entry mutation nor a step on the allocation path and **neither of Task 2
+Property 1's two numbers moves**; its own durability is not load-bearing, because the repair hands out
+nothing and is idempotent while a `Reserve` is not. The row's lifecycle in Task 1 step 3 goes from two
+events to **three** — create, repair, append — and Task 2a Property 4 states the exclusion half and
+names Task 1 back. Property 4 now **reports two numbers**: row writes by `OpenStreamStore` (0 or 1)
+and by `StreamHighWater` (always 0). The residual is filed as **S2-24**: whether the repair is
+`OpenStreamStore`'s obligation in §8.2 normative text, beside the clauses S2-17 and S2-22 already ask
+for.
+
+**AND CASE 2'S BOUND WAS ONE WHOLE RECORD WIDER THAN ITS OWN DERIVATION, WHICH IS WHAT MADE THE
+SKIP-ONLY DAMAGE INVISIBLE.** The derivation says one record is the most that can be un-flushed;
+the procedure sent `k − f + 1 ≤ 1` to case 2 **regardless of `r`**, admitting one failing whole record
+*plus* a partial — two records' worth. Step 3 now sends `k − f + 1 = 1 ∧ r > 0` to case 3, and case 2
+is restated as the two shapes an interrupted append can actually leave: a partial with every whole
+record verifying, or a final whole record torn within its own octets. **The two repairs compose, and
+that is the argument for both:** under the open-time truncation the row's length is a whole multiple
+of `W` whenever an append begins, so `r > 0` can only be an in-flight partial; under skip-only it is
+not, and the shape skip-only reaches is exactly the one step 3 now refuses. Three mutations were
+added — **13** skip-only, **14** the lazy repair, **15** the loose bound applied with 13, which is the
+only way its shape is reachable — and mutation 12's quotation of the old bound is corrected.
+
+**What this pass did NOT do.** It did not reopen `C3` and changed no term of it. It did **not** rule
+the opener's version validation, and it did **not** rule ledger 178's first residual; both are filed
+with what they decide and which way the documents point, and both are left to the owner. It closed
+**no** ledger item: **152**, **178**, **139**, **132**, **138**, **142** and **148** stay filed, and
+Task 14 is still blocked by 152's `EPH` refusal at `connect/messagegroup/seal.go:119` and `:387`.
+**CP3b is still blocked outright by `S2-4`.** It supplied **no test code** — every addition is a
+property, a refusal owed, a reported number, or a mutation an implementer must apply. It swept
+neither p1–p8 nor s1 for the same defect class, which the verification that commissioned this pass
+also discloses as unreached; the class is now named in m1's open-item preamble so the next sweep has
+a derivation rather than an instance.
 
 **Verification.** `go build ./...` clean; `go test ./...` green; `go test ./ -run TestThePlanLinter`
 ok. Every linter reporting count identical across the diff (1b 7, 1c 1, 1d 189, 2a 18, 3a 4, 3c 3,
