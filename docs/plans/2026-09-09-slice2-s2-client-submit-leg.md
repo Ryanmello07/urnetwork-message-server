@@ -132,9 +132,60 @@ it over PAIRS, not properties**: five of the seven above are individually readab
 against a second sentence somewhere else in the document. The derivation that finds them is
 mechanical — index every constraint site in every task by the objects it names (backticked
 identifiers plus the document's own uncoded nouns: the row, the guard, the allocation path, the
-torn tail, the directory entry), then read every object two or more tasks constrain. Doing it over
-Property blocks alone is **not** the derivation and misses the first row of this table outright,
-because Task 2a states its guard placement in task prose and not inside a Property.
+torn tail, the directory entry), then read every object **two or more CONSTRAINT SITES** name. Doing
+it over Property blocks alone is **not** the derivation and misses the first row of this table
+outright, because Task 2a states its guard placement in task prose and not inside a Property.
+
+**And the unit is the constraint site, not the task — a correction the 2026-09-09 defence pass had to
+make to this very paragraph, having been caught by it.** Until that pass this sentence read *"every
+object two or more **TASKS** constrain"*. Both findings that prompted the sweep happened to be
+cross-task, so **the scope reproduced the shape of its two instances rather than the property it was
+defending**, which is *two sentences in this document that cannot both be satisfied* — a property
+that is silent about how many tasks they sit in. The bound was not merely loose: it structurally
+could not see a contradiction confined to one task, and the pass that wrote it walked past one in the
+task it was repairing (Task 1 Property 4 case 2 against Task 1 mutation 7 against Task 1 mutation 9).
+A scope derived from the instances is not a derivation. The constraint sites are: every clause of a
+Property, every *Refusal owed* line, every numbered mutation, and every sentence of task prose that
+states an obligation.
+
+**AND THE SECOND AXIS, which is where both of the surviving instances actually lived: a constraint
+whose two sides are EQUAL under everything the deciding party can read.** This is not a
+contradiction between two demands that could each be met separately. It is a demand for a function
+that does not exist, and it is the strictly worse failure, because re-aiming one of the two sentences
+does not remove it — a later pass simply re-derives the same demand somewhere else. **The
+derivation, and it is as mechanical as the first.** For every constraint site that names a **cause, a
+history or an intent** rather than an observable — *truncated*, *crashed*, *interrupted*, *a
+committer that lied*, *the caller passed*, *was ever handed out*, *this build produced*, *an omitted
+wrap is visible* — write down two things: **(a)** the exact set of values the deciding party can read
+at the moment it must answer, and **(b)** the set of causes that map to one value of (a). If two
+causes in (b) are given different answers anywhere in the corpus, the pair is **unsatisfiable**, and
+the repair is not to move one demand: it is to restate the constraint over (a), or to rule that both
+causes take the same answer and say so. A third of (b) is party-shaped rather than byte-shaped — the
+same record is visible to its target and invisible to the server — and a constraint that names no
+party is a constraint with no (a) at all.
+
+**What the corrected sweep found on 2026-09-09, run over both live plans.** Three instances, none of
+them reachable by the task-scoped derivation above, plus one under-determination. The scope it read
+is published beside the count so the query can be re-run: every Property clause and every numbered
+mutation of the 15 tasks in this document and the 24 in `m1`, indexed by backticked identifier and
+by the uncoded nouns listed above.
+
+| Where | Which half failed | Why, and what it took |
+|---|---|---|
+| Task 1 Property 4 case 2, with Task 1 mutations 7 and 9 (and Task 2 mutation 10) | **unsatisfiable — no discriminator exists** | a 3-record row truncated to half and a 2-record row whose second append flushed halfway are **byte-identical**; mutation 9 required the second discarded and mutation 7 required the first refused. Resolved at Task 1 Property 4 by ruling that the two are indistinguishable and take one answer, with the classification restated as a decision procedure over `(L, W, checksums)`; mutation 7 re-aimed onto **corruption**, which is the only operation that can reach case 3, and mutations 11 and 12 added as the controls |
+| `m1` Task 14 Property 7's ordering clause | **unsatisfiable — the demand precedes its own precondition** | *"refuse before reading the epoch"* against a signature that lives inside `aead_ct`, whose key `wrap_key` takes the envelope's epoch and both type octets as inputs. A receiver that has not read the epoch cannot reach the signature at all. Repaired to the observable half — refuse before **installing** — with the ruling itself untouched and the sentence still owed as `m1`'s **M1-51** |
+| `m1` Task 14 Property 5's headline | **unsatisfiable over an unnamed party** | *"an omitted wrap is visible"* is true at the omitted member, false at the server, which sees a matching `expected_wrap_count`, and false at every other member. The property now names the party and asserts the **invisibility** at the other two, which is M1-22's finding made testable rather than merely filed |
+| Task 1 Property 2 and Task 12 Property 7, each against its own categorical rule | **under-determined, and one reading breaks the wave's most important mutation** | *"an entry … that is not a row of **either tag**"* has an undefined antecedent. Read as "the two tags the codebase knows about", mutation 3's planted pre-A1 row is not a row of either and answers `ErrStreamStoreState` where the mutation demands `ErrStreamKeySpace`. Both properties now state the three-way partition over the name's own shape |
+
+**What it found clean, published because a sweep that reports only its hits is a sweep nobody can
+size.** The other objects named by two or more constraint sites inside one task are consistent:
+Task 2a Property 4's two crash points differ in whether a flushed record is present, so they are
+separable in the bytes; Task 2a Property 2's live-versus-dead holder is separable because the
+exclusion is OS-held rather than a pid file, which is what mutation 3 exists to pin; Task 12's
+`ErrOutOfWindow` / `ErrNoWrap` pair are two different absences with two different observables; and
+`m1` Task 15's *"omit the recovery leg entirely"* is already carried as a **named, deliberately
+unrefuted** mutation rather than as a demand nothing can meet, which is the shape this axis asks
+for.
 
 ### Repository, branch, toolchain
 
@@ -700,6 +751,16 @@ Two reasons, and the second is the one that matters.
   **Property 2 — a row whose key space this build did not produce is REFUSED, never answered zero.**
   The row's on-disk name carries a version tag derived from the same field set Property 1 derives.
   A row bearing any other tag is `ErrStreamKeySpace`.
+  *And the names in the row directory partition three ways, over the name's own shape and never over
+  intent, because "either tag" below is otherwise an undefined antecedent and one of its two readings
+  breaks mutation 3.* **(a)** a name that parses as `tag ‖ identity` under **this build's** tag — an
+  ordinary row; **(b)** a name that parses as `tag ‖ identity` under a fixed-width tag that is **not**
+  this build's, whatever its value — `ErrStreamKeySpace`, which is the answer mutation 3's planted
+  pre-A1 row must get; **(c)** anything else in the row directory — `ErrStreamStoreState`. Read as
+  *"the two tags the codebase knows about"*, the categorical rule below would send mutation 3's row
+  to (c), and **the mutation this task calls the single most important in the wave would demand an
+  error the store does not produce**. The tag is fixed-width and self-delimiting, so (b) and (c) are
+  separated by the name alone and by nothing a build has to remember.
   *Refusal owed:* `ErrStreamKeySpace`, a typed fatal error per §5.9 G7 — never a bool, never a log
   line, and specifically **never `(0, nil)`**, which is the answer contract clause 4 gives an unseen
   stream and which is exactly what makes item 170's hazard silent.
@@ -718,7 +779,7 @@ Two reasons, and the second is the one that matters.
   spells the row directory `dir/rows` for readability and the spelling is not normative; **what is
   normative is that the enumerated directory holds rows and nothing else, by construction**. Then
   the rule this property rests on can be categorical without an exception in it: **an entry in the
-  row directory that is not a row of either tag is `ErrStreamStoreState`.**
+  row directory that is not a row under any tag — partition (c) above — is `ErrStreamStoreState`.**
   *Why two levels rather than one directory and an exempted name, because this is the collision the
   2026-09-09 repair introduced and this pass removes.* That repair put Task 2a's OS-held exclusion on
   a guard file **inside `dir`** and, in the same pass, wrote the categorical rule above over `dir` —
@@ -764,6 +825,48 @@ Two reasons, and the second is the one that matters.
      failing suffix **larger than one record plus a partial**, or a row whose name parses but whose
      records are not a whole number of record widths in a way case 2 cannot explain.
      `ErrStreamStoreState` — never `(0, nil)`, and never the last surviving record's value.
+  **AND THE ONE THING THE THREE CASES DO NOT SETTLE ON THEIR OWN: a truncated row and an interrupted
+  append are the SAME BYTES, and the store answers them the same way.** A three-record row truncated
+  to half its length is `R1` followed by half of `R2`. A two-record row whose second append flushed
+  halfway is `R1` followed by half of `R2`. **They are byte-identical**, and the format admits no
+  third input: no header, no record count, no external length authority, and — by Task 2 Property 1 —
+  exactly **one** forced flush on the allocation path, so there is no second durable object that
+  could hold a count even if one were wanted. The only inputs any rule here has are the row's length,
+  the record width and the per-record checksum verdicts, and the two rows are equal under all three.
+  **No function of those inputs can answer them differently, so this plan does not ask for one.**
+  Both are case 2: discard the failing suffix and answer the last record that verifies. *This is the
+  resolution of the contradiction the 2026-09-09 repair pass relocated rather than removed, and it is
+  a stronger statement than re-aiming a mutation:* re-aiming moves the demand, while this says the
+  demand was for a discriminator that does not exist. **A rule that claims to detect truncation on
+  this format is a rule that has invented an input.**
+
+  **The classification as a decision procedure, because three cases in prose are a partition and an
+  implementer needs the function.** Let `W` be the record width and `L` the row's length; let
+  `k = L div W` and `r = L mod W`, so the row is records `R_1 … R_k` at offsets `0, W, …, (k−1)·W`,
+  followed by an `r`-octet partial when `r > 0`.
+
+  1. The row is **absent** → case 1, `(0, nil)`. A row that is **present and zero-length** is not
+     case 1; it is case 2's no-verifying-record sub-case, and it takes the same `(0, nil)` for the
+     reason case 2 already gives.
+  2. Let `f` be the least `j` whose `R_j` fails its checksum, or `k+1` if every record verifies.
+     **If any `R_j` with `j > f` verifies → case 3.**
+  3. Otherwise the failing suffix is `R_f … R_k` plus the partial: `k − f + 1` whole records and `r`
+     octets. **If `k − f + 1 ≥ 2` → case 3**, a failing suffix larger than one record plus a partial.
+  4. Otherwise (`k − f + 1 ≤ 1`) → **case 2**: discard from offset `(f−1)·W` to the end and answer
+     `R_{f−1}`'s value; if `f = 1`, answer `(0, nil)`.
+
+  **The procedure is total, and it is the whole of the rule.** Case 3's third clause — *"a row whose
+  name parses but whose records are not a whole number of record widths in a way case 2 cannot
+  explain"* — names no row step 3 does not already reach: `r > 0` on its own is always explained by
+  case 2's partial, and `r > 0` beside two or more failing records is already case 3 by step 3. The
+  clause is kept as prose and it **adds no case**. A reading under which it adds one is a reading in
+  which the rule is not a function of the row's bytes, which is the defect this paragraph removes.
+
+  **What the ruling costs, said here because it is a price and not a gap.** An out-of-band truncation
+  that removes whole **flushed** records is undetectable, and it rewinds the high water silently.
+  Task 2 Property 2's `ErrStreamStoreRewound` catches it only while the process that handed out the
+  higher index is still alive; across a restart there is nothing left to compare against. **S2-23.**
+
   **The bound in case 2 is derived, not chosen.** The allocation path appends **one** record and
   flushes, so at most one record can be un-flushed when a process dies; a failing suffix bigger than
   that cannot be an interrupted append and is therefore corruption. That derivation is what makes
@@ -819,12 +922,23 @@ Two reasons, and the second is the one that matters.
   6. Pass a 31-octet `groupId` and let it be zero-padded to 32. Property 3 must fail — a silent pad
      collides two streams onto one row, which is Property 3's whole point and is invisible to a test
      that only checks lengths that are too long.
-  7. Truncate a row carrying **at least three** records to half its length, removing more than one
-     record. Property 4 must fail with `ErrStreamStoreState`, and it must not answer the last
-     surviving record's value and must not answer zero. **This mutation was re-aimed on 2026-09-09**:
-     as written before, it truncated a row *"to half its length"* with no bound and demanded
-     `ErrStreamStoreState` for exactly the cut Task 2 mutation 10 requires the store to **discard**,
-     so the two tasks demanded opposite answers to one fault and Task 1 lands first.
+  7. **Corrupt** the last **two** whole records of a row carrying at least three — overwrite their
+     octets in place, leaving the row's length unchanged, so two whole records fail their checksums
+     with no verifying record after them. Property 4 must fail with `ErrStreamStoreState`, and it
+     must not answer the last verifying record's value and must not answer zero. The failing suffix
+     is two whole records, which step 3 of the decision procedure sends to case 3.
+     **Re-aimed twice, and the second time for a reason worth keeping in the document.** The first
+     version truncated a row *"to half its length"* with no bound and demanded `ErrStreamStoreState`
+     for exactly the cut Task 2 mutation 10 requires the store to **discard**. The 2026-09-09 repair
+     added the three-record bound and left the truncation in place, which moved the contradiction
+     **inside this task** rather than removing it: at N=3 the cut leaves `R1` plus a half-record
+     partial, which Property 4 case 2 answers with `R1` and no error, and at N=4 it leaves two whole
+     verifying records and no failing suffix at all. **It may not be a truncation, and that is a fact
+     about the format rather than about the wording.** Truncation is a byte-prefix operation: every
+     whole record left in the prefix verifies and at most one partial trails it, so a truncated row
+     is always case 2 by construction and **can never reach case 3**. A mutation demanding
+     `ErrStreamStoreState` for a truncation is unsatisfiable by any implementation, for every N it
+     could name.
   8. Corrupt one record in the middle of a row and leave every record after it verifying. Property 4
      must fail with `ErrStreamStoreState` — a failure with a verifying record after it is case 3 no
      matter how small it is.
@@ -835,6 +949,18 @@ Two reasons, and the second is the one that matters.
      path Task 2a Property 4 exists to make survivable, and a suite that cannot fail here has written
      the refusal Task 1 mutation 7 used to demand.
   10. Return `(0, nil)` for a row whose body is corrupt in the sense of case 3. Property 4 must fail.
+  11. Classify by the row's **length alone** — refuse any row whose length is not a whole multiple of
+      the record width. Property 4 must fail on a three-record row truncated to half its length,
+      which the procedure sends to case 2 and which answers `R1` with no error; mutation 9 must fail
+      with it, and so must Task 2 mutation 10's fixture. **This is the store that "detects
+      truncation"**, and it is here because Property 4 now rules that it cannot: the same bytes are
+      an interrupted append, and refusing them wedges every open after any crash mid-append.
+  12. Take case 2's bound as *"a failing suffix no larger than `2W`"* rather than *"at most one whole
+      record plus a partial"*. Property 4 must fail on a row whose last **two** whole records fail
+      with no partial after them: the failing suffix is exactly `2W`, which the mutant admits to
+      case 2 and answers `R_{k−2}` for, and which step 3 sends to case 3. This is the off-by-one the
+      prose invites and the procedure removes, and it is what separates a suite that read the
+      procedure from one that read the paragraph above it.
 
 - [ ] **Step 6: Commit**
 
@@ -1031,6 +1157,10 @@ so a refused write or a crash between reserve and send is not a permanent wedge.
      on a row carrying exactly one record the same cut leaves no verifying record at all, `(0, nil)`
      is then the correct answer — Task 1 Property 4's case 2 — and a mutation applied without the
      bound convicts a correct implementation on its own second clause.
+     **And it was the correct half of the 2026-09-09 pair, which is why it is unchanged here.** Task 1
+     mutation 7 was the half demanding an answer no implementation could give. This mutation asks for
+     case 2's answer for a cut that **is** case 2, it agrees with Task 1 Property 4's decision
+     procedure step 4, and Task 1 mutation 11 is now the control that keeps a store from refusing it.
 
 - [ ] **Step 6: Commit**
 
@@ -1099,7 +1229,7 @@ live writer on a heuristic, and the SDK cannot tell those apart.
 **WHERE the guard entry sits, because an earlier version of this paragraph put it somewhere that made
 Task 1 unsatisfiable.** It sits **in `dir`, beside the row directory and never inside it**. Task 1
 Property 2 requires `StreamHighWater` to **enumerate** the directory that holds rows and states, as a
-categorical rule with no exception in it, that an entry there which is not a row of either tag is
+categorical rule with no exception in it, that an entry there which is not a row under any tag is
 `ErrStreamStoreState`. A guard entry inside the enumerated directory therefore *is* a finding: the
 store reads its own lock as data, every `StreamHighWater` after `OpenStreamStore` refuses, and — since
 this task lands **with** Task 2 rather than after it — Wave 1 is red on the commit that completes it.
@@ -2450,7 +2580,9 @@ says so.
   `OpenReceiveState` creates the same two levels: a **row directory** under its `dir` that holds rows
   and nothing else and is the only thing the enumeration reads, and, beside it and never inside it,
   whatever single entry its exclusion is held on. **An entry in that row directory which is not a row
-  of either tag is `ErrReceiveStateState`.**
+  under any tag — Task 1 Property 2's partition (c) — is `ErrReceiveStateState`**, and a name that
+  parses as `tag ‖ identity` under a tag this build does not produce is partition (b) and is
+  `ErrReceiveStateKeySpace`, which is the answer mutation 13 demands.
   *What this does NOT rule, and it is filed rather than decided:* whether `StreamStore` and
   `ReceiveState` may be handed the **same** `dir`, and whether `OpenReceiveState` acquires its own
   exclusion over its own directory or shares the one `OpenStreamStore` holds. This task's `Consumes`
@@ -3178,6 +3310,24 @@ derivation beside the rule so the coupling is visible, and Task 2's implementati
 it. *Not resolved:* whether the one-record-per-flush discipline belongs in §8.2 as a sixth contract
 clause, beside the concurrent-opener clause S2-17 asks for. **Blocks:** nothing today. **Owed:** a
 §8.2 amendment, or a written statement that the row format's integrity rule is the implementer's.
+
+**S2-23 — a truncation that removes whole flushed records is undetectable, and it rewinds the high
+water silently.** This is the residual of Task 1 Property 4's ruling that a truncated row and an
+interrupted append are the same bytes, and it is filed rather than closed because the ruling is
+correct and the cost is real. Within one process lifetime Task 2 Property 2's `ErrStreamStoreRewound`
+catches it: the store has handed out an index and the persisted state is behind it. **Across a
+restart there is nothing left to compare against** — the row *is* the persisted state, and a shorter
+row is indistinguishable from a row that was never longer. Detecting it needs a length authority
+outside the appended data, which is a record count in a header or a second file, and either one puts
+a **second durable object** on the allocation path — exactly the boundary Task 2 Property 1 measures
+at **one**, and the one whose durability S2-16 says this platform will not force for a directory
+entry. *Position taken:* the store does not pretend to detect it, and Task 1 mutation 11 makes a
+store that tries **red**, because a store that refuses a truncated row also refuses every ordinary
+crash mid-append and wedges permanently. *Not resolved:* whether the row should carry a monotone
+per-record sequence number, which would not close this (the surviving prefix is identical under it
+too) but would make an out-of-order splice detectable, and whether that is worth a widened record.
+**Blocks:** nothing. **Owed:** a sentence in §8.2 stating that the row format detects a torn tail and
+not a truncated history, beside the one S2-22 asks for.
 
 ## Open asks on other plans
 

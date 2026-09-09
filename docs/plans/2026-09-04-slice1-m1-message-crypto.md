@@ -3423,7 +3423,12 @@ retry.
   `wrap_target_handle` binds the epoch, `wrap_key`'s HKDF info binds it, and `env_key[k]` is an epoch's
   own exporter output; assert that the **body** binds it too.
 
-  **Property 5 — an omitted wrap is visible.** §5.11 step 5's `no_wrap` gap, which after the
+  **Property 5 — an omitted wrap is visible TO THE OMITTED MEMBER, and to nobody else.** The party
+  is the property, and a headline that names none of them cannot be satisfied: the omitted member
+  sees a `no_wrap` gap at its own `wrap_target_handle`; the server sees an `expected_wrap_count` that
+  matches; every other member sees its own wrap arrive. Assert the visibility at the victim **and the
+  invisibility at the other two**, because a test written from a bystander's seat passes over the
+  omission it exists to find. §5.11 step 5's `no_wrap` gap, which after the
   2026-09-13 resequence covers the **device** arm and the snapshot and not the recovery arm. And see
   **Open item M1-22**: a committer that omits one member's wrap while matching `expected_wrap_count`
   produces a group that is writable, self-consistent to the server, and **permanently unreadable** for
@@ -3438,10 +3443,24 @@ retry.
   §5.11's ruling — that edge is exactly the circularity the ruling exists to remove.
 
   **Property 7 — every wrap body carries a signature under the publisher's `identity` key, and the
-  opener refuses an unsigned or wrongly-signed one before it honours anything in the record.** Order
-  matters and is the property: refuse **before** reading the epoch, the handle or the secret, because
-  a wrap whose signature has not been checked has no authenticated field to read. MASTER §5.3's
-  wording — *"MUST NOT honour"* — is the standard.
+  opener refuses an unsigned or wrongly-signed one before it HONOURS anything in the record**, with
+  *honour* meaning the installation of `pq_secret[k]`, `eph_root[k]` or `storage_root[k]` into the
+  session and nothing else. MASTER §5.3's wording — *"MUST NOT honour"* — is the standard, and it is
+  the word this repair keeps.
+
+  **Its ordering clause was UNSATISFIABLE as written, and the half that replaces it is the half that
+  is a function of the observable — M1-51.** The clause read *"refuse **before** reading the epoch,
+  the handle or the secret"*. Under the composite the owner ruled, the signature sits inside
+  `aead_ct`; `aead_ct` opens under `wrap_key`; and MASTER §7's nine-element `info` takes
+  `u64(epoch)` — the **content** epoch — together with `u8(target_type)` and `u8(payload_type)`
+  **from the envelope** as three of its inputs. So a receiver that has not read the epoch cannot
+  derive the key that opens the ciphertext that carries the signature: the clause demanded a refusal
+  that precedes its own precondition, and no implementation could satisfy it. This is not a ruling on
+  which of the two sentences governs — ledger item **178**'s second residual still owes that, and
+  **M1-51** carries it as this plan's own item so that a dispatcher meets it in the open-item list
+  rather than inside an item marked RULED. What is dispatchable today is the refusal-before-
+  installation above, and mutations 9 and 10 are written against exactly that half and are
+  unaffected.
 
   **Property 8 — the `env_key` cache survives what it must survive.** The builder and the opener read
   `env_key[k]` from the cache and never recompute it from a group that has moved on; a cache miss for
@@ -3450,6 +3469,110 @@ retry.
   time — which is correct in every test where the group has not advanced and wrong in every real
   catch-up. The failure this property makes visible is **unrecoverable** — ledger item **139** —
   which is why it must be typed and must not be a retry.
+
+  **Property 9 — the signature covers the wrap envelope, and the verifier rebuilds
+  `LP(wrap_envelope)` from the octets of the record it was handed.** This is the ruling's headline
+  repair, and until this pass it was defended by no property and no mutation in this task. **It is
+  the only property here that is not a round trip**, and that is the whole of why it exists: a sealer
+  and an opener agree about a field neither is asked to defend, so **every round trip in this task
+  passes with the envelope unsigned**, which is how the defect survived three independent analyses.
+
+  *What the verifier must recompute, and from which octets — stated first, because everything else
+  follows from it.* `LP(wrap_envelope)` is `u32(11) ‖ b[4:15]`, where `b` is the padded body **as
+  parsed from the received record**: the eleven octets sitting immediately after the body's `LP32`
+  prefix, taken as a slice of that buffer. It is **not** re-encoded from the opener's own parsed
+  envelope value; it is **not** taken from any argument the sealer, the fan-out or the caller passed
+  beside the record; and it is **not** recovered from inside `aead_ct`, which carries no envelope.
+  The term is inserted **ahead of** `LP(ct_xwing)` and the preimage is otherwise `S1`'s. An opener
+  that rebuilds the term from anything but the received octets gets the right answer on every record
+  its own encoder produced and the wrong one on the first record it did not — and the party this
+  signature exists to defend against is precisely a party whose encoder is not this one.
+
+  *Three assertions, and only the first can kill the mutation this property is written for.*
+
+  1. **The discriminating case is the version octet, and it is the only one there is.** Flip
+     `u8(wrap_format_version)` in the encoded record between the seal and the open.
+     `wrap_format_version` is in **no** `info` — MASTER §7's nine elements are
+     `"URmessage/v1/wrap"`, `LP(group_id)`, `u64(epoch)`, `u8(target_type)`, `LP(target_id)`,
+     `u8(payload_type)`, `u16(alg_id)`, `LP(target_xwing_pub)` and `LP(ct_xwing)` — so `wrap_key`
+     does not move, `aead_ct` **opens**, and the only authority left that can refuse the record is
+     the signature. Assert all three of those: the open succeeds, the opener refuses with the
+     **signature** refusal, and it installs nothing.
+  2. **The other ten octets are refused by the AEAD, and this assertion is about WHICH authority
+     refused each.** Flip `u8(target_type)`, `u8(payload_type)` or any octet of `u64(content_epoch)`
+     and `wrap_key` moves, so `aead_ct` does not open and the record is refused before any signature
+     is reachable. Eleven rows, one per octet: **one signature, ten AEAD**. The table is not
+     decoration. It is what makes a later amendment that drops an element from `info` visible here —
+     that octet's row moves from AEAD to signature and the record is *still* refused, which is the
+     defence-in-depth `LP(wrap_envelope)` buys and the reason the composite was ruled rather than
+     left **accidentally** safe (ledger item **178**).
+  3. **The preimage's own shape, asserted over its octets rather than through a verify.** The
+     preimage builder is a named, separately callable function that returns the octet string, is
+     called by the sealer and by the opener, and takes the received body's octets as an input.
+     Assert on its output that the fifteen-octet term is present, that its length prefix is
+     `u32(11)`, and that it ends exactly where `LP(ct_xwing)`'s length prefix begins. A coverage
+     claim readable only through a signature verify is a claim two implementations can satisfy
+     incompatibly, which is mutation 15's entire content. **The preimage's total length is 1,320 or
+     1,356 and no document says which — M1-52** — so this assertion pins the term's position and its
+     prefix, and the total is pinned the day M1-52 is ruled and not before.
+
+  *Refusal owed:* a typed signature refusal, separable by `errors.Is` from the AEAD-open failure,
+  because assertion 1 is a claim about **which** refusal fired and a suite that cannot tell the two
+  apart cannot make it.
+
+  *And the seam this property requires of the task's `Produces`, because without it the property is
+  unstateable:* **the opener's entry point takes the record's octets.** A property about what a
+  signature covers cannot be written against an opener that accepts only a value the sealer
+  constructed — there is nowhere to change a field. An implementer who signs whatever the sealer
+  handed over satisfies every other property in this task; this is the one that refuses him.
+
+  **Property 10 — the `LP32` prefix and the accumulating, position-free non-zero-tail refusal, over
+  ALL THREE wrap bodies.** `P2` is the ruling's second repair and it had no mutation either. The body
+  is `LP32(len(wrap_body)) ‖ wrap_envelope ‖ hybrid_ct ‖ 0x00 × (rung − 4 − len(wrap_body))`, with
+  `len(wrap_body)` **1,289** on a device body and **1,353** on a recovery body, so occupancy is 1,293
+  of the 4,096 rung and 1,357 of 4,112 and the tails are **2,803** and **2,755**. Four assertions:
+
+  1. **The extent comes from the prefix and from nothing else.** The opener reads `len`, refuses when
+     `4 + len` exceeds the padded body's length, and reads `wrap_body` as exactly those octets — no
+     scan for a run of zeros, no inference from the record's retention byte, and above all no
+     inference from the server attachment's kind. That last is the point of the repair: one grammar
+     for all three bodies, walkable with no key and no payload-type knowledge.
+  2. **The tail refusal accumulates over every octet.** A single non-zero octet **anywhere** in the
+     tail is a typed refusal, and the check reads the whole tail as one accumulation with no
+     data-dependent exit. That is what *accumulating* and *position-free* mean together, and it is
+     why the ruling says both words rather than one.
+  3. **All three bodies, and the recovery wrap is the one to test first**, because it is the body
+     `P2` as its own set excluded and the exclusion is exactly what the ruling reversed.
+  4. **The refusal names no offset.** It says a non-zero tail was found and does not report where; a
+     refusal that names the position hands back, as an oracle, the early exit assertion 2 forbids.
+
+  *Refusal owed:* one typed non-zero-tail refusal, the same one on all three bodies. *Owed and NOT
+  writable here:* a typed refusal for an **absent or short signature**, which the ruling leaves
+  unstated — `M1-1`'s NOT STATED (6) — and which at `S1`'s position is a payload-parse outcome rather
+  than a wire-parse one.
+
+  **Property 11 — `LP(identity_pub)` is inside `aead_ct`, and the party the field exists for is the
+  party the test must be written as.** `aead_ct`'s plaintext is `secret ‖ LP(identity_pub) ‖ sig`.
+  Three assertions:
+
+  1. **A seed-only restorer verifies a recovery wrap's signature while holding no MLS state, no
+     `group_handle_key` and no member list.** The holdings are part of the assertion: the party the
+     test stands up is constructed with that material and no more, because a test written with a
+     full member in hand resolves the key from the leaf and cannot see the carried field's absence
+     at all. That is the same party-shaped blindness Property 5 now names on the fan-out side.
+  2. **The identity key comes from inside the opened plaintext**, so it does not exist before the
+     AEAD opens. This is the structural fact that forces the order Property 7's repaired half states,
+     and it is why *honour* had to be defined as installation rather than as reading.
+  3. **The key appears in no octet a non-target can read.** Search the encoded record — header,
+     envelope, `hybrid_ct`'s framing and the server attachment — for the publisher's `identity_pub`
+     octets and assert absence. This is the privacy the owner bought when ruling against `C4`, and it
+     is the only assertion in this task that would notice the field drifting back out into the
+     cleartext.
+
+  *Refusal owed, and it is OWED rather than writable:* a wrap whose carried `identity_pub` is not the
+  key the KT log anchors for that publisher must be refused. MASTER §7 states in as many words that
+  the anchoring is not ruled; **M1-53** carries it. The assertion is recorded here as owed rather
+  than dropped, and it is not part of what Task 14 step 1 is dispatched against.
 
 - [ ] **Steps 2–6** as above.
 - [ ] **Step 5: Mutation-test.**
@@ -3475,6 +3598,54 @@ retry.
       before opening — Property 8 must fail. Without the advance it passes, which is the whole point.
   12. Return only the first row from a lookup at a `wrap_target_handle` that has two — Property 2 must
       fail.
+
+  **And ten the 2026-09-09 ruling made due, which `429263c` did not write. Each of the first four
+  leaves all twelve mutations above green and every round trip passing, which is the reason they had
+  to be written down rather than left to a reader's judgement.**
+
+  13. **Drop `LP(wrap_envelope)` from the preimage on BOTH sides** — the `S1` transcription a builder
+      arrives holding, and the mutation the whole ruling exists for. **Property 9 assertion 1 must
+      fail**, and assertion 3 with it. Nothing else in this task moves: all eight earlier properties,
+      all twelve earlier mutations and every round trip stay green, which is the mutation's content
+      rather than a caveat on it. **Only the version-octet case can kill it.** A coverage test that
+      flips the content epoch or either type octet passes under the mutant, because the AEAD refuses
+      those whether or not the envelope is signed — so the most natural test a reader would write
+      here proves nothing, and that is worth knowing before writing it rather than after.
+  14. Drop the term from the **sealer only**. Property 7's repaired half must fail on an ordinary
+      round trip. It is written out to name the asymmetry rather than to add coverage: this one the
+      existing suite already catches, and its being caught says nothing whatever about 13.
+  15. Append the term at the **end** of the preimage instead of ahead of `LP(ct_xwing)`, on both
+      sides. Every round trip passes and Property 9 assertion 1 passes; **assertion 3 must fail** on
+      the term's position. Two implementations that place it differently both refuse the flipped
+      record and cannot read each other's wraps — coverage without interoperability.
+  16. Carry the envelope's eleven octets **bare**, with no `u32(11)` prefix. Round trips pass,
+      assertion 1 passes, **assertion 3 must fail** on the length prefix, and the preimage is 1,316
+      octets — neither of M1-52's two candidate totals.
+  17. Rebuild the term in the opener by **re-encoding its own parsed envelope** rather than slicing
+      the received octets. **Assertion 3's provenance half must fail as a source-shape finding, not
+      as behaviour** — over a lossless parser the two octet strings are equal and no behavioural test
+      can separate them. It is written as structural because that is what it is; a mutation whose
+      behavioural half is unkillable and is stated as behavioural is the defect this plan has now
+      paid for repeatedly.
+  18. Set the **last** octet of a body's zero tail non-zero; then a middle one; then the first.
+      Property 10 assertion 2 must fail on each of the three, on each of the three body kinds. A
+      checker that reads a prefix of the tail survives the first two.
+  19. Refuse the tail with an **early return** on the first non-zero octet. Property 10's behavioural
+      half stays green — the record is still refused — and **assertion 2's accumulation half must
+      fail as a source-shape finding**. Written out because it is the natural optimisation and
+      because no behavioural assertion can see it.
+  20. Apply the `LP32` prefix and the tail refusal to the two **device** bodies and not to the
+      **recovery** body, which is `P2` as its own set recommended it. Property 10 assertion 3 must
+      fail, on the recovery body alone. The mutation exists so that a later reader who re-derives
+      `P2`'s four-octet saving is red rather than persuasive.
+  21. Resolve the publisher's identity key from the leaf whose `sender_handle` matches, for **every**
+      party, and omit `LP(identity_pub)` from the plaintext. Every member-to-member round trip
+      passes. **Property 11 assertion 1 must fail** — a seed-only restorer has no leaf to resolve,
+      and it is the only party the field exists for.
+  22. Move `LP(identity_pub)` **out** of `aead_ct` and into the cleartext body. Every signature still
+      verifies and every restorer still verifies; **Property 11 assertion 3 must fail**. The
+      publisher's identity key is then on the wire, which is `C4`'s cost bought without `C4`'s
+      property.
 - [ ] **Step 6: Commit**
 
 ---
@@ -4557,6 +4728,15 @@ document's R1 paragraph — repeated verbatim in s1 and in `SPEC-LEDGER.md` — 
 higher than the twenty p6 declares. Neither is this plan's to decide, and both print on every run.
 The linter's own doc comment states what it cannot see, which is the half that stays the author's.
 
+**The 2026-09-09 defence pass added M1-51, M1-52 and M1-53 — fifty-three items, of which one is
+closed — and every one of the three is a term of the `C3` ruling that nothing in Task 14 could
+test.** They are not new questions. Each was already written inside `M1-1`'s NOT-STATED list or
+beside it, and `M1-1` is marked RULED, so the open-item list a dispatcher reads did not contain any
+of them. That is the whole reason they are lifted out: an item filed inside a closed item is an item
+nobody meets. The pass also wrote Task 14's Properties 9, 10 and 11 and mutations 13–22, which are
+what the ruling's three untested terms — `LP(wrap_envelope)` in the preimage, `P2` over all three
+bodies, and `LP(identity_pub)` inside `aead_ct` — are defended by.
+
 **The 2026-09-07 pass added M1-50 and made the linter's documented invocation run the linter.** Until
 that pass, `go test ./ -run TestThePlanLinter` — the command this document, `SPEC-LEDGER.md` and
 every brief on this project print — matched only `TestThePlanLinterFlagsTheControlFixture` and ran
@@ -5141,6 +5321,50 @@ directories walked and **0** importers, because `connect/messagegroup` does not 
 `connect/message` until Task 1. So narrowing `authScanRoots` back to `{"."}` is silent today (Task 0
 mutation 14). *Blocks:* nothing. M1-45 and M1-19 are filed against a rule that now has a scope, and
 are ruled on their own terms.
+
+**M1-51 — Task 14 Property 7's ordering clause was unsatisfiable, and the sentence that would make
+it satisfiable is ledger item 178's second residual, still owed.** The clause read *"refuse
+**before** reading the epoch, the handle or the secret"*. Under the composite the owner ruled the
+signature is inside `aead_ct`; `aead_ct` opens under `wrap_key`; and MASTER §7's nine-element `info`
+takes the envelope's `u64(epoch)`, `u8(target_type)` and `u8(payload_type)` as three of its inputs.
+A receiver that has not read the epoch therefore cannot derive the key that opens the ciphertext that
+carries the signature, so the clause demanded a refusal that precedes its own precondition. **No
+implementation could satisfy it, and it stood in a Step 1 an implementer would have been dispatched
+against.** *Repaired here, not ruled:* Property 7 now states the half that is a function of the
+observable — refuse before **installing** `pq_secret[k]`, `eph_root[k]` or `storage_root[k]` — with
+*honour* defined as that installation, which is the definition ledger **178** residual 2 says the
+corpus owes. *What is still open:* whether §5.11 (4)'s *"before it honours"* is satisfied by
+open → verify → install, in those words, in a normative document. *Blocks:* nothing that the
+repaired half does not cover; Task 14 mutations 9 and 10 are written against the repaired half.
+*Owed:* a sentence in Spec A §5.11 or MASTER §7, which is ledger **178**'s to close. It is filed
+here as well because `M1-1` is marked RULED and a dispatcher reading the open-item list would not
+look inside it.
+
+**M1-52 — the signature preimage is 1,320 or 1,356 octets and no document says which, so nothing in
+Task 14 can sign.** `S1`'s `LP(payload)` was measured over a 32-octet secret (`1,269 + 4 + 32 =
+1,305`), while set 2's own `S1` line prices `LP(identity_pub)` as *"a further 36 **in the
+payload**"*. Under the first reading the ruled preimage is **1,320**; under the second, **1,356**.
+The documents carry 1,320, which is ledger item **176**'s own measurement for the field set that was
+ruled, and file the second reading beside it — neither is asserted as *the* number. This item exists
+because the term is now load-bearing on a **property**: Task 14 Property 9 assertion 3 pins the
+`LP(wrap_envelope)` term's position and its `u32(11)` prefix, and pins the preimage's total the day
+this is ruled and not before. *Blocks:* signing, and therefore all of Task 14 step 3 — a publisher
+and a verifier that choose differently produce a wrap nobody can verify, with no error anywhere.
+*Owed:* one sentence in MASTER §7 saying whether `payload` means the secret alone or
+`secret ‖ LP(identity_pub)`. Spec A §5.11 (6) carries the same residual; it is filed here for the
+same reason M1-51 is.
+
+**M1-53 — the carried `identity_pub` is anchored in nothing, and it is the only key a seed-only
+restorer has.** `LP(identity_pub)` inside `aead_ct` is what makes a recovery wrap's signature
+verifiable by the party the record exists for, and MASTER §7 states in as many words that the ruling
+*"does not state that the carried key must be anchored in the KT log (§10.1)"*. **A carried key is a
+key the wrap's own sealer chose**, so a sealer that signs under a key of its own manufacture and
+carries it produces a wrap that verifies against itself. *Blocks:* Task 14 Property 11's third
+refusal, which is recorded there as **owed rather than writable** — the assertion cannot be stated
+until the anchoring rule exists, and it is not part of what step 1 is dispatched against. *Owed:* a
+sentence in MASTER §10.1 or §7 binding the carried key to the KT log, and a statement of what a
+restorer does when the log is unreachable. Ledger item **178**'s third residual names the same gap
+for the member's half.
 
 ### Blocking the A6 wire-format freeze
 

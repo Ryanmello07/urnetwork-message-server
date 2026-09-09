@@ -10807,3 +10807,133 @@ this ruling settles.
 ok. Every linter reporting count identical across the diff (1b 7, 1c 1, 1d 189, 2a 18, 3a 4, 3c 3,
 4b 5) and the four fatal checks (2b, 3b, 3d, 4a) clean on both sides. `git ls-files` equals
 `git ls-tree -r HEAD` at **103**, checked before the commit and again after.
+
+### 2026-09-09 — the `C3` ruling's headline term given a property and a mutation, the truncation pair ruled indistinguishable, and the sweep's own scope corrected off the property instead of off its instances
+
+**What this pass did.** It made the 2026-09-09 `C3` ruling **defensible** without reopening one line
+of it, resolved the mutation pair that three passes in a row had moved rather than removed, and
+corrected the contradiction sweep's derivation so that the next instance of its class is inside its
+scope. **It ruled nothing of the owner's**, wrote **no test code**, changed **no Go file**, and did
+not touch `connect`. Two plan documents changed and this file gained this entry.
+
+**THE RULING'S HEADLINE TERM NOW HAS A PROPERTY AND A MUTATION, AND THE INTERESTING PART IS WHICH
+OCTET DOES THE WORK.** `LP(wrap_envelope)` in the signature preimage is the term the ruling was taken
+for — without it the signature reaches the record header, the KEM transcript and the secret and
+**not one octet of the envelope the field-list ruling exists to add**. It appeared in no m1 Task 14
+Property and in no Task 14 mutation, and `429263c` added zero mutation lines. **m1 Task 14 Property 9**
+now states what a verifier must recompute and from where: `LP(wrap_envelope)` is `u32(11) ‖ b[4:15]`
+sliced out of the **received** body — not re-encoded from the opener's parsed envelope, not taken
+from anything the sealer handed over, and not recovered from inside `aead_ct`, which carries no
+envelope. **Mutation 13** is *drop the term from both sides*, which is the `S1` transcription a
+builder arrives holding.
+
+**And the measurement that makes the property sharp rather than plausible: of the envelope's eleven
+octets, exactly ONE can kill that mutation.** MASTER §7's nine-element `info` binds `u64(epoch)` —
+the content epoch — `u8(target_type)` and `u8(payload_type)`, so flipping any of those ten octets
+moves `wrap_key` and the record is refused **by the AEAD**, whether or not the envelope is signed.
+`u8(wrap_format_version)` is in **no** `info`, so flipping it leaves `wrap_key` where it was,
+`aead_ct` **opens**, and the signature is the only authority left that can refuse. **A coverage test
+written over the epoch — the field a test author would most naturally pick — is green under the
+mutant and proves nothing.** Property 9 therefore asserts eleven rows, one per octet, naming *which*
+authority refused each: one signature, ten AEAD. That table is what makes a later amendment dropping
+an element from `info` visible here rather than silent — the octet's row moves from AEAD to
+signature and the record is still refused, which is the defence-in-depth item **178** calls the
+difference between safe and *accidentally* safe.
+
+**The other two ruled terms had no mutation either, and now do.** **Property 10** carries `P2` — the
+`LP32` prefix and the **accumulating, position-free** non-zero-tail refusal over all three wrap
+bodies, with mutations 18–20, of which 20 is *apply it to the two device bodies and not the recovery
+body*, the exact shape the ruling's second repair reversed. **Property 11** carries
+`LP(identity_pub)` inside `aead_ct`, written as the party rather than as the field: assertion 1
+stands up a **seed-only restorer** holding no MLS state, no `group_handle_key` and no member list,
+because a test written with a full member in hand resolves the key from the leaf and cannot see the
+carried field's absence at all. Its assertion 3 — the key appears in no octet a non-target can read
+— is the only assertion in the task that would notice the field drifting back into the cleartext,
+which is `C4`'s cost without `C4`'s property.
+
+**Three terms were lifted OUT of `M1-1` into their own items, and the reason is procedural rather
+than substantive.** `M1-1` is marked **RULED**, so a dispatcher reading the open-item list never
+reaches its NOT-STATED list. **M1-51** — Task 14 Property 7's ordering clause. **M1-52** — the
+preimage is **1,320 or 1,356** octets and no document says which, so nothing in Task 14 can sign.
+**M1-53** — the carried `identity_pub` is anchored in nothing, so a sealer that signs under a key of
+its own manufacture and carries it produces a wrap that verifies against itself. None is a new
+question; each was already written down inside a closed item, which is where items go to be missed.
+
+**M1-51 IS A SECOND INSTANCE OF THE COMMISSIONED CLASS, FOUND AT AN ALTITUDE NEITHER REVIEW REACHED.**
+m1 Task 14 Property 7 read *"refuse **before** reading the epoch, the handle or the secret"*. Under
+the composite the owner ruled the signature is inside `aead_ct`; `aead_ct` opens under `wrap_key`;
+and `wrap_key`'s `info` takes the envelope's epoch and both type octets as inputs. **A receiver that
+has not read the epoch cannot derive the key that opens the ciphertext that carries the signature**,
+so the clause demanded a refusal that precedes its own precondition — unsatisfiable by any
+implementation, standing in a Step 1 an implementer would have been dispatched against. It is
+**repaired to the observable half** — refuse before **installing** `pq_secret[k]`, `eph_root[k]` or
+`storage_root[k]`, with *honour* defined as that installation, which is the definition item **178**
+residual 2 already says the corpus owes. **The ruling is untouched and the sentence is still owed.**
+
+**THE MUTATION PAIR IS RESOLVED BY RULING THAT THE DISCRIMINATOR DOES NOT EXIST.** s2 Task 1
+mutation 7 demanded `ErrStreamStoreState` for a truncated row; Task 1 mutation 9 and Task 2 mutation
+10 demand a torn tail be **discarded**. **A three-record row truncated to half and a two-record row
+whose second append flushed halfway are byte-identical** — `R1` followed by half of `R2` in both —
+and the row format admits no third input: no header, no record count, no external length authority,
+and by Task 2 Property 1 exactly **one** forced flush on the allocation path, so no second durable
+object could hold a count even if one were wanted. **No function of `(length, record width,
+checksums)` can answer them differently, so the plan no longer asks for one.** Both are case 2.
+Task 1 Property 4 now carries the four-step **decision procedure** over those three inputs, states
+that case 3's third clause adds no case a reading over the bytes can reach, and records that
+**truncation is a byte-prefix operation and can therefore never reach case 3 for any N** — which is
+why mutation 7 is re-aimed onto **corruption of the last two whole records**, the only operation
+that reaches it. Two controls are added: **mutation 11** (classify by length alone — the store that
+"detects truncation", which must be red) and **mutation 12** (the `2W` off-by-one). Task 2 mutation
+10 was the correct half of the pair and is unchanged. The residual is filed as **S2-23**: an
+out-of-band truncation of whole *flushed* records is undetectable and rewinds the high water
+silently across a restart, and buying detection would put a second durable object on the allocation
+path — the boundary Task 2 Property 1 measures at one.
+
+**AND THE SWEEP'S OWN SCOPE WAS DERIVED FROM ITS INSTANCES, WHICH IS THE DEFECT IT EXISTS TO CATCH.**
+Its published derivation read *"every object two or more **TASKS** constrain"*. Both findings that
+raised it were cross-task, so the scope reproduced the shape of its two instances rather than the
+property it defends — *two sentences in this document that cannot both be satisfied*, which is
+silent about how many tasks they sit in — and it walked past a contradiction confined to the very
+task it was repairing. The unit is now the **constraint site**: every clause of a Property, every
+*Refusal owed* line, every numbered mutation, every sentence of task prose stating an obligation.
+**A second axis is added, and it is where both surviving instances actually lived:** for every
+constraint naming a **cause, a history or an intent** rather than an observable — *truncated*,
+*crashed*, *a committer that lied*, *an omitted wrap is visible* — write down the values the
+deciding party can read at the moment it must answer, and the set of causes mapping to one of those
+values; two causes in that set given different answers anywhere in the corpus is **unsatisfiable**,
+and the repair is to restate over the observable or rule that both take one answer. Re-aiming one of
+the two demands does not remove it, which is why three passes each fixed an instance and shipped
+another.
+
+**WHAT THE CORRECTED SWEEP FOUND, WITH THE QUERY BESIDE THE COUNT.** Scope: every Property clause
+and every numbered mutation of the 15 tasks in `s2` and the 24 in `m1`, indexed by backticked
+identifier and by the documents' own uncoded nouns. **Three unsatisfiable instances and one
+under-determination**, none of them reachable by the task-scoped derivation: the truncation pair
+above; m1 Task 14 Property 7 (M1-51); **m1 Task 14 Property 5's headline** — *"an omitted wrap is
+visible"* names no party, and it is true at the omitted member, false at the server, which sees a
+matching `expected_wrap_count`, and false at every other member, so the property now names the party
+and asserts the **invisibility** at the other two, which makes M1-22's finding testable rather than
+merely filed; and **s2 Task 1 Property 2 with Task 12 Property 7**, whose *"not a row of **either
+tag**"* has an undefined antecedent — read as *"the two tags the codebase knows about"*, mutation 3's
+planted pre-A1 row answers `ErrStreamStoreState` where **the mutation the wave calls its most
+important** demands `ErrStreamKeySpace`. Both now state a three-way partition over the name's own
+shape. **What it found clean is published beside the hits**, because a sweep reporting only its hits
+is one nobody can size: Task 2a Property 4's two crash points, Task 2a Property 2's live-versus-dead
+holder, Task 12's `ErrOutOfWindow`/`ErrNoWrap` pair, and m1 Task 15's *"omit the recovery leg
+entirely"*, which is already carried as a **named, deliberately unrefuted** mutation — the shape this
+axis asks for.
+
+**What this pass did NOT do.** It did not reopen `C3`: the envelope stays outside `hybrid_ct`,
+`LP(identity_pub)` stays inside `aead_ct`, the preimage stays extended by `LP(wrap_envelope)` ahead
+of `LP(ct_xwing)`, and `P2`'s prefix and tail refusal stay over all three bodies. It **ruled none of
+the six sentences item 175 §6 says a closure owes** — 178's four residuals stay owed, and M1-51,
+M1-52 and M1-53 are filings of three of them, not answers to them. It closed **no** ledger item:
+**152**, **178**, **139**, **132**, **138**, **142** and **148** stay filed, and Task 14 is still
+blocked by 152's `EPH` refusal at `connect/messagegroup/seal.go:119` and `:387`. **CP3b is still
+blocked outright by `S2-4`.** It supplied **no test code** — every addition is a property, a refusal
+owed, or a mutation an implementer must apply.
+
+**Verification.** `go build ./...` clean; `go test ./...` green; `go test ./ -run TestThePlanLinter`
+ok. Every linter reporting count identical across the diff (1b 7, 1c 1, 1d 189, 2a 18, 3a 4, 3c 3,
+4b 5) and the four fatal checks (2b, 3b, 3d, 4a) clean on both sides. `git ls-files` equals
+`git ls-tree -r HEAD` at **103**, checked before the commit and again after.
