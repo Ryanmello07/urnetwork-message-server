@@ -11241,3 +11241,133 @@ growing as the corpus did: the property class 248 → 275, the class-deriving pr
 task references 2,199 → 2,324, open-item references 693 → 799, ledger references 165 → 172, Consumes
 entries 248 → 255. `git ls-files` equals `git ls-tree -r HEAD` at **104**, checked before the commit
 and again after.
+
+---
+
+### 2026-09-10 — the `j1` plan repaired: a join that would have destroyed the device's signing key with nothing to notice, three landed gates a "no gate it must not disturb" grep could not see, and the class of count-without-a-query the four named defects belong to
+
+**Scope.** One document, `docs/plans/2026-09-09-slice1-j1-the-join.md`, and this entry. **`connect` was
+not touched** — `git status --porcelain` is empty there and its head is still `a1f8025`, 1,110 tracked
+files. **No code was written.** Every addition is a property, the refusal it owes, a derived class with
+its query beside its size, a printed complement, or a mutation an implementer must apply. The
+implementation is a separate dispatch, deliberately: a repair that also implements is how a repair
+commit ships a fresh instance of what it repaired.
+
+**THE CRITICAL, AND IT DESTROYS A KEY. Task 5 assembled `mls.JoinKeyMaterial{..., SignPrivate:
+self.signer}` and `JoinKeyMaterial`'s own header prescribes an erase that wipes `SignPrivate` by
+name.** `(*JoinKeyMaterial).Zeroize` (`mls/group.go:2947`) calls `zeroizeSecret`
+(`mls/secret_zeroize.go:42`), which writes zeros **through the slice**, so a `SignPrivate` aliasing the
+engine's `self.signer` leaves the device holding a 32-octet all-zero seed after ONE successful join.
+**Nothing refuses afterwards.** `signaturePublicKeyOf` accepts it, `NewKeyPackage` and `CreateGroup`
+both go on succeeding, and every leaf the device publishes names
+`3b6a27bcceb6a42d62a3a8d02a6f0d73653215771de243a63ac048a18b59da29` — **verified this session by
+computing the ed25519 public key of the all-zero seed, which is exactly that value** — while
+`Credential.Identity` still names the real device, so `MemberAt` reports nothing. The joined handle
+keeps working, because `mls/group.go:3413` clones `SignPrivate` into the group before the erase. **Task
+4 Property 2 held the mint half of that aliasing and Task 5 held no property against the erase at all:
+the document stated both halves of a key-destroying defect and defended neither.**
+
+**Closed as Task 5 Property 6, with the ownership rule named, the alternatives priced, and five
+mutations.** *Position: a defensive copy of `self.signer` at the assembly site* — the rule is
+`JoinKeyMaterial` owns every array it carries, so a caller assembles it only over arrays it is willing
+to have destroyed, and that is a fourth instance of a discipline already spelled three times on this
+path (`key_package.go`'s clone, `mls/group.go:3413`, `NewGroup`). *Rejected: narrowing `Zeroize`* —
+that removes a real erase from the type that declares this material for every caller, and 12 of the 13
+`SignPrivate:` sites in the tree pass a per-member throwaway nothing else will wipe. *Rejected: no
+erase at all* — it trades this defect for **J1-5**'s. **The half that makes it a property rather than a
+comment is which observations are NOT admissible:** `MemberAt(0)`'s `identityPub`, anything read off
+the handle the call answered, and Task 6's whole chain are all green over a destroyed device, so the
+gate drives the ENGINE a second time on both exits. Mutations 13–17: assemble without the copy (must
+go red on both exits), erase on the success exit only, erase on the failure exit only, take the
+observation from `identityPub` (the control — must FAIL to detect mutation 13), and drop `Zeroize`
+entirely.
+
+**THREE LANDED GATES GO RED ON TASK 1'S COMMIT AND THE PLAN NAMED NONE OF THEM, because its
+gate-scope claim was drawn wider than its query.** The measurements table published
+`grep -c "NewKeyPackage\|signPriv\|JoinKeyMaterial" mls/GATES.md mls/UNOBSERVED.md mls/ERRATA.md` →
+`0, 0, 0` and concluded *"no gate it must not disturb"* — a conclusion about `_test.go` files from a
+query that reaches three markdown files. Measured instead, each of the three derives its class off
+`connect/mls`'s own parse tree and `NewKeyPackageWithSigner` joins it undriven:
+`TestEveryDeclarationHandedANilProviderRefusesRatherThanDereferencingIt` **fatals** through
+`providerConstructions` (`crypto_test.go:4591`) because `providerConstructionValues` holds no row for
+it; `TestEveryCompositionEnteringALabelledConstructionIsBoundedBeforeItGetsThere` fails its
+`slices.Equal` against `labelledCompositionClass` (`labelled_composition_test.go:1841-1857`); and
+`TestEveryConstructionHandedAProviderReadsKdfNhFromIt` fails `covered` against
+`packageLevelFunctionsTaking` (`key_schedule_test.go:5441`). All three are now rows in the gate table
+with what each is owed, all three test files are in Task 1's Files block, and Wave 1's *"needs
+nothing"* now says that additive-to-an-exported-package is not additive to a package whose gates derive
+off it. **And the one gate whose PASSING is the finding is recorded as passing:**
+`TestNewKeyPackageKeepsTheSigningSeedOffTheWireAndBesideItsOwnLeaf` is green with the constructor
+present and undriven, which is Task 1 Property 4's whole diagnosis.
+
+**THE CLASS THE FOUR NAMED DEFECTS BELONG TO, derived rather than fixed four times. It is
+`mls/GATES.md`'s own first-of-the-nine — *"a class dispositioned by a COUNT instead of a grep; a count
+cannot have a complement, which is why nothing could be read off it"* — one level up, in a plan instead
+of in a gate.** Filed as **R6**: beside every class and every complement, print the QUERY and the number
+it returns at `a1f8025`. **The sweep is printed row by row over all eight class-deriving properties,
+because a sweep whose own output is a count is an instance of what it swept for.** Four state a size
+their own query does not return, and **two of the four were found by running R6 rather than by fixing
+what the review named**:
+
+| Property | stated | measured at `a1f8025` |
+|---|---|---|
+| Task 1 Property 4 | complement = `UnmarshalMLS`'s receiver and the `MLSMessage.KeyPackage` arm | **neither is in the predicate's domain** — the first answers `error`, the second is a struct field (`framing.go:897`). Under the predicate mutation 10 requires, the complement is **EMPTY**, which `GATES.md` calls the dangerous reading |
+| Task 2 Property 3 | class 1, complement 2 test references, one at `lifecycle_fixtures_test.go:240` | the grep returns **11 lines: 3 production and 8 test across 5 files**; the fixture's call is at **`:238`**. Complement wrong by **4x** |
+| Task 4 Property 1 | class 2 doors, complement 1 | **4 doors** — `NewKeyPackage`, `CreateGroup`, `GroupHandle.ProposeUpdate` (`group.go:1683`), `GroupHandle.Commit` → `CreateUpdatePathSecrets` (`treekem.go:463`). **Not in the review** |
+| Task 6 Property 4 | class 3 | **6** — `doc.go:50`, `engine.go:297`, `:314`, `:315`, `errors.go:130`, `:135`. Every one is in a file a task already edits, so the WORK was scheduled and only the NUMBER was wrong |
+| Task 7 Property 2 | class 1 | **2** (`caller_arrays_test.go:2176`, `:2180`), with a complement of **1** (`:45`, the same digit about a different class, and correct). **Not in the review** |
+| Task 3 Property 3 | class 112 | **112 — right, and its complement's SIZE was unprinted**, which R5 forbids and which is why no mutation could name it. Now three, printed |
+| Task 5 Property 5 | class 4, complement 4 | **4 and 4, and 4 + 4 is `GroupConfig`'s whole field set. THE CONTROL** — the one class-deriving property here a reviewer could not falsify, and the shape the five defective rows were repaired into |
+
+**A SECOND CLASS, filed as R7, because the critical is not an R6 instance.** *A value assembled over an
+array a longer-lived object owns is a property about the OWNER, and some task must hold it.* The sweep
+found **four sites and a complement of one**: `kp.signPriv` over `self.signer` (held), the wrapper's own
+drawn seed inside the re-expressed `NewKeyPackage` (**not held** — now Task 2 Property 4, and
+`mls/staged_erase_test.go` cannot see it because that gate holds struct fields and this is a stack
+local), the two arrays `TakeKeyPackage` answers (held), and `JoinKeyMaterial.SignPrivate` (**not
+held** — the critical). The complement is `mls.GroupConfig{Crypto, Store}`, named and excluded for
+`caller_arrays_test.go:35-50`'s own reason: an interface parameter hands over an object, not a buffer.
+
+**SIX MORE REPAIRS, each measured.** *Task 4 Property 4 was internally contradictory* — it required
+`TestNewKeyPackageAnswersOneConnectMlsWillAdmit` to keep asserting a self-add succeeds and, two
+sentences later, required a self-add to be refused; it is now two assertions over two groups, with the
+measured refusal (`ValSem101UniqueSignatureKey` firing at `ProposeAdd`, not at `Commit`, via
+`(*Group).propose` at `group.go:1853`) and the measured blast radius (**185 of 186** `./messagegroup/`
+tests pass; that one gate is the only casualty). *Task 4 Property 1 clause 2 presupposed **J1-1***,
+which this plan files as unruled — clause A (the join's precondition, which no reading can change) is
+now stated first and clause B is stated as the position's cost with everything an Option A ruling
+unwinds listed. *Task 3 Property 3 was satisfiable and not falsifiable* — restated over
+`testKeyPackage`'s BODY, which a mutation can reach, with three new mutations. *Task 2 Property 3
+proposed a second derivation of a class the tree already derives* — clause A now reuses
+`labelled_composition_test.go` and asserts its table moving from two rows to one in Task 2's commit;
+clause B covers the only half that gate cannot see (a label spelled as a literal keeps its row), and
+mutation 4 now requires clause A to stay GREEN, which is the check that the reuse is a reuse. *Task 6
+mutation 1's rationale was wrong* — a shared store does not make the exporter equality a tautology,
+because `Export` reads two in-memory key schedules and `LoadGroup` has zero callers outside `mls`'s
+tests; the mutant is sound for Property 2's reason instead. *The headline "17 call sites" was the
+query's line count with three of four non-calls hand-removed* — it is 20 lines, **16 calls across 9
+files**, with the four excluded now printed; corrected in all four places it carried.
+
+**TWO ITEMS FILED, NOTHING RULED. J1-15** — this is the only document in the corpus with tasks and no
+linter token, since `planTokenRe` (`planlint_test.go:158`) matches only `p`/`s`/`m`, so a later plan's
+`j1 Task 5` cannot resolve; three ways to close it are named and none is taken. **J1-16** —
+`JoinKeyMaterial`'s header says a caller *"goes on owning every array it passed and owes each of them
+the erase below"* and the erase destroys them, which for `SignPrivate` are opposite sentences; the
+position taken is deliberately the one that is correct under **both** readings. **J1-9 and J1-10 stay
+the owner's and are untouched**, as are J1-1 through J1-14.
+
+**Verification.** `go build ./...` clean and `go test ./...` green before and after.
+`go test ./ -run TestThePlanLinter` ok on both sides, **with every reporting count identical across the
+diff** — 1b **7**, 1c **1**, 1d **189**, 2a **18**, 3a **4**, 3c **3**, 4b **5** — and the four fatal
+checks (2b, 3b, 3d, 4a) clean on both sides. Derived class sizes grew as the document did: the property
+class **275 → 277**, the class-deriving property class **64 → 65**, task references **2,324 → 2,394**,
+open-item references **799 → 813**; ledger references (**172**), plan references (**2,171**), Consumes
+entries (**255**) and qualified consumed names (**10**) unchanged. `git ls-files` equals
+`git ls-tree -r HEAD` at **104**, checked before the commit and again after.
+
+**What this pass did NOT do.** It wrote no code and dispatched no task. It did not sweep the other
+twelve plan documents for R6's or R7's class — both rules are stated as predicates with their queries
+so that sweep has a derivation rather than an instance to copy, and the two defects this pass found
+outside the review are the argument that the sweep is worth running. It did not re-measure the
+`connect` numbers this plan rests on beyond the fifteen it needed; the fifteen it did re-measure all
+reproduced except the five counts corrected above.
