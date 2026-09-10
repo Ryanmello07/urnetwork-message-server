@@ -11272,8 +11272,8 @@ mutations.** *Position: a defensive copy of `self.signer` at the assembly site* 
 `JoinKeyMaterial` owns every array it carries, so a caller assembles it only over arrays it is willing
 to have destroyed, and that is a fourth instance of a discipline already spelled three times on this
 path (`key_package.go`'s clone, `mls/group.go:3413`, `NewGroup`). *Rejected: narrowing `Zeroize`* —
-that removes a real erase from the type that declares this material for every caller, and 12 of the 13
-`SignPrivate:` sites in the tree pass a per-member throwaway nothing else will wipe. *Rejected: no
+that removes a real erase from the type that declares this material for every caller, and all 13
+`SignPrivate:` sites in the tree pass a per-member `testMember.SigPriv` nothing else will wipe. *Rejected: no
 erase at all* — it trades this defect for **J1-5**'s. **The half that makes it a property rather than a
 comment is which observations are NOT admissible:** `MemberAt(0)`'s `identityPub`, anything read off
 the handle the call answered, and Task 6's whole chain are all green over a destroyed device, so the

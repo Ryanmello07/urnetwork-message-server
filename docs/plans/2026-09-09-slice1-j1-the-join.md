@@ -1398,8 +1398,9 @@ the put-back is what makes the loss require a crash rather than a message.
   `mls/group.go:3413` clones `keys.SignPrivate` into the joined group's `signer`, and `NewGroup` does
   the same for the founder. *Rejected: narrowing `(*JoinKeyMaterial).Zeroize` so it leaves
   `SignPrivate` alone* — that removes a real erase from the type that declares this material for
-  **every** caller, and measured, `grep -rn "SignPrivate:" --include=*.go .` is 13 sites of which 12
-  pass a per-member throwaway nothing else will ever wipe; it also contradicts the type's own header,
+  **every** caller, and measured, `grep -rn "SignPrivate:" --include=*.go .` is 13 sites and **all
+  13** pass a per-member `testMember.SigPriv` minted before the key package existed and wiped by
+  nothing else; it also contradicts the type's own header,
   which is a `connect/mls` amendment rather than this method's call. *Rejected: not calling `Zeroize`
   at all* — the two arrays Property 3 exists for then stay in the heap, which trades this defect for
   **J1-5**'s and buys nothing.
