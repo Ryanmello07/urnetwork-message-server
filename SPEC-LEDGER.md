@@ -11730,3 +11730,119 @@ as predicates with their queries and their complements, so that sweep has a deri
 instance to copy. **And the argument that it is worth running is this pass's own arithmetic: two of
 the four route defects and one of the four stale reasons were outside the audit's list and were found
 only by running the shape over the whole document.**
+
+### 2026-09-10 — the `j1` plan's four checklist defects closed, and the class three of them belong to derived: SIX of seven tasks had a block that disagreed with the properties beneath it
+
+**What this pass did.** It closed the four defects the DISPATCH sign-off filed against `j1`, and then
+derived the CLASS three of them belong to across all seven tasks rather than fixing the three that
+were named. **It wrote no code, supplied no test, dispatched no task, changed no property, no mutation
+and no measured number, ruled nothing of the owner's, and did not modify `connect`** — clean at
+`a1f8025`, 1,110 files. One plan document and this file changed.
+
+**THE CLASS, ITS QUERY AND ITS COMPLEMENT.** The sign-off called findings 1–3 *"one-line corrections
+to Consumes checklists"*. They are one SHAPE, and the shape has a predicate: **R4's third clause read
+as a CHECKLIST rule rather than as an observation rule.** That clause's mechanical form was already in
+the document — *beside every property, name the ROUTE the observation takes and check that every name
+on that route is in the task's own `Consumes` block* — and it had been run against the ROUTES and
+never against the BLOCKS. The universe is one query, printed beside the class:
+`grep -c '^- Consumes:' docs/plans/2026-09-09-slice1-j1-the-join.md` returns **7**, one per task; the
+per-task input is the route column of *"The sweep for R4's third clause"*, which covers all thirty
+properties. **The class is SIX of the seven and the complement is ONE.**
+
+| task | verdict |
+|---|---|
+| Task 1 | **IN** — `(*KeyPackage).Validate`, `(*LeafNode).VerifySignature`, `(*KeyPackage).Zeroize`, `CryptoProvider.HpkeSeal`, `CryptoProvider.HpkeOpen`, `providerStreamDraws` over `providerOperations`, `declaredFunctionsOf` over `cryptoOwnRoot` |
+| Task 2 | **IN** — `NewKeyPackage`, `NewCryptoProviderWithRandom`, the retaining recording provider, `labelledCompositionClass` and its gate, `keyPackageSignatureLabel` with `CryptoProvider.SignWithLabel` |
+| Task 3 | **IN** — `Group.GroupId`, `Group.Members`, `errJoinerSignatureKeyNotTheLeafs`, `signaturePublicKeyOf`, `testKeyPackage`, `keyPackageSignatureLabel`, `NewKeyPackage` |
+| Task 4 | **IN** — `syntax.Unmarshal`, `mls.KeyPackage`, `GroupEngine.CreateGroup`, `GroupHandle.Commit`, `GroupHandle.MergePendingCommit`, `GroupHandle.ProposeAdd`, `mls.ErrAddDuplicateSignatureKey`, `ErrEngineLeafKeys` |
+| Task 5 | **OUT — the printed complement** |
+| Task 6 | **IN** — `newTestEngine` / `buildTestEngine` over `memoryStateStore`, `messagegroupProductionSources` |
+| Task 7 | **IN** — `mls.StateStore` read through `reflect`, and the comment block at `caller_arrays_test.go:2176-2180` with `:45` |
+
+**The complement is the finding, and it is one member: Task 5's block is complete because it is the
+only block a previous repair rewrote against its own properties**, on 2026-09-10, under R4's third
+clause. Every other block was written once, at dispatch, as a summary of what the task's BODY calls
+rather than as an inventory of what its properties READ — **and a summary is what R6 calls a count: it
+has no complement, so nothing can be read off it.** The rule is now stated in the plan, so this is a
+sweep and not four corrections: *a task's `Consumes` block is an inventory of what its properties READ
+and its `Files` block an inventory of what its properties WRITE.*
+
+**FOUR of the six needed a `Files` repair beside the `Consumes` one, which is the same shape one level
+over, and two of those four were outside the sign-off's list.** Task 2's third property clause A
+states the landed `labelledCompositionClass` table *"moving from two rows to one"* and no row of that
+task named `mls/labelled_composition_test.go`; Task 3's third property is stated over
+`testKeyPackage`'s own parse tree and no row named `mls/lifecycle_fixtures_test.go`. Both files now
+carry a `Files` row and a `File Structure` row.
+
+**THE FOUR AS FILED, AND WHAT EACH MEASURED.**
+
+- **MEDIUM — Task 1 Property 3 clause B.** Its own text asserts *"Every name on it is in this task's
+  Consumes block"*, and the two names its route is made of — `CryptoProvider.HpkeSeal` and
+  `CryptoProvider.HpkeOpen` (`mls/crypto.go:73-74`) — were not in it. **An assertion about a checklist,
+  made inside the property, that the checklist did not satisfy.** Repaired at the block, together with
+  the five other names that task's own routes are made of.
+- **MEDIUM — Task 2's *"Nothing else"*.** The block named one entry against four properties observed
+  through six names outside it, including the instrument its fourth property's own text calls *"what
+  this property consumes"* — a provider that RETAINS what `(*suiteCryptoProvider).SignatureKeyPair`
+  (`mls/crypto_labels.go:492-498`) answered, which is the only ALIAS of the wrapper's local there is
+  and therefore the only thing that can see mutation 7.
+- **LOW — Task 4's `Files` row.** It named `buildTestEngine` alone, one line above its own block's
+  sentence *"a task whose Files block does not provide for its own property discovers the gap at step
+  2"*. The row now spells the same **three** changes the `File Structure` table has spelled for that
+  file all along — the credential-identity split, the `signerPub` field, and the aliasing store double
+  carrying the call record.
+- **LOW — Task 6's supporting query.** `grep -rn "\.Commit(" --include=*_test.go messagegroup/`
+  returns six lines and the prose dispositioned three. **Measured: FOUR are `GroupHandle.Commit`** —
+  the fourth is `session_test.go:279`, inside `TestTheGroupHandleKeyDoesNotMoveWhenTheEpochDoes`,
+  reaching a one-member group through `newTestSession` → `createGroup` — **and the two removed are
+  `(*ReceiverRatchet).Commit`** (`ratchet.go:527`) at `ratchetrepairs_test.go:105` and
+  `recordkey_test.go:594`, a different receiver that answers `error` alone and can answer no Welcome.
+  Every line is now dispositioned in a table, `6 − 2 = 4` is printed, and the containment check R6
+  clause (a) requires returns 1 for each of the four. **The same query appears twice in the document,
+  and the measurements-table row carried the same unprinted narrowing; both were repaired**, because
+  correcting one and leaving the other is the defect Task 7's own second property exists to remove.
+
+**WHAT THIS PASS DECLINED TO REPAIR, PRINTED RATHER THAN LEFT SILENT.** Three sites are in the class
+by the predicate and are reported instead, because correcting them would change what a task ASSERTS
+rather than what a checklist provides for:
+
+- **`messagegroup/engine.go:297`.** Task 6's fourth property dispositions it as *"`NewKeyPackage`'s
+  doc paragraph"* and assigns its removal to **Task 4**. Measured, `:297` is inside
+  `JoinFromWelcome`'s doc comment (`:293-306`); `NewKeyPackage`'s doc paragraph (`:225-235`) names
+  `PutKeyPackage`, not `TakeKeyPackage`, and is not in that query's answer at all. Neither Task 4's
+  `Files` row (`:225-235`) nor Task 5's (`:308-316`) provides for `:297`. **Repairing it means
+  re-dispositioning a member of a property's own derived class.**
+- **Task 4 Property 1's *"named nowhere else in this plan"*.** It says that of the `signerPub` field
+  it requires, and the `File Structure` row for `sessionfixture_test.go` already named that field at
+  `f95bae9`. The sentence sits inside a property and is left standing.
+- **The `File Structure` table against Task 1's own `Files` block.** That block names five landed
+  `mls` test files whose gates go red on Task 1's commit; the table carried none and now carries one,
+  `labelled_composition_test.go`, because Task 2's repair needs its row. `crypto_test.go`,
+  `key_schedule_test.go`, `crypto_labels_test.go` and `extension_test.go` are printed as absent rather
+  than added, because writing four responsibility sentences is authoring and not repair.
+
+**Verification, and it is the standard the last pass's own defect set.** `go test ./ -run
+TestThePlanLinter` ok before and after, **with every reporting count identical across the diff** —
+1b **7**, 1c **1**, 1d **189**, 2a **18**, 3a **4**, 3c **3**, 4b **5** — and the four fatal checks
+(2b, 3b, 3d, 4a) clean on both sides. **Every derived class the linter reads was measured on both
+sides rather than inferred from the report**, which is exactly what the phantom-property defect of the
+last pass defeated: the property class **278 = 278**, the class-deriving property class **66 = 66**,
+the plan-supplied-test class **189 = 189**, open-item references **847 = 847**, plan references
+**2,184 = 2,184**, ledger references **172 = 172**, Consumes entries **255 = 255**, qualified consumed
+names **10 = 10**; task references **2,480 → 2,511**, which grew with the document. **The
+phantom-property trap was checked directly, by its own regex:** occurrences of
+`\*\*Property[ \t]+[0-9]+` in the plan are **110 before and 110 after**, and the diff adds none.
+`grep -c '^- Consumes:'` is **7** on both sides, and per-task property counts are unchanged at
+**5, 4, 3, 5, 6, 5, 2**. Table pipe consistency is unchanged across the diff. `go build ./...` clean
+and `go test ./... -count=1` green in `msgrepo`. `connect` was not modified — clean at `a1f8025`,
+1,110 files — and every query in this entry was run against it read-only. `git ls-files` equals
+`git ls-tree -r HEAD` at **104**, checked before the commit.
+
+**What this pass did NOT do.** It ruled nothing: **J1-1** through **J1-16** are untouched, **J1-10**
+still has no named owner and that stays the owner's, and J1-9's landed ruling and its accepted restart
+cost are unchanged. It changed no property, no mutation and no measured number — every edit is to a
+`Consumes` block, a `Files` row, the `File Structure` table, or the disposition of a query. **And it
+did not run the new predicate over the other twelve plan documents**; the predicate, its query and its
+complement are written down so that sweep has a derivation rather than an instance to copy, and the
+argument that it is worth running is this pass's own arithmetic: **three of the six class members and
+two of the four `Files` defects were outside the sign-off's list of three.**
