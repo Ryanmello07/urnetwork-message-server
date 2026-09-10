@@ -11104,7 +11104,10 @@ ok. Every linter reporting count identical across the diff (1b 7, 1c 1, 1d 189, 
 **What this pass did.** It wrote the plan that closes **S2-4** — *"there is no exported path by which
 two clients share one group"*, the item `PROGRESS.md`, this file and the `s2` plan all name as the
 thing that blocks **CP3b** outright — as `docs/plans/2026-09-09-slice1-j1-the-join.md`, 7 tasks in
-three waves, all seven on the CP3b prefix. **It changed no Go file, wrote no test code, ruled nothing
+three waves, **six of the seven on the CP3b prefix** — the plan's own Wave 3 heading is
+*"off the CP3b prefix (Task 7)"* and its *"Where the CP3b line falls"* table puts Tasks 1–3 and 4–6
+on it. *(Corrected 2026-09-10. The identical sentence in commit 234e285's message cannot be
+rewritten; this is the copy PROGRESS readers cite.)* **It changed no Go file, wrote no test code, ruled nothing
 of the owner's, and did not modify `connect`.** One plan document was added, this file gained one
 state-row correction and this entry.
 
@@ -11371,3 +11374,172 @@ so that sweep has a derivation rather than an instance to copy, and the two defe
 outside the review are the argument that the sweep is worth running. It did not re-measure the
 `connect` numbers this plan rests on beyond the fifteen it needed; the fifteen it did re-measure all
 reproduced except the five counts corrected above.
+
+
+### 2026-09-10 — `J1-9` RULED: CP3b's *"key source"* read literally, the restart it does not survive, and the gate table's *"three"* measured at NINE by building it
+
+**What this pass did.** It recorded the owner's **J1-9** ruling and closed the five findings that
+survived the verification of the `j1` repair. **It wrote no code, supplied no test, dispatched no
+task, ruled nothing of the owner's beyond J1-9, and did not modify `connect`.** Two plan documents,
+`PROGRESS.md` and this file changed. **`J1-10` is deliberately NOT ruled: S2-14 still has no owner.**
+
+**THE RULING. CP3b's *"no test-only key SOURCE anywhere on the path"* is read LITERALLY — key SOURCE,
+not test-only CODE — so an in-memory `mls.StateStore` satisfies CP3b and `S2-14` comes OFF the CP3b
+prefix and becomes durability work.** The reason is that every key on the path still comes from the
+real MLS key schedule and the real crypto provider, and that is not this plan's assertion to defend:
+`connect/messagegroup/keysource_test.go` already proves it byte for byte and independently of any
+store, rebuilding the whole sealed record from three values — the real group's
+`Export("URmessage/v1/storage", nil, 32)`, plus `pq_secret` and `server_nonce`, neither of which is a
+key — with nothing on the reproduction's side coming from the module under test. A `StateStore`
+appears nowhere in that reproduction. `PROGRESS.md:73-77`'s own contrast reads the same way: CP3a is
+the path *"with the AEAD under a test-only key source"*, CP3b *"the same path with the real MLS key
+schedule underneath"*.
+
+***THE COST THE OWNER ACCEPTED, RECORDED RATHER THAN GLOSSED: the first end-to-end run WILL NOT
+SURVIVE A RESTART. CP3b proves the protocol, not the product — it means "the protocol works end to
+end" and it does not mean "a person may use this", and every future report of this milestone must say
+so.*** It is written into four places on purpose, because a cost recorded once in an open item is a
+cost a milestone report does not carry: the `j1` plan's *"Where the CP3b line falls"* section, its
+*"OFF this plan's prefix"* table, the new section *"The J1-9 ruling"* that replaced J1-9's open item,
+and `PROGRESS.md`'s CP3b bullet. The CP3b BAR is unchanged — every key is still real MLS — and what
+was added is what the bar does not buy. **`J1-8`, `J1-11`, `J1-12`, `J1-13` and `J1-14` are each a
+durability question and each moved off the prefix WITH S2-14 rather than being closed.**
+
+**THE FINDING, and it is the third time this one row has been under-measured. The `j1` plan said
+*"Three of the ten rows below go RED on Task 1's commit"*. Measured by BUILDING Task 1 — the new
+constructor declared and undriven, Task 2 not applied, in a throwaway copy of `connect` outside both
+checkouts, `go test ./mls/ -count=1` UNFILTERED — NINE go red, and after adding the three table rows
+Task 1's Files block schedules, SIX are still red.** The nine, every one naming
+`NewKeyPackageWithSigner`: `TestEveryDeclarationHandedANilProviderRefusesRatherThanDereferencingIt`,
+`TestEveryCompositionEnteringALabelledConstructionIsBoundedBeforeItGetsThere`,
+`TestEveryConstructionHandedAProviderReadsKdfNhFromIt` (the three the plan named, and the three the
+scheduled rows close), plus `TestEveryConstructionHandedAProviderRoutesThroughIt`,
+`TestEveryConstructionInThisPackageLeavesItsInputAlone`, `TestProviderHasNoRemainingStubs`,
+`TestNoProviderOperationFallsBackWhenItsSourceRunsDry`,
+`TestEveryProviderOperationDrawsExactlyWhatItUses` and
+`TestNoExportedSymbolOfThisPackageAssemblesAnExtensionBodyThroughItsOwnEncoder`. **The six that stay
+red demand six more tables in two test files the plan named nowhere** —
+`providerConstructionsWithUndefinedResults` (`crypto_test.go:5563`),
+`providerConstructionsAnsweringOffTheWallClock` (`:5617`), `providerStreamDependentOperations`
+(`:5482`), `providerStreamDraws` (`:8191`), the `covered` list at `:4108`, a call closure in
+`mls/crypto_labels_test.go` beside `:2212`, and an entry in `extensionBodyByteRunsThatAreNotBodies`
+(`mls/extension_test.go:2770`) that wants a **written design reason** rather than a row. **The
+history is the point: this row said "no gate it must not disturb" (zero), was corrected to three, and
+is nine.** The previous repair's own stated concern was that its new rows *"overstate what is owed —
+they never understate it"*; they understate it by six. Task 1's Files block now names **five** test
+files and the number in the plan is a COMMAND rather than a reading.
+
+**THE CLASS THE SURVIVING FINDINGS BELONG TO, derived by running R6 over R6 rather than by fixing
+three more rows.** All three of findings 1–3 are one shape — *a size published without the query that
+produces it, or a query published without checking what it returns* — and R6 was written for exactly
+that and did not catch its own row. **R6 gains two clauses:**
+
+- **(a) A query is checked for what it CONTAINS, not only for what it counts.** Task 1 Property 4 —
+  the row R6 was DERIVED from — publishes
+  `grep -rn "^func .*\*KeyPackage" --include=*.go mls/ | grep -v _test` beside a class of
+  one-going-on-two, and that query returns **7 lines containing ZERO members of the class**:
+  `NewKeyPackage`'s declaration wraps and `*KeyPackage` sits on continuation line 272. **The 7 lines
+  it returns are exactly the 7 the property printed as its COMPLEMENT.** The stated universe of 8 is
+  right and unreachable from the command printed beside it. Repaired at the property: the universe is
+  derived through `declaredFunctionsOf` (`crypto_test.go:7263`) because this is an AST question and
+  not a grep question, the gate prints both sets, and mutation 10's third constructor must now WRAP —
+  which is what makes that mutation reachable, since against the line grep it survived.
+- **(b) The sweep's own SCOPE is a query and not a reading.** The first sweep opened *"Eight
+  properties in this document derive a class"* — a hand-written list, R6's defect at the level of the
+  sweep. **Two of the three surviving defects were outside that scope and could not have been found by
+  it:** the gate table's *"three"* is a count in a table that is not a property, and **Task 1 Property
+  3 derives a class in substance while not being written as class-deriving**, which is why
+  `planlint`'s check 2a cannot see it either. The scope is now a predicate over the DOCUMENT — every
+  place it publishes a number a query could produce, property or table row or headline or Files block.
+
+**Run over the document, that predicate found a member neither the review nor the verification named:
+the measurements table's `PutKeyPackage` row.** Its query returns **6** lines and the answer column
+said *"one"*; the 6 → 1 narrowing was unprinted, the same shape as the `signPriv` row's 42 → 2 that
+the verification did name. Both are now printed as the full narrowing (42 → 12 → 2, and 6 → 1 with
+its complement of five), and **the claims were right in both** — which is R6's whole content: the
+defect is the unprinted step, not the wrong number.
+
+**TASK 1 PROPERTY 3 REPAIRED AS A REUSE, WHICH IS THE IDENTICAL REPAIR TASK 2 PROPERTY 3 RECEIVED ONE
+PROPERTY OVER.** `providerStreamDraws`'s own comment for `NewKeyPackage` states this property verbatim
+— *"a constructor that derived the init pair and the encryption pair from ONE seed draws KDF.Nh fewer
+bytes … so this is the one place in the package where that substitution is a NUMBER rather than a
+property somebody has to think to compare"* — so the tree already derives the class. **Measured in the
+throwaway build: with the row Task 1 owes anyway, Task 1 mutation 7 makes the LANDED gate red on its
+own**, `NewKeyPackageWithSigner drew 32 bytes of the source, want 64`, at both registered suites.
+**And clause B's complement is not empty, measured:** a body that draws TWICE and derives both pairs
+from the FIRST draw produces no `drew N bytes` line at all — the count gate does not see it — so the
+answer comparison is the half this task must write, and it is the half the tree holds only by hand
+(`TestNewKeyPackageDrawsTheInitAndEncryptionKeysFromSeparateEntropy` runs over a hand-named
+constructor, the same shape as Property 4's diagnosis).
+
+**R4 GAINS A THIRD CLAUSE: every property must be satisfiable, falsifiable AND OBSERVABLE.** This
+project has now repaired unsatisfiable properties and undefended ones; **Task 4 Property 1's widened
+class of four is the first UNOBSERVABLE one**. The mechanical form: beside every property, name the
+observation ROUTE — the call, the decode and the FIELD — and check that every name on it is in the
+task's own `Consumes` block. **The tell is an observation sentence that names a METHOD where the
+property names a FIELD.**
+
+**Measured, exactly ONE of Task 4 Property 1's four doors is observable at Task 4, and the property
+named a route that reads the wrong value for a second one.** `GroupEngine.NewKeyPackage` is
+observable (decode the answered encoding; `LeafNode.SignatureKey` is an exported field).
+**`GroupEngine.CreateGroup` is observable but NOT through `MemberAt`, which is the route the property
+NAMED**: `messagegroup/engine.go:396` answers `(leafIndex, identityPub, leafKeys, err)` and DROPS
+`mls.Member.SignatureKey`, which `mls/group.go:781` populates — and after this task's own fixture
+change the credential identity is drawn independently of the signer, so `MemberAt` compares two
+values that are unequal by construction. Its real route is
+`RatchetTreeSnapshot()` → `mls.UnmarshalRatchetTree` → `rt.Leaf(0).SignatureKey`, **none of which was
+in Task 4's `Consumes` block and all three of which now are.** `GroupHandle.ProposeUpdate` is **not
+observable at any task in this plan** — it answers a section 6.3 `PrivateMessage`, which
+`mls/extension_test.go:2770`'s own landed exemption entry says in the tree's words, and its proposer
+cannot commit its own update to reach the leaf (`ErrSelfUpdateInCommit`,
+`mls/errors_proposal_validation.go:95`); it is now **printed as UNOBSERVED with its reason**, and what
+is known about it without observing it is labelled as an argument rather than an observation.
+`GroupHandle.Commit` needs a merged second member and **moved to Task 6 Property 1**. A new mutation
+13 makes reading clause B through `MemberAt` fail as the control on the new clause.
+
+**R7'S PREDICATE AND R7'S TABLE DISAGREED, AND UNDER THE TABLE'S READING THE COMPLEMENT OF ONE WAS
+MISSING TWO.** The predicate said *"puts an array it does not own … into a structure whose type
+declares a `Zeroize`"*, and the table's own row 2 — Task 2's drawn seed — is *"a LOCAL, not a field"*
+and goes into no such structure. **A sweep whose predicate does not admit its own table's rows has
+not been run over itself.** R7 now has two arms: **(i)** the ALIAS arm as stated, and **(ii)** the
+ORPHAN arm — a secret array no `Zeroize` will reach, read off the RESULT LISTS of the constructors a
+task calls, which is the mechanical form because a result list is enumerable and a body's locals are
+not. **Under arm (ii) the class is SIX sites, not four**, and the two added are the two HPKE private
+halves `NewKeyPackageWithSigner` answers: Task 4 Property 2 erases exactly one of three secrets
+(`defer keyPackage.Zeroize()` reaches `key_package.go:213`, `zeroizeSecret(self.signPriv)` and nothing
+else), `PutKeyPackage` COPIES (`sessionfixture_test.go:101-108` appends), and the engine's locals are
+dropped. **`JoinKeyMaterial.Zeroize`'s header — the authority this plan quotes twice as the reason
+`SignPrivate` must be erased — names these two FIRST.** The defect is pre-existing at `a1f8025`; the
+OMISSION was this document's, and a complement of exactly one beside a class of four over a rule that
+wide is the tell. **Now Task 4 Property 5**, with three mutations — including erasing BEFORE
+`PutKeyPackage`, which persists 32 zero octets and which nothing in the tree refuses.
+
+**WHAT WAS NOT REPRODUCED.** The verification's closing note that *"the repair reports the plan at
+2,090 lines; `wc -l` says 2,023"* is a claim about commit `ceb8b3e`'s MESSAGE, which cannot be
+rewritten and which no document repeats; `grep -rn "2,090"` over `docs/plans/` and this file returns
+nothing. It is recorded here instead. Everything else in the verification reproduced against the
+trees, including all five surviving findings and the low-severity pair.
+
+**Verification.** `go build ./...` clean and `go test ./...` green before and after.
+`go test ./ -run TestThePlanLinter` ok on both sides, **with every reporting count identical across
+the diff** — 1b **7**, 1c **1**, 1d **189**, 2a **18**, 3a **4**, 3c **3**, 4b **5** — and the four
+fatal checks (2b, 3b, 3d, 4a) clean on both sides. **Check 2a is the one to read: two new findings
+appeared when Task 1 Property 3 and Task 4 Property 1 were rewritten as class-deriving, and both were
+closed by giving each property its membership count (R3) rather than by narrowing the rewrite** — the
+draws class is **8** members at `a1f8025` and 9 at Task 1, the doors class is **4** with a complement
+of **1**. Derived class sizes grew as the document did: the property class **277 → 278**, the
+class-deriving property class **65 → 66**, task references **2,394 → 2,450**, open-item references
+**813 → 847**, plan references **2,171 → 2,175**; ledger references (**172**), Consumes entries
+(**255**) and qualified consumed names (**10**) unchanged. `connect` was not modified and is clean at
+`a1f8025`, 1,110 files, `ls-files` == `ls-tree`. `git ls-files` equals `git ls-tree -r HEAD` at
+**104**, checked before the commit and again after.
+
+**What this pass did NOT do.** It did not rule **J1-10** — S2-14 has no owner and the J1-9 ruling did
+not give it one, which is the item the next reader should expect to still be open. It ruled nothing
+else of the owner's: J1-1, J1-3 through J1-8 and J1-11 through J1-16 are untouched. It wrote no test
+code and implemented nothing — every addition is a property, a refusal owed, a route, a reported
+number or a mutation an implementer must apply. It did not sweep the other twelve plan documents for
+R4's new third clause, for R6's two new clauses or for R7's second arm; all three are now stated as
+predicates with their queries so that sweep has a derivation rather than an instance to copy, and the
+three defects this pass found outside the verification — the `PutKeyPackage` row, the `CreateGroup`
+door's wrong route, and the six unscheduled gates — are the argument that it is worth running.

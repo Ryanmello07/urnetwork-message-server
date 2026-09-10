@@ -86,12 +86,31 @@ as **one**, twice, and the omitted condition admitted a forged-subtree splice. W
 names a derived class, it states how many members that class has **at that task**, so a reader can
 tell a gate that fatals on arrival from one that passes vacuously.
 
-**R4 — every property must be satisfiable by a correct implementation and falsifiable by an incorrect
-one, and a property resting on a sentence no document rules is deferred rather than defended.** The
-s1 plan shipped four properties no correct transcription could satisfy — red before a single
-mutation. Where a property below depends on an unruled sentence, the sentence is named as a **J1-n**
-item **before** the property that rests on it, and the property is written over the part that is
-ruled.
+**R4 — every property must be satisfiable by a correct implementation, falsifiable by an incorrect
+one, and OBSERVABLE from the task that states it; and a property resting on a sentence no document
+rules is deferred rather than defended.** The s1 plan shipped four properties no correct
+transcription could satisfy — red before a single mutation. Where a property below depends on an
+unruled sentence, the sentence is named as a **J1-n** item **before** the property that rests on it,
+and the property is written over the part that is ruled.
+
+**The third clause is new in this repair, and it is the one this project had not yet paid for.** This
+document has now repaired unsatisfiable properties (s1's four, and Task 4 Property 4's own
+contradiction) and undefended ones (R7's two); the verification of the repair found the first
+**unobservable** one — Task 4 Property 1's widened class of four, whose added members name a leaf
+that cannot be read from `package messagegroup` with anything the task consumes. A property that
+cannot be observed is not a property: it is satisfiable and falsifiable in the abstract and green in
+every world, which is indistinguishable from the vacuous pass R3 exists to catch.
+
+**The mechanical form, so this is checkable rather than a slogan: beside every property, name the
+ROUTE the observation takes — the call, the decode and the FIELD — and check that every name on that
+route is in the task's own `Consumes` block.** A route that reaches through a value the seam does not
+answer, or through a value the task's fixture does not build, is an unobservable property, and it
+must either move to the task that can observe it or be printed as an UNOBSERVED member with its
+reason, in `mls/UNOBSERVED.md`'s own shape. **The tell is an observation sentence that names a METHOD
+where the property names a FIELD:** Task 4 Property 1 named `MemberAt` as the route to a founding
+leaf's signature key, and `MemberAt` (`messagegroup/engine.go:396`) answers
+`(leafIndex, identityPub, leafKeys, err)` — it drops `mls.Member.SignatureKey`
+(`mls/group.go:779-781`) at the seam.
 
 **R5 — a narrowing must print its complement.** Nine rounds on this project were spent on one class:
 a narrowing whose complement is unprinted, or whose justification names something in the tree today.
@@ -112,15 +131,58 @@ size with a query beside it is checkable by anyone in one command. *"The sweep f
 is R6 applied to every class-deriving property in this plan, printed row by row rather than
 summarised — because a sweep whose own output is a count is an instance of what it swept for.
 
-**R7 — a value assembled over an array that a longer-lived object owns is a property about the
-OWNER, and some task must hold it.** This plan's central act hands the device's long-term signing key
-to two `connect/mls` types that declare an erase. Wherever a task's body assembles a structure whose
-field ALIASES a field of an object that outlives the call, a property must (a) name which array the
-erase destroys, (b) observe the **owner** after the call rather than the value the call answered, and
-(c) carry a mutation that removes the copy. *"The sweep for R7's class"* below is that rule applied to
-every assembly site in this plan. **The class is four sites and its complement is one**; **two of the
-four were undefended before this repair**, and one of the two — Task 5's `SignPrivate` — had both
-halves of a key-destroying defect stated in this document and neither of them held by a property.
+**R6's second clause, and it comes from running R6 over R6.** The first sweep repaired five rows and
+three defects of its own survived it, all three the same shape one level up. The repair is two
+mechanical additions rather than three more corrections:
+
+**(a) A query is checked for what it CONTAINS, and not only for what it counts.** Task 1 Property 4
+published `grep -rn "^func .*\*KeyPackage" --include=*.go mls/ | grep -v _test` beside a class of
+one-going-on-two, and that query returns **7 lines containing ZERO members of the class** —
+`NewKeyPackage`'s declaration wraps, `*KeyPackage` sits on the continuation line 272, and no line of
+the answer both starts with `func` and names it. A stated size a query does not return is R6's first
+clause; a query whose OUTPUT does not contain the class is this one, and it is the worse of the two,
+because the number can be right by coincidence while the derivation reaches nothing. **So every
+class-deriving row below prints the query, the number it returns, and — where the class is a subset
+of that answer — how many members of the class appear IN the answer. Zero is the tell**, and it is
+one command: pipe the published query through `grep -c` for a member's spelling.
+
+**(b) The sweep's own SCOPE is a query, and not a reading.** The first sweep opened *"Eight
+properties in this document derive a class"*, which is a list somebody wrote by hand — R6's own
+defect, at the level of the sweep. Two of the three surviving defects were outside that scope and
+could not have been found by it: the gate table's *"Three of the ten rows"* is a count in a table
+that is not a property at all, and Task 1 Property 3 derives a class in substance while not being
+written as class-deriving, which is why `planlint`'s check 2a cannot see it either. **The scope is
+therefore stated as a predicate over the DOCUMENT rather than over its properties: every place this
+document publishes a number a query could produce — a property, a table row, a headline, a Files
+block — is in R6's scope. `go test ./ -run TestThePlanLinter`'s check 2a reads only the subset
+spelled as a property (the class-deriving property class is 65 references, and 18 of them never
+state their membership), so the rest is swept by hand here and printed row by row.**
+
+**And the third surviving defect is what makes (a) and (b) worth writing down rather than fixing five
+rows a fourth time: the repair's own concern said its new gate rows *"overstate what is owed — they
+never understate it"*. Measured, they understate it by six gates.** That sentence is exactly the
+shape of the sentence it replaced.
+
+**R7 — a secret array whose erase obligation is somebody else's is a property about that somebody,
+and some task must hold it. It has TWO arms, and the predicate is stated in both because the first
+reading stated one and the table under it already carried the other.** Arm (i), the ALIAS arm:
+wherever a task's body puts an array it does not own — a field of `self`, or an array another
+component handed back — into a structure whose type declares a `Zeroize`, a property must (a) name
+which array that erase destroys, (b) observe the **OWNER** after the call rather than the value the
+call answered, and (c) carry a mutation that removes the copy. Arm (ii), the ORPHAN arm: wherever a
+task's body holds a secret array that no `Zeroize` will ever reach — a local it drew, or a private
+half a callee answered and the body then drops — a property must name it and require the erase, and
+carry a mutation that removes it.
+
+**The two arms are not a widening for tidiness; the table below already had an arm-(ii) row and the
+predicate did not describe it.** Row 2 — Task 2's own drawn seed, handed to the delegate and dropped
+— is *"a LOCAL, not a field"* and goes into no `Zeroize`-declaring structure at all, and the table
+gives it Task 2 Property 4 while the predicate excludes it. **A sweep whose predicate does not admit
+its own table's rows has not been run over itself**, and running it over itself is what found the two
+sites the row below adds. *"The sweep for R7's class"* is that rule applied to every site in this
+plan. **The class is SIX sites and its complement is one**; **four of the six were undefended before
+this repair**, and one of the four — Task 5's `SignPrivate` — had both halves of a key-destroying
+defect stated in this document and neither of them held by a property.
 
 ### Repository, branch, toolchain
 
@@ -154,12 +216,21 @@ schedule underneath."*
 | Tasks 1–3 | a `connect/mls` key package minted against a caller's signing key, and the in-package proof that such a key package is joinable |
 | Tasks 4–6 | the engine mints under `self.signer`, the join body, and the two-engine `Export` equality that is the first thing in either tree able to assert *"two clients, one group"* |
 
+**And what CP3b means after the 2026-09-10 ruling, stated here because this is the paragraph a
+milestone report is written from: CP3b means *"the protocol works end to end"*. It does not mean
+*"a person may use this"*.** The owner ruled J1-9 by reading *"no test-only key SOURCE anywhere on the
+path"* literally — key SOURCE, not test-only CODE — so the in-memory `StateStore` already in the tree
+satisfies the bar and **S2-14 came off the prefix**. **The cost the owner accepted, and it must be
+reported rather than glossed: the first end-to-end run WILL NOT SURVIVE A RESTART.** Every future
+report of this milestone says so. The ruling, its evidence and what it re-ordered are in
+*"The J1-9 ruling"* below.
+
 **OFF this plan's prefix, stated explicitly rather than left to be inferred:**
 
 | Not here | Why, measured |
 |---|---|
 | **The Welcome's delivery channel** (ledger **44** and **44a**: key-package fetch by principal, invite links, the rendezvous) | Ledger **44a** already short-circuits it for CP3b with *"a named, gated test-only hand-off — of a public KeyPackage and a `Welcome` already sealed to the joiner's init key."* Task 6 is that hand-off: two engines in one process, the Welcome passed as a value. The production channel is nobody's in this plan |
-| **A production `mls.StateStore`** (**S2-14**) | The two-engine join runs on the in-memory store already in the tree, and `mls.JoinFromWelcome` accepts any `StateStore`. The section *"The production `StateStore`"* below states what it owes and why it cannot live in `connect` at all. **J1-9** is the one reading of CP3b under which this moves onto the prefix |
+| **A production `mls.StateStore`** (**S2-14**) | The two-engine join runs on the in-memory store already in the tree, and `mls.JoinFromWelcome` accepts any `StateStore`. The section *"The production `StateStore`"* below states what it owes and why it cannot live in `connect` at all. **RULED 2026-09-10 — J1-9 is closed and S2-14 is OFF the CP3b prefix**: CP3b's *"no test-only key SOURCE"* is read literally, as key SOURCE and not test-only CODE, so an in-memory `StateStore` satisfies it. **The accepted cost is written into the milestone rather than left to be inferred: the first end-to-end run will not survive a restart.** See *"The J1-9 ruling"* below |
 | **Re-join, rejoin-after-removal, external commits, multi-device** | None is reachable from `GroupEngine`'s four methods (`messagegroup/engine.go:50`), and none is needed for one group of two |
 | **A reopen path** — `mls.LoadGroup` has **zero** callers outside `mls`'s own tests, workspace-wide, and `GroupEngine` has no method that opens a persisted group | It is a Spec A §6 amendment, therefore Gate 5's swap surface and an owner ruling. **J1-8** |
 | **`group_handle_key` and `pq_secret` delivery to the joiner** | **M1-2** (deferred 2026-09-13) and **S2-3**. A joined `GroupHandle` is not a `GroupSession`: `NewGroupSession` (`session.go:156`) refuses an empty `pq_secret`, and `installEpochOnLoop` (`session.go:459`) refuses a joiner at epoch > 0 that was handed no `group_handle_key`. **Task 6 Property 5 requires the test to say so in its own comment** |
@@ -178,15 +249,15 @@ queries that make them checkable.
 | Claim | Query | Answer |
 |---|---|---|
 | `TakeKeyPackage` has no caller | `grep -rn "TakeKeyPackage(" --include=*.go .` | **five lines: one interface declaration, three implementations, one wrapper delegating to its own inner store. Zero call sites that drive it** |
-| `PutKeyPackage` has one caller | `grep -rn "PutKeyPackage(" --include=*.go .` | one, `messagegroup/engine.go:258` |
+| `PutKeyPackage` has one caller | `grep -rn "PutKeyPackage(" --include=*.go .` → **6** | **one call from production code**, `messagegroup/engine.go:258`. The complement, printed: one wrapper delegating to its own inner store (`caller_arrays_test.go:2119`), one interface declaration (`group.go:312`), three implementations (`sessionfixture_test.go:101`, `caller_arrays_test.go:2117`, `group_test.go:116`). **The 6 → 1 narrowing is printed here and was not before this repair — a third instance of the `signPriv` row's shape in this one table, found by running R6 over the TABLE rather than over the properties, which is R6 clause (b)** |
 | The join never reads the unexported field | `grep -rn "SignPrivate:" --include=*.go .` | **13** sites, every one a `testMember.SigPriv` minted before the key package existed; **zero** read `kp.signPriv` |
-| `signPriv` is written by exactly two sites | `grep -rn "signPriv" --include=*.go .` | `key_package.go:314` (`NewKeyPackage`) and `lifecycle_fixtures_test.go:233` (the fixture) |
+| `signPriv` is written by exactly two sites | `grep -rn "signPriv" --include=*.go .` → **42**; narrowed to writes by `grep -rn "signPriv = \|signPriv:" --include=*.go .` → **12**; narrowed to `KeyPackage.signPriv` by dropping the 10 that write `joinTestWelcomeSpec.signPriv`, a TEST STRUCT's field of the same name (`welcome_test.go` × 9, `extension_lookup_test.go:397`) | **2** — `key_package.go:314` (`NewKeyPackage`) and `lifecycle_fixtures_test.go:233` (the fixture); the field is declared once, at `key_package.go:64`. **Both narrowings are printed rather than performed silently: 42 → 12 → 2. They were not, before this repair, and the claim was right — which is the point: R6's defect is the unprinted step, not the wrong number** |
 | `StateStore` has no production implementation | `grep -rn ") PutGroupState(" --include=*.go .` | **five**, every one in a `_test.go` file |
 | One key-package constructor exists | `grep -rn "^func New" --include=*.go mls/ \| grep -v _test \| grep -i keypackage` | exactly one, `key_package.go:271` |
 | Its blast radius | `grep -rn "NewKeyPackage(" --include=*.go . \| grep -v "func "` | **20 lines, of which 16 are calls to `mls.NewKeyPackage`**: one production (`messagegroup/engine.go:245`) and 15 across **8** `mls` test files. **The four the query returns and the class excludes are printed rather than hand-dropped (R6):** `messagegroup/engine.go:52` (the `GroupEngine` interface method), `messagegroup/engine_test.go:961` (`fixture.engine.NewKeyPackage()`), `mls/key_package_test.go:1177` (a comment) and `mls/lifecycle_fixtures_test.go:227` (a `t.Fatalf` format string). **An earlier reading of this row said 17 across ten files** — the query's line count with three of those four hand-removed and no complement printed, which is R6's defect in this document's own headline number |
 | `crypto.SignatureKeyPair()` production callers | `grep -rn "SignatureKeyPair()" --include=*.go . \| grep -v _test` | the interface line, the implementation, and **one** caller: `key_package.go:289` |
 | No test in `messagegroup` has ever produced a Welcome | `grep -rn "\.Commit(" --include=*_test.go messagegroup/` | six lines; every `GroupHandle.Commit` call discards `welcome` and `ratchetTree` into `_` |
-| No *recorded prose reasoning* constrains this | `grep -c "NewKeyPackage\|signPriv\|JoinKeyMaterial" mls/GATES.md mls/UNOBSERVED.md mls/ERRATA.md` | **0, 0, 0** — and that is the whole of what this query answers. **The conclusion an earlier reading drew from it — *"no gate it must not disturb"* — is drawn wider than the query, which reaches three markdown files and no `_test.go` file at all.** Measured against the tree instead: **three derived gates in `connect/mls` go RED on Task 1's commit**, and they are the three rows added to the gate table below. This row is kept, with its scope narrowed to what it measured, as the instance of R6's *"a conclusion drawn wider than the query that supports it"* that this document shipped |
+| No *recorded prose reasoning* constrains this | `grep -c "NewKeyPackage\|signPriv\|JoinKeyMaterial" mls/GATES.md mls/UNOBSERVED.md mls/ERRATA.md` | **0, 0, 0** — and that is the whole of what this query answers. **The conclusion an earlier reading drew from it — *"no gate it must not disturb"* — is drawn wider than the query, which reaches three markdown files and no `_test.go` file at all.** Measured against the tree instead, by BUILDING Task 1 in a throwaway copy of `connect` outside both checkouts and running `go test ./mls/ -count=1` **unfiltered**: **NINE gates go RED on Task 1's commit**, and after the three rows Task 1's Files block schedules, **SIX are still red**. All nine are rows of the gate table below. This row is kept, with its scope narrowed to what it measured, as the instance of R6's *"a conclusion drawn wider than the query that supports it"* that this document shipped — **and the number that replaced it, three, was the same defect a second time in the same row, which is why R6 now has a second clause and why this row's answer is a COMMAND rather than a grep** |
 
 **And three probes, run against a throwaway module outside both checkouts with `replace
 github.com/urnetwork/connect => ../connect`, then deleted. None modified `connect`; the worktree was
@@ -326,11 +397,58 @@ actually bite:**
 caller anywhere: it is destructive, and the header at `mls/group.go:287-302` does not say what that
 costs.** See Task 5, and **J1-3**.
 
+### The J1-9 ruling, 2026-09-10: CP3b's *"key source"* is read literally, and what that costs
+
+**The ruling.** CP3b is *"two clients, one group, one DURABLE text message, every key real, no
+test-only key source anywhere on the path."* The owner rules that **"key SOURCE" is read literally
+and is not "test-only CODE"**. An in-memory `StateStore` is test-only code; it is not a key source.
+Every key on the path still comes from the real MLS key schedule and the real crypto provider, and it
+is the store's job to hold them, not to make them.
+
+**The evidence the ruling rests on, and it is a landed byte-for-byte reproduction rather than an
+argument.** `connect/messagegroup/keysource_test.go` holds CP3b's defining property as a STANDING
+test, with its class derived rather than listed: **the whole sealed record is rebuilt, byte for byte,
+from three values and nothing else** — `mls_secret`, which is the REAL group's
+`Export("URmessage/v1/storage", nil, 32)` taken off the same `mls.Group` the session holds; and
+`pq_secret` and `server_nonce`, neither of which is a key. Nothing on the reproduction's side comes
+from the module under test: RFC 5869 is written out from the RFC, and the AEAD and MAC come from
+`chacha20poly1305.NewX`, `crypto/hmac` and `crypto/sha256`.
+`TestEveryKeyedOctetOfARecordIsReproducibleFromTheExporterAndTheTwoInjectedValuesAlone` and
+`TestFlippingAnyBitOfTheExporterOutputChangesEveryKeyedOctetOfARecord` are the two that carry it.
+**A `StateStore` appears nowhere in that reproduction, in either direction** — which is precisely the
+point: the store holds state the key schedule produced, and an octet drawn from anywhere the
+reproduction is not given moves `ct_body`, `ct_head`, `sender_handle` or `write_auth` and turns one of
+the comparisons red. `PROGRESS.md:73-77` reads the same way from the definition's own contrast: CP3a
+is the path *"with the AEAD under a test-only key source"* and CP3b is *"the same path with the real
+MLS key schedule underneath"* — a sentence about where keys COME FROM.
+
+**THE COST THE OWNER ACCEPTED, WRITTEN DOWN RATHER THAN GLOSSED.** The first end-to-end run
+**will not survive a restart**. It proves the protocol; it does not prove the product. **Every future
+report of this milestone must say so.** CP3b means *"the protocol works end to end"* and it does not
+mean *"a person may use this"*. A report that says *"CP3b reached"* without the restart sentence has
+overstated the milestone in the same way a plan that shipped every task and reported CP3b would have
+— which is the failure mode this document's own first paragraph exists to prevent, one level up.
+
+**What the ruling re-ordered.** **S2-14 comes OFF the CP3b prefix and becomes DURABILITY work.** It
+is no longer a bar-gating item; it is the item between *"the protocol works"* and *"a person may use
+this"*, and the five obligations below are what it owes when somebody picks it up. Nothing in this
+plan moved: Tasks 1–6 were never blocked on it, `mls.JoinFromWelcome` accepts any `StateStore`, and
+the two-engine join runs on the in-memory store already in the tree. **The `s2` plan's S2-14 item
+carries this ruling too**, since `s2` is the plan that filed it. **The ruling does NOT name an owner
+for S2-14 — that is J1-10, and it stays the owner's.**
+
+**What the ruling does not do, so it is not read wider than it is:** it says nothing about **J1-8**
+(the reopen path), **J1-11** (send-path durability), **J1-12**, **J1-13** or **J1-14**. Every one of
+those is a durability question, and moving S2-14 off the prefix moves all five off it with S2-14
+rather than closing any of them.
+
 ### The production `StateStore`, which this plan does not build
 
 S2-14 is confirmed and understated: `grep -rn ") PutGroupState(" --include=*.go .` returns **five**
 implementations and every one is in a `_test.go` file. Nothing in `connect`, `msgrepo`, `sdk` or
-`server` implements `mls.StateStore` in production code.
+`server` implements `mls.StateStore` in production code. **After the 2026-09-10 ruling this is
+DURABILITY work rather than CP3b work** — the five obligations below are unchanged, and what changed
+is when they are owed.
 
 **It cannot live in `connect` at all, and that is a gate rather than a preference.**
 `messagegroup/imports_test.go` pins that package's production import set as a **whole** and names
@@ -391,31 +509,53 @@ own header or off a measured call site, and each is filed below with what it blo
    this stops being abstract, because the join loops over candidate refs and cannot tell *"not mine"*
    from *"the store is broken"*. **J1-4.**
 
-### The sweep for R6's class: every class this plan derives, beside the query that derives it
+### The sweep for R6's class: every NUMBER this plan publishes that a query could produce, beside the query
 
-Eight properties in this document derive a class. **Four of them state a size that its own query does
-not return**, and the review that found the first two is the reason this table exists rather than a
-list of four corrections: two more rows below were found by applying R6 rather than by fixing what
-was named. Every query was run this session at `connect` `beta/message` `a1f8025`.
+**The scope of this sweep is a predicate over the document and not a reading of its properties, and
+that is the repair the verification forced (R6 clause b).** The first version of this table opened
+*"Eight properties in this document derive a class"* — a list written by hand, which is R6's own
+defect at the level of the sweep, and two of the three defects that survived it were outside that
+scope and could not have been found by it. **The predicate now: every place this document publishes a
+number a query could produce is in scope — a stated property, a table row, a section headline, a
+Files block — whether or not it is written as class-deriving.** `go test ./ -run TestThePlanLinter`'s
+check 2a reads only the subset spelled as a property, so the rest is swept by hand here and printed
+row by row.
+
+**Each row answers two questions and not one (R6 clause a): does the published query RETURN the
+stated number, and does its output CONTAIN the class?** The second is the one Task 1 Property 4
+failed at every commit while the first looked repaired. Every query was re-run this session at
+`connect` `beta/message` `a1f8025`; the three built rows were measured by building the task in a
+throwaway copy of `connect` outside both checkouts.
 
 | Property | The query that derives the class | Stated | Returned at `a1f8025` | Verdict |
 |---|---|---|---|---|
-| **Task 1 Property 4** | `grep -rn "^func .*\*KeyPackage" --include=*.go mls/ \| grep -v _test`, split on whether the declaration ANSWERS one | class **2**, complement `UnmarshalMLS`'s receiver and the `MLSMessage.KeyPackage` arm | **8 declarations**: 1 answers one (2 after Task 1), **7 do not**. `MLSMessage.KeyPackage` (`framing.go:897`) is a struct FIELD and is in no function class at all | **class right; complement wrong, and under the predicate mutation 10 fixes it is EMPTY** — `GATES.md`'s own dangerous reading. Repaired at the property |
+| **Task 1 Property 4**, first reading | `grep -rn "^func .*\*KeyPackage" --include=*.go mls/ \| grep -v _test`, split on whether the declaration ANSWERS one | class **2**, complement `UnmarshalMLS`'s receiver and the `MLSMessage.KeyPackage` arm | **7 lines**. `MLSMessage.KeyPackage` (`framing.go:897`) is a struct FIELD and is in no function class at all | **class right; complement wrong, and under the predicate mutation 10 fixes it is EMPTY** — `GATES.md`'s own dangerous reading. Repaired at the property |
+| **Task 1 Property 4**, the repair's own reading — **and this is the row R6 was derived from, failing R6 a second time** | the same line grep, universe stated as **8**, complement stated as **7** | universe **8**, class **1**→2, complement **7** | the query returns **7 lines**, and `\| grep -c NewKeyPackage` returns **0** — the 7 lines it returns ARE the complement, and the class is not in the output at all, at `a1f8025` or with the sibling present. The universe of 8 is right and unreachable from the command printed beside it, because `NewKeyPackage`'s declaration wraps at `key_package.go:271-272` | **the number was right and the derivation reached nothing.** This is R6 clause (a)'s whole content. Repaired at the property: the universe is derived through `declaredFunctionsOf` (`crypto_test.go:7263`), the gate prints both sets, and mutation 10 now requires the third constructor to WRAP |
+| **Task 1 Property 3** — **not in the first sweep's scope at all**, because Property 3 is not written as class-deriving | `providerStreamDraws` (`crypto_test.go:8191`), keyed off `providerOperations(t)` | a NEW gate over separate entropy | the tree **already derives this class and already states this property as a NUMBER**, in `providerStreamDraws`'s own comment for `NewKeyPackage`. Measured in the throwaway build: with the row Task 1 owes anyway, mutation 7 makes the LANDED gate red on its own — `NewKeyPackageWithSigner drew 32 bytes of the source, want 64` at both suites | **a second derivation of a landed derived class — the identical defect Task 2 Property 3 was repaired for, one property over.** Repaired at the property as clause A (the landed row) plus clause B (the answer comparison a count cannot see; measured, that mutant produces no `drew N bytes` line) |
+| **The gate table's headline** — **not a property, therefore not in the first sweep's scope** | none published; the number was a reading | *"Three of the ten rows below go RED on Task 1's commit"* | **NINE**, measured by building Task 1 in a throwaway copy of `connect` and running `go test ./mls/ -count=1` unfiltered; **SIX still red** after the three rows the Files block scheduled | **a count with no query at all, in the row the review had ALREADY corrected once from zero to three.** Repaired at the gate table: the answer is now a COMMAND, all nine are rows, and Task 1's Files block names five test files |
+| **The measurements table's `PutKeyPackage` row** — not a property | `grep -rn "PutKeyPackage(" --include=*.go .` | *"one, `messagegroup/engine.go:258`"* | **6 lines** — 1 production call, 1 delegating wrapper, 1 interface declaration, 3 implementations | **the 6 →1 narrowing was unprinted**, the same shape as the `signPriv` row's 42→2 that the verification named. **Found by running R6 over the TABLE rather than over the properties.** Repaired at the row |
 | **Task 2 Property 3** | `grep -rn "keyPackageSignatureLabel" --include=*.go mls/` | class **1**, complement **2** test references, one of them at `lifecycle_fixtures_test.go:240` | **11 lines: 3 production** (`key_package.go:75` the declaration, `:320` the sign, `:399` the verify) **and 8 test across 5 files**; the fixture's call is at `:238` | **class wrong under its own predicate, complement wrong by 4x, one line number off by two — and the class is ALREADY derived in the tree.** Replaced at the property |
 | **Task 3 Property 3** | `grep -rn "testKeyPackage(" --include=*.go mls/ \| grep -v "func testKeyPackage"` | class **112** | **112** | **class right; the complement's SIZE is unprinted**, which R5 forbids and which is why no mutation could name it. Repaired at the property |
-| **Task 4 Property 1** | the `NewLeafNode` / `LeafNode.Sign` sites of non-test `mls`, read back to the section 6 method that reaches each | class **2**, complement **1** | **4 in the class** (`NewKeyPackage`, `CreateGroup`, `GroupHandle.ProposeUpdate`, `GroupHandle.Commit`) and **1** in the complement | **class wrong by 2, and not found by the review** — found by running R6 over the row above it. Repaired at the property |
+| **Task 4 Property 1**, the class | `grep -rn "NewLeafNode(\|\.Sign(crypto" --include=*.go mls/ \| grep -v _test` → **8 sites**, read back to the section 6 method that reaches each → **5 doors** | class **2**, complement **1** | **8 sites → 5 doors: 4 in the class** (`NewKeyPackage`, `CreateGroup`, `GroupHandle.ProposeUpdate`, `GroupHandle.Commit`) **and 1 in the complement** (`GroupEngine.JoinFromWelcome`) | **class right after the repair, and the 8 → 5 step was unprinted** — the column printed 4 and 1 and never printed the 8 the query returns. Repaired at the row and at the property |
+| **Task 4 Property 1**, the OBSERVATION — a question R6 does not ask and R4's new third clause does | for each door: the call, the decode and the FIELD, checked against the task's `Consumes` block | *"prints all four with the key each leaf named"*, and *"the last two are green today and must be printed as green"* | **ONE of the four is observable from `package messagegroup` at Task 4.** `MemberAt` — the route the property NAMES — answers `(leafIndex, identityPub, leafKeys, err)` and drops `mls.Member.SignatureKey`, so even door 2 is unreadable through it | **the first UNOBSERVABLE property this project has found**, and the reason R4 now has a third clause. Repaired at the property: each door carries its route, doors 3 and 4 move to the task that can observe them, and door 3 is printed as UNOBSERVED with its reason |
 | **Task 5 Property 1** | every entry of `Welcome.Secrets`, read off the parsed message | **2** in the gate this task builds | reproduced: two `ProposeAdd`s and one `Commit(nil)` answer a `Welcome.Secrets` of 2, `NewMember` refs equal to each store's key | **right** |
 | **Task 5 Property 5** | `sed -n '3033,3440p' mls/group.go \| grep -o 'cfg\.[A-Za-z]*' \| sort -u`, against `GroupConfig`'s eight declared fields | class **4**, complement **4** | class **4** — `Crypto`, `GroupId`, `Profile`, `Store`; complement **4** — `Suite`, `Extensions`, `RequiredCaps`, `LeafKeys`; and 4 + 4 is the type's whole field set | **right, and it is the CONTROL**: the one property here whose class and complement both reproduce and whose two sets exhaust a universe the compiler can name. It is the shape the four defective rows are repaired into |
 | **Task 6 Property 4** | `grep -rn "TakeKeyPackage\|ErrEngineJoinUnavailable" --include=*.go messagegroup/ \| grep -v _test.go` | class **3** | **6** — `doc.go:50`, `engine.go:297`, `:314`, `:315`, `errors.go:130`, `:135` | **class wrong by 2x.** Every one of the six is in a file some task of this plan already edits, so the WORK was scheduled and only the number was wrong — which is exactly how a count that is not a query fails. Repaired at the property |
 | **Task 7 Property 2** | `grep -n "nine" mls/caller_arrays_test.go` | class **1** | **3 lines**: `:2176` and `:2180` are about `StateStore`'s method set, `:45` is about a different subject (nine constructions, not nine methods) | **class wrong, and its complement is the third line — also not found by the review.** Repaired at the property |
 
-**What the four defective rows have in common, stated as a predicate rather than as four corrections,
-because that is what R6 is for.** In every one, the plan wrote the class's members down by hand,
-counted the list it had written, and published the count as the derivation's answer. The right number
-appears only where the query and the number sit side by side — which is why Task 5 Property 5 is the
-only class-deriving property here that a reviewer could not falsify, and why it is the row this repair
-copied. **The complement is the half that fails first:** three of the four rows have the class right
-or nearly right and the complement wrong, empty or unprinted.
+**What the defective rows have in common, stated as a predicate rather than as a list of
+corrections, because that is what R6 is for — and the predicate has now been widened TWICE by its own
+output.** In the first generation, the plan wrote the class's members down by hand, counted the list
+it had written, and published the count as the derivation's answer; the right number appears only
+where the query and the number sit side by side. **In the second generation, the query was there and
+was never run against the class it claimed to derive** — Task 1 Property 4's seven lines contain zero
+members of the class, and the gate table's *"three"* had no query at all in a row the review had
+already corrected once. **The complement is still the half that fails first**, and the new tell sits
+beside it: **an empty INTERSECTION between a published query's output and the class it derives.**
+Both are one command each — `grep -c` the class member's spelling in the query's own output; print
+what the narrowing removed. **Task 5 Property 5 remains the control**: its class and its complement
+both reproduce, they exhaust a universe the compiler can name, and 4 + 4 is `GroupConfig`'s whole
+field set. It is the shape every repaired row above is written into.
 
 ### The sweep for R7's class: every value this plan assembles over an array something else owns
 
@@ -428,6 +568,8 @@ and two were not; the second of the two is the defect this repair exists for.
 | Task 2: the wrapper's own drawn seed, handed to the delegate and dropped | a LOCAL, not a field — but the seed's only other holder is the delegate's clone | nothing, once the delegate clones | **NOT held before this repair.** `mls/staged_erase_test.go` holds struct fields and this is an array on the stack. **Now Task 2 Property 4** |
 | Task 5: `JoinKeyMaterial.InitPrivate` / `.EncryptPrivate` over what `TakeKeyPackage` answered | the STORE's own arrays | `(*JoinKeyMaterial).Zeroize` (`group.go:2947`) | **held** — **Task 5 Property 3** (assemble over copies, so the put-back restores octets rather than zeros) |
 | Task 5: `JoinKeyMaterial.SignPrivate` | the engine's `device_sig` — **the same array as row 1** | `(*JoinKeyMaterial).Zeroize`, which erases `SignPrivate` by name | **NOT held before this repair, and this one destroys the device's identity.** Task 4 Property 2 holds the aliasing on the mint path and Task 5 states the assembly; the document stated both halves and held neither. **Now Task 5 Property 6** |
+| **Task 4: `initPrivate`, the init private half `NewKeyPackageWithSigner` answers** — arm (ii) | a local the constructor drew and handed back; the STORE gets a copy (`sessionfixture_test.go:101-108` appends) and the engine's local is dropped | **nothing.** Task 4 Property 2's `defer keyPackage.Zeroize()` reaches `key_package.go:213`, which is `zeroizeSecret(self.signPriv)` and nothing else | **NOT held, and it is pre-existing at `a1f8025`** — `mls.NewKeyPackage`'s three existing callers drop it the same way. `JoinKeyMaterial.Zeroize`'s header, the authority this plan quotes twice as the reason `SignPrivate` must be erased, names this array FIRST: *"the init key opens every Welcome addressed to this key package"*. **Now Task 4 Property 5** |
+| **Task 4: `encryptPrivate`, the leaf encryption private half** — arm (ii) | the same shape, one value over | **nothing**, for the same reason | **NOT held, pre-existing at `a1f8025`.** Same header, next clause: *"the encryption key is this member's leaf key for as long as it holds that leaf"*. Task 5 Property 3 holds both of these at JOIN time, one task later, and nothing holds them at MINT time. **Now Task 4 Property 5** |
 
 **The complement, printed: one site.** Task 5's `mls.GroupConfig{Crypto: self.crypto, Store:
 self.store}` aliases neither array — both are interfaces, `mls/group.go:3407` keeps `cfg.Store`
@@ -436,23 +578,64 @@ deliberately, and nothing erases an interface. It is named and excluded rather t
 buffer"*, and a sweep that dropped it silently could not be told from one that never looked at the
 config.
 
-**The predicate, so the next plan can run this without an instance to copy:** a site is in R7's class
-when a task's body puts an array it does not own — a field of `self`, a local it drew, or an array
-another component handed back — into a structure whose type declares a `Zeroize`. The engine has
-exactly one such field (`self.signer`), `connect/mls` has exactly two such types on this path
-(`KeyPackage` and `JoinKeyMaterial`), and the cross product plus the two arrays the store answers is
-the table above.
+**The predicate, so the next plan can run this without an instance to copy, and stated in the two
+arms the table actually has:** a site is in R7's class when a task's body handles a secret array
+whose erase is somebody else's obligation — **arm (i)**, it puts an array it does not own (a field of
+`self`, or an array another component handed back) into a structure whose type declares a `Zeroize`;
+or **arm (ii)**, it holds a secret array that no `Zeroize` will reach, because the array is a local
+it drew or a private half a callee answered and the body then drops. The engine has exactly one
+arm-(i) field (`self.signer`), `connect/mls` has exactly two such types on this path (`KeyPackage`
+and `JoinKeyMaterial`), and the arm-(ii) sites are read off the RESULT LISTS of the constructors each
+task calls — which is the mechanical form, because a result list is enumerable and a body's locals
+are not: **`NewKeyPackageWithSigner` answers four values, one of them an error and three of them
+secret, and Task 4's body erases exactly one of the three.**
+
+**Why the two new rows are printed as class members rather than filed away as pre-existing.** They
+are the shape of the complement R5 forbids: the first reading of this sweep printed a complement of
+exactly ONE while claiming to cover *"every value this plan assembles over an array something else
+owns"*, and the two arrays `JoinKeyMaterial`'s own header names FIRST were outside it. **A complement
+of one, beside a class of four, over a rule this wide, is the tell** — and it was found by asking
+what the table's own arm-(ii) row implied rather than by re-reading the four. The DEFECT is
+pre-existing at `a1f8025`; the OMISSION was this document's.
 
 ### The gates already in the tree, which this plan's code must satisfy from its first commit
 
-**Three of the ten rows below go RED on Task 1's commit, and they are the first three because they
-are the ones an implementer meets before anything else compiles.** All three derive their class off
-`connect/mls`'s own parse tree, so `NewKeyPackageWithSigner` joins each of them on the commit that
-declares it, undriven — which is the gates working. **Task 1's Files block therefore includes three
-test files no earlier reading of this plan listed, and the three edits land in Task 1's commit or
-Task 1 does not compile.** An earlier reading of this section asserted there was *"no gate it must
-not disturb"*; that sentence was a conclusion from a three-markdown-file grep, and the measurements
-table above now carries it with its scope narrowed to what it measured.
+**NINE of the sixteen rows below go RED on Task 1's commit, measured by building Task 1 and running
+the package, and the number is a COMMAND rather than a reading (R6 clause b).** The command, run in a
+throwaway copy of `connect` outside both checkouts with `NewKeyPackageWithSigner` declared and
+undriven and Task 2 NOT applied:
+
+```
+go test ./mls/ -count=1        # unfiltered; ~120s.  9 top-level FAILs, every one naming
+                               # NewKeyPackageWithSigner
+```
+
+**Then add the three rows Task 1's Files block schedules — `providerConstructionValues`,
+`labelledCompositionClass`, the `covered` case in `key_schedule_test.go` — and re-run the same
+command: those three go green and SIX remain red.** So Task 1 cannot be a green commit with the three
+edits this plan used to schedule, and that is a dispatch-time fact rather than a review comment: an
+implementer meets it at step 2 of Task 1, before anything of the property has been written.
+
+**Every one of the nine derives its class off `connect/mls`'s own parse tree**, through one of four
+landed helpers — `declaredFunctionsOf(t, cryptoOwnRoot)` (`crypto_test.go:7263`),
+`packageLevelFunctionsTaking(t, providerInterfaceName)` (`:2723`),
+`packageLevelFunctionsTakingCallerBytes(t)` (`:2805`) and `providerOperations(t)` (`:4619`, which is
+`providerInterfaceMethods` concatenated with `providerConstructions`). **That is the QUERY behind the
+number, and it is why the class was never three:** the constructor's SIGNATURE alone joins it to
+every one of them — it is package-level, it takes a `CryptoProvider`, it takes a caller byte run
+(`signer SignaturePrivateKey`), it reaches `marshalBytes`, and it answers byte runs. None of the nine
+is an artefact of a particular body.
+
+```
+grep -rn "declaredFunctionsOf(t\|packageLevelFunctionsTaking(t\|packageLevelFunctionsTakingCallerBytes(t\|providerOperations(t\|providerConstructions(t" --include=*_test.go mls/
+```
+
+**Two of the six that stay red live in test files this plan named nowhere — `mls/crypto_labels_test.go`
+and `mls/extension_test.go` — and one of them wants a WRITTEN DESIGN ARGUMENT rather than a row.**
+Task 1's Files block now carries five test files, and the earlier reading of this section, which
+asserted there was *"no gate it must not disturb"*, was a conclusion drawn from a three-markdown-file
+grep; the measurements table above carries it with its scope narrowed to what it measured. **The
+replacement it was given, three, was the same defect a second time** — see R6's second clause.
 
 | Gate | Where | What it does to this plan |
 |---|---|---|
@@ -466,6 +649,12 @@ table above now carries it with its scope narrowed to what it measured.
 | `TestNewKeyPackageKeepsTheSigningSeedOffTheWireAndBesideItsOwnLeaf` | `mls/key_package_test.go:471` | holds `signaturePublicKeyOf(kp.signPriv) == kp.LeafNode.SignatureKey`. **GREEN on Task 1's commit with the new constructor present and undriven — measured, not predicted** — because its class is one hand-named constructor. That is Task 1 Property 4's whole diagnosis, and it is the one row here whose passing is the finding |
 | `TestJoinFromWelcomeRefusesAndSaysWhatIsMissing` | `messagegroup/engine_test.go:823` | asserts the refusal. **It goes red on the commit that closes S2-4, by design; that is the gate working.** Task 6 inverts it |
 | `TestNoOctetAGroupHandsOutwardIsStorageItKeeps` | `mls/caller_arrays_test.go:2214` | the array-ownership direction Task 5 Property 3 works inside |
+| `TestEveryConstructionHandedAProviderRoutesThroughIt` | `mls/crypto_labels_test.go:2354`, class at `:2345` | **RED on Task 1's commit and STILL RED after the three rows above.** `covered` is compared against `packageLevelFunctionsTaking(t, "CryptoProvider")` minus `labelConstructionsOverAnyProvider`. **Owed: a call closure case beside `NewKeyPackage`'s at `:2212`, whose answer over the tagging provider must be a REFUSAL for `NewLeafNode`'s stated reason** — or an entry in the excusal map with its reason. **This file appears nowhere else in this plan** |
+| `TestEveryConstructionInThisPackageLeavesItsInputAlone` | `mls/crypto_test.go:4117`, class at `:4108` and `:4132` | **RED on Task 1's commit and STILL RED after the three rows above.** Its class is `packageLevelFunctionsTakingCallerBytes` concatenated with `packageLevelFunctionsTaking(providerInterfaceName)`, and the new constructor joins by taking `signer SignaturePrivateKey` — a caller byte run — as well as a provider. **Owed: one case in that gate's `covered` list**, and the case is the one that would have caught Task 1 mutation 5 from a second direction |
+| `TestProviderHasNoRemainingStubs` | `mls/crypto_test.go:5709`, reporting at `:5743`, `:5746`, `:5931` | **RED on Task 1's commit and STILL RED after the three rows above**, with THREE separate messages. Measured: `NewKeyPackageWithSigner answered result 0 field 4 is empty, which is what a stub answers` — that field is the leaf's `parent_hash`, empty for exactly the reason `NewKeyPackage`'s and `NewLeafNode`'s are. **Owed: an entry in `providerConstructionsWithUndefinedResults` (`:5563`), an entry in `providerConstructionsAnsweringOffTheWallClock` (`:5617`) because the leaf carries a wall-clock `Lifetime`, and a row in `providerStreamDependentOperations` (`:5482`)** |
+| `TestNoProviderOperationFallsBackWhenItsSourceRunsDry` | `mls/crypto_test.go:7888`, reporting at `:7916` | **RED on Task 1's commit and STILL RED after the three rows above.** It compares what refused an exhausted source against `providerStreamDependentOperations`; the constructor draws twice, so it refuses and the two lists disagree. **Owed: the same `providerStreamDependentOperations` row**, whose comment must say what this construction draws and why — two entropy draws and NO signature key pair, which is the one line where the difference from `NewKeyPackage` is a number |
+| `TestEveryProviderOperationDrawsExactlyWhatItUses` | `mls/crypto_test.go:8237`, reporting at `:8259` and `:8273` | **RED on Task 1's commit and STILL RED after the three rows above.** Measured: `NewKeyPackageWithSigner drew 64 bytes of the source, want 0`. **Owed: a row in `providerStreamDraws` (`:8191`) answering `2 * params.Nh`** — against `NewKeyPackage`'s `NsigPriv + 2*params.Nh`, and **that row IS Task 1 Property 3**, which is why Property 3 is now written as a reuse rather than as a new gate |
+| `TestNoExportedSymbolOfThisPackageAssemblesAnExtensionBodyThroughItsOwnEncoder` | `mls/extension_test.go:3505` and `:3512` | **RED on Task 1's commit and STILL RED after the three rows above**, and it is the one that cannot be closed by a row. Measured, in the gate's own words: *"key_package.go exports NewKeyPackageWithSigner, which reaches [marshalBytes marshalRatchetTree] and answers a byte run; an extension body handed out loose is a tag choice handed to the caller, and 0xF001 rather than 0xF002 encodes, signs and travels."* **Owed: an entry in `extensionBodyByteRunsThatAreNotBodies` (`:2770`) carrying a WRITTEN DESIGN REASON**, in the shape `NewKeyPackage`'s own entry already has — the two HPKE private halves are keys and not bodies. `TestEveryExtensionBodyByteRunExemptionIsStillReported` expires an entry neither rule reports any more, so the entry cannot outlive the declaration. **This file appears nowhere else in this plan** |
 
 ### House style
 
@@ -654,10 +843,13 @@ and numbered steps. The steps are always the same six, and steps 1 and 5 are whe
 **This wave needs no other work and no ruling. It is not, however, free of the tree.** No
 `messagegroup` change, no store change, no ruling from anybody; `mls.NewKeyPackage` keeps its
 signature, its behaviour and its 16 call sites, and `mls.StateStore` is untouched. **But additive to
-an exported package is not additive to a package whose gates derive their classes off it: three
-landed gates in `connect/mls` go RED on Task 1's commit**, they are named in the gate table above with
-what each is owed, and Task 1's Files block carries the three test files they live in. An
-implementer who reads *"additive"* as *"nothing else moves"* stops at step 2 of Task 1. **This wave
+an exported package is not additive to a package whose gates derive their classes off it: NINE landed
+gates in `connect/mls` go RED on Task 1's commit, measured unfiltered, and six of the nine are still
+red after the three table rows this plan used to schedule.** All nine are named in the gate table
+above with what each is owed, and Task 1's Files block carries the FIVE test files they live in. An
+implementer who reads *"additive"* as *"nothing else moves"* stops at step 2 of Task 1 — and one who
+reads the earlier *"three"* stops there too, three edits later, which is the whole reason the number
+is now a command. **This wave
 must land before Wave 2**, because
 `connect/messagegroup` imports `connect/mls` and the engine's join cannot be written against a surface
 that does not exist.
@@ -669,14 +861,29 @@ that does not exist.
   at `:2935-2941` only)
 - Test: `connect/mls/key_package_test.go` (extend), `connect/mls/staged_erase_test.go` (one excuse
   string at `:1313`)
-- **Test, and this commit does not compile-and-pass without all three** — the three derived gates the
-  section *"The gates already in the tree"* now names, each RED on this commit because its class is
-  the package's own parse tree and the new constructor joins it undriven:
-  `connect/mls/crypto_test.go` (one `providerConstructionValues` row at `:4443`, or
-  `TestEveryDeclarationHandedANilProviderRefusesRatherThanDereferencingIt` **fatals**),
-  `connect/mls/labelled_composition_test.go` (one `labelledCompositionClass` row beside `:1849`),
-  `connect/mls/key_schedule_test.go` (one `covered` row, or an excused entry with its reason, at
-  `:5441-5444`)
+- **Test, and this commit does not compile-and-pass without every one of them** — the NINE derived
+  gates the section *"The gates already in the tree"* now names, each RED on this commit because its
+  class is the package's own parse tree and the new constructor joins it undriven. **Measured by
+  building Task 1 and running `go test ./mls/ -count=1` unfiltered: nine red; three of the nine go
+  green on the first three files below and SIX stay red**, so an implementer who stops after those
+  three has a red commit. In five files:
+  - `connect/mls/crypto_test.go` — **six separate edits, not one.** One `providerConstructionValues`
+    row at `:4443` (or `TestEveryDeclarationHandedANilProviderRefusesRatherThanDereferencingIt`
+    **fatals**); one `covered` case in `TestEveryConstructionInThisPackageLeavesItsInputAlone`
+    (`:4108`); one entry in `providerConstructionsWithUndefinedResults` (`:5563`) for the leaf's empty
+    `parent_hash`; one entry in `providerConstructionsAnsweringOffTheWallClock` (`:5617`) for the
+    leaf's `Lifetime`; one name in `providerStreamDependentOperations` (`:5482`); one row in
+    `providerStreamDraws` (`:8191`) answering `2 * params.Nh` — **and that last row is Task 1
+    Property 3**
+  - `connect/mls/labelled_composition_test.go` — one `labelledCompositionClass` row beside `:1849`
+  - `connect/mls/key_schedule_test.go` — one `covered` row, or an excused entry with its reason, at
+    `:5441-5444`
+  - `connect/mls/crypto_labels_test.go` — one call closure case beside `NewKeyPackage`'s at `:2212`,
+    answering a REFUSAL over the tagging provider for `NewLeafNode`'s stated reason; or an entry in
+    `labelConstructionsOverAnyProvider` with its reason. **Named in no earlier reading of this plan**
+  - `connect/mls/extension_test.go` — one entry in `extensionBodyByteRunsThatAreNotBodies` (`:2770`)
+    carrying a **written design reason**, in the shape `NewKeyPackage`'s own entry already has.
+    **Named in no earlier reading of this plan, and it is the one that cannot be closed by a row**
 
 **Interfaces:**
 - Consumes: from `connect/mls` itself and from nothing else — `NewLeafNode`, `LeafNode.Sign`,
@@ -742,13 +949,48 @@ create**, which is the half that actually matters.
   caller's array **after** `Zeroize` and assert it is unchanged, rather than reading the key package.
 
   **Property 3 — the init key pair and the leaf encryption key pair are still drawn from separate
-  entropy, and neither is derived from `signer`.** `NewKeyPackage`'s own header says why in full and
-  `TestNewKeyPackageDrawsTheInitAndEncryptionKeysFromSeparateEntropy` holds it for that constructor;
-  a sibling that collapsed the two draws answers a perfectly well-formed key package that every test
-  which does not compare the two halves accepts. **This project has measured that exact substitution
-  surviving a whole green suite one plan ago.**
+  entropy, and neither is derived from `signer`. HALF OF THIS IS ALREADY DERIVED IN THE TREE AS A
+  NUMBER, so this property REUSES that gate and states only the half it cannot see.** This is the
+  same repair Task 2 Property 3 received one property over, and it was missed by the first R6 sweep
+  because Property 3 is not written as class-deriving — which is why R6 now scopes itself over the
+  document rather than over its properties (R6 clause b).
+
+  **Clause A — the count, and the tree already derives it. The class this clause reuses is the
+  operations of this package that draw from the provider's stream; that class is EIGHT members at
+  `a1f8025` and nine at this task**, read off `providerStreamDraws` (`crypto_test.go:8191`) and
+  cross-checked against `providerStreamDependentOperations` (`:5482`), which is **nine at `a1f8025`
+  and ten at this task** because it carries `Random` and the draws map does not. Both are derived
+  against `providerOperations(t)` rather than written down: an entry naming something that is not an
+  operation of this surface fails, and an operation the map does not name is asserted to draw zero.
+  `providerStreamDraws` is a map from construction name to bytes drawn, and its `NewKeyPackage`
+  comment states this property in its own words:
+  *"a constructor that derived the init pair and the encryption pair from ONE seed draws KDF.Nh fewer
+  bytes and answers a key package that encodes, signs, refs and validates, so this is the one place
+  in the package where that substitution is a NUMBER rather than a property somebody has to think to
+  compare."* **The row Task 1's commit owes anyway — `"NewKeyPackageWithSigner": 2 * params.Nh` — IS
+  clause A.** Measured, in the throwaway build: with the row added and the body correct, the count
+  check at `crypto_test.go:8259` is silent; with **mutation 7** applied the LANDED gate goes red on
+  its own, `NewKeyPackageWithSigner drew 32 bytes of the source, want 64`, at both registered suites.
+  **Mutation 8 collapses to the same single draw and is caught the same way.** So clause A owes no
+  new gate, and a second gate deriving the same class here would be the defect Task 2 Property 3 was
+  repaired for.
+
+  **Clause B — the half a count cannot see, and its complement is not empty.** A body that draws
+  TWICE and derives both pairs from the FIRST draw answers `2 * params.Nh` and passes clause A
+  exactly. **Measured, in the throwaway build: that mutant produces no `drew N bytes` line at all —
+  the count gate does not see it.** What sees it is the ANSWER comparison, which the tree holds only
+  for `NewKeyPackage` and only by hand: `TestNewKeyPackageDrawsTheInitAndEncryptionKeysFromSeparateEntropy`
+  (`key_package_test.go:419`) runs over `newTestKeyPackage(t)`, a hand-named constructor — the same
+  shape as `TestNewKeyPackageKeepsTheSigningSeedOffTheWireAndBesideItsOwnLeaf`, which is Property 4's
+  whole diagnosis. **Clause B is therefore the one this task must write, and it is written over the
+  answers rather than over the draws.**
   *Refusal owed:* none; the observation is that a message sealed to the leaf's `encryption_key` does
-  not open under `initPriv`, and vice versa.
+  not open under `initPriv`, and vice versa — and, separately, that `initPriv != encPriv` and
+  `kp.InitKey != kp.LeafNode.EncryptionKey`.
+  *The observation ROUTE (R4's third clause):* `crypto.HpkeSeal` / `crypto.HpkeOpen` over the
+  constructor's own two answered privates and the key package's two published publics. Every name on
+  it is in this task's Consumes block and every value is answered by the constructor under test.
+  *This project has measured that exact substitution surviving a whole green suite one plan ago.*
 
   **Property 4 — the seed-and-leaf agreement gate's class is DERIVED from the package's own
   declarations rather than named, and every member of it is driven.** The gate that holds Property 1's
@@ -758,16 +1000,45 @@ create**, which is the half that actually matters.
   and **measured, that gate PASSES with `NewKeyPackageWithSigner` present and undriven.** That passing
   run is this property's diagnosis and it is a measurement, not a prediction.
 
-  **The universe, the class and the complement, each beside the query that produces it (R6).** The
-  universe is **every function declaration of non-test `mls` whose signature mentions `*KeyPackage` in
-  any position** — `grep -rn "^func .*\*KeyPackage" --include=*.go mls/ | grep -v _test` — and **that
-  universe is eight declarations at `a1f8025`, nine after this task**. **The class is the members of
-  that universe that ANSWER one, and that class is one member at `a1f8025` and two members at this
-  task** — `NewKeyPackage` (`key_package.go:271`) and `NewKeyPackageWithSigner`. **The complement, printed: the other seven** — `marshalCore`
-  (`:127`), `MarshalMLS` (`:137`), `UnmarshalMLS` (`:156`), `Zeroize` (`:212`), `signedPreimage`
-  (`:236`), `Ref` (`:349`) and `Validate` (`:376`), every one a method taking a `*KeyPackage` as its
-  receiver and answering something else. The gate prints **both** sets on every run, so a third
-  constructor added next month is a number that changed rather than a door nobody drove.
+  **The universe, the class and the complement, each beside the query that produces it (R6) — and the
+  query re-derived, because the one this property published RETURNS THE COMPLEMENT AND NOTHING ELSE.**
+
+  **The defect, printed rather than quietly corrected, because this is the exact row R6 was derived
+  from and R6 did not catch its own row.** The query this property carried was
+  `grep -rn "^func .*\*KeyPackage" --include=*.go mls/ | grep -v _test`, stated as returning a
+  universe of **eight**. Measured at `a1f8025` it returns **SEVEN**, and
+  `... | grep -c NewKeyPackage` is **ZERO**: `NewKeyPackage`'s declaration WRAPS — line 271 is
+  `func NewKeyPackage(crypto CryptoProvider, suite CipherSuite, cred Credential,` and `*KeyPackage`
+  sits on the continuation line 272, which does not begin with `func`. **The seven lines it returns
+  are exactly the seven this property printed as the COMPLEMENT.** So the class the property exists
+  to derive was entirely outside the command printed beside it, at every commit; measured again in
+  the throwaway build with `NewKeyPackageWithSigner` present, the answer is still 7 and the `grep -c`
+  is still 0, because this plan's own `Produces` block spells the sibling across four lines too.
+  **This is R6's second clause, clause (a), and it is the row that produced it: a query is checked
+  for what it CONTAINS, not only for what it counts.**
+
+  **The universe** is every function declaration of non-test `mls` whose signature mentions
+  `*KeyPackage` in any position — **and it is an AST question, not a grep question**, because Go
+  permits a declaration to wrap anywhere and this package's own style wraps every constructor in it.
+  No line-oriented command can answer it: `grep -A1` widens the answer to every line after a `func`,
+  and `go doc` reads the exported half only. **The gate therefore derives the universe the way this
+  package's other derived gates already do** — `declaredFunctionsOf(t, cryptoOwnRoot)`
+  (`crypto_test.go:7263`), which parses the package's non-test files and answers each declaration's
+  name, receiver and parameter and result types. The universe is the declarations whose signature
+  mentions `*KeyPackage` in ANY position; the class is those that ANSWER one; the complement is the
+  rest. **A reader checks the number in one command by running the gate, and the gate PRINTS both
+  sets** — which is a stronger check than a grep and is the only one that is right.
+
+  **The numbers, measured through that derivation:** the universe is **eight** declarations at
+  `a1f8025` and **nine** after this task; the class is **one** member at `a1f8025` (`NewKeyPackage`,
+  `key_package.go:271`) and **two** at this task (`NewKeyPackageWithSigner`); the complement, printed,
+  is **the other seven** — `marshalCore` (`:127`), `MarshalMLS` (`:137`), `UnmarshalMLS` (`:156`),
+  `Zeroize` (`:212`), `signedPreimage` (`:236`), `Ref` (`:349`) and `Validate` (`:376`), every one a
+  method taking a `*KeyPackage` as its receiver and answering something else. **8 = 1 + 7 and
+  9 = 2 + 7, and both sums are printed on every run**, so a third constructor added next month is a
+  number that changed rather than a door nobody drove. **The line grep is kept in this document only
+  as the printed record of what it returns — 7 lines, 0 members of the class — so that the next
+  reader does not re-derive it.**
 
   **Why the universe is stated and not only the class, and it is R5 read back to this document.** The
   narrower predicate — *"functions whose RESULT is a `*KeyPackage`"*, which is the predicate mutation
@@ -834,11 +1105,16 @@ create**, which is the half that actually matters.
   9. Delete `NewKeyPackageWithSigner` from the derived class by naming the class as a literal list
      containing only `NewKeyPackage`. **Property 4 must fail**, and it must fail by reporting a class
      size of one against a package that declares two.
-  10. Add a third, unexported constructor answering a `*KeyPackage` that binds only three of the four.
-     **Property 4 must fail** by reporting a universe of ten, a class of three and a member the gate
-     did not drive — which is the shape the sibling itself would have had without this property. **And
-     the complement must still print seven**, which is what distinguishes this mutant from one that
-     widened the predicate instead of adding a constructor.
+  10. Add a third, unexported constructor answering a `*KeyPackage` that binds only three of the four,
+     **spelled in this package's own multi-line style so that its declaration WRAPS**. **Property 4
+     must fail** by reporting a universe of ten, a class of three and a member the gate did not drive
+     — which is the shape the sibling itself would have had without this property. **And the
+     complement must still print seven**, which is what distinguishes this mutant from one that
+     widened the predicate instead of adding a constructor. **The wrapping is the point of this
+     mutation now, and it is what makes it reachable: against the line grep this property used to
+     publish, a wrapped third constructor leaves the answer at 7 and this mutation SURVIVES.** A
+     surviving mutation is a defect in the gate, so a gate that reads lines rather than declarations
+     fails this mutation by construction.
   11. Move the suite check after the two `DeriveKeyPair` calls. **Property 5 must fail** on the
      stated ordering: a caller's mistake must cost no entropy.
   12. Open-code a `len(signer) != 32` check in `key_package.go` instead of letting
@@ -1104,6 +1380,14 @@ and fails only end to end.
 - Consumes: Task 1's `NewKeyPackageWithSigner`; the engine's own `self.signer`, `self.cred`,
   `self.crypto`, `self.leafKeys` (`messagegroup/engine.go:157`); `mls.ParseLeafKeysExtension`,
   `mls.Extension`, `syntax.Marshal`, `KeyPackage.Ref`, `StateStore.PutKeyPackage` — all landed.
+  **And the observation route Property 1 needs, which an earlier reading of this task did not
+  consume and could not therefore observe (R4's third clause):** `GroupHandle.RatchetTreeSnapshot`
+  (`messagegroup/engine.go:80`), `mls.UnmarshalRatchetTree` (`mls/tree.go:1003`) and
+  `(*RatchetTree).Leaf` (`mls/tree.go:312`), which together are the ONLY route from
+  `package messagegroup` to a founding leaf's `SignatureKey`. **`MemberAt` is not that route** —
+  `messagegroup/engine.go:396` answers `(leafIndex, identityPub, leafKeys, err)` and drops
+  `mls.Member.SignatureKey`, which `mls/group.go:781` does populate. All three are landed and
+  exported; nothing here is new work.
 - Produces: no new declaration. Section 6's NewKeyPackage method keeps its signature and its
   return value; what changes is which key the leaf it publishes names, and that the minted value
   is erased before the method returns.
@@ -1150,32 +1434,51 @@ the two is `engine_test.go:722`, which compares `MemberAt(0)`'s identity against
   no production caller at all. Clause A survives every reading, which is why it is stated first.
 
   **The observation** available inside `package messagegroup` is the public half the fixture holds
-  beside the signer it injected, plus the leaf of a group the same engine founds via `CreateGroup` →
-  `MemberAt`. **The fixture must be given that public half: `testEngine` (`sessionfixture_test.go:122`)
-  retains `identityPub` and neither the signer nor its public half, so a `signerPub` field is required
-  by this property and named nowhere else in this plan.**
+  beside the signer it injected, compared against the leaf `SignatureKey` each door publishes.
+  **The fixture must be given that public half: `testEngine` (`sessionfixture_test.go:122`) retains
+  `identityPub` and neither the signer nor its public half, so a `signerPub` field is required by this
+  property and named nowhere else in this plan.**
   *Refusal owed:* none on the success path; a mint that cannot bind refuses out of Task 1's
   constructor and the engine wraps it.
+
   *Scope to derive, separately from the class (R3), with the query beside it (R6):* the scope is
   **every door this engine has to an MLS leaf**, not "the key package". The query is the
   `NewLeafNode` and `LeafNode.Sign` sites of non-test `mls` — `grep -rn "NewLeafNode(\|\.Sign(crypto"
-  --include=*.go mls/ | grep -v _test` — each read back to the section 6 method that reaches it.
-  **That class is FOUR members at this task, and an earlier reading of this property named two:**
+  --include=*.go mls/ | grep -v _test` — which returns **8 sites**, read back to the section 6 method
+  that reaches each, which is **5 doors**. **That class is FOUR members at this task** — the four
+  doors whose leaf comes out of this device — **and its complement is one**, and an earlier reading of
+  this property named two. **The 8 → 5 step is printed because an earlier reading printed 4 and 1 and
+  never printed the 8 the query returns** (R6 clause a).
 
-  | Door | reaches | at |
-  |---|---|---|
-  | `GroupEngine.NewKeyPackage` | `mls.NewKeyPackage` → `NewLeafNode` | `key_package.go:304` |
-  | `GroupEngine.CreateGroup` | `mls.NewGroup` → `NewLeafNode` | `group.go:525` |
-  | `GroupHandle.ProposeUpdate` | `(*Group).ProposeUpdate` → `leaf.Sign` | `group.go:1683` |
-  | `GroupHandle.Commit` | `(*Group).CreateCommit` → `CreateUpdatePathSecrets` → `leaf.Sign` | `treekem.go:463` |
+  **And each door now carries its OBSERVATION ROUTE, which is R4's third clause and the reason this
+  table is not the same table it was.** The repair before this one widened the class from two doors to
+  four and required the gate to *"print all four with the key each leaf named"* — and then did not ask
+  whether that key can be read. **Measured: exactly ONE of the four can be read from `package
+  messagegroup` at Task 4.**
 
-  The gate exercises the two this task changes and **prints all four with the key each leaf named**,
-  because a gate that only reads the key package passes on a tree where `CreateGroup` is the one that
-  drifted — and a gate whose class was *"the two doors this task edits"* is R6's own defect one level
-  in. **The last two are green today and must be printed as green rather than omitted:** both sign
-  with the GROUP's `signer`, which `NewGroup` and `JoinFromWelcome` (`mls/group.go:3413`) each CLONE
-  off the caller, so they keep working after the engine's own key is destroyed — which is exactly why
-  the erase Task 5 Property 6 holds is invisible from a handle and had to be caught on the engine.
+  | Door | reaches | at | the route to its leaf's `SignatureKey`, from `package messagegroup` | held at |
+  |---|---|---|---|---|
+  | `GroupEngine.NewKeyPackage` | `mls.NewKeyPackage` → `NewLeafNode` | `key_package.go:304` | **OBSERVABLE at Task 4.** The method answers the encoding; `syntax.Unmarshal` into an `mls.KeyPackage` and read `kp.LeafNode.SignatureKey`, an exported field of an exported type | **Task 4**, clause A |
+  | `GroupEngine.CreateGroup` | `mls.NewGroup` → `NewLeafNode` | `group.go:525` | **OBSERVABLE at Task 4, but NOT by the route this property used to name.** `MemberAt` answers `identityPub` off `Credential.Identity` (`mls/group.go:779`) and DROPS `Member.SignatureKey` (`:781`) at the seam — and after this task's own fixture change the credential identity is drawn independently of the signer, so `MemberAt` compares two values that are unequal by construction. The route is `RatchetTreeSnapshot()` → `mls.UnmarshalRatchetTree` → `rt.Leaf(0).SignatureKey`, all three now in Consumes | **Task 4**, clause B |
+  | `GroupHandle.ProposeUpdate` | `(*Group).ProposeUpdate` → `leaf.Sign` | `group.go:1683` | **NOT OBSERVABLE, at this task or any task in this plan.** The method answers a serialized `MLSMessage` carrying an RFC 9420 section 6.3 **PrivateMessage** — `mls/extension_test.go:2770`'s own exemption entry says so in the tree's words, and it measures 1,575 octets with `PrivateMessage=true`. The leaf is inside the AEAD. Nor can the proposer commit its own update to get the leaf into a tree: `(*Group).CreateCommit` refuses with `ErrSelfUpdateInCommit` (`mls/errors_proposal_validation.go:95`), *"mls: the committer covered its own update proposal"* | **PRINTED AS UNOBSERVED**, below |
+  | `GroupHandle.Commit` | `(*Group).CreateCommit` → `CreateUpdatePathSecrets` → `leaf.Sign` | `treekem.go:463` | **NOT OBSERVABLE AT TASK 4; observable at Task 6.** Same route as `CreateGroup`, but the leaf only carries a fresh signature after a commit that MERGES, which needs a SECOND member's key package added first. Task 4 has one engine | **Task 6 Property 1** |
+
+  **So this property holds doors 1 and 2, prints their routes, and hands door 4 to Task 6 — which is
+  where the second engine is.** A property stated over a value the task cannot read is green in every
+  world, including the one where the value is wrong; that is the same vacuous pass R3 exists to catch,
+  one level in.
+
+  **Door 3, printed as UNOBSERVED rather than asserted, in `mls/UNOBSERVED.md`'s own shape.**
+  `GroupHandle.ProposeUpdate`'s leaf signature key is not readable through this seam by any route this
+  plan has or could add without changing Spec A §6: the only octets the method answers are ciphertext,
+  and the only tree the leaf reaches is one a DIFFERENT member commits. **What is known about it
+  without observing it, and it is not nothing:** the leaf is signed with the GROUP's `signer`, which
+  `NewGroup` (`mls/group.go:525`) and `JoinFromWelcome` (`:3413`) each CLONE off the caller — so this
+  door keeps working after the engine's own key is destroyed, which is exactly why the erase Task 5
+  Property 6 holds is invisible from a handle and had to be caught on the engine. **That is an
+  argument and not an observation, and it is labelled as one.** *Owed:* an entry in
+  `connect/mls/UNOBSERVED.md`, or a Spec A §6 amendment that lets a caller read its own leaf.
+
   **The complement, printed:** the one door of the five whose leaf does not come out of this device —
   `GroupEngine.JoinFromWelcome`, whose leaf comes off a peer's tree — named and excluded with that
   reason, and Task 6 Property 1 is where it is covered.
@@ -1223,6 +1526,34 @@ the two is `engine_test.go:722`, which compares `MemberAt(0)`'s identity against
   refusal names the duplicate signature key rather than passing on any error — a gate that accepted
   "some error" here would also pass on a device with no leaf keys.
 
+  **Property 5 — the two HPKE private halves the constructor answered are erased before
+  `NewKeyPackage` returns, and erasing them does not disturb what the store holds. This is R7's arm
+  (ii) on this path, and it is the row the first R7 sweep printed a complement of one over.**
+  `NewKeyPackageWithSigner` answers `(kp, initPriv, encPriv, err)`. Property 2 requires exactly ONE of
+  the three secrets to be erased — `defer keyPackage.Zeroize()` reaches `key_package.go:213`, which is
+  `zeroizeSecret(self.signPriv)` and nothing else. The other two are handed to `PutKeyPackage`, which
+  **copies** in the only store that exists (`sessionfixture_test.go:101-108` appends into a fresh
+  array), and the engine's own locals are then dropped un-erased. **`JoinKeyMaterial.Zeroize`'s header
+  — the authority this plan quotes twice as the reason `SignPrivate` must be erased — names these two
+  FIRST:** *"the init key opens every Welcome addressed to this key package, the encryption key is
+  this member's leaf key for as long as it holds that leaf, and the signing key is its identity."*
+  Task 5 Property 3 holds both of these at JOIN time, one task later; nothing holds them at MINT time.
+  **The defect is pre-existing at `a1f8025`** — `mls.NewKeyPackage`'s existing caller drops them the
+  same way — **and this is the task whose body already touches the site, so this is where it is
+  held.**
+  *Refusal owed:* none; the failure is silent by construction, which is why the observation is made on
+  the STORE and on the arrays rather than on the method's answer.
+  *The observation ROUTE (R4's third clause):* the store's own `keyPackages` map, read back after
+  `NewKeyPackage` returns — the fixture's `memoryStateStore` is in this package and the field is
+  reachable from a test in it — compared against the arrays the engine held. Every name on the route
+  is in this task's Consumes block. **What must NOT be read is the value the method answered**, for
+  Property 2's stated reason.
+  *And the ordering that makes it a property rather than a comment:* the erase must happen AFTER
+  `PutKeyPackage` returns, because the store copies and an erase before the call stores zeros. A gate
+  that only checked "the local is zeroed at return" passes a body that zeroed too early and persisted
+  32 zero octets, which is a key package no Welcome can ever be opened with — and nothing in the tree
+  refuses it.
+
 - [ ] **Step 2: Run to verify it fails**
 - [ ] **Step 3: Write the minimal implementation**
 - [ ] **Step 4: Run to verify it passes**
@@ -1256,6 +1587,21 @@ the two is `engine_test.go:722`, which compares `MemberAt(0)`'s identity against
      over the package's own source, in the shape `messagegroup`'s existing AST gates already use:
      the paragraph names `StateStore.TakeKeyPackage` as the reason a join is impossible, and after
      this task that sentence is false in the file that publishes it.
+  10. Drop `initPrivate` and `encryptPrivate` without erasing them — **the tree as it stands at
+     `a1f8025`**. **Property 5 must fail**, on both arrays and naming which of the two it read.
+  11. Erase the two BEFORE `PutKeyPackage` rather than after. **Property 5 must fail** on the store's
+     side of the observation: the store now holds 32 zero octets where the init private belongs, and
+     the whole suite is otherwise green over it, because nothing joins in this task.
+  12. Erase `initPrivate` and leave `encryptPrivate`. **Property 5 must fail**, and it must name the
+     ONE array it found rather than reporting that "an erase is missing" — a gate that collapses the
+     two into one reading passes mutation 11 in one direction.
+  13. Read Property 1's founding-leaf comparison through `MemberAt`'s `identityPub` instead of
+     through `RatchetTreeSnapshot` → `mls.UnmarshalRatchetTree` → `rt.Leaf(0).SignatureKey`.
+     **Property 1 clause B must fail**, and it must fail by reporting that the two values it compared
+     are the CREDENTIAL identity and the signer's public half — two independent draws after this
+     task's fixture change — rather than by reporting a key mismatch. **This is the control on R4's
+     third clause**: it is the mutation that distinguishes a property that observes the leaf from one
+     that observes a value the seam happens to answer.
 
 - [ ] **Step 6: Commit**
 
@@ -1795,8 +2141,10 @@ done for this plan is a joined group, not a delivered message. See *What this pl
 - **`group_handle_key` reaching the joiner.** **M1-2**, deliberately deferred 2026-09-13, with ledger
   **44a**'s gated hand-off blessed for CP3b. Task 6 does not build that hand-off; it does not need
   one, because it constructs no `GroupSession`.
-- **A production `mls.StateStore`.** **S2-14**. The section above states what it owes; **J1-9** is the
-  reading of CP3b under which it moves onto the prefix.
+- **A production `mls.StateStore`.** **S2-14**. The section above states what it owes. **J1-9 was
+  RULED 2026-09-10 and S2-14 is OFF the CP3b prefix**: it is durability work, and the accepted cost
+  is that the first end-to-end run does not survive a restart. **It is still unclosed and still has
+  no owner (J1-10).**
 - **A reopen path.** **J1-8**. `mls.LoadGroup` stays with zero callers outside `mls`'s own tests.
 - **The Welcome's production delivery channel.** Ledger **44** and **44a**.
 - **Re-join, external commits, external joins, multi-device.** Spec A §3.2 and §7.5.
@@ -1898,18 +2246,38 @@ parameter and nothing enumerates it. **Blocks:** every restart story, and it mak
 until it is closed. **Owed:** a fifth `GroupEngine` method and a latest-epoch answer — a Spec A §6
 amendment, therefore Gate 5 and an owner ruling.
 
-**J1-9 — CP3b says *"no test-only key SOURCE anywhere on the path"*, and whether that means *"no
-test-only CODE on the path"* decides whether S2-14 is on the prefix.** `mls.JoinFromWelcome` calls
-`group.persist()` → `store.PutGroupState` at `mls/group.go:3429`, so a join always writes through a
-`StateStore`, and the only implementations are five in-memory maps in `_test.go` files. An in-memory
-map is test-only **code**; it is not a key **source** — it stores keys the real provider drew.
-*The evidence for the narrow reading, and it is the definition's own contrast:* `PROGRESS.md:73-77`
-defines CP3a as the same path *"with the AEAD under a test-only key source"* and CP3b as *"the same
-path with the real MLS key schedule underneath"* — a sentence about where keys **come from**. *What
-turns on it:* under the narrow reading this plan is the whole of S2-4 and S2-14 is a separate line;
-under the wide reading S2-14 joins the prefix and becomes the largest task in front of CP3b. **Blocks:
-the sequencing of S2-14, and nothing in this plan.** **Owed:** one sentence from the owner, and it is
-free today.
+**J1-9 — RULED by the owner, 2026-09-10. CP3b's *"no test-only key SOURCE anywhere on the path"* is
+read LITERALLY: key SOURCE, not test-only CODE. S2-14 comes OFF the CP3b prefix.**
+
+*The question, kept because the reading is what was ruled and not the conclusion:* `mls.JoinFromWelcome`
+calls `group.persist()` → `store.PutGroupState` at `mls/group.go:3429`, so a join always writes
+through a `StateStore`, and the only implementations are five in-memory maps in `_test.go` files. An
+in-memory map is test-only **code**; it is not a key **source** — it stores keys the real provider
+drew.
+
+*The ruling, in the owner's terms:* an in-memory `StateStore` satisfies CP3b, **because every key on
+the path still comes from the real MLS key schedule and the real crypto provider**. That is not an
+assertion this plan has to defend: `connect/messagegroup/keysource_test.go` already proves it
+independently and byte for byte, rebuilding the whole sealed record from the real group's
+`Export("URmessage/v1/storage", nil, 32)` plus two injected values that are not keys, with nothing on
+the reproduction's side coming from the module under test. A `StateStore` appears nowhere in that
+reproduction. `PROGRESS.md:73-77`'s own contrast reads the same way — CP3a is the path *"with the AEAD
+under a test-only key source"*, CP3b *"the same path with the real MLS key schedule underneath"*.
+
+***THE COST THE OWNER ACCEPTED, AND IT IS PART OF THE RULING RATHER THAN A FOOTNOTE TO IT: the first
+end-to-end run WILL NOT SURVIVE A RESTART. It proves the protocol, not the product. Every future
+report of this milestone must say so — CP3b means "the protocol works end to end", and it does not
+mean "a person may use this".*** A report that omits the restart sentence has overstated the
+milestone.
+
+*What it changed:* **S2-14 moved off the CP3b prefix and became durability work**; this plan's
+*"Where the CP3b line falls"*, its *"OFF this plan's prefix"* table, its *"What this plan does not
+close"* list and the section now titled *"The J1-9 ruling"* all carry it, and the `s2` plan's S2-14
+item carries it too. **Nothing in Tasks 1–7 moved**, because nothing in them was ever sequenced behind
+S2-14. *What it did NOT change:* **J1-8**, **J1-11**, **J1-12**, **J1-13** and **J1-14** are each a
+durability question and each moved off the prefix WITH S2-14 rather than being closed.
+**Blocks:** nothing. **Owed:** nothing — except that **S2-14 still has no owner, which is J1-10 and
+is still the owner's.**
 
 **J1-10 — neither S2-4 nor S2-14 has an owner, and the plan that filed them is barred from both.** The
 `s2` plan files S2-4 with *"Owner: `connect/mls`, upstream of m1 Task 16"* and S2-14 with *"Not
@@ -1987,11 +2355,15 @@ clause in `JoinKeyMaterial`'s header, and it lands beside **J1-5**'s on whoever 
 - **To the owner:** rule **J1-1** — whether MASTER §5.2's `device_sig` binds every leaf this device
   publishes, including a KeyPackage's. This plan takes the wide reading with its evidence printed and
   is built so the narrow reading costs one commit. It is free today and expensive at Task 5.
-- **To the owner:** rule **J1-9** — whether CP3b's *"no test-only key source"* means *"no test-only
-  code"*. It is the difference between S2-14 being a separate line and being the largest task in front
-  of CP3b, and no document rules it.
-- **To the owner:** name an owner for **S2-14** (**J1-10**), and rule **J1-8** — whether §6 grows a
-  reopen method — since a durable store with no reader is a store nobody can justify.
+- ~~**To the owner:** rule **J1-9**~~ — **ANSWERED 2026-09-10.** CP3b's *"no test-only key source"*
+  is read literally as key SOURCE and not test-only CODE; S2-14 is off the prefix and is durability
+  work; **the accepted cost is that the first end-to-end run does not survive a restart, and every
+  report of this milestone says so.**
+- **To the owner, and STILL OPEN:** name an owner for **S2-14** (**J1-10**). The J1-9 ruling moved
+  S2-14 off the prefix; it did not give it a name, and an unowned durability item with no bar in
+  front of it is the shape of work that never gets picked up. Also still open: rule **J1-8** —
+  whether §6 grows a reopen method — since a durable store with no reader is a store nobody can
+  justify, and J1-9 moved that question off the prefix rather than answering it.
 - **To whoever owns Spec A §3.5:** **J1-3** (what a failed join costs, and whether `Take` splits into
   `Get` and `Delete`), **J1-4** (an error taxonomy), **J1-5** (the array-ownership clause for `Take`),
   **J1-11** (send-path durability), **J1-12** and **J1-13** (the two lifetimes with no mechanism). All

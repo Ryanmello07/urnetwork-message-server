@@ -490,7 +490,7 @@ than leaving a stale reference for the next reader.
 | a `pq_secret` DELIVERY channel (the device wrap) | m1 Task 14 | Tasks 8a and 9 | **blocked** on ledger item 152 **alone, since 2026-09-09** — `M1-1`'s remainder and `M1-7` were ruled that day as composite `C3`, so Task 14's field list, signature preimage and padding are settled and its only remaining blocker is the landed `EPH` seal refusal. The SAMPLER landed while this plan was being reviewed — `messagegroup/epoch.go` is tracked at `connect` `7868d65` and declares `NewPqSecret` — and the delivery did not: there is no `wrap*.go` in `messagegroup`, and `XwingEncapsulate` / `XwingDecapsulate` still have **zero production callers outside `xwing.go`**, re-measured at `7868d65`. **S2-3** |
 | a working `GroupEngine.JoinFromWelcome` | m1 Task 16, and `connect/mls` upstream of it | any two-client run | **absent.** An unconditional refusal on every input. **S2-4** |
 | an injected `GroupEngine` / `GroupHandle` factory | s5 | Tasks 9–12 | absent; Gate 5 forbids `s2` from constructing one |
-| a production `mls.StateStore` | s5, or unowned | any run across a process boundary | **absent.** The interface has eight methods and zero production implementations in any tree. **S2-14** |
+| a production `mls.StateStore` | s5, or unowned | any run across a process boundary | **absent.** The interface has eight methods and zero production implementations in any tree. **S2-14** — **and RULED 2026-09-10 (J1-9) to be OFF the CP3b prefix**, so what waits on it is a restart rather than the bar |
 | `MessageClient` and its method set | s1 | the surfacing this plan does not do | absent; s1 is written and unexecuted |
 | `StoredEntry` | s1 open item S1-9 | the ten §8.2 methods this plan does not declare | undefined in every document. **S2-12** |
 
@@ -3321,6 +3321,15 @@ a fifteenth-through-twenty-second method or a second, unnamed interface. It also
 epoch secret and a leaf private key that the group erases the instant `PutGroupState` returns.
 **Not `s2`'s**, because Gate 5 keeps `s2` out of `connect/mls` entirely. **Blocks:** any group two
 real clients can both open across a process boundary. **Owner:** s5, or unassigned.
+**RULED 2026-09-10, as J1-9: this is OFF the CP3b prefix.** CP3b's *"no test-only key source anywhere
+on the path"* is read literally — key SOURCE, not test-only CODE — so an in-memory `StateStore`
+satisfies the bar, because every key on the path still comes from the real MLS key schedule and the
+real crypto provider (which `connect/messagegroup/keysource_test.go` proves byte for byte,
+independently of any store). **S2-14 is therefore DURABILITY work rather than bar-gating work, and
+the cost the owner accepted is that the first end-to-end run does not survive a restart** — CP3b
+means *"the protocol works end to end"* and does not mean *"a person may use this"*, and every report
+of that milestone says so. **The ruling did not give this item an owner; that is J1-10 and is still
+open.**
 
 **S2-15 — three documents state §8.2's correspondence three different ways, and one of them is the
 source comment.** `connect/messagegroup/streamindex.go` quotes the **pre-A1** §8.2; Spec A §8.2 today

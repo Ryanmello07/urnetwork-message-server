@@ -76,6 +76,21 @@ CP3 therefore splits:
 - **CP3b — a message is private.** The same path with the real MLS key schedule underneath. This is
   the original CP3, and it is the bar for anything a human is invited to send a real message through.
 
+**RULED 2026-09-10 — what CP3b's *"no test-only key source anywhere on the path"* means, and what it
+costs.** The owner reads *"key SOURCE"* literally: it is not *"no test-only CODE"*. An **in-memory
+`mls.StateStore` satisfies CP3b**, because every key on the path still comes from the real MLS key
+schedule and the real crypto provider — which `connect/messagegroup/keysource_test.go` already proves
+byte for byte and independently of any store, rebuilding the whole sealed record from the real group's
+exporter plus two injected values that are not keys. **A production `mls.StateStore` (`S2-14`) is
+therefore OFF the CP3b prefix and is durability work.** Filed and ruled as **J1-9** in
+`docs/plans/2026-09-09-slice1-j1-the-join.md`.
+
+***And the cost the owner accepted, which every report of this milestone must carry rather than
+gloss: the first end-to-end run WILL NOT SURVIVE A RESTART. CP3b proves the protocol, not the
+product. It means "the protocol works end to end"; it does not mean "a person may use this."*** The
+bullet above is unchanged as the BAR — every key is still real MLS — and this paragraph is what the
+bar does not buy. **`S2-14` still has no owner; that is `J1-10` and is still open.**
+
 Nothing is invited to CP3a but us.
 
 ---
