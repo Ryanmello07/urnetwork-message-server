@@ -32,7 +32,7 @@ code at all**, which is the gap every external leg in the m1 plan points at.
 | Spec C — Windows client UI | Revision 6 — 1,893 lines |
 | Blockers | **0 from r1–r4** — down from 41. **r8's two are not in that count**; both are fixed in the text and neither is recorded as fixed. Item **165**. |
 | Review findings | **Dispositioned per finding in §5, not counted.** r3's twelve blockers were re-grepped by id; its fourteen remaining majors are items **149–162**, one item per id, each opening with the id and a disposition verb, so `git grep "M-7"` returns a disposition rather than silence. **r2's, r3's and r4's minors, r6's 30 and r8's 25 are NOT dispositioned** — item **165** measures that and publishes the query; those findings carry no ids, so an id-keyed gate cannot see them at all. The count this row used to carry (*"30: 8 major, 22 minor"*) was r6's file, not r3's majors, and the two had been read as one set for five weeks. |
-| Implementation plan | **Written and part-executed.** Fourteen documents in `docs/plans/`; `m1` (24 tasks) has wave 0 and wave 1 landed and is stopped in front of wave 2 by ledger **152** — **and by nothing else, since 2026-09-09**, when the owner ruled `M1-1`'s remainder and `M1-7` together as composite `C3` (item **175**), closing items **176**, **177** and **179** with them. **`s2` is now written** — 15 tasks, of which Tasks 1–12 are the CP3b prefix — and its own first paragraph states that it does **not** reach CP3b alone: four upstream `connect` blockers (**S2-1** through **S2-4**) sit outside both of its legs and none of the four has an owner. `s3` through `s10` are still cited as owners of unwritten work and have no document. |
+| Implementation plan | **Written and part-executed.** Fifteen documents in `docs/plans/`; `m1` (24 tasks) has wave 0 and wave 1 landed and is stopped in front of wave 2 by ledger **152** — **and by nothing else, since 2026-09-09**, when the owner ruled `M1-1`'s remainder and `M1-7` together as composite `C3` (item **175**), closing items **176**, **177** and **179** with them. **`s2` is now written** — 15 tasks, of which Tasks 1–12 are the CP3b prefix — and its own first paragraph states that it does **not** reach CP3b alone: four upstream `connect` blockers (**S2-1** through **S2-4**) sit outside both of its legs. **`j1` is now written too** — 7 tasks, all of them on the CP3b prefix — and it takes **S2-4**, the first of the four and the one that blocks CP3b outright; **S2-1**, **S2-2** and **S2-3** still have no owner. `s3` through `s10` are still cited as owners of unwritten work and have no document. |
 | Code | **`connect` `beta/message` at `33932e0`** — 1,105 tracked files, 217 Go files across `mls/`, `message/` and `messagegroup/`, 7,631 tests passing / 0 failing / 0 skipped, nine-platform `CGO_ENABLED=0` build green. **This repository** — 57 Go files, 26,402 lines, `go build ./...` and `go test ./...` green. **`sdk`** — nothing; six external legs wait on it. |
 
 **Ready for owner review, and for handoff once the owner has read them.** Four review rounds and two
@@ -11098,3 +11098,146 @@ a derivation rather than an instance.
 ok. Every linter reporting count identical across the diff (1b 7, 1c 1, 1d 189, 2a 18, 3a 4, 3c 3,
 4b 5) and the four fatal checks (2b, 3b, 3d, 4a) clean on both sides. `git ls-files` equals
 `git ls-tree -r HEAD` at **103**, checked before the commit and again after.
+
+### 2026-09-09 — `j1` written: S2-4's filed cause names the wrong end, the one device with two identities nothing reports, and the interface widening that would have closed nothing
+
+**What this pass did.** It wrote the plan that closes **S2-4** — *"there is no exported path by which
+two clients share one group"*, the item `PROGRESS.md`, this file and the `s2` plan all name as the
+thing that blocks **CP3b** outright — as `docs/plans/2026-09-09-slice1-j1-the-join.md`, 7 tasks in
+three waves, all seven on the CP3b prefix. **It changed no Go file, wrote no test code, ruled nothing
+of the owner's, and did not modify `connect`.** One plan document was added, this file gained one
+state-row correction and this entry.
+
+**THE FINDING, and it is the pass rather than a preamble: S2-4's filed cause is a true sentence that
+points at the wrong fix, and three landed comments in `connect/mls` are why every reader has repeated
+it.** The item, the refusal at `connect/messagegroup/engine.go:314`, its sentinel at
+`errors.go:135`, the honest-inventory paragraph at `doc.go:47-56` and `s2`'s open ask all pin the
+blockage on `mls.StateStore.TakeKeyPackage` not carrying a fourth value. Measured at `connect`
+`beta/message` `a1f8025`:
+
+- `grep -rn "TakeKeyPackage(" --include=*.go .` returns **five** lines — one interface declaration,
+  three implementations, and one wrapper delegating to its own inner store. **The method the refusal
+  blames has no caller anywhere in the tree**, production or test. `PutKeyPackage` has exactly one,
+  the adapter itself.
+- `grep -rn "SignPrivate:" --include=*.go .` returns **13** construction sites of
+  `mls.JoinKeyMaterial`, and **zero** of them read `kp.signPriv`. All 13 read a `testMember.SigPriv`
+  minted by `lifecycle_fixtures_test.go:80` **before the key package existed**. So the 144 green
+  references to `mls.JoinFromWelcome` do not depend on the unexported field at all: the fixture at
+  `lifecycle_fixtures_test.go:218` calls `NewKeyPackage`, **throws away the key it drew**, and rebinds
+  the leaf key, the leaf signature, `signPriv` and the `KeyPackageTBS` signature to a key it minted
+  first. **The tests do not extract a private field production cannot reach. They supply the signing
+  key, and `mls.NewKeyPackage` offers production no way to do that.**
+- `grep -rn "^func New" --include=*.go mls/ | grep -v _test | grep -i keypackage` returns **one**
+  constructor, `mls/key_package.go:271`, and it draws its own signature key pair at `:289`.
+  `mls.NewGroup(cfg, signer, cred)` at `:469` takes a caller signer and hands it straight to
+  `NewLeafNode`. **That asymmetry between two constructors in one package is the whole of S2-4.**
+
+**AND THE DEFECT IS LARGER THAN THE ITEM FILED, IS LANDED, AND NO DOCUMENT NAMES IT. One device mints
+MLS leaves under two different identities depending on which door it came through.** Reproduced this
+session with a throwaway module outside both checkouts (`replace github.com/urnetwork/connect =>
+../connect`), since deleted; `connect`'s worktree was clean before and after:
+
+```
+device signer public half        : ec494c50...81b8fda8
+credential identity              : ec494c50...81b8fda8
+published KP leaf SignatureKey   : f3130dca...c87c1794      <- NOT a key this device holds
+KP leaf key == device signer pub : false
+founding member identity_pub     : ec494c50...81b8fda8      <- CreateGroup, same device
+```
+
+`connectMlsEngine.CreateGroup` signs its founding leaf with `self.signer`; `NewKeyPackage` publishes a
+leaf naming a key drawn inside `mls` and dropped on the floor. **MASTER §5.2 line 516 rules that there
+is one**: `device_sig`, *"the MLS leaf signature key"*, generated on-device, in a table of per-device
+keys. Nothing in non-test `mls` binds `LeafNode.SignatureKey` to `Credential.Identity`;
+`Member.IdentityPub` is read off the credential (`mls/group.go:779`) and group policy roles key on the
+credential (`:787`); **so the protocol will never report this, and the whole 7,665-test suite is green
+with it in place.** The key packages this engine publishes today would be unusable for joining **even
+if the private half were persisted**.
+
+**WHAT THAT DOES TO THE INTERFACE WIDENING S2-4 ASKS FOR: it closes nothing, and it costs six files
+and a reflective gate.** A fifth argument on `PutKeyPackage` and a fourth result on `TakeKeyPackage`
+still leave `messagegroup` with no value to put in them, because no exported surface of `connect/mls`
+answers one — compile-probed. It contradicts Spec A §8.1 line 4625, which puts `device_sig` in the
+**keyfile** and puts only *"KeyPackages + their private halves"* in `mls_keypackage`. And it moves the
+interface, `recordingStore` (`mls/caller_arrays_test.go:2117`), `testStore`, `windowStore`,
+`refusingPutStore`, `memoryStateStore` and Spec A §3.5's code block **in one commit or not at all**,
+because `TestTheRecordingStoreReadsEveryArgumentItsInterfaceDeclares` derives its class from
+`reflect.TypeOf((*StateStore)(nil)).Elem()`. **Under the plan as written, `mls.StateStore` stays at
+eight methods and four `PutKeyPackage` arguments, and every row of that table is untouched.**
+
+**THE POSITION THE PLAN TAKES, LABELLED AS A POSITION, WITH THE ONLY REAL ARGUMENT AGAINST IT PRICED
+RATHER THAN DISMISSED.** The fix is one additive exported constructor in `connect/mls` —
+`NewKeyPackageWithSigner` — that binds the leaf's signature key, the leaf signature, the
+`KeyPackageTBS` signature and the retained seed to a signer the caller already holds, all four in one
+statement list, so the partial-rebind defect `lifecycle_fixtures_test.go:206-217` describes by hand is
+unreachable rather than avoided. The argument against is unlinkability: a fresh signature key per key
+package is one the delivery service cannot correlate. **Measured, that property does not exist in this
+tree and the widening would not create it** — `connectMlsEngine.NewKeyPackage` puts the device's one
+`device_xwing` public half, in the `urmessage_leaf_keys` extension, into the leaf of **every** key
+package it publishes, and `NewConnectMlsEngine` refuses a device that has none. Two key packages from
+one device are already publicly linkable by a landed field. **The sentence that would settle it either
+way is filed as `J1-1` and not ruled here**: MASTER §5.2 does not say, in as many words, that every
+leaf this device publishes — including a KeyPackage's, which RFC 9420 permits to carry a fresh key —
+names `device_sig`. The plan is built so the narrow reading costs one commit: `mls.NewKeyPackage`
+keeps its exact signature, its exact behaviour and all 17 of its call sites.
+
+**THREE MORE MEASUREMENTS THE PLAN PUBLISHES WITH THEIR QUERIES, because a finding is a claim.**
+`grep -rn ") PutGroupState(" --include=*.go .` returns **five** `mls.StateStore` implementations and
+every one is in a `_test.go` file — **S2-14** says *"the only two"*, and the count is five.
+`grep -rn "\.Commit(" --include=*_test.go messagegroup/` returns six lines and **every**
+`GroupHandle.Commit` call discards `welcome` and `ratchetTree` into `_`, so the **producer** half of a
+Welcome is as unexercised at that seam as the consumer half. And
+`grep -c "NewKeyPackage\|signPriv\|JoinKeyMaterial" mls/GATES.md mls/UNOBSERVED.md mls/ERRATA.md`
+returns **0, 0, 0**: there is no gate constraining how the constructor may change and no recorded
+prior reasoning to check the plan against.
+
+**THE SCHEDULING FACT THE PLAN MOST WANTS READ, and it contradicts the order S2-4's own text implies:
+S2-4 does not wait on S2-14.** The full two-engine join — A founds, B mints, A adds and commits, B
+joins, both handles agree on `Export("URmessage/v1/storage", nil, 32)` — runs entirely against the
+in-memory store already in the tree, in one repository, on one branch. `mls.JoinFromWelcome` accepts
+any `StateStore`. Nothing in the plan is blocked on `sdk` having a branch, on a SQLite schema, or on a
+durability ruling.
+
+**WHAT THE PLAN DOES NOT CLOSE, said in its first paragraph rather than in a footnote.** CP3b is *"two
+clients, one group, one DURABLE text message, every key real, no test-only key source anywhere on the
+path"*, and this plan buys the first six words. **S2-1**, **S2-2** and **S2-3** stand after it and
+none is its; two clients that share a group still cannot agree on a `storage_root` without S2-3. The
+Welcome's production delivery channel stays ledger **44** and **44a**'s, short-circuited for CP3b by
+44a's already-blessed gated hand-off, which is what the plan's two-engine test is. `group_handle_key`
+stays **M1-2**, deferred. The plan's Task 6 requires the test file to say all three in its own comment,
+held mechanically, for 44a's own reason: an absence that is named is safe and an absence that looks
+like a placeholder is not.
+
+**FOURTEEN OPEN ITEMS FILED, `J1-1` through `J1-14`, none ruled.** The three a reader should take
+first: **J1-1**, the `device_sig` sentence above; **J1-3**, that `TakeKeyPackage` is destructive with
+no non-destructive read, so an attacker holding a device's published key package can burn its private
+halves with a bogus Welcome — the plan's answer is take-and-put-back-on-failure, which works on the
+eight-method interface and reduces the loss from *a message* to *a crash in a millisecond-wide
+window*, and says so; and **J1-9**, whether CP3b's *"no test-only key SOURCE"* means *"no test-only
+CODE"*, which is the difference between S2-14 being a separate line and being the largest task in
+front of CP3b. `PROGRESS.md:73-77`'s own contrast — CP3a is the same path *"with the AEAD under a
+test-only key source"* — is the evidence for the narrow reading and is not a ruling. Also filed:
+**J1-8**, that `GroupEngine` has four methods and none reopens a persisted group while `mls.LoadGroup`
+has zero callers outside `mls`'s own tests, so a durable store would write rows nothing reads; and
+**J1-14**, that `groupStateBlob` carries `SenderRatchets` and nothing for the receive side while
+`(*Group).Unprotect` never persists — measured, the four `persist()` sites in `group.go` are `:681`,
+`:1024`, `:2579` and `:3429` and none is on the receive path — so after a restart every peer's
+receiver ratchet restarts at generation 0. J1-14 is stated **with its caveat**: the record layer above
+may mask it by deduplicating on record id, and this pass did not measure that it does.
+
+**What this pass did NOT do.** It ruled nothing of the owner's — J1-1 and J1-9 are both free today and
+both are named as asks. It closed **no** ledger item. It did not touch `connect`: the two compile
+probes and the behavioural probe lived in a throwaway module outside both checkouts and were deleted,
+and `git status --porcelain` in `connect` is empty. It supplied **no** test code — every addition is a
+property, a refusal owed, a derived class with its membership counted and its complement printed, or a
+mutation an implementer must apply. It did not sweep the other plans for J1-2's class — landed
+comments describing a mechanism no code uses — and the three instances it found are named in the plan
+so the next sweep has a derivation rather than an instance.
+
+**Verification.** `go build ./...` clean; `go test ./...` green; `go test ./ -run TestThePlanLinter`
+ok. **Every linter reporting count identical across the diff** (1b 7, 1c 1, 1d 189, 2a 18, 3a 4, 3c 3,
+4b 5) and the four fatal checks (2b, 3b, 3d, 4a) clean on both sides, with the derived class sizes
+growing as the corpus did: the property class 248 → 275, the class-deriving property class 56 → 64,
+task references 2,199 → 2,324, open-item references 693 → 799, ledger references 165 → 172, Consumes
+entries 248 → 255. `git ls-files` equals `git ls-tree -r HEAD` at **104**, checked before the commit
+and again after.
