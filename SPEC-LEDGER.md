@@ -11543,3 +11543,190 @@ R4's new third clause, for R6's two new clauses or for R7's second arm; all thre
 predicates with their queries so that sweep has a derivation rather than an instance to copy, and the
 three defects this pass found outside the verification — the `PutKeyPackage` row, the `CreateGroup`
 door's wrong route, and the six unscheduled gates — are the argument that it is worth running.
+
+### 2026-09-10 — the `j1` plan finished: a property whose own route could not see it, a door deferred on a reason nobody ran, and the two sweeps that found four more of each
+
+**What this pass did.** It closed the four findings that survived the audit of the `j1` repair, and
+then ran each finding's SHAPE over the whole document rather than over the two instances that were
+flagged. **It wrote no code, supplied no test, dispatched no task, ruled nothing of the owner's, and
+did not modify `connect`** — which is clean at `a1f8025`, 1,110 files. One plan document and this file
+changed. **`J1-10` is deliberately NOT ruled: neither S2-14 nor S2-4 has a named owner, and that
+stays the owner's.**
+
+**THE HIGH FINDING, AND IT IS THE THIRD CLAUSE OF THIS PLAN'S OWN RULE APPLIED TO A PROPERTY THE PLAN
+WROTE. Task 4 Property 5's principal clause — *"the two HPKE private halves are erased before
+`NewKeyPackage` returns"* — could not be seen through the route the property itself prescribed,
+because the store COPIES.** `memoryStateStore.PutKeyPackage` (`sessionfixture_test.go:101-108`) is
+`append([]byte(nil), initPriv...), append([]byte(nil), encPriv...)`, so its map is a snapshot taken at
+call time and nothing the engine does to its own arrays afterwards changes one octet of it. Measured
+by driving `PutKeyPackage` with two known arrays and reading the map back under each body:
+
+```
+correct body (erase both)      store=[11111111… 22222222…]   alias=[00000000… 00000000…]
+mutation 10 (erase neither)    store=[11111111… 22222222…]   alias=[11111111… 22222222…]
+mutation 12 (erase init only)  store=[11111111… 22222222…]   alias=[00000000… 22222222…]
+```
+
+**The store column is identical in all three rows: mutations 10 and 12 — the two mutants the property
+exists for — both survived its gate.** The repair gives the property TWO routes because it has two
+clauses no single observation covers: the **erase** clause is read through an **ALIAS**, a store
+double whose `PutKeyPackage` retains the caller's slice headers instead of copying them, and the
+**ordering** clause stays on the **COPY**, which is what goes to 32 zeros under mutation 11. **Neither
+alone is the property** — the copy cannot see 10 and 12, the alias cannot see 11 — and the instrument
+is now named in Task 4's `Consumes` block and in its Files row, so it is a scheduling fact rather
+than a step-2 discovery. `memoryStateStore` must keep copying: Task 5 Property 3's put-back is a
+statement about the store's OWN arrays, and a production store that aliased a caller's array is R7
+arm (i)'s own defect.
+
+**THE MEDIUM THAT MOVED A DOOR BACK. Task 4 Property 1's door 4 (`GroupHandle.Commit`) was deferred to
+Task 6 on the ground that *"the leaf only carries a fresh signature after a commit that MERGES, which
+needs a SECOND member's key package added first"*. Measured, that is false.**
+`ProposalList.PathRequired` (`mls/proposal_list.go:527-530`) returns true on an EMPTY list, so a
+one-engine `Commit(nil)` populates the update path and re-signs leaf 0. Built in a throwaway copy of
+`connect` at `a1f8025` with no task of this plan applied:
+
+```
+Commit(nil): commit=1610  welcome=0  ratchetTree=1418     # merges: epoch 1, memberCount 1
+leaf0 before: SignatureKey=1e2eb703…  Signature=aa569255…
+leaf0 after : SignatureKey=1e2eb703…  Signature=c392d47c…  # RE-SIGNED, same key
+```
+
+**Door 4 is observable at Task 4 through the exact three names door 2 already put in `Consumes`** —
+`RatchetTreeSnapshot()` → `mls.UnmarshalRatchetTree` → `rt.Leaf(0).SignatureKey`. The stale reason
+conflated *merging a commit* with *adding a member*. Door 4 returns to Task 4 with **mutation 14**
+(re-sign under a fresh signer at `treekem.go:463`, an `mls`-side mutant) and **mutation 15** (read the
+leaf before the merge — door 4's own control), and it is printed honestly: **it catches none of
+mutations 1–13 on its own**, because under every one of them the committer re-signs with the group's
+cloned `self.signer`. **R4's third clause now has a second edge stated with it: a property must not
+assert what the task cannot read, AND must not defer what it can** — the second is the more dangerous,
+because a deferral reads as rigour and leaves nothing red.
+
+**THE MEDIUM THAT WAS ONE CLASS WITH TWO SIZES. R7's class is SIX rows in its table and R7's rule
+paragraph says six; two prose sentences that read off that table still said FOUR** — the sweep's own
+headline (*"The class is four sites and the complement is one"*) and Task 5 Property 6's *Scope to
+derive* (*"That class is four members"*). **The second is what tells an implementer how wide that
+property's scope is**, and an implementer deriving off it would have derived a scope two members
+short — both of the two missing being Task 4's. Both corrected and both printed rather than quietly
+bumped. It is the same shape as the predicate defect the previous pass named one level up — *"a sweep
+whose predicate does not admit its own table's rows has not been run over itself"* — one level up
+again: **a sweep whose HEADLINE does not count its own table's rows.**
+
+**THE LOW THAT TURNED OUT TO BE R6 CLAUSE (a) APPLIED TO A COMPLEMENT. Task 4 Property 1's scope query
+does not contain the complement printed beside it.** `grep -rn "NewLeafNode(\|\.Sign(crypto"
+--include=*.go mls/ | grep -v _test` returns 8 lines in **6 enclosing declarations**, and the document
+read them as *"8 sites → 5 doors: 4 in the class and 1 in the complement"* as though one query
+produced all five. Every line is now dispositioned in a table: `group.go:525` → door 2,
+`group.go:1683` → door 3, `key_package.go:304` → door 1, `treekem.go:463` → door 4; **removed** are
+`group.go:648` and `group.go:2865`, which are `GroupInfo.Sign` and not leaf sites — and `:2865`'s
+enclosing declaration is **`LoadGroup`**, no §6 door at all — plus `leaf_node.go:483` and `:515`,
+which are `NewLeafNode`'s own declaration and the `leaf.Sign` inside it. **8 − 4 = four doors, all
+four in the class.** The fifth door, `GroupEngine.JoinFromWelcome`, is in none of the 8 lines and
+cannot be: its leaf comes off a peer's tree and it mints none, so `sed -n '3033,3440p' mls/group.go`
+through the same grep returns **0**. Its universe is §6's own method set and the complement is derived
+off that second query, printed beside the first.
+
+**AND THE CONTAINMENT CHECK ITSELF FAILED ONCE, WHICH IS R6 CLAUSE (a) RUN OVER R6 CLAUSE (a).** The
+clause's one-command tell is *"pipe the published query through `grep -c` for a member's spelling"*.
+Measured, `grep -c LoadGroup` over that query's output is **0** for a line that IS in the answer,
+because the member's spelling is the ENCLOSING declaration and the query matched the call inside it.
+**The shortcut answers the question only when the class member's spelling is what the query MATCHED;
+a class read back through enclosing declarations is checked by `file:line`** — `grep -c
+"group.go:2865"` is 1. Printed at the property.
+
+**THE ROUTE SWEEP: R4'S THIRD CLAUSE RUN OVER EVERY ROUTE THE DOCUMENT NAMES, NOT OVER THE TWO
+FLAGGED — AND IT FOUND TWO MORE AND A HALF.** The scope is a predicate over the document with its
+query printed (R6 clause b): `grep -c '^ *\*\*Property [0-9]'` returns **43 lines**, of which **31 are
+property declarations** and **12 are mutation-list openers** — the printed complement — for **30
+properties** across seven tasks, 5/4/3/5/6/5/2, which is exactly what `planlint`'s own parser counts.
+Each was checked by naming the route as *call → decode → FIELD* and asking both whether every name on
+it is in that task's `Consumes` block and whether the route can reach the value the principal clause
+is about. **Four of the thirty fail, and only two of the four were flagged:**
+
+- **Task 2 Property 4** stated its observation as *"the wrapper's array is zero after the call
+  returns"*, and that array is a **LOCAL of `NewKeyPackage`'s body** — no test reads a returned
+  function's local. The route exists and was not named: `(*suiteCryptoProvider).SignatureKeyPair`
+  (`crypto_labels.go:492-498`) hands back the seed BUFFER, so a recording provider that retains what
+  it answered holds an ALIAS of the wrapper's array. If that provider copies on the way out, the
+  property is green under mutation 7 and measures nothing.
+- **Task 5 Property 6** rules `MemberAt(0)`'s `identityPub` INADMISSIBLE in its own text — correctly,
+  since the erase does not touch `Credential.Identity` — and then **consumed no replacement**: none of
+  `RatchetTreeSnapshot`, `mls.UnmarshalRatchetTree` or `(*RatchetTree).Leaf` was in Task 5's
+  `Consumes` block, while its second admissible observation is *"a `CreateGroup` on the same engine
+  whose leaf 0 names it"*. All three added.
+- **Task 4 Property 3** is the half-defect: its **content** clause reaches through
+  `memoryStateStore.keyPackages[hex(ref)]`, and its **arity** clause — *"and nothing else"*, which is
+  what mutation 6 attacks — does not, because a map records no call. Split at the property, with the
+  call record named in `Consumes`.
+
+**The predicate that finds all of them in one reading, and it is the sweep's whole output:** *a route
+that hands the test a COPY of the value cannot witness what happens to the ORIGINAL.* It is now
+written into R7 as that rule's **observation clause**: an erase is observable only through an ALIAS of
+the array that was erased, and wherever the far side copies, the property must build the alias or it
+is measuring a photograph. **R7 says which arrays owe an erase; without this clause the sweep filled a
+table with green rows.** Rows 1 and 3 have aliases by construction; rows 2, 5 and 6 did not, and all
+three were written against a route that cannot witness them.
+
+**THE STALE-REASON SWEEP: TWELVE DEFERRALS AND EXCLUSIONS RE-RUN AS COMMANDS, FOUR FALSE.** Findings 2
+and 3 above are two; a third is R4's own third-clause paragraph, which still said door 4's leaf
+*"cannot be read"*; **the fourth was found by the sweep and not by the audit** — Task 2 Property 4's
+*"it is the one place in this plan where the aliased array's owner is a local rather than a field"*,
+which R7's widening made false the moment two arm-(ii) locals joined the table. It is narrowed to
+*"the one place inside `connect/mls`"*, which is the clause the `staged_erase_test.go` argument
+actually needs. **Three of the four are the SAME widening surfacing in three shapes — a headline that
+counts the table, a Scope sentence that counts it, and a scope CLAUSE that prints no number at all —
+so a sweep looking only for stale NUMBERS would have found two of the three.** The eight that stand
+are printed too, and the control row is **door 3**, whose reason is not a reading at all: measured,
+`ProposeUpdate` answers **1,575 octets** with `PrivateMessage=true`, and `Commit(nil)` after it
+refuses `mls: the committer covered its own update proposal: leaf 0, at updates[0]`. **A reason stated
+as a command cannot go stale silently — re-running it is the same act as reading it.**
+
+**AN EIGHTH PUBLISHED NUMBER FAILED RE-MEASUREMENT, AND IT WAS ONE THIS DOCUMENT PUBLISHED WHILE
+CORRECTING SOMEBODY ELSE'S.** The bullet to m1 said m1 Task 16's measurement *"`grep -rn
+'group_handle_key|GroupHandleKey'` over `connect` returns 0"* is **stale: it returns 19 production
+hits**. Measured at `a1f8025`, `grep -rnE 'group_handle_key|GroupHandleKey' --include=*.go . | grep -v
+_test` returns **26** — `messagegroup/handle.go` 13, `session.go` 9, `errors.go` 3, `streamindex.go` 1
+— and no reading returns 19 (`group_handle_key` alone is 14, `GroupHandleKey` alone is 13, the whole
+tree with tests 67). **And m1's 0 is not stale, it is VACUOUS:** without `-E`, `grep` reads
+`a|b` as a literal string containing a pipe, so that command returns 0 at every commit and would
+return 0 if the identifier were on every line of the tree. **Calling a broken command "stale" misfiles
+it**, and R6 clause (b)'s scope — every place this document publishes a number a query could produce —
+already covered this bullet while the sweep's own rows did not. Corrected at the bullet and added as a
+row.
+
+**WHAT THIS PASS BROKE AND CAUGHT ITSELF, RECORDED BECAUSE THE CATCH IS THE POINT.** Three of the new
+`Consumes` sentences were written as `**Property 5**`, `**Property 3**` and `**Property 6**`, and
+`planlint`'s `propertyStart` regex (`planlint_test.go:153`) is `\*\*Property[ \t]+([0-9]+)` and is
+**unanchored** — so each created a phantom property start EARLIER in its task than the real
+declaration, and `parseProperties` drops the real one as a back-reference. **Task 4 silently lost
+Properties 3 and 5 and Task 5 lost Property 6, and every reported check count stayed identical**: 2a
+still said 18, because none of the three shadowed properties was class-deriving. It was found by
+measuring the linter's DERIVED LISTS rather than its report — the class-deriving property class fell
+**66 → 65** — and fixed by removing the bold adjacency. **The report was green over a document the
+gate had stopped reading**, which is this project's own recurring lesson arriving inside the pass that
+was written to sweep for it.
+
+**Verification.** `go build ./...` clean and `go test ./...` green before and after.
+`go test ./ -run TestThePlanLinter` ok on both sides, **with every reporting count identical across
+the diff** — 1b **7**, 1c **1**, 1d **189**, 2a **18**, 3a **4**, 3c **3**, 4b **5** — and the four
+fatal checks (2b, 3b, 3d, 4a) clean on both sides. **Every derived class the linter reads was measured
+on both sides rather than inferred from the report**, which is the check the phantom-property defect
+above defeated: the property class **278 = 278**, the class-deriving property class **66 = 66** (and
+its ten J1 members are the same ten), the plan-supplied-test class **189 = 189**, open-item references
+**847 = 847**, ledger references **172 = 172**, Consumes entries **255 = 255**, qualified consumed
+names **10 = 10**; task references **2,450 → 2,480** and plan references **2,175 → 2,184**, both of
+which grew with the document. J1's per-task property counts are unchanged at **5, 4, 3, 5, 6, 5, 2**.
+Every table in the plan document was checked for pipe consistency: **0 malformed rows**. `connect` was
+not modified — clean at `a1f8025`, 1,110 files — and all probes were built in throwaway copies outside
+both checkouts and deleted. `git ls-files` equals `git ls-tree -r HEAD` at **104**, checked before the
+commit and again after.
+
+**What this pass did NOT do.** It did not rule **J1-10**: neither S2-4 nor S2-14 has a named owner and
+that is the owner's to give. It ruled nothing else of the owner's — J1-1 through J1-9 and J1-11
+through J1-16 are untouched, and J1-9's landed ruling and its accepted cost are unchanged. It wrote no
+test code and implemented nothing; every addition is a property, a route, a refusal owed, a reported
+number or a mutation an implementer must apply. **It did not sweep the other twelve plan documents for
+R4's third clause, R7's new observation clause, or the stale-reason class** — all three are now stated
+as predicates with their queries and their complements, so that sweep has a derivation rather than an
+instance to copy. **And the argument that it is worth running is this pass's own arithmetic: two of
+the four route defects and one of the four stale reasons were outside the audit's list and were found
+only by running the shape over the whole document.**
