@@ -11846,3 +11846,131 @@ did not run the new predicate over the other twelve plan documents**; the predic
 complement are written down so that sweep has a derivation rather than an instance to copy, and the
 argument that it is worth running is this pass's own arithmetic: **three of the six class members and
 two of the four `Files` defects were outside the sign-off's list of three.**
+
+---
+
+### 2026-09-10 — `k1`: the two `connect` blockers that needed no ruling, designed — and the narrowing that is the whole of the S2-1 answer
+
+**Change:** Added `docs/plans/2026-09-10-slice1-k1-the-session-seam.md` — an implementation plan, not
+an implementation — closing **S2-1** (*"the epoch keys are not reachable from `sdk`"*) and **S2-2**
+(*"`server_nonce` dies on the first reconnect"*), the two CP3b blockers the `s2` plan filed against
+`connect` that need no owner decision. **Six tasks, twenty-four properties, forty-one mutations, and
+no test code.** Nothing in `connect` was modified: that tree is at `0c14aa0` and another writer holds
+it.
+
+**Why a plan and not code:** both items are doors onto `GroupSession`, the type whose record layer is
+the subject of CP3b's defining test, and *"a design that hands keys out casually breaks the property
+the milestone rests on."* The design decision is the document; the code is a later commit.
+
+**The design, one line each.** **S2-1** — a new `EpochKeys` value carrying the epoch, `read_key[e]`
+and `write_key[e]` as **copies**, with a `Destroy`, answered by one new session method. **S2-2** —
+`RebindServerNonce`, a setter with **no getter**, plus `ReauthRecord`, which recomputes the one field
+of `message.Record` the nonce binds.
+
+**THE LARGEST ACT IS A REFUSAL, AND IT IS THE NARROWING R5 ASKS FOR.** The naive close of S2-1 is an
+accessor for `storage_root`, which answers every ask at once. It is not built. `message.WriteKey`,
+`message.ReadKey`, `DeriveClassKeys` and `GroupHandleKey` are all **exported**, so one root accessor
+publishes every class key, both auth keys and the routing identifier — the whole schedule below
+`mls_secret`. **The class is the session's key material derived over `zeroizeOnLoop`'s erase sites and
+it is EIGHT; the door carries TWO; the complement is SIX and the plan prints it row by row with the
+reason each row is off the door.** The query is published beside the number — a `sed` of
+`zeroizeOnLoop`'s body piped through `grep -cE 'zeroize\(self\.|\.Zeroize\(\)'` returns 8. **And what
+the derivation CANNOT see is printed too:** `mls_secret` is a local in `installEpochOnLoop` and not a
+field, so a field-derived class does not contain it.
+
+**What the plan says about `keysource_test.go`, which is CP3b's definition, in one section rather than
+scattered.** (1) **The file is not edited, and that is a command rather than an intention** — the
+definition of done requires `git diff --stat` over the plan's range to show it absent. (2) The three
+record-level tests stay green because **no octet moves**: neither door produces a key. (3) **One
+sentence of its header becomes conditional** — *"`server_nonce`, the value the constructor was
+injected with"* — because a setter now exists; the close is Task 3 Property 5, a ban on
+`RebindServerNonce` in `keysource_test.go` and `sessionfixture_test.go`, derived over the package's
+test source with **the complement — the other twenty test files — printed by the gate**. (4) The
+landed module gate widens **on its own**: its class is *"every name the MODULE declares"*, so the four
+new exported names join it with no edit. (5) **The two landed gates fire in a known order**, and the
+plan says which: the reproduction has no session in scope, so a mutant must first put an `*EpochKeys`
+on `keySourceSealed`, where the **boundary** gate refuses it before the module gate ever sees a call.
+**A plan that had claimed the module gate as the first line of defence would have been wrong about its
+own tree.**
+
+**And what CP3b's test still cannot see AFTER this plan, printed because an empty complement is the
+dangerous reading.** **A no-op `RebindServerNonce` leaves all five tests of `keysource_test.go`
+green** — the fixture never rebinds, so the defining test of the milestone cannot see S2-2's defect in
+either direction. Two more: a re-auth under the wrong key of the right epoch, and a door answering the
+right key of the wrong epoch. All three are named, each with the task property that does see it.
+
+**S2-2's blast radius, measured rather than argued.** `serverNonce` reaches **one** production file of
+`connect/message` (`writeauth.go`) and **zero** lines of `aad.go`, `record.go` and `codec.go`;
+`message.Record` has **five** fields; so **exactly one of the five — `WriteAuth` — is a function of
+the nonce, and the complement is four.** A rebind therefore recomputes one HMAC over a preimage
+rebuilt from the record in hand: no AEAD runs, no ratchet moves, no `stream_index` is reserved.
+**Nothing already sealed becomes unopenable** — `OpenRecord` reads neither the nonce nor `write_auth`
+(the only read of `serverNonce` in `messagegroup` is `seal.go:326`, on the seal path) — so a stale
+nonce costs **server acceptance and not readability**. `s2`'s *"invalidates every record sealed after
+it"* is right about submission and must not be read as being about the records.
+
+**The epoch case is refused rather than solved, because §5.7 rules it differently.** The outbox rule
+has two clauses with two costs — the nonce case is *re-MAC'd*, the `REASON_EPOCH_STALE` case is
+*"discarded and re-sealed at the new epoch, consuming a fresh `stream_index`"*. A re-MAC of an
+epoch-stale record is well-formed, cheap and wrong, and **no test in the package would notice**, so
+`ReauthRecord` refuses it. The re-seal needs the durable reserver and an outbox nothing in `connect`
+owns: **K1-3**.
+
+**R4's third clause is the design argument of Wave 2 and not a footnote.** A rebind moves one octet
+string; two records sealed in sequence differ in that string anyway because `stream_index` moved, so
+*"seal, rebind, seal again"* observes a difference it cannot attribute. **The only route on which the
+nonce is the sole free variable is re-authenticating the SAME record** — which is why `ReauthRecord`
+is in this plan rather than deferred to `sdk`, and why Task 3 Property 2's `Consumes` block names a
+Task 4 symbol and the execution order says **Task 3's commit may not claim that property**.
+
+**Every source anchor was verified by running, not by reading.** Thirty-seven `file:line` anchors were
+checked with `git show 0c14aa0:<file> | sed -n '<line>p'` against the text each claims to name, and
+**ten were wrong on the first pass and all ten were corrected** — `do` (234→241), `zeroize` (39→55),
+`zeroizeOnLoop` (551→553), `installEpochOnLoop` (427→428), the `mls_secret` export (428→429), the
+exporter constants (580→582), `newTestSession` (267→440), `messagegroupProductionSources` in
+`engine_test.go` (254→101), `ProvisionalEpoch`'s door check (355→362) and its accessors
+(211-256→211-259). **One published COUNT was wrong too and is corrected here rather than quietly:**
+the plan first said `ProvisionalEpoch` has *"seven methods"*; measured, the exported set is **9**, and
+the claim that matters — `ReadKey` is not among them — survives with `grep -c ReadKey` returning
+**0**, which is the tell rather than the count.
+
+**Every query in the document was run against the COMMIT and not the working tree**, because
+`connect`'s working tree carried another writer's uncommitted `messagegroup/engine.go` at the hour
+this was written. That none of the numbers comes from that file is itself measured: the
+`GroupSession`-method query restricted to `messagegroup/engine.go` at `0c14aa0` returns nothing.
+
+**What this pass did NOT do.** It wrote no code and modified `connect` not at all. **It did not rule
+ledger item 152, read it as ruled, or design around either reading** — every task runs on a session
+constructed with an injected `pq_secret`, exactly as the landed fixture does, so **S2-3** is neither
+nearer nor further. It did not edit the `s2` plan's S2-1 or S2-2 entries or their *"Position taken"*
+paragraphs: *"a plan that rewrote another plan's open items on the strength of a plan is claiming a
+landing that has not happened"*, and the code landing is the commit that earns that edit. It resolved
+no ambiguity the specs leave open: **K1-1** (which value a restart persists — M1-4's, unruled),
+**K1-2** (the nonce width, 32 in §5.7 and unchecked in the constructor; the setter matches the
+constructor rather than the spec, deliberately, and says so), **K1-4** (nothing observes that a rebind
+happened before the next seal, and §5.7's own 2026-08-26 ruling calls the fix an owner decision about
+a repository this work does not own) and **K1-6** (`read_key`'s lifetime, described two ways in one
+document) are filed with what each blocks and none is decided.
+
+**And one open item is a property with no mechanical observer, named rather than dropped: K1-7.** Task
+6 Property 2 is about the interface registry, which lives in `msgrepo` while the code lives in
+`connect`, and no test in either tree reads the other. It is held by review, the property says so, and
+Task 6 mutation 4 records that no test caught it.
+
+**Verification, before and after.** `go build ./...` clean and `go test ./... -count=1` green in
+`msgrepo` on both sides. `go test ./ -run TestThePlanLinter` ok on both, **with every reporting count
+identical across the diff** — 1b **7**, 1c **1**, 1d **189**, 2a **18**, 3a **4**, 3c **3**, 4b **5**
+— and the four fatal checks (2b, 3b, 3d, 4a) clean on both sides: **this document contributes zero
+findings to all nine checks.** Two rounds of linter repair were needed to get there and both are
+recorded rather than hidden: the first run put **2 FATAL findings** in check 2b (two properties whose
+*"the gate fatals if the class is empty"* wording the membership matcher reads as a count of zero),
+**1** in 1b, **4** in 2a, **3** in 3a (an `s2` qualifier wrapped to the previous line, three times)
+and **4** in 4b (a backticked `GroupSession` inside a `Produces` clause, which makes the linter treat
+a landed type as one this plan produces). **Every derived class the linter reads was measured on both
+sides:** the property class **278 → 302**, the class-deriving property class **66 → 74**, the
+plan-supplied-test class **189 = 189**, task references **2,511 → 2,613**, open-item references
+**847 → 902**, plan references **2,184 → 2,207**, ledger references **172 → 176**, `Consumes` entries
+**255 → 261**, qualified consumed names **10 → 15**. The document's own shape was measured directly:
+**24 properties over 6 tasks (5, 5, 5, 5, 2, 2)**, and `grep -c '^- Consumes:'` returns **6**.
+`connect` was not modified, and every query in this entry was run against it read-only.
+`git ls-files` equals `git ls-tree -r HEAD` at **104**, checked before the commit.
