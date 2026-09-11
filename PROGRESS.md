@@ -1477,3 +1477,90 @@ package seals only `DURABLE`. **M1-6 was ruled on 2026-09-07** — the refusal i
 `EPH` is refused under ledger item **152**. `seal.go`'s own comment carries the same stale name; this
 file's 2026-09-07 entry already recorded that for `seal.go` and did not reach `doc.go`. Filed here for
 whoever next holds that tree.
+
+---
+
+## 2026-09-11 — the carve-out's remaining sites: a conformance row that was false on both clauses, the premise left standing six lines above the line that corrected it, and a proximity claim the ruling was argued on
+
+This is the second commit of 2026-09-11 and it is documents only. It closes what the first one left,
+and two of the four things it closes are **about the first one**, which is the part worth keeping.
+
+### What was closed
+
+**Spec A §7 requirement `S10`** required a server to *"retain `ct_head` and `body_hash` when `ct_body`
+is erased"*, unqualified, citing *"MASTER §8, §9.1, §12.2"*. It is **false for `EPH(1..5)` on both
+clauses** — Spec B §7.2 sets `ct_head = NULL` and zeroes `body_hash` — and after the morning's MASTER
+amendment it **disagreed with the sections it cites as its own authority**: MASTER §8 now excludes
+`EPH` in its own voice, MASTER §12.2 enumerates what an expired ephemeral record leaves behind and
+names neither field, and MASTER §9.1 says nothing about retaining either. §7's table is the list a
+second server implementation is built from, so of everywhere the premise survived, this was the voice
+that mattered most. Spec A revision **A-24**.
+
+**MASTER §8's `body_hash` line** carried the identical premise, **six lines above** the `ct_head` line
+the morning's amendment corrected, **inside the same fenced field listing**. Corrected under an eighth
+dated amendment note.
+
+**Two more sites nothing had looked at**: Spec A §5.1's `RecordHeader.BodyHash` and `Record.CtHead` Go
+struct comments. `Record.CtHead` read *"AEAD, always retained"* — **MASTER's pre-amendment wording,
+verbatim, in the document that carries the carve-out**, in the comment a builder transcribes into
+`message/record.go`. And **Spec B §3.2's DDL comment** on `body_hash`, which its own §7.2 has
+contradicted since revision 2 (Spec B revision **19**).
+
+**The A-20 allocation sentence** — *"MASTER §8.1 stands as written and Spec A §5.3 is the document
+that changes"* — still read unchanged in two live documents, including at the exact line the revision
+row declaring it inverted cites as its location. Both now carry the annotation **at the sentence**.
+
+**And a correction to the reasoning the ruling was argued on.** *"Spec A §5.3 states the rule and
+excludes `EPH` in the same paragraph"* is **false**. §5.3 states the rule at `:1248-1257` and carries
+the exclusion at `:1290-1299` — **47 to 70 lines below**, five paragraphs apart. The ruling stands and
+is arguably strengthened, because a §5.3 reader who stops at the rule does not reach the carve-out
+either. Corrected in all three places it was written.
+
+### The defect class this stretch adds to the one below
+
+**A published complement does not make a query's blind spot visible.** The 2026-09-11 morning pass did
+everything the discipline asks: it derived a class from two queries, printed the 27-member complement,
+and named `MASTER:950` as the one its own first-draft regex would have missed. It still left **six**
+members of the same class standing, one of them six lines from the line it was correcting. The reason
+is mechanical: a complement is the set the *query* rejected, so it can only ever show you what your
+query saw and dismissed — never what it never matched. **The class here was derived by reading eight
+sections end to end and the query was written afterwards, to check the reading.** `Record.CtHead` is
+the proof it had to be that way round: `CtHead` is not `ct_head`, so no widening of the previous
+query short of dropping the identifier would have reached it.
+
+**Corollary, and it is the shape to carry forward:** a restatement of a rule is caught by a query
+tuned to the rule's words; a **contradiction between two statements** is caught by neither, because
+each half is unremarkable on its own. Reading §3.2 against §7.2 is what found ledger item **181** —
+Spec B declares `ct_head bytea NOT NULL` and then requires the sweep to set `ct_head = NULL`, so the
+`UPDATE` one section specifies is one the other forbids. Nothing catches it today because `sweep/`
+holds no code; the first ephemeral record to expire on a real server is what would.
+
+### What is still not ruled
+
+**Ledger item 152** — what class an `EPH` head is keyed under — and **M1-27**. They go in **one
+sitting**, and the reason is unchanged and is a fact about the tree: `K_eph[n][b][t]` has **no
+computable key today** whatever class it is assigned, because `t` has no unit, no origin and no clock
+in any document, and `message.EphBucketSeconds(0)` returns `-1`, the same `noLadderValue` sentinel as
+the off-ladder bucket 6. **Ledger item 181** is new, filed, and not ruled: one of its two candidate
+repairs is wire-visible.
+
+### Two findings against `connect` that this pass could not fix, because this pass is documents only
+
+1. **`connect/message/record.go:88-89`** — *"H(ct_body), retained after ct_body is erased, which is
+   what lets a pruned record still say what it carried."* Same class as everything above, on the
+   `BodyHash` field itself, in the shipped tree.
+2. **`connect/messagegroup/keyschedule.go:262-273`** — quotes MASTER §8.1's **pre-amendment** sentence
+   and says *"WHICH rung each half takes is open item M1-6 and is not answered here."* **M1-6 was
+   ruled 2026-09-07**, and the sentence it quotes no longer exists in MASTER in that form. Same shape
+   as the `doc.go:97-98` staleness the entry above filed and could not fix; all three are for whoever
+   next holds that tree.
+
+### Verification
+
+`go build ./...` clean and `go test ./... -count=1` green before and after.
+`go test ./ -run TestThePlanLinter -count=1` ok on both sides with **every reporting count identical**
+— 1b 7, 1c 1, 1d 189, 2a 18, 3a 4, 3c 3, 4b 5 — and the four fatal checks clean on both. The one
+measured delta is the linter's ledger-reference class, **177 → 178**, which is the single new
+`ledger 152` citation this commit adds to the `m1` plan. `connect` was `beta/message` at `72ffdbd`,
+1,112 tracked files, clean before and after, and was read with `grep` and `sed` only.
+`git ls-files` equals `git ls-tree -r HEAD` at **105**.

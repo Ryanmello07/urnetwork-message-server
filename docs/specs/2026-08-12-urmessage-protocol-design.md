@@ -306,8 +306,15 @@ nowhere. A RULE IN THIS DOCUMENT CHANGES, and that is said first because the two
 opened by saying the opposite.** The rule *"`ct_head` is always under the **durable** class, since it
 is always retained"* was stated here **unqualified**, at §8's record listing and at §8.1's ratchet
 paragraph, with no `EPH` annotation at either — while Spec A §5.3, which owns the construction, has
-stated the rule **and excluded `EPH` in the same paragraph** since revision A-20, and
-`messagegroup.SealRecord` has refused every non-`DURABLE` class since m1 wave 1. **The harm was never
+stated the rule **and excluded `EPH` in the same section** since revision A-20, and
+`messagegroup.SealRecord` has refused every non-`DURABLE` class since m1 wave 1. *(**This sentence
+read "in the same paragraph" and that is FALSE. Corrected in place 2026-09-11**, the same day, and in
+place rather than by erasure because the next reader will check it: §5.3 states the rule in prose at
+**`§5.3:1248-1257`** and again in its Go block at **`:1225-1231`**, and carries the `EPH` exclusion at
+**`§5.3:1290-1299`** — **47 lines below the rule paragraph's own statement of it at `:1250`, 49 below
+that paragraph's first line, and 70 below the Go comment** — with five paragraphs between them. The amendment below is **strengthened** by the correction rather than
+weakened: a Spec A reader who stops at the rule does not reach the carve-out either, so the exclusion
+was not where a builder meets the rule in **either** document.)* **The harm was never
 the rule; it was that a second implementer building from the top document would seal an `EPH` head
 under `K_durable` and nothing in the corpus or the tree would stop them** — widening the shipped
 refusal to admit `PERMANENT` reddens **2 of 208** `messagegroup` tests and both are the blanket
@@ -322,6 +329,29 @@ one sitting with ledger open item **M1-27**, because `K_eph[n][b][t]`'s window `
 origin and no clock in any document — so no `EPH` head has a computable key today whatever class it is
 assigned. Ledger items **132**, **133**, **134**, **142**, **148**, **152** and **178** stay filed and
 unruled.
+
+**Amendment to revision 9 — 2026-09-11 (second pass of that date) — §8's `body_hash` line: the same
+premise, six lines above the line the amendment above corrected and inside the same fence. A RULE IN
+THIS DOCUMENT CHANGES, and it is the rule the note above was written to fix.** §8's record listing
+carried *"`body_hash` 32B H(ct_body); RETAINED when `ct_body` is erased"* — unqualified, in the same
+column-aligned field listing, **six lines above** the `ct_head` line the note above amended. It is
+false for the same one class and for the same reason: Spec B §7.2 **zeroes `body_hash`** for
+`EPH(1..5)` in the one statement that sets `ct_head = NULL`. The line now carries the scope. **What
+this says about the note above is worth more than the line itself:** that pass derived its class from
+two regular expressions, printed the complement, and *still* reached only the sites its own regexes
+named — this line matched neither, so the shape of the defect survived inside the correction. The
+class for **this** pass was derived by reading §8, §8.1, §9.1 and §12.2 end to end and by reading
+Spec A §5.1 and §7 and Spec B §3.2 and §7.2 the same way; what reading cannot see is stated in
+`SPEC-LEDGER.md` beside the result. **Three sites outside this document are closed in the same
+commit**, all of them found by reading and none by the earlier queries: Spec A §7's server-conformance
+row **S10**, which stated both clauses unqualified and — after the amendment above — contradicted
+MASTER §8 and §12.2, the two sections it cites as its own authority; and Spec A §5.1's two Go struct
+comments, one of which was this document's **pre-amendment wording, verbatim**. **`EPH(0)` is not in
+scope anywhere here:** it is never persisted, so it has no `body_hash` on disk to retain or zero.
+**Nothing is ruled by this amendment.** Ledger item **152** is still open, still to be ruled in one
+sitting with **M1-27** — `K_eph[n][b][t]` has no computable `t` and `message.EphBucketSeconds(0)`
+answers `-1` — and ledger items **132**, **133**, **134**, **142**, **148**, **152**, **178** and the
+new **181** stay filed and unruled.
 
 ## 1. Purpose and product target
 
@@ -963,7 +993,13 @@ RECORD
   size_bucket        u8   256B / 1K / 4K / 16K / 64K / blob-ref
   expire_at          u64  unix MILLISECONDS, big-endian, 0 = unset; advisory upper bound only —
                           it may SHORTEN retention, never extend it
-  body_hash          32B  H(ct_body); RETAINED when ct_body is erased
+  body_hash          32B  H(ct_body); RETAINED when ct_body is erased for PERMANENT,
+                          DURABLE and MEDIA. NOT retained for EPH(1..5) — Spec B §7.2
+                          ZEROES it at prune_after, in the one statement that also sets
+                          ct_head = NULL. (Amended 2026-09-11, second pass of that date;
+                          this line read "RETAINED when ct_body is erased" with no
+                          exception in it, six lines above the ct_head line the first
+                          pass corrected and inside the same fence.)
   blob_id            32B  present iff size_bucket == 5, absent otherwise; the object the body
                           lives in when the body is not inline. Derived from the record's key
                           material, never from content — see Spec A §5.13

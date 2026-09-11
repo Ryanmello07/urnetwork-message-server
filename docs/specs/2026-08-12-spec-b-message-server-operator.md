@@ -531,6 +531,40 @@ one change that would remove the window is still this server's and is still not 
 
 ---
 
+**Revision 19 — 2026-09-11 — one DDL comment and one quotation, both of them this document
+disagreeing with its own §7.2. No SQL statement, no column, no type, no `CHECK`, no index, no
+reason code and no protobuf field changes.** §3.2's `message_record` DDL annotated `body_hash` as
+*"retained after `ct_body` is erased (§8)"*, unqualified — and §7.2's own table, which this document
+has carried since revision 2, **zeroes** `body_hash` for `EPH(1..5)` at `prune_after` in the same
+statement that sets `ct_head = NULL`. The comment now says which classes retain it and that the
+`EPH(1..5)` action zeroes the value without dropping the column, so `NOT NULL` and
+`CHECK (octet_length(body_hash) = 32)` are both still satisfied on 32 zero bytes. §7.2's closing
+`MEDIA` paragraph quoted MASTER §8's `body_hash` line **verbatim**, and MASTER amended that line on
+2026-09-11; the quotation is updated to the amended text, which is what makes the master spec agree
+with this document's §7.2 rather than with the reading §7.2 contradicts. **Neither is a rule of this
+document changing** — §7.2 is what both now agree with, and it is unedited.
+
+**`store/migrations.go:159` in the message-server repository carries the superseded comment verbatim
+and is deliberately NOT edited.** §10.3 is *"a landed migration is never edited, only superseded"*,
+and the audit table records a migration by its position and name; the correction belongs to whichever
+migration next touches that table. Recorded in `SPEC-LEDGER.md` so it is not rediscovered as a
+divergence.
+
+**One contradiction found while reading §3.2 against §7.2 is FILED AND NOT RULED — ledger item
+181.** §3.2 declares `ct_head bytea NOT NULL`. §7.2 requires the sweep to set `ct_head = NULL` for
+`EPH(1..5)`. **Those cannot both hold**: the `UPDATE` §7.2 specifies is rejected by the constraint
+§3.2 declares, so the first ephemeral record to expire on a server built from this document fails
+its sweep batch. Nothing catches it today because §7.4's sweep is unimplemented — `sweep/` holds no
+code — and the `prune_after` arithmetic that *is* implemented never issues the statement. It is not
+ruled here because the two repairs are not equivalent and the choice is the owner's: dropping
+`NOT NULL` would also remove the floor §5.1 check 3 derives from it (*"a head at all"*,
+`api/submit.go:299`), while reading §7.2's *"`ct_head = NULL`"* as a zero-length `bytea` changes what
+a fetch returns for a pruned ephemeral record and what §6.3's `head_hash` comparison means. §7.2's
+`body_hash` *"zeroed"* is the precedent for the second reading and is the reason the item exists
+rather than being repaired in passing.
+
+---
+
 ## 1. Scope
 
 **In scope.** The message server process: storage, ordering, single-commit agreement, `write_auth` verification, history serving, blob lifecycle, retention and pruning, capability advertisement, its own URnetwork account and transport wiring, deployment, configuration, migrations, backup, observability. Plus the operator-side surface the message server and clients depend on: the discovery directory and the key-transparency log.
@@ -761,7 +795,13 @@ CREATE TABLE message_record (
     pruned          boolean   NOT NULL DEFAULT false,
     policy_version  int       NOT NULL DEFAULT 0,
 
-    body_hash       bytea     NOT NULL,   -- retained after ct_body is erased (§8)
+    body_hash       bytea     NOT NULL,   -- retained after ct_body is erased for PERMANENT,
+                                          -- DURABLE and MEDIA (§8). ZEROED, not dropped, for
+                                          -- EPH(1..5) (§7.2): the column stays NOT NULL and
+                                          -- the CHECK below still holds on 32 zero bytes.
+                                          -- Amended 2026-09-11; this comment read "retained
+                                          -- after ct_body is erased (§8)" unqualified, which
+                                          -- §7.2 three sections down already contradicted.
     ct_head         bytea     NOT NULL,
     ct_body         bytea     NULL,       -- NULL when erased, or when the body is a blob
     blob_id         bytea     NULL,
@@ -2604,7 +2644,7 @@ The required user-facing wording for this state is MASTER §12.4: *"The content 
 
 The `PERMANENT` blob row is kept for the same reason plus §8.3's `perm/` rung: the epoch snapshot is exactly what a seed-only restorer needs to verify signatures, and an ILM ladder would delete it a year after the epoch, long after anyone would connect the two events.
 
-`MEDIA` keeps its head and `body_hash` forever, per master spec §8 ("`body_hash` RETAINED when `ct_body` is erased"), which is what lets the client render "this attachment expired" in the right place in the timeline and keeps the record chain intact. Master spec §12.2's "attachment on an ephemeral parent inherits the parent's key class" is honoured by the client choosing `EPH(b)` rather than `MEDIA` for such a record — the server just applies the class it is given.
+`MEDIA` keeps its head and `body_hash` forever, per master spec §8 (*"`body_hash` … RETAINED when `ct_body` is erased for PERMANENT, DURABLE and MEDIA"* — **the quotation is updated 2026-09-11 because MASTER's line was amended that day and this sentence quoted it verbatim**; it read *"`body_hash` RETAINED when `ct_body` is erased"*, and the amendment makes MASTER agree with the `EPH(1..5)` row of **this document's own §7.2 table, two rows above this paragraph's subject**, rather than with the unqualified reading that row has contradicted since revision 2), which is what lets the client render "this attachment expired" in the right place in the timeline and keeps the record chain intact. Master spec §12.2's "attachment on an ephemeral parent inherits the parent's key class" is honoured by the client choosing `EPH(b)` rather than `MEDIA` for such a record — the server just applies the class it is given.
 
 `EPH(0)` never touching disk is what makes master spec §12.2's "never persisted" true rather than aspirational. Read receipts, delivery receipts and typing indicators arrive, are published to the group's Redis channel, are delivered to whoever is currently subscribed, and are gone. There is no `INSERT`. The server cannot tell the three apart and does not try (§4.3.3).
 

@@ -5221,6 +5221,16 @@ builder meets and because half of what it filed is not what the ruling answers.
 own class ladder's, for every retention class. Spec A §5.3 is amended to carve the head out
 (revision **A-20**).
 
+> *(**THE ALLOCATION IN THE SENTENCE ABOVE IS INVERTED AS OF 2026-09-11.** *"MASTER §8.1 is right as
+> written and §5.3 is the document that changes"* is no longer where the `EPH` carve-out lives: on
+> 2026-09-11 the owner amended **MASTER §8 and §8.1** to carry it in MASTER's own voice, and a second
+> amendment the same day took §8's `body_hash` line with it. MASTER is the document that changed;
+> Spec A §5.3 is unedited. Spec A revision **A-23** names the reversal, **A-24** closes the server-side
+> site it left standing — requirement **S10** — and `SPEC-LEDGER.md` item **128** carries the same
+> annotation at the same sentence. **The ruling of this item is untouched:** the two-ladder rule, the
+> `PERMANENT`/`MEDIA` lift and the `EPH` refusal under ledger **152** all stand exactly as written
+> below. What reversed is which document carries the exclusion.)*
+
 **The owner's reason, recorded because this item asked for a rule and not a preference.** The head is
 always retained, so it is keyed by the class that is always retained. Under §5.3's reading — one
 `record_key[i]` shared by head and body — an `EPH` record's head would be keyed under a ratchet whose

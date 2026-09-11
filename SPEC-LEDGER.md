@@ -10,7 +10,9 @@ document; this ledger is the map, the reasoning, and the audit trail.
 
 ## 1. Current state
 
-**Protocol design at revision 9**, with errata E1–E3 fixed and four dated amendments on top of it.
+**Protocol design at revision 9**, with errata E1–E3 fixed and **eight** dated amendments on top of it
+(*was "four"; corrected 2026-09-11 in the pass that added the eighth — this is a state row and a state
+row is a claim about now*).
 Group key agreement is MLS (RFC 9420), implemented in Go. Storage, retention, deletion, recovery, and
 identity verification are ours. v1 targets one operator, one message server, many providers.
 
@@ -26,9 +28,9 @@ code at all**, which is the gap every external leg in the m1 plan points at.
 
 | Item | State |
 |---|---|
-| MASTER protocol design | Revision 9, **six** amendments — 2,249 lines. The sixth is 2026-09-09: §7 and §8.2 gain the wrap body's grammar, its signature preimage and its padding, ruled as composite `C3` |
-| Spec A — protocol / sdk / connect | Revision A-22 — 5,618 lines |
-| Spec B — message-server / operator | Revision 18 — 3,587 lines |
+| MASTER protocol design | Revision 9, **eight** amendments — 2,329 lines. *(Was "six — 2,249 lines"; re-measured 2026-09-11.)* The seventh and eighth are both **2026-09-11** and are the only two that open by saying a rule in this document changes: §8's record listing and §8.1's ratchet paragraph carry Spec A §5.3's `EPH` carve-out in MASTER's own voice, `ct_head` first and then the `body_hash` line six above it |
+| Spec A — protocol / sdk / connect | Revision **A-24** — 5,631 lines. *(Was "A-22 — 5,618"; re-measured 2026-09-11.)* A-23 names the inversion of A-20; A-24 amends server-conformance row **S10** and §5.1's two Go struct comments |
+| Spec B — message-server / operator | Revision **19** — 3,627 lines. *(Was "18 — 3,587"; re-measured 2026-09-11.)* Revision 19 changes no SQL statement: §3.2's `body_hash` DDL comment and §7.2's verbatim quote of MASTER. **The document's own "Current state" row still reads "Revision 6"** — seen, not repaired, and named in the edit log |
 | Spec C — Windows client UI | Revision 6 — 1,893 lines |
 | Blockers | **0 from r1–r4** — down from 41. **r8's two are not in that count**; both are fixed in the text and neither is recorded as fixed. Item **165**. |
 | Review findings | **Dispositioned per finding in §5, not counted.** r3's twelve blockers were re-grepped by id; its fourteen remaining majors are items **149–162**, one item per id, each opening with the id and a disposition verb, so `git grep "M-7"` returns a disposition rather than silence. **r2's, r3's and r4's minors, r6's 30 and r8's 25 are NOT dispositioned** — item **165** measures that and publishes the query; those findings carry no ids, so an id-keyed gate cannot see them at all. The count this row used to carry (*"30: 8 major, 22 minor"*) was r6's file, not r3's majors, and the two had been read as one set for five weeks. |
@@ -1602,6 +1604,23 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      `DURABLE` record the two are one ladder. Filed as m1 open item **M1-6**, which carries the same
      ruling.
 
+     > **THE ALLOCATION SENTENCE DIRECTLY ABOVE IS INVERTED AS OF 2026-09-11. This annotation is at
+     > the sentence, not at the end of the item, because this is the line a reader lands on** — Spec A
+     > revision **A-23** cites exactly this location, and for the whole of the commit that declared the
+     > inversion the sentence still read unchanged here. *"MASTER §8.1 stands as written and Spec A
+     > §5.3 is the document that changes"* is no longer the allocation: on 2026-09-11 the owner amended
+     > **MASTER §8 and §8.1** to carry Spec A §5.3's `EPH` carve-out in MASTER's own voice, and a
+     > second amendment the same day took §8's `body_hash` line as well. **MASTER is the document that
+     > changed; Spec A §5.3 is unedited.** It also spends revision **A-21**'s own *"the ruling's own
+     > strongest argument"* — *"No Spec B change and no MASTER rule change."*
+     >
+     > **What is NOT inverted is this item's ruling.** `RecordAeadHead` still takes the ladder rooted
+     > at `ClassKeys.Durable` and `RecordAeadBody` the record's own, for `PERMANENT`, `DURABLE` and
+     > `MEDIA`; `EPH` is still excluded and still refused by `messagegroup.SealRecord` under item
+     > **152**; no derivation label, no wire byte and no Go file moved. What reversed is *which
+     > document carries the exclusion*, which is a fact about the corpus and not about the key
+     > schedule.
+
      **The owner's reason, recorded because this item asked for a rule.** The head is always retained,
      so it is keyed by the class that is always retained. Under the reading this replaces, an `EPH`
      record's head would be keyed under a ratchet whose whole purpose is to be destroyed on schedule,
@@ -2903,7 +2922,8 @@ fourteen are dispositioned below.
      (item **166**).
 
      **THE SIBLING THE PROPERTY QUERY FINDS AND AN INSTANCE QUERY WOULD NOT.**
-     `"URmessage/v1/aad/rzv" ‖ LP(rendezvous_id)` (Spec A §5.14:2472) is an AEAD AAD with **no**
+     `"URmessage/v1/aad/rzv" ‖ LP(rendezvous_id)` (Spec A **§5.14:2812**, *was §5.14:2472* —
+     re-anchored 2026-09-11; the old number landed on §5.11's shared-root blockquote) is an AEAD AAD with **no**
      `alg_id`, while its three siblings `aad/head`, `aad/body` and `aad/snap` each gained one — in two
      separate passes, 2026-08-25 and 2026-09-19 (item **147**). Three of four AADs were repaired by two
      queries and the fourth was in neither. Same shape as M-15's second instance.
@@ -3090,45 +3110,68 @@ fourteen are dispositioned below.
      earlier printout can follow. Where MASTER's own text changed on 2026-09-11 the quote is replaced
      rather than re-pointed, and that is said at the line.
 
-     MASTER **§8:1030** *(was §8:876)* `key_head ‖ nonce_head = HKDF-Expand(record_key[i],
-     "rec/v1/head", 56)` — **one** ladder. MASTER **§8:972-977** *(was §8:823)*, the record listing's
-     `ct_head` line: it read *"`ct_head` AEAD, always retained"* and **as of the 2026-09-11 amendment
-     it no longer does** — it now carries this item's own carve-out, *"RETAINED for PERMANENT, DURABLE
-     and MEDIA. NOT retained for EPH(1..5)"*. MASTER **§8.1:1118** *(was §8.1:963)* likewise: *"always
-     under the **durable** class, since it is always retained"* now reads *"under the **durable** class
-     for `PERMANENT`, `DURABLE` and `MEDIA`"*, with the exclusion at **§8.1:1121-1136**. **Those two
-     replacements are the amendment and they are NOT a ruling of this item** — see the 2026-09-11 note
-     at the end. The **two** ladders are therefore still two, and the class an `EPH` head takes is
-     still unruled. Spec A **§5.3:1211** and **§5.3:1242** *(was "Spec A §5.1:1057 agrees with §8"
-     — wrong line, wrong section, and stale in substance)*: §5.3 no longer agrees with the one-ladder
-     reading at all, because revision **A-20** amended it to the two-ladder rule, and **§5.3:1279-1288**
-     is where the `EPH` exclusion has lived since. Spec B **§7.2:2589** clears the head for `EPH(1..5)`
-     — this one anchor was always right — and **§7.2:2586-2587** *(was §7.2:2587-2588)* keeps it for
-     `DURABLE` and `MEDIA`; the old pair pointed at `MEDIA` and `EPH(0)`. `handle_link`: **now 3 files,
-     of which 2 are under `docs/reviews/` and the third is THIS FILE** — *(was "2 files, both under
-     `docs/reviews/`")* — because this item wrote the query into the ledger, which is the self-match
-     class `.gitattributes` warns about in the next aisle. **Zero in the live corpus is what the count
-     was for and it still holds**: `docs/specs` and `docs/plans` return **0** files and `connect`'s Go
-     returns **0**. And the property is filed: **SPEC-LEDGER.md:1595, item 128** *(was :1571)*, whose
-     as-filed text at **:1631** reads *"BLOCKS CP3b — `ct_head`'s retention class is unruled"*.
+     **RE-DERIVED AGAIN 2026-09-11 (second pass of that date), because that day's two amendments moved
+     every MASTER anchor below §0 and this pass's own edits moved Spec A's and Spec B's. Every number
+     below is measured against the commit that carries this line; the number it replaced is kept beside
+     it, and where a number has now been wrong twice both are kept.**
 
-     **THE DEFECT REPRODUCES, AND IT IS WORSE THAN r3 FOUND IT.** §8.1:1118 *(was :963)* keys
-     `ct_head` under `K_durable[n]` for every class the rule reaches; §8.1's ladder derives
-     `K_durable[n]` from `storage_root[n]` (**§8.1:1108**); and MASTER §8.2:1170 *(was §8.2:994)* —
+     MASTER **§8:1066** *(was §8:1030, before that §8:876)* `key_head ‖ nonce_head =
+     HKDF-Expand(record_key[i], "rec/v1/head", 56)` — **one** ladder. MASTER **§8:1008-1013**
+     *(was §8:972-977, before that §8:823)*, the record listing's `ct_head` line: it read
+     *"`ct_head` AEAD, always retained"* and **as of the first 2026-09-11 amendment it no longer
+     does** — it now carries this item's own carve-out, *"RETAINED for PERMANENT, DURABLE and MEDIA.
+     NOT retained for EPH(1..5)"*. **And MASTER §8:996-1002 is new to this block**: the `body_hash`
+     line of the same fenced listing, six lines above the `ct_head` line, read *"RETAINED when
+     `ct_body` is erased"* unqualified until the **second** amendment of 2026-09-11 corrected it —
+     Spec B §7.2 zeroes `body_hash` for `EPH(1..5)` in the one statement that sets `ct_head = NULL`, so
+     it was false for this item's one class on the same terms. MASTER **§8.1:1153-1155**
+     *(was §8.1:1118, before that §8.1:963)* likewise: *"always under the **durable** class, since it
+     is always retained"* now reads *"under the **durable** class for `PERMANENT`, `DURABLE` and
+     `MEDIA`"*, with the exclusion at **§8.1:1157-1172**. **Those replacements are the amendments and
+     they are NOT a ruling of this item** — see the 2026-09-11 note at the end. The **two** ladders are
+     therefore still two, and the class an `EPH` head takes is still unruled. Spec A **§5.3:1222** and
+     **§5.3:1253** *(was §5.3:1211 and §5.3:1242, and before that "Spec A §5.1:1057 agrees with §8" —
+     wrong line, wrong section, and stale in substance)*: §5.3 no longer agrees with the one-ladder
+     reading at all, because revision **A-20** amended it to the two-ladder rule, and
+     **§5.3:1290-1299** is where the `EPH` exclusion has lived since — **47 to 70 lines below the rule
+     it excludes `EPH` from, not in the same paragraph as it**, which is the correction revision
+     **A-23** carries in place. Spec B **§7.2:2629** *(was §7.2:2589)* clears the head for `EPH(1..5)`
+     and zeroes `body_hash` in the same row, and **§7.2:2626-2627** *(was §7.2:2586-2587, and before
+     that §7.2:2587-2588)* keeps the head for `DURABLE` and `MEDIA`; the oldest pair pointed at
+     `MEDIA` and `EPH(0)`. Spec B **§3.2:798-804** is also new to this block: the DDL's `body_hash`
+     comment carried MASTER's unqualified wording and is corrected in revision 19. `handle_link`:
+     **now 3 files, of which 2 are under `docs/reviews/` and the third is THIS FILE** — *(was "2 files,
+     both under `docs/reviews/`")* — because this item wrote the query into the ledger, which is the
+     self-match class `.gitattributes` warns about in the next aisle. **Zero in the live corpus is what
+     the count was for and it still holds**: `docs/specs` and `docs/plans` return **0** files and
+     `connect`'s Go returns **0**. And the property is filed: **SPEC-LEDGER.md:1597, item 128**
+     *(was :1595, and :1571 before that)*, whose as-filed text at **:1650** *(was :1631; this pass's own
+     annotation at the ruling sentence moved it by 18 lines and its §1 state-row repair by 2 more)* reads
+     *"BLOCKS CP3b — `ct_head`'s retention class is unruled"*.
+
+     **THE DEFECT REPRODUCES, AND IT IS WORSE THAN r3 FOUND IT.** §8.1:1153-1155 *(was :1118, before
+     that :963)* keys `ct_head` under `K_durable[n]` for every class the rule reaches; §8.1's ladder
+     derives `K_durable[n]` from `storage_root[n]` (**§8.1:1144**, was :1108); and MASTER
+     §8.2:1206 *(was §8.2:1170, before that §8.2:994)* —
      where the recovery wrap now delivers **`storage_root[n]` itself** rather than r3's `pq_secret[n]` —
      puts that root directly in a seedphrase holder's hands. r3 had to argue that §8.3 *"hands the
      recovery key the material from which `K_durable[n]` follows"*; today §8.2 hands it the root.
 
-     **WHAT IT FALSIFIES, all within a dozen lines of each other.** MASTER §8.1:1139-1141
-     *(was §8.1:967-969)*: *"After the timer, retained server ciphertext, a seized device, a newly
-     provisioned device, and a seedphrase holder all fail to decrypt."* MASTER **§12.4:2120-2122**'s
-     required UI string. MASTER **§13:2137** *(was §13:1933)* *"including against a device set up
-     tomorrow and against a seedphrase holder."* All three would be false for `ct_head` under a rule
+     **WHAT IT FALSIFIES, all within a dozen lines of each other.** MASTER §8.1:1175-1177
+     *(was §8.1:1139-1141, before that §8.1:967-969)*: *"After the timer, retained server ciphertext, a
+     seized device, a newly provisioned device, and a seedphrase holder all fail to decrypt."* MASTER
+     **§12.4:2158-2159** *(was §12.4:2120-2122, which landed on the heading rather than on the string)*
+     — the required UI string itself, *"After the timer, this message can no longer be read by anyone
+     — the key is destroyed on every device and on the server."* MASTER **§13:2173** *(was §13:2137,
+     before that §13:1933)* *"including against a device set up tomorrow and against a seedphrase
+     holder."* All three would be false for `ct_head` under a rule
      that reached `EPH`. `K_durable[n]` is destroyed nowhere and is delivered to every member's
      recovery wrap for the life of the group.
 
      **THE ONLY THING STOPPING IT IS A COOPERATING SERVER, AGAINST THE EXACT ADVERSARY §8.1 NAMES.**
-     Spec B §7.2 sets `ct_head = NULL` for `EPH(1..5)`. That is an **operational** erasure. §8.1 claims
+     Spec B §7.2:2629 sets `ct_head = NULL` for `EPH(1..5)` — **and ledger item 181, filed 2026-09-11,
+     is that the DDL three sections above it declares `ct_head bytea NOT NULL`, so the statement §7.2
+     requires is one §3.2 forbids; nothing catches it because §7.4's sweep is unimplemented.** That is an **operational** erasure. §8.1 claims
      the guarantee against *"retained server ciphertext"* — a backup, a replica that missed the sweep, a
      legal hold, a seized snapshot — which is precisely the case erasure does not cover, and precisely
      the case ruling 3 of 2026-09-13 was made to convert from behavioural to cryptographic for
@@ -3493,9 +3536,17 @@ fourteen are dispositioned below.
      grep -rnE "signed under the publisher|Ed25519\(" docs/specs/2026-08-12-urmessage-protocol-design.md
      ```
 
-     **(A)** Spec B §7.2:2587-2588 — `DURABLE`: body erased, **Head: kept**; `MEDIA`:
-     `ct_body = NULL`, **Head: kept**, Row kept. Only `EPH(1..5)` clears the head. Spec A §10:5106
-     requires it. **(B)** `AAD_head` is sealed under `record_key[i]` ← class key ← `storage_root[n]`,
+     **(A)** Spec B **§7.2:2626-2627** *(was §7.2:2587-2588, which pointed at `MEDIA` and `EPH(0)`)* —
+     `DURABLE`: body erased, **Head: kept**; `MEDIA`: `ct_body = NULL`, **Head: kept**, Row kept. Only
+     `EPH(1..5)` clears the head (**§7.2:2629**). **Spec A requirement S10, at §7:5469** —
+     *(was written "Spec A §10:5106", ADJUDICATED 2026-09-11: `§10` is `S10` mis-rendered, and Spec A's
+     actual §10 is "Binding to `connect`", whose `:5106` is protobuf enum-naming prose that supports
+     nothing in this sentence. S10 is the only requirement in the corpus about retaining `ct_head`, so
+     it is what "requires it" meant.)* — **and the row was AMENDED the same day**: it required
+     retention of `ct_head` and `body_hash` unqualified, which was false for `EPH(1..5)` on both
+     clauses, and now requires it for `PERMANENT`, `DURABLE` and `MEDIA` only. That makes this
+     sentence's *"Only `EPH(1..5)` clears the head"* supported by the row it cites instead of
+     contradicted by it (revision **A-24**). **(B)** `AAD_head` is sealed under `record_key[i]` ← class key ← `storage_root[n]`,
      group-shared; `write_auth` is `MAC(write_key[n], …)`, group-shared **and** server-held. **(C)**
      three per-publisher signatures exist and all three are scoped away from ordinary records — the
      wrap-body signature (ruled 2026-09-13), `recovery_proof`, and the `RECOVERY_PUB` body signature.
@@ -3954,7 +4005,8 @@ fourteen are dispositioned below.
      `blob_id = HKDF-Expand(record_key[i], "blob/v1", 32)`, the 262,144-octet padder and the MIME sniff —
      **and no content key.**
 
-     **`blob/v1` is an IDENTIFIER, and item 147 classifies it correctly as one** (SPEC-LEDGER:2594, *"an
+     **`blob/v1` is an IDENTIFIER, and item 147 classifies it correctly as one** (SPEC-LEDGER:2800,
+     *was :2594*, re-anchored 2026-09-11, *"an
      identifier (`blob/v1`)"*). **That correct classification is exactly what closes the enquiry too
      early:** having established that `blob/v1` is not an AEAD key, nothing then asks what the blob's
      AEAD key **is**. It is stated nowhere.
@@ -4059,7 +4111,9 @@ fourteen are dispositioned below.
      At `bed5b84`: **M-1 … M-14 all 0**, M-15 = 1, controls B-1 = 5, B-6 = 4, B-11 = 3. At HEAD
      (`10f0a39`): **M-1 = 1, M-14 = 1**, M-2 … M-13 still 0, M-15 = 5, B-1 = 6. Over `connect` at HEAD:
      0 for every major. **Nothing was adopted, rejected or filed between those two revisions.** Both new
-     hits resolve to `SPEC-LEDGER.md:2517` and `:5823`, and both are **item 146's own sentence**:
+     hits resolve to `SPEC-LEDGER.md:2723` and `:9357` *(written `:2517` and `:5823`, which
+     were already stale before 2026-09-11 and are re-anchored here because this sentence quotes the text
+     they point at and the target is therefore mechanical)*, and both are **item 146's own sentence**:
      *"`B-1` … `B-12`: 1 to 6 files each, all twelve non-zero. `M-1` … `M-14`: ZERO, every one."*
 
      **So the entry written to prove these ids were never dispositioned is now the file the query finds
@@ -4451,8 +4505,10 @@ fourteen are dispositioned below.
      **FOUR CORRECTIONS TO THIS ITEM, each with the query that produced it.**
 
      *(1) "shared by all four retention classes" is wrong in both directions.* `EPH` is
-     **excluded** from the M1-6 ruling — Spec A §5.3:1271, *"So `EPH` is excluded from this rule"*,
-     and item **128** at SPEC-LEDGER.md:1609, *"It does not reach `EPH`"* — so the shared head
+     **excluded** from the M1-6 ruling — Spec A **§5.3:1297-1298** *(was §5.3:1271; re-anchored
+     2026-09-11)*, *"So `EPH` is excluded from this rule"*, and item **128** at
+     **SPEC-LEDGER.md:1637** *(was :1609, which is a blank line)*, *"It does not reach
+     `EPH`"* — so the shared head
      ladder covers **three** Go-side classes today, not four. And the unit that shares it is not
      the Go-side class at all: the reserver and the session's sender table are keyed on the **wire
      byte** (`StreamKey.RetentionWire`; `senders map[byte]*SenderRatchet`,
@@ -4464,7 +4520,9 @@ fourteen are dispositioned below.
 
      *(2) "No such counter exists in either document or in the shipped code" is refuted four
      times.* Query: `grep -n 'single .u64. counter per' docs/specs/*.md` returns **three** hits —
-     MASTER §8:914, Spec A §5.6:1394, Spec B:2463 — each reading *"`stream_index` is a single
+     MASTER **§8:1104** *(was §8:914)*, Spec A **§5.6:1439** *(was §5.6:1394)*, Spec B **:2503**
+     *(was :2463)* — all three re-anchored 2026-09-11; the query itself still returns exactly three
+     hits — each reading *"`stream_index` is a single
      `u64` counter per `(group_id, sender_handle)`, write-once, assigned locally."* That **is** a
      head-ladder counter monotone across all classes of one sender, stated in three documents, and
      it is what the shipped **server** enforces (correction 4). What does not exist is an
@@ -6080,6 +6138,46 @@ fourteen are dispositioned below.
      *Blocks:* nothing mechanically. It says the two questions must be ruled in one sitting, which is
      what set 3 asked for and what the other two sets' recommendations assume is unnecessary. Found
      2026-09-09.
+
+181. **FILED, NOT RULED — Spec B declares `ct_head bytea NOT NULL` and then requires the sweep to set
+     `ct_head = NULL`. The `UPDATE` §7.2 specifies is one §3.2 forbids, and the first ephemeral record
+     to expire is what discovers it.** §3.2's `message_record` DDL (Spec B **§3.2:805**) is
+     `ct_head bytea NOT NULL`. §7.2's class table (Spec B **§7.2:2629**) is, for `EPH(1..5)`,
+     *"`ct_body = NULL`, **`ct_head = NULL`**, `body_hash` zeroed, `sender_handle` overwritten with
+     sixteen zero bytes …"*. Those cannot both hold. The same repository's landed migration says the
+     same thing (`store/migrations.go:160`).
+
+     **Why nothing has caught it.** §7.4's sweep is unimplemented — `sweep/` holds no code, by its own
+     doc comment — and the part of §7 that *is* implemented is the `prune_after` arithmetic
+     (`store/contract.go`'s `EveryClassPrunesOnItsOwnLadder`), which computes a timestamp and never
+     issues the statement. So the constraint and the requirement have never met. They meet on the day
+     the sweep lands, as a failed batch on a live server, for the one class whose whole product promise
+     is that the content goes away.
+
+     **Why it is filed rather than repaired in passing: the two candidate repairs are not equivalent,
+     and both cost something a document already spends.**
+     - **(a) Drop `NOT NULL` from `ct_head`.** This also removes the floor §5.1 check 3 derives from
+       it — *"`ct_head` ≤ head cap, and a head at all: §3.2 makes the column NOT NULL"*,
+       `api/submit.go:299` — so the refusal of a headless submission would need its own check rather
+       than falling out of the schema, and §6.3's `head_hash` on `message_stream_claim`
+       (`head_hash bytea NOT NULL`) would have to say what it stores for a record whose head is gone.
+       The claim row for an expired ephemeral record is deleted by §7.2, which is probably the answer,
+       but no document says it is.
+     - **(b) Read §7.2's "`ct_head = NULL`" as a zero-length `bytea`**, the way that table's own
+       *"`body_hash` zeroed"* is read. Then `NOT NULL` stands, §5.1 check 3's floor stands, and what
+       changes is what a `Fetch` returns for a pruned ephemeral record — an empty head rather than an
+       absent one — which §4.3.3's projection and Spec C's *"the content disappears, the fact of the
+       message does not"* rendering both read. **§7.2's `body_hash` is the precedent** and is why this
+       is a real option and not a stretch.
+
+     **It is not a retention-class question and it does not touch ledger item 152.** Neither repair
+     changes which class an `EPH` head is keyed under, and both leave the head unreadable after the
+     timer for the same reason: the key is gone, not the column. Found 2026-09-11 by reading Spec B
+     §3.2 against §7.2 while deriving the class the `EPH` carve-out's remaining sites belong to — the
+     reading found it and neither of the two class queries could have, because it is a contradiction
+     between two statements and not a restatement of one. *Blocks:* nothing today; it blocks the sweep,
+     which is `s3`'s and is unwritten. **Wire-visible in shape (b)** — what a pruned ephemeral record
+     looks like on a `Fetch` is a client-visible contract — so it is A6-relevant and is the owner's.
 
 
 ## 6. Change process
@@ -9952,13 +10050,18 @@ one.
 queries.**
 
 1. *"shared by all four retention classes."* `EPH` is **excluded** from the M1-6 ruling (Spec A
-   §5.3:1271; this ledger at :1609), so the shared head ladder covers **three** classes today — and
+   §5.3:1271; this ledger at :1609 — *both stale; as of 2026-09-11 they are Spec A §5.3:1297-1298 and
+   this ledger at :1637. The numbers are left as written because this is a dated edit-log
+   entry and they were the entry's own measurement; the annotation is the repair the §7 rule allows*),
+   so the shared head ladder covers **three** classes today — and
    the unit that shares it is the **wire byte**, of which nine are legal, so it is nine the day item
    **152** rules `EPH` heads onto that root. That number is the multiplier every cost is denominated
    in.
 2. *"No such counter exists in either document or in the shipped code."*
    `grep -n 'single .u64. counter per' docs/specs/*.md` returns **three** hits — MASTER §8:914,
-   Spec A §5.6:1394, Spec B:2463 — each declaring `stream_index` as one counter per
+   Spec A §5.6:1394, Spec B:2463 — *(all three stale as of 2026-09-11: MASTER §8:1104, Spec A
+   §5.6:1439, Spec B:2503. Annotated rather than rewritten; dated entry)* — each declaring
+   `stream_index` as one counter per
    `(group_id, sender_handle)`, which **is** the class-blind counter the item says nothing produces.
    What does not exist is a parameter list that expresses it. That is item **168**, a different
    sentence.
@@ -12263,3 +12366,293 @@ unfiltered for the numbers this commit publishes: `go test ./mls/... ./message/.
 reported a smaller, differently-shaped number. `connect` was `72ffdbd` and clean before and after.
 `git ls-files` equals `git ls-tree -r HEAD` at **105**, checked before the commit; no file was added or
 removed.
+
+---
+
+### 2026-09-11 — the `EPH` carve-out's remaining sites: S10 was false on both clauses and contradicted its own cited authority, the premise survived six lines above the line that corrected it, and the proximity claim the ruling was argued on is wrong
+
+**Change:** `docs/specs/2026-08-12-urmessage-protocol-design.md` (an eighth dated amendment, §0 and
+§8's `body_hash` line, and one in-place correction inside the seventh),
+`docs/specs/2026-08-12-spec-a-protocol-sdk-connect.md` (revision **A-24**; **A-23** corrected in
+place; §5.1 and §7 **S10**), `docs/specs/2026-08-12-spec-b-message-server-operator.md`
+(**revision 19**, §3.2's DDL comment and §7.2's verbatim quote of MASTER),
+`docs/plans/2026-09-04-slice1-m1-message-crypto.md`, this ledger (**one** new item, **181**; items
+**128**, **149**, **152**, **157**, **164**, **166** and **169** annotated or re-anchored) and `PROGRESS.md`.
+**No Go file in this repository changed and `connect` was read and never written** — `beta/message`
+at `72ffdbd`, 1,112 tracked files, `git status --porcelain` empty before and after. This repository is
+on `main`.
+
+---
+
+**FOUR FINDINGS CLOSED, AND EVERY ONE WAS REPRODUCED BEFORE IT WAS WRITTEN DOWN. TWO OF THEM SAY
+SOMETHING ABOUT THE COMMIT THAT CREATED THEM.**
+
+**1. Spec A §7 requirement S10 was false for `EPH(1..5)` on BOTH of its clauses, and the 2026-09-11
+amendment turned a disagreement with Spec B into a contradiction of S10's own cited sources.** The row
+read *"Prune by retention class **and** `expire_at` … ; retain `ct_head` and `body_hash` when
+`ct_body` is erased"*, sourced to *"MASTER §8, §9.1, §12.2"*. Spec B §7.2:2629 sets `ct_head = NULL`
+**and** zeroes `body_hash` for `EPH(1..5)`. And each of the three cited sections was checked by
+reading it: **MASTER §8:1008-1013** excludes `EPH(1..5)` from `ct_head` in MASTER's own voice as of
+that morning's amendment; **MASTER §12.2**'s *"What an expired disappearing message leaves behind"*
+enumerates `record_id`, `epoch`, `retention_class` and `size_bucket` and names **neither** field;
+**MASTER §9.1** requires *"prune by retention class and `expire_at`"* and says nothing about retaining
+either. **This is the most directly actionable voice the unqualified premise had anywhere** — §7's
+table is the list a second server implementation is built from, and it is the server-side half of
+exactly the divergence revision A-23 recorded on the client side. Amended as Spec A revision
+**A-24**, now at **§7:5469**. **S16 was already correct** and is untouched: it requires the
+placeholder row and the zeroed `sender_handle`, which is the remainder of the same sweep statement.
+
+**2. MASTER §8's `body_hash` line carried the identical premise, unqualified, SIX LINES ABOVE the
+`ct_head` line the 2026-09-11 amendment corrected — inside the same fenced field listing.** It read
+*"`body_hash` 32B H(ct_body); RETAINED when `ct_body` is erased"*. **The brief that commissioned this
+pass said "two lines above"; the measurement is SIX** — `:966` and `:972` before this commit, with
+`blob_id` and `server_attachment` between them, three field rows apart. The substance reproduces
+exactly; the distance does not, and it is recorded here rather than repeated. Corrected at
+**§8:996-1002** under an eighth dated amendment note that says a rule in this document changes.
+**What it says about the pass that created it is worth more than the line**: that pass derived its
+class from two regular expressions, *printed the complement*, named `:950` as the site its own first
+draft would have missed — and still did not reach the line six above it, because that line matched
+neither regex either. Printing a complement does not make a query's blind spot visible; only reading
+the section does.
+
+**3. The A-20 allocation sentence that A-23 declares inverted stood un-annotated in two live
+documents, one of them the exact line A-23 cites as its location.** *"MASTER §8.1 stands as written
+and Spec A §5.3 is the document that changes"* — `SPEC-LEDGER.md:1601`, item 128's ruling paragraph,
+which is where A-23 and the 2026-09-11 entry both point; and
+`docs/plans/2026-09-04-slice1-m1-message-crypto.md:5219`, open item **M1-6**'s ruling paragraph, in the
+same words. A third copy is in this ledger's **dated edit-log entry of 2026-09-07** (*"MASTER §8.1
+stands and Spec A §5.3 is what changes"*), which is annotated rather than rewritten because its
+measurement was true at the commit it names. **A revision row that says a sentence is inverted, while
+the sentence reads unchanged where a builder finds it, has moved nothing.** Both live copies now carry
+a dated annotation **at the sentence**, not at the end of the item, and both say the same two things:
+the *allocation* reversed, and **the ruling did not** — `RecordAeadHead` still takes the durable
+ladder, `EPH` is still refused under item **152**, no derivation label or wire byte moved.
+
+**4. THE PROXIMITY CLAIM THE RULING WAS ARGUED ON IS FALSE, and it is a correction to the reasoning
+rather than to a line number.** *"Spec A §5.3 states the rule and excludes `EPH` in the same
+paragraph"* appears in **three** places written on 2026-09-11: Spec A's **A-23** row, MASTER §0's
+amendment note, and this ledger's entry of that date. **Measured:** §5.3 states the rule in prose at
+**`:1248-1257`** and again in its Go block at **`:1225-1231`**; the exclusion is a separate paragraph
+at **`:1290-1299`**. The exclusion sentence sits **47 lines** below the rule paragraph's own statement
+of it at `:1250`, **49** below that paragraph's first line, and **70** below the Go comment at
+`:1227`, with **five** paragraphs between them — the owner's reason, the accepted cost, the position
+rule, why the class-blind counter makes the pin safe, and the lifted refusal. **The same commit
+refuted itself in its own published complement**, which reads *"`:1215`/`:1236`/`:1238` are §5.3, which
+carries it **46–70 lines below** in the same section"* — the complement measured it and the argument
+did not use the measurement. **The ruling stands and is strengthened:** a §5.3 reader who stops at the
+rule does not reach the carve-out either, so the exclusion was not where a builder meets the rule in
+**either** document, which is a wider version of the harm the amendment closes. Corrected in place in
+all three, quoting what each said, per revision **A-16**'s rule for a revision entry's claim about
+what a document says. The **measurement** A-23 rests on — that §5.3 carries the exclusion and MASTER
+did not — is untouched.
+
+---
+
+**THE CLASS, DERIVED BY READING THE SECTIONS, WITH BOTH THE READING AND A QUERY PUBLISHED — AND WHAT
+NEITHER OF THEM CAN SEE.**
+
+The 2026-09-11 pass derived its class from two regular expressions and reached two of the sites. Its
+own note says why that was not enough: `MASTER:950` matched *"only after the regex was widened with an
+`AEAD, always retained` alternative after reading §8 by hand."* **So this pass derived the class by
+reading, and used a query only to check the reading afterwards.** Read end to end: MASTER §8, §8.1,
+§9.1 and §12.2; Spec A §5.1 and §7; Spec B §3.2 and §7.2. The check, run over the corpus **as it stood
+at `260290d`**:
+
+```
+Q='retain(ed|s)?[^.|]{0,80}(ct_body|CtBody)[^.|]{0,40}eras|eras[^.|]{0,40}(ct_body|CtBody)[^.|]{0,80}retain|always retained|head is always retained|keeps? (its |the )?head'
+
+grep -rniE "$Q" --include='*.md' .                ->  38
+grep -rniE "$Q" --include='*.go' .                ->   1
+grep -rniE "$Q" --include='*.go' ../connect       ->   5
+```
+
+**THE CLASS IS EIGHT** — a statement that the head or its hash survives the erasure of the body, in a
+voice a builder acts on, carrying no `EPH` exclusion:
+
+| # | Site | Voice | Disposition |
+|---|---|---|---|
+| 1 | MASTER §8:966 → **`:996-1002`** | fenced field listing | **amended** |
+| 2 | Spec A §7 **S10**:5458 → **`:5469`** | server-conformance row | **amended (A-24)** |
+| 3 | Spec A §5.1:1051 → **`:1052-1056`**, `RecordHeader.BodyHash` | Go struct comment | **amended (A-24)** |
+| 4 | Spec A §5.1:1062 → **`:1067-1073`**, `Record.CtHead` | Go struct comment | **amended (A-24)** |
+| 5 | Spec B §3.2:764 → **`:798-804`** | SQL DDL comment | **amended (rev 19)** |
+| 6 | `store/migrations.go:159` | shipped DDL comment | **deliberately NOT edited** |
+| 7 | `connect/message/record.go:88-89` | shipped Go struct comment | **cannot edit here** |
+| 8 | `connect/messagegroup/keyschedule.go:262-273` | shipped Go doc comment | **cannot edit here** |
+
+**Site 4 is the sharpest thing this pass found and no query would have reached it.**
+`Record.CtHead`'s comment read *"AEAD, always retained"* — **MASTER §8's pre-amendment wording,
+verbatim, inside Spec A's own Go type**, forty sections from the §5.3 that has excluded `EPH` from
+that rule since **A-20**. It matched neither 2026-09-11 query: `CtHead` is not `ct_head`, and a Go
+comment is not a fenced field listing. The document that A-23 credits as *"the document that got it
+right"* restated the unqualified rule twice, in the comments a builder transcribes into
+`message/record.go` — and `connect/message/record.go:88` is where one of them has already been
+transcribed.
+
+**Site 6 is not edited, and the reason is a rule rather than a preference.** Spec B §10.3 is *"a
+landed migration is never edited, only superseded"*, and `store/migrations.go`'s own header says the
+audit table records a migration by its **position** in the slice and its name, precisely so an edited
+migration is caught rather than silently re-applied. The comment is wrong; the repair belongs to the
+migration that next touches `message_record`. Spec B revision 19 records that, so it is not
+rediscovered as a spec/code divergence.
+
+**THE COMPLEMENT IS 33 IN THE `.md` CORPUS AND 3 IN `connect`'s GO, AND EVERY ONE IS ACCOUNTED FOR:**
+
+- **`SPEC-LEDGER.md`, 15.** Items **128**, **149**, **152**, **157**, **164**, **166** and **169**, the two 2026-09-11 entries,
+  and the 2026-09-07 dated entry. Every one either states the exclusion beside the rule or is a dated
+  measurement this ledger annotates and does not rewrite.
+- **Spec A, 7.** Three are the class (`:1051`, `:1062`, `:5458`). `:103` is the A-20 row, which states
+  the exclusion inside the row; `:106` is A-23; `:1249` and `:1285` are §5.3, which carries the
+  exclusion — 47 to 70 lines below, which is finding 4 and not a missing carve-out.
+- **MASTER, 6.** One is the class (`:966`). `:307`, `:977`, `:1123` and `:1125` are the 2026-09-11
+  amendment's own text quoting what it replaced; `:1119` is the amended §8.1 rule, which carries the
+  scope.
+- **the `m1` plan, 4** (`:1877`, `:5225`, `:5259`, `:5276`). Task 1's copies defer the binding to
+  Task 11 in the same paragraph; **M1-6** carries the exclusion at length at `:5245-5263`.
+- **Spec B, 3.** One is the class (`:764`). `:1080` is a false positive about dropping partitions.
+  `:2607` states it of **`MEDIA` only, where it is true** — but it **quoted MASTER §8's line
+  verbatim**, and that line changed today, so the quotation is updated rather than the rule. That is
+  quote maintenance and is called out as such.
+- **`docs/reviews/`, 3** (r2 ×2, r3 ×1). Dated review artefacts; r3`:147` is M-4's original finding
+  text, which is item 152's own ancestor.
+- **`connect`'s Go, 3 of 5.** `ip_remote_multi_client.go:437` (*"keeps headroom"*),
+  `transfer.go:6172` (*"keep the head ack"*) and `mls/framing.go:669` (*"what keeps the header
+  honest"*) are the regex matching the English word `head`.
+
+**WHAT THE QUERY CANNOT SEE, AND WHAT THE READING CANNOT SEE EITHER — because the honest answer is
+that they fail differently.** The query needs one of *retain* / *erased* / *always retained* /
+*keeps the head* to be present: a site saying *"the header survives the sweep"* or *"`ct_head` is
+never dropped"* matches nothing, and site 4 above is the proof that this is not hypothetical — it was
+found by reading and the query was **widened to `CtBody` and `always retained` afterwards to make it
+catch what the reading had already found**, which is the same order of operations the 2026-09-11 pass
+had to use for `MASTER:950` and is why a query is published here as a check and not as a derivation.
+**Reading fails on silences**: a section that *should* carry the carve-out and says nothing at all is
+invisible to both. MASTER §12.2 is the section where this could have hidden, and it is safe for a
+reason worth writing down — it enumerates what an expired ephemeral record leaves behind
+**positively**, so an omission there is a missing item in a list rather than an absent qualifier, and
+a reader checking the list finds it. **And the reading's scope was the four spec files plus this
+repository's Go.** It did not read `docs/plans/`, `docs/reviews/`, `PROGRESS.md` or this ledger end to
+end — the query covered those, and every hit in them is a dated artefact or an already-carved
+statement — and it did not read `connect` end to end: sites 7 and 8 were found by running the query
+over that tree, and are named below rather than fixed.
+
+---
+
+**THE ANCHOR SWEEP, WHICH IS MECHANICAL BECAUSE THE LAST PASS NAMED ITS TARGETS.**
+
+**Every anchor written in this commit was re-derived against the commit that carries it**, and the
+number it replaced is kept beside it. **Two shifts had to be accounted for**: `260290d` appended one
+row to Spec A §0.6, and this commit appends a second (**A-24**) and adds ten lines inside Spec A §5.1;
+and this commit's two MASTER edits move every MASTER anchor below §0. So **no number carried forward
+from any document written before this commit was trusted**, including the four the brief supplied.
+
+**The five the 2026-09-11 pass measured and deliberately left, all repaired:**
+
+- *"Spec A §5.3:1271"*, cited **twice**. In the live item **169** it is re-anchored to
+  **§5.3:1297-1298**; in the dated 2026-09-07 edit-log entry it is annotated with the same number and
+  left as written.
+- *"Spec A §5.6:1394"*, cited **twice** → **§5.6:1439**, with its two companions in the same sentence,
+  which the brief did not name: *"MASTER §8:914"* → **§8:1104** and *"Spec B:2463"* → **:2503**. The
+  query the sentence publishes still returns exactly three hits.
+- *"Spec A §5.14:2472"* → **§5.14:2812**. The old number landed on §5.11's shared-root blockquote.
+- *"Spec A §10:5106"*, which the last pass measured as landing on unsupporting prose and did not
+  adjudicate. **ADJUDICATED: `§10` is `S10` mis-rendered.** Spec A's actual §10 is *"Binding to
+  `connect`"* and its `:5106` is proto3 enum-naming prose that supports nothing in the sentence citing
+  it; **S10 is the only requirement in the corpus about retaining `ct_head`**, which is what *"requires
+  it"* meant. Re-anchored to **§7:5469** — and the citing sentence's *"Only `EPH(1..5)` clears the
+  head"* is now **supported** by the row it cites instead of contradicted by it, because finding 1
+  amended that row in this commit.
+- *"SPEC-LEDGER.md:1609"*, cited beside the first of those, which is a **blank line**. The text it
+  quotes, *"It does not reach `EPH`"*, is at **:1637**.
+
+**Three more the sweep found that the brief did not name**, all of them this ledger citing itself,
+all already stale before today, and all repaired because the citing sentence quotes the text it points
+at and the target is therefore mechanical: *"SPEC-LEDGER.md:2517"* and *"`:5823"*, both of which the
+citing sentence identifies as item **146**'s own sentence, are **:2723** and **:9357**; and
+*"SPEC-LEDGER:2594"*, identified as item **147**'s *"an identifier (`blob/v1`)"*, is **:2800**.
+
+**Item 152's whole anchor block was re-derived a second time**, eleven days after the first, because
+this pass moved every number in it: MASTER `§8:1066`, `§8:996-1002` (new to the block), `§8:1008-1013`,
+`§8.1:1144`, `§8.1:1153-1155`, `§8.1:1157-1172`, `§8.1:1175-1177`, `§8.2:1206`, `§12.4:2158-2159` —
+which is also a **correction**, since the old `:2120-2122` landed on the section heading rather than on
+the UI string — and `§13:2173`; Spec A `§5.3:1222`, `§5.3:1253`, `§5.3:1290-1299`; Spec B `§7.2:2626-2627`,
+`§7.2:2629`, `§3.2:798-804` (new to the block). Item 128's own two, **:1597** and **:1650**, are given
+with which moved and why. `:1595` moved by **2** and not by 18, because this pass's annotation sits
+**below** the item's first line by design and only the two-line repair to this ledger's §1 state rows
+is above it; `:1631` became `:1650`, moved by both.
+
+**The rule this commit followed, stated once because it was applied eleven times:** *a stale anchor in
+a live open item is re-anchored in place with the old number kept beside it; a stale anchor in a dated
+edit-log entry is annotated with the current number and its own number is left standing, because the
+edit log's numbers were true at the commits it names.* That is revision **A-16**'s rule for revision
+rows, applied to anchors.
+
+---
+
+**WHAT IS NOT RULED, AND THE REASON IS THE SAME ONE AS LAST TIME.**
+
+**Ledger item 152 is NOT ruled.** What class an `EPH` head is keyed under stays open. **It cannot be
+ruled alone**, and that is a fact about the tree and not a preference: `K_eph[n][b][t]` has **no
+computable key today** whatever class is assigned to it, because the window `t` has no unit, no origin
+and no clock in any document — open item **M1-27** — and `message.EphBucketSeconds(0)` returns
+**`-1`**, the same `noLadderValue` sentinel as the off-ladder bucket 6. **152 and M1-27 go in one
+sitting.** Nothing in this commit narrows either.
+
+**Ledger item 181 is new, filed and NOT ruled.** Spec B §3.2:805 declares `ct_head bytea NOT NULL` and
+Spec B §7.2:2629 requires the sweep to set `ct_head = NULL` for `EPH(1..5)`. **The `UPDATE` one section
+specifies is one the other forbids.** Nothing catches it: §7.4's sweep is unimplemented (`sweep/` holds
+no code by its own doc comment) and the implemented half of §7 is the `prune_after` arithmetic, which
+computes a timestamp and never issues the statement. The two repairs are not equivalent — dropping
+`NOT NULL` also removes the floor §5.1 check 3 derives from it (`api/submit.go:299`), while reading
+*"`ct_head = NULL`"* as a zero-length `bytea`, the way §7.2's own *"`body_hash` zeroed"* is read,
+changes what a `Fetch` returns for a pruned ephemeral record — so it is **wire-visible in one of its
+two shapes** and is the owner's. **Found by reading §3.2 against §7.2**, and neither class query could
+have found it: it is a contradiction between two statements, not a restatement of one.
+
+---
+
+**TWO FINDINGS AGAINST `connect` THIS DOCUMENTS-ONLY PASS COULD NOT FIX**, filed in `PROGRESS.md`
+beside the one the last pass filed there:
+
+1. **`connect/message/record.go:88-89`** — *"H(ct_body), retained after ct_body is erased, which is
+   what lets a pruned record still say what it carried."* That is class member 7, on the `BodyHash`
+   field itself, and it is false for `EPH(1..5)` on the same terms as every other member.
+2. **`connect/messagegroup/keyschedule.go:262-273`** — quotes MASTER §8.1's **pre-amendment** sentence
+   (*"ct_head is always under the durable class, since it is always retained"*) and says *"WHICH rung
+   each half takes is open item M1-6 and is not answered here."* **M1-6 was ruled 2026-09-07**, and
+   the sentence it quotes no longer exists in MASTER in that form. Same shape as the `doc.go:97-98`
+   staleness the 2026-09-11 pass filed and could not fix.
+
+---
+
+**WHAT DID NOT REPRODUCE, SAID HERE RATHER THAN WRITTEN INTO A DOCUMENT.**
+
+- **"Two lines above."** The brief placed MASTER §8's `body_hash` line two lines above the `ct_head`
+  line the amendment corrected. It is **six** (`:966` and `:972` at `260290d`), three field rows apart,
+  with `blob_id` and `server_attachment` between them. The substance — same premise, same fence, left
+  standing by the correction — reproduces exactly.
+- **"46–70 lines below."** The brief's range for finding 4 reproduces in *shape* and the endpoints
+  move by one to three once re-derived against this commit rather than against `2f403c8`'s pre-row
+  numbering: **47, 49 and 70**, against the rule's three statements. The published number is the
+  re-derived one.
+- **Spec B's "Current state" table still says *"This spec | Revision 6"*** while its own edit log now
+  runs to revision **19**. Seen while appending revision 19, **not repaired**: it is a body-text row
+  about the revision the document was written at, it is not in this pass's derived class, and
+  rewriting it is a claim about eighteen revisions this pass did not read. Named so the next pass does
+  not rediscover it.
+
+---
+
+**Verification, before and after.** `go build ./...` clean and `go test ./... -count=1` green in
+`msgrepo` on both sides. `go test ./ -run TestThePlanLinter -count=1` ok on both, **with every
+reporting count identical across the diff** — 1b **7**, 1c **1**, 1d **189**, 2a **18**, 3a **4**,
+3c **3**, 4b **5** — and the four fatal checks (2b, 3b, 3d, 4a) clean on both sides. **One measured
+delta, and it is explained rather than waved at:** the linter's *ledger-reference class* moves
+**177 → 178**, which is the single new `ledger 152` citation in this commit's `m1`-plan annotation;
+every other class size is unchanged (property 302, plan-supplied-test 189, class-deriving property 74,
+task-reference 2613, open-item-reference 902, plan-reference 2207, Consumes-entry 261,
+qualified-consumed-name 15). The before side was measured by exporting `260290d` with `git archive`
+into a sibling directory of `connect` — `../connect` is a `replace` target, so an export into `/tmp`
+does not build — and the export was deleted. `connect` was `72ffdbd`, **1,112** tracked files and
+`git status --porcelain` empty, before and after; it was read with `grep` and `sed` only. `git ls-files`
+equals `git ls-tree -r HEAD` at **105**, checked before the commit; no file was added or removed.
