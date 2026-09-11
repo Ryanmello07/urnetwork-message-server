@@ -3050,13 +3050,29 @@ fourteen are dispositioned below.
 
 152. **`M-4` — STILL OPEN in substance; its MECHANISM is SUPERSEDED; and its property is already filed
      under another name as ledger item 128, with a narrower argument that would close it wrong. NEEDS
-     RULING. WIRE-VISIBLE. MUST BE MERGED INTO ITEM 128 BEFORE ITEM 128 IS RULED.**
+     RULING. WIRE-VISIBLE. MUST BE MERGED INTO ITEM 128 BEFORE ITEM 128 IS RULED. AND IT MUST BE RULED
+     IN ONE SITTING WITH m1 OPEN ITEM `M1-27`, ADDED 2026-09-11 — see the 2026-09-11 note at the end
+     of this item.**
 
      **Property.** No material that outlives a retention class's own key may be decryptable under a key
      that class's destruction does not destroy — concretely, the per-record metadata (MLS
-     `PrivateMessage` header, `type`, `sent_at`, sender) of an `EPH` record must die with the `EPH` key
+     `PrivateMessage` header, `type`, `sent_at`) of an `EPH` record must die with the `EPH` key
      rather than live under a class key every member, every future device and every seedphrase holder
      holds forever.
+
+     **CORRECTED 2026-09-11 — the Property read *"header, `type`, `sent_at`, **sender**"* and the
+     sender is not there, in any reading.** `connect/mls/framing.go:675` says it in terms:
+     *"The sender is NOT here. It lives in the encrypted sender data, which is what stops the transport
+     learning which member of a group sent which message."* A `PrivateMessage` header carries
+     `group_id`, `epoch`, `content_type` and `authenticated_data` and no sender. The `sender_handle`
+     that *is* a sender-ish value lives **outside** `ct_head`, as a field of `record_bytes`
+     (MASTER §8), and Spec B §7.2 overwrites it with sixteen zero bytes at `prune_after` for
+     `EPH(1..5)` regardless of what class the head is keyed under — so it is neither in the material
+     this item is about nor exposed by the mechanism this item names. **The item's other clauses are
+     untouched:** the header, `type` and `sent_at` carry the whole argument, and nothing downstream of
+     this item depended on the word. Corrected rather than argued, because this item's entire weight
+     is that it quotes the corpus against itself, and a headline claim that does not reproduce is the
+     one a reader stops at.
 
      **Query and output at HEAD.**
 
@@ -3066,26 +3082,50 @@ fourteen are dispositioned below.
      grep -rniE "ct_head.*class|head under the record" SPEC-LEDGER.md docs/specs/*.md
      ```
 
-     MASTER §8:876 `key_head ‖ nonce_head = HKDF-Expand(record_key[i], "rec/v1/head", 56)` — **one**
-     ladder. MASTER §8:823 *"`ct_head` AEAD, always retained"*. MASTER §8.1:963 *"`ct_head` is always
-     under the **durable** class, since it is always retained"* — **two** ladders. Spec A §5.1:1057
-     agrees with §8. Spec B §7.2:2589 clears the head for `EPH(1..5)`, and §7.2:2587-2588 keeps it for
-     `DURABLE` and `MEDIA`. `handle_link`: **2 files, both under `docs/reviews/`**, zero in the current
-     corpus. And the property is filed: **SPEC-LEDGER.md:1571, item 128**, *"BLOCKS CP3b — `ct_head`'s
-     retention class is unruled"*.
+     **RE-ANCHORED 2026-09-11. Every line number in this block was stale, and the substance every one
+     of them names still reproduces — which is exactly the failure worth naming: an item whose whole
+     weight is that it quotes the corpus against itself, read with citations that no longer land, is an
+     item that gets dismissed on its next reading rather than answered.** The anchors below are
+     verified against this commit, and the *old* number is kept beside each so a reader holding an
+     earlier printout can follow. Where MASTER's own text changed on 2026-09-11 the quote is replaced
+     rather than re-pointed, and that is said at the line.
 
-     **THE DEFECT REPRODUCES, AND IT IS WORSE THAN r3 FOUND IT.** §8.1:963 keys `ct_head` under
-     `K_durable[n]`; §8.1's ladder derives `K_durable[n]` from `storage_root[n]`; and MASTER §8.2:994 —
+     MASTER **§8:1030** *(was §8:876)* `key_head ‖ nonce_head = HKDF-Expand(record_key[i],
+     "rec/v1/head", 56)` — **one** ladder. MASTER **§8:972-977** *(was §8:823)*, the record listing's
+     `ct_head` line: it read *"`ct_head` AEAD, always retained"* and **as of the 2026-09-11 amendment
+     it no longer does** — it now carries this item's own carve-out, *"RETAINED for PERMANENT, DURABLE
+     and MEDIA. NOT retained for EPH(1..5)"*. MASTER **§8.1:1118** *(was §8.1:963)* likewise: *"always
+     under the **durable** class, since it is always retained"* now reads *"under the **durable** class
+     for `PERMANENT`, `DURABLE` and `MEDIA`"*, with the exclusion at **§8.1:1121-1136**. **Those two
+     replacements are the amendment and they are NOT a ruling of this item** — see the 2026-09-11 note
+     at the end. The **two** ladders are therefore still two, and the class an `EPH` head takes is
+     still unruled. Spec A **§5.3:1211** and **§5.3:1242** *(was "Spec A §5.1:1057 agrees with §8"
+     — wrong line, wrong section, and stale in substance)*: §5.3 no longer agrees with the one-ladder
+     reading at all, because revision **A-20** amended it to the two-ladder rule, and **§5.3:1279-1288**
+     is where the `EPH` exclusion has lived since. Spec B **§7.2:2589** clears the head for `EPH(1..5)`
+     — this one anchor was always right — and **§7.2:2586-2587** *(was §7.2:2587-2588)* keeps it for
+     `DURABLE` and `MEDIA`; the old pair pointed at `MEDIA` and `EPH(0)`. `handle_link`: **now 3 files,
+     of which 2 are under `docs/reviews/` and the third is THIS FILE** — *(was "2 files, both under
+     `docs/reviews/`")* — because this item wrote the query into the ledger, which is the self-match
+     class `.gitattributes` warns about in the next aisle. **Zero in the live corpus is what the count
+     was for and it still holds**: `docs/specs` and `docs/plans` return **0** files and `connect`'s Go
+     returns **0**. And the property is filed: **SPEC-LEDGER.md:1595, item 128** *(was :1571)*, whose
+     as-filed text at **:1631** reads *"BLOCKS CP3b — `ct_head`'s retention class is unruled"*.
+
+     **THE DEFECT REPRODUCES, AND IT IS WORSE THAN r3 FOUND IT.** §8.1:1118 *(was :963)* keys
+     `ct_head` under `K_durable[n]` for every class the rule reaches; §8.1's ladder derives
+     `K_durable[n]` from `storage_root[n]` (**§8.1:1108**); and MASTER §8.2:1170 *(was §8.2:994)* —
      where the recovery wrap now delivers **`storage_root[n]` itself** rather than r3's `pq_secret[n]` —
      puts that root directly in a seedphrase holder's hands. r3 had to argue that §8.3 *"hands the
      recovery key the material from which `K_durable[n]` follows"*; today §8.2 hands it the root.
 
-     **WHAT IT FALSIFIES, all within a dozen lines of each other.** MASTER §8.1:967-969: *"After the
-     timer, retained server ciphertext, a seized device, a newly provisioned device, and a seedphrase
-     holder all fail to decrypt."* MASTER §12.4's required UI string. MASTER §13:1933 *"including
-     against a device set up tomorrow and against a seedphrase holder."* All three are false for
-     `ct_head`. `K_durable[n]` is destroyed nowhere and is delivered to every member's recovery wrap for
-     the life of the group.
+     **WHAT IT FALSIFIES, all within a dozen lines of each other.** MASTER §8.1:1139-1141
+     *(was §8.1:967-969)*: *"After the timer, retained server ciphertext, a seized device, a newly
+     provisioned device, and a seedphrase holder all fail to decrypt."* MASTER **§12.4:2120-2122**'s
+     required UI string. MASTER **§13:2137** *(was §13:1933)* *"including against a device set up
+     tomorrow and against a seedphrase holder."* All three would be false for `ct_head` under a rule
+     that reached `EPH`. `K_durable[n]` is destroyed nowhere and is delivered to every member's
+     recovery wrap for the life of the group.
 
      **THE ONLY THING STOPPING IT IS A COOPERATING SERVER, AGAINST THE EXACT ADVERSARY §8.1 NAMES.**
      Spec B §7.2 sets `ct_head = NULL` for `EPH(1..5)`. That is an **operational** erasure. §8.1 claims
@@ -3156,6 +3196,47 @@ fourteen are dispositioned below.
      against sealing an `EPH` head under `K_durable`. **This item is what an `EPH` record now waits on,
      it is what blocks A6 for the head ciphertext, and it is not an m1 item — so it will not be found
      by a reader working the m1 open-item list.** That is the reason this paragraph is long.
+
+     **2026-09-11 — MASTER IS AMENDED TO CARRY THIS ITEM'S CARVE-OUT, AND THIS ITEM IS STILL NOT
+     RULED. Both halves of that sentence are the owner's and neither may be read as the other.**
+
+     **What the amendment did.** MASTER §8's record listing (`:972-977`) and §8.1's ratchet paragraph
+     (`:1118`, with the exclusion at `:1121-1136`) now state the durable-head rule **with `EPH`
+     excluded**, in MASTER's own voice, carrying Spec A §5.3's exclusion rather than paraphrasing it —
+     *"Nothing here is a licence to seal an `EPH` head under `K_durable`."* **The harm it closes was
+     never the rule and was never Spec A.** Measured: §5.3 has stated the rule and excluded `EPH` **in
+     the same paragraph** since revision A-20; MASTER stated it **unqualified** at both sites with no
+     `EPH` annotation at either, and named this item **exactly once** in the whole document, in a list
+     of items that *"stay filed and unruled"*; the shipped code follows §5.3
+     (`connect/messagegroup/seal.go:119` on the seal path and `:387` on the open path refuse every
+     non-`DURABLE` class at `72ffdbd`); and **nothing in the tree catches the divergence** — widening
+     that refusal to admit `PERMANENT` reddens **2 of 208** top-level `messagegroup` tests and both are
+     the blanket refusal gates themselves. So a second implementer building from the top document would
+     have sealed an `EPH` head under `K_durable` and neither the corpus nor the suite would have
+     stopped them. **This inverts revision A-20**, which ruled *"MASTER §8.1 stands as written and Spec
+     A §5.3 is the document that changes"* — the sentence recorded in item **128** at `:1599` — and it
+     spends the argument revision **A-21** called *"the ruling's own strongest argument"*, *"no MASTER
+     rule change"*. Spec A revision **A-23** records the inversion.
+
+     **What the amendment did NOT do, stated as flatly as the owner stated it.** It did **not** rule
+     this item. **What class an `EPH` head is keyed under stays open**, and the shipped refusal stays
+     for the reason it has always stood: this item.
+
+     **AND THERE IS A HARD REASON IT CANNOT BE RULED YET, WHICH IS NEW HERE.** `K_eph[n][b][t]` **has
+     no computable key today**, whatever class is assigned to it. The window `t` is undefined by every
+     document in the corpus — m1 open item **M1-27**, *"`EphKey`'s `window` has no unit, no origin and
+     no clock"*: MASTER §8.1 gives the formula and calls `t` a time-slice and says nothing about
+     whether it is `floor(now / eph_bucket_seconds[b])`, in what epoch, or on whose clock, and Spec A
+     §5.3 declares `EphKey` with no formula at all. And the bucket ladder cannot answer for it either:
+     **`message.EphBucketSeconds(0)` returns `-1`, the SAME `noLadderValue` sentinel as the off-ladder
+     bucket 6** — verified by running it against `72ffdbd` rather than by reading the table:
+     `0 → -1, 1 → 3600, 2 → 28800, 3 → 86400, 4 → 604800, 5 → 2419200, 6 → -1, 7 → -1`
+     (`connect/message/record.go:131`, `:143`, `:168-173`) — so the transient rung that is never
+     persisted and a bucket that is not a bucket are indistinguishable by the answer, and a ruling that
+     assigned `EPH` heads a class would be assigning a class to a key nobody can derive. **ITEM 152 AND
+     M1-27 MUST BE RULED IN ONE SITTING.** That is a requirement on the sitting and not a preference:
+     ruling 152 alone names a class for a key with no window, and ruling M1-27 alone fixes a window
+     under a key whose class may still move.
 
 153. **`M-5` — STILL OPEN (PARTIAL — one clause of three applied). NEEDS RULING, IN ONE SITTING WITH
      ITEM 155. WIRE-VISIBLE AT MAXIMUM COST.** r3 asked to replace §7's application-layer combiner with
@@ -11974,3 +12055,211 @@ plan-supplied-test class **189 = 189**, task references **2,511 → 2,613**, ope
 **24 properties over 6 tasks (5, 5, 5, 5, 2, 2)**, and `grep -c '^- Consumes:'` returns **6**.
 `connect` was not modified, and every query in this entry was run against it read-only.
 `git ls-files` equals `git ls-tree -r HEAD` at **104**, checked before the commit.
+
+### 2026-09-11 — MASTER amended to carry Spec A §5.3's `EPH` carve-out: revision A-20 INVERTED, item 152's five stale anchors re-anchored, and CP3b determined NOT REACHED on two zero-counts
+
+**No Go file in this repository changed and `connect` was read and never written** — that tree is
+`beta/message` at `72ffdbd`, 1,112 tracked files (`git ls-files` = `git ls-tree -r HEAD`), clean before
+and after. Every query in this entry was run against that commit read-only; the one mutation
+measurement below was run on a `git archive` export into a scratch directory outside both trees, which
+was deleted. This repository is on `main`.
+
+---
+
+**THE RULING. MASTER is amended to carry Spec A §5.3's `EPH` carve-out.** MASTER §8's record listing
+and §8.1's ratchet paragraph now state the durable-head rule **with `EPH` excluded**, in MASTER's own
+voice, carrying §5.3's exclusion rather than paraphrasing it. A dated amendment note is added to the
+revision history, and it opens by saying **a rule in this document changes** — because the two
+amendment notes before it open by saying the opposite.
+
+**The situation being corrected, and all four facts were reproduced before they were written down.**
+
+1. **Spec A §5.3, which owns the construction, states the rule and excludes `EPH` in the same
+   paragraph** — *"So `EPH` is excluded from this rule, `messagegroup.SealRecord` keeps refusing it,
+   and the class it is keyed under is ledger item 152's to rule. Nothing here is a licence to seal an
+   `EPH` head under `K_durable`."* (§5.3:1286-1288 after this commit's one added row.)
+2. **MASTER stated it unqualified**, at §8:950 (*"`ct_head` AEAD, always retained"*) and §8.1:1091
+   (*"always under the **durable** class, since it is always retained"*), **with no `EPH` annotation at
+   either** — and named ledger item **152** exactly **once** in 2,249 lines, at §0:288, in a list of
+   items that *"stay filed and unruled"*.
+3. **The shipped code follows Spec A, settled statically end to end.**
+   `connect/messagegroup/seal.go:119` refuses every non-`DURABLE` class on the seal path and `:387`
+   refuses it again on the open path; `classKeyOnLoop` (`session.go:494-507`) has no `EPH` arm at all,
+   by MASTER invariant I4.
+4. **Nothing in the tree catches the divergence.** Widening that refusal to admit `PERMANENT` reddens
+   **2** tests, and both are the blanket refusal gates themselves —
+   `TestOnlyTheDurableClassIsSealedUntilM16IsRuled` (`seal_test.go:563`) and
+   `TestOpenRecordRefusesTheClassesAndTheBlobRungSealRecordRefuses` (`m1w1repairs_test.go:628`).
+
+**So the harm was never the rule.** It is that a second implementer building from the top document
+would seal an `EPH` head under `K_durable`, and neither the corpus nor the suite would stop them. The
+amendment closes that at its source.
+
+**THIS INVERTS REVISION A-20, AND THE INVERSION IS NAMED RATHER THAN ABSORBED.** A-20 ruled *"MASTER
+§8.1 stands as written and Spec A §5.3 is the document that changes"* (recorded in item **128** at
+`SPEC-LEDGER.md:1599`). Today MASTER §8.1 is the document that changes and §5.3 is unedited. It also
+spends the argument revision **A-21** stated in as many words as *"the ruling's own strongest
+argument"* — *"No Spec B change and no MASTER rule change."* A reversal of a recorded position must
+name the position it reverses, so Spec A gains revision row **A-23**, which changes no rule of Spec A
+and exists to carry exactly that.
+
+**LEDGER ITEM 152 IS NOT RULED, and there is now a hard reason it cannot be.** What class an `EPH` head
+is keyed under stays open. **`K_eph[n][b][t]` has no computable key today**, whatever class is assigned
+to it: the window `t` is undefined by every document — open item **M1-27**, *"no unit, no origin and no
+clock"* — and `message.EphBucketSeconds(0)` returns **`-1`**, the same `noLadderValue` sentinel as the
+off-ladder bucket 6. **Verified by running it rather than by reading the table**: `0 → -1, 1 → 3600,
+2 → 28800, 3 → 86400, 4 → 604800, 5 → 2419200, 6 → -1, 7 → -1`, from a three-line `main` in a scratch
+module with a `replace` onto `72ffdbd`. **152 and M1-27 must be ruled in one sitting**, and both the
+item and MASTER's own amendment note now say so.
+
+---
+
+**THE CLASS THE RULING MAKES FALSE, DERIVED RATHER THAN TAKEN FROM THE BRIEF — AND THE COMPLEMENT
+PRINTED, BECAUSE AN EMPTY ONE WOULD HAVE MEANT THE DERIVATION WAS A RESTATEMENT.** Two queries over
+every `.md` in the repository at `2f403c8`:
+
+```
+Q1='ct_head`? is (always )?(sealed )?under the|always under the \*\*?durable|always sealed under the DURABLE|ct_head`? is DURABLE|head is always retained|ct_head`? +AEAD, always retained'
+Q2='(all four|four) (retention )?classes|whatever the record.s own retention class|one head ladder'
+
+grep -rniE "$Q1" --include='*.md' .                                        ->  27
+grep -rniE "$Q2" --include='*.md' . | grep -iE 'head|ClassKeys.Durable'    ->   4
+the two, piped through  cut -d: -f1,2 | sort -u                            ->  29
+```
+
+**The class — a statement of the rule in a normative voice a builder could act on that does NOT carry
+the `EPH` exclusion — is TWO, and both are MASTER's**: `:950` and `:1091`, which are precisely the two
+sites the ruling names. **The complement is 27 and here is why each is out:**
+
+- **Spec A, 6** (`:103`, `:1215`, `:1236`, `:1238`, `:1284`, `:2226`, pre-row numbering). `:1284` **is**
+  the exclusion; `:1215`/`:1236`/`:1238` are §5.3, which carries it 46–70 lines below in the same
+  section; `:103` is the A-20 row, which states *"`EPH` is excluded from the rule and `SealRecord`
+  keeps refusing it"* inside the row; `:2226` is about a **`PERMANENT`** snapshot, where the rule is
+  correct.
+- **the `m1` plan, 6** (`:1877`, `:1886`, `:2874`, `:5215`, `:5256`, `:5272`). Task 1's two copies
+  **defer the binding to Task 11 in the same paragraph** — *"it binds at the call site and not here"* —
+  and Task 11(a) at `:2879-2886` and open item **M1-6** at `:5245-5258` both carry the exclusion at
+  length.
+- **`SPEC-LEDGER.md`, 14** (`:1595` `:1605` `:1621` `:1632` `:2453` `:3070` `:3113` `:3130` `:3138`
+  `:4275` `:4279` `:6851` `:9711` `:9747`). Items **128**, **143**, **169** and **152** account for
+  eleven and every one of them carries its own carve-out — 169 in particular **already** corrects
+  itself, *"'shared by all four retention classes' is wrong in both directions"*, so the one place the
+  brief predicted a repair needed none. `:6851`, `:9711` and `:9747` are **dated edit-log entries**,
+  which this ledger annotates and does not rewrite.
+- **`docs/reviews/2026-08-12-r3-spec-review.md`, 1** (`:147`). The original r3 finding text, a dated
+  review artefact.
+
+**One thing the query could not see, and it is the load-bearing half.** MASTER `:950` is a column-
+aligned line inside a fenced field listing, and it matches the *first* regex only because that regex
+was widened with an `AEAD, always retained` alternative after reading §8 by hand. **A reader who trusted the first draft of
+the query would have amended `:1091` and left `:950` — the rule's own premise — standing.** That is the
+same shape as the defect being corrected.
+
+---
+
+**THE THREE CORRECTIONS, EACH REPRODUCED.**
+
+**1. Item 152's headline *"sender"* claim is unsupported in any reading.** Its Property named *sender*
+among the head's metadata. `connect/mls/framing.go:675` says in terms: *"The sender is NOT here. It
+lives in the encrypted sender data, which is what stops the transport learning which member of a group
+sent which message."* A `PrivateMessage` header carries `group_id`, `epoch`, `content_type` and
+`authenticated_data` and no sender; the `sender_handle` that is sender-ish is a field of `record_bytes`
+**outside** `ct_head`, and Spec B §7.2 zeroes it at `prune_after` for `EPH(1..5)` regardless. The word
+is struck and the item's other clauses are kept — the header, `type` and `sent_at` carry the whole
+argument. **The class of restatements was derived and is TWO**: item 152's Property and the `m1` plan's
+copy of it at `:5253`, which is corrected in the same pass with a pointer back.
+
+**2. All five of item 152's MASTER anchors were stale.** Reproduced one at a time with
+`sed -n '<n>p'`: `:823` landed on r3-review prose, `:876` on the X-Wing parameter trade, `:963` on
+`EncodeRecord`/`RecordId`, `:994` on a bare fence, `:1933` on the admin-succession paragraph. **The
+substance of every one still reproduces; the line numbers do not.** Re-anchored to `:1030`, `:972-977`,
+`:1118`, `:1170` and `:2137`, with the old number kept beside each. **And the sweep for the class found
+four more the brief did not name:** *"Spec A §5.1:1057"* is wrong in line **and** in section **and** in
+substance (the text is §5.3's, and since A-20 it no longer agrees with the one-ladder reading it was
+cited for); *"Spec B §7.2:2587-2588"* points at `MEDIA` and `EPH(0)` rather than `DURABLE` and `MEDIA`
+and should be `:2586-2587`; *"SPEC-LEDGER.md:1571, item 128"* is `:1595` with its as-filed text at
+`:1631`; and the `handle_link` count *"2 files, both under `docs/reviews/`"* is now **3**, because this
+item wrote its own query into the ledger — the self-match class. **Zero in the live corpus, which is
+what the count was for, still holds**: `docs/specs` and `docs/plans` return 0 files and `connect`'s Go
+returns 0. **Why this matters is stated in the item**: its whole weight is that it quotes MASTER
+against itself, and an item read as evidence with citations that no longer land is an item dismissed on
+its next reading rather than answered.
+
+**3. `PROGRESS.md` stated a blocker that has not been true since `j1` Task 5.** The tracks table read
+*"CP3b itself is still blocked outright by `S2-4` — `JoinFromWelcome` is an unconditional refusal, so
+no exported path lets two clients share one group."* It does now.
+`TestTwoEnginesShareOneGroupAndTheirExportersAgree`,
+`TestADurableRecordSealedByTheFounderOpensAtTheJoiner` and `TestTheDeviceSurvivesItsOwnJoin` all pass
+at `72ffdbd`. The **table row is corrected** because a state row is a claim about now; the **wave-1
+bullet** at `PROGRESS.md` carrying the same sentence is **annotated** because it is a dated fact about
+wave 1 in an append-only file.
+
+---
+
+**THE MILESTONE DETERMINATION, ANSWERED IN THE FILE THAT OWNS IT.** An implementer reached the
+two-client join, deliberately declined to declare CP3b, and handed the question up. **The abstention
+was correct and the determination is NOT REACHED.** `PROGRESS.md` defines **CP3a** as *"Record → submit
+→ accept → fan out → fetch → parse"* — the **server** path — and **CP3b** as *"the same path with the
+real MLS key schedule underneath."* So CP3b is not *"the key schedule works"*; it is *"a real-keyed
+record crosses the server."* **No real-keyed record ever has. Two zero-counts, queries printed beside
+them**, in this repository: `grep -rn "connect/messagegroup" --include="*.go" .` → **0**, and
+`grep -rn "SealRecord\|OpenRecord" --include="*.go" .` → **0**, both **including tests**. The
+narrowing *"production only"* removes **nothing** — the complement is empty here and that is the point:
+there is no half-built leg to argue about. What IS true is written down under its own name rather than
+under a CP3b it is not: two independent clients, one real MLS group, a `DURABLE` record sealed by one
+and opened by the other, every key derived through production functions, with **three named hand-offs
+and no test-only key source** — `pq_secret` (delivery channel m1 Task 14, gated on 152),
+`group_handle_key` (**M1-2**) and the Welcome itself (ledger **44a**) — quoted verbatim from the
+package's own inventory at `connect/messagegroup/doc.go:70-77`. What CP3b still requires is the record
+crossing the message server, which is `s2`'s legs.
+
+---
+
+**WHAT DID NOT REPRODUCE, SAID HERE RATHER THAN WRITTEN INTO A DOCUMENT.**
+
+- **The mutation denominator.** The brief measured the `PERMANENT` widening at *"2 of 204"*
+  `messagegroup` tests. The **2** reproduces exactly, and both are the refusal gates as described. The
+  **204 does not**: `go test ./messagegroup/ -v` with **no `-run` filter** reports **208** top-level
+  tests and **211** counting subtests, on both sides of the mutation (206 pass + 2 fail under it).
+  **208** is what is written into Spec A's A-23 row and into item 152. This is the ninth published
+  number on this project caught on re-measurement and the correction is one test-suite growth cycle,
+  not an error of kind.
+- **`KEEP` appears in no Go file.** Under the reading that matters — a retention class named `KEEP` —
+  it holds: `grep -rn "RetentionKeep" --include="*.go"` over `connect` returns **0**, as does any
+  `KEEP` identifier. **As stated literally it does not**: `grep -rnw "KEEP" --include="*.go"` returns
+  **4**, all of them the English word in a comment (`messagegroup/ratchet.go:1007`,
+  `mls/proposal_list.go:1080`, `mls/caller_arrays_test.go:2039`,
+  `transfer_encrypt_recovery_test.go:257`). Recorded and not written into a spec.
+
+**AND FIVE STALE ANCHORS MEASURED AND DELIBERATELY NOT REPAIRED, named so the next pass is mechanical
+rather than a re-derivation.** The corpus holds exactly **6** explicitly-attributed `Spec A §x:NNNN`
+anchors. One was item 152's and is repaired here. The other five do not land, and **were already not
+landing at `2f403c8` before this commit's one added row** — checked with
+`git show HEAD:<file> | sed -n '<n>p'`: *"Spec A §5.3:1271"* (cited twice) belongs at **§5.3:1286-1287**;
+*"Spec A §5.6:1394"* (cited twice) belongs at **:1428**; *"Spec A §5.14:2472"* belongs at **:2801**;
+*"Spec A §10:5106"* lands on protobuf-naming prose that does not support the sentence citing it and is
+not adjudicated here. They are other items' evidence and repairing them is its own commit. **Note for
+that commit: appending a row to Spec A §0.6 shifts every line anchor into Spec A by one**, and this
+commit appended one.
+
+---
+
+**One finding against `connect` this documents-only pass could not fix.**
+`connect/messagegroup/doc.go:97-98` still gives *"open item M1-6 has not ruled"* as the reason the
+package seals only `DURABLE`. **M1-6 was ruled 2026-09-07.** The refusal is right and its stated reason
+is stale: `PERMANENT` and `MEDIA` are refused because wave 2 has not landed, and `EPH` is refused under
+item **152**. `PROGRESS.md`'s 2026-09-07 entry recorded the same staleness for `seal.go`'s comment and
+did not reach `doc.go`. Filed in `PROGRESS.md` for whoever next holds that tree.
+
+**Verification, before and after.** `go build ./...` clean and `go test ./... -count=1` green in
+`msgrepo` on both sides. `go test ./ -run TestThePlanLinter` ok on both, **with every reporting count
+identical across the diff** — 1b **7**, 1c **1**, 1d **189**, 2a **18**, 3a **4**, 3c **3**, 4b **5** —
+and the four fatal checks (2b, 3b, 3d, 4a) clean on both sides: **this pass contributes zero findings
+to all nine checks**, and needed no round of linter repair to get there. `connect`'s own suite was run
+unfiltered for the numbers this commit publishes: `go test ./mls/... ./message/... ./messagegroup/... -v`
+→ **7,698** `=== RUN` invocations, **2,234** top-level plus **5,464** subtests, **0** failures and
+**0** skips; `go test ./messagegroup/ -v` → **208** top-level, **211** with subtests, 0 failures. No
+`-run` filter was used for any published count, because `-run 'Test'` selects subtests and would have
+reported a smaller, differently-shaped number. `connect` was `72ffdbd` and clean before and after.
+`git ls-files` equals `git ls-tree -r HEAD` at **105**, checked before the commit; no file was added or
+removed.

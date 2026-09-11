@@ -16,7 +16,7 @@ colliding, and that has cost this project real work before.
 
 | Track | Repo | State |
 |---|---|---|
-| **A — protocol core** | `Ryanmello07/connect`, branch `beta/message` | **p1–p7 complete; m1 wave 0 and wave 1 landed, plus ruling A1.** At `33932e0`: 1,105 tracked files, 7,631 tests passing over `mls/`, `message/` and `messagegroup/`, nine-platform `CGO_ENABLED=0` build green. Wave 2 is stopped in front of ledger **152** — **and, since 2026-09-09, by nothing else**: the owner ruled `M1-1`'s remainder and `M1-7` together that day as composite `C3`, so Task 14's blocker list is item 152 alone. **CP3b itself is still blocked outright by `S2-4`** — `JoinFromWelcome` is an unconditional refusal, so no exported path lets two clients share one group |
+| **A — protocol core** | `Ryanmello07/connect`, branch `beta/message` | **p1–p7 complete; m1 wave 0 and wave 1 landed, plus ruling A1.** At `33932e0`: 1,105 tracked files, 7,631 tests passing over `mls/`, `message/` and `messagegroup/`, nine-platform `CGO_ENABLED=0` build green. Wave 2 is stopped in front of ledger **152** — **and, since 2026-09-09, by nothing else**: the owner ruled `M1-1`'s remainder and `M1-7` together that day as composite `C3`, so Task 14's blocker list is item 152 alone. **CORRECTED 2026-09-11 — that blocker is CLOSED, and had been since `j1` Task 5.** This row read *"CP3b itself is still blocked outright by `S2-4` — `JoinFromWelcome` is an unconditional refusal, so no exported path lets two clients share one group"*. At **`72ffdbd`** — 1,112 tracked files, **7,698** test and subtest invocations green over `mls/`, `message/` and `messagegroup/` (unfiltered `go test ./mls/... ./message/... ./messagegroup/... -v`; **2,234** top-level plus **5,464** subtests, 0 failures) — two independent engines share one real MLS group, and a `DURABLE` record sealed by the founder opens at the joiner: `TestTwoEnginesShareOneGroupAndTheirExportersAgree`, `TestADurableRecordSealedByTheFounderOpensAtTheJoiner` and `TestTheDeviceSurvivesItsOwnJoin` all pass. **What blocks CP3b now is the message-server leg, which is `s2`'s** — see the 2026-09-11 entry for the determination and its evidence |
 | **B — Windows client** | `Ryanmello07/urmessage-windows` (private) | CP1 shipped — builds, launches, renders |
 | **C — message server** | `Ryanmello07/urnetwork-message-server` | **shipped and under test** — 57 Go files, 26,402 lines; `store/`, `api/`, `peer/`, `blobd/`, `sweep/`, `cmd/`, `go build ./...` and `go test ./...` green. CP3a and CP3c ran through it |
 
@@ -1279,6 +1279,13 @@ rather than a caveat:
 
 - **It cannot join a group.** `JoinFromWelcome` refuses, and the refusal names what is missing rather
   than describing it: `connect/mls` keeps a minted key package's signature private half private.
+  *(**NO LONGER TRUE, and it stopped being true at `j1` Task 5.** Recorded here rather than rewritten,
+  because this bullet is a dated fact about wave 1 and the file is append-only. At `connect`
+  `72ffdbd` the join is a working exported path: `TestTheDeviceSurvivesItsOwnJoin`,
+  `TestTwoEnginesShareOneGroupAndTheirExportersAgree` and
+  `TestADurableRecordSealedByTheFounderOpensAtTheJoiner` pass — two engines, two stores, two signers,
+  epoch 1, exporters byte-equal. The tracks table above carried the same sentence in the **present**
+  tense and that copy is corrected rather than annotated, because a state row is a claim about now.)*
 - **It seals one retention class.** `DURABLE` only; `PERMANENT`, `MEDIA` and `EPH` are refused with a
   typed error naming **M1-6**. *(**M1-6 was ruled later the same day** — `ct_head` is always sealed
   under the DURABLE class — which lifts the refusal for `PERMANENT` and `MEDIA` **in the plan**, and
@@ -1373,3 +1380,100 @@ lifted MUST NOT — none of which the brief named.
 under a right-looking number for a week, and only the ratio of two measurements — 3.11, not 4 — could
 tell them apart. A number that agrees by accident is worse than one that disagrees, because nothing
 downstream ever questions it.
+
+
+---
+
+## 2026-09-11 — CP3b: NOT REACHED. The determination, its evidence, and the milestone that WAS reached
+
+**No Go file in this repository changed and `connect` was read and never written** — that tree is
+`beta/message` at `72ffdbd`, 1,112 tracked files, clean, and every query below was run against it
+read-only. This entry is the documentation half of an owner ruling recorded the same day in
+`SPEC-LEDGER.md` and in MASTER §8 / §8.1.
+
+**An implementer reached the two-client join, deliberately declined to declare CP3b, and handed the
+question here. The abstention was correct and the determination is NOT REACHED.**
+
+### Why, measured in the file that owns the definition
+
+This file defines the two halves above, and the definitions are the whole argument. **CP3a** is
+*"Record → submit → accept → fan out → fetch → parse"* — the **server** path. **CP3b** is
+*"the same path with the real MLS key schedule underneath."* So CP3b is not *"the real key schedule
+works"*; it is *"a real-keyed record crosses the server."*
+
+**No real-keyed record has ever crossed the server. Two zero-counts, each with the query beside it,
+run in this repository at `2f403c8`:**
+
+```
+grep -rn "connect/messagegroup" --include="*.go" .      ->  0     (production AND test)
+grep -rn "SealRecord\|OpenRecord" --include="*.go" .    ->  0     (production AND test)
+```
+
+Not *"few"* and not *"only in tests"* — **zero**. No file in this repository imports the package that
+holds the key schedule, and the two functions a CP3b record must pass through are named in no Go file
+here at all. They occur only in prose: `PROGRESS.md`, `SPEC-LEDGER.md`, the `m1`, `s2` and `k1` plans,
+and Spec A. The server and the key schedule have never been in one process.
+
+**The complement, printed because an empty one would be the tell.** The narrowing *"production files
+only"* removes **nothing**: the test-inclusive count is the same zero. That is what makes this a
+determination rather than a status — there is no half-built leg to argue about.
+
+### What IS true, and it is a real milestone that deserves its own name rather than a CP3b it is not
+
+At `connect` `72ffdbd`: **two independent clients, one real MLS group, a `DURABLE` record sealed by
+one and opened by the other, every key on it derived through production functions.** Verified by
+running, unfiltered:
+
+- `TestTwoEnginesShareOneGroupAndTheirExportersAgree` — two engines, two stores, two signers,
+  epoch 1, exporters byte-equal
+- `TestADurableRecordSealedByTheFounderOpensAtTheJoiner`
+- `TestTheDeviceSurvivesItsOwnJoin`
+
+All three pass (`messagegroup/enginejoin_test.go`). **And the numbers, with which number each is:**
+`go test ./messagegroup/ -v` with **no `-run` filter** reports **208** top-level tests and **211**
+counting subtests, 0 failures; `go test ./mls/... ./message/... ./messagegroup/... -v`, also
+unfiltered, reports **7,698** `=== RUN` invocations — **2,234** top-level plus **5,464** subtests —
+with **0** failures and **0** skips. A `-run 'Test'` filter would have selected subtests and reported
+a smaller, differently-shaped number; none of the above is filtered.
+
+### The three named hand-offs, which is where the bar is met and where it is carried
+
+CP3b's bar, as the owner read it on 2026-09-10, is *"no test-only key **source**"* — not *"no
+test-only code"*. The package states its own inventory and it reproduces verbatim at
+`connect/messagegroup/doc.go:70-77`:
+
+> *"WHAT IS GENUINELY HAND-CARRIED, three values and each named with what would replace it.
+> `pq_secret` … its delivery channel is m1 task 14, gated on ledger item 152. `group_handle_key`,
+> which a PRODUCTION function computes at epoch zero and which no channel carries to a joiner: open
+> item M1-2. And the Welcome itself, handed over as a VALUE IN ONE PROCESS, which is ledger 44a's
+> named, gated, test-only hand-off. **Three hand-offs and no test-only key SOURCE: nothing on this
+> path mints a key some way the product would not.**"*
+
+Each of the three is a **hand-off and not a substitute**: the value handed over is the value the
+product will deliver, by a route not yet built. `pq_secret` is the only one of the three that is a key
+on the seal path, and it is drawn by `NewPqSecret` — a production sampler — and injected, not faked.
+
+**What that inventory does NOT cover, named because the same header names it two paragraphs down and a
+reader who stops at "three hand-offs" will miss it.** The Welcome **anchors nothing**: anybody holding
+a key package this device published can found a group, add this device and have it join, with group
+id, epoch, member count and exporter all agreeing — because the group is real and the attacker
+founded it. That is open item **MG-1** in `connect`'s own `OPENITEMS.md`, it is a design ruling rather
+than a package defect, and it is not on the CP3b key-source axis at all. It is on the *"who is this
+group"* axis, which no milestone in this file has ever claimed.
+
+### What CP3b still requires
+
+**The record crossing the message server.** That is `s2`'s legs: Tasks 1–12 are the CP3b prefix, and
+`s2`'s own first paragraph states it does not reach CP3b alone. Of the four `connect` blockers `s2`
+filed outside both legs, **S2-4** is closed (this entry's first half is what closed it), **S2-1** and
+**S2-2** are designed in `k1` and not yet built, and **S2-3** is `pq_secret`'s delivery, gated on
+ledger item **152**.
+
+### One finding against `connect` that this pass could not fix, because this pass is documents only
+
+`connect/messagegroup/doc.go:97-98` still reads *"open item M1-6 has not ruled"* as the reason the
+package seals only `DURABLE`. **M1-6 was ruled on 2026-09-07** — the refusal is correct and its
+**reason** is stale: `PERMANENT` and `MEDIA` are refused today because wave 2 has not landed, and
+`EPH` is refused under ledger item **152**. `seal.go`'s own comment carries the same stale name; this
+file's 2026-09-07 entry already recorded that for `seal.go` and did not reach `doc.go`. Filed here for
+whoever next holds that tree.

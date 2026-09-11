@@ -5250,9 +5250,12 @@ DURABLE, that settles the ambiguity, `SealRecord` may stop refusing — is the r
 harm permanently."* That did not happen; the ruling was made on this item's terms. What item 152 holds
 is that `K_durable[n]` descends from `storage_root[n]`, is destroyed nowhere, and is delivered to every
 member's recovery wrap for the life of the group — so an `EPH` record's metadata (the MLS
-`PrivateMessage` header, `type`, `sent_at`, sender) sealed under it survives the timer, a seized
+`PrivateMessage` header, `type`, `sent_at`) sealed under it survives the timer, a seized
 device, a device provisioned tomorrow and a seedphrase holder, which falsifies MASTER §8.1's own next
-sentence and §12.4's required UI string. **And the ruling's stated premise is false for exactly that
+sentence and §12.4's required UI string. *(**Corrected 2026-09-11**: this list read *"header, `type`,
+`sent_at`, **sender**"*, copied from ledger item 152's Property, and the sender is not in the head at
+all — `connect/mls/framing.go:675`, *"The sender is NOT here. It lives in the encrypted sender data."*
+Item 152 carries the correction and its other clauses are unaffected.)* **And the ruling's stated premise is false for exactly that
 class:** *"the head is always retained"* holds for `PERMANENT`, `DURABLE` and `MEDIA` and does not
 hold for `EPH` — Spec B §7.2 sets `ct_head = NULL` for `EPH(1..5)` at `prune_after`, which is why item
 152 calls the erasure operational and the guarantee cryptographic. So `EPH` keeps Task 11(a)'s

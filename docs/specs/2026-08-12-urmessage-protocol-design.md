@@ -301,6 +301,28 @@ server and every construction here stayed still. The position rule itself lives 
 them. Ledger items **132**, **133**, **134**, **142** and **148** stay filed and unruled; **143** and
 **169** no longer do.
 
+**Amendment to revision 9 — 2026-09-11 — §8 and §8.1: the `EPH` carve-out this document stated
+nowhere. A RULE IN THIS DOCUMENT CHANGES, and that is said first because the two amendments before it
+opened by saying the opposite.** The rule *"`ct_head` is always under the **durable** class, since it
+is always retained"* was stated here **unqualified**, at §8's record listing and at §8.1's ratchet
+paragraph, with no `EPH` annotation at either — while Spec A §5.3, which owns the construction, has
+stated the rule **and excluded `EPH` in the same paragraph** since revision A-20, and
+`messagegroup.SealRecord` has refused every non-`DURABLE` class since m1 wave 1. **The harm was never
+the rule; it was that a second implementer building from the top document would seal an `EPH` head
+under `K_durable` and nothing in the corpus or the tree would stop them** — widening the shipped
+refusal to admit `PERMANENT` reddens **2 of 208** `messagegroup` tests and both are the blanket
+refusal gates themselves, so the divergence between the documents is caught by no test at all. §8 and
+§8.1 now carry the exclusion in this document's own voice. **This inverts revision A-20**, which ruled
+*"MASTER §8.1 stands as written and Spec A §5.3 is the document that changes"* (`SPEC-LEDGER.md`
+item 128): MASTER §8.1 is now the document that changes and Spec A §5.3 is unedited. It also spends
+the argument revision **A-21** called *"the ruling's own strongest argument"* — *"no MASTER rule
+change"* — which is why the inversion is named here rather than absorbed. **Ledger item 152 is NOT
+ruled by this amendment:** what class an `EPH` head is keyed under stays open, and it must be ruled in
+one sitting with ledger open item **M1-27**, because `K_eph[n][b][t]`'s window `t` has no unit, no
+origin and no clock in any document — so no `EPH` head has a computable key today whatever class it is
+assigned. Ledger items **132**, **133**, **134**, **142**, **148**, **152** and **178** stay filed and
+unruled.
+
 ## 1. Purpose and product target
 
 URmessage is a private messenger built on the URnetwork mesh. It reuses URnetwork's transport and
@@ -947,7 +969,12 @@ RECORD
                           material, never from content — see Spec A §5.13
   server_attachment  opaque, typed, extensible; ZERO-LENGTH for ordinary records. The only
                           server-visible structured field. See §8.3.
-  ct_head            AEAD, always retained; MLS PrivateMessage header, type, sent_at
+  ct_head            AEAD; MLS PrivateMessage header, type, sent_at. RETAINED for
+                          PERMANENT, DURABLE and MEDIA. NOT retained for EPH(1..5) — Spec B
+                          §7.2 sets ct_head = NULL at prune_after — so §8.1's durable-class
+                          rule excludes EPH, and the class an EPH head is keyed under is
+                          unruled. See §8.1 and ledger item 152. (Amended 2026-09-11; this
+                          line read "AEAD, always retained" with no exception in it.)
   ct_body            AEAD, erasable; the MLS PrivateMessage payload
   write_auth         MAC, computed last; see §9.2
 ```
@@ -1088,8 +1115,25 @@ record_key[i+1] = HKDF-Expand(record_key[i], "ratchet/v1", 32)
 ```
 
 A real forward ratchet: the sender overwrites `record_key[i]` after use, keeping a bounded skipped-key
-window for out-of-order receipt. `ct_head` is always under the **durable** class, since it is always
-retained.
+window for out-of-order receipt. `ct_head` is under the **durable** class for `PERMANENT`, `DURABLE`
+and `MEDIA`, since for those three classes it is always retained.
+
+**`EPH` is excluded from that rule, and this document states the exclusion rather than leaving it to
+Spec A. Amended 2026-09-11.** Until this amendment the sentence above read *"`ct_head` is always under
+the **durable** class, since it is always retained"*, with no `EPH` annotation here or at §8's record
+listing. **The premise is false for exactly one class:** Spec B §7.2 sets `ct_head = NULL` for
+`EPH(1..5)` at `prune_after`, so an `EPH` head is not always retained, and the failure the rule exists
+to prevent — a retained header going unopenable at the moment its body vanishes — is a failure only
+where the head outlives the body, which for `EPH(1..5)` it does not. **And the consequence of keying
+it durable is the failure the next paragraph promises against:** `K_durable[n]` descends from
+`storage_root[n]`, is destroyed nowhere, and rides every member's recovery wrap for the life of the
+group, so an `EPH` record's metadata sealed under it would survive the timer, a seized device, a
+device provisioned tomorrow and a seedphrase holder. **Nothing here is a licence to seal an `EPH` head
+under `K_durable`.** `messagegroup.SealRecord` refuses the class, and **which class an `EPH` head is
+keyed under is ledger item 152's to rule** — in one sitting with ledger open item **M1-27**, because
+`K_eph[n][b][t]`'s window `t` has no unit, no origin and no clock in any document, so no `EPH` head
+has a computable key today whatever class it is assigned. Spec A §5.3 has carried this exclusion since
+revision A-20 and is the document this amendment follows rather than corrects.
 
 `eph_root[n]` is independently sampled, time-sliced by window `t`, never wrapped to a recovery key,
 never in a provisioning bundle, deleted when its window closes. **After the timer, retained server
