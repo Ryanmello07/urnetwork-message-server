@@ -3135,7 +3135,11 @@ fourteen are dispositioned below.
      reading at all, because revision **A-20** amended it to the two-ladder rule, and
      **§5.3:1290-1299** is where the `EPH` exclusion has lived since — **47 to 70 lines below the rule
      it excludes `EPH` from, not in the same paragraph as it**, which is the correction revision
-     **A-23** carries in place. Spec B **§7.2:2629** *(was §7.2:2589)* clears the head for `EPH(1..5)`
+     **A-23** carries in place. *(**The base of that range, stated 2026-09-11, third pass of that
+     date, because the arithmetic and the anchor printed beside it did not share one:** 47, 49 and
+     70 are measured to `§5.3:1297`, the first line of the exclusion **sentence**, and not to
+     `:1290`, the first line of the **paragraph** cited here; from `:1290` the same three distances
+     are 40, 42 and 63.)* Spec B **§7.2:2629** *(was §7.2:2589)* clears the head for `EPH(1..5)`
      and zeroes `body_hash` in the same row, and **§7.2:2626-2627** *(was §7.2:2586-2587, and before
      that §7.2:2587-2588)* keeps the head for `DURABLE` and `MEDIA`; the oldest pair pointed at
      `MEDIA` and `EPH(0)`. Spec B **§3.2:798-804** is also new to this block: the DDL's `body_hash`
@@ -3280,6 +3284,35 @@ fourteen are dispositioned below.
      M1-27 MUST BE RULED IN ONE SITTING.** That is a requirement on the sitting and not a preference:
      ruling 152 alone names a class for a key with no window, and ruling M1-27 alone fixes a window
      under a key whose class may still move.
+
+     > **ANNOTATED 2026-09-11 (third pass of that date). The note above is dated, so its words and
+     > its numbers stand and this is the repair §7 allows. Two things in it are wrong, and both were
+     > settled by counting rather than by reading the claim.**
+     >
+     > **1. *"§5.3 has stated the rule and excluded `EPH` in the same paragraph"* is FALSE; *"in the
+     > same section"* is what is true.** Spec A §5.3 states the rule in prose at **`§5.3:1248-1257`**
+     > and again in its Go block at **`:1225-1231`**; the exclusion is a separate paragraph at
+     > **`§5.3:1290-1299`** whose sentence begins at **`:1297`** — **47** lines below the rule
+     > paragraph's own statement of it at `:1250`, **49** below that paragraph's first line, **70**
+     > below the Go comment at `:1227`, five paragraphs apart. **This is the FOURTH copy of that claim
+     > and the one nothing named.** The 2026-09-11 second pass enumerated *"three places"* — Spec A's
+     > A-23 row, MASTER §0's amendment note and this ledger's edit-log entry of that date — and this
+     > note, written by the same commit in this same file, was in none of them. **This item's own live
+     > block above already carried the correction** (*"47 to 70 lines below the rule it excludes `EPH`
+     > from, not in the same paragraph as it"*), so item 152 contradicted itself for the length of one
+     > commit.
+     >
+     > **2. Four anchors in the note above were not re-derived and now land on unrelated text.** The
+     > second pass wrote that *"item 152's whole anchor block was re-derived a second time"*; that is
+     > true of the live block and false of this note, which is not in the block. Re-derived against
+     > the commit that carries this annotation, with the note's own numbers left standing beside them:
+     > MASTER *"`:972-977`"* → **`§8:1008-1013`**, the record listing's `ct_head` line (`:972-977` is
+     > now §7's X-Wing paragraph and the `## 8. Storage layer` heading); MASTER *"`:1118`"* →
+     > **`§8.1:1153-1155`**, the ratchet paragraph (`:1118` is now §8's per-epoch read-authorizer
+     > sentence); MASTER *"`:1121-1136`"* → **`§8.1:1157-1172`**, the exclusion (`:1121-1136` is now
+     > the `group_handle_key` / `read_key[n]` fence and the prose beneath it); and *"item **128** at
+     > `:1599`"* → **`:1601`**, the allocation sentence the note quotes (`:1599` is the tail of item
+     > 128's own heading).
 
 153. **`M-5` — STILL OPEN (PARTIAL — one clause of three applied). NEEDS RULING, IN ONE SITTING WITH
      ITEM 155. WIRE-VISIBLE AT MAXIMUM COST.** r3 asked to replace §7's application-layer combiner with
@@ -4111,9 +4144,12 @@ fourteen are dispositioned below.
      At `bed5b84`: **M-1 … M-14 all 0**, M-15 = 1, controls B-1 = 5, B-6 = 4, B-11 = 3. At HEAD
      (`10f0a39`): **M-1 = 1, M-14 = 1**, M-2 … M-13 still 0, M-15 = 5, B-1 = 6. Over `connect` at HEAD:
      0 for every major. **Nothing was adopted, rejected or filed between those two revisions.** Both new
-     hits resolve to `SPEC-LEDGER.md:2723` and `:9357` *(written `:2517` and `:5823`, which
-     were already stale before 2026-09-11 and are re-anchored here because this sentence quotes the text
-     they point at and the target is therefore mechanical)*, and both are **item 146's own sentence**:
+     hits resolve to `SPEC-LEDGER.md:2723` and `:9393` *(written `:2517` and `:5823`, which were
+     already stale before 2026-09-11; re-anchored to `:2723` and `:9357` on 2026-09-11, and `:9357`
+     re-anchored again to `:9393` on the third pass of that date, which inserted 36 lines of
+     annotation above it in this file. Re-anchored rather than annotated because this is a live item
+     and because the sentence quotes the text it points at, so the target is mechanical)*, and both
+     are **item 146's own sentence**:
      *"`B-1` … `B-12`: 1 to 6 files each, all twelve non-zero. `M-1` … `M-14`: ZERO, every one."*
 
      **So the entry written to prove these ids were never dispositioned is now the file the query finds
@@ -9894,6 +9930,20 @@ off the record's own class ladder, and for a `DURABLE` record the two are one la
 do not move — both still take one 32-octet secret — so §5.3 states the binding in prose and in a
 comment, because it cannot state it in a type.
 
+> **ANNOTATED 2026-09-11 (third pass of that date). THE ALLOCATION IN THE PARAGRAPH ABOVE IS
+> INVERTED. This entry's words and numbers stand, per §7's rule for a dated edit log.** *"MASTER
+> §8.1 stands and Spec A §5.3 is what changes"* was true at the commit this entry names. On
+> 2026-09-11 the owner amended **MASTER §8 and §8.1** to carry Spec A §5.3's `EPH` carve-out in
+> MASTER's own voice, and a second amendment the same day took §8's `body_hash` line with it:
+> **MASTER is the document that changed and Spec A §5.3 is unedited.** Spec A revision **A-23**
+> names the reversal. **The ruling itself is untouched** — `RecordAeadHead` still takes the ladder
+> rooted at `ClassKeys.Durable`, `RecordAeadBody` the record's own, and `EPH` is still excluded and
+> still refused. **This annotation is itself a correction.** The 2026-09-11 second pass wrote that
+> this copy *"is annotated rather than rewritten"*; no such annotation existed. **That commit
+> touched no line inside this entry at all** — the entry runs `:9914-:10068` as this commit
+> numbers the file, and the two anchor annotations it did write that day sit at `:10103` and
+> `:10112`, inside the entry *after* this one. The sentence above stood bare until this pass.
+
 **The owner's reason is recorded because the item asked for a rule and not a preference.** The head is
 always retained, so it is keyed by the class that is always retained; under the replaced reading an
 `EPH` record's head would be keyed under a ratchet built to be destroyed on schedule, and a retained
@@ -12181,6 +12231,25 @@ amendment notes before it open by saying the opposite.
    paragraph** — *"So `EPH` is excluded from this rule, `messagegroup.SealRecord` keeps refusing it,
    and the class it is keyed under is ledger item 152's to rule. Nothing here is a licence to seal an
    `EPH` head under `K_durable`."* (§5.3:1286-1288 after this commit's one added row.)
+
+   > **ANNOTATED 2026-09-11 (third pass of that date). "In the same paragraph" is FALSE; "in the same
+   > section" is what is true.** This fact's words and its own anchor stand, per §7's rule for a
+   > dated entry. **The second pass of 2026-09-11 named this entry as one of *"three places"* the
+   > claim was written and said it was *"corrected in place in all three"*. It was not touched: this
+   > entry is byte-identical across both commits of that date — 15,606 characters, equal to the
+   > character, the only difference being the `---` separator appended after it when the second
+   > entry was added.** Measured against the commit carrying this annotation: §5.3 states the rule
+   > in prose at **`:1248-1257`** and again in its Go block at **`:1225-1231`**, and the exclusion
+   > quoted above is a separate paragraph at **`:1290-1299`** whose sentence begins at **`:1297`**
+   > — **47** lines below the rule paragraph's own statement of it at `:1250`, **49** below that
+   > paragraph's first line and **70** below the Go comment at `:1227`, with **five** paragraphs
+   > between them. **This fact's own `§5.3:1286-1288` is stale too**: it now lands on the
+   > lifted-refusal paragraph, which is **one** paragraph above the exclusion it points at and
+   > immediately adjacent to it — `§5.3:1285-1288` and `:1290-1299`, separated by the single blank
+   > line at `:1289`. **The ruling is unaffected and is strengthened** — a §5.3 reader who stops at
+   > the rule does not reach the carve-out either, so the exclusion was not where a builder meets
+   > the rule in either document.
+
 2. **MASTER stated it unqualified**, at §8:950 (*"`ct_head` AEAD, always retained"*) and §8.1:1091
    (*"always under the **durable** class, since it is always retained"*), **with no `EPH` annotation at
    either** — and named ledger item **152** exactly **once** in 2,249 lines, at §0:288, in a list of
@@ -12446,6 +12515,66 @@ all three, quoting what each said, per revision **A-16**'s rule for a revision e
 what a document says. The **measurement** A-23 rests on — that §5.3 carries the exclusion and MASTER
 did not — is untouched.
 
+> **ANNOTATED 2026-09-11 (THIRD PASS OF THAT DATE). THIS ENTRY'S WORDS AND NUMBERS STAND, per §7's
+> rule for a dated edit log. Three of its self-scope counts were checked by counting rather than by
+> reading the claim, and two of them are wrong.**
+>
+> **(1) Finding 4's *"appears in three places written on 2026-09-11 … Corrected in place in all
+> three"* is wrong in both halves: it appears in FOUR places and TWO were corrected.** The fourth is
+> this ledger's own item **152**, whose dated 2026-09-11 note reads *"§5.3 has stated the rule and
+> excluded `EPH` **in the same paragraph** since revision A-20"* — written by the same commit, in
+> this same file, and named in no enumeration. The third place the enumeration DID name, this
+> ledger's 2026-09-11 edit-log entry above, was not corrected either: the whole entry is
+> byte-identical across both commits of that date, 15,606 characters compared end to end, the only
+> difference being the `---` separator appended after it. Both are annotated in place as of this
+> pass. **The query that settles the count, run over every tracked file at `76e0601` with the
+> phrase allowed to wrap** — `perl -0777 -ne 'while (/same\s+(?:\*\*)?paragraph/gs)'` — returns
+> **14** occurrences. **3** are the claim still in those words (Spec A `:106`, this ledger `:3251`
+> and `:12181`); **2** are the 2026-09-11 annotations quoting the phrase they correct (Spec A
+> `:106` again, MASTER `:311`), and MASTER's live sentence at `:309` is the fourth copy, already
+> rewritten to *"in the same section"*; **3** are refutations (`PROGRESS.md:1514`, this ledger
+> `:3137` and `:12433`); **6** are unrelated uses of the two words (Spec A `:99`, this ledger
+> `:8031`, `:9690`, `:12243`, `:12511`, the `m1` plan `:1175`). **THE CLASS IS FOUR, and what
+> the search for a fifth establishes is narrower than "there is no fifth".** The query above is
+> over the claim's literal words, and seven paraphrase sweeps were run beside it — `same block`,
+> `one paragraph`, `adjacent paragraph`, `side by side`, `beside the rule`, `next to the rule`,
+> `in the same place` — whose only near-miss is this entry's own complement at `:12631`,
+> *"states the exclusion **beside the rule**"*, a disposition of the complement and not a copy
+> of the claim. **So: no fifth copy is reachable by a query over the claim's words. That is not
+> the same as none existing**, and this entry's own `Record.CtHead` finding is the proof of the
+> difference.
+>
+> **(2) Finding 3's *"stood un-annotated in two live documents"* is THREE, and its third clause
+> describes a repair that was never made.** The third live copy is the `m1` plan's **Task 11**
+> decision (a), *"the ruling keeps MASTER and amends §5.3 (revision **A-20**)"* — the same allocation in
+> different words, which is why a search for the sentence did not return it, and it quotes MASTER
+> §8.1's **pre-amendment** sentence besides. It is annotated at the sentence as of this pass. And
+> *"A third copy is in this ledger's dated edit-log entry of 2026-09-07 …, which is annotated rather
+> than rewritten"* is false: `git show 76e0601 -- SPEC-LEDGER.md` has no hunk inside that entry's
+> ruling paragraph, and the sentence — **`:9891`** as `76e0601` numbered this file, **`:9927`** as
+> this commit numbers it — stood bare until this pass annotated it. **A
+> claim that a repair was made is not the repair**, which is this entry's own finding 3 turned on the
+> entry itself.
+>
+> **(3) The three distances 47, 49 and 70 reproduce exactly, and their base was never stated.** They
+> are measured to **`§5.3:1297`**, the first line of the exclusion *sentence* this finding quotes,
+> while the finding cites the exclusion as the *paragraph* **`§5.3:1290-1299`**. From that
+> paragraph's first line the same three distances are **40, 42 and 63**. Both are true of §5.3 as it
+> stands; what was missing is which line the subtraction used — in the one measurement this entry
+> foregrounds as *"the measurement, as opposed to the claim"*.
+>
+> **(4) This pass inserts 14 lines into the `m1` plan at `:2877`**, so every `m1` anchor below that
+> point moves by **+14**. **In THIS entry** those are `:5219` (finding 3's citation) and the
+> complement's `:5225`, `:5245-5263`, `:5259` and `:5276`, which become **`:5233`**, **`:5239`**,
+> **`:5259-5277`**, **`:5273`** and **`:5290`**; the complement's `:1877` is above the insertion
+> and does not move. **The 2026-09-11 entry above this one carries five more that move, and they
+> are named here rather than left to the reader** — `:2879-2886` → **`:2893-2900`**, `:5215` →
+> **`:5229`**, `:5245-5258` → **`:5259-5272`**, `:5256` → **`:5270`**, `:5272` → **`:5286`**;
+> its `:1877` and `:2874` do not move. The corpus-wide table, which also covers the 2026-09-15 and
+> 2026-09-18 entries, is in the third 2026-09-11 entry at the end of this log, and every row of it
+> was verified by reading the target line on both sides. Dated entries keep their own numbers;
+> this is the annotation §7 allows.
+
 ---
 
 **THE CLASS, DERIVED BY READING THE SECTIONS, WITH BOTH THE READING AND A QUERY PUBLISHED — AND WHAT
@@ -12656,3 +12785,265 @@ into a sibling directory of `connect` — `../connect` is a `replace` target, so
 does not build — and the export was deleted. `connect` was `72ffdbd`, **1,112** tracked files and
 `git status --porcelain` empty, before and after; it was read with `grep` and `sed` only. `git ls-files`
 equals `git ls-tree -r HEAD` at **105**, checked before the commit; no file was added or removed.
+
+---
+
+### 2026-09-11 — the correction that enumerates its own scope and does not reach the last member of it: the proximity claim is in FOUR places and two were reached, item 152's dated note was outside the block declared wholly re-derived, and 47/49/70 never said what it subtracted from
+
+**Change:** `SPEC-LEDGER.md` — item **152**'s live anchor block and its dated 2026-09-11 note; the
+live item beside **146** re-anchored; and **three dated edit-log entries annotated and none
+rewritten** (2026-09-07, and both entries of 2026-09-11).
+`docs/specs/2026-08-12-spec-a-protocol-sdk-connect.md` — revision row **A-23** corrected in place on
+its own single line, with **no new revision row**: A-16's rule already prescribes a dated annotation
+in place for exactly this — a revision row's claim about what a document says — no rule of Spec A
+moves, and a new row would have moved every line beneath it in a corpus that anchors Spec A §5.3
+by line number **22** times at `76e0601` and **37** once this commit's own annotations are counted
+(`grep -rhoE '§5\.3:[0-9]+' --include='*.md' .`, keeping only targets at or above `:1000`, which is
+what separates Spec A's §5.3 from MASTER's).
+`docs/plans/2026-09-04-slice1-m1-message-crypto.md` — **Task 11** decision (a), the third live copy of the
+inverted A-20 allocation. `PROGRESS.md` — its dated 2026-09-11 stretch, annotated.
+**No Go file changed.** `connect` was **not read and not written** by this pass and no measurement
+here needs it; the two findings filed against it on 2026-09-11 are untouched and still open. This
+repository is on `main`.
+
+---
+
+**THE CLASS, DERIVED BY COUNTING EACH CLAIM'S OWN N RATHER THAN BY READING THE CLAIM: A CORRECTION
+THAT ENUMERATES ITS OWN SCOPE AND THEN DOES NOT REACH THE LAST MEMBER OF IT.**
+
+The derivation is mechanical and its rule is the one thing worth carrying forward. **Every sentence
+in `260290d` or `76e0601` that states how many places it repaired — *"in all three"*, *"two live
+documents"*, *"the whole block"*, *"every anchor"*, *"the class is two"*, *"the class is eight"* —
+was located, and its N was recounted against the tree rather than read.** Eight such claims exist.
+**Four are wrong, three hold, and one cannot be checked as written.**
+
+| # | Where | What it claims | What counting found |
+|---|---|---|---|
+| 1 | `76e0601` finding 4, and `PROGRESS.md` | the proximity claim *"appears in **three** places … Corrected in place in all three"* | **FOUR places; TWO corrected** |
+| 2 | `76e0601` finding 3, and `PROGRESS.md` | the A-20 allocation sentence *"stood un-annotated in **two** live documents … Both now carry a dated annotation"* | **THREE live copies; TWO annotated** |
+| 3 | `76e0601` finding 3 | *"A third copy is in this ledger's dated edit-log entry of 2026-09-07 …, **which is annotated** rather than rewritten"* | **Never annotated.** No hunk of `76e0601` touches that paragraph |
+| 4 | `76e0601` anchor sweep | *"Item 152's **whole** anchor block was re-derived a second time"* | True of the **block**; **four** anchors in item 152's **dated note**, which is not in the block, were not |
+| 5 | `76e0601` anchor sweep | *"**Every** anchor written in this commit was re-derived against the commit that carries it"* | **HOLDS.** All **30** it wrote were re-opened at the line and every one resolves to the text its citing sentence describes |
+| 6 | `260290d`, item 152 | *"The class of restatements is **two**"* (*"sender"* among the head's metadata) | **HOLDS.** Two — item 152's Property and the `m1` plan's copy — and both were corrected |
+| 7 | `76e0601` | *"**THE CLASS IS EIGHT** … Five closed here"* | **HOLDS.** 5 amended + 1 deliberately not edited (`store/migrations.go:159`) + 2 in `connect` = 8 |
+| 8 | `76e0601` | *"Rule applied **eleven** times"* | **NOT CHECKABLE AS WRITTEN.** The entry never enumerates the eleven, so there is no set to count — and #3 above is one application it describes that was not made |
+
+**The shape the four wrong ones share, and it is why a fifth pass was worth making.** Each of them is
+a *scope statement attached to a repair*: the repair is real, the scope is asserted from the list the
+author had in hand, and nothing re-derives the list after the repair. **A count that is written down
+in the same breath as the repair is the least reliable number in the document, because it is the one
+number nobody re-runs.** The corrective is not a better memory; it is to state the query beside the
+count, which findings 1 and 2 below now do.
+
+---
+
+**THE FOUR FINDINGS, EACH REPRODUCED BEFORE IT WAS WRITTEN DOWN.**
+
+**1. HIGH — the proximity claim was written in FOUR places on 2026-09-11 and the correction reached
+two.** *"Spec A §5.3 states the rule and excludes `EPH` in the same paragraph"* is false: §5.3 states
+the rule at **`§5.3:1248-1257`** and again in its Go block at **`:1225-1231`**, and carries the
+exclusion at **`§5.3:1290-1299`**, five paragraphs below. `76e0601` enumerated *"three places"* — Spec
+A's **A-23** row, MASTER §0's amendment note, and this ledger's 2026-09-11 edit-log entry — and
+corrected the **first two**. **The third it named was not touched**: that entry's fact 1 is
+byte-identical across `260290d` and `76e0601`, **15,606 characters compared end to end**, the only
+difference being the `---` separator appended after it. **And there is a fourth the enumeration never
+named**, written by the same commit in this same file: **item 152's own dated 2026-09-11 note**,
+*"§5.3 has stated the rule and excluded `EPH` in the same paragraph since revision A-20"* — which
+contradicts item 152's **own live block** twenty lines above it, where the correction already stood.
+Both are annotated now, and **not rewritten**, because both are dated. **The query is published with
+the count, which is the point of the finding**, run over every tracked file at `76e0601` with the
+phrase allowed to wrap across a line break:
+
+```
+perl -0777 -ne 'while (/same\s+(?:\*\*)?paragraph/gs) { ... }' <every tracked file>   ->  14
+```
+
+**THE CLASS IS FOUR. Three of the four are in the query's 14 hits; the fourth is not, and that is
+worth saying out loud** — MASTER `:309` was already rewritten to *"in the same **section**"* by the
+correction, so the query that finds the claim cannot find the copy that was repaired. **A query over
+the claim's own words can only ever return the members nobody has touched yet.** The complement is
+eleven and every one is accounted for:
+
+| | Sites | Disposition |
+|---|---|---|
+| **the class, in those words, 3** | Spec A `:106` (A-23), this ledger `:3251`, this ledger `:12181` | A-23 was annotated by `76e0601`; **the two ledger copies are annotated here** |
+| **the class, already rewritten, 1** | MASTER `:309` | corrected by `76e0601`; **not returned by the query** |
+| refutations, 3 | `PROGRESS.md:1514`, this ledger `:3137` and `:12433` | the correction, not the claim |
+| annotation quotes, 2 | Spec A `:106` again, MASTER `:311` | the 2026-09-11 annotations quoting the phrase they replace |
+| unrelated, 6 | Spec A `:99`, this ledger `:8031`, `:9690`, `:12243`, `:12511`, `m1:1175` | the two English words about other subjects |
+
+**There is no fifth copy.** The brief that commissioned this pass said a fifth live one existed; it
+was searched for over all 105 tracked files and it does not exist. That is recorded under *what did
+not reproduce* below rather than written into a document.
+
+**2. MEDIUM — four anchors in item 152's dated 2026-09-11 note were never re-derived, and *"the whole
+block"* is true of the block and false of the note.** The note is not in the anchor block; it is the
+prose after it, and `76e0601`'s sweep re-derived the **eighteen** anchors inside the block and none
+of these four. Re-derived against the commit that carries this entry, with the note's own numbers left
+standing beside them because the note is dated:
+
+| Written | Now | What the old number lands on today |
+|---|---|---|
+| MASTER `:972-977` | **`§8:1008-1013`** | §7's X-Wing paragraph and the `## 8. Storage layer` heading |
+| MASTER `:1118` | **`§8.1:1153-1155`** | §8's per-epoch read-authorizer sentence |
+| MASTER `:1121-1136` | **`§8.1:1157-1172`** | the `group_handle_key` / `read_key[n]` fence and the prose under it |
+| this ledger `:1599` | **`:1601`** | the tail of item **128**'s own heading, one line short of the sentence |
+
+**3. LOW — the three proximity distances reproduce exactly and their base was never stated, in the
+one measurement the commit foregrounds as *"the measurement, as opposed to the claim"*.** **47, 49
+and 70 are measured to `§5.3:1297`** — the first line of the exclusion **sentence** each site quotes
+— while every site cites the exclusion as the **paragraph** `§5.3:1290-1299`. **From `:1290` the same
+three distances are 40, 42 and 63.** Both are true of §5.3 as it stands; what was missing was which
+line the subtraction used, and an arithmetic whose base is not the anchor printed beside it is a
+number a reader cannot re-run. The base is now stated at **A-23**, at item 152's live block, in
+`PROGRESS.md` and in both dated annotations.
+
+**4. LOW — §6 step 2, the mandatory subagent diff review, was skipped by both commits of 2026-09-11,
+and it is precisely the step whose stated purpose is their failure mode. Running it here found three
+more instances of this entry's own defect class, in this entry's own first draft.** §6 step 2 exists to catch
+*"§7 changed and §5.2 was not updated"* — a repair landing in one place and not in its siblings,
+which is findings 1, 2 and 3 of this entry in one sentence. **Measured rather than asserted: no
+edit-log entry since 2026-09-09 carries a `Reviewed by:` line — twelve entries, including both of
+2026-09-11.** `grep -c 'Reviewed by' SPEC-LEDGER.md` returns **17** before this entry and **18** with it, and
+the seventeenth is the 2026-09-09 `s2` repair. **This entry carries one, and the review ran on this commit's own diff before the commit was
+made.**
+
+---
+
+**WHAT THIS COMMIT MOVED, PUBLISHED BECAUSE AN ANNOTATION THAT SILENTLY STALES A NEIGHBOUR IS THE
+DEFECT ABOVE WITH A NEW NAME.**
+
+**The `m1` plan gains 14 lines at `:2877`**, so every `m1` anchor in the corpus below that point moves
+by **+14** and every one above it does not move. All of them sit in dated edit-log entries, whose own
+numbers stand; this table is the annotation §7 allows, and **every row was verified by reading the
+target line on both sides**:
+
+```
+:1877  :1886  :2874                unmoved (above the insertion)
+:2879-2886 -> :2893-2900           :3054 -> :3068     :3220 -> :3234
+:3721-3725 -> :3735-3739           :5215 -> :5229     :5219 -> :5233
+:5225 -> :5239                     :5245-5258 -> :5259-5272
+:5245-5263 -> :5259-5277           :5256 -> :5270     :5259 -> :5273
+:5272 -> :5286                     :5276 -> :5290
+```
+
+**This ledger's edits — four annotation blocks, one live re-anchor and the reflow that goes with
+them — add 129 lines above the point where this entry begins**, so its own self-citations move. The shift,
+measured from `76e0601`'s numbering with `difflib` over the two versions rather than by adding up
+hunk sizes:
+
+```
+old <= 3137        +0        old 3283-4116      +33       old 9897-12183     +50
+old 3139-3282      +4        old 4117-9896      +36       old 12184-12448    +69
+                                                          old >= 12449      +129
+```
+
+**One LIVE citation was made stale by this commit and is re-anchored in place with its old number
+kept beside it**, per the rule the last pass stated: the item beside **146** cited this ledger at
+`:9357` and now cites **`:9393`**, verified by re-reading the sentence it quotes (*"`M-1` … `M-14`:
+ZERO, every one"*, item 146's own). Every other self-citation in the corpus points at a line **at or
+above `:3137`** and does not move — `:119`, `:1571`, `:1595`, `:1597`, `:1599`, `:1601`, `:1609`,
+`:1637`, `:1650`, `:2517`, `:2594`, `:2723`, `:2800`. The numbers carried by dated edit-log entries
+(`:3138`, `:4275`, `:4279`, `:5823`, `:6851`, `:9357`, `:9711`, `:9747`) keep their own values per
+§7's rule, and their targets are at the offsets above.
+
+---
+
+**WHAT DID NOT REPRODUCE, RECORDED HERE AND NOT WRITTEN INTO A DOCUMENT.**
+
+- **"A fifth live copy" of the proximity claim.** The brief asserted one beyond the three the
+  correction named. Counting over all 105 tracked files returns **four** copies and no more, and the
+  query and its whole complement are published above. What the brief may have meant, and what
+  counting did find, is a different sentence's third live copy — the A-20 allocation in the `m1`
+  plan's **Task 11** — which is finding 2 of the class table and is repaired here. **A count is not
+  transferable between two claims that live in the same paragraph.**
+- **`m1:3054`, cited by the dated 2026-09-18 entry**, is a **blank line**, and it was blank at
+  `76e0601` before this commit touched anything — so this commit did not cause it. The sentence it
+  quotes, *"Read Spec A §5.11 and not MASTER"*, is at `m1:3334` at `76e0601` and `m1:3348` here,
+  280 lines below the number cited, still inside Task 12. Out of this pass's class, named so the
+  next pass does not rediscover it as this commit's doing.
+- **Both 2026-09-11 complements attribute `m1:1877` and `:1886` to *"Task 1"*.** They are in
+  **Task 5**, *"The record-key ratchet's four derivations"*, and the paragraph they name defers the
+  binding to **Task 11**, which is correct in substance and wrong in the attribution. Found while
+  checking which task this commit's own annotation sits in — it sits in **Task 11**, and the first
+  draft of it said *"Task 1"* by copying the complement instead of running `awk` over the headings.
+  Both complements are in dated entries, so their words stand; this is the annotation, and the
+  measurement is `awk 'NR<=1877 && /^## Task /{h=$0} END{print h}'`.
+- **Spec B's "Current state" row still says *"Revision 6"*** while its edit log runs to **19**. Named
+  by the previous pass, still not repaired, still out of class, named again so it is not lost.
+
+---
+
+**WHAT IS NOT RULED, UNCHANGED.** **Item 152** — what class an `EPH` head is keyed under — and
+**M1-27** go in **one sitting**, for the reason the last two entries give: `K_eph[n][b][t]` has no
+computable key today whatever class is assigned to it. **Item 181** is filed and not ruled. Nothing
+in this commit narrows any of them, and **no rule, no wire byte and no derivation label moved.**
+
+---
+
+**VERIFICATION, BEFORE AND AFTER, RUN IN THIS REPOSITORY ON BOTH SIDES OF THE DIFF.**
+
+`go build ./...` clean and `go test ./... -count=1` green on both sides — six packages with tests,
+`message-server`, `api`, `cmd/message-server`, `peer`, `store`, all `ok`. `go test ./ -run
+TestThePlanLinter -count=1 -v` **ok on both**, with **every reporting count identical across the
+diff** — 1b **7**, 1c **1**, 1d **189**, 2a **18**, 3a **4**, 3c **3**, 4b **5** — and the four fatal
+checks (2b, 3b, 3d, 4a) clean on both sides. **Exactly one measured delta, explained rather than
+waved at:** the *open-item-reference* class moves **902 → 903**, which is the single **M1-6**
+citation in this commit's one `m1`-plan annotation. **Every other class size is unchanged** —
+property **302**, plan-supplied-test **189**, class-deriving property **74**, task-reference
+**2613**, plan-reference **2207**, ledger-reference **178**, Consumes-entry **261**,
+qualified-consumed-name **15** — and the only other difference in the linter's whole output is the
+four 2a findings in the `m1` plan reprinted at `+14`, which is this commit's own insertion moving
+them and not four new findings.
+
+**No CR byte in any edited file**, checked as bytes rather than by `grep` — `.gitattributes` pins
+`*.md` to `eol=lf`, and all four files read back with **zero** carriage-return bytes. The first
+reading of this check was **wrong and is recorded here rather than quietly re-run**: in Git Bash,
+`grep -c` with the carriage return written as a shell ANSI-C quote reports **every line** as a
+match, because the shell delivers an empty pattern and an empty pattern matches everything. A gate
+that reports a clean run having matched nothing is the failure mode `.gitattributes`'s own header
+names; here it was the opposite, a gate reporting every line. `git diff --check` is clean and
+**`git ls-files` equals `git ls-tree -r HEAD` at 105**, checked before the commit; no file added
+or removed.
+
+**`connect` WAS NOT WRITTEN BY THIS PASS, AND IT IS NOT CLEAN AT COMMIT TIME. Both halves are
+stated because the second is not this pass's doing and must not be read as it.** It was
+`beta/message` at **`72ffdbd`**, 1,112 tracked files and `git status --porcelain` **empty**, when
+this pass began, and it was verified empty twice more during the pass. No file of it was opened
+for writing here; the §6 diff review read it with `grep` and `sed` to check three claims this
+commit's documents make about it. **At commit time `messagegroup/sessionfixture_test.go` shows
+modified** — a `signer []byte` control field added to `testEngine` and populated in
+`buildTestEngineWrapped`, described in its own comment as the control for a clone-coupling pin in
+a `joincoupling_test.go` that does not exist on disk — together with touches to
+`mls/group.go`. **That is another writer's in-flight work in a repository this pass does not own,
+and it was deliberately NOT reverted**: reverting would be a write to `connect` and would destroy
+work that is not this pass's to judge. It is named here so the next reader does not attribute it
+to this commit, and it is the one-writer-per-repo hazard observed live.
+
+**Reviewed by:** a subagent diff review, per §6 step 2 — the step finding 4 above records as absent
+from both 2026-09-11 entries — run against this commit's own working-tree diff before the commit was
+made, at effort `high`, plus a second full read of the diff by the author. **It returned five
+findings and all five are applied**, and three of them are the same defect this entry is about:
+
+1. **MEDIUM-HIGH.** The annotation's own m1 shift list claimed *"every `m1` anchor in this entry"*
+   and was wrong in both directions — it named four anchors that live in the entry's complement
+   rather than in the entry, and it silently left five correct anchors stale in the **first**
+   2026-09-11 entry's bullet, which the same pass annotates seventy-five lines earlier. **A
+   completeness claim, attached to a repair, that does not survive its own count — written by the
+   commit whose subject is that defect.** Rewritten to name both entries' anchors explicitly.
+2. **MEDIUM.** *"three paragraphs above the exclusion"* is **one**, immediately adjacent: Spec A
+   `§5.3:1285-1288` and `:1290-1299` are separated by the single blank line at `:1289`. **An
+   annotation correcting a false proximity claim, itself wrong about proximity.** Corrected, with the
+   blank-line census that settles it.
+3. **LOW-MEDIUM.** *"touched no line inside this entry **except** the two anchor annotations"* —
+   those two annotations are in the entry *after* the 2026-09-07 M1-6 entry (`:10103` and `:10112`
+   against an entry that runs `:9914-:10068`). The truth is stronger than the claim: that commit
+   touched **nothing** inside it. Corrected.
+4. **LOW-MEDIUM.** *"there is no fifth copy"* rests on a query over the claim's literal words, which
+   by this entry's own `Record.CtHead` lesson cannot see a paraphrase. Seven paraphrase sweeps were
+   run and are now published with the negative, and the claim is narrowed to what they support.
+5. **LOW.** Two added lines were 119 and 133 characters against a ~100 norm, in a corpus where a
+   later re-flow would silently stale every anchor beneath them. Re-wrapped.
+
+Findings 1, 2 and 4 were each re-measured by the author before being applied, and finding 3's entry
+boundaries were re-derived from `grep -n '^### '` rather than taken from the review.

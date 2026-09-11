@@ -1516,6 +1516,18 @@ the exclusion at `:1290-1299` — **47 to 70 lines below**, five paragraphs apar
 is arguably strengthened, because a §5.3 reader who stops at the rule does not reach the carve-out
 either. Corrected in all three places it was written.
 
+*(**ANNOTATED 2026-09-11, third pass of that date. The two paragraphs above stand as written, because
+this is a dated stretch entry; two of their counts are wrong and both were settled by counting.**
+*"Corrected in all three places it was written"* — the claim was written in **four** places and
+**two** were corrected. The two that were not are both in `SPEC-LEDGER.md`: item **152**'s own dated
+2026-09-11 note, which the enumeration never named, and that ledger's 2026-09-11 edit-log entry,
+which it did name and did not touch. Both carry an annotation now. And *"two live documents"* for the
+A-20 allocation sentence is **three**: the `m1` plan's **Task 11** decision (a) says the allocation
+in different words — *"the ruling keeps MASTER and amends §5.3"* — which is why a search for the
+sentence did not return it. **The `47 to 70` is measured to `§5.3:1297`**, the first line of the
+exclusion **sentence**, not to the `:1290` printed beside it; from `:1290` it is 40 to 63. Every
+finding above reproduces and nothing above is withdrawn.)*
+
 ### The defect class this stretch adds to the one below
 
 **A published complement does not make a query's blind spot visible.** The 2026-09-11 morning pass did

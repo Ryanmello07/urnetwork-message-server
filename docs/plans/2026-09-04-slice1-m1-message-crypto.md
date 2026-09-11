@@ -2875,6 +2875,20 @@ says *"`ct_head` is always under the **durable** class"* and §5.3 hands both AE
 `record_key[i]`; the ruling keeps MASTER and amends §5.3 (revision **A-20**). See open item **M1-6**
 for the owner's reason, the accepted cost and the two ledger items the cost is owed to.
 
+> *(**THE ALLOCATION IN THE SENTENCE ABOVE — "the ruling keeps MASTER and amends §5.3" — IS INVERTED
+> AS OF 2026-09-11, and this is the THIRD live copy of that allocation, not the second.** The
+> 2026-09-11 second pass wrote *"stood un-annotated in two live documents"* and annotated exactly
+> those two — this plan's **M1-6** ruling paragraph and item **128** of `SPEC-LEDGER.md`. This task's
+> own decision (a) above says it a third time in different words and was not counted. On 2026-09-11
+> the owner amended **MASTER §8 and §8.1** to carry the `EPH` carve-out in MASTER's own voice:
+> **MASTER is the document that changed and Spec A §5.3 is unedited.** Spec A revision **A-23** names
+> the reversal and **A-24** closes what it left standing. **The ruling of decision (a) is
+> untouched** — the head takes the durable ladder, the body its own, and `EPH` is still refused under
+> item **152** of `SPEC-LEDGER.md`. **And the MASTER sentence quoted directly above no longer exists
+> in that form:** *"`ct_head` is always under the **durable** class"* now reads *"`ct_head` is under
+> the **durable** class for `PERMANENT`, `DURABLE` and `MEDIA`"* — MASTER §8.1:1153-1155, with the
+> `EPH` exclusion beneath it at §8.1:1157-1172.)*
+
 **How far the refusal is lifted, which is narrower than "M1-6 is ruled" sounds.** `SealRecord` may
 seal **`DURABLE`, `PERMANENT` and `MEDIA`**. It must still **refuse `EPH`** with a typed error — the
 same shape of refusal, naming **ledger item 152** rather than M1-6, because 152 is the item that is
