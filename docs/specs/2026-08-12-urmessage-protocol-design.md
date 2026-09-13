@@ -353,6 +353,51 @@ sitting with **M1-27** — `K_eph[n][b][t]` has no computable `t` and `message.E
 answers `-1` — and ledger items **132**, **133**, **134**, **142**, **148**, **152**, **178** and the
 new **181** stay filed and unruled.
 
+> **ITEM 152 AND M1-27 WERE BOTH RULED ON 2026-09-13, IN ONE SITTING, AND THE FIRST OF THE TWO
+> RULINGS REVERSES A STANDING ONE. The note above is dated and stands as written; this is the
+> forward pointer it owes, placed here because this is where a reader of that note stops.** See the
+> ninth amendment below.
+
+**NINTH AMENDMENT — 2026-09-13. `ct_head` IS KEYED UNDER THE RECORD'S OWN CLASS KEY, WHICH REVERSES
+THE RULING OF 2026-09-07; AND `record_bytes` GAINS A FIELD, WHICH REOPENS A SECTION §14 FROZE. Both
+halves are the owner's, both are ruled, and the second is the price of the first.**
+
+**What was ruled on 2026-09-07 and is now reversed.** *"`ct_head` is always sealed under the DURABLE
+class ratchet, whatever the record's own retention class"* (ledger item **128**; Spec A revision
+**A-20**), on the reason *"the head is always retained, so it is keyed by the class that is always
+retained."* **Why it was wrong:** the premise is false for exactly one class and it is the class the
+question was about — Spec B §7.2 sets `ct_head = NULL` for `EPH(1..5)` at `prune_after`, so an `EPH`
+head is not always retained. And it was ruled on item 128's own narrower terms, a two-ratchet
+bookkeeping contradiction, **without ledger item 152 beside it although 152 had asked in those very
+terms that it be** — 152 carried the confidentiality consequence, 128 never named it. **What replaces
+it:** `ct_head` takes the record's **own** class key, so head and body take one ladder at one
+position; `PERMANENT`, `DURABLE` and `MEDIA` are unchanged in effect, and an `EPH(1..5)` record's
+metadata dies with `K_eph` rather than under a key every seedphrase holder holds forever. §8's record
+listing and §8.1 carry it; ledger item **128 closes with it** and item **152** closes with it.
+
+**The consequence that is the point of the ruling.** Before it, the only thing stopping an `EPH` head
+outliving its timer was **a cooperating server** — Spec B §7.2's sweep, an *operational* erasure,
+against the adversary §8.1 names as *"retained server ciphertext"*: a backup, a replica that missed
+the sweep, a legal hold, a seized snapshot. **The guarantee is now cryptographic rather than
+behavioural**, which is the conversion ruling 3 of 2026-09-13 made for `eph_root[n]` and left the
+head out of.
+
+**What the reopening costs, stated rather than absorbed.** `K_eph[n][b][t]` had no computable `t` —
+m1 open item **M1-27** — so the window is now a **new plaintext `u64` field, `eph_window`**, in
+`record_bytes`, authenticated by `write_auth` and carried in both AADs. §14's slice-2 row says §8,
+§8.3 and §9.2 *"must be final before this slice starts"*; slice 2 is `connect/message` and it has
+shipped. **This is a break of that rule.** What it means concretely: the `record_bytes` layout is
+`connect/message`'s and carries a `u8 format_version` as its first octet, which is the hook this
+change uses — it becomes **`0x02`**, and a decoder meeting `0x01` refuses rather than mis-parsing.
+**Nothing already encoded is migrated, because nothing already encoded is retained**: no client
+ships messaging code, no server holds production records, and every m1 wave-1 path stops at a
+`*message.Record` in memory. The cost is a recompile, a re-derivation of every record AEAD and MAC
+vector, and a second implementation to bring along — not a data migration. **It is not pretended the
+field was always there.** Two further additions land with it: §8's bucket table now requires
+`EphBucketSeconds` to answer bucket 0 and an off-ladder bucket **differently** (M1-27's second half),
+and §9.2's outbox rule now requires a stale-window `EPH` record to be **re-sealed** rather than
+re-MAC'd, which is what makes the server's window check satisfiable by a correct client.
+
 ## 1. Purpose and product target
 
 URmessage is a private messenger built on the URnetwork mesh. It reuses URnetwork's transport and
@@ -990,6 +1035,12 @@ RECORD
   stream_index       u64  monotonic per (group_id, sender_handle); write-once
   is_commit          u8   1 on an MLS Commit record — the server acts on this, so it is authenticated
   retention_class    u8   see the encoding table below
+  eph_window         u64  PLAINTEXT. The time-slice t of the record's own K_eph[n][b][t]
+                          (§8.1). Always present; 0 on PERMANENT, DURABLE, MEDIA and
+                          EPH(0). Sender-computed from its own sent_at; the opener uses
+                          the wire value and never recomputes it. RULED 2026-09-13; see
+                          §8.1 and ledger item 152 / m1 open item M1-27. This field is
+                          an ADDITION to a section §14 froze, and §0 carries what that cost.
   size_bucket        u8   256B / 1K / 4K / 16K / 64K / blob-ref
   expire_at          u64  unix MILLISECONDS, big-endian, 0 = unset; advisory upper bound only —
                           it may SHORTEN retention, never extend it
@@ -1007,10 +1058,13 @@ RECORD
                           server-visible structured field. See §8.3.
   ct_head            AEAD; MLS PrivateMessage header, type, sent_at. RETAINED for
                           PERMANENT, DURABLE and MEDIA. NOT retained for EPH(1..5) — Spec B
-                          §7.2 sets ct_head = NULL at prune_after — so §8.1's durable-class
-                          rule excludes EPH, and the class an EPH head is keyed under is
-                          unruled. See §8.1 and ledger item 152. (Amended 2026-09-11; this
-                          line read "AEAD, always retained" with no exception in it.)
+                          §7.2 sets ct_head = NULL at prune_after. KEYED UNDER THE RECORD'S
+                          OWN CLASS KEY, whatever that class is — RULED 2026-09-13, which
+                          REVERSES the 2026-09-07 durable-head rule. See §8.1 and ledger
+                          item 152, which this closes. (Amended 2026-09-11; this line read
+                          "AEAD, always retained" with no exception in it. Amended again
+                          2026-09-13; it then read "so §8.1's durable-class rule excludes
+                          EPH, and the class an EPH head is keyed under is unruled".)
   ct_body            AEAD, erasable; the MLS PrivateMessage payload
   write_auth         MAC, computed last; see §9.2
 ```
@@ -1046,6 +1100,15 @@ places the class and the bucket are joined or split.
 eph bucket → seconds:  [0] transient (never persisted), [1] 3600, [2] 28800,
                        [3] 86400, [4] 604800, [5] 2419200
 
+  The bucket-0 answer and the off-ladder answer MUST DIFFER. RULED 2026-09-13 (m1 open
+  item M1-27, second half). Bucket 0 is "the transient rung, never persisted"; 6 and up
+  are "not a bucket", and a lookup that returns ONE value for both cannot be asked which
+  it met. connect/message.EphBucketSeconds answers -1 for both today. It MUST answer
+  0 for bucket 0 — the true retention window of a rung that is never stored — and keep
+  a negative for 6..255, which is unreachable through a parsed record because
+  RetentionClassOf refuses every wire byte outside 0x10..0x15, and is therefore a
+  programmer-error sentinel rather than a value. The code change is connect's.
+
 size_bucket:  0 = 256 B, 1 = 1024 B, 2 = 4096 B, 3 = 16384 B, 4 = 65536 B, 5 = blob-ref
               octet_length(ct_body) MUST equal size_bucket_bytes[b] + 16 exactly (the AEAD tag),
               for b in 0..4. For b = 5, ct_body is absent and blob_id is present.
@@ -1056,12 +1119,12 @@ in the head's AAD — never in the body's, which would be circular:
 
 ```
 AAD_body = "URmessage/v1/aad/body" ‖ u16(alg_id) ‖ LP(group_id) ‖ LP(sender_handle)
-         ‖ u64(epoch) ‖ u64(stream_index) ‖ u8(retention_class)
+         ‖ u64(epoch) ‖ u64(stream_index) ‖ u8(retention_class) ‖ u64(eph_window)
 
 AAD_head = "URmessage/v1/aad/head" ‖ u16(alg_id) ‖ LP(group_id) ‖ LP(sender_handle)
          ‖ u64(epoch) ‖ u64(stream_index) ‖ u8(is_commit) ‖ u8(retention_class)
-         ‖ u8(size_bucket) ‖ u64(expire_at) ‖ LP(body_hash) ‖ LP(blob_id)
-         ‖ LP(H(server_attachment))
+         ‖ u64(eph_window) ‖ u8(size_bucket) ‖ u64(expire_at) ‖ LP(body_hash)
+         ‖ LP(blob_id) ‖ LP(H(server_attachment))
 
 key_head ‖ nonce_head = HKDF-Expand(record_key[i], "rec/v1/head", 56)
 key_body ‖ nonce_body = HKDF-Expand(record_key[i], "rec/v1/body", 56)
@@ -1082,6 +1145,26 @@ identifier from §7.1's table, which is the agility the field is in the preimage
 `LP(blob_id)` is a **zero-length** prefix on every record whose `size_bucket` is not 5, so the
 preimage is defined for ordinary records without a special case. `blob_id` is absent from `AAD_body`,
 because the body it names is the thing being encrypted.
+
+**`u64(eph_window)` sits immediately after `u8(retention_class)` in both AADs and in §9.2's
+`write_auth` preimage, and it is ALWAYS present — zero on every class but `EPH(1..5)`. RULED
+2026-09-13.** Immediately after `retention_class` because it is the field that qualifies it and
+because the codec's field order is this listing's. Always present rather than *present iff the class
+is `EPH`* because that is what `LP(blob_id)` actually does: `blob_id` is absent from the **record**
+and present as a **zero-length term** in the preimage, so *"the preimage is defined for ordinary
+records without a special case"* — the sentence directly above. The fixed-width analogue of a
+zero-length term is a zero-valued one, and taking the surface reading of the `blob_id` precedent
+instead would put a conditional in the one preimage builder this design has kept free of them. It
+leaks nothing either way: `retention_class` is plaintext, so a server that can read the class can
+already compute the bucket, and it already stamps arrival time — §7.1's `prune_after` arithmetic is
+that computation. **What each of the three placements buys, because they are not the same thing.**
+The **key derivation** is what stops a bucket or window downgrade: `K_eph[n][b][t]` takes both `b`
+and `t`, so an altered window yields a key nobody holds and the record does not open — the AAD is
+not what does that work and no reader should conclude it is. The **`write_auth`** term is the
+load-bearing one: it is what makes §9's server-side window check a check on a value the MAC covers
+rather than on a field anyone in the path may rewrite. The **AAD** terms cost zero wire octets and
+are defence in depth of exactly the kind §8.2's `AAD_snap` paragraph argues for, and they are what
+binds the zero on a non-`EPH` record, so a header cannot be spliced across classes.
 
 Construction order: build `server_attachment` → encrypt `ct_body` → compute `body_hash` → encrypt
 `ct_head` → compute `write_auth`. Every dependency is acyclic.
@@ -1146,30 +1229,70 @@ storage_root[n]
 └─ eph_root[n]  = 32 B fresh CSPRNG at commit  ← NOT derived from storage_root (I4)
      └─ K_eph[n][b][t] = HKDF-Expand(eph_root[n], "eph/v1" ‖ u8(b) ‖ u64(t), 32)
 
+           t = eph_window, the record's own plaintext field (§8). RULED 2026-09-13.
+               t = floor(sent_at_ms / (eph_bucket_seconds[b] × 1000)) for b in 1..5,
+               computed by the SENDER from the same wall-clock reading it puts in
+               sent_at; origin is the Unix epoch, 1970-01-01T00:00:00Z; unit is a
+               count of whole buckets since that origin. For b = 0, t = 0 BY
+               DEFINITION and is never computed — bucket 0 is never persisted, so it
+               has one window for the life of eph_root[n] and there is no division.
+
 record_key[0]   = HKDF-Expand(class_key, "sender/v1" ‖ LP(leaf_index), 32)
 record_key[i+1] = HKDF-Expand(record_key[i], "ratchet/v1", 32)
 ```
 
 A real forward ratchet: the sender overwrites `record_key[i]` after use, keeping a bounded skipped-key
-window for out-of-order receipt. `ct_head` is under the **durable** class for `PERMANENT`, `DURABLE`
-and `MEDIA`, since for those three classes it is always retained.
+window for out-of-order receipt. **`ct_head` is keyed under the record's OWN class key — `K_perm`,
+`K_durable`, `K_media` or `K_eph[n][b][t]` — exactly as `ct_body` is. RULED 2026-09-13, and it
+REVERSES the ruling of 2026-09-07.**
 
-**`EPH` is excluded from that rule, and this document states the exclusion rather than leaving it to
-Spec A. Amended 2026-09-11.** Until this amendment the sentence above read *"`ct_head` is always under
-the **durable** class, since it is always retained"*, with no `EPH` annotation here or at §8's record
-listing. **The premise is false for exactly one class:** Spec B §7.2 sets `ct_head = NULL` for
-`EPH(1..5)` at `prune_after`, so an `EPH` head is not always retained, and the failure the rule exists
-to prevent — a retained header going unopenable at the moment its body vanishes — is a failure only
-where the head outlives the body, which for `EPH(1..5)` it does not. **And the consequence of keying
-it durable is the failure the next paragraph promises against:** `K_durable[n]` descends from
-`storage_root[n]`, is destroyed nowhere, and rides every member's recovery wrap for the life of the
-group, so an `EPH` record's metadata sealed under it would survive the timer, a seized device, a
-device provisioned tomorrow and a seedphrase holder. **Nothing here is a licence to seal an `EPH` head
-under `K_durable`.** `messagegroup.SealRecord` refuses the class, and **which class an `EPH` head is
-keyed under is ledger item 152's to rule** — in one sitting with ledger open item **M1-27**, because
-`K_eph[n][b][t]`'s window `t` has no unit, no origin and no clock in any document, so no `EPH` head
-has a computable key today whatever class it is assigned. Spec A §5.3 has carried this exclusion since
-revision A-20 and is the document this amendment follows rather than corrects.
+**Head and body therefore take ONE ladder, at one position.** `key_head` and `key_body` are separated
+by their HKDF labels — `"rec/v1/head"` and `"rec/v1/body"` off the same `record_key[i]` — which is
+what **I7**'s *"distinct keys and distinct AADs"* has always meant and is why one position is safe.
+The two-ratchet reading the replaced rule created, in which one record's single `stream_index` covered
+two ladder positions, is gone with it; the class-blind counter ruled 2026-09-07 as shape **A1**
+(ledger **143** and **169**) is untouched and still says `i = stream_index` in every ladder, and the
+device wrap's own two-records-on-one-root instance is a different instance and is unaffected.
+
+**What was ruled on 2026-09-07, why it was wrong, and what replaces it.** The 2026-09-07 ruling was
+*"`ct_head` is always sealed under the DURABLE class ratchet, whatever the record's own retention
+class"*, on the reason *"the head is always retained, so it is keyed by the class that is always
+retained."* **The premise is false for exactly one class, and it is the class the whole question was
+about:** Spec B §7.2 sets `ct_head = NULL` for `EPH(1..5)` at `prune_after`, so an `EPH` head is not
+always retained, and the failure the rule existed to prevent — a retained header going unopenable at
+the moment its body vanishes — is a failure only where the head outlives the body, which for
+`EPH(1..5)` it does not. It was ruled on ledger item **128**'s narrower terms, a bookkeeping
+contradiction, **without ledger item 152 beside it although 152 had asked in those very terms that it
+be**; 152 carried the confidentiality consequence and 128 did not name it. It is replaced by the rule
+in the first paragraph above. Item **128** closes with this ruling and its text is kept whole in the
+ledger with the reversal annotated at the sentence a reader lands on.
+
+**PERMANENT, DURABLE and MEDIA are unchanged in effect.** `K_perm[n]`, `K_durable[n]` and `K_media[n]`
+all descend from `storage_root[n]` and none is ever destroyed, so for those three the repair costs
+nothing and changes no guarantee. **The whole of what moves is `EPH`.** An `EPH(1..5)` record's
+metadata — the MLS `PrivateMessage` header, `type` and `sent_at` — now dies with `K_eph[n][b][t]`
+instead of living under a key every member, every future device and every seedphrase holder holds
+forever. `K_durable[n]` descends from `storage_root[n]`, is destroyed nowhere, and rides every
+member's recovery wrap for the life of the group; an `EPH` head sealed under it would have survived
+the timer, a seized device, a device provisioned tomorrow and a seedphrase holder, falsifying the next
+paragraph's own sentence, §12.4's required UI string and §13.
+
+**AND THIS IS THE PRIZE, STATED HERE BECAUSE IT IS WHAT THE RULING BOUGHT.** Before today the only
+thing stopping an `EPH` head outliving its timer was **a cooperating server**: Spec B §7.2's
+`ct_head = NULL` sweep. That is an **operational** erasure, and the adversary the next paragraph names
+is *"retained server ciphertext"* — a backup, a replica that missed the sweep, a legal hold, a seized
+snapshot — which is precisely the case an erasure does not cover. **This ruling converts that
+guarantee from behavioural to cryptographic**, which is the same conversion ruling 3 of 2026-09-13
+made for `eph_root[n]` itself. The head was the half that ruling left behind; it is not left behind
+now. One consequence worth naming rather than leaving to be found: Spec B §7.2's sweep is no longer
+what the guarantee **rests on**, and ledger item **181** is re-examined in that light and answered
+there.
+
+**What it costs, and it is not nothing.** `K_eph[n][b][t]` needs a computable `t`, which no document
+gave it — ledger open item **M1-27** — so this ruling is made in one sitting with the ruling that
+supplies one, `eph_window` in §8 above. That field is an **addition to a frozen wire format**: §14
+requires §8, §8.3 and §9.2 to be final before slice 2 starts, and slice 2 is `connect/message`, which
+has shipped. §0 carries the revision and what reopening it means.
 
 `eph_root[n]` is independently sampled, time-sliced by window `t`, never wrapped to a recovery key,
 never in a provisioning bundle, deleted when its window closes. **After the timer, retained server
@@ -1579,8 +1702,8 @@ write_key = HKDF-Expand(storage_root[n], "write/v1", 32)          group-wide, pe
 
 write_auth = MAC(write_key, "URmessage/v1/write" ‖ LP(server_nonce) ‖ LP(group_id)
                  ‖ LP(sender_handle) ‖ u64(epoch) ‖ u64(stream_index) ‖ u8(is_commit)
-                 ‖ u8(retention_class) ‖ u8(size_bucket) ‖ u64(expire_at)
-                 ‖ LP(H(ct_head)) ‖ LP(body_hash) ‖ LP(blob_id)
+                 ‖ u8(retention_class) ‖ u64(eph_window) ‖ u8(size_bucket)
+                 ‖ u64(expire_at) ‖ LP(H(ct_head)) ‖ LP(body_hash) ‖ LP(blob_id)
                  ‖ LP(H(server_attachment)))
 ```
 
@@ -1588,6 +1711,25 @@ One group-wide key, so the server learns only "a current member of this group" �
 for quota and spam control. Per **I5**, authenticity is MLS's job, and a forged record fails at every
 client no matter what the server accepts. Per **I6**, `write_auth` covers every header field the
 server acts on.
+
+**`u64(eph_window)` is in the preimage because the server ACTS on it, which is what I6 requires. RULED
+2026-09-13.** The server MUST refuse an `EPH(1..5)` record whose `eph_window` is more than **one
+window** away from the window its own arrival stamp falls in, in either direction, and the refusal is
+Spec B §5.1's and §7's to write. It can make the check with what it already holds: `retention_class`
+is plaintext, so it has the bucket; §7.1 already stamps `create_time` and already computes a class
+deadline from it. **A window far in the future is the case that matters** — it is a request that an
+`EPH` record's key outlive its timer, made by a sender, and under the ruling above it is the key
+itself that is being extended rather than a row's lifetime, so no later sweep corrects it. **±1 window
+and not tighter**, because the sender computes from `sent_at` and the server sees arrival, and that is
+the same skew §7.1's one-hour `grace` already absorbs, expressed in this field's unit. **±1 window and
+not looser**, because two windows is a doubling of the shortest bucket's guarantee.
+
+**And that check is satisfiable only with one client-side rule, so the rule is made here.** A queued
+`EPH(1..5)` record whose window has closed before it is submitted MUST be **discarded and re-sealed**
+at the current window, consuming a **fresh `stream_index`** — not merely re-MAC'd. This is exactly the
+shape of the outbox rule below for `REASON_EPOCH_STALE`, and without it a client that reconnects after
+a long offline stretch would re-MAC a record the server is now required to refuse. A client that
+re-MACs without re-sealing is the falsifying implementation.
 
 The server holds `write_key[n]` itself. It is delivered to the server by the committer inside the commit
 record's `server_attachment` (`EpochAttachment.write_key`), over the connect session's own hybrid-PQ
@@ -1687,7 +1829,11 @@ nonce and looks it up from the connection, never from the request.
 
 **Outbox rule (normative, client side).** On reconnect, every queued record MUST be re-MAC'd against
 the new connection's nonce before submission. On `REASON_EPOCH_STALE`, a queued record MUST be
-discarded and re-sealed at the new epoch, consuming a **fresh** `stream_index`.
+discarded and re-sealed at the new epoch, consuming a **fresh** `stream_index`. **And a queued
+`EPH(1..5)` record whose `eph_window` is no longer the current window MUST be discarded and re-sealed
+the same way, for the same reason and at the same cost (added 2026-09-13 with `eph_window`).** Its old
+window's key is being destroyed on schedule, so re-MAC'ing it would submit a record the server is
+required to refuse and that no recipient could open.
 
 **What this gives up versus per-device capabilities:** the server cannot attribute a record to a
 device, so `OBSERVER` is enforced in the UI and by MLS proposal rules rather than at the server, and
@@ -2237,7 +2383,7 @@ removing the person if you administer the group.
 | # | Slice | Contains |
 |---|---|---|
 | 1 | `connect/mls/` | RFC 9420. **Acceptance: the IETF test vectors pass**, cross-checked against OpenMLS. |
-| 2 | `connect/message/` | Storage records, retention classes, ratchet, PQ composition, `write_auth`, padding, `COVER`. `server_attachment`, `req_auth`, recovery proof, **the `EPH(0)` delivery-receipt record**, **the reaction body as a length-prefixed UTF-8 string**, **the two-sentinel `durable_ttl_seconds` encoding**, and **the contact-card encoding, the rendezvous derivations and the five rendezvous signature preimages**. Freezes the wire format — §8, §8.3 and §9.2 must be final before this slice starts, and the additions named in bold must land here rather than with the client work that renders them. |
+| 2 | `connect/message/` | Storage records, retention classes, ratchet, PQ composition, `write_auth`, padding, `COVER`. `server_attachment`, `req_auth`, recovery proof, **the `EPH(0)` delivery-receipt record**, **the reaction body as a length-prefixed UTF-8 string**, **the two-sentinel `durable_ttl_seconds` encoding**, and **the contact-card encoding, the rendezvous derivations and the five rendezvous signature preimages**. Freezes the wire format — §8, §8.3 and §9.2 must be final before this slice starts, and the additions named in bold must land here rather than with the client work that renders them. **§8 and §9.2 WERE REOPENED on 2026-09-13, after this slice shipped, to add `eph_window` — see §0 and §8.1. That is a break of this row's own rule, taken knowingly and recorded rather than absorbed.** |
 | 3 | `message-server` | Store, ordering, single-commit agreement, `write_auth` verification, retention, fetch attestation, **the contact rendezvous of §9.8**. §9.7 is an acceptance criterion. |
 | 4 | Client core in `sdk` | Group state, local store, KT client, provisioning. |
 | 5 | `message-windows` text | Send, receive, groups, TOFU warnings, reactions, **rendering** read and delivery receipts. **First testable build — internal only.** |

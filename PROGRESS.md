@@ -16,7 +16,7 @@ colliding, and that has cost this project real work before.
 
 | Track | Repo | State |
 |---|---|---|
-| **A — protocol core** | `Ryanmello07/connect`, branch `beta/message` | **p1–p7 complete; m1 wave 0 and wave 1 landed, plus ruling A1.** At `33932e0`: 1,105 tracked files, 7,631 tests passing over `mls/`, `message/` and `messagegroup/`, nine-platform `CGO_ENABLED=0` build green. Wave 2 is stopped in front of ledger **152** — **and, since 2026-09-09, by nothing else**: the owner ruled `M1-1`'s remainder and `M1-7` together that day as composite `C3`, so Task 14's blocker list is item 152 alone. **CORRECTED 2026-09-11 — that blocker is CLOSED, and had been since `j1` Task 5.** This row read *"CP3b itself is still blocked outright by `S2-4` — `JoinFromWelcome` is an unconditional refusal, so no exported path lets two clients share one group"*. At **`72ffdbd`** — 1,112 tracked files, **7,698** test and subtest invocations green over `mls/`, `message/` and `messagegroup/` (unfiltered `go test ./mls/... ./message/... ./messagegroup/... -v`; **2,234** top-level plus **5,464** subtests, 0 failures) — two independent engines share one real MLS group, and a `DURABLE` record sealed by the founder opens at the joiner: `TestTwoEnginesShareOneGroupAndTheirExportersAgree`, `TestADurableRecordSealedByTheFounderOpensAtTheJoiner` and `TestTheDeviceSurvivesItsOwnJoin` all pass. **What blocks CP3b now is the message-server leg, which is `s2`'s** — see the 2026-09-11 entry for the determination and its evidence |
+| **A — protocol core** | `Ryanmello07/connect`, branch `beta/message` | **p1–p7 complete; m1 wave 0 and wave 1 landed, plus ruling A1.** At `33932e0`: 1,105 tracked files, 7,631 tests passing over `mls/`, `message/` and `messagegroup/`, nine-platform `CGO_ENABLED=0` build green. **Wave 2 is no longer stopped in front of ledger 152: it was RULED 2026-09-13.** *(This cell read "Wave 2 is stopped in front of ledger **152** — **and, since 2026-09-09, by nothing else**: the owner ruled `M1-1`'s remainder and `M1-7` together that day as composite `C3`, so Task 14's blocker list is item 152 alone." **The "by nothing else" clause was stale from 2026-09-12**, when the red team filed `M1-51`–`M1-55`; ledger item **184** files that and names all five sites that carried it.)* **What is true now:** Task 13 is unblocked, **Task 14 step 1 is unblocked** — ledger 152's ruling lifts the `EPH` seal refusal its `eph_root` wrap waited on — **Task 14 step 3 is NOT: `M1-52` blocks signing and is filed, not ruled.** Task 15 and Task 16 are unaffected. Task 17 is also unblocked, by the same sitting's second ruling (`M1-27`). **CORRECTED 2026-09-11 — that blocker is CLOSED, and had been since `j1` Task 5.** This row read *"CP3b itself is still blocked outright by `S2-4` — `JoinFromWelcome` is an unconditional refusal, so no exported path lets two clients share one group"*. At **`72ffdbd`** — 1,112 tracked files, **7,698** test and subtest invocations green over `mls/`, `message/` and `messagegroup/` (unfiltered `go test ./mls/... ./message/... ./messagegroup/... -v`; **2,234** top-level plus **5,464** subtests, 0 failures) — two independent engines share one real MLS group, and a `DURABLE` record sealed by the founder opens at the joiner: `TestTwoEnginesShareOneGroupAndTheirExportersAgree`, `TestADurableRecordSealedByTheFounderOpensAtTheJoiner` and `TestTheDeviceSurvivesItsOwnJoin` all pass. **What blocks CP3b now is the message-server leg, which is `s2`'s** — see the 2026-09-11 entry for the determination and its evidence |
 | **B — Windows client** | `Ryanmello07/urmessage-windows` (private) | CP1 shipped — builds, launches, renders |
 | **C — message server** | `Ryanmello07/urnetwork-message-server` | **shipped and under test** — 57 Go files, 26,402 lines; `store/`, `api/`, `peer/`, `blobd/`, `sweep/`, `cmd/`, `go build ./...` and `go test ./...` green. CP3a and CP3c ran through it |
 
@@ -1576,3 +1576,79 @@ measured delta is the linter's ledger-reference class, **177 → 178**, which is
 `ledger 152` citation this commit adds to the `m1` plan. `connect` was `beta/message` at `72ffdbd`,
 1,112 tracked files, clean before and after, and was read with `grep` and `sed` only.
 `git ls-files` equals `git ls-tree -r HEAD` at **105**.
+
+
+---
+
+## 2026-09-13 — the owner's two rulings: `ct_head` takes the record's own class key, and the eph window goes on the wire
+
+**Documents only. No Go file in this repository changed, and `connect` and `sdk` were read and never
+written.** The code changes both rulings imply are a later dispatch and are named rather than made.
+
+### Ruling 1 — ledger 152 and 128, and it is a REVERSAL
+
+`ct_head` is keyed under the **record's own class key**, not always under `K_durable`. Head and body
+therefore take **one** ladder at **one** position, separated by their HKDF labels (`"rec/v1/head"`
+against `"rec/v1/body"`), which is what **I7** has always meant. `PERMANENT`, `DURABLE` and `MEDIA`
+are unchanged in effect — `K_perm`, `K_durable` and `K_media` all descend from `storage_root[n]` and
+none is ever destroyed. **`EPH(1..5)` metadata — the MLS `PrivateMessage` header, `type` and
+`sent_at` — now dies with `K_eph[n][b][t]`** instead of living under a key every member, every future
+device and every seedphrase holder holds forever.
+
+**This reverses the ruling of 2026-09-07**, which was *"`ct_head` is always sealed under the DURABLE
+class ratchet, whatever the record's own retention class"* (ledger item **128**, Spec A **A-20**). Its
+reason — *"the head is always retained"* — **is false for exactly one class and it is the class the
+question was about**: Spec B §7.2 sets `ct_head = NULL` for `EPH(1..5)` at `prune_after`. And it was
+ruled on 128's own narrower bookkeeping terms **without ledger item 152 beside it, although 152 had
+asked in those very terms that it be**. Item **128 closes with the reversal** and its text is kept
+whole, with the reversal annotated at the ruling sentence a reader lands on. Item **152 closes ruled**.
+
+**The consequence that is the point.** Before today the only thing stopping an `EPH` head outliving
+its timer was **a cooperating server** — Spec B §7.2's `ct_head = NULL` sweep, an *operational*
+erasure, against the adversary MASTER §8.1 names as *"retained server ciphertext"*: a backup, a
+replica that missed the sweep, a legal hold, a seized snapshot. **The guarantee is now
+cryptographic.** It is the same conversion ruling 3 of 2026-09-13 made for `eph_root[n]`; the head was
+the half that ruling left behind. Three published sentences that were false under the replaced rule
+are now true **as written and unedited**: MASTER §8.1's *"After the timer, retained server ciphertext,
+a seized device, a newly provisioned device, and a seedphrase holder all fail to decrypt"*, §12.4's
+required UI string, and §13's *"including against a device set up tomorrow and against a seedphrase
+holder."*
+
+### Ruling 2 — `M1-27`, and it reopens a frozen wire format
+
+The window `t` is a **new plaintext `u64` field, `eph_window`**, in `record_bytes`:
+`floor(sent_at_ms / (eph_bucket_seconds[b] × 1000))`, Unix origin, **sender's** clock, always present
+and zero off `EPH(1..5)`, in `AAD_head`, `AAD_body` and the `write_auth` preimage immediately after
+`u8(retention_class)`. An opener takes the wire value and **never recomputes it**; it refuses a window
+more than one **ahead** of its own clock and **never** one behind. The server refuses **±1** against
+arrival — new Spec A conformance row **S19**, Spec B §5.1 check 3 and §7.1. `EPH(0)` carries `t = 0`
+by definition. Second half: **`EphBucketSeconds` must answer `0` for bucket 0 and a negative for
+6..255**, because *"the transient rung, never persisted"* and *"not a bucket"* are two answers and the
+shipped table gives them one.
+
+**And this reopens a section MASTER §14 froze before slice 2, which has shipped.** Written as an
+explicit revision in all three documents rather than absorbed: `format_version` → `0x02`, nothing
+migrated because nothing encoded is retained, and ledger item **182** carries the one clause of it
+that is still the owner's.
+
+### The thing worth returning first: wave 2 is NOT fully unblocked
+
+The brief for this pass stated that ledger 152 was m1 wave 2's and Task 14's **only** remaining
+blocker. **It is not, and has not been since 2026-09-12.** `M1-52` — *"the signature preimage is 1,320
+or 1,356 octets and no document says which, so nothing in Task 14 can sign"* — is **filed, not ruled**,
+and its own *Blocks* line is *"signing, and therefore all of Task 14 step 3."* `M1-53` blocks Property
+11's third refusal beside it. **Task 14 step 1 is genuinely unblocked; step 3 is not.** Tasks 13, 15
+and 16 are unaffected, and **Task 17 is unblocked** by ruling 2. Ledger item **184** files the
+staleness and names the **five** sites that carried *"152 and nothing else"* — this file's tracks row,
+`SPEC-LEDGER.md` §1's implementation-plan row, and the m1 plan's Task 14 heading, wave table and
+schedule diagram — all five corrected in place with the old wording kept beside the new.
+
+### Verification
+
+`go build ./...` clean, `go test ./... -timeout 600s` green and
+`go test ./ -run TestThePlanLinter -timeout 300s` ok, **before and after**. `connect` was
+`beta/message` at `71d2482` and `sdk` at `54785de`; both were read only and both were verified clean
+after. `message.EphBucketSeconds` was measured **by running it** against `71d2482` through a scratch
+module with a `replace` — `0 → -1, 1 → 3600, 2 → 28800, 3 → 86400, 4 → 604800, 5 → 2419200, 6 → -1,
+7 → -1, 8 → -1` — which reproduces the brief's table exactly. `git ls-files` equals
+`git ls-tree -r HEAD` at **105**.

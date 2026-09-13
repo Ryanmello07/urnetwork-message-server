@@ -973,7 +973,7 @@ discovered at Task 14.
 | Wave | Tasks | On CP3b? | Note |
 |---|---|---|---|
 | 1 | 1–12, and 9a | **yes** | unblocked: the schedule, the ratchets, the adapter, the session, seal and open |
-| 2 | 13–16 | **yes** | the second client's half. **Task 14's M1-1 and M1-7 are RULED IN FULL — 2026-09-13 and 2026-09-09** — and what it still needs is the `EPH` half of the seal refusal (ledger **152**) for its `eph_root` wrap, which no ruling of either date touches; **Task 15 is unblocked** — M1-6 was ruled 2026-09-07 and its snapshot is `PERMANENT`; Task 16's M1-2 is deferred and does **not** block CP3b. **The `stream_index`-to-ratchet pin both tasks owed is RULED — 2026-09-07, ledger 143 and 169 together, as shape A1: `i = stream_index` in every ladder over one class-blind counter per `(group_id, sender_handle)`. Neither task is blocked by it any longer** |
+| 2 | 13–16 | **yes** | the second client's half. **Task 14's M1-1 and M1-7 are RULED IN FULL — 2026-09-13 and 2026-09-09 — and ledger 152 is RULED 2026-09-13, which lifts the `EPH` seal refusal its `eph_root` wrap waited on. Task 14 step 1 is unblocked; step 3 is NOT — `M1-52` blocks signing and is filed, not ruled.** **Task 15 is unblocked.** *(This cell read "what it still needs is the `EPH` half of the seal refusal (ledger 152) … which no ruling of either date touches" and was stale from 2026-09-12; ledger item **184**.)* — M1-6 was ruled 2026-09-07 and its snapshot is `PERMANENT`; Task 16's M1-2 is deferred and does **not** block CP3b. **The `stream_index`-to-ratchet pin both tasks owed is RULED — 2026-09-07, ledger 143 and 169 together, as shape A1: `i = stream_index` in every ladder over one class-blind counter per `(group_id, sender_handle)`. Neither task is blocked by it any longer** |
 | 3 | 17–24 | **no** | required before the A6 format freeze; none is required to put a message in front of a person |
 
 **And the two legs this plan does not have.** CP3b's own words are *"through the message server"*. Every
@@ -1888,6 +1888,18 @@ and it binds at the **call site** and not here: `RecordAeadHead` and `RecordAead
 one `recordKey`, and what changed is which ladder Task 11 draws each from. **No wave-1 declaration
 moves and nothing in this task is re-opened** — the landed shape is the ruled shape.
 
+> **THAT RULING WAS REVERSED ON 2026-09-13, AND THIS TASK'S INSTRUCTION IS STILL UNCHANGED — which is
+> now the point twice over.** Ledger items **152** and **128**: `ct_head` is keyed under the
+> **record's own** class key, so head and body take **one** ladder at **one** position, separated by
+> their two HKDF labels. The reversal binds at the call site exactly as the ruling it replaces did,
+> so `RecordAeadHead` and `RecordAeadBody` still each take one `recordKey` and **no wave-1
+> declaration moves**. What changes for Task 11 is that it now passes **the same** `record_key[i]` to
+> both, drawn from the record's own class ladder. **The "contradiction this task must not resolve",
+> above, is resolved and is gone**: one record has one `stream_index` covering one position, so the
+> question *"how does one record then have one `stream_index`"* no longer has a subject. Properties
+> 3, 4 and 5 and mutations 4 and 5 are unaffected and are what keep the two labels apart, which is
+> the whole of what makes one position safe.
+
 - [ ] **Step 1: Derive the property and write the failing test**
 
   **Property 1 — the chain is a chain.** `RecordKeyNext` applied *i* times to `RecordKeyZero` is
@@ -2089,10 +2101,16 @@ from — and a receiver's window is refused by **distance**, not by retained cou
 transients between two `DURABLE` records make the second permanently `out_of_window`**. The hazard is
 executable in `connect/messagegroup`'s suite rather than asserted here, with a one-short-of-the-wall
 control beside it so the failure is attributable to the last transient. It is **still filed and still
-not ruled**: A1's ruling forecloses nothing either way, and note that granting transients their own
-counter re-opens ledger item 169's collision for `EPH` heads on the day ledger **152** rules the `EPH`
-classes onto the durable root. The interface as amended does not foreclose it — a second counter is a
-second `StreamKey`, not a second method.
+not ruled**: A1's ruling forecloses nothing either way. *(**The clause that followed here is VOID as
+of 2026-09-13 and is corrected rather than annotated, because it names a consequence that can no
+longer happen.** It read *"granting transients their own counter re-opens ledger item 169's collision
+for `EPH` heads on the day ledger **152** rules the `EPH` classes onto the durable root."* **Ledger
+152 ruled the opposite**: an `EPH` head takes `K_eph[n][b][t]`, its **own** class key, and never the
+durable root. Two counters over one root is still the shape A1 removed, but `EPH` heads are not on
+that root and no ruling can now put them there — so this particular re-opening is not among the costs
+of giving transients their own counter. **The fsync cost and the 1,025-transient `out_of_window` wall
+are untouched** and are still why the item is open.)* The interface as amended does not foreclose a
+second counter — it is a second `StreamKey`, not a second method.
 
 **Where the durability is tested, given that the implementation is not here.** The properties below
 are the interface's **contract**, and every one of them is testable against a **file-backed reserver
@@ -2869,11 +2887,29 @@ Do not re-derive the order; the signatures already carry it.
 
 **Three decisions this task must take and say it is taking.**
 
-**(a) Which `record_key` seals the head. RULED 2026-09-07 — the head takes the DURABLE ladder's
-`record_key[i]`, whatever the record's class; the body takes its own class ladder's.** MASTER §8.1
-says *"`ct_head` is always under the **durable** class"* and §5.3 hands both AEAD derivations one
-`record_key[i]`; the ruling keeps MASTER and amends §5.3 (revision **A-20**). See open item **M1-6**
-for the owner's reason, the accepted cost and the two ledger items the cost is owed to.
+**(a) Which `record_key` seals the head. RULED 2026-09-13 — BOTH AEADs take the SAME
+`record_key[i]`, from the ladder rooted at the RECORD'S OWN class key.** For an `EPH(b)` record that
+class key is `EphKey(ephRoot, b, window)` off the record's own `eph_window` field. The two AEADs are
+separated by their HKDF labels, `"rec/v1/head"` against `"rec/v1/body"`, which is what MASTER **I7**
+has always meant. Ledger items **152** and **128**; Spec A revision **A-25**.
+
+> *(**THIS DECISION READ THE OPPOSITE UNTIL 2026-09-13 and the replaced text is kept here, because a
+> reader holding a printout of this plan needs to recognise which ruling their copy carries.** It
+> read: **"RULED 2026-09-07 — the head takes the DURABLE ladder's `record_key[i]`, whatever the
+> record's class; the body takes its own class ladder's.** MASTER §8.1 says *"`ct_head` is always
+> under the **durable** class"* and §5.3 hands both AEAD derivations one `record_key[i]`; the ruling
+> keeps MASTER and amends §5.3 (revision **A-20**)." **Why it was reversed:** its premise, *"the head
+> is always retained"*, is false for `EPH(1..5)` — Spec B §7.2 sets `ct_head = NULL` at `prune_after`
+> — and it was ruled on ledger item 128's narrower bookkeeping terms without ledger 152 beside it,
+> although 152 had asked in those terms that it be. **What it bought:** an `EPH` record's metadata now
+> dies with `K_eph` instead of under `K_durable`, which is destroyed nowhere; the disappearing
+> guarantee for the head stops resting on Spec B §7.2's sweep and becomes cryptographic. See open item
+> **M1-6**, annotated, and open item **M1-27**, ruled with it.)*
+
+> *(**THE ALLOCATION NOTE BELOW IS ABOUT A DIFFERENT REVERSAL AND BOTH ARE REAL.** 2026-09-11
+> inverted **which document carried the rule**; 2026-09-13 reversed **the rule**. A reader who meets
+> only the note below will take the durable-head rule as standing, which is why the annotation above
+> is first.)*
 
 > *(**THE ALLOCATION IN THE SENTENCE ABOVE — "the ruling keeps MASTER and amends §5.3" — IS INVERTED
 > AS OF 2026-09-11, and this is the THIRD live copy of that allocation, not the second.** The
@@ -2889,10 +2925,24 @@ for the owner's reason, the accepted cost and the two ledger items the cost is o
 > the **durable** class for `PERMANENT`, `DURABLE` and `MEDIA`"* — MASTER §8.1:1153-1155, with the
 > `EPH` exclusion beneath it at §8.1:1157-1172.)*
 
-**How far the refusal is lifted, which is narrower than "M1-6 is ruled" sounds.** `SealRecord` may
-seal **`DURABLE`, `PERMANENT` and `MEDIA`**. It must still **refuse `EPH`** with a typed error — the
-same shape of refusal, naming **ledger item 152** rather than M1-6, because 152 is the item that is
-still open and 152 is what the refusal is now for. The reason is not caution: 152 asked in terms that
+**THE REFUSAL IS LIFTED IN FULL AS OF 2026-09-13. `SealRecord` may seal EVERY retention class.**
+Ledger item **152** is ruled, so the `EPH` refusal that stood under it alone has nothing left holding
+it. **Two preconditions travel with the lift and this task owes both** *(Spec A §5.3 states them)*:
+an `EPH` record's class key is `EphKey(ephRoot, b, window)` taken off the record's **own**
+`eph_window` field and never off a clock this package reads; and `OpenRecord` **MUST refuse** an
+`EPH(1..5)` record whose `eph_window` is more than one window **ahead** of the opener's clock, with a
+typed error separable by `errors.Is` from every AEAD failure, while **never** refusing one behind by
+any amount. The asymmetry is the defence: an opener can derive any window's key, so honouring a
+far-future window keeps a record openable past its timer.
+
+*(**This paragraph read "How far the refusal is lifted, which is narrower than 'M1-6 is ruled'
+sounds"** until 2026-09-13, and required `SealRecord` to *"still **refuse `EPH`** with a typed error
+— the same shape of refusal, naming **ledger item 152** rather than M1-6, because 152 is the item
+that is still open and 152 is what the refusal is now for."* 152 is no longer open. The paragraph
+below is the argument that refusal stood on and is kept, because it is the argument the ruling
+accepted.)*
+
+**The argument the refusal stood on, kept because the ruling is what it won.** The reason is not caution: 152 asked in terms that
 this question not be ruled without it beside it, it was, and its claim is that an `EPH` head sealed
 under `K_durable[n]` — a key destroyed nowhere and delivered to every recovery wrap — outlives the
 timer, the seized device, the device provisioned tomorrow and the seedphrase holder, which falsifies
@@ -2900,15 +2950,22 @@ MASTER §8.1's next sentence. An `EPH` record sealed under the wrong reading is 
 unrecoverable after the A6 freeze exactly as a `PERMANENT` one was.
 
 **And sealing a non-`DURABLE` record was not unblocked by the class ruling alone — it needed a second
-ruling, which it has.** The head ladder is shared across every class of one sender, so *which* position
-of the durable ladder a `PERMANENT` record's head takes was stated in no document, and the shipped
-reserver's `StreamKey` was **per class**, which made the obvious answer unsafe. **RULED 2026-09-07,
-ledger items 143 and 169 together, as shape A1:** `i = stream_index` in every ladder, over one
-**class-blind** `stream_index` counter per `(group_id, sender_handle)` — so a `PERMANENT` record's head
-takes durable-ladder position `stream_index`, that number is never issued twice to one sender whatever
-the class, and there is no second guess left to make. Spec A §5.3 and §5.6 carry it (revision A-21).
-**This decision is therefore no longer this task's to take**; what it must still do is refuse `EPH`,
-under ledger **152**.
+ruling, which it has.** Under the 2026-09-07 rule the head ladder was shared across every class of one
+sender, so *which* position of the durable ladder a `PERMANENT` record's head took was stated in no
+document, and the shipped reserver's `StreamKey` was **per class**, which made the obvious answer
+unsafe. **RULED 2026-09-07, ledger items 143 and 169 together, as shape A1:** `i = stream_index` in
+every ladder, over one **class-blind** `stream_index` counter per `(group_id, sender_handle)` — that
+number is never issued twice to one sender whatever the class, and there is no second guess left to
+make. Spec A §5.3 and §5.6 carry it (revision A-21). **This decision is therefore no longer this
+task's to take.**
+
+*(**Two clauses here moved with the 2026-09-13 reversal and are corrected rather than annotated,
+because each named a mechanism that no longer exists.** This paragraph said *"a `PERMANENT` record's
+head takes durable-ladder position `stream_index`"* — it takes position `stream_index` on the
+**`K_perm`** ladder now, its own — and it closed *"what it must still do is refuse `EPH`, under ledger
+**152**"*, which is spent: **152 is ruled and the refusal is lifted in full.** **A1 is untouched and
+is still needed** — its load-bearing instance is the device wrap's two records on one `env_key[k]`
+root, which carries no class at all.)*
 
 **And that refusal blocked a wave-2 task on this plan's own CP3b path, which is why M1-6 was filed
 under *Blocking CP3b* and not under the A6 freeze — the argument is kept because it is what made the
@@ -3004,13 +3061,18 @@ asks for the reading to be promoted into §5.11.
   **Property 5 — `ct_body` is exactly its rung, or absent on the blob rung,** and the record
   `EncodeRecord` refuses is the record `SealRecord` refuses, through the same `checkRecord`.
 
-  **Property 6 — a class outside the lift is refused, and the refusal names the item that is still
-  open.** As written before 2026-09-07 this read *"a class other than `DURABLE` is refused with the
-  M1-6 sentinel until M1-6 is ruled"*, and that is what landed. After the ruling the property is
-  `DURABLE`, `PERMANENT` and `MEDIA` seal and **`EPH` is refused naming ledger item 152** — a change
-  to the refused set and not to the shape of the assertion. **Wave 1 is not re-opened for it**: the
-  landed refusal is the pre-ruling one, this plan records what the property becomes, and the commit
-  that widens the set is wave 2's.
+  **Property 6 — THE REFUSED SET IS NOW EMPTY, so this property inverts: EVERY class seals.** As
+  written before 2026-09-07 it read *"a class other than `DURABLE` is refused with the M1-6 sentinel
+  until M1-6 is ruled"*, and that is what landed; after 2026-09-07 it read *"`DURABLE`, `PERMANENT`
+  and `MEDIA` seal and **`EPH` is refused naming ledger item 152**"*. **Ledger 152 was ruled
+  2026-09-13 and the refusal has nothing left holding it**, so the property is now that all four
+  classes seal and open, and **the refusals that replace it are two different ones**: an `EPH` seal
+  with no `eph_window`, and an `OpenRecord` on an `EPH(1..5)` record whose `eph_window` is more than
+  one window **ahead** of the opener's clock — typed, `errors.Is`-separable from every AEAD failure.
+  **A property asserting "EPH is refused" would now be asserting the opposite of the rule**, which is
+  why this is a rewrite and not a set edit. **Wave 1 is still not re-opened**: the landed refusal is
+  the pre-ruling one, this plan records what the property becomes, and the commit that widens the set
+  is wave 2's.
 
   **Property 7 — every call of `message.AADHead` and `message.AADBody` in production source, on
   either side of the split, passes `RecordAeadAlgId`.** This is the derived-class half of Task 1
@@ -3303,7 +3365,15 @@ already says "destroyed as one thing"; mutation 7 is what makes it fail.
 
 ---
 
-## Task 14: The device wrap — **two records; M1-1 and M1-7 are RULED IN FULL (2026-09-13 and 2026-09-09) and ledger 152 is what still blocks**
+## Task 14: The device wrap — **two records; M1-1, M1-7 and ledger 152 are all RULED. STEP 1 IS UNBLOCKED. STEP 3 IS NOT: `M1-52` blocks signing**
+
+> **THIS HEADING READ *"…and ledger 152 is what still blocks"* UNTIL 2026-09-13, AND THAT CLAUSE WAS
+> STALE FROM 2026-09-12.** Ledger 152 was ruled on 2026-09-13 and no longer blocks anything here. It
+> was **never the whole of what blocks**, from the moment the 2026-09-12 red team filed **M1-52**,
+> whose own *Blocks* line is *"signing, and therefore all of Task 14 step 3."* M1-52 is **filed, not
+> ruled**, and no ruling of 2026-09-13 touches it. **M1-53** sits beside it and blocks Property 11's
+> third refusal, recorded there as *"owed rather than writable"*. Ledger item **184** files the
+> staleness and names all four sites that carried it.
 
 **Files:**
 - Create: `connect/messagegroup/wrap.go`
@@ -3387,17 +3457,33 @@ item marked RULED is an item a dispatcher never meets. Neither blocks step 1; bo
 can claim it showed, which is a different obligation and is why they are named at the task rather
 than only in the item list.
 
-**What is still open, and it still blocks this task — and it is no longer M1-1's or M1-7's.** Both
-were ruled (2026-09-13 and 2026-09-09) and neither blocks this task any more. **M1-6 blocked this task
-too** — see Task 11(a): both records this task builds are non-`DURABLE`. **M1-6 was ruled 2026-09-07
-and this task is still blocked by the refusal**, because the lift reaches `PERMANENT` and `MEDIA` and
-**not `EPH`**, and one of this task's two records is the `EPH(5)` `eph_root` wrap. The item that
-refuses it is ledger **152**, not M1-6. So the `PERMANENT` `pq_secret` wrap is through the gate and its
-twin is not, and a fan-out that emitted one without the other would break Property 1's *"exactly two"*
-— which is why this is a block on the task and not a partial start. **Ledger 152 is now the whole of
-what blocks this task**, and the 2026-09-09 ruling is explicit that the two were always independent:
-a complete answer to the field list, the signature and the padding does not start Task 14 while
-`connect/messagegroup/seal.go:119` and `:387` refuse every non-`DURABLE` class.
+**WHAT IS STILL OPEN, RE-DERIVED 2026-09-13 RATHER THAN EDITED, BECAUSE THE PREVIOUS VERSION OF THIS
+PARAGRAPH ENDED IN A CLAIM THAT WAS STALE WHEN IT WAS READ.** It ended *"**Ledger 152 is now the whole
+of what blocks this task**"*, and that was true when written and false from 2026-09-12.
+
+**Step 1 is UNBLOCKED.** `M1-1` and `M1-7` were ruled (2026-09-13 and 2026-09-09). **M1-6 blocked this
+task too** — see Task 11(a): both records this task builds are non-`DURABLE`, and after 2026-09-07's
+lift the `EPH(5)` `eph_root` wrap was still refused under **ledger 152**, so the `PERMANENT`
+`pq_secret` wrap was through the gate and its twin was not, and a fan-out emitting one without the
+other breaks Property 1's *"exactly two"*. **Ledger 152 was RULED 2026-09-13** and the refusal is
+lifted **in full**, so both records this task builds can now be sealed. *(Two preconditions travel
+with the lift and this task inherits them from Task 11(a): an `EPH` record's class key is
+`EphKey(ephRoot, b, window)` off the record's own `eph_window` field, and `OpenRecord` refuses a
+window more than one ahead of the opener's clock.)*
+
+**Step 3 is BLOCKED, by `M1-52`, which is filed and not ruled.** Its own words: *"the signature
+preimage is 1,320 or 1,356 octets and no document says which, so nothing in Task 14 can sign"*, and
+its own *Blocks* line is *"signing, and therefore all of Task 14 step 3 — a publisher and a verifier
+that choose differently produce a wrap nobody can verify, with no error anywhere."* It owes one
+sentence in MASTER §7. **No ruling of 2026-09-13 touches it.** **M1-53** sits beside it and blocks
+Property 11's third refusal, recorded there as *"owed rather than writable"*.
+
+**So the honest statement of this task's state is two-part and not one-part**, and ledger item **184**
+files why nothing re-derived it when M1-51 through M1-55 landed: a *"blocked by X and nothing else"*
+claim is a measurement with a date, and this one had no date beside it. The 2026-09-09 ruling's own
+point stands unchanged — a complete answer to the field list, the signature and the padding did not
+start Task 14 while `connect/messagegroup/seal.go:119` and `:387` refused every non-`DURABLE` class;
+that refusal is what 152 has now lifted, and the code change widening it is wave 2's commit.
 
 **And two things this task's Consumes list does not name and now must.** Nothing in
 `connect/messagegroup` can **sign or verify** anything — `grep -rn 'ed25519' messagegroup/*.go`
@@ -3815,7 +3901,9 @@ retry.
 2026-09-07 and every record this task writes is `PERMANENT`, so ledger 152's `EPH` refusal does not
 reach it, and the `stream_index`-to-ratchet pin it owed was ruled the same day as shape A1. **What it
 waits on is a file, not a ruling** — it *modifies* `wrap.go`, which **Task 14 creates**, and Task 14
-is blocked by ledger **152**. `M1-1` and `M1-7`, which used to sit in front of Task 14 and therefore
+cannot finish until `M1-52` is ruled. *(This clause read *"and Task 14 is blocked by ledger **152**"*;
+**152 was ruled 2026-09-13** and Task 14 **step 1** is unblocked, so the file this task waits on can
+now be created. What Task 14 cannot do is **step 3**, signing — `M1-52`. Ledger item **184**.)* `M1-1` and `M1-7`, which used to sit in front of Task 14 and therefore
 in front of this task, were **RULED 2026-09-09** as composite `C3`; the wrap body's grammar, its
 signature preimage and its padding are settled and this task builds against them rather than around
 them.
@@ -3926,9 +4014,12 @@ class until M1-6 landed; after the device-wrap ruling of 2026-09-13 **every reco
 is non-`DURABLE`** — a `PERMANENT` `pq_secret` wrap, an `EPH(5)` `eph_root` wrap, a `PERMANENT`
 recovery wrap and a `PERMANENT` snapshot — so M1-6 was a precondition of the whole task rather than of
 one record in it. **The ruling lifts the refusal for `PERMANENT` and `MEDIA` and not for `EPH`**, so
-three of those four are through the gate and the `EPH(5)` `eph_root` wrap is not; ledger item **152**
-is what refuses it now. The snapshot in particular is **unblocked**. The block that remains on
-this task's own records is ledger **152**, for the `EPH(5)` wrap. The second one — the
+three of those four were through the gate and the `EPH(5)` `eph_root` wrap was not, ledger item
+**152** being what refused it. The snapshot in particular is **unblocked**. *(**Ledger 152 was RULED
+2026-09-13 and the refusal is lifted in full**, so the `EPH(5)` wrap is through the gate too and **no
+ledger item now refuses any record this task writes.** The paragraph is kept in the past tense rather
+than deleted because the deferral register it sets up below is what a builder meets, and the register
+is now empty of retention-class deferrals — which is a thing to assert, not a thing to assume.)* The second one — the
 `stream_index`-to-ratchet pin the ruling made due, ledger **143** and **169** — was **ruled 2026-09-07
 as shape A1** and is gone: `i = stream_index` in every ladder over one class-blind counter per
 `(group_id, sender_handle)`, which also separates this task's own two device-wrap records for one leaf
@@ -4288,10 +4379,23 @@ a message in front of a person; all of it is required before the format stops mo
 >      └─ K_eph[n][b][t] = HKDF-Expand(eph_root[n], "eph/v1" ‖ u8(b) ‖ u64(t), 32)
 > ```
 
-**`window` is still undefined and that is the gap.** MASTER writes `u64(t)` and says `eph_root` is
-*"time-sliced by window `t`"* — and never gives `t`'s origin, its unit, whether it is
-`floor(now / eph_bucket_seconds[b])`, or which clock. §2.2 assigns *"eph_root, buckets, window
-expiry"* to `eph.go`. **Open item M1-27**, wire-visible, blocks A6.
+**`window` IS DEFINED AS OF 2026-09-13 AND THIS TASK IS UNBLOCKED.** It read: *"`window` is still
+undefined and that is the gap. MASTER writes `u64(t)` and says `eph_root` is 'time-sliced by window
+`t`' — and never gives `t`'s origin, its unit, whether it is `floor(now / eph_bucket_seconds[b])`, or
+which clock."* **M1-27 is ruled** (ledger item **183**): `t` is the record's own plaintext
+`eph_window` field, `floor(sent_at_ms / (eph_bucket_seconds[b] × 1000))`, Unix origin, **sender's**
+clock, and an opener takes the wire value and never recomputes it. §2.2 still assigns *"eph_root,
+buckets, window expiry"* to `eph.go`.
+
+**Three things this task now owes that it did not before, and each is a refusal rather than a
+round trip.** *(1)* `EphKey` **must not read a clock** — assert by construction, the same shape as
+`TestEphRootHasNoDurableInput`: no exported function of this package that returns eph key material
+takes or reads a time source. *(2)* `EphBucketSeconds(0)` must answer **0** and `EphBucketSeconds(6)`
+a **negative**, and a test must assert they **differ** rather than asserting either literal, because
+the property is *distinguishability* and a test pinned to `-1` and `0` passes on a table that swapped
+them. *(3)* The window-ahead refusal is `OpenRecord`'s, not this task's, and must be separable by
+`errors.Is` from every AEAD failure — this task supplies the typed error, Task 11's opener raises it.
+**Wire-visible, and it spends the A6 freeze** — ledger item **182**.
 
 **The properties this task owes** are §5.3's own, with one correction. §5.3 asks for
 `TestEphRootHasNoDurableInput` to assert *"by reflection that no exported function in the package
@@ -4592,7 +4696,9 @@ Tombstones and `COVER` land here too; `pad.go`'s size-bucket ladder is already i
 Wave 0  Task 0, the split                                         (not this plan's commit)
 Wave 1  1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 9a → 10 → 11 → 12     COMPLETE — seven commits,
                                                                   b9a31e2..34fc072; 7,620 tests
-Wave 2  13 → [14: ledger 152 ONLY — M1-1 and M1-7 RULED 2026-09-09] → [15] → [16] (CP3b)
+Wave 2  13 → [14: step 1 UNBLOCKED — 152 RULED 2026-09-13; step 3 BLOCKED by M1-52] → [15] → [16] (CP3b)
+        (this line read "[14: ledger 152 ONLY — M1-1 and M1-7 RULED 2026-09-09]" and was stale
+         from 2026-09-12, when M1-51..M1-55 were filed — ledger item 184)
         the head-ladder position 14 and 15 owed is RULED: ledger 143 and 169, shape A1, 2026-09-07
         the wrap body, its signature preimage and its padding are RULED: composite C3, 2026-09-09
 Wave 3  17, 18, 19, 20, 21 | 22 → 23 | 24                          (A6 freeze; the three groups are parallel)
@@ -4662,7 +4768,10 @@ records under the real key schedule **inside one process**. It **cannot join a g
 `DURABLE` class; the other three are refused with `ErrRetentionClassUnruled`, which named **M1-6**
 pending its ruling. *(M1-6 was ruled 2026-09-07 and no code changed for it: the tree at `10cc20c`
 still refuses all three, and widening the refusal to `PERMANENT` and `MEDIA` only — with `EPH` left
-refused under ledger 152 — is wave 2's commit and not wave 1's.)* It has
+refused under ledger 152 — was wave 2's commit and not wave 1's.)* *(**And on 2026-09-13 ledger 152
+was ruled and M1-6's ruling was REVERSED**, so the widening wave 2 commits is now to **all four**
+classes rather than to two of them, and `ErrRetentionClassUnruled` has no class left to name. Still
+wave 2's commit; still no code changed by the pass that ruled it.)* It has
 **no durable store** — `TestNoProductionDeclarationOfThisPackageImplementsTheReserver` holds that as
 a rule and not as an absence. And **it never touches a message server**: every wave-1 path stops at a
 `*message.Record` in memory. There is **no sender authentication in the record layer** — any group
@@ -4826,7 +4935,11 @@ Tasks 12 and 16; and `SPEC-LEDGER.md` gains an edit-log entry per this repositor
   the same day. The label stays on both, because it is a property of the question and not of its
   status; what was wrong was the sentence saying each of the six must still be ruled. Note that
   ruling M1-6 did not take an A6 blocker off the board so much as move it: **ledger item 152** blocks
-  A6 for the same head ciphertext, and it is not an m1 item.)* That is a count of the items carrying
+  A6 for the same head ciphertext, and it is not an m1 item.)* *(**And on 2026-09-13 ledger 152 was
+  ruled and M1-6's ruling REVERSED, which does not take that A6 blocker off the board either — it
+  SPENDS the freeze.** `eph_window` is a new field in `record_bytes`, so §8 and §9.2 were reopened
+  after slice 2 shipped; ledger item **182** carries it, and **M1-27** moved from *wire-visible and
+  unruled* to *wire-visible and ruled at the cost of the freeze*.)* That is a count of the items carrying
   the label, not a claim that the other 44 are
   format-safe (it read 39 until the 2026-09-07 pass, which is 45 minus six — the item total when the
   sentence was written, and it was not updated by the four passes that added items since): M1-1, M1-2 and M1-6 change bytes on the wire too, and the first two are labelled by
@@ -5141,6 +5254,10 @@ copies, from the pass that wrote it until 2026-09-09**, when the ruling pass col
 copies ended* **"Nothing is ruled: this item and M1-7 are still open and Task 14 is still blocked on
 both, and on ledger 152"** *— true when written, and made false the same day by the ruling above.
 `M1-1` and `M1-7` are ruled; **ledger 152 still blocks Task 14** and is now the whole of what does.)*
+*(**And that last clause went stale the following day and is the fifth site ledger item 184 names.**
+The 2026-09-12 red team filed **M1-52**, whose *Blocks* line is *"signing, and therefore all of Task
+14 step 3"*, so 152 was not *"the whole of what does"* from 2026-09-12 onwards. **Ledger 152 was
+ruled 2026-09-13** and blocks nothing; **M1-52 is filed, not ruled, and blocks step 3.**)*
 
 **M1-2 — DELIBERATELY DEFERRED 2026-09-13, and no longer a CP3b blocker. `group_handle_key` and the
 joining epoch's `read_key` still have no production carrier.** MASTER §8 and Spec A §5.7 both say "in
@@ -5226,7 +5343,12 @@ exactly one `mls.Group`" where §6 and Gate 5 require a `GroupHandle`. *Blocks:*
 so nothing is blocked — but the design is this plan's and not the spec's, and §5.6's write-once
 guarantee has no other injection point.
 
-**M1-6 — RULED 2026-09-07: `ct_head` is always sealed under the DURABLE class, whatever the
+**M1-6 — CLOSED 2026-09-13, AND ITS 2026-09-07 RULING IS REVERSED. `ct_head` is keyed under the
+RECORD'S OWN class key.** The item is kept whole below — the reversed ruling, its reason, its costs
+and its as-filed text — because a reversal that erases what it reverses leaves the next reader unable
+to reconstruct it. Ledger items **152** and **128**; Spec A revision **A-25**.
+
+**RULED 2026-09-07: `ct_head` is always sealed under the DURABLE class, whatever the
 record's own retention class.** The item is kept whole below, because what it stated is still what a
 builder meets and because half of what it filed is not what the ruling answers.
 
@@ -5234,6 +5356,31 @@ builder meets and because half of what it filed is not what the ruling answers.
 `RecordAeadHead` takes the DURABLE ladder's `record_key[i]` and `RecordAeadBody` takes the record's
 own class ladder's, for every retention class. Spec A §5.3 is amended to carve the head out
 (revision **A-20**).
+
+> **THE RULING IN THE PARAGRAPH ABOVE IS REVERSED AS OF 2026-09-13 — the RULE this time, not the
+> allocation. The annotation is here, at the ruling sentence, because the 2026-09-11 note immediately
+> below reversed something else and a reader who meets only that one takes this rule as standing.**
+>
+> **What was ruled:** the paragraph above. **Why it was wrong:** its reason — *"the head is always
+> retained, so it is keyed by the class that is always retained"*, four paragraphs down — is **false
+> for exactly one class and it is the class the question was about**: Spec B §7.2 sets
+> `ct_head = NULL` for `EPH(1..5)` at `prune_after`. And it was ruled on ledger item 128's narrower
+> bookkeeping terms **without ledger item 152 beside it, although 152 had asked in those very terms
+> that it be** — 152 carried the confidentiality consequence and 128 never named it. **What replaces
+> it:** `ct_head` takes the **record's own** class key, so head and body take **one** ladder at
+> **one** position, separated by their HKDF labels per **I7**. `PERMANENT`, `DURABLE` and `MEDIA` are
+> unchanged in effect; an `EPH(1..5)` record's metadata now dies with `K_eph[n][b][t]`.
+>
+> **What it bought, which is the point:** before the reversal the only thing stopping an `EPH` head
+> outliving its timer was **a cooperating server** — Spec B §7.2's sweep, an operational erasure,
+> against the adversary MASTER §8.1 names as *"retained server ciphertext"*. **The guarantee is now
+> cryptographic.** **What it cost:** a new plaintext `u64` on the wire, `eph_window` (**M1-27**,
+> ruled with it), in a section MASTER §14 froze before slice 2 — which has shipped.
+>
+> **What below is spent by the reversal:** the *"accepted cost"* — one `stream_index` covering two
+> ratchet positions — is no longer incurred; the `EPH` refusal is lifted in full; and *"m1 Task 14 is
+> not"* unblocked is still true, but **for a different reason now** — ledger 152 is ruled and
+> **M1-52** is what blocks step 3. Ledger item **184**.
 
 > *(**THE ALLOCATION IN THE SENTENCE ABOVE IS INVERTED AS OF 2026-09-11.** *"MASTER §8.1 is right as
 > written and §5.3 is the document that changes"* is no longer where the `EPH` carve-out lives: on
@@ -5290,7 +5437,7 @@ item 152 still does.**
 `stream_index`-to-ratchet-position pin — ledger items 143 and 169 — was on this list until it was
 **ruled the same day** as shape A1 and implemented in `connect` at `33932e0`.)* Task 14 stays blocked
 on its own `EPH(5)` `eph_root` wrap **and, as of 2026-09-09, on nothing else**: `M1-1`'s remainder
-and `M1-7` were ruled that day as composite `C3`, so ledger 152 is the whole of Task 14's blocker
+and `M1-7` were ruled that day as composite `C3`, so ledger 152 was then the whole of Task 14's blocker
 list.
 
 *The item as it was filed, which is what the ruling answers half of:*
@@ -6000,13 +6147,18 @@ that the case observes the **shared counter** does not bite — the case reserve
 it builds directly, so it never crosses the class-to-key mapping. The hazard is demonstrated; the
 attribution is not.)*
 
-**And the two shapes are no longer symmetric.** *Give transients their own counter* — nothing
-server-side checks them, so nothing breaks **today** — **re-opens ledger item 169's collision for `EPH`
-heads on the day ledger 152 rules the `EPH` classes onto the durable root**, because two counters over
-one root is exactly the shape A1 removed. *State the cost and accept it* leaves a durable message
-losable by a typing indicator. **This item must therefore be ruled with ledger 152 in view**, and A1
-forecloses neither shape: a second counter is a second `StreamKey`, not a second method. *Blocks:*
-nothing before wave 3, unchanged.
+**The two shapes were asymmetric until 2026-09-13 and are SYMMETRIC AGAIN, which changes what this
+item is about.** This paragraph read: *"Give transients their own counter — nothing server-side checks
+them, so nothing breaks **today** — **re-opens ledger item 169's collision for `EPH` heads on the day
+ledger 152 rules the `EPH` classes onto the durable root**, because two counters over one root is
+exactly the shape A1 removed."* **Ledger 152 ruled the opposite on 2026-09-13**: an `EPH` head takes
+`K_eph[n][b][t]`, its **own** class key, and is never on the durable root — so that re-opening cannot
+happen and is not a cost of the second counter. **THIS ITEM IS THEREFORE NO LONGER "RULED WITH LEDGER
+152 IN VIEW"; 152 IS RULED AND HAS NOTHING LEFT TO SAY TO IT.** What remains is the real trade and it
+is unchanged: a second counter costs a second `StreamKey` and leaves nothing checked server-side;
+*state the cost and accept it* leaves a durable message losable by a typing indicator, through the
+1,025-transient `out_of_window` wall above. A1 forecloses neither. *Blocks:* nothing before wave 3,
+unchanged.
 
 **M1-25 — §5.6's durable reservation versus `EPH(bucket 0)`.** Every transient consumes an index and
 therefore costs a synchronous flush, so the transient send rate becomes the fsync rate. §5.5 has a
@@ -6020,6 +6172,32 @@ signature, authenticator, hybrid ciphertext, and published public key carries `a
 client, and MASTER I5 makes `write_auth` access control rather than authenticity — but the asymmetry
 is nowhere argued, and the next reader comparing §5.7 to §7.1 will read it as an omission and "fix"
 it, changing every MAC in the system. *Blocks:* nothing. One sentence in §5.7 closes it.
+
+**M1-27 — RULED 2026-09-13, BOTH HALVES, in one sitting with ledger item 152 as that item required.
+The window is a NEW PLAINTEXT FIELD ON THE WIRE; and `EphBucketSeconds` must stop answering one value
+for two questions.** Ledger item **183** carries the ruling in full and is the normative record;
+MASTER §8 and §8.1, Spec A §5.3 (**A-25**) and Spec B §3.2/§5.1/§7.1 (**20**) carry it in the specs.
+In brief, because Task 17 is dispatched against this line:
+
+- `eph_window u64` is a field of `record_bytes`, **always present**, zero on every class but
+  `EPH(1..5)`, sitting immediately after `retention_class` in the encoding, in `AAD_head`, in
+  `AAD_body` and in the `write_auth` preimage.
+- `eph_window = floor(sent_at_ms / (eph_bucket_seconds[b] × 1000))`, **Unix epoch** origin, unit a
+  count of whole buckets, computed by the **SENDER** from the same reading it puts in `sent_at`.
+  `EphKey`'s `window` parameter **is** this field. **An opener takes the wire value and never
+  recomputes it**, and `EphKey` must not read a clock.
+- An opener **refuses** a window more than one **ahead** of its own clock, typed and `errors.Is`-
+  separable; it **never** refuses one behind. The server refuses **±1** against arrival (Spec A
+  requirement **S19**).
+- `EPH(0)`: `t = 0` by definition, never computed — one window for the life of `eph_root[n]`.
+- **Second half:** `EphBucketSeconds` must answer **0** for bucket 0 and a **negative** for 6..255,
+  because *"transient rung, never persisted"* and *"not a bucket"* are two answers and today they are
+  one. **The code change is `connect`'s and is a later dispatch.**
+
+*Blocks:* nothing — Task 17 is unblocked. **Wire-visible, and it SPENDS the freeze**: ledger item
+**182** carries what reopening §8 and §9.2 after slice 2 obliges, including `format_version` → `0x02`.
+
+*The item as it was filed:*
 
 **M1-27 — `EphKey`'s `window` has no unit, no origin and no clock.** MASTER §8.1 gives the formula
 (`K_eph[n][b][t] = HKDF-Expand(eph_root[n], "eph/v1" ‖ u8(b) ‖ u64(t), 32)`) and calls `t` a

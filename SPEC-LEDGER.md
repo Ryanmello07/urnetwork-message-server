@@ -28,13 +28,13 @@ code at all**, which is the gap every external leg in the m1 plan points at.
 
 | Item | State |
 |---|---|
-| MASTER protocol design | Revision 9, **eight** amendments — 2,329 lines. *(Was "six — 2,249 lines"; re-measured 2026-09-11.)* The seventh and eighth are both **2026-09-11** and are the only two that open by saying a rule in this document changes: §8's record listing and §8.1's ratchet paragraph carry Spec A §5.3's `EPH` carve-out in MASTER's own voice, `ct_head` first and then the `body_hash` line six above it |
-| Spec A — protocol / sdk / connect | Revision **A-24** — 5,631 lines. *(Was "A-22 — 5,618"; re-measured 2026-09-11.)* A-23 names the inversion of A-20; A-24 amends server-conformance row **S10** and §5.1's two Go struct comments |
-| Spec B — message-server / operator | Revision **19** — 3,627 lines. *(Was "18 — 3,587"; re-measured 2026-09-11.)* Revision 19 changes no SQL statement: §3.2's `body_hash` DDL comment and §7.2's verbatim quote of MASTER. **The document's own "Current state" row still reads "Revision 6"** — seen, not repaired, and named in the edit log |
+| MASTER protocol design | Revision 9, **nine** amendments — 2,475 lines *(was "eight — 2,329"; re-measured 2026-09-13)*. **The ninth is 2026-09-13 and it is the first that REVERSES a ruling rather than amending a statement**: `ct_head` is keyed under the record's own class key, and `record_bytes` gains `eph_window`, which reopens a section §14 froze. *(Was "six — 2,249 lines"; re-measured 2026-09-11.)* The seventh and eighth are both **2026-09-11** and are the only two that open by saying a rule in this document changes: §8's record listing and §8.1's ratchet paragraph carry Spec A §5.3's `EPH` carve-out in MASTER's own voice, `ct_head` first and then the `body_hash` line six above it |
+| Spec A — protocol / sdk / connect | Revision **A-25** — re-measured 2026-09-13. A-25 carries both 2026-09-13 rulings: §5.3's rule reversed, §5.1's `RecordHeader` gains `EphWindow`, §5.7's preimage gains the term, §5.11 (3)'s snapshot parenthesis corrected, the `EPH` seal refusal lifted **in full**, and new server-conformance row **S19**. *(Was "A-24 — 5,631 lines".)* *(Was "A-22 — 5,618"; re-measured 2026-09-11.)* A-23 names the inversion of A-20; A-24 amends server-conformance row **S10** and §5.1's two Go struct comments |
+| Spec B — message-server / operator | Revision **20** — re-measured 2026-09-13. **Revision 20 is the first SCHEMA change in nine revisions**: `eph_window bigint NOT NULL DEFAULT 0` with two `CHECK`s, protobuf projection field 14, a §5.1 check-3 clause and §7.1's ±1-window refusal. §7.2's table is unedited. *(Was "19 — 3,627 lines".)* *(Was "18 — 3,587"; re-measured 2026-09-11.)* Revision 19 changes no SQL statement: §3.2's `body_hash` DDL comment and §7.2's verbatim quote of MASTER. **The document's own "Current state" row still reads "Revision 6"** — seen, not repaired, and named in the edit log |
 | Spec C — Windows client UI | Revision 6 — 1,893 lines |
 | Blockers | **0 from r1–r4** — down from 41. **r8's two are not in that count**; both are fixed in the text and neither is recorded as fixed. Item **165**. |
 | Review findings | **Dispositioned per finding in §5, not counted.** r3's twelve blockers were re-grepped by id; its fourteen remaining majors are items **149–162**, one item per id, each opening with the id and a disposition verb, so `git grep "M-7"` returns a disposition rather than silence. **r2's, r3's and r4's minors, r6's 30 and r8's 25 are NOT dispositioned** — item **165** measures that and publishes the query; those findings carry no ids, so an id-keyed gate cannot see them at all. The count this row used to carry (*"30: 8 major, 22 minor"*) was r6's file, not r3's majors, and the two had been read as one set for five weeks. |
-| Implementation plan | **Written and part-executed.** Fifteen documents in `docs/plans/`; `m1` (24 tasks) has wave 0 and wave 1 landed and is stopped in front of wave 2 by ledger **152** — **and by nothing else, since 2026-09-09**, when the owner ruled `M1-1`'s remainder and `M1-7` together as composite `C3` (item **175**), closing items **176**, **177** and **179** with them. **`s2` is now written** — 15 tasks, of which Tasks 1–12 are the CP3b prefix — and its own first paragraph states that it does **not** reach CP3b alone: four upstream `connect` blockers (**S2-1** through **S2-4**) sit outside both of its legs. **`j1` is now written too** — 7 tasks, all of them on the CP3b prefix — and it takes **S2-4**, the first of the four and the one that blocks CP3b outright; **S2-1**, **S2-2** and **S2-3** still have no owner. `s3` through `s10` are still cited as owners of unwritten work and have no document. |
+| Implementation plan | **Written and part-executed.** Fifteen documents in `docs/plans/`; `m1` (24 tasks) has wave 0 and wave 1 landed. **Ledger 152 was ruled 2026-09-13 and no longer stops wave 2. Task 14 is NOT thereby unblocked:** m1 open item **M1-52** is filed, not ruled, and its own *Blocks* line is *"signing, and therefore all of Task 14 step 3"*. **Task 14 step 1 is unblocked; step 3 is not**, and Tasks 13, 15 and 16 stand where they did. *(This cell read **"is stopped in front of wave 2 by ledger 152 — and by nothing else, since 2026-09-09"**, and that clause was stale from 2026-09-12, when the red team filed M1-51 through M1-55 and nothing re-derived this row. It is one of the four sites ledger item **184** names; a state row is a claim about now, so it is corrected in place with its old wording kept beside it.)* **`s2` is now written** — 15 tasks, of which Tasks 1–12 are the CP3b prefix — and its own first paragraph states that it does **not** reach CP3b alone: four upstream `connect` blockers (**S2-1** through **S2-4**) sit outside both of its legs. **`j1` is now written too** — 7 tasks, all of them on the CP3b prefix — and it takes **S2-4**, the first of the four and the one that blocks CP3b outright; **S2-1**, **S2-2** and **S2-3** still have no owner. `s3` through `s10` are still cited as owners of unwritten work and have no document. |
 | Code | **`connect` `beta/message` at `33932e0`** — 1,105 tracked files, 217 Go files across `mls/`, `message/` and `messagegroup/`, 7,631 tests passing / 0 failing / 0 skipped, nine-platform `CGO_ENABLED=0` build green. **This repository** — 57 Go files, 26,402 lines, `go build ./...` and `go test ./...` green. **`sdk`** — nothing; six external legs wait on it. |
 
 **Ready for owner review, and for handoff once the owner has read them.** Four review rounds and two
@@ -1594,7 +1594,14 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      milestone leg that is missing. Found 2026-09-05 repairing m1; filed as m1 Open item M1-42;
      owned 2026-09-06.
 
-128. **RULED 2026-09-07 — `ct_head` is always sealed under the DURABLE class ratchet, whatever the
+128. **CLOSED 2026-09-13 — AND ITS 2026-09-07 RULING IS REVERSED. This item is now closed by the
+     OPPOSITE rule: `ct_head` is keyed under the RECORD'S OWN class key. THE ITEM IS KEPT WHOLE
+     BELOW — every word of the 2026-09-07 ruling, its reason, its costs and its as-filed text —
+     because a reversal in an append-only ledger that erases what it reverses leaves a reader unable
+     to reconstruct what was overturned. The reversal is annotated AT THE RULING SENTENCE, two
+     paragraphs down, and recorded in full in item 152 and in the 2026-09-13 edit-log entry.**
+
+     **RULED 2026-09-07 — `ct_head` is always sealed under the DURABLE class ratchet, whatever the
      record's own retention class. THE ITEM IS KEPT WHOLE BELOW, and so is item 152's objection,
      which was NOT beside it when it was ruled although item 152 asked in terms that it be.**
 
@@ -1603,6 +1610,49 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      `ClassKeys.Durable`, always; `RecordAeadBody` takes one from the record's own class ladder. For a
      `DURABLE` record the two are one ladder. Filed as m1 open item **M1-6**, which carries the same
      ruling.
+
+     > **THE RULING DIRECTLY ABOVE IS REVERSED AS OF 2026-09-13 — not its allocation this time, its
+     > RULE. The annotation is at the sentence rather than at the end of the item, because this is the
+     > line a reader lands on, and because the 2026-09-11 note immediately below reversed something
+     > ELSE and a reader who meets only that one would take the rule as standing.**
+     >
+     > **What was ruled.** *"`ct_head` is always sealed under the DURABLE class ratchet, whatever the
+     > record's own retention class"* — the sentence above — with `RecordAeadHead` on the ladder rooted
+     > at `ClassKeys.Durable` always and `RecordAeadBody` on the record's own, coinciding only for a
+     > `DURABLE` record. Its reason is four paragraphs below: *"The head is always retained, so it is
+     > keyed by the class that is always retained."*
+     >
+     > **Why it was wrong. Two reasons and the second is the procedural one this item was warned
+     > about.** *(1)* **The premise is false for exactly one class, and it is the class the question
+     > was about.** Spec B §7.2 sets `ct_head = NULL` for `EPH(1..5)` at `prune_after`, so an `EPH`
+     > head is **not** always retained — and the failure the rule existed to prevent, a retained header
+     > going unopenable when its body vanishes, is a failure only where the head outlives the body,
+     > which for `EPH(1..5)` it does not. This item already said so itself, further down, under *"What
+     > the ruling does not reach"*. *(2)* **It was ruled on this item's own narrower terms — a
+     > two-ratchet/one-`stream_index` bookkeeping contradiction — and without item 152 beside it,
+     > although 152 had asked in those very terms that it be.** 152 carried the confidentiality
+     > consequence this item never named: `K_durable[n]` descends from `storage_root[n]`, is destroyed
+     > nowhere, and rides every member's recovery wrap for the life of the group, so an `EPH` header
+     > sealed under it outlives its own timer, a seized device, a device provisioned tomorrow and a
+     > seedphrase holder. Today's ruling **vindicates 152**.
+     >
+     > **What replaces it.** `ct_head` is keyed under the **record's own class key** — `K_perm`,
+     > `K_durable`, `K_media` or `K_eph[n][b][t]` — exactly as `ct_body` is. Head and body take **one**
+     > ladder at **one** position, separated by their HKDF labels `"rec/v1/head"` and `"rec/v1/body"`,
+     > which is what **I7**'s *"distinct keys and distinct AADs"* has always meant. `PERMANENT`,
+     > `DURABLE` and `MEDIA` are unchanged in effect; the whole of what moves is `EPH`. MASTER §8 and
+     > §8.1 and Spec A §5.3 (revision **A-25**) carry it.
+     >
+     > **What this does to the rest of this item.** The *"accepted cost"* paragraph below — one
+     > record's `stream_index` covering two ratchet positions — is **no longer incurred**, because
+     > there is one ladder; items **143** and **169**'s shape **A1** is **not** withdrawn, because its
+     > other instance is the device wrap's classless shared root, which this reversal does not reach.
+     > The *"Blocks after the ruling"* line below is spent: `EPH` sealing no longer waits on 152, and
+     > **m1 Task 14 is no longer blocked by 152** — though it is not thereby unblocked, and m1 open
+     > item **M1-52** is why; see item **182**.
+     >
+     > **THE ITEM CLOSES WITH THE REVERSAL, not with the ruling it recorded.** Every word above and
+     > below this annotation stands as written and dated.
 
      > **THE ALLOCATION SENTENCE DIRECTLY ABOVE IS INVERTED AS OF 2026-09-11. This annotation is at
      > the sentence, not at the end of the item, because this is the line a reader lands on** — Spec A
@@ -2465,6 +2515,20 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      out of the one counter A1 creates, which is item **169**'s recorded cost and is now load-bearing
      rather than deferred.
 
+     > **(d)'s FIRST CLAUSE IS SPENT AND ITS SECOND IS VOID, as of 2026-09-13.** *Spent:* `EPH`
+     > sealing **is** ruled — item **152**, ruled that day — so `SealRecord` refuses no class and the
+     > lift is complete. *Void:* *"the day 152 rules the `EPH` classes onto the durable root"* names an
+     > event that cannot happen, because 152 ruled the **opposite** — an `EPH` head takes
+     > `K_eph[n][b][t]`, its own class key, and is never on the durable root. **A1 itself is
+     > untouched and is still needed**: its load-bearing instance is the device wrap's two records on
+     > one `env_key[k]` root, which carries no class at all and which the reversal does not reach.
+     > **M1-25 is still not ruled** and its real cost — the 1,025-transient `out_of_window` wall — is
+     > unchanged. *(This is the THIRD and FOURTH copy of that clause. The pass that ruled 152 reached
+     > **two** of the four on its first sweep — the two in the `m1` plan — and found these two only by
+     > re-running the paraphrase query over its own output. Recorded because the 2026-09-11 amendment
+     > of this same rule failed the same way, and because a correction that enumerates its own scope
+     > and misses a member of it is the defect this file keeps finding.)*
+
      *The item as it was filed, which the ruling answers in full, follows unchanged.*
 
      **DUE AS OF 2026-09-07, no longer merely owed: the `stream_index`-to-ratchet-position mapping is
@@ -3068,7 +3132,64 @@ fourteen are dispositioned below.
      not transcription. Whatever is ruled must be enforced **at receipt** and not only at construction,
      for the reason §11 already gives about modified clients. Dispositioned 2026-09-20.
 
-152. **`M-4` — STILL OPEN in substance; its MECHANISM is SUPERSEDED; and its property is already filed
+152. **RULED 2026-09-13 AND CLOSED. `ct_head` IS KEYED UNDER THE RECORD'S OWN CLASS KEY — this item's
+     own surviving repair, in its own words — WHICH REVERSES THE 2026-09-07 RULING OF ITEM 128. Ruled
+     in ONE SITTING with m1 open item `M1-27`, which is what this item required and which is why the
+     sitting could happen at all. ITEM 128 CLOSES WITH IT. The item is kept whole below.**
+
+     **THE RULING, in the terms this item asked for.** `ct_head` takes a `record_key` from the ladder
+     rooted at the record's **own** class key, whatever that class is, exactly as `ct_body` does.
+     Head and body therefore take **one** ladder at **one** position, separated by their HKDF labels
+     `"rec/v1/head"` and `"rec/v1/body"` — which is what **I7**'s *"distinct keys and distinct AADs"*
+     has always meant, and is why one position is safe. `PERMANENT`, `DURABLE` and `MEDIA` are
+     **unchanged in effect**: `K_perm`, `K_durable` and `K_media` all descend from `storage_root[n]`
+     and none is ever destroyed. **The whole of what moves is `EPH`** — an `EPH(1..5)` record's
+     metadata, the MLS `PrivateMessage` header, `type` and `sent_at`, now dies with `K_eph[n][b][t]`
+     rather than living under a key every member, every future device and every seedphrase holder
+     holds forever. It also collapses the one-ladder/two-ladder ambiguity item **128** files, which is
+     why 128 closes with it rather than beside it.
+
+     **THE CONSEQUENCE THAT IS THE PRIZE, AND IT IS THE SAME SHAPE AS RULING 3 OF 2026-09-13 FOR
+     `eph_root`.** Before today the only thing stopping an `EPH` head outliving its timer was **a
+     cooperating server**: Spec B §7.2's `ct_head = NULL` sweep. That is an **operational** erasure,
+     and MASTER §8.1 claims the guarantee against *"retained server ciphertext"* — a backup, a replica
+     that missed the sweep, a legal hold, a seized snapshot — which is precisely the case an erasure
+     does not cover. **This ruling converts that guarantee from behavioural to cryptographic.** It is
+     the conversion ruling 3 of 2026-09-13 made for `eph_root[n]` itself; the head was the half that
+     ruling left behind, and it is not left behind now. Three sentences this item measured as false
+     under the replaced rule are true as written from today: MASTER §8.1's *"After the timer, retained
+     server ciphertext, a seized device, a newly provisioned device, and a seedphrase holder all fail
+     to decrypt"*, §12.4's required UI string, and §13's *"including against a device set up tomorrow
+     and against a seedphrase holder."* **None of the three was edited** — the ruling made them true
+     rather than the text making them narrower, and that is the whole difference between this and an
+     amendment.
+
+     **WHAT IT COST, AND THE COST IS RECORDED RATHER THAN ABSORBED.** `K_eph[n][b][t]` had no
+     computable `t`, which is the hard reason this item could not be ruled alone. Ruling 2 supplies
+     one as a **new plaintext `u64` field, `eph_window`**, in `record_bytes` — and `record_bytes` is a
+     **frozen** wire format, MASTER §14 requiring §8, §8.3 and §9.2 to be final before slice 2, which
+     is `connect/message` and has shipped. **This reopens a frozen section.** MASTER §0's ninth
+     amendment, Spec A revision **A-25** and Spec B revision **20** each carry it as an explicit
+     revision saying so. `format_version` goes to `0x02`; nothing already encoded is migrated because
+     nothing already encoded is retained. Item **182** carries the residual this reopening leaves.
+
+     **WHAT THIS ITEM'S OWN "COST AT A6" PARAGRAPH GOT WRONG, corrected here rather than left to be
+     found.** It priced the repair at *"**zero wire bytes**"* — true of the key-class change alone,
+     and false of the ruling that was needed to make the key derivable. The repair costs **eight wire
+     octets on every record** and a format-version bump. The paragraph stands as written below and is
+     dated; this is the correction it owes.
+
+     **WHAT IT LIFTS.** `messagegroup.SealRecord`'s `EPH` refusal, which stood under this item alone.
+     Spec A §5.3's refusal is now lifted **in full** — every retention class may be sealed and opened.
+     Two preconditions travel with the lift and Spec A §5.3 states both: an `EPH` record's class key
+     is `EphKey(ephRoot, b, window)` off the record's **own** `eph_window` field, and an **opener MUST
+     refuse a window more than one ahead of its own clock** while never refusing one behind. The code
+     change is `connect`'s and is a **later dispatch**, not made here.
+
+     *The item as it stood when it was ruled, kept whole because its argument is what the ruling
+     rests on:*
+
+     **`M-4` — STILL OPEN in substance; its MECHANISM is SUPERSEDED; and its property is already filed
      under another name as ledger item 128, with a narrower argument that would close it wrong. NEEDS
      RULING. WIRE-VISIBLE. MUST BE MERGED INTO ITEM 128 BEFORE ITEM 128 IS RULED. AND IT MUST BE RULED
      IN ONE SITTING WITH m1 OPEN ITEM `M1-27`, ADDED 2026-09-11 — see the 2026-09-11 note at the end
@@ -3313,6 +3434,17 @@ fourteen are dispositioned below.
      > the `group_handle_key` / `read_key[n]` fence and the prose beneath it); and *"item **128** at
      > `:1599`"* → **`:1601`**, the allocation sentence the note quotes (`:1599` is the tail of item
      > 128's own heading).
+
+     > **BOTH WERE RULED, IN ONE SITTING, ON 2026-09-13. The note above got its requirement, and this
+     > is the forward pointer it is owed** — a reader who reaches the end of this item by reading it
+     > top to bottom lands here, and everything from *"MECHANISM SUPERSEDED"* onwards is written in the
+     > present tense of an open item. **152 is ruled as this item's own surviving repair** — key
+     > `ct_head` under the record's own class key — and **M1-27 is ruled** as `eph_window`, a new
+     > plaintext `u64` field on the wire; item **183** carries it. The one thing above that did **not**
+     > survive the ruling is this item's *"zero wire bytes"* price: see the correction in the ruling
+     > block at the head of this item. `message.EphBucketSeconds(0)`'s sentinel collision, which this
+     > note raised as half the reason the sitting had to be joint, is ruled in **183** and re-measured
+     > there against `71d2482` rather than `72ffdbd`.
 
 153. **`M-5` — STILL OPEN (PARTIAL — one clause of three applied). NEEDS RULING, IN ONE SITTING WITH
      ITEM 155. WIRE-VISIBLE AT MAXIMUM COST.** r3 asked to replace §7's application-layer combiner with
@@ -4313,6 +4445,31 @@ fourteen are dispositioned below.
      `fa6ab6b` then `7705cbf` then `33932e0`. Spec A §5.3, §5.5, §5.6, §5.10 and §8.2 are amended for
      it (revision **A-21**); Spec B, its schema and MASTER's constructions need **no change**. The item
      as filed, and the seven shapes it laid out, are kept whole below.
+
+     > **ON 2026-09-13 THE OWNER RULED THIS ITEM'S OWN SHAPE (c) / SHAPE D, AS LEDGER ITEM 152 — AND
+     > THIS ITEM'S RULING SURVIVES IT, FOR THE REASON SHAPE D ITSELF GAVE.** Shape (c) is *"key
+     > `ct_head` under the record's own class key"*, filed below as *"item **152**'s repair"*, and
+     > below that as shape **D**, with the note that it *"**dissolves this item**: one ladder per
+     > class, `i = stream_index` holds everywhere"*. **That is what was ruled**, which reverses the
+     > 2026-09-07 M1-6 ruling shape D calls *"what the owner ruled against for `PERMANENT`, `DURABLE`
+     > and `MEDIA`"*.
+     >
+     > **What it dissolves: the ORDINARY-RECORD instance.** A sender's `DURABLE` and `PERMANENT`
+     > records at one `stream_index` no longer share a head ladder, so *"both take head position 5 of
+     > the **one** durable ladder"* — the collision paragraph below — names a pair that cannot
+     > collide any more.
+     >
+     > **What it does NOT dissolve, which is why A1 stands: the DEVICE-WRAP instance.** Shape D's own
+     > line says it in terms — *"Closes 143's wrap instance: **no** — the wrap root has no class key
+     > in it at all."* A device wrap's ladder is rooted at `env_key[k]`, which carries no retention
+     > class, and ruling 3 of 2026-09-13 puts a `PERMANENT` and an `EPH(5)` record of one leaf on it.
+     > **A1's class-blind counter is the only thing separating those two**, so `i = stream_index` over
+     > one counter per `(group_id, sender_handle)` is still the rule, `StreamKey` still has no
+     > `RetentionWire`, and nothing implemented for A1 is withdrawn.
+     >
+     > **Recorded here rather than only in 152, because a reader who meets this item's shape list and
+     > knows shape D was ruled would reasonably conclude A1 was undone.** It was not. Items **143**
+     > (d), **168**, **170**, **172** and **173** are all unaffected.
 
      **THE OWNER'S REASON, AND IT IS THE PART TO PRESERVE BECAUSE IT IS CHECKABLE.** A1 is the counter
      the rest of the system **already declares**, and the client was the only half that disagreed.
@@ -6175,7 +6332,51 @@ fourteen are dispositioned below.
      what set 3 asked for and what the other two sets' recommendations assume is unnecessary. Found
      2026-09-09.
 
-181. **FILED, NOT RULED — Spec B declares `ct_head bytea NOT NULL` and then requires the sweep to set
+181. **RE-EXAMINED 2026-09-13 UNDER THE 152 RULING AND THE ANSWER IS: IT STILL MATTERS, AND IT DOES
+     NOT DROP TO HYGIENE. It is STILL FILED, STILL NOT RULED, and its two candidate repairs are
+     unchanged. Answered rather than noted, because the question was put.**
+
+     **What the 152 ruling actually removes from this item.** The ruling keys `ct_head` under the
+     record's own class key, so an `EPH(1..5)` header dies with `K_eph[n][b][t]`. The
+     disappearing-message **guarantee** therefore no longer *depends* on §7.2's `ct_head = NULL`
+     sweep — it is cryptographic now, not behavioural. So the worst reading of this item, *"a sweep
+     that never runs leaves EPH headers readable"*, is gone.
+
+     **Why that is not what this item was, so it is not what it loses.** This item is not a
+     confidentiality finding and never claimed to be. It is that **§7.2 requires an `UPDATE` §3.2
+     forbids**, so *"the first ephemeral record to expire is what discovers it"* — as a failed batch,
+     on a live server. That is a **correctness** defect in this server, and every word of it is as
+     true today as it was on 2026-09-11. A `NOT NULL` column does not become nullable because the
+     ciphertext behind it became worthless.
+
+     **AND THE RULING MAKES IT WORSE IN ONE SPECIFIC WAY, WHICH IS THE PART WORTH WRITING DOWN.**
+     Before today a permanently failing `EPH` sweep had a **symptom with a security alarm attached**:
+     header ciphertext that was still openable by every key holder, which is the thing 152 existed to
+     find. From today that same failing sweep produces **no user-visible and no security-visible
+     symptom at all** — the head is cryptographically dead whether the column is cleared or not. What
+     is left is a batch that errors, rows whose `prune_after` never clears (§7.2 sets it NULL only
+     *"after acting"*), and §3.3's `message_record_prune` partial index — which that section says
+     *"holds exactly the outstanding work"* — growing without bound for the life of the server. **The
+     ruling removed the alarm and left the fault.** A defect that used to announce itself now does
+     not, which is a reason to rule this sooner rather than later.
+
+     **One other thing changes, and it is a claim inside this item that only became true today.** This
+     item closes with *"Neither repair changes which class an `EPH` head is keyed under, and both
+     leave the head unreadable after the timer for the same reason: the key is gone, not the column."*
+     **That sentence was FALSE when it was written**, on 2026-09-11, and false for exactly the reason
+     item 152 was open: under the then-standing 2026-09-07 rule an `EPH` head was keyed under
+     `K_durable[n]`, which is destroyed nowhere and rides every recovery wrap, so the key was **not**
+     gone. The 2026-09-13 ruling makes this item's own stated reason true. It is recorded here rather
+     than corrected in the sentence, because the sentence is dated and is now right.
+
+     **What is untouched:** both candidate repairs, their costs, and the fact that repair **(b)** is
+     **wire-visible** — what a `Fetch` returns for a pruned ephemeral record is a client-visible
+     contract, so it is A6-relevant and it is the owner's. *Blocks:* the sweep, which is `s3`'s and is
+     unwritten. Nothing about that moved either.
+
+     *The item as filed, unchanged:*
+
+     **FILED, NOT RULED — Spec B declares `ct_head bytea NOT NULL` and then requires the sweep to set
      `ct_head = NULL`. The `UPDATE` §7.2 specifies is one §3.2 forbids, and the first ephemeral record
      to expire is what discovers it.** §3.2's `message_record` DDL (Spec B **§3.2:805**) is
      `ct_head bytea NOT NULL`. §7.2's class table (Spec B **§7.2:2629**) is, for `EPH(1..5)`,
@@ -6214,6 +6415,172 @@ fourteen are dispositioned below.
      between two statements and not a restatement of one. *Blocks:* nothing today; it blocks the sweep,
      which is `s3`'s and is unwritten. **Wire-visible in shape (b)** — what a pruned ephemeral record
      looks like on a `Fetch` is a client-visible contract — so it is A6-relevant and is the owner's.
+
+182. **THE 2026-09-13 RULING REOPENED A FROZEN WIRE SECTION, AND THIS IS WHAT THAT OBLIGES. FILED,
+     NOT RULED — one clause of it is the owner's and the rest is a dispatch list.** MASTER §14's
+     slice-2 row is *"Freezes the wire format — §8, §8.3 and §9.2 must be final before this slice
+     starts"*; slice 2 is `connect/message` and it has shipped. Adding `eph_window` breaks that row.
+     The break is taken knowingly and is recorded in MASTER §0's ninth amendment, Spec A **A-25** and
+     Spec B **20**, rather than absorbed — and this item exists so it is not rediscovered as a
+     divergence between the documents and the tree.
+
+     **What is already decided and is a dispatch, not a question.** `record_bytes` carries
+     `u8 format_version` as its first octet (`connect/message/codec.go`); it becomes **`0x02`**, and a
+     decoder meeting `0x01` refuses with a typed error rather than mis-parsing — the field is
+     fixed-width and sits between two others, so every offset after `retention_class` moves. Nothing
+     already encoded is migrated because **nothing already encoded is retained**: no client ships
+     messaging code, no server holds production records, and every m1 wave-1 path stops at a
+     `*message.Record` in memory. The cost is a recompile, a re-derivation of every record AEAD and
+     `write_auth` vector, and `api/testdata/secondimplementation/control.go` — the deliberate second
+     implementation the §12.1 gate is written against — brought along with it.
+
+     **What is NOT decided and is the owner's.** Whether `0x01` is refused outright or **tolerated on
+     the read path for one release**. Refusal is the safe answer and is what MASTER §0 assumes;
+     toleration would be the answer if any record anywhere has been encoded and kept, and **this pass
+     did not check every developer's scratch store and cannot.** Stated as a question rather than
+     answered, because an implementer who guesses wrong writes a parser that silently accepts a record
+     with a different field at every offset past `retention_class`.
+
+     *Blocks:* nothing today; it blocks the `connect/message` codec change, which is a later dispatch.
+     Found 2026-09-13 by the pass that wrote the ruling, as the cost the ruling incurs.
+
+183. **RULED 2026-09-13 — m1 open item `M1-27`, BOTH HALVES, in one sitting with item 152 as that item
+     required. The window `t` is a NEW PLAINTEXT FIELD ON THE WIRE, and `EphBucketSeconds` must stop
+     answering one value for two questions.**
+
+     **Ruling 2a — `eph_window u64` in `record_bytes`.**
+
+     - **Unit, origin and clock, all three.** `eph_window = floor(sent_at_ms / (eph_bucket_seconds[b]
+       × 1000))` for `b` in 1..5, computed **by the SENDER** from the same wall-clock reading it puts
+       in `sent_at`. Origin is the **Unix epoch**, 1970-01-01T00:00:00Z. The unit is a count of whole
+       buckets since that origin. **The opener uses the wire value directly and never recomputes it.**
+     - **Why `sent_at` cannot carry it, re-verified rather than inherited.** MASTER §8's record listing
+       puts `sent_at` **inside `ct_head`**, and `ct_head`'s key is the whole subject — you would need
+       `t` to derive the key that decrypts the field you need in order to compute `t`. **Circular.**
+       Measured: `grep -c "sent_at" docs/specs/2026-08-12-urmessage-protocol-design.md` returns **1**,
+       and the one line is the `ct_head` line. **Why `expire_at` cannot either:** MASTER declares it
+       *"advisory upper bound only — it may SHORTEN retention, never extend it"*, and making an
+       explicitly advisory, optional field load-bearing for key derivation is the defect class this
+       project keeps finding. **Why not an epoch- or `stream_index`-derived window**, which would need
+       no clock and leak nothing: *"after the timer"* would stop being a wall-clock guarantee, which
+       contradicts §12.4's required UI string.
+     - **What an opener does when the wire value disagrees with its own reading, and the answer is
+       ASYMMETRIC.** *Behind* its own window, by any amount: **not a refusal**. It derives
+       `K_eph[n][b][t]` for the wire `t` and either still holds that key or destroyed it on schedule;
+       a destroyed one renders as a `gap` with `GapReason == "expired"` (Spec A §7.4's closed set).
+       *Ahead* of its own window by more than one: **a typed refusal**, separable by `errors.Is` from
+       every AEAD failure, rendered as a `gap` with reason `"malformed"`. **The asymmetry is the whole
+       client-side defence**: an opener can derive *any* window's key — HKDF-Expand takes whatever `t`
+       it is handed — so a client that honoured a far-future window would keep the record openable
+       long past its timer, and §12.4's required string would be false with nothing reporting it.
+     - **Presence — always, zero off `EPH(1..5)`, and the `blob_id` precedent is followed in substance
+       and rejected on its surface.** The surface reading is *"present iff `size_bucket == 5`, absent
+       otherwise"*. What `blob_id` actually does in the **preimage** is what matters here, and MASTER
+       §8 says it in terms: *"`LP(blob_id)` is a zero-length prefix on every record whose `size_bucket`
+       is not 5, so the preimage is defined for ordinary records without a special case."* The
+       fixed-width analogue of a zero-length term is a **zero-valued** one. Taking the surface reading
+       instead would put a conditional into the one preimage builder this design has kept free of
+       them, and would break `connect/message/codec.go`'s own stated generating rule — *"a field whose
+       width is fixed by its go type encodes raw at that width."* It leaks nothing either way, because
+       `retention_class` is already plaintext.
+     - **AAD and `write_auth` — both, and they do DIFFERENT work.** `u64(eph_window)` sits
+       **immediately after `u8(retention_class)`** in `AAD_head`, in `AAD_body` and in the `write_auth`
+       preimage: after the field it qualifies, and in that position because the codec's field order is
+       MASTER §8's listing. **The key derivation is what actually stops a downgrade** —
+       `K_eph[n][b][t]` takes both `b` and `t`, so an altered window yields a key nobody holds and the
+       record does not open; the AAD is not what does that work and this item will not claim it is.
+       **The `write_auth` term is the load-bearing one**: it is what makes the server check below a
+       check on a value the MAC covers rather than on a field anyone in the path may rewrite. **The
+       AAD terms cost zero wire octets**, are defence in depth of the kind §8.2's `AAD_snap` paragraph
+       already argues for, and bind the **zero** on a non-`EPH` record so a header cannot be spliced
+       across classes.
+     - **The server's duty — YES, it validates, and it is Spec A conformance row `S19` plus Spec B
+       §5.1 check 3 and §7.1.** Refuse an `EPH(1..5)` record whose `eph_window` differs by more than
+       **one** from `floor(create_time_ms / (eph_bucket_seconds[b] × 1000))`, either direction,
+       `REASON_REJECTED`. It costs the server nothing it does not hold: `retention_class` is plaintext
+       so `b` is free, and `create_time` is the stamp §7.1's class deadline already uses — **which is
+       also the verification of the leak claim**: the server could already compute the bucket and the
+       window to within one window before this field existed, so putting it on the wire tells it
+       nothing new. **±1 and not tighter** because the sender computes from `sent_at` and the server
+       sees arrival, which is the skew §7.1's one-hour `grace` already absorbs, and the shortest bucket
+       is one hour — so ±1 window *is* `grace` in this field's unit. **±1 and not looser** because two
+       windows doubles the shortest bucket's guarantee. **A future window is the case that matters**:
+       it extends the record's own **key**, so no later sweep corrects it.
+     - **And the check is satisfiable only with one new client rule, so the rule is made.** MASTER
+       §9.2's outbox rule now requires a queued `EPH(1..5)` record whose window has closed to be
+       **discarded and re-sealed** at the current window, consuming a fresh `stream_index` — the same
+       shape as its existing `REASON_EPOCH_STALE` rule. **A client that only re-MACs is the falsifying
+       implementation**, and without this rule the server's refusal would be unsatisfiable by a correct
+       client that had been offline across a boundary.
+     - **`EPH(0)` carries the field and carries ZERO, and it is not computed.** MASTER §0 says in terms
+       that `EPH(0)` *"is never persisted"*, and Spec B §7.6 that there is no `INSERT`. It still needs
+       a key — it is sealed and fanned out through Redis — so `K_eph[n][0][0]` is it: **one window for
+       the life of `eph_root[n]`, `t = 0` by definition, no division**. That is what makes the
+       definition total rather than leaving `floor(x / 0)` reachable. The server never sees the field
+       on an `EPH(0)` row, because there is no row.
+
+     **Ruling 2b — the bucket-0 sentinel, which is M1-27's distinct second half and must not be lost in
+     the first.** `message.EphBucketSeconds` answers `-1` for bucket **0** and the same `-1` for **6, 7
+     and 8**. Bucket 0 means *"the transient rung, never persisted"*; 6 and up mean *"not a bucket"*.
+     **Two meanings, one sentinel**, so a caller cannot tell them apart from the answer. **The answer
+     must be: `0` for bucket 0, and a negative for 6..255.** `0` is not a made-up value — it is the
+     true retention window of a rung that is never stored. The package comment's objection, *"a zero
+     second window is something a caller could mistake for real"*, does not bind here: the two misuse
+     sites it names are `SizeBucketBytes`'s (`make([]byte, n)`) and a deadline (`now + n`), and a
+     bucket-0 deadline of `now` is **already expired**, which is correct for a record that is never
+     stored and errs in the only safe direction. Spec B §7.1 also routes `EPH(0)` to §7.6 **before** the
+     class deadline is computed, so the value is not load-bearing there. The negative stays for 6..255,
+     where it is a **programmer-error sentinel rather than a value**: `RetentionClassOf` refuses every
+     wire byte outside `0x10..0x15`, so no parsed record can reach it. **The code change is `connect`'s
+     and is a LATER DISPATCH — specified here, not made.**
+
+     **MEASURED, BY RUNNING IT, NOT BY READING THE TABLE.** At `connect` `beta/message` `71d2482`,
+     through a scratch module with a `replace` onto that tree:
+     `0 → -1, 1 → 3600, 2 → 28800, 3 → 86400, 4 → 604800, 5 → 2419200, 6 → -1, 7 → -1, 8 → -1`
+     (`connect/message/record.go:131`, `:143`, `:168-173`). Item 152's 2026-09-11 note measured the same
+     function at `72ffdbd` and got the same answers for 0..7; this pass extended it to 8 and changed
+     nothing.
+
+     *What this item does NOT supply:* test code. The properties are stated above and each names the
+     refusal it owes. **What to mutation-test is the four places the window can be dropped without a
+     round trip noticing** — the sender's `floor`, the `write_auth` term and the two AAD terms —
+     because a round trip against itself stays green with the field removed from all four at once, and
+     that is the shape of mutation the `connect` dispatch must kill.
+
+184. **THE CORPUS SAYS m1 TASK 14 IS BLOCKED BY LEDGER 152 "AND BY NOTHING ELSE", IN FOUR PLACES, AND
+     THAT IS STALE. FILED 2026-09-13 by the pass that ruled 152, which was told 152 was the only
+     remaining blocker and checked.** Ruling 152 does remove 152 from Task 14's blocker list. It does
+     **not** unblock Task 14.
+
+     **The blocker that remains, in the m1 plan's own words.** `M1-52` — *"the signature preimage is
+     1,320 or 1,356 octets and no document says which, so nothing in Task 14 can sign"* —
+     `docs/plans/2026-09-04-slice1-m1-message-crypto.md`. Its own *Blocks* line: ***"signing, and
+     therefore all of Task 14 step 3 — a publisher and a verifier that choose differently produce a
+     wrap nobody can verify, with no error anywhere."*** It is marked **filed, not ruled**, it owes
+     *"one sentence in MASTER §7 saying whether `payload` means the secret alone or
+     `secret ‖ LP(identity_pub)`"*, and **no ruling of 2026-09-13 touches it**. `M1-53` sits beside it
+     and blocks Task 14 Property 11's third refusal, recorded there as *"owed rather than writable"*.
+
+     **Why the corpus says otherwise.** All four *"152 only"* statements predate the 2026-09-12 red
+     team that filed M1-51 through M1-55, and none was revisited when it landed. The four are this
+     file's §1 implementation-plan row (*"stopped in front of wave 2 by ledger 152 — and by nothing
+     else, since 2026-09-09"*), the m1 plan's **Task 14 heading**, its **wave table** row 2, and its
+     **schedule diagram** (*"[14: ledger 152 ONLY …]"*). All four are corrected in place by the same
+     commit that files this item, with the old wording kept beside the new.
+
+     **The class this belongs to, because it is the second instance of it in this file.** M1-51 through
+     M1-55 were themselves *"lifted out"* of `M1-1` for the stated reason that *"an item filed inside a
+     closed item is an item nobody meets."* This is the same failure one level up: **a blocker list
+     that was true when written and that nothing re-derives when a new blocker is filed.** The lesson
+     is not "check harder" — it is that a *"blocked by X and nothing else"* claim is a measurement with
+     a date, and it needs the date beside it or a re-derivation at the moment anything is added to the
+     list it names.
+
+     *Blocks:* Task 14 step 3, through M1-52, which is the owner's to rule. **Task 14 step 1 IS
+     genuinely unblocked** by the 152 ruling, and Tasks 13, 15 and 16 are unaffected by this item.
+     Found 2026-09-13 by reading the m1 plan's open-item list against its own wave table, and **by
+     reading only** — `grep -n "Task 14"` over that plan returns both the stale claims and the item
+     that falsifies them and cannot tell them apart.
 
 
 ## 6. Change process
@@ -13047,3 +13414,141 @@ findings and all five are applied**, and three of them are the same defect this 
 
 Findings 1, 2 and 4 were each re-measured by the author before being applied, and finding 3's entry
 boundaries were re-derived from `grep -n '^### '` rather than taken from the review.
+
+
+---
+
+### 2026-09-13 — the owner's two rulings, in one sitting: `ct_head` takes the record's own class key, and the eph window goes on the wire
+
+**Change:** MASTER gains its **ninth** amendment (§0, §8, §8.1, §9.2, §14); Spec A goes to **A-25**
+(§5.1, §5.3, §5.6, §5.7, §5.11 (3), new requirement **S19**); Spec B goes to **20** and takes its
+**first schema change in nine revisions** (§3.1, §3.2, §4.3.3, §5.1, §7.1); the `m1` plan is brought
+to both rulings at nine sites; ledger items **128**, **152** and **181** are closed, answered or
+re-examined and items **182**, **183** and **184** are new. **Documents only. No Go file in this
+repository changed, and `connect` and `sdk` were read and never written.**
+
+**Why:** ledger item **152** required that it and m1 open item **M1-27** be ruled *"in one sitting"*,
+because `K_eph[n][b][t]` had no computable `t` and a ruling on the class of a key nobody can derive is
+not a ruling. Both were put to the owner together and both were ruled.
+
+**RULING 1 — AND IT IS A REVERSAL OF A STANDING RULING IN AN APPEND-ONLY LEDGER.** `ct_head` is keyed
+under the **record's own class key**. Head and body take **one** ladder at **one** position, separated
+by their HKDF labels, which is what **I7**'s *"distinct keys and distinct AADs"* has always meant.
+`PERMANENT`, `DURABLE` and `MEDIA` are unchanged in effect; an `EPH(1..5)` record's metadata now dies
+with `K_eph` rather than under a key every seedphrase holder holds forever.
+
+**What was reversed, why it was wrong, and what replaces it — the three things a reversal owes.**
+*Reversed:* ledger item **128**, 2026-09-07, *"`ct_head` is always sealed under the DURABLE class
+ratchet, whatever the record's own retention class"*, on the reason *"the head is always retained."*
+*Wrong because:* **(1)** the premise is false for exactly one class and it is the class the question
+was about — Spec B §7.2 sets `ct_head = NULL` for `EPH(1..5)` at `prune_after`; **(2)** it was ruled on
+128's own narrower bookkeeping terms **without item 152 beside it although 152 had asked in those very
+terms that it be**. *Replaced by:* the rule above. **How it is carried:** item **128's text is kept
+whole** — the ruling, its reason, its accepted cost and its as-filed text — with the reversal as an
+**annotation at the ruling sentence**, deliberately placed *above* the 2026-09-11 allocation note so a
+reader who meets only that one does not take the rule as standing. The same three-part annotation is at
+the m1 plan's **M1-6** and at its **Task 11 decision (a)**, at the same sentences, for the same reason.
+**A reader who finds 128 first is carried to the reversal; a reader who finds the reversal first can
+reconstruct what it overturned.**
+
+**THE CONSEQUENCE, WHICH IS THE PRIZE.** Before today the only thing stopping an `EPH` head outliving
+its timer was **a cooperating server**: Spec B §7.2's `ct_head = NULL` sweep. That is an
+**operational** erasure and MASTER §8.1 claims the guarantee against *"retained server ciphertext"* —
+a backup, a replica that missed the sweep, a legal hold, a seized snapshot — which is precisely the
+case erasure does not cover. **The ruling converts that guarantee from behavioural to cryptographic**,
+the same conversion ruling 3 of 2026-09-13 made for `eph_root[n]` and left the head out of. **Three
+published sentences that were false under the replaced rule are true as written and were NOT edited**:
+MASTER §8.1's *"After the timer, retained server ciphertext, a seized device, a newly provisioned
+device, and a seedphrase holder all fail to decrypt"*, §12.4's required UI string, and §13's
+*"including against a device set up tomorrow and against a seedphrase holder."*
+
+**RULING 2 — `M1-27`, both halves; ledger item 183 is the normative record.** `eph_window u64` in
+`record_bytes`: `floor(sent_at_ms / (eph_bucket_seconds[b] × 1000))`, **Unix epoch** origin, unit a
+count of whole buckets, **sender's** clock — the same reading it puts in `sent_at`. **Always present**,
+zero off `EPH(1..5)`, following the `blob_id` precedent **in substance and rejecting it on its
+surface**: what `blob_id` does in the preimage is be a *zero-length* term so *"the preimage is defined
+for ordinary records without a special case"*, and the fixed-width analogue of that is a *zero-valued*
+term. In `AAD_head`, `AAD_body` **and** the `write_auth` preimage, immediately after
+`u8(retention_class)`. **The three placements do different work and the item says so rather than
+over-claiming:** the **key derivation** is what stops a downgrade, the **`write_auth`** term is what
+makes the server's check a check on a value the MAC covers, and the **AAD** terms cost zero octets and
+bind the zero on a non-`EPH` record. **Opener:** takes the wire value, never recomputes it; refuses a
+window more than one **ahead** of its own clock, **never** one behind — the asymmetry is the whole
+client-side defence, because an opener can derive *any* window's key. **Server:** refuses **±1**
+against arrival (Spec A **S19**, Spec B §5.1 check 3 and §7.1), ±1 because that is §7.1's one-hour
+`grace` expressed in this field's unit and the shortest bucket is one hour. **Client rule that makes
+that satisfiable:** MASTER §9.2's outbox now requires a stale-window `EPH` record to be **re-sealed**,
+not re-MAC'd. **`EPH(0)`:** `t = 0` by definition, never computed, so `floor(x / 0)` is unreachable.
+**Second half:** `EphBucketSeconds` must answer **`0`** for bucket 0 and a **negative** for 6..255 —
+two meanings must not share one sentinel. **The code change is `connect`'s and is a later dispatch.**
+
+**THE COST, WRITTEN DOWN RATHER THAN ABSORBED.** `record_bytes` is a **frozen** wire format: MASTER
+§14 requires §8, §8.3 and §9.2 to be final before slice 2, and slice 2 is `connect/message`, which has
+shipped. **This ruling reopens a frozen section.** It is recorded as an explicit revision saying so in
+all three documents — MASTER §0's ninth amendment, Spec A **A-25**, Spec B **20** — and §14's own row
+now carries the break at the sentence that states the rule. `format_version` → `0x02`; **nothing
+already encoded is migrated because nothing already encoded is retained** (no client ships messaging
+code, no server holds production records, every m1 wave-1 path stops at a `*message.Record` in memory).
+Ledger item **182** carries the one clause still open: whether `0x01` is refused outright or tolerated
+for one release. **The field was not always there and this pass does not pretend it was.**
+
+**Ledger item 181 was RE-EXAMINED AND ANSWERED, not merely noted.** The answer is **it still matters
+and it does not drop to hygiene.** What the ruling removes is the worst reading — *"a sweep that never
+runs leaves EPH headers readable"* — which is gone, because the guarantee is cryptographic now. What
+181 actually is remains untouched: **§7.2 requires an `UPDATE` §3.2 forbids**, so the first ephemeral
+record to expire fails its sweep batch on a live server. That is a correctness defect and a `NOT NULL`
+column does not become nullable because the ciphertext behind it became worthless. **And the ruling
+makes it worse in one specific way:** the failing sweep used to have a symptom with a security alarm
+attached; from today it has **none** — an erroring batch, `prune_after` that never clears, and §3.3's
+*"holds exactly the outstanding work"* partial index growing without bound. The ruling removed the
+alarm and left the fault. **One claim inside 181 only became true today:** its own closing sentence,
+*"both leave the head unreadable after the timer for the same reason: the key is gone, not the
+column"*, was **false when written on 2026-09-11**, because under the then-standing rule the key was
+`K_durable[n]` and was not gone.
+
+**THE SWEEP, AND THE COMPLEMENT IS PUBLISHED BESIDE IT.** The starting query
+`grep -rniE 'ct_head.*durable|head.*durable class|durable.*ct_head' docs/specs/*.md docs/plans/*.md
+SPEC-LEDGER.md` reproduces the brief's number exactly: **29 hits in 5 files** (Spec A 6, Spec B 1,
+MASTER 3, `m1` 6, ledger 13). **It is a starting point and not the class, and four of the sites this
+pass changed were reached only by READING**: Spec A §5.3's **Go block comment** (*"ladder rooted at
+ClassKeys.Durable -- ALWAYS"*, no `ct_head` token on the line), Spec A **§5.11 (3)**'s snapshot
+parenthesis (*"its `ct_head` is sealed under the **DURABLE** class ratchet"* — reached by the query,
+but its **falseness** was not, because it reads as a citation rather than a rule), and **two copies of
+the same paraphrase in the m1 plan** — *"the day ledger 152 rules the `EPH` classes onto the durable
+root"*, at Task 6 and in the `M1-5`/`M1-25` open-item block, which name neither `ct_head` nor a class
+ratchet and which the ruling makes **void** rather than merely stale. **What the query cannot find is
+stated plainly:** prose paraphrase, which is where the 2026-09-11 amendment of this same rule had five
+of its eight sites; a claim expressed as a consequence rather than as the rule (the two m1 copies);
+and anything in `connect` or `sdk`, which this pass may not change and which is named as a dispatch
+instead. **Every site changed and every site considered and left is enumerated in the pass's own
+return, with a reason for each leave — an empty complement would have been the tell.**
+
+**AND THE BRIEF FOR THIS PASS CARRIED ONE CLAIM THAT DID NOT REPRODUCE, which is item 184.** It stated
+that item 152 was m1 wave 2's and Task 14's **only** remaining blocker. **`M1-52` is filed, not ruled,
+and its own *Blocks* line is *"signing, and therefore all of Task 14 step 3."*** Task 14 **step 1** is
+unblocked by this ruling; **step 3 is not**. Five sites carried the *"152 and nothing else"* claim and
+all five are corrected in place with their old wording kept beside them. Every other number in the
+brief reproduced, including `EphBucketSeconds`'s table, which was re-measured **by running it** against
+`71d2482` rather than by reading the table.
+
+**Anchors.** Every line number quoted by item 152 was verified against `0590aa3` before this pass
+edited anything — MASTER `§8:996-1002`, `§8:1008-1013`, `§8:1066`, `§8.1:1144`, `§8.1:1153-1155`,
+`§8.1:1157-1172`, `§8.1:1175-1177`, `§8.2:1206`, `§12.4:2158-2159`, `§13:2173`; Spec A `§5.3:1222`,
+`:1225-1231`, `:1248-1257`, `:1290-1299`; Spec B `§3.2:805`, `§7.2:2626-2627`, `§7.2:2629` — **all
+seventeen land**, and item 152's own warning is why they were checked rather than trusted. This pass
+moves most of them and **does not re-anchor item 152's dated block**, which stands as written; new
+citations in this entry and in items 182–184 are by **section** rather than by line, so the next
+edit cannot stale them.
+
+**Reviewed by:** self, against the properties rather than the diff. Every property stated in items
+**183** and in Spec A §5.3 is satisfiable by a correct implementation and falsifiable by an incorrect
+one, and **none presupposes an unruled sentence**: the opener's ahead-refusal, the server's ±1, the
+outbox re-seal and the bucket-0 answer each rest only on rules this sitting ruled or on rules already
+standing. **No test code is supplied** — the refusals are named and the mutation targets are stated
+(the four places `eph_window` can be dropped without a round trip noticing), and the implementer
+derives the test.
+
+**Verification:** `go build ./...` clean, `go test ./... -timeout 600s` green and
+`go test ./ -run TestThePlanLinter -timeout 300s` ok, **before and after**. `connect` (`beta/message`,
+`71d2482`) and `sdk` (`beta/message`, `54785de`) clean and unmodified after. `git ls-files` equals
+`git ls-tree -r HEAD` at **105**.

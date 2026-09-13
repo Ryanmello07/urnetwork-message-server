@@ -550,6 +550,40 @@ and the audit table records a migration by its position and name; the correction
 migration next touches that table. Recorded in `SPEC-LEDGER.md` so it is not rediscovered as a
 divergence.
 
+**Revision 20 — 2026-09-13 — the FIRST SCHEMA CHANGE this document has taken in nine revisions, and
+it is a column, a CHECK pair, a protobuf field, a §5.1 check clause and a §7.1 refusal, all of them
+one field: `eph_window`.** Ledger item **152** and m1 open item **M1-27** were ruled together by the
+owner. `ct_head` is keyed under the record's **own** class key, reversing 2026-09-07; an `EPH` head's
+key is therefore `K_eph[n][b][t]`, and `t` — which no document defined — is now a plaintext `u64`
+field of `record_bytes`, authenticated by `write_auth` and carried in both AADs.
+
+**What changes here.** §3.1 restates MASTER's bucket-0 sentinel rule. §3.2's `message_record` gains
+`eph_window bigint NOT NULL DEFAULT 0` and two `CHECK`s — non-negative, and zero unless the
+retention-class wire byte is 17..21, so a nonzero window cannot sit on a `DURABLE` row for §7.1 to
+read. §4.3.3 gains projection field **14**, a new number and not a renumber, because 7..13 are on the
+wire. §5.1 check 3 gains the window clause. §7.1 gains the **±1-window refusal**, which is Spec A's
+new conformance row **S19**: `arrival_window = floor(create_time_ms / (eph_bucket_seconds[b] × 1000))`,
+refuse unless the submitted window is within one of it, `REASON_REJECTED`.
+
+**Why this server checks it at all, since it reads nothing.** A window far in the future extends the
+record's own **key** past its timer, and under the ruling above there is no later sweep of ours that
+corrects that. ±1 is `grace` in this field's unit — the sender computes from `sent_at`, we see
+arrival, and the shortest bucket is one hour, which is `grace`.
+
+**What it does NOT change, stated because a schema change invites the assumption.** No reason code is
+added; no index changes; §7.2's table is **unedited**; and the `EPH(1..5)` sweep action is unchanged
+in every respect. What §7.1 now records beside it is that the sweep is no longer what the
+disappearing-message **guarantee** rests on — the key is, cryptographically — which is why ledger item
+**181** is re-examined and answered rather than downgraded.
+
+**`store/migrations.go` in the message-server repository is NOT edited for this.** §10.3 is *"a landed
+migration is never edited, only superseded"*; `eph_window` is a new migration in that ordered slice,
+and it is a **later dispatch** along with `connect/message`'s codec change, its `format_version` bump
+to `0x02` and `EphBucketSeconds`'s bucket-0 answer. None of that is made by the pass that writes this
+revision, and saying so here is what stops it being rediscovered as a divergence.
+
+---
+
 **One contradiction found while reading §3.2 against §7.2 is FILED AND NOT RULED — ledger item
 181.** §3.2 declares `ct_head bytea NOT NULL`. §7.2 requires the sweep to set `ct_head = NULL` for
 `EPH(1..5)`. **Those cannot both hold**: the `UPDATE` §7.2 specifies is rejected by the constraint
@@ -686,6 +720,12 @@ places the class and the bucket are joined or split.
 eph bucket → seconds:  [0] transient (never persisted), [1] 3600, [2] 28800,
                        [3] 86400, [4] 604800, [5] 2419200
 
+  The bucket-0 answer and the off-ladder answer MUST DIFFER (MASTER §8, ruled 2026-09-13):
+  connect/message.EphBucketSeconds returns 0 for bucket 0 and a negative for 6..255. This
+  server reaches the table only through §7.1's class deadline, and §7.1 routes EPH(0) to
+  §7.6 before it gets there, so the value is not load-bearing here — it is restated because
+  this block is restated character-for-character and a divergence is what it exists to stop.
+
 size_bucket:  0 = 256 B, 1 = 1024 B, 2 = 4096 B, 3 = 16384 B, 4 = 65536 B, 5 = blob-ref
               octet_length(ct_body) MUST equal size_bucket_bytes[b] + 16 exactly (the AEAD tag),
               for b in 0..4. For b = 5, ct_body is absent and blob_id is present.
@@ -787,6 +827,14 @@ CREATE TABLE message_record (
     stream_index    bigint    NOT NULL,
     is_commit       boolean   NOT NULL,
     retention_class smallint  NOT NULL,
+    eph_window      bigint    NOT NULL DEFAULT 0,   -- t, the eph ladder's time-slice, from the
+                                                    -- record's plaintext eph_window field (MASTER
+                                                    -- §8). A projection like every other column
+                                                    -- here: authoritative value is inside
+                                                    -- record_bytes and the preimage. 0 on every
+                                                    -- class but EPH(1..5). Stored because §7.1
+                                                    -- checks it and §4.3.4 re-encodes it.
+                                                    -- Added revision 20 (2026-09-13).
     size_bucket     smallint  NOT NULL,
 
     expire_at       timestamp NULL,       -- lossy projection of the wire u64 milliseconds;
@@ -826,7 +874,13 @@ CREATE TABLE message_record (
     CHECK (0 <= stream_index),
     -- the retention-class wire byte of §3.1: 0, 1, 2, or 16..21. No other value is legal.
     CHECK (retention_class IN (0,1,2) OR (16 <= retention_class AND retention_class <= 21)),
-    CHECK (0 <= size_bucket AND size_bucket <= 5)
+    CHECK (0 <= size_bucket AND size_bucket <= 5),
+    -- eph_window is meaningful only on EPH(1..5) — wire bytes 17..21 — and is zero everywhere
+    -- else, including EPH(0) at 16, which is never inserted at all (§7.6). The constraint is
+    -- here rather than only in §5.1 so a second writer cannot put a nonzero window on a DURABLE
+    -- row and have §7.1 read it. Added revision 20 (2026-09-13).
+    CHECK (0 <= eph_window),
+    CHECK (eph_window = 0 OR (17 <= retention_class AND retention_class <= 21))
 ) PARTITION BY HASH (group_id);
 
 -- All 64 partitions are created HERE, unconditionally, in this migration. A partitioned
@@ -1433,6 +1487,11 @@ message Record {
     bool   is_commit          = 5;
     uint32 retention_class    = 6;   // the retention-class wire byte of §3.1: 0, 1, 2, or 16..21
     uint32 size_bucket        = 7;   // 0..5
+    uint64 eph_window         = 14;  // t, the eph ladder's time-slice (MASTER §8). Always
+                                     // populated; 0 on every class but EPH(1..5). Field 14 and
+                                     // NOT a renumber of 7..13: those are on the wire and a
+                                     // reused or shifted number is a silent mis-parse against
+                                     // any peer that has not rebuilt. Added revision 20.
     uint64 expire_at_ms       = 8;   // unix MILLISECONDS, 0 = unset
     bytes  body_hash          = 9;   // 32 B
     bytes  blob_id            = 10;  // 32 B, present iff size_bucket == 5
@@ -1992,7 +2051,7 @@ Order matters for denial of service, not just correctness. Nothing that costs a 
 |---|---|---|---|
 | 1 | Frame decodes; fragment reassembly within `max_request_bytes` | CPU, bounded | `REASON_OVERSIZE`, free buffer |
 | 2 | Connection is authenticated at the connect layer (`ByJwt` validated by the platform; §4.3 master). The `server_nonce` is **not** carried in the request — the server knows its own connection's nonce and looks it up from the connection, never from the request | memory | `REASON_REJECTED` |
-| 3 | **Static shape.** `octet_length(sender_handle)==16`, `body_hash`==32, `retention_class` and `size_bucket` in range, `expire_at` parses, `ct_head` ≤ head cap, and **`octet_length(ct_body)` is exactly `size_bucket_bytes[b] + 16`** (the AEAD tag) — equality, not a range, because §9.5 pads into buckets. `size_bucket == 5` requires `ct_body` absent and a 32-byte `blob_id` present in the parsed header; any other `size_bucket` requires `blob_id` absent. Both are read from `message.ParseRecord`, never from the request's projection alone. And `server_attachment` parses via `message.ParseServerAttachment` and is well-formed for its record kind: `EpochAttachment` iff `is_commit`, with `epoch == current_epoch + 1`, `write_key` exactly 32 bytes, `read_key` exactly 32 bytes — **different in every epoch, and therefore never compared against a previously installed one** — known `alg_id`, retention fields in range — both `durable_ttl_seconds` sentinels, `0` and `4294967295`, are legal values here and are resolved at §6.1 step (6), never refused — and `expected_wrap_count > 0`; `RecoveryTag` with a 16-byte handle and a 32-byte Ed25519 pub; `WrapTag` with a 16-byte target; `EpochComplete` with a matching `wrap_count`. Every projection field of `Record` equals the corresponding field of `ParseRecord(record_bytes)` (§4.3.3). **Three of the clauses above are the SERVER's and not the parser's, stated 2026-08-26 because the list reads as though `message.ParseServerAttachment` answers all of them and it can answer none of these three:** `epoch == current_epoch + 1` and `EpochComplete` matching its epoch's `expected_wrap_count` both need group state the attachment does not carry, and `EpochAttachment` **iff** `is_commit` needs the record header beside the attachment. `connect/message` validates every clause that is a property of the attachment's own bytes and deliberately makes none of these three — a codec that reached for `current_epoch` would be a codec with a database. The server makes them here, in check 3, from state it already holds; none costs a read | CPU | `REASON_OVERSIZE` / `REASON_REJECTED` |
+| 3 | **Static shape.** `octet_length(sender_handle)==16`, `body_hash`==32, `retention_class` and `size_bucket` in range, **`eph_window` is zero unless the retention-class wire byte is 17..21, and for 17..21 it is within ONE window of the window this record's own arrival stamp falls in — `floor(create_time_ms / (eph_bucket_seconds[b] × 1000))` — in either direction, else `REASON_REJECTED` (§7.1, Spec A requirement S19, added revision 20)**, `expire_at` parses, `ct_head` ≤ head cap, and **`octet_length(ct_body)` is exactly `size_bucket_bytes[b] + 16`** (the AEAD tag) — equality, not a range, because §9.5 pads into buckets. `size_bucket == 5` requires `ct_body` absent and a 32-byte `blob_id` present in the parsed header; any other `size_bucket` requires `blob_id` absent. Both are read from `message.ParseRecord`, never from the request's projection alone. And `server_attachment` parses via `message.ParseServerAttachment` and is well-formed for its record kind: `EpochAttachment` iff `is_commit`, with `epoch == current_epoch + 1`, `write_key` exactly 32 bytes, `read_key` exactly 32 bytes — **different in every epoch, and therefore never compared against a previously installed one** — known `alg_id`, retention fields in range — both `durable_ttl_seconds` sentinels, `0` and `4294967295`, are legal values here and are resolved at §6.1 step (6), never refused — and `expected_wrap_count > 0`; `RecoveryTag` with a 16-byte handle and a 32-byte Ed25519 pub; `WrapTag` with a 16-byte target; `EpochComplete` with a matching `wrap_count`. Every projection field of `Record` equals the corresponding field of `ParseRecord(record_bytes)` (§4.3.3). **Three of the clauses above are the SERVER's and not the parser's, stated 2026-08-26 because the list reads as though `message.ParseServerAttachment` answers all of them and it can answer none of these three:** `epoch == current_epoch + 1` and `EpochComplete` matching its epoch's `expected_wrap_count` both need group state the attachment does not carry, and `EpochAttachment` **iff** `is_commit` needs the record header beside the attachment. `connect/message` validates every clause that is a property of the attachment's own bytes and deliberately makes none of these three — a codec that reached for `current_epoch` would be a codec with a database. The server makes them here, in check 3, from state it already holds; none costs a read | CPU | `REASON_OVERSIZE` / `REASON_REJECTED` |
 | 4 | **Rate limits** (§4.7), including the §9.6 quarantine check | Redis / DB | `REASON_RATE_LIMITED` |
 | 5 | **Known-group filter.** An in-memory cuckoo filter of every `group_id`. An unknown group is rejected here with **no database read**. See the insert path below — the timer is a backstop only | memory | `REASON_REJECTED` |
 | 6 | **Epoch key lookup.** In-process LRU keyed `(group_id, epoch)`; miss reads `message_epoch` once, unwraps under the `kek_id` in the row, caches. Negative results cached 5 s with jitter. The **current** epoch's key and one briefly-retired predecessor both resolve (§5.3) | memory / 1 read | `REASON_REJECTED` |
@@ -2605,6 +2664,24 @@ A prune_after of infinity is stored as NULL.
 ```
 
 `grace` is 1 hour, absorbing client clock skew and delayed delivery. It is safe because expiry is enforced by key destruction, not by this row disappearing: after `eph_root[n]` is gone, a retained ciphertext is undecryptable by everyone including a seedphrase holder (master §8.1). The server's deletion is hygiene.
+
+**And that sentence is now true of the HEAD as well, which it was not before 2026-09-13.** Master §8.1 keys `ct_head` under the record's **own** class key, so an `EPH(1..5)` record's header dies with `K_eph[n][b][t]` exactly as its body does. Before that ruling the head was keyed `DURABLE`, and the only thing that erased it was §7.2's `ct_head = NULL` — this server's own cooperation. **What that changes for this document:** §7.2's sweep is still required and is still hygiene, and it is no longer what the disappearing-message guarantee **rests on**. See ledger item **181**, which is re-examined on exactly this point.
+
+**The window check, and it is this server's only duty in the 2026-09-13 ruling (requirement S19).** An `EPH(1..5)` record carries a plaintext `eph_window` — the `t` of its own `K_eph[n][b][t]` — and this server MUST refuse one that is more than **one window** from the window its own `create_time` falls in, in either direction, with `REASON_REJECTED`:
+
+```
+arrival_window = floor(create_time_ms / (eph_bucket_seconds[b] × 1000)),  b from retention_class
+
+  refuse unless |eph_window − arrival_window| ≤ 1
+```
+
+It costs nothing this server does not already hold: `retention_class` is plaintext so `b` is free, and `create_time` is the same stamp the class deadline above is computed from. The value is inside the `write_auth` preimage, so this is a check on a value the MAC covers rather than on a field anyone in the path may rewrite.
+
+**Why the check exists at all, stated because "the server cannot read anything" makes it look out of place.** A window far in the future is a request that an `EPH` record's **key** outlive its timer, and under the 2026-09-13 ruling the key is what the window selects — so unlike every other retention value on this page, no later sweep of ours corrects it. It is the one retention claim a sender makes that this server is in a position to bound, and bounding it is cheap.
+
+**Why ±1 and not some other number.** The sender computes the window from `sent_at`; this server sees arrival. That is the same skew `grace` above already absorbs at one hour, and the shortest bucket is one hour, so ±1 window **is** `grace`, expressed in this field's unit. Tighter refuses records that arrive legitimately late across a boundary. Looser doubles the shortest bucket's guarantee, which is the thing being protected.
+
+**What makes the check satisfiable by a correct client, and it is a client rule rather than a server one:** master §9.2's outbox rule now requires a queued `EPH(1..5)` record whose window has closed to be **discarded and re-sealed** at the current window, consuming a fresh `stream_index` — the same shape as its existing `REASON_EPOCH_STALE` rule. A client that only re-MACs is the implementation this refusal is written to catch.
 
 > `expire_at` is **unix milliseconds, `u64`, big-endian, `0` meaning unset**, on the wire, in `AAD_head`,
 > and in the `write_auth` preimage. The `timestamp` column in Postgres is a lossy convenience projection
