@@ -34,8 +34,8 @@ code at all**, which is the gap every external leg in the m1 plan points at.
 | Spec C — Windows client UI | Revision 6 — **1,895 lines**, re-measured 2026-09-13, second pass of that date. **No revision and no string changed**: §8.1 gains a note that `msg_disappearing_explainer`'s *"destroyed on every device"* half has no schedule anywhere (ledger **186**), placed outside every quoted value so §16.3 lint 1 is unaffected. *(Was "1,893".)* |
 | Blockers | **0 from r1–r4** — down from 41. **r8's two are not in that count**; both are fixed in the text and neither is recorded as fixed. Item **165**. |
 | Review findings | **Dispositioned per finding in §5, not counted.** r3's twelve blockers were re-grepped by id; its fourteen remaining majors are items **149–162**, one item per id, each opening with the id and a disposition verb, so `git grep "M-7"` returns a disposition rather than silence. **r2's, r3's and r4's minors, r6's 30 and r8's 25 are NOT dispositioned** — item **165** measures that and publishes the query; those findings carry no ids, so an id-keyed gate cannot see them at all. The count this row used to carry (*"30: 8 major, 22 minor"*) was r6's file, not r3's majors, and the two had been read as one set for five weeks. |
-| Implementation plan | **Written and part-executed.** Fifteen documents in `docs/plans/`; `m1` (24 tasks) has wave 0 and wave 1 landed. **Ledger 152 was ruled 2026-09-13 and no longer stops wave 2. Task 14 is NOT thereby unblocked:** m1 open item **M1-52** is filed, not ruled, and its own *Blocks* line is *"signing, and therefore all of Task 14 step 3"*. **Task 14 step 1 is unblocked for the `PERMANENT` `pq_secret` wrap and NOT for its `EPH(5)` `eph_root` twin — ledger open item 185, filed 2026-09-13 (second pass), leaves that record's `eph_window` unstated while Spec A S19 refuses an implausible one; step 3 is not unblocked at all**, and Tasks 13, 15 and 16 stand where they did. *(The unqualified "step 1 is unblocked" was written on the first pass of 2026-09-13 and is corrected here on the second.)* *(This cell read **"is stopped in front of wave 2 by ledger 152 — and by nothing else, since 2026-09-09"**, and that clause was stale from 2026-09-12, when the red team filed M1-51 through M1-55 and nothing re-derived this row. It is one of the four sites ledger item **184** names; a state row is a claim about now, so it is corrected in place with its old wording kept beside it.)* **`s2` is now written** — 15 tasks, of which Tasks 1–12 are the CP3b prefix — and its own first paragraph states that it does **not** reach CP3b alone: four upstream `connect` blockers (**S2-1** through **S2-4**) sit outside both of its legs. **`j1` is now written too** — 7 tasks, all of them on the CP3b prefix — and it takes **S2-4**, the first of the four and the one that blocks CP3b outright; **S2-1**, **S2-2** and **S2-3** still have no owner. `s3` through `s10` are still cited as owners of unwritten work and have no document. |
-| Code | **`connect` `beta/message` at `33932e0`** — 1,105 tracked files, 217 Go files across `mls/`, `message/` and `messagegroup/`, 7,631 tests passing / 0 failing / 0 skipped, nine-platform `CGO_ENABLED=0` build green. **This repository** — 57 Go files, 26,402 lines, `go build ./...` and `go test ./...` green. **`sdk`** — nothing; six external legs wait on it. |
+| Implementation plan | **Written and part-executed.** Fifteen documents in `docs/plans/`; `m1` (24 tasks) has wave 0 and wave 1 landed. **Ledger 152 was ruled 2026-09-13 and no longer stops wave 2. Task 14 is NOT thereby unblocked:** m1 open item **M1-52** is filed, not ruled, and its own *Blocks* line is *"signing, and therefore all of Task 14 step 3"*. **Task 14 step 1 is unblocked for the `PERMANENT` `pq_secret` wrap and NOT for its `EPH(5)` `eph_root` twin — ledger open item 185, filed 2026-09-13 (second pass), leaves that record's `eph_window` unstated while Spec A S19 refuses an implausible one; step 3 is not unblocked at all**, and Tasks 13, 15 and 16 stand where they did. *(The unqualified "step 1 is unblocked" was written on the first pass of 2026-09-13 and is corrected here on the second.)* *(This cell read **"is stopped in front of wave 2 by ledger 152 — and by nothing else, since 2026-09-09"**, and that clause was stale from 2026-09-12, when the red team filed M1-51 through M1-55 and nothing re-derived this row. It is one of the four sites ledger item **184** names; a state row is a claim about now, so it is corrected in place with its old wording kept beside it.)* **`s2` is now written** — 15 tasks, of which Tasks 1–12 are the CP3b prefix — and its own first paragraph states that it does **not** reach CP3b alone: four upstream `connect` blockers (**S2-1** through **S2-4**) sit outside both of its legs. **`j1` is now written too** — 7 tasks, all of them on the CP3b prefix — and it takes **S2-4**, the first of the four and the one that blocks CP3b outright; **S2-1**, **S2-2** and **S2-3** still have no owner. `s3` through `s10` are still cited as owners of unwritten work and have no document. **AMENDED 2026-09-13, second pass of that date, by the pass that filed items 187–190 against the landed `eph_window` work.** Task 14's blocker list is **unchanged** by that work: `M1-52` still blocks step 3, item **185** still blocks step 1's `EPH(5)` half, and **none of the three new spec items — 187, 188, 189 — is added to it**. Item **188** is the one that touches Task 14 at all, and it blocks *writing the receive leg from the documents* rather than executing it: the leg that opens an `eph_root` wrap and installs its payload is described by one sentence in the corpus, Spec A §5.11's residual (2), which names no function, while `connect` ships `InstallEphRoot` and three siblings that **no document names**. That is `M1-32`'s shape, whose own *Blocks* line is *"sizing"*, It had also left `s2`'s published `TrackSender` short by one parameter against the shipped tree; that one is **corrected in place in this commit**, being a transcription error rather than a question. **And the CP3b answer has a new, measured owner.** *"What blocks CP3b is the message-server leg"* now has something concrete inside it: item **190** — `eph_window` is ruled, landed in `connect`, and carried in no Go file of this repository, so this repository's own suite is red. None of 187, 188, 189 or 182's open half blocks that leg or any other. |
+| Code | **`connect` `beta/message` at `b0155d9`** — **1,125 tracked files, 8,252 tests passing / 0 failing**, unfiltered over `mls/`, `message/` and `messagegroup/`. *(Was* **`33932e0`** *— 1,105 tracked files, 217 Go files, 7,631 tests, nine-platform* `CGO_ENABLED=0` *build green. Re-measured 2026-09-13, second pass of that date, after* `6248284` *landed the* `eph_window` *wire field and* `b0155d9` *the key schedule and the full seal lift; both passes were adversarially reviewed and both returned SOUND. A state row is a claim about now.)* **This repository** — 57 Go files, 26,402 lines, `go build ./...` clean and `go test ./ -run TestThePlanLinter` ok, **but `go test ./...` is RED**: one test, `api.TestARecordTravelsEndToEnd`, because `eph_window` is ruled and landed in `connect` and is carried in **no Go file here** (`grep -rn 'eph_window\|EphWindow' --include=*.go .` returns **0**). Ledger item **190**; the cell said `go test ./...` green and that stopped being true without this repository changing a byte. **`sdk`** — nothing; six external legs wait on it. |
 
 **Ready for owner review, and for handoff once the owner has read them.** Four review rounds and two
 edit passes have taken this from 41 blockers to none. What is left is not a count: r3's fourteen
@@ -6475,7 +6475,39 @@ fourteen are dispositioned below.
      answered, because an implementer who guesses wrong writes a parser that silently accepts a record
      with a different field at every offset past `retention_class`.
 
-     *Blocks:* nothing today; it blocks the `connect/message` codec change, which is a later dispatch.
+     **A POSITION WAS TAKEN IN CODE AHEAD OF THIS RULING, AND THE OWNER SHOULD RULE KNOWING WHAT
+     SHIPS TODAY. Recorded 2026-09-13, by the pass that read the landed codec.** `connect` implemented
+     **OUTRIGHT REFUSAL** — the first of this item's two halves, not the second — at `6248284`, and
+     said at the constant that it was choosing the safe half of an open question rather than answering
+     it: *"Whether `0x01` should instead be TOLERATED on the read path for one release is ledger item
+     182 and is the owner's, filed and not ruled. Refusal is what master section 0 assumes and is the
+     safe half of that question, so refusal is what is implemented; it is also the half a later ruling
+     can widen without invalidating anything already written."* (`connect/message/codec.go:100-106`.)
+
+     **What shipped, precisely.** `recordFormatVersion = 0x02` and a second constant
+     `recordFormatVersionSuperseded = 0x01` that **nothing encodes and nothing parses** — it exists
+     only so the refusal can say *which* old record it met. `decodeRecord` refuses both with
+     `ErrRecordFormatVersion` and **two different messages**: the superseded octet gets *"0x01 carries
+     no eph_window and puts a different field at every offset past `retention_class`, want 0x02"*, and
+     any other unknown octet gets the plain *"0x%02x, want 0x02"*. That distinction is this item's own
+     last paragraph implemented — an operator meeting the layout that came before this package is owed
+     the difference — and the reviewer measured that deleting the superseded branch turns exactly one
+     named test red, so the distinction is defended rather than decorative.
+
+     **Why the owner is told rather than asked again.** Refusal is **strictly narrower** than
+     toleration, so a later ruling for toleration widens the parser and invalidates nothing already
+     written; a ruling for refusal costs nothing at all because it is what ships. **The half that is
+     still genuinely open is unchanged** and is the half this item was filed for: whether any record
+     anywhere has been encoded and kept. Nothing in the shipped tree can answer that, and the code
+     does not claim to.
+
+     *Blocks:* nothing today. ***(The line below read* "it blocks the `connect/message` codec change,
+     which is a later dispatch" *until 2026-09-13, second pass of that date. **That dispatch has
+     LANDED** — `6248284` for the wire field and `b0155d9` for the key schedule — so the thing this
+     item was said to block no longer exists as future work, and the Blocks line is corrected rather
+     than left to be read as pending. The old wording is kept because this file's convention is that a
+     measurement which stopped being true is annotated, not deleted.)*** What remains is the open
+     clause above, which blocks no code and decides whether the landed refusal is widened.
      Found 2026-09-13 by the pass that wrote the ruling, as the cost the ruling incurs.
 
 183. **RULED 2026-09-13 — m1 open item `M1-27`, BOTH HALVES, in one sitting with item 152 as that item
@@ -6792,6 +6824,402 @@ fourteen are dispositioned below.
      and ledger item **181**'s *"cryptographically dead whether the column is cleared or not"*. **Not
      wire-visible.** Carried at the claim sites in MASTER §8.1, §9.2 and §12.4, Spec A §3.5 and §8.1,
      Spec B §10.4, Spec C §8.1, m1 `M1-27`, and item **181** above.
+
+187. **FILED, NOT RULED — `eph_window`'s own rule names a value the function that computes it cannot
+     read, so the sender's window is UNIMPLEMENTABLE as three documents state it.** Filed 2026-09-13
+     by the pass that implemented ruling 2a in `connect`, which met the gap at the call site and could
+     not close it there. Raised in that tree as `MG-2` in `connect/messagegroup/OPENITEMS.md`, whose
+     own closing line is *"a `SPEC-LEDGER.md` number and one sentence from the owner"*. This is the
+     number.
+
+     **The three statements that cannot all be satisfied, every one of them landed.** *(1)* **The
+     rule.** MASTER §8.1 — *"`t = floor(sent_at_ms / (eph_bucket_seconds[b] × 1000))` for `b` in
+     1..5, computed by the SENDER from the **same wall-clock reading it puts in `sent_at`**"* —
+     restated in Spec A §5.3's `EphKey` block character-for-character, and again in item **183**'s
+     ruling 2a above. *The same reading.* One instant, used twice: once inside `ct_head`'s plaintext
+     as `sent_at`, and once in the clear as `eph_window`. *(2)* **Where `sent_at` lives.** MASTER §8's
+     record listing puts it **inside `ct_head`** — *"`ct_head` AEAD; MLS `PrivateMessage` header,
+     `type`, `sent_at`"* — and that is the whole reason ruling 2a disqualified `sent_at` as the
+     carrier of `t` in the first place, one level out. *(3)* **The published signature.** Spec A §5.2
+     publishes, in a Go block, `func (self *GroupSession) SealRecord(class RetentionClass, ephBucket
+     uint8, isCommit bool, headPlain []byte, bodyPlain []byte, expireAt uint64, serverAttachment
+     *ServerAttachment) (*Record, error)`. `headPlain` is an **opaque `[]byte`**. Nothing at that
+     layer parses it, and there is no `sentAt` parameter.
+
+     **So the sealer cannot read the value the rule tells it to divide.** This is not a rule that is
+     awkward to implement; at the signature the corpus publishes it cannot be implemented at all. A
+     caller that builds `headPlain` from its own clock read and then calls `SealRecord` has taken
+     **two** readings, and if they straddle a bucket boundary the record's `sent_at` and its
+     `eph_window` name two different windows.
+
+     **What shipped, and what it costs — measured rather than feared.** `connect` uses the session's
+     injected `nowMs()` for both sealer and opener, **which is not what the spec says**, and says so
+     at the site. The record stays internally consistent: `eph_window` is on the wire, in both AADs
+     and in the `write_auth` preimage, and the key is `EphKey(eph_root, bucket, the wire value)` — so
+     it seals, it opens, and every implementation agrees on the octets. What moves is the record's
+     **key lifetime**, pinned to the sealer's reading rather than to the `sent_at` a reader will see.
+     The straddle is one clock read wide, the consequence is at most one bucket, and that is inside
+     the ±1 that Spec A **S19** and Spec B §5.1 check 3 already allow against *arrival*. **It is a
+     discrepancy, not an incompatibility** — which is why it is filed rather than escalated, and why
+     it is filed rather than left, since key lifetime is the unit the disappearing-message guarantee
+     is stated in.
+
+     **Three closures, with what each costs and which document it changes. NONE IS CHOSEN HERE.**
+
+     - **(a) Add `sentAtMs uint64` to `SealRecord` and derive the window from it.** The only shape
+       that makes *"the same reading"* literally true, and the only one that touches code. **Changes
+       Spec A §5.2's published Go block** — a surface break with no wire byte in it — and with it the
+       three other sites that transcribe the signature: `s2` at `:400-402`, `m1` at `:2870` and `k1`
+       at `:488`. Every caller in the `s2` submit leg and the `k1` seam changes. Buys: the rule
+       becomes true of the function rather than of the caller, and a gate can reach it.
+     - **(b) State that the sealer's own clock IS the sender's clock**, and that `sent_at` MUST be
+       consistent with it. **Changes MASTER §8.1 and Spec A §5.3** — the two copies of the *"same
+       wall-clock reading"* sentence — replacing it with an obligation on the caller. Costs no code
+       and no signature, and makes the corpus say what the tree does. Risk: the obligation lands on a
+       caller **no gate can reach**, because nothing at this layer parses `headPlain`, so it is a
+       sentence with no mechanism behind it — which is the shape this file has recorded under several
+       numbers.
+     - **(c) Leave it, on the measurement above, and record the tolerance where a second implementer
+       meets it.** **Changes Spec A §5.3 alone**, one sentence naming the permitted divergence and its
+       bound. Cheapest. Risk: it is (b) without the MUST, and a tolerance the corpus does not state is
+       what gets rediscovered as a divergence — which is what this item is.
+
+     **The property this must be ruled against**, satisfiable by a correct implementation, falsifiable
+     by an incorrect one, and presupposing none of (a), (b) or (c): **two conforming sealers handed
+     the same message at the same instant write the same `eph_window`, and therefore produce records
+     whose keys die at the same time.** It does not say which reading the window comes from, only that
+     there is exactly one and that both implementations find it. Satisfiable under every candidate
+     above. **Falsified today**: one sealer reading the window off `headPlain`'s `sent_at` and one
+     reading its own clock are both conforming on the text as it stands, and they disagree on every
+     message whose two readings straddle a bucket boundary. **Mutation target:** move a sealer's
+     window derivation from one clock reading to the other and require a named assertion to go red. A
+     suite in which both derivations pass has not tested this, and `connect`'s does not and says so:
+     *"There is no case, and can be no case at this layer, that the window comes from the `sent_at`
+     inside `headPlain`: nothing here parses that plaintext."* **No test code is supplied.**
+
+     *Blocks:* **nothing mechanically.** It does **not** block m1 Task 14: neither record that task
+     builds calls `EphKey` at all, and a wrap carries no `sent_at` to divide — that is item **185**,
+     not this. It does **not** block the CP3b path: the record on it is `DURABLE`, whose `eph_window`
+     is `0` by MASTER §8's presence rule, so no window is computed. It blocks a **claim** — MASTER
+     §8.1's and Spec A §5.3's *"the same wall-clock reading it puts in `sent_at`"*, which no
+     implementation at the published signature can satisfy. **Not wire-visible:** the field, its width
+     and its position are ruled; this is which reading fills it. Carried at the rule in MASTER §8.1
+     and Spec A §5.3, at the signature in Spec A §5.2, and in `connect` as `MG-2`.
+
+188. **FILED, NOT RULED as to the DECLARATION — the symbols themselves are CONFIRMED KEPT by the
+     owner. `eph_root[n]` has no declared route into a `GroupSession`: invariant I4 forbids deriving
+     it, its carrier is m1 Task 14's device wrap and that does not exist, so `connect` invented four
+     symbols, shipped them, and NO DOCUMENT NAMES ONE OF THEM.** Filed 2026-09-13. This is `M1-32`'s
+     shape — *"§5.14's client half has no declarations at all … it must exist somewhere and is
+     declared nowhere"* — one section over, and it is filed under its own number for that item's own
+     stated reason: an item filed inside another item is an item nobody meets.
+
+     **Why there is nothing to derive from.** MASTER **I4** and §8.1 make `eph_root[n]` thirty-two
+     octets of fresh CSPRNG drawn at the commit that opens epoch *n*, deliberately **not** a function
+     of `storage_root`, and §8.1 calls a derivation from `storage_root` the most easily broken
+     property in the design. Spec A §5.3 states the consequence in its own voice: *"There is
+     deliberately no function in `connect/messagegroup` that produces an `eph_root` from any durable
+     input, and none in `connect/message` at all … The type signature is the defence."* So it cannot
+     be computed. **It has to ARRIVE.**
+
+     **And the carrier does not exist.** The `eph_root` device wrap is m1 Task 14's — Spec A §5.11's
+     wrap table, `EPH(5)`, payload `eph_root[k]` — and there is no `wrap*.go` in `messagegroup`; item
+     **185** forbids publishing that record at all until its `eph_window` is ruled. Between *the
+     session cannot derive it* and *the carrier does not exist* sits a live setter that no document
+     declares.
+
+     **The four symbols, named.**
+
+     1. **`func (self *GroupSession) InstallEphRoot(ephRoot []byte) error`** —
+        `messagegroup/session.go:597`. Built on `RebindServerNonce`'s precedent (`session.go:492`),
+        which is the only other setter on that type. Refuses any width but 32 with a typed sentinel;
+        **copies** the value; and is **epoch-scoped** — dropped and erased on every epoch install, so
+        a caller that advances an epoch without installing that epoch's root meets a typed refusal
+        rather than epoch *n−1*'s ladder. It is deliberately **not** a default: a session never handed
+        one refuses to seal or open **any** `EPH` record of any bucket, because thirty-two zero octets
+        would derive a perfectly good ladder that both ends of one implementation agree on and that is
+        identical in every group in the world.
+     2. **the unexported `ephRoot []byte` field** on `GroupSession` — `session.go:131`.
+     3. **`senderLadderKey{RetentionWire byte; EphWindow uint64}`** — `session.go:152`. The sender
+        ladder table is keyed on **(class wire byte, window)** and not on the wire byte alone, because
+        `record_key[0]` binds the class key and for an `EPH` class the class key is
+        `EphKey(eph_root, b, window)` — a function of the window as much as of the bucket. Keyed on
+        the byte alone it would hand a record written in window *t+1* the ladder rooted at window
+        *t*'s key. For every non-`EPH` class the window is zero by MASTER §8's presence rule, so the
+        key collapses to the wire byte with no special case.
+     4. **`TrackSender`'s new `ephWindow uint64` parameter** — `session.go:521`. The shipped signature
+        takes **five** parameters.
+
+     **What the corpus says about them: nothing, and about one of them something false.** Measured,
+     with the query beside it:
+
+     **MEASURED AT `d2e7a51`, WHICH IS THE COMMIT BEFORE THE ONE THAT FILES THIS ITEM.** The
+     tree-ish is in the query on purpose: this commit's own prose quotes two of these signatures and
+     its edit (c) below adds two more lines, so a query run after it returns different numbers for a
+     reason that has nothing to do with the corpus. Stating a measurement without the state it was
+     taken at is the defect the entry before this one found four times in its own text.
+
+     ```
+     git archive d2e7a51 | tar -x -C <tmp> && cd <tmp>
+     grep -rn 'InstallEphRoot\|senderLadderKey' --include=*.md .            ->  0
+     grep -rn 'func (self \*GroupSession)' --include=*.md .                 ->  26 lines, 4 files
+     (connect @ b0155d9) grep -rn 'func (self \*GroupSession) [A-Z]' \
+         --include=*.go messagegroup/ | grep -v _test                       ->  11
+     ```
+
+     The eleven shipped exported methods are `SealRecord`, `OpenRecord`, `ReauthRecord`, `Close`,
+     `Epoch`, `SenderHandle`, `EpochKeys`, `AdvanceEpoch`, `RebindServerNonce`, `TrackSender`,
+     `InstallEphRoot`. The corpus's twenty-six declaration lines — `m1` `:721-727`, `:2870`, `:3131`;
+     `s2` `:400-408`; `k1` `:485-491`, `:581-588`; Spec A §5.2 `:1206`, `:1213` — name **ten** of them
+     plus the unexported `do`, derived rather than read off:
+
+     ```
+     grep -rhn 'func (self \*GroupSession)' --include=*.md . \
+       | sed 's/.*func (self \*GroupSession) //; s/[( ].*//' | sort -u
+       ->  AdvanceEpoch Close Epoch EpochKeys OpenRecord ReauthRecord RebindServerNonce
+           SealRecord SenderHandle TrackSender do
+     ```
+
+     **COMPLEMENT, PRINTED, ONE MEMBER: `InstallEphRoot` — the one exported method of the shipped type
+     that no line of the corpus names.** Eleven shipped minus ten named. An empty complement here would
+     have been the tell that the query was wrong; it has exactly one member and that member is the
+     subject of this item. **After this commit's edit (c) the complement is EMPTY by that query and the
+     gap is not closed** — `InstallEphRoot` is then named in one **plan** and in no **spec**, which is
+     why (a) below is what this item is open on and why the query above is pinned to `d2e7a51`.
+
+     **And `s2` `:408-409` is WRONG rather than merely silent.** It is the only site in the corpus
+     that publishes `TrackSender`'s full parameter list, and it publishes **four**:
+     `TrackSender(leaf uint32, class message.RetentionClass, ephBucket uint8, headIndex uint64) error`.
+     A planner transcribing it writes a call that does not compile. `m1` `:723` elides the list as
+     `TrackSender(...) error` and is merely uninformative. **`TrackSender` is in no SPEC at all** —
+     Spec A §5.2's block publishes `SealRecord` and `OpenRecord` and stops — so the entire
+     receive-side installation surface has never been normative.
+
+     **The corpus already knows it needs this and names no function for it.** Spec A §5.11's residual
+     **(2)**, filed and unresolved: *"The order is open → verify → honour, and it is not written in
+     those words … Honour must be defined as installing `pq_secret[k]` / `eph_root[k]` /
+     `storage_root[k]` into the session."* That sentence is the obligation `InstallEphRoot`
+     discharges, and it names nothing that discharges it.
+
+     **What §5.2 or §5.11 owes them.** All documentation; **no wire byte, no key, no refusal changes**,
+     and no ruling is required, because the owner has confirmed the four are kept. *(a)* **Spec A §5.2
+     or §5.11 declares `InstallEphRoot`** beside `SealRecord`/`OpenRecord`, carrying the three things
+     that are properties and not implementation: the 32-octet width refusal, that it is **epoch-scoped
+     and dropped at every epoch install**, and that an uninstalled session **refuses** every `EPH`
+     seal and open with a typed error rather than defaulting to zeros. *(b)* **§5.11's residual (2)
+     names it** as what *honour* means for `eph_root[k]`, and says what discharges the same obligation
+     for `pq_secret[k]` and `storage_root[k]` or that nothing does yet. *(c)* **`s2` `:408-409`'s
+     signature is corrected**, old beside new, per this file's convention — **DONE in the commit that
+     files this item**, because it is a plan rather than a normative section and a four-parameter
+     signature against a five-parameter function is a transcription error rather than a question. That
+     makes a plan the only document in the corpus naming `InstallEphRoot`, which is what (a) is still
+     open about. *(d)* **§5.3's `EphKey`
+     block cross-references (a)**, since `ephRoot` is the one argument of `EphKey` with no declared
+     producer on the receive side — which is the whole of how this gap stayed invisible.
+
+     **The property this must be ruled against**, satisfiable and falsifiable, presupposing nothing
+     unruled: **every exported method of `connect/messagegroup.GroupSession` is declared somewhere in
+     the corpus, and every parameter list the corpus publishes for one compiles against the shipped
+     tree.** It is a statement about the corpus against a tree the owner has confirmed, so it
+     presupposes no undecided sentence. **False today on both clauses**, by the queries above.
+     **Mutation target:** add a twelfth exported method to `GroupSession` and require the check to
+     **name** it. A check that compares counts rather than naming members cannot say which one is
+     missing, and a count is what hid the five-of-seventeen miscount item **184** records.
+     **No test code is supplied.**
+
+     *Blocks:* **nothing mechanically** — the code ships and is confirmed kept. It blocks **writing m1
+     Task 14's receive leg from the documents**: the leg that opens a received `eph_root` wrap and
+     installs its payload is described by exactly one sentence in the corpus, §5.11's residual (2)
+     above, and that sentence names no function — so a planner sizing it repeats `M1-32`'s outcome,
+     *"misses roughly the same amount of code again"*. It blocks **`s2` Task 12**, whose published
+     `TrackSender` no longer compiles. **Not wire-visible.** Carried at Spec A §5.2, §5.3 and
+     §5.11 (2), and at `s2` `:408-409`.
+
+189. **FILED, NOT RULED — nothing states whether `ParseRecord` refuses a non-zero `eph_window` on a
+     class the presence rule makes zero, and the corpus states exactly that rule for BOTH sibling
+     fields. `connect` has pinned the permissive answer in a test ahead of the ruling.** Filed
+     2026-09-13.
+
+     **THE CORRECTION THIS ITEM MUST CARRY, BECAUSE THE VERSION OF IT THAT REACHED THIS PASS WAS
+     INVERTED AND WOULD HAVE RE-OPENED THE CLASS IT CLAIMED TO CLOSE.** The gap must be phrased on the
+     **retention-class wire byte** and **not** on the class, and the two landed statements already get
+     this right. Arithmetic, because the whole question is one byte:
+
+     ```
+     MASTER §8:      retention_class wire byte = 0x10 | bucket, bucket in 0..5
+     Spec A §5.1:    "(decimal 16, 17, 18, 19, 20, 21)"
+     EPH(0) -> 0x10 = 16;  EPH(1..5) -> 17, 18, 19, 20, 21
+     MASTER §8 presence rule: eph_window is "0 on PERMANENT, DURABLE, MEDIA and EPH(0)"
+     ```
+
+     So the must-be-zero set is `{0x00, 0x01, 0x02, 0x10}` and the may-be-non-zero set is exactly
+     `17..21`. **Spec B §5.1 check 3** — *"`eph_window` is zero unless the retention-class wire byte is
+     17..21"* — and **Spec B §3.2's schema `CHECK (eph_window = 0 OR (17 <= retention_class AND
+     retention_class <= 21))`** therefore agree with MASTER **exactly**, and put `EPH(0)` on the
+     correct side of the line. **It is the CLASS-phrased reading — *"a non-`EPH` class"* — that is
+     wrong by one class**, because `EPH(0)` **is** an `EPH` class and **must** carry zero. Any
+     one-sentence ruling written as *"non-`EPH` class"* leaves `EPH(0)` unspecified all over again.
+     Recorded here in this direction because the opposite direction was asserted to this pass and does
+     not reproduce.
+
+     **What is actually missing is the PARSER's half, and only that.** Both landed statements are the
+     **server's**: check 3 is a submit check and the `CHECK` is a Spec B §3.2 column constraint.
+     **Spec A carries no matching sentence for `eph_window` anywhere** — and it carries the exact
+     analogue for both sibling fields:
+
+     - §5.1 — *"`ParseRecord` rejects a record whose `BlobId` presence disagrees with its
+       `SizeBucket`"*, with `var ErrBlobIdPresence error   // blob_id presence disagrees with
+       size_bucket` on §12.1's published surface;
+     - §12.1 — `var ErrEphBucketOnNonEphClass error   // a non-eph class carrying a bucket`.
+
+     There is **no `ErrEphWindowPresence`** on that surface and no sentence anywhere. Measured:
+
+     ```
+     grep -rn 'ParseRecord' --include=*.md . | grep -iE 'reject|refus|MUST NOT'
+       -> one presence-refusal sentence in the whole corpus, Spec A §5.1, and it is blob_id's
+     ```
+
+     **Measured against the shipped tree, and the permissive answer is already pinned.**
+     `connect/message`'s `checkRecord` (`message/codec.go:298-326`) validates `blob_id` presence and
+     `ct_body` length and makes **no** `eph_window` check; `codec.go:149` writes the field
+     unconditionally and `:232` reads it unconditionally — which is MASTER §8's presence rule working
+     as designed, since that rule is that a field is *always written and its VALUE carries the
+     absence*. So `connect` accepts a non-zero `eph_window` on every class, `EPH(0)` included, and
+     **its own suite asserts that it does**:
+     `TestTheEphWindowRoundTripsAtEveryRetentionClassTheWireAdmits`
+     (`message/ephwindow_test.go:139`) crosses all nine accepted wire bytes with seven window values
+     and requires all sixty-three to round-trip. **That is a position taken in code ahead of a ruling,
+     and it is the same shape as item 182's open half** — with the difference that 182's position is
+     the safe half of its question and this one is the permissive half of its own.
+
+     **Why it is not a hole today, stated so the ruling is not taken as urgent.** The field is in
+     `AAD_head`, in `AAD_body` and in the `write_auth` preimage, so a tampered non-zero window on a
+     `DURABLE` record fails the AEAD at the opener and fails the MAC at the server. What is
+     unspecified is whether the **parser** — which runs before either, and which Spec B §5.1 check 3
+     calls on every submit — refuses it, and therefore **which refusal an operator sees and which
+     reason code goes back**.
+
+     **The two shapes, with what each costs. NEITHER IS CHOSEN HERE.**
+
+     - **(a) A parser refusal and a new typed sentinel.** One sentence in Spec A §5.1 — *"`ParseRecord`
+       rejects a record whose `eph_window` is non-zero and whose retention-class wire byte is not in
+       17..21"* — and one line in §12.1's refusal block. **§12.1 is restated character-for-character in
+       Spec B §12.1** (item **141**'s class), so it is **two** documents and the second is the
+       operator's. In code it is a clause in `checkRecord`, which both `EncodeRecord` and
+       `decodeRecord` run, so the encoder stops being able to write a record its own parser refuses.
+       Buys: the refusal happens once, in the one place both ends parse, and check 3's clause becomes
+       a restatement rather than the only holder of the rule.
+     - **(b) Keep the parser permissive and leave the refusal at the server.** One sentence in Spec A
+       §5.1 saying so. **This is the shape of owner decision 61 already taken about this parser** —
+       *"`ParseRecord` is deliberately more permissive about `ct_body` length than the server's submit
+       check, and this is not a bug to be fixed later"*, 2026-08-25 — so it costs no new sentinel, no
+       second document and no code. Risk: a client that never submits, an opener reading from its own
+       store, has nothing that refuses.
+
+     **Decision 61 is the standing precedent and it points at (b). It is deliberately NOT applied
+     here**, because 61 was taken about a **length the server re-checks**, and `eph_window` is a **key
+     selector**: a non-zero window on a `DURABLE` record selects nothing today only because the
+     presence rule is what makes a sender's ladder table collapse to the wire byte for the non-`EPH`
+     classes (`connect/messagegroup/session.go:152`, item **188** above). A parser that admits one
+     admits a record for which two implementations may build two different ladder tables. That
+     difference is what the owner is owed, and it is why this is filed rather than closed under 61.
+
+     **The property this must be ruled against**, satisfiable and falsifiable, presupposing neither
+     answer: **two conforming implementations handed one record agree about whether it is refused.**
+     Applied to the case at hand: a record with retention wire byte `0x01` and `eph_window = 1`. Today
+     one implementation may parse it and another may refuse it and **both conform**, which is the
+     defect. Satisfiable under either (a) or (b) once the sentence exists. **Mutation target:** flip a
+     parser between admitting and refusing that record and require a **named** assertion to move. A
+     suite that does not move under the flip has not tested this; `connect`'s moves, and it moves in
+     the direction that pins (a) as a regression. **No test code is supplied.**
+
+     *Blocks:* **nothing mechanically.** It does **not** block m1 Task 14 and it does **not** block the
+     CP3b path — the field travels, both AADs cover it, and check 3 and **S19** stand whichever way
+     this goes. It blocks a **conformance claim**: Spec A §4.2's interop vectors and §12.1's published
+     refusal surface are what a second implementation is built from, and Spec B §12.1 is a
+     character-for-character copy of the latter. **Not wire-visible** — no octet moves, and this
+     decides nothing about `EPH(0)` that MASTER has not already decided; it decides **where the refusal
+     lives**. Carried at Spec A §5.1 and §12.1, Spec B §5.1 check 3, §3.2 and §12.1.
+
+190. **FILED AS A DISPATCH, NOT A QUESTION — `eph_window` is RULED, has LANDED in `connect`, and is
+     carried NOWHERE in this repository: not in the harness, not in the store contract, not in the
+     §3.2 migration, not in the rebuild, and not in §5.1 check 3. `go test ./...` is RED at `d2e7a51`
+     for exactly this, and the red is this repository's own gate doing what it was built to do.**
+     Filed 2026-09-13 by running the suite rather than by reading it.
+
+     **Measured, with the query beside it.**
+
+     ```
+     grep -rn 'eph_window\|EphWindow' --include=*.go .            ->  0
+
+     go test ./... -timeout 600s -count=1
+       --- FAIL: TestARecordTravelsEndToEnd
+           roundtrip_test.go:239: 1 header field(s) were zero in every record this test
+           round-tripped, so nothing here would notice the server dropping them: [EphWindow]
+     ```
+
+     **Exactly one test in the repository fails**; `message-server`, `cmd/message-server`, `peer` and
+     `store` are all `ok`, and `go build ./...` and `go test ./ -run TestThePlanLinter` are clean.
+     Reproduced three times, deterministic.
+
+     **This repository's own tree did not change; the sibling did.** `EphWindow` entered
+     `message.RecordHeader` at `connect` `6248284`, after this repository was last measured. Measured
+     read-only, against the sibling's history and not its working tree:
+
+     ```
+     (connect) for c in 71d2482 6248284 b0155d9; do git show $c:message/record.go \
+                   | grep -c EphWindow; done            ->  0, 1, 1
+     ```
+
+     `d2e7a51`'s own verification block records `connect` at **`71d2482`**, where the count is **0**.
+     So *"`go test ./...` clean"* was true when it was written and is false now, and the cause is the
+     `replace github.com/urnetwork/connect => ../connect` in `go.mod`, which makes the sibling's
+     **working tree** this module's dependency. That is the intended wiring and this is the intended
+     consequence: the gate that fired is `assertEveryHeaderFieldTravelled`
+     (`api/roundtrip_test.go:250-303`), whose own header says *"a field added to the header tomorrow
+     arrives uncovered and says so rather than being quietly compared at zero"*, and whose field set is
+     `message.RecordHeader`'s own, walked by reflection. **It did exactly that.** This item records the
+     gate working, not a gate failing.
+
+     **What is owed, and none of it is a ruling.** Five edits, each against a sentence already landed:
+
+     1. **`harness.Sealed` gains `EphWindow uint64`** and `harness.Client.Seal` writes it into the
+        `message.RecordHeader` it builds (`harness/seal.go:95-108`). Without this, nothing in this
+        repository can produce a record with a non-zero window, so nothing can exercise the four
+        below — which is why it is first and not cosmetic.
+     2. **`store.Record` gains it** (`store/store.go:112-144`), and both store implementations carry it
+        through write and read.
+     3. **`store/migrations.go` gains the column and the constraint Spec B §3.2 already publishes** —
+        `eph_window` and `CHECK (eph_window = 0 OR (17 <= retention_class AND retention_class <= 21))`.
+        The migration already carries the **sibling** constraint on the class alone,
+        `CHECK (retention_class IN (0,1,2) OR (16 <= retention_class AND retention_class <= 21))` at
+        `store/migrations.go:180`, which is how this is known to be an omission rather than a design.
+     4. **`api/fetch.go`'s `rebuildRecord` (`:210`) carries it**, or a fetched record comes back with a
+        different header than the one that was sealed and §4.3.3's *"every projection field equals the
+        corresponding field of `ParseRecord(record_bytes)`"* stops holding for this field.
+     5. **§5.1 check 3's `eph_window` clause and Spec A requirement `S19`** — the ±1-against-arrival
+        refusal — are implemented in `api/submit.go`. **`S19` is unexercised end to end today**: its
+        client half is measured in `connect` and its server half exists in no code at all.
+
+     **The property this dispatch must satisfy**, satisfiable and falsifiable, presupposing nothing
+     unruled: **a record sealed here with a non-zero `eph_window` submits, is accepted, persists, is
+     fetched, and the rebuilt `record_bytes` parses to the same header it was sealed with.** **False
+     today at step 1** — nothing here can seal one. **Mutation target:** drop `eph_window` from
+     `rebuildRecord` and require the round trip to go red; a suite in which every record carries zero
+     cannot see it, which is precisely the state this item records. **No test code is supplied.**
+
+     **Filed here rather than as a note, and deliberately NOT filed as a question.** Every sentence it
+     needs is ruled: item **183** ruled the field, **S19** and Spec B §5.1 check 3 ruled the refusal,
+     and Spec B §3.2 already publishes the column and the constraint. What is missing is code. It
+     carries a number because the register that tracks what blocks what is this one, and because a red
+     suite met by the next agent is a worse way to learn it than a line here.
+
+     *Blocks:* **this is what blocks the message-server leg**, which `PROGRESS.md`'s tracks row names
+     as what blocks **CP3b**. It blocks **every commit to this repository** until it is done or the
+     gate is deliberately re-scoped, because `go test ./...` is red. It blocks **nothing in `connect`**
+     and **nothing in m1 Task 14**. Wire-visible only in the sense that the octets already moved in
+     `connect` and have not moved here. Carried at Spec B §3.2 and §5.1 check 3, Spec A **S19**, and
+     `PROGRESS.md`'s tracks row.
 
 
 ## 6. Change process
@@ -13994,3 +14422,191 @@ twin, so Property 1's *"exactly two"* is not buildable; Task 17 is unblocked in 
 `go test ./ -run TestThePlanLinter -timeout 300s` ok, **before and after**. `connect` (`beta/message`,
 `71d2482`) and `sdk` (`beta/message`, `54785de`) clean and unmodified after. `git ls-files` equals
 `git ls-tree -r HEAD` at **105**.
+
+### 2026-09-13 — what the landed `eph_window` work exposed, filed as four items and none of them ruled: a rule no signature can satisfy, a shipped API no document names, a refusal question whose stated correction was inverted, and a suite that is red in this repository for a field ruled in another
+
+This is the third commit of 2026-09-13 and it is **documents only**. `connect` implemented the
+sitting's two rulings — `6248284` for the `eph_window` wire field, `b0155d9` for the key schedule and
+the full seal lift, both adversarially reviewed and both SOUND — and the implementation surfaced four
+things the corpus owes. **All four are FILED and NONE is RULED here.** Three are the owner's; the
+fourth is a dispatch with no question in it.
+
+#### The four, and what each is
+
+- **187 — the sender's window is UNIMPLEMENTABLE as three documents state it.** MASTER §8.1, Spec A
+  §5.3 and item 183's own ruling 2a all say the window is computed *"from the same wall-clock reading
+  it puts in `sent_at`"*. `sent_at` lives **inside `ct_head`'s plaintext**, and Spec A §5.2 publishes
+  `SealRecord` with `headPlain []byte` **opaque** and no `sentAt` parameter — so the sealer cannot read
+  the value the rule tells it to divide. `connect` uses the session's `nowMs()` for both ends and says
+  at the site that this is not what the spec says. Three closures are stated with what each costs and
+  which document each changes — add `sentAtMs` to a published signature; move the obligation to the
+  caller in writing; or state the tolerance — and **none is chosen**. Raised in the other tree as
+  `MG-2`, whose own last line asks for exactly this number.
+- **188 — `eph_root[n]` has no declared route into a `GroupSession`, so four symbols ship that no
+  document names.** I4 forbids deriving it, the carrier is m1 Task 14's device wrap and that does not
+  exist, so `connect` added `InstallEphRoot`, an `ephRoot` field, `senderLadderKey` and a fifth
+  parameter on `TrackSender`. The owner has confirmed all four are kept; what is owed is the corpus
+  catching up. This is `M1-32`'s shape one section over.
+- **189 — nothing says whether `ParseRecord` refuses a non-zero `eph_window` off the classes the
+  presence rule makes zero**, while the corpus states exactly that rule for **both** sibling fields
+  (`ErrBlobIdPresence` for `blob_id`, `ErrEphBucketOnNonEphClass` for `eph_bucket`). Two shapes with
+  their costs, and owner decision **61** named as the standing precedent that points at one of them and
+  as the reason it is not applied.
+- **190 — a dispatch, filed with a number rather than left in a commit message.** `eph_window` is
+  ruled, landed in `connect`, and carried in **no Go file of this repository**.
+
+#### The thing worth returning first: this repository's suite is RED at `d2e7a51`, and it was red before this commit touched anything
+
+The brief for this pass stated that `go build ./...`, `go test ./... -timeout 600s` and
+`go test ./ -run TestThePlanLinter -timeout 300s` were clean **before and after**. **The middle one is
+not, and was not.** Measured first, before any edit:
+
+```
+go test ./... -timeout 600s -count=1
+  --- FAIL: TestARecordTravelsEndToEnd
+      roundtrip_test.go:239: 1 header field(s) were zero in every record this test
+      round-tripped, so nothing here would notice the server dropping them: [EphWindow]
+```
+
+Exactly one test in the repository; every other package `ok`; reproduced **three times**,
+deterministic. `go build ./...` and the plan linter are clean, so two of the three claims hold.
+
+**This repository did not change; the sibling did.** Measured read-only against `connect`'s history,
+not its working tree:
+
+```
+(connect) for c in 71d2482 6248284 b0155d9; do git show $c:message/record.go | grep -c EphWindow; done
+   ->  0, 1, 1
+```
+
+`d2e7a51`'s own verification block records `connect` at **`71d2482`**, where the count is **0**. So the
+claim was true when it was written and stopped being true without a byte moving here, because
+`replace github.com/urnetwork/connect => ../connect` makes the sibling's **working tree** this module's
+dependency. **The gate that fired is the right one and it fired for the right reason**:
+`assertEveryHeaderFieldTravelled` walks `message.RecordHeader`'s own field set by reflection and its
+header says *"a field added to the header tomorrow arrives uncovered and says so rather than being
+quietly compared at zero."* It did. **This commit does not repair it** — the repair is five edits
+across the harness, the store contract, the §3.2 migration, the rebuild and check 3, which is
+implementation work and not this pass's — and it does not paper over it either. **Red before, red
+after, identically, for a cause this commit does not touch**, and item **190** carries the dispatch.
+
+#### A claim in the brief that does not reproduce, and is therefore NOT written into the ledger
+
+The brief instructed that item 189 be filed with a stated correction: that Spec B §5.1 check 3 and the
+§3.2 `CHECK`, being phrased on the **wire byte** rather than on the class, *"leave `EPH(0)` on the
+wrong side of the line, because `EPH(0)` must carry zero and its wire byte is in range."* **That is
+inverted.** `EPH(0)`'s wire byte is `0x10` = **16**, which is **outside** 17..21, so the wire-byte
+phrasing puts `EPH(0)` in the must-be-zero half — which is exactly where MASTER §8's presence rule
+puts it (*"0 on PERMANENT, DURABLE, MEDIA and EPH(0)"*). The arithmetic, because one byte is the whole
+question:
+
+```
+MASTER §8:    wire byte = 0x10 | bucket, bucket in 0..5
+Spec A §5.1:  "(decimal 16, 17, 18, 19, 20, 21)"
+EPH(0) -> 16, outside 17..21  ->  must be zero  ->  agrees with MASTER
+```
+
+**The two landed statements are correct as written.** The phrasing that is wrong by one class is the
+**class-phrased** one — *"a non-`EPH` class"* — because `EPH(0)` **is** an `EPH` class and must carry
+zero, so a one-sentence ruling written that way re-opens it. Item 189 is filed in that direction, with
+the arithmetic printed beside it, and the inverted sentence is **not written down anywhere in the
+corpus**.
+
+#### The sweep, and the complement printed
+
+**CLASS — every corpus line declaring a `*GroupSession` method.** Query, answer, and the tree-ish the
+answer is true at — because **this commit's own prose and its edit (c) both add matching lines**, so a
+query run after it returns a different number for a reason that is not about the corpus:
+
+```
+git archive d2e7a51 | tar -x -C <tmp> && cd <tmp>
+grep -rn 'func (self \*GroupSession)' --include=*.md .   ->  26 lines in 4 files
+grep -rhn 'func (self \*GroupSession)' --include=*.md . \
+  | sed 's/.*func (self \*GroupSession) //; s/[( ].*//' | sort -u   ->  10 exported + do
+(connect @ b0155d9) grep -rn 'func (self \*GroupSession) [A-Z]' --include=*.go messagegroup/ \
+  | grep -v _test                                        ->  11 exported methods
+```
+
+**COMPLEMENT, printed with its one member: `InstallEphRoot` is named by no line of the corpus.** Eleven
+shipped minus ten named. A complement of zero would have been the tell that the query was wrong; it has
+exactly one member and that member is item 188's subject. The sweep also found the stronger case a
+count would have hidden: **`s2` `:408-409` is not silent about `TrackSender`, it is WRONG** — four
+parameters where the shipped signature takes five. **After this commit the complement is empty by that
+query and the gap is NOT closed**, because `InstallEphRoot` is then named in one plan and in no spec;
+that is why every number above carries `d2e7a51`.
+
+**What these queries CANNOT find**, stated because a number without one is what item 184 exists about:
+a **paraphrase** that names no symbol — the corpus hid five of eight sites that way on the last sweep
+of a different class, and nothing mechanical reaches it here either; a declaration inside a prose
+sentence rather than a fenced Go block (`k1` `:168` names `TrackSender` in prose and was found only by
+reading); anything in `docs/reviews/`, which was searched but whose contents are dated records rather
+than live declarations; and **the whole of both read-only trees** — `connect` and `sdk` are not this
+repository and were read, never written.
+
+**What was considered and LEFT, with the reason.**
+
+- **`k1` `:168` and `s2` `:2494`, `:3165` — *"seven methods"*.** Left. `k1`'s is explicitly pinned to
+  `0c14aa0` with its query printed, which is a dated measurement and is the form this file asks for;
+  `s2`'s two are prose inside a task's argument rather than a published surface. The shipped count is
+  **11** and is now recorded in §1's Code row, which is where a claim about *now* belongs.
+- **The nine `connect` lines and one `PROGRESS.md` quotation that item 184 named and left.** Left
+  again, for item 184's own reasons: the quotation would stop being verbatim if edited, and the nine
+  are in a tree this pass may not write — `connect` is being written by another agent right now.
+- **Item 183's ruling 2a text.** Left unedited. Item 187 is a defect *in* that ruling's implementability,
+  not a correction to it, and editing a ruling to hide the gap it created is the failure this file has
+  recorded under several numbers.
+- **Spec A §5.2, §5.3, §5.11, §12.1 and Spec B §5.1/§3.2/§12.1 themselves.** Left unedited by design.
+  Items 187, 188 and 189 each name what those sections owe, and **all three ask the owner a question**;
+  writing an answer into a normative section would be answering it. Item 188's Spec A edits (a), (b) and
+  (d) additionally belong with the ruling on **187**, which moves the same published Go block, so making
+  them now would mean editing §5.2 twice.
+- **`s2` `:408-409`'s `TrackSender`, which is item 188's edit (c) — MADE, not left.** It is not a
+  question and not a normative section: it is a **plan** document publishing a four-parameter signature
+  against a five-parameter function, and a dispatcher transcribing it writes a call that does not
+  compile. Corrected in place with the old wording kept beside it, per this file's convention, plus the
+  block's own *"the COMPLETE exported method set … is these seven"* claim answered with the measured
+  **eleven** and its query. **`InstallEphRoot` is now named in exactly one document**, and that document
+  is a plan rather than a spec, which is what item 188 is still open about.
+
+#### Four defects found in this pass's own work, before commit
+
+**(i)** The brief's `EPH(0)` correction, above — caught by computing `0x10 | 0` rather than by
+transcribing the sentence. **(ii)** The first draft of 187's property was *"`eph_window` equals
+`floor(x/…)` for the same `x` the record's `ct_head` carries as `sent_at`"*, which **presupposes
+closure (a)** and would have filed a property that is unsatisfiable under (b) and (c) — the exact defect
+item 152 existed for. It is now *two conforming sealers handed the same message at the same instant
+write the same `eph_window`*, which is satisfiable under all three and falsifiable today.
+**(iii)** 190 was first drafted as a fifth question; it contains no question — every sentence it needs
+is ruled — and is filed as a **dispatch**, labelled so in its own heading. **(iv)** The tracks row C in
+`PROGRESS.md` and §1's Code row here both said `go test ./...` green; both were corrected against a run
+rather than against each other, and both were found by running the suite before editing rather than by
+reading the row.
+
+**Reviewed by:** self, against the properties and against this pass's own edit rather than against the
+diff. **Every one of the four items carries a property that is satisfiable by a correct
+implementation, falsifiable by an incorrect one, and presupposes no unruled sentence**, and each names
+its mutation target. **No test code is supplied.**
+
+**What this pass does NOT close, said plainly.** Items **187**, **188** and **189** are filed and not
+ruled and are the owner's; **182**'s open half is still open and now carries what ships against it;
+**190** is a dispatch nobody has executed. **Task 14's blocker list is unchanged**: `M1-52` blocks step
+3, item **185** blocks step 1's `EPH(5)` half, and **none of the three new spec items is added to it**.
+**None of the four blocks the CP3b path.** What blocks the message-server leg — which is what
+`PROGRESS.md`'s tracks row names as what blocks CP3b — is item **190**, and it is red on the suite
+today.
+
+**Verification:** `go build ./...` clean **before and after**;
+`go test ./ -run TestThePlanLinter -timeout 300s` ok **before and after**;
+`go test ./... -timeout 600s` **RED before and RED after, identically** — one test,
+`api.TestARecordTravelsEndToEnd`, for the cause item **190** carries and this commit does not touch.
+`connect` (`beta/message`, `b0155d9`) and `sdk` (`beta/message`, `54785de`) were **read-only to this
+pass** — every command issued against either was `git show`, `git status`, `git rev-parse`, `grep` or
+`sed -n`, and nothing was written to either tree. `sdk` is clean. **`connect` is NOT, and it is said
+here rather than rounded to "clean":** it was clean at `git status --porcelain` when this pass began
+and carries **three modified files** at the end — `messagegroup/ephkey_test.go`,
+`messagegroup/m1w1repairs_test.go`, `messagegroup/seal_test.go` — at an unchanged HEAD of `b0155d9`.
+**Another agent is writing that tree concurrently**, and those three are the follow-up its own review
+named. None of this pass's edits is in `connect`, and the sibling being mid-edit changes no
+measurement above: every number taken from `connect` was taken with `git show <commit>:<path>`,
+against committed objects, never against its working tree. `git ls-files` equals `git ls-tree -r HEAD`
+at **105** in this repository, checked before the first edit and after the commit.

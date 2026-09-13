@@ -16,9 +16,9 @@ colliding, and that has cost this project real work before.
 
 | Track | Repo | State |
 |---|---|---|
-| **A — protocol core** | `Ryanmello07/connect`, branch `beta/message` | **p1–p7 complete; m1 wave 0 and wave 1 landed, plus ruling A1.** At `33932e0`: 1,105 tracked files, 7,631 tests passing over `mls/`, `message/` and `messagegroup/`, nine-platform `CGO_ENABLED=0` build green. **Wave 2 is no longer stopped in front of ledger 152: it was RULED 2026-09-13.** *(This cell read "Wave 2 is stopped in front of ledger **152** — **and, since 2026-09-09, by nothing else**: the owner ruled `M1-1`'s remainder and `M1-7` together that day as composite `C3`, so Task 14's blocker list is item 152 alone." **The "by nothing else" clause was stale from 2026-09-12**, when the red team filed `M1-51`–`M1-55`; ledger item **184** files that and names all five sites that carried it.)* **What is true now:** Task 13 is unblocked, **Task 14 step 1 is unblocked FOR THE `PERMANENT` `pq_secret` WRAP AND NOT FOR ITS `EPH(5)` TWIN** — ledger 152's ruling lifts the `EPH` *seal* refusal its `eph_root` wrap waited on, and ledger open item **185** (filed 2026-09-13, second pass) then stops that record being *published*, because no document says what `eph_window` it carries while the server refuses an implausible one — **Task 14 step 3 is NOT unblocked: `M1-52` blocks signing and is filed, not ruled.** *(The "step 1 is unblocked" clause without the `EPH(5)` qualification was written on the first pass of 2026-09-13 and is corrected here on the second.)* Task 15 and Task 16 are unaffected. Task 17 is also unblocked, by the same sitting's second ruling (`M1-27`). **CORRECTED 2026-09-11 — that blocker is CLOSED, and had been since `j1` Task 5.** This row read *"CP3b itself is still blocked outright by `S2-4` — `JoinFromWelcome` is an unconditional refusal, so no exported path lets two clients share one group"*. At **`72ffdbd`** — 1,112 tracked files, **7,698** test and subtest invocations green over `mls/`, `message/` and `messagegroup/` (unfiltered `go test ./mls/... ./message/... ./messagegroup/... -v`; **2,234** top-level plus **5,464** subtests, 0 failures) — two independent engines share one real MLS group, and a `DURABLE` record sealed by the founder opens at the joiner: `TestTwoEnginesShareOneGroupAndTheirExportersAgree`, `TestADurableRecordSealedByTheFounderOpensAtTheJoiner` and `TestTheDeviceSurvivesItsOwnJoin` all pass. **What blocks CP3b now is the message-server leg, which is `s2`'s** — see the 2026-09-11 entry for the determination and its evidence |
+| **A — protocol core** | `Ryanmello07/connect`, branch `beta/message` | **p1–p7 complete; m1 wave 0 and wave 1 landed, plus ruling A1.** At `33932e0`: 1,105 tracked files, 7,631 tests passing over `mls/`, `message/` and `messagegroup/`, nine-platform `CGO_ENABLED=0` build green. **Wave 2 is no longer stopped in front of ledger 152: it was RULED 2026-09-13.** *(This cell read "Wave 2 is stopped in front of ledger **152** — **and, since 2026-09-09, by nothing else**: the owner ruled `M1-1`'s remainder and `M1-7` together that day as composite `C3`, so Task 14's blocker list is item 152 alone." **The "by nothing else" clause was stale from 2026-09-12**, when the red team filed `M1-51`–`M1-55`; ledger item **184** files that and names all five sites that carried it.)* **What is true now:** Task 13 is unblocked, **Task 14 step 1 is unblocked FOR THE `PERMANENT` `pq_secret` WRAP AND NOT FOR ITS `EPH(5)` TWIN** — ledger 152's ruling lifts the `EPH` *seal* refusal its `eph_root` wrap waited on, and ledger open item **185** (filed 2026-09-13, second pass) then stops that record being *published*, because no document says what `eph_window` it carries while the server refuses an implausible one — **Task 14 step 3 is NOT unblocked: `M1-52` blocks signing and is filed, not ruled.** *(The "step 1 is unblocked" clause without the `EPH(5)` qualification was written on the first pass of 2026-09-13 and is corrected here on the second.)* Task 15 and Task 16 are unaffected. Task 17 is also unblocked, by the same sitting's second ruling (`M1-27`). **CORRECTED 2026-09-11 — that blocker is CLOSED, and had been since `j1` Task 5.** This row read *"CP3b itself is still blocked outright by `S2-4` — `JoinFromWelcome` is an unconditional refusal, so no exported path lets two clients share one group"*. At **`72ffdbd`** — 1,112 tracked files, **7,698** test and subtest invocations green over `mls/`, `message/` and `messagegroup/` (unfiltered `go test ./mls/... ./message/... ./messagegroup/... -v`; **2,234** top-level plus **5,464** subtests, 0 failures) — two independent engines share one real MLS group, and a `DURABLE` record sealed by the founder opens at the joiner: `TestTwoEnginesShareOneGroupAndTheirExportersAgree`, `TestADurableRecordSealedByTheFounderOpensAtTheJoiner` and `TestTheDeviceSurvivesItsOwnJoin` all pass. **What blocks CP3b now is the message-server leg, which is `s2`'s** — see the 2026-09-11 entry for the determination and its evidence. **UPDATED 2026-09-13, second pass of that date, and the numbers above are superseded rather than deleted.** `connect` has landed both halves of the 2026-09-13 sitting: the `eph_window` wire field at **`6248284`** and the key schedule plus the full seal lift at **`b0155d9`** — **1,125 tracked files, 8,252 tests passing** over `mls/`, `message/` and `messagegroup/`, unfiltered, against the 1,105 / 7,631 at `33932e0` above. Both passes were adversarially reviewed and both returned SOUND. **The implementation surfaced four things the documents owe, filed as ledger items 187–190 and NOT ruled here**, and the blocking answer is the part that matters: **none of 187, 188 or 189 blocks m1 Task 14 or the CP3b path**, and item **182**'s open half does not either, because `connect` shipped the safe half of it. **187** (the sender's window is unimplementable as MASTER §8.1 and Spec A §5.3 state it, because `sent_at` lives inside `ct_head` and `SealRecord` takes `headPlain` opaque) blocks a claim; **188** (`eph_root` has no declared route into a `GroupSession` — `InstallEphRoot` and three siblings ship and no document names one) blocks *writing* Task 14's receive leg from the documents, not executing it — and it had broken `s2`'s published `TrackSender`, four parameters against a five-parameter function, **corrected in place in this commit**; **189** (whether `ParseRecord` refuses a non-zero `eph_window` off the classes the presence rule makes zero) blocks a conformance claim. **What DOES block the message-server leg is new and is item 190**: `eph_window` is ruled, landed in `connect`, and carried in no Go file of this repository, so `go test ./...` is red here — see row C |
 | **B — Windows client** | `Ryanmello07/urmessage-windows` (private) | CP1 shipped — builds, launches, renders |
-| **C — message server** | `Ryanmello07/urnetwork-message-server` | **shipped and under test** — 57 Go files, 26,402 lines; `store/`, `api/`, `peer/`, `blobd/`, `sweep/`, `cmd/`, `go build ./...` and `go test ./...` green. CP3a and CP3c ran through it |
+| **C — message server** | `Ryanmello07/urnetwork-message-server` | **shipped, under test, and RED at `d2e7a51` — one test, for a ruled wire field this repository carries nowhere.** 57 Go files, 26,402 lines; `store/`, `api/`, `peer/`, `blobd/`, `sweep/`, `cmd/`; `go build ./...` clean and `go test ./ -run TestThePlanLinter` ok. CP3a and CP3c ran through it. ***(This cell read* "`go build ./...` and `go test ./...` green" *until 2026-09-13, second pass of that date, and the second half stopped being true without this repository changing a byte.* `go test ./... -timeout 600s` *now fails* `api.TestARecordTravelsEndToEnd` *with* "1 header field(s) were zero in every record this test round-tripped … [EphWindow]", *reproduced three times; every other package is* `ok`. **`eph_window` was ruled 2026-09-13 (item 183), landed in `connect` at `6248284`, and is carried in NO Go file here** — `grep -rn 'eph_window\|EphWindow' --include=*.go .` returns **0** — not in the harness, the store contract, the §3.2 migration, the rebuild or §5.1 check 3. The `replace ../connect` in `go.mod` makes the sibling's working tree this module's dependency, which is the intended wiring and this is the intended consequence: the gate that fired is `assertEveryHeaderFieldTravelled`, whose own header says *"a field added to the header tomorrow arrives uncovered and says so rather than being quietly compared at zero"*. **It did.** Ledger item **190** carries the five edits owed, none of which is a ruling. This is the same class as the two rows corrected 2026-09-07 below — a state row nobody re-derived after work landed — except that here the work landed in a different repository.)*** |
 
 *(**Rows A and C corrected 2026-09-07.** A read *"p1 complete and green in CI; p2 started"* and C read
 *"greenfield; specs written, no code yet"* — the second over a repository that already contained the
@@ -1702,3 +1702,115 @@ after. `message.EphBucketSeconds` was measured **by running it** against `71d248
 module with a `replace` — `0 → -1, 1 → 3600, 2 → 28800, 3 → 86400, 4 → 604800, 5 → 2419200, 6 → -1,
 7 → -1, 8 → -1` — which reproduces the brief's table exactly. `git ls-files` equals
 `git ls-tree -r HEAD` at **105**.
+
+---
+
+## 2026-09-13 — the implementation's four spec gaps filed and none ruled, and the suite in this repository found RED for a field ruled in another
+
+Third commit of 2026-09-13, **documents only**. `connect` implemented the sitting's two rulings —
+`6248284` for the `eph_window` wire field, `b0155d9` for the key schedule and the full seal lift, both
+adversarially reviewed and both SOUND, **1,125 tracked files and 8,252 tests passing** — and the
+implementation surfaced four things the corpus owes. They are ledger items **187–190** and **none of
+them is ruled here**.
+
+### Which of them block m1 Task 14 or CP3b — the answer first, because the corpus has been wrong about this before
+
+**None of the four blocks m1 Task 14 or the CP3b path, and Task 14's blocker list is unchanged.**
+`M1-52` still blocks step 3 and item **185** still blocks step 1's `EPH(5)` half; nothing filed today
+is added to that list.
+
+- **187** — the sender's window is unimplementable as MASTER §8.1 and Spec A §5.3 state it. **Blocks a
+  claim, not a task.** Not Task 14: neither record that task builds calls `EphKey` at all, and a wrap
+  has no `sent_at` to divide — that is item 185. Not CP3b: the record on that path is `DURABLE`, whose
+  `eph_window` is `0` by the presence rule, so no window is computed.
+- **188** — `eph_root` has no declared route into a `GroupSession`. **Blocks writing Task 14's receive
+  leg from the documents, not executing it.** It also broke `s2` Task 12's published `TrackSender` —
+  four parameters against a five-parameter function — which is **corrected in place in this commit**,
+  so a dispatcher no longer transcribes a call that will not compile. The code ships and the owner has
+  confirmed it is kept; the declaration is what is still owed.
+- **189** — the `ParseRecord` refusal question. **Blocks a conformance claim.** The field travels, both
+  AADs cover it, and check 3 and **S19** stand whichever way it is ruled.
+- **182's open half** — refuse `0x01` outright, or tolerate it on the read path for one release.
+  **Blocks nothing**, because `connect` shipped the **safe** half, which a later ruling can widen
+  without invalidating anything already written. That position is now recorded in item 182 so the owner
+  rules knowing what ships.
+
+**What DOES block the message-server leg — which this file's own tracks row names as what blocks
+CP3b — is new item 190**, and it is measured rather than argued.
+
+### `go test ./...` is RED here, and was red before this commit touched anything
+
+The brief for this pass stated the suite was clean before and after. **It is not, and was not.**
+Measured first, before any edit, and reproduced three times:
+
+```
+go test ./... -timeout 600s -count=1
+  --- FAIL: TestARecordTravelsEndToEnd
+      roundtrip_test.go:239: 1 header field(s) were zero in every record this test
+      round-tripped, so nothing here would notice the server dropping them: [EphWindow]
+```
+
+Exactly one test; every other package `ok`; `go build ./...` and the plan linter clean, so two of the
+three claims hold. **This repository did not change — the sibling did.** `EphWindow` entered
+`message.RecordHeader` at `connect` `6248284`, and `d2e7a51`'s own verification block records `connect`
+at `71d2482`, where it does not exist:
+
+```
+(connect) for c in 71d2482 6248284 b0155d9; do git show $c:message/record.go | grep -c EphWindow; done
+   ->  0, 1, 1
+```
+
+The `replace ../connect` in `go.mod` makes the sibling's working tree this module's dependency, which
+is the intended wiring and this is the intended consequence. **The gate that fired is the right one**:
+`assertEveryHeaderFieldTravelled` walks `message.RecordHeader`'s own field set by reflection, and its
+header says *"a field added to the header tomorrow arrives uncovered and says so rather than being
+quietly compared at zero."* It did exactly that, on the first run, naming the field.
+
+**`eph_window` is carried in no Go file here** — `grep -rn 'eph_window\|EphWindow' --include=*.go .`
+returns **0** — so the harness cannot seal a record with one, `store.Record` cannot hold one,
+`store/migrations.go` has neither the column nor the `CHECK` Spec B §3.2 already publishes,
+`rebuildRecord` cannot carry one, and **Spec A requirement `S19` exists in no code at all**. Item
+**190** lists the five edits owed; **none of them is a ruling**, because item 183 ruled the field, S19
+and check 3 ruled the refusal, and §3.2 already publishes the column.
+
+**This commit does not repair it and does not paper over it.** That repair is implementation work
+across five files and is not a documents-only pass's. **Red before, red after, identically, for a cause
+this commit does not touch.**
+
+### One claim in the brief that does not reproduce, so it is not written down
+
+Item 189 was to be filed with the correction that Spec B's *"wire byte is 17..21"* phrasing *"leaves
+`EPH(0)` on the wrong side of the line"*. **Inverted.** `EPH(0)`'s wire byte is `0x10` = **16**, which
+is **outside** 17..21, so that phrasing puts it in the must-be-zero half — exactly where MASTER §8's
+presence rule puts it. **The two landed statements are correct as written**; it is the *class*-phrased
+reading, *"a non-`EPH` class"*, that is wrong by one class, because `EPH(0)` **is** an `EPH` class and
+must carry zero. Item 189 is filed in that direction with the arithmetic printed beside it, and the
+inverted sentence is written nowhere in the corpus.
+
+### The sweep, and the complement
+
+```
+git archive d2e7a51 | tar -x -C <tmp> && cd <tmp>        # pinned: this commit adds matching lines
+grep -rn 'func (self \*GroupSession)' --include=*.md .   ->  26 lines in 4 files, naming 10 + do
+(connect @ b0155d9) grep -rn 'func (self \*GroupSession) [A-Z]' --include=*.go messagegroup/ \
+  | grep -v _test                                        ->  11 exported methods
+```
+
+**Complement, one member: `InstallEphRoot` is named by no line of the corpus.** The sweep also found what a count would have hidden — **`s2` `:408-409` is not
+silent about `TrackSender`, it is wrong**, four parameters where the shipped signature takes five.
+**What the query cannot find:** a paraphrase naming no symbol; a declaration in prose rather than in a
+fenced block (`k1` `:168` was found by reading, not by the query); and anything in the two read-only
+trees, which were read and never written.
+
+### Verification
+
+`go build ./...` clean **before and after**; `go test ./ -run TestThePlanLinter -timeout 300s` ok
+**before and after**; `go test ./... -timeout 600s` **red before and red after, identically**, one
+test, for item 190's cause. `connect` (`beta/message`, `b0155d9`) and `sdk` (`beta/message`,
+`54785de`) were **read-only to this pass** — every command against either was `git show`,
+`git status`, `git rev-parse`, `grep` or `sed -n`. `sdk` is clean. **`connect` is not, and that is
+recorded rather than rounded off**: it began clean and ends with three modified files under
+`messagegroup/` at an unchanged HEAD, because **another agent is writing that tree concurrently**.
+None of them is this pass's, and no measurement above depends on `connect`'s working tree — every
+`connect` number was taken with `git show <commit>:<path>` against committed objects. `git ls-files`
+equals `git ls-tree -r HEAD` at **105** here, checked before the first edit and after the commit.

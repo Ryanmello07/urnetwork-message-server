@@ -405,8 +405,24 @@ func (self *GroupSession) Close() error
 func (self *GroupSession) Epoch() (uint64, error)
 func (self *GroupSession) SenderHandle() ([16]byte, error)
 func (self *GroupSession) AdvanceEpoch(pqSecret []byte) error
+// CORRECTED 2026-09-13, second pass of that date. This block read
+//     func (self *GroupSession) TrackSender(leaf uint32, class message.RetentionClass,
+//         ephBucket uint8, headIndex uint64) error
+// -- FOUR parameters -- and a dispatcher transcribing it wrote a call that does not
+// compile. The 2026-09-13 eph_window ruling (ledger 183) put the window in the sender
+// ladder's key, so TrackSender takes it too. Old wording kept above, per this file's
+// convention. Ledger open item 188.
 func (self *GroupSession) TrackSender(leaf uint32, class message.RetentionClass,
-    ephBucket uint8, headIndex uint64) error
+    ephBucket uint8, ephWindow uint64, headIndex uint64) error
+
+// AND THE SET ABOVE IS NO LONGER THE COMPLETE ONE. Measured at connect b0155d9 by
+//   grep -rn 'func (self \*GroupSession) [A-Z]' --include=*.go messagegroup/ | grep -v _test
+// it is ELEVEN, not seven: the four not listed above are ReauthRecord, EpochKeys,
+// RebindServerNonce -- which closes the 'NO server-nonce setter' clause of S2-2 -- and
+// InstallEphRoot, which is eph_root's only route into a session and which NO DOCUMENT
+// IN THIS CORPUS NAMES. Ledger open item 188, filed and not ruled as to the declaration;
+// the symbols themselves are confirmed kept by the owner.
+func (self *GroupSession) InstallEphRoot(ephRoot []byte) error
 ```
 
 ```go
