@@ -487,7 +487,7 @@ than leaving a stale reference for the next reader.
 |---|---|---|---|
 | a reachable `read_key[e]` / `write_key[e]` for a live session | `connect` — unowned | Tasks 9, 10, 11 | **absent.** `GroupSession` has seven exported methods and none returns a key. **S2-1** |
 | a `server_nonce` rebind on a live `GroupSession` | `connect` — unowned | Task 7 | **absent.** No setter exists. **S2-2** |
-| a `pq_secret` DELIVERY channel (the device wrap) | m1 Task 14 | Tasks 8a and 9 | **blocked** on ledger item 152 **alone, since 2026-09-09** — `M1-1`'s remainder and `M1-7` were ruled that day as composite `C3`, so Task 14's field list, signature preimage and padding are settled and its only remaining blocker is the landed `EPH` seal refusal. The SAMPLER landed while this plan was being reviewed — `messagegroup/epoch.go` is tracked at `connect` `7868d65` and declares `NewPqSecret` — and the delivery did not: there is no `wrap*.go` in `messagegroup`, and `XwingEncapsulate` / `XwingDecapsulate` still have **zero production callers outside `xwing.go`**, re-measured at `7868d65`. **S2-3** |
+| a `pq_secret` DELIVERY channel (the device wrap) | m1 Task 14 | Tasks 8a and 9 | **blocked** on ledger item 152 **alone, since 2026-09-09** — `M1-1`'s remainder and `M1-7` were ruled that day as composite `C3`, so Task 14's field list, signature preimage and padding are settled and its only remaining blocker is the landed `EPH` seal refusal. ***(Amended 2026-09-13, second pass of that date. **Ledger item 152 was RULED on 2026-09-13** — `ct_head` takes the record's own class key — so the `EPH` seal refusal is lifted and Task 14 step 1's `PERMANENT` `pq_secret` wrap is unblocked. The old wording is kept above because a reader holding a printout needs to recognise which state their copy carries. **It was ALSO wrong when written, on its own terms**: `M1-52` — the 1,320-or-1,356-octet signature preimage — was filed 2026-09-12 and blocks Task 14 **step 3**, and nothing re-derived this claim when it landed. Ledger item **184**. And Task 14's `EPH(5)` `eph_root` wrap has a second, newer blocker: ledger open item **185**, what `eph_window` that record carries. So `pq_secret` delivery is unblocked for the wrap that carries it and its twin is not.)*** The SAMPLER landed while this plan was being reviewed — `messagegroup/epoch.go` is tracked at `connect` `7868d65` and declares `NewPqSecret` — and the delivery did not: there is no `wrap*.go` in `messagegroup`, and `XwingEncapsulate` / `XwingDecapsulate` still have **zero production callers outside `xwing.go`**, re-measured at `7868d65`. **S2-3** |
 | a working `GroupEngine.JoinFromWelcome` | m1 Task 16, and `connect/mls` upstream of it | any two-client run | **absent.** An unconditional refusal on every input. **S2-4** |
 | an injected `GroupEngine` / `GroupHandle` factory | s5 | Tasks 9–12 | absent; Gate 5 forbids `s2` from constructing one |
 | a production `mls.StateStore` | s5, or unowned | any run across a process boundary | **absent.** The interface has eight methods and zero production implementations in any tree. **S2-14** — **and RULED 2026-09-10 (J1-9) to be OFF the CP3b prefix**, so what waits on it is a restart rather than the bar |
@@ -3139,7 +3139,12 @@ any row, and the fixture that would perform one filed as S2-7.*
   asserting any of it cannot pass. Note that Spec A §5.3 records M1-6 as lifting the refusal for
   PERMANENT and MEDIA on 2026-09-07 and **the code at `33932e0` still refuses them**, with two tests
   pinning the stale refusal. That divergence is `connect`'s; it becomes this plan's the day §5.11's
-  snapshot has to be sealed as a PERMANENT record.
+  snapshot has to be sealed as a PERMANENT record. *(Amended 2026-09-13, second pass of that date:
+  **Spec A §5.3 now lifts the refusal IN FULL**, `EPH` included, because ledger item 152 was ruled —
+  so the divergence is wider than this bullet says, not narrower. Re-measured at `connect`
+  `71d2482`: `messagegroup/seal.go:119` and `:387` still refuse **every** class but `DURABLE` with
+  `ErrRetentionClassUnruled`. The widening is `connect`'s later dispatch and this pass does not make
+  it; the `EPH` half additionally waits on ledger open item **185** for the `eph_root` wrap.)*
 - **A second `connect.Client` for messaging with its own auth.** §9.3's `settings_json` carries no
   `ByJwt` and no device handle, and `sdk`'s only production client is the VPN's. Whether CP3b runs
   over two loopback clients the way `msgrepo`'s own fixture does, or over two authenticated ones, is
@@ -3208,7 +3213,7 @@ tracked at `connect` `7868d65`, which corrects this plan's earlier "in the worki
 reading; m1 Task 14 supplies the device wrap that **delivers** it, has not landed, and is blocked on
 ledger item 152 — **and, since 2026-09-09, on nothing else**: the owner ruled `M1-1`'s remainder and
 `M1-7` together that day as composite `C3`, so what stands in front of Task 14 is the landed
-non-`DURABLE` seal refusal at `seal.go:119`/`:387` and not an unruled field list. Re-measured at `7868d65`: no `wrap*.go` in `messagegroup`, and
+non-`DURABLE` seal refusal at `seal.go:119`/`:387` and not an unruled field list. ***(Amended 2026-09-13, second pass of that date. **Ledger item 152 was RULED on 2026-09-13** — `ct_head` takes the record's own class key — so the `EPH` seal refusal is lifted and Task 14 step 1's `PERMANENT` `pq_secret` wrap is unblocked. The old wording is kept above because a reader holding a printout needs to recognise which state their copy carries. **It was ALSO wrong when written, on its own terms**: `M1-52` — the 1,320-or-1,356-octet signature preimage — was filed 2026-09-12 and blocks Task 14 **step 3**, and nothing re-derived this claim when it landed. Ledger item **184**. And Task 14's `EPH(5)` `eph_root` wrap has a second, newer blocker: ledger open item **185**, what `eph_window` that record carries. So `pq_secret` delivery is unblocked for the wrap that carries it and its twin is not.)*** Re-measured at `7868d65`: no `wrap*.go` in `messagegroup`, and
 `XwingEncapsulate` and `XwingDecapsulate` have no production caller outside `xwing.go`, which
 declares them. Until delivery exists, the only thing making two
 sessions agree on a storage root is a test constant — which is exactly the *"no test-only key source
@@ -3383,7 +3388,10 @@ defect class reproduced on the side where a wrong answer is silent message loss 
 refusal. *Position taken:* Task 12 keys by the retention **wire** byte, derived through
 `message.RetentionClassWire` and never by a second copy of the join, because that is the key the
 consumer of the row already uses. *Not resolved:* whether §8.2 should declare the receive-side row at
-all, and whether a future transient counter (item 152, M1-25) would re-key it again — which is the
+all, and whether a future transient counter (**item 152 — RULED 2026-09-13, and it does NOT introduce
+a transient counter; what it introduced is `eph_window`, a plaintext `u64` on the wire, and M1-25 is
+where the transient-counter question now lives alone**; annotated 2026-09-13, second pass), M1-25)
+would re-key it again — which is the
 same question M1-5 asks on the send side and has the same answer shape: a versioned key space, which
 Task 12 Property 7 now carries. **Blocks:** nothing in this plan. **Owed:** a §8.2 amendment and a
 ruling alongside M1-5.

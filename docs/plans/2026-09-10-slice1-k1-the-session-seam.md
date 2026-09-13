@@ -21,7 +21,7 @@ text message, every key real, no test-only key source anywhere on the path."* Tw
 blockers the `s2` plan filed against that sentence are closed here. **S2-3** is not: `pq_secret` has
 a sampler and no delivery channel, its delivery is m1 Task 14's, and m1 Task 14 is blocked on ledger
 item 152 — **which is the owner's and which this plan does not touch, propose a reading of, or
-pre-empt**. **S2-4** was closed on `connect` `0c14aa0` and is named here only so the count of what
+pre-empt**. ***(Amended 2026-09-13, second pass of that date: **ledger item 152 was RULED on 2026-09-13** and the `EPH` seal refusal is lifted, so Task 14's `PERMANENT` `pq_secret` wrap — the record S2-3 is actually about — is unblocked. This plan still does not touch that ruling. Two blockers on Task 14 remain and neither is 152: **M1-52**, filed 2026-09-12, blocks step 3's signing, and **ledger open item 185**, filed on the ruling's second pass, blocks the `EPH(5)` `eph_root` wrap. Old wording kept above; ledger item **184** files why nothing re-derived these claims when M1-52 landed.)*** **S2-4** was closed on `connect` `0c14aa0` and is named here only so the count of what
 remains is right. A plan that ships every task below and reports CP3b has met a bar it cannot have
 met.
 
@@ -306,7 +306,7 @@ over `zeroizeOnLoop`'s erase sites rather than listed (M8): **EIGHT**. The door 
 | `storageRoot` | every other row hangs off it, and `message.WriteKey`, `message.ReadKey`, `DeriveClassKeys` and `GroupHandleKey` are all exported — so this accessor is the whole epoch key schedule published as one method. Its only consumer is spec A §5.3's restart, and **J1-9** ruled the restart off the CP3b prefix. **K1-1** |
 | `groupHandleKey` | the routing identifier, and the value §5.3 and MASTER §8 disagree about which of the two a device persists. That disagreement is **M1-4**, and shipping an accessor for either half would settle it by shipping. **K1-1** |
 | `classKeys` | the three retention-class ladder roots. Every consumer of one goes through `SealRecord` or `OpenRecord`, which is where the ladder and its window live; a caller holding a class key holds every record key of that class at that epoch |
-| `pqSecret` | MASTER §7's per-epoch PQ independence. Its delivery is **S2-3** and m1 Task 14's, and that is blocked on ledger item 152, which this plan does not touch |
+| `pqSecret` | MASTER §7's per-epoch PQ independence. Its delivery is **S2-3** and m1 Task 14's, and that is blocked on ledger item 152, which this plan does not touch — *(amended 2026-09-13, second pass: **152 is RULED**; Task 14 step 1's `pq_secret` wrap is unblocked, and what still blocks Task 14 is **M1-52** for step 3 and ledger open item **185** for the `EPH(5)` twin. Ledger **184**.)* |
 | the sender ratchets | `record_key[i]` for this device's own ladder — the octets forward secrecy is about, and the reason `AdvanceEpoch` drops every one of them |
 | `receivers` | the same thing for every tracked peer, plus the skipped-key window |
 
@@ -1364,7 +1364,10 @@ could observe it — is exactly the unobservable property R4's third clause was 
 
 - **S2-3.** `pq_secret` has no delivery channel. Its delivery is m1 Task 14's and that is blocked on
   **ledger item 152**, which is the owner's and which this plan does not touch, read, propose a
-  reading of, or work around. **Every task above runs on a session constructed with an injected
+  reading of, or work around. *(Amended 2026-09-13, second pass of that date: **152 is RULED** and the
+  seal refusal is lifted, so the `PERMANENT` `pq_secret` wrap is unblocked. S2-3 does not close here
+  either way, because the channel still has to be **built** — Task 14 — and Task 14 carries **M1-52**
+  on step 3 and ledger open item **185** on its `EPH(5)` twin. Ledger item **184**.)* **Every task above runs on a session constructed with an injected
   `pq_secret`, exactly as the landed fixture does**, so nothing here makes the bar's *"no test-only
   key source"* clause any nearer or any further.
 - **CP3b.** Two of the four filed blockers close here. One remains, and it is S2-3.
@@ -1471,4 +1474,13 @@ place in this document where R4's third clause is satisfied by a person.
   `EpochAttachment.read_key` has no source today. That is m1's type and m1's attachment; **K1-6** is
   the reading this plan took and did not apply.
 - **To the owner:** ledger item **152** is the only remaining ruling on the CP3b path, and this plan
-  is written so that nothing in it depends on which way it goes.
+  is written so that nothing in it depends on which way it goes. ***(AMENDED 2026-09-13, second pass of
+  that date, and this sentence was the strongest form of the claim in the corpus, addressed to the
+  owner, and it was FALSIFIED TWICE. **152 is now ruled**, so it is not a remaining ruling at all. And
+  it was not the only one when it was written: `M1-52` — one sentence in MASTER §7 saying whether the
+  wrap signature's `payload` is the secret alone or `secret ‖ LP(identity_pub)` — was filed 2026-09-12,
+  the day before, and blocks Task 14 step 3. **What the owner is owed on the CP3b path today is
+  `M1-52`, plus ledger open items 185 and 186 which the 2026-09-13 ruling itself created.** The old
+  sentence is kept because this is a plan a reader may hold a printout of, and ledger item **184**
+  files the class: a "blocked by X and nothing else" claim is a measurement with a date and needs one
+  beside it.)***

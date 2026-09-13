@@ -16,7 +16,7 @@ colliding, and that has cost this project real work before.
 
 | Track | Repo | State |
 |---|---|---|
-| **A — protocol core** | `Ryanmello07/connect`, branch `beta/message` | **p1–p7 complete; m1 wave 0 and wave 1 landed, plus ruling A1.** At `33932e0`: 1,105 tracked files, 7,631 tests passing over `mls/`, `message/` and `messagegroup/`, nine-platform `CGO_ENABLED=0` build green. **Wave 2 is no longer stopped in front of ledger 152: it was RULED 2026-09-13.** *(This cell read "Wave 2 is stopped in front of ledger **152** — **and, since 2026-09-09, by nothing else**: the owner ruled `M1-1`'s remainder and `M1-7` together that day as composite `C3`, so Task 14's blocker list is item 152 alone." **The "by nothing else" clause was stale from 2026-09-12**, when the red team filed `M1-51`–`M1-55`; ledger item **184** files that and names all five sites that carried it.)* **What is true now:** Task 13 is unblocked, **Task 14 step 1 is unblocked** — ledger 152's ruling lifts the `EPH` seal refusal its `eph_root` wrap waited on — **Task 14 step 3 is NOT: `M1-52` blocks signing and is filed, not ruled.** Task 15 and Task 16 are unaffected. Task 17 is also unblocked, by the same sitting's second ruling (`M1-27`). **CORRECTED 2026-09-11 — that blocker is CLOSED, and had been since `j1` Task 5.** This row read *"CP3b itself is still blocked outright by `S2-4` — `JoinFromWelcome` is an unconditional refusal, so no exported path lets two clients share one group"*. At **`72ffdbd`** — 1,112 tracked files, **7,698** test and subtest invocations green over `mls/`, `message/` and `messagegroup/` (unfiltered `go test ./mls/... ./message/... ./messagegroup/... -v`; **2,234** top-level plus **5,464** subtests, 0 failures) — two independent engines share one real MLS group, and a `DURABLE` record sealed by the founder opens at the joiner: `TestTwoEnginesShareOneGroupAndTheirExportersAgree`, `TestADurableRecordSealedByTheFounderOpensAtTheJoiner` and `TestTheDeviceSurvivesItsOwnJoin` all pass. **What blocks CP3b now is the message-server leg, which is `s2`'s** — see the 2026-09-11 entry for the determination and its evidence |
+| **A — protocol core** | `Ryanmello07/connect`, branch `beta/message` | **p1–p7 complete; m1 wave 0 and wave 1 landed, plus ruling A1.** At `33932e0`: 1,105 tracked files, 7,631 tests passing over `mls/`, `message/` and `messagegroup/`, nine-platform `CGO_ENABLED=0` build green. **Wave 2 is no longer stopped in front of ledger 152: it was RULED 2026-09-13.** *(This cell read "Wave 2 is stopped in front of ledger **152** — **and, since 2026-09-09, by nothing else**: the owner ruled `M1-1`'s remainder and `M1-7` together that day as composite `C3`, so Task 14's blocker list is item 152 alone." **The "by nothing else" clause was stale from 2026-09-12**, when the red team filed `M1-51`–`M1-55`; ledger item **184** files that and names all five sites that carried it.)* **What is true now:** Task 13 is unblocked, **Task 14 step 1 is unblocked FOR THE `PERMANENT` `pq_secret` WRAP AND NOT FOR ITS `EPH(5)` TWIN** — ledger 152's ruling lifts the `EPH` *seal* refusal its `eph_root` wrap waited on, and ledger open item **185** (filed 2026-09-13, second pass) then stops that record being *published*, because no document says what `eph_window` it carries while the server refuses an implausible one — **Task 14 step 3 is NOT unblocked: `M1-52` blocks signing and is filed, not ruled.** *(The "step 1 is unblocked" clause without the `EPH(5)` qualification was written on the first pass of 2026-09-13 and is corrected here on the second.)* Task 15 and Task 16 are unaffected. Task 17 is also unblocked, by the same sitting's second ruling (`M1-27`). **CORRECTED 2026-09-11 — that blocker is CLOSED, and had been since `j1` Task 5.** This row read *"CP3b itself is still blocked outright by `S2-4` — `JoinFromWelcome` is an unconditional refusal, so no exported path lets two clients share one group"*. At **`72ffdbd`** — 1,112 tracked files, **7,698** test and subtest invocations green over `mls/`, `message/` and `messagegroup/` (unfiltered `go test ./mls/... ./message/... ./messagegroup/... -v`; **2,234** top-level plus **5,464** subtests, 0 failures) — two independent engines share one real MLS group, and a `DURABLE` record sealed by the founder opens at the joiner: `TestTwoEnginesShareOneGroupAndTheirExportersAgree`, `TestADurableRecordSealedByTheFounderOpensAtTheJoiner` and `TestTheDeviceSurvivesItsOwnJoin` all pass. **What blocks CP3b now is the message-server leg, which is `s2`'s** — see the 2026-09-11 entry for the determination and its evidence |
 | **B — Windows client** | `Ryanmello07/urmessage-windows` (private) | CP1 shipped — builds, launches, renders |
 | **C — message server** | `Ryanmello07/urnetwork-message-server` | **shipped and under test** — 57 Go files, 26,402 lines; `store/`, `api/`, `peer/`, `blobd/`, `sweep/`, `cmd/`, `go build ./...` and `go test ./...` green. CP3a and CP3c ran through it |
 
@@ -1608,11 +1608,25 @@ its timer was **a cooperating server** — Spec B §7.2's `ct_head = NULL` sweep
 erasure, against the adversary MASTER §8.1 names as *"retained server ciphertext"*: a backup, a
 replica that missed the sweep, a legal hold, a seized snapshot. **The guarantee is now
 cryptographic.** It is the same conversion ruling 3 of 2026-09-13 made for `eph_root[n]`; the head was
-the half that ruling left behind. Three published sentences that were false under the replaced rule
-are now true **as written and unedited**: MASTER §8.1's *"After the timer, retained server ciphertext,
-a seized device, a newly provisioned device, and a seedphrase holder all fail to decrypt"*, §12.4's
+the half that ruling left behind.
+
+**AND THE PRIZE IS NARROWER THAN THIS SECTION CLAIMED WHEN IT WAS FIRST WRITTEN — corrected the same
+day, second pass.** It said three published sentences were *"false under the replaced rule and now
+true as written and unedited"*, naming MASTER §8.1's *"After the timer, retained server ciphertext, **a
+seized device**, a newly provisioned device, and a seedphrase holder all fail to decrypt"*, §12.4's
 required UI string, and §13's *"including against a device set up tomorrow and against a seedphrase
-holder."*
+holder."* **§13 is true. §8.1's sentence is true for three of its four adversaries and was NOT
+established for the seized device, and §12.4's string states a requirement that nothing discharges.**
+`K_eph[n][b][t] = HKDF-Expand(eph_root[n], "eph/v1" ‖ u8(b) ‖ u64(t), 32)` takes **one** per-epoch
+`eph_root[n]` with `t` as an HKDF `info` term, so a device holding that epoch's state recomputes every
+window's key for every bucket — and ruling 2 prints `t` in the clear on the record. No document
+schedules the destruction of `eph_root[n]` or of `K_eph[n][b][t]`; the only deletion named anywhere is
+epoch-scoped (`DeleteGroupStateBefore`, 32 epochs, advanced by commits and not by clocks). **The
+conversion from behavioural to cryptographic is real against retained server ciphertext, a newly
+provisioned device and a seedphrase holder** — none of which ever holds `eph_root` — and it is **not
+yet established against a seized member device**. §8.1's sentence is narrowed to those three with the
+old text kept beside it; §12.4's string is **not** changed, because it states the requirement
+correctly and what is missing is the mechanism. **Ledger open item 186**, filed and not ruled.
 
 ### Ruling 2 — `M1-27`, and it reopens a frozen wire format
 
@@ -1639,9 +1653,45 @@ or 1,356 octets and no document says which, so nothing in Task 14 can sign"* —
 and its own *Blocks* line is *"signing, and therefore all of Task 14 step 3."* `M1-53` blocks Property
 11's third refusal beside it. **Task 14 step 1 is genuinely unblocked; step 3 is not.** Tasks 13, 15
 and 16 are unaffected, and **Task 17 is unblocked** by ruling 2. Ledger item **184** files the
-staleness and names the **five** sites that carried *"152 and nothing else"* — this file's tracks row,
+staleness and named **five** sites that carried *"152 and nothing else"* — this file's tracks row,
 `SPEC-LEDGER.md` §1's implementation-plan row, and the m1 plan's Task 14 heading, wave table and
 schedule diagram — all five corrected in place with the old wording kept beside the new.
+
+**THAT COUNT WAS WRONG AND IT WAS PUBLISHED WITHOUT A QUERY, WHICH IS THE FAILURE ITEM 184 ITSELF
+NAMES.** Corrected the same day, second pass. The count of **five** came from reading the m1 plan
+against PROGRESS and the ledger, and that reading never left those three files. The query is
+`grep -rnE 'item 152|ledger 152' --include=*.md docs/plans docs/specs PROGRESS.md`, and it reaches
+**seven more live sites in two plan documents inside its own `docs/plans` glob** — three in the
+strong *"and nothing else"* form, four in the weaker *"blocked on 152"* form; *numbers measured at
+`81f47cc`, with the post-correction number beside each*: the `s2` plan at
+`:490` → `:490` (*"blocked on ledger item 152 alone, since 2026-09-09"*, in its Interfaces table),
+`:3209` → `:3214` and `:3386` → `:3391`, and the `k1` plan at `:23` → `:23`, `:309` → `:309`,
+`:1366` → `:1366` and `:1473` → `:1476` — the last of which is
+*"**To the owner:** ledger item 152 is the only remaining ruling on the CP3b path"*, the strongest form
+of the claim in the corpus, addressed to the owner, and falsified twice over. **All seven are corrected
+in place**, with the old wording kept beside the new. Ten further carriers are **named and deliberately
+not changed**: this file's own verbatim quotation of `connect/messagegroup/doc.go:70-77`, which is a
+quotation of read-only source and would stop being verbatim if edited, and **nine matching lines in
+`connect` itself, in five files** — by `grep -rn 'item 152\|ledger 152' --include=*.go`, and **that is
+a LINE count and not a claim count**, which is the distinction several numbers on this project have
+got wrong: `messagegroup/doc.go:74`, `enginejoin_test.go:1643` and `:1681`, `m1w1repairs_test.go:678`,
+`ratchetrepairs_test.go:415`, `:430` and `:841`, `streamindex.go:90` and `:152`. All nine state 152 as
+unruled or future (*"on the day item 152 rules them"*, *"gated on ledger item 152"*). They are a
+**later dispatch** against a tree this pass may not write, and they are listed so that the count of
+what remains is right rather than comfortable. `sdk` has **zero** by the same query.
+
+**The measurement, with its query beside it: TWENTY-TWO carriers reached — five corrected on the first
+pass, seven corrected on this one, ten named and left.** Item 184 published *"four"* (five counting
+this file's tracks row) with **no query at all**, which is the failure item 184 is itself about.
+
+**And Task 14 step 1 is unblocked for ONE of the two records it builds.** The `PERMANENT` `pq_secret`
+wrap is through. Its twin, the **`EPH(5)` `eph_root` wrap**, is not: §8's presence rule makes its
+`eph_window` non-zero, S19 and Spec B check 3 refuse an implausible one with no wrap carve-out, and
+the field's formula divides a `sent_at` that a wrap head does not have (Spec A §5.11 (5)). **Ledger
+open item 185**, filed on this pass and not ruled; a builder MUST NOT publish that record until it is.
+Property 1's *"exactly two"* is therefore not buildable yet. **So: wave 2 is not unblocked, Task 14
+step 3 is blocked by M1-52, Task 14 step 1 is unblocked for the `PERMANENT` half only, and Task 17 is
+unblocked in full.**
 
 ### Verification
 

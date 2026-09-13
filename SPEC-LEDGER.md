@@ -28,13 +28,13 @@ code at all**, which is the gap every external leg in the m1 plan points at.
 
 | Item | State |
 |---|---|
-| MASTER protocol design | Revision 9, **nine** amendments — 2,475 lines *(was "eight — 2,329"; re-measured 2026-09-13)*. **The ninth is 2026-09-13 and it is the first that REVERSES a ruling rather than amending a statement**: `ct_head` is keyed under the record's own class key, and `record_bytes` gains `eph_window`, which reopens a section §14 froze. *(Was "six — 2,249 lines"; re-measured 2026-09-11.)* The seventh and eighth are both **2026-09-11** and are the only two that open by saying a rule in this document changes: §8's record listing and §8.1's ratchet paragraph carry Spec A §5.3's `EPH` carve-out in MASTER's own voice, `ct_head` first and then the `body_hash` line six above it |
-| Spec A — protocol / sdk / connect | Revision **A-25** — re-measured 2026-09-13. A-25 carries both 2026-09-13 rulings: §5.3's rule reversed, §5.1's `RecordHeader` gains `EphWindow`, §5.7's preimage gains the term, §5.11 (3)'s snapshot parenthesis corrected, the `EPH` seal refusal lifted **in full**, and new server-conformance row **S19**. *(Was "A-24 — 5,631 lines".)* *(Was "A-22 — 5,618"; re-measured 2026-09-11.)* A-23 names the inversion of A-20; A-24 amends server-conformance row **S10** and §5.1's two Go struct comments |
-| Spec B — message-server / operator | Revision **20** — re-measured 2026-09-13. **Revision 20 is the first SCHEMA change in nine revisions**: `eph_window bigint NOT NULL DEFAULT 0` with two `CHECK`s, protobuf projection field 14, a §5.1 check-3 clause and §7.1's ±1-window refusal. §7.2's table is unedited. *(Was "19 — 3,627 lines".)* *(Was "18 — 3,587"; re-measured 2026-09-11.)* Revision 19 changes no SQL statement: §3.2's `body_hash` DDL comment and §7.2's verbatim quote of MASTER. **The document's own "Current state" row still reads "Revision 6"** — seen, not repaired, and named in the edit log |
-| Spec C — Windows client UI | Revision 6 — 1,893 lines |
+| MASTER protocol design | Revision 9, **nine** amendments — **2,577 lines** *(was "nine — 2,475"; re-measured 2026-09-13, second pass of that date, which added no amendment: it is the ninth's own review and is carried as a SECOND PASS block inside it, plus the §8.1 narrowing and the §8.2 refusal)*. *(Was "eight — 2,329".)* **The ninth is 2026-09-13 and it is the first that REVERSES a ruling rather than amending a statement**: `ct_head` is keyed under the record's own class key, and `record_bytes` gains `eph_window`, which reopens a section §14 froze. *(Was "six — 2,249 lines"; re-measured 2026-09-11.)* The seventh and eighth are both **2026-09-11** and are the only two that open by saying a rule in this document changes: §8's record listing and §8.1's ratchet paragraph carry Spec A §5.3's `EPH` carve-out in MASTER's own voice, `ct_head` first and then the `body_hash` line six above it |
+| Spec A — protocol / sdk / connect | Revision **A-26** — **5,796 lines**, re-measured 2026-09-13, second pass of that date. **A-26 is A-25's review**: §5.1 receives the bucket-0 sentinel it was the only one of three documents to miss, §5.3's rule sentence and precondition (1) gain the device-wrap carve-out, §5.11 refuses to publish the `eph_root` wrap until ledger **185** is ruled, §3.5 and §8.1's storage row are corrected off ledger **186**, and §7.4 names the second producer of `"malformed"`. *(Was "A-25 — 5,722 lines".)* A-25 carries both 2026-09-13 rulings: §5.3's rule reversed, §5.1's `RecordHeader` gains `EphWindow`, §5.7's preimage gains the term, §5.11 (3)'s snapshot parenthesis corrected, the `EPH` seal refusal lifted **in full**, and new server-conformance row **S19**. *(Was "A-24 — 5,631 lines".)* *(Was "A-22 — 5,618"; re-measured 2026-09-11.)* A-23 names the inversion of A-20; A-24 amends server-conformance row **S10** and §5.1's two Go struct comments |
+| Spec B — message-server / operator | Revision **21** — **3,742 lines**, re-measured 2026-09-13, second pass of that date. **Revision 21 changes no schema, no check, no reason code and no wire field**: §3.1's sentinel paragraph is brought to one text with MASTER §8 and Spec A §5.1, §10.4's backup argument drops a clause ledger **186** makes false, §5.1 check 3 and §7.1 note that they carry no wrap carve-out (ledger **185**), and item 181's two anchors are re-stated. *(Was "20 — 3,704 lines".)* **Revision 20 is the first SCHEMA change in nine revisions**: `eph_window bigint NOT NULL DEFAULT 0` with two `CHECK`s, protobuf projection field 14, a §5.1 check-3 clause and §7.1's ±1-window refusal. §7.2's table is unedited. *(Was "19 — 3,627 lines".)* *(Was "18 — 3,587"; re-measured 2026-09-11.)* Revision 19 changes no SQL statement: §3.2's `body_hash` DDL comment and §7.2's verbatim quote of MASTER. **The document's own "Current state" row still reads "Revision 6"** — seen, not repaired, and named in the edit log |
+| Spec C — Windows client UI | Revision 6 — **1,895 lines**, re-measured 2026-09-13, second pass of that date. **No revision and no string changed**: §8.1 gains a note that `msg_disappearing_explainer`'s *"destroyed on every device"* half has no schedule anywhere (ledger **186**), placed outside every quoted value so §16.3 lint 1 is unaffected. *(Was "1,893".)* |
 | Blockers | **0 from r1–r4** — down from 41. **r8's two are not in that count**; both are fixed in the text and neither is recorded as fixed. Item **165**. |
 | Review findings | **Dispositioned per finding in §5, not counted.** r3's twelve blockers were re-grepped by id; its fourteen remaining majors are items **149–162**, one item per id, each opening with the id and a disposition verb, so `git grep "M-7"` returns a disposition rather than silence. **r2's, r3's and r4's minors, r6's 30 and r8's 25 are NOT dispositioned** — item **165** measures that and publishes the query; those findings carry no ids, so an id-keyed gate cannot see them at all. The count this row used to carry (*"30: 8 major, 22 minor"*) was r6's file, not r3's majors, and the two had been read as one set for five weeks. |
-| Implementation plan | **Written and part-executed.** Fifteen documents in `docs/plans/`; `m1` (24 tasks) has wave 0 and wave 1 landed. **Ledger 152 was ruled 2026-09-13 and no longer stops wave 2. Task 14 is NOT thereby unblocked:** m1 open item **M1-52** is filed, not ruled, and its own *Blocks* line is *"signing, and therefore all of Task 14 step 3"*. **Task 14 step 1 is unblocked; step 3 is not**, and Tasks 13, 15 and 16 stand where they did. *(This cell read **"is stopped in front of wave 2 by ledger 152 — and by nothing else, since 2026-09-09"**, and that clause was stale from 2026-09-12, when the red team filed M1-51 through M1-55 and nothing re-derived this row. It is one of the four sites ledger item **184** names; a state row is a claim about now, so it is corrected in place with its old wording kept beside it.)* **`s2` is now written** — 15 tasks, of which Tasks 1–12 are the CP3b prefix — and its own first paragraph states that it does **not** reach CP3b alone: four upstream `connect` blockers (**S2-1** through **S2-4**) sit outside both of its legs. **`j1` is now written too** — 7 tasks, all of them on the CP3b prefix — and it takes **S2-4**, the first of the four and the one that blocks CP3b outright; **S2-1**, **S2-2** and **S2-3** still have no owner. `s3` through `s10` are still cited as owners of unwritten work and have no document. |
+| Implementation plan | **Written and part-executed.** Fifteen documents in `docs/plans/`; `m1` (24 tasks) has wave 0 and wave 1 landed. **Ledger 152 was ruled 2026-09-13 and no longer stops wave 2. Task 14 is NOT thereby unblocked:** m1 open item **M1-52** is filed, not ruled, and its own *Blocks* line is *"signing, and therefore all of Task 14 step 3"*. **Task 14 step 1 is unblocked for the `PERMANENT` `pq_secret` wrap and NOT for its `EPH(5)` `eph_root` twin — ledger open item 185, filed 2026-09-13 (second pass), leaves that record's `eph_window` unstated while Spec A S19 refuses an implausible one; step 3 is not unblocked at all**, and Tasks 13, 15 and 16 stand where they did. *(The unqualified "step 1 is unblocked" was written on the first pass of 2026-09-13 and is corrected here on the second.)* *(This cell read **"is stopped in front of wave 2 by ledger 152 — and by nothing else, since 2026-09-09"**, and that clause was stale from 2026-09-12, when the red team filed M1-51 through M1-55 and nothing re-derived this row. It is one of the four sites ledger item **184** names; a state row is a claim about now, so it is corrected in place with its old wording kept beside it.)* **`s2` is now written** — 15 tasks, of which Tasks 1–12 are the CP3b prefix — and its own first paragraph states that it does **not** reach CP3b alone: four upstream `connect` blockers (**S2-1** through **S2-4**) sit outside both of its legs. **`j1` is now written too** — 7 tasks, all of them on the CP3b prefix — and it takes **S2-4**, the first of the four and the one that blocks CP3b outright; **S2-1**, **S2-2** and **S2-3** still have no owner. `s3` through `s10` are still cited as owners of unwritten work and have no document. |
 | Code | **`connect` `beta/message` at `33932e0`** — 1,105 tracked files, 217 Go files across `mls/`, `message/` and `messagegroup/`, 7,631 tests passing / 0 failing / 0 skipped, nine-platform `CGO_ENABLED=0` build green. **This repository** — 57 Go files, 26,402 lines, `go build ./...` and `go test ./...` green. **`sdk`** — nothing; six external legs wait on it. |
 
 **Ready for owner review, and for handoff once the owner has read them.** Four review rounds and two
@@ -3148,6 +3148,24 @@ fourteen are dispositioned below.
      rather than living under a key every member, every future device and every seedphrase holder
      holds forever. It also collapses the one-ladder/two-ladder ambiguity item **128** files, which is
      why 128 closes with it rather than beside it.
+
+     **ANCHORS — ALL SEVENTEEN OF THIS ITEM'S CITATIONS WERE VERIFIED LANDING AT `0590aa3` AND ALL
+     SEVENTEEN WERE THEN STALED BY THE RULING'S OWN COMMIT.** *(Measured 2026-09-13, second pass of
+     that date. The edit-log entry for the first pass says *"this pass moves **most** of them"*; the
+     measurement is **17 of 17**, and every one now lands on unrelated text — MASTER `§8.1:1144`,
+     which was `K_durable[n] = …`, is blank; `§12.4:2158-2159`, the required UI string, is blank plus
+     a sentence about admin quorum; `§13:2173` is *"sender."*.)* **This item is CLOSED and its dated
+     block below is left exactly as written**, which is the append-only rule and is what the first
+     pass chose; the numbers are not rewritten inside it. **Where each now lands, by section, so a
+     reader can still follow the argument:** MASTER **§8** (the `RECORD` block's `body_hash` and
+     `ct_head` lines, and the `record_id` paragraph), MASTER **§8.1** (the ladder tree, the `ct_head`
+     rule sentence, the `EPH` paragraphs), MASTER **§8.2** (the wrap table), MASTER **§12.4** (the
+     disappearing string) and MASTER **§13**; Spec A **§5.3** (the `EphKey` declaration, the
+     `RecordAeadHead`/`RecordAeadBody` comment, the rule paragraph and the position rule); Spec B
+     **§3.2** (the `message_record` DDL) and **§7.2** (the class table). **Section citations are used
+     because the next edit cannot stale them**, which is the lesson this item spent two of its own
+     re-anchorings learning. The live, unruled item that was re-anchored by line as well is **181**,
+     because it is not closed.
 
      **THE CONSEQUENCE THAT IS THE PRIZE, AND IT IS THE SAME SHAPE AS RULING 3 OF 2026-09-13 FOR
      `eph_root`.** Before today the only thing stopping an `EPH` head outliving its timer was **a
@@ -6353,7 +6371,12 @@ fourteen are dispositioned below.
      Before today a permanently failing `EPH` sweep had a **symptom with a security alarm attached**:
      header ciphertext that was still openable by every key holder, which is the thing 152 existed to
      find. From today that same failing sweep produces **no user-visible and no security-visible
-     symptom at all** — the head is cryptographically dead whether the column is cleared or not. What
+     symptom at all** — the head is cryptographically dead whether the column is cleared or not,
+     **against the three adversaries that conversion actually covers** *(qualified 2026-09-13, second
+     pass of that date: a seized member device still holds `eph_root[n]` and reads `t` off the record,
+     so against that one adversary a retained head is not dead and §7.2's sweep is still doing work —
+     open item **186**. It changes nothing about what this item is, which is a `NOT NULL` column and an
+     `UPDATE` that cannot both hold)*. What
      is left is a batch that errors, rows whose `prune_after` never clears (§7.2 sets it NULL only
      *"after acting"*), and §3.3's `message_record_prune` partial index — which that section says
      *"holds exactly the outstanding work"* — growing without bound for the life of the server. **The
@@ -6375,6 +6398,17 @@ fourteen are dispositioned below.
      unwritten. Nothing about that moved either.
 
      *The item as filed, unchanged:*
+
+     **RE-ANCHORED 2026-09-13, second pass of that date, and this is the only thing the second pass
+     changes about this item.** Both line numbers in the as-filed text below were verified landing at
+     `0590aa3` and were then **staled by the first pass's own `eph_window` edit**, on an item that is
+     LIVE, UNRULED, and the one that pass re-examined and answered. They are now, measured at the
+     commit that adds this paragraph: **§3.2:889** *(was 805 at `0590aa3`, then 853)* for
+     `ct_head bytea NOT NULL`, and **§7.2:2744** *(was 2629, then 2706)* for the `EPH(1..5)` class-table
+     row. Cited by **section** first, because item 152's own warning is that an item whose whole weight
+     is that it quotes the corpus against itself, read with citations that no longer land, is dismissed
+     on its next reading rather than answered. The as-filed text below is **unchanged**, including its
+     old numbers; this paragraph is the correction.
 
      **FILED, NOT RULED — Spec B declares `ct_head bytea NOT NULL` and then requires the sweep to set
      `ct_head = NULL`. The `UPDATE` §7.2 specifies is one §3.2 forbids, and the first ephemeral record
@@ -6547,9 +6581,20 @@ fourteen are dispositioned below.
      because a round trip against itself stays green with the field removed from all four at once, and
      that is the shape of mutation the `connect` dispatch must kill.
 
-184. **THE CORPUS SAYS m1 TASK 14 IS BLOCKED BY LEDGER 152 "AND BY NOTHING ELSE", IN FOUR PLACES, AND
-     THAT IS STALE. FILED 2026-09-13 by the pass that ruled 152, which was told 152 was the only
-     remaining blocker and checked.** Ruling 152 does remove 152 from Task 14's blocker list. It does
+184. **THE CORPUS TREATS LEDGER 152 AS AN OPEN BLOCKER ON m1 TASK 14 IN TWENTY-TWO PLACES — EIGHT OF
+     THEM IN THE STRONG *"AND BY NOTHING ELSE"* FORM — AND ALL OF IT IS STALE. FILED 2026-09-13 by the
+     pass that ruled 152, which was told 152 was the only remaining blocker and checked.**
+     *(**The heading read *"IS BLOCKED BY LEDGER 152 'AND BY NOTHING ELSE', IN FOUR PLACES"* until the
+     second pass of 2026-09-13.** Four was published with **no query beside it**. The re-measurement is
+     **twenty-two carriers**: eight in the strong form — the four this item first named, plus
+     `PROGRESS.md`'s tracks row, plus `s2:490` *"alone, since 2026-09-09"*, `s2:3209` *"on nothing
+     else"* and `k1:1473` *"the only remaining ruling on the CP3b path"* — and fourteen in the weaker
+     *"152 blocks this"* or *"on the day 152 rules"* form, of which four are live in the `k1` and `s2`
+     plans, one is `PROGRESS.md`'s verbatim quotation of `connect` source, and nine are lines in
+     `connect` itself. The query and the full disposition are in the correction block at the foot of
+     this item. **Correcting the heading matters more than correcting the body**, because the heading
+     is what a reader meets first, and because a count published without a query is exactly what this
+     item exists to name.)* Ruling 152 does remove 152 from Task 14's blocker list. It does
      **not** unblock Task 14.
 
      **The blocker that remains, in the m1 plan's own words.** `M1-52` — *"the signature preimage is
@@ -6562,7 +6607,9 @@ fourteen are dispositioned below.
      and blocks Task 14 Property 11's third refusal, recorded there as *"owed rather than writable"*.
 
      **Why the corpus says otherwise.** All four *"152 only"* statements predate the 2026-09-12 red
-     team that filed M1-51 through M1-55, and none was revisited when it landed. The four are this
+     team that filed M1-51 through M1-55, and none was revisited when it landed. The four *(five counting
+     `PROGRESS.md`'s tracks row, which is listed separately below; **twenty-two counting every carrier
+     of the claim in any form** — see the correction at the foot of this item)* are this
      file's §1 implementation-plan row (*"stopped in front of wave 2 by ledger 152 — and by nothing
      else, since 2026-09-09"*), the m1 plan's **Task 14 heading**, its **wave table** row 2, and its
      **schedule diagram** (*"[14: ledger 152 ONLY …]"*). All four are corrected in place by the same
@@ -6581,6 +6628,170 @@ fourteen are dispositioned below.
      Found 2026-09-13 by reading the m1 plan's open-item list against its own wave table, and **by
      reading only** — `grep -n "Task 14"` over that plan returns both the stale claims and the item
      that falsifies them and cannot tell them apart.
+
+     **CORRECTED 2026-09-13, SECOND PASS OF THAT DATE, AND THE CORRECTION IS THIS ITEM'S OWN LESSON
+     APPLIED TO THIS ITEM. The count of FOUR sites (FIVE counting `PROGRESS.md`'s tracks row) was
+     published with NO QUERY beside it. There are ELEVEN carriers and the query finds seven of them.**
+
+     ```
+     grep -rnE 'item 152|ledger 152' --include=*.md docs/plans docs/specs PROGRESS.md
+     ```
+
+     Seven live sites, **all seven in two plan documents inside that query's own `docs/plans` glob**
+     — three of them in the strong *"and nothing else"* form and four in the weaker *"blocked on 152"*
+     form —
+     which the first pass never opened because its reading never left the `m1` plan, `PROGRESS.md` and
+     this file: `s2` (`2026-09-09-slice2-s2-client-submit-leg.md`) at **:490** — *"blocked on ledger
+     item 152 **alone, since 2026-09-09** … its only remaining blocker is the landed `EPH` seal
+     refusal"*, in the plan's Interfaces table, this item's claim verbatim — at **:3209** *"and, since
+     2026-09-09, on nothing else"*, and at **:3386**, which treats 152 as an open question about a
+     transient counter; and `k1` (`2026-09-10-slice1-k1-the-session-seam.md`) at **:23**, **:309**,
+     **:1366** and **:1473**. *(Those are the numbers at `81f47cc`, where they were measured. After
+     the corrections in the same commit that files this paragraph they are `s2` **:490**, **:3214**
+     and **:3391**, and `k1` **:23**, **:309**, **:1366** and **:1476** — old beside new, because
+     this item is about measurements that went unrepeated.)* **`k1`'s last is the strongest form of
+     the claim in the corpus** —
+     *"**To the owner:** ledger item 152 is the only remaining ruling on the CP3b path"* — addressed to
+     the owner, in that plan's closing message, and falsified twice over: by `M1-52` the day before it
+     was true, and by the ruling itself. **All seven are corrected in place**, old wording kept beside
+     the new. **Ten more carriers are named and deliberately not changed**: `PROGRESS.md`'s verbatim
+     quotation of `connect/messagegroup/doc.go:70-77`, which would stop being verbatim if edited, and
+     **nine matching lines in `connect` itself, in five files** — by
+     `grep -rn 'item 152\|ledger 152' --include=*.go`, and **that is a LINE count and not a claim
+     count**, which is the distinction several numbers on this project have got wrong:
+     `messagegroup/doc.go:74`, `enginejoin_test.go:1643` and `:1681`, `m1w1repairs_test.go:678`,
+     `ratchetrepairs_test.go:415`, `:430` and `:841`, `streamindex.go:90` and `:152`. All nine state
+     152 as unruled or future. They are a **later dispatch** against a tree this pass may not write;
+     `sdk` has **zero** by the same query.
+
+     **The measurement, stated with its query: TWENTY-TWO carriers reached — five corrected on the
+     first pass, seven corrected on this one, ten named and left.** Not *"four"*.
+
+     **What the query CANNOT find**, stated because a number without one is what this item is about: a
+     paraphrase that names neither *"item 152"* nor *"ledger 152"* — the first pass found two of those
+     in the `m1` plan by reading; anything outside `docs/plans`, `docs/specs` and `PROGRESS.md`,
+     including `docs/reviews/` and both read-only trees; and a claim expressed as a consequence rather
+     than as the blocker's name.
+
+     **And the step-1 half of this item's own answer is also narrower than it was written.** Task 14
+     step 1 is unblocked for the **`PERMANENT` `pq_secret` wrap** and not for its **`EPH(5)` `eph_root`
+     twin** — ledger open item **185**. Property 1's *"exactly two"* is not buildable until 185 is
+     ruled.
+
+185. **FILED, NOT RULED — the `eph_root` device wrap is an `EPH(5)` record that MUST carry an
+     `eph_window` the server refuses it without, no document gives it a value, and its formula's input
+     does not exist for it. A builder MUST NOT publish that record until this is ruled.** Filed
+     2026-09-13, second pass of that date, by reading ruling 2's presence rule against ruling 3's
+     record table — a defect the ruling **creates** rather than one it inherits.
+
+     **The three statements that cannot all be satisfied, every one of them landed.** *(1)* **Presence:**
+     MASTER §8's `eph_window` line is *"Always present; 0 on PERMANENT, DURABLE, MEDIA and EPH(0)"*, so
+     non-zero on `EPH(1..5)`. *(2)* **Refusal:** Spec A requirement **S19**, Spec B §5.1 check 3 and
+     Spec B §7.1 all refuse an `EPH(1..5)` record — keyed on the retention-class **wire byte** `17..21`
+     — whose window differs from `floor(create_time_ms / (eph_bucket_seconds[b] × 1000))` by more than
+     one, with `REASON_REJECTED`. **None of the three carries a carve-out for a wrap.** *(3)* **Class:**
+     the `eph_root` device wrap is `EPH(5)` — MASTER §8.2's table, ruling 3 of 2026-09-13 — so its wire
+     byte is `0x15 == 21`, inside the refusal.
+
+     **And the formula's input does not exist for this record.** `eph_window = floor(sent_at_ms / …)`,
+     while Spec A §5.11 (5) says in terms that *"what a recovery wrap's `ct_head` PLAINTEXT holds is not
+     stated either … the wrap is the only record class carrying **no MLS frame**, so the table's answer
+     is not this record's answer."* There is no `sent_at` to divide.
+
+     **Two conforming implementations, and one of them is fatal.** A builder that reasons *"this
+     record's key does not come from `K_eph`, so it has no window"* writes `0`, the server refuses it,
+     the epoch fan-out stops and **no device ever obtains `eph_root[k]`** — which is m1 Task 14 Property
+     1's *"exactly two"* failing. A builder that computes a window from its own publication clock is
+     equally conforming on the text as it stands. Nothing between them.
+
+     **What is owed is one sentence, and a second if the answer is the first one.** What `eph_window` an
+     `EPH(1..5)` record that is **not keyed under `K_eph`** carries; and whether **S19** applies to a
+     record whose `eph_window` selects no key. Two shapes, with what each costs: *(a)* **the publisher's
+     wall-clock reading at seal time**, which satisfies S19 by construction and needs no carve-out, and
+     costs one sentence saying the formula's numerator for a record with no `sent_at` is the sealer's
+     clock; *(b)* **zero, with S19 and check 3 carved out for the wrap**, which costs a carve-out in
+     three documents and in the server, on a check whose whole value is that it has no exceptions. It is
+     **not** ruled here because *(b)* changes a landed conformance row and *(a)* writes a value into a
+     head whose plaintext the corpus deliberately leaves unstated, and the choice is the owner's.
+
+     **The property this must be ruled against**, satisfiable by a correct implementation and falsifiable
+     by an incorrect one, presupposing nothing unruled: **an honest publisher of an epoch's device wraps
+     emits both records of a leaf and a conforming server accepts both.** Falsified by the `0` reading
+     today. **Mutation target:** flip the `eph_window` a wrap publisher writes between the two readings
+     and require the fan-out to fail; a suite that passes under both readings has not tested this.
+     **No test code is supplied.**
+
+     *Blocks:* m1 Task 14 step 1's **second** record, and therefore Property 1's *"exactly two"*.
+     **Does NOT block** the `PERMANENT` `pq_secret` wrap, whose `eph_window` is `0` by the presence rule.
+     Not wire-visible — the field and its position are already ruled; this is a value, not a format.
+     Refusal placed at MASTER §8.2, Spec A §5.11 and m1 Task 14; noted without a carve-out at Spec A
+     **S19**, Spec B §5.1 check 3 and Spec B §7.1.
+
+186. **FILED, NOT RULED — `eph_root[n]` and `K_eph[n][b][t]` have no destruction schedule anywhere in
+     the corpus, and ruling 2 of 2026-09-13 removed the reading under which they appeared to. Until
+     this is ruled, the disappearing-message guarantee is established against retained server
+     ciphertext, a newly provisioned device and a seedphrase holder — and NOT against a seized member
+     device.** Filed 2026-09-13, second pass of that date.
+
+     **The mechanism, which is what makes this a gap rather than a wording question.**
+     `K_eph[n][b][t] = HKDF-Expand(eph_root[n], "eph/v1" ‖ u8(b) ‖ u64(t), 32)`, and `eph_root[n]` is
+     **one 32-octet CSPRNG value sampled per epoch at commit** (MASTER §8.1's tree, I4). `t` is an HKDF
+     `info` term and nothing else: there is no ratchet, no per-window root and no forward secrecy across
+     `t`. **Anyone holding `eph_root[n]` recomputes every window's key for every bucket, forever** — and
+     ruling 2 now prints `t` in the clear on the record, so there is nothing left to search for. Spec A
+     §5.3 states this itself, as the reason the opener's refusal is asymmetric: *"The opener can derive
+     **any** window's key from `eph_root[n]` — an HKDF-Expand takes whatever `t` it is given."*
+
+     **The four published sentences that located the window at the ROOT, and what happened to each.**
+     They were written when *"`eph_root` is time-sliced by window `t`"* could be read as *"a fresh root
+     per window"*; ruling 2 makes that reading impossible.
+     - MASTER **§8.1** — *"`eph_root[n]` is … time-sliced by window `t` … deleted when its window
+       closes"*, in the same sentence as the *"a seized device … fail[s] to decrypt"* claim. **Narrowed
+       in place, old text kept beside it.**
+     - Spec A **§3.5** — *"the ephemeral guarantee is unaffected, because `eph_root` is time-sliced and
+       its window closes on the timer regardless of which epochs are retained (§5.3)"*, cited as what
+       discharges `PastEpochWindow = 32`'s cost. **Corrected in place**; §5.3, which it cites, now says
+       the opposite.
+     - Spec A **§8.1** storage table — `eph_root[n]` *"Deleted when: window closes, or epoch falls out of
+       the window"*. **Corrected to what the store actually does**, which is `DeleteGroupStateBefore`.
+     - Spec B **§10.4** — *"`eph_root[n]` … is destroyed on every device when its window closes"*, the
+       load-bearing sentence of the backup argument. **Clause removed**; that argument does not need it,
+       because this server never holds `eph_root[n]` at all.
+
+     **The only deletion the corpus actually names is epoch-scoped**: Spec A §3.5's
+     `DeleteGroupStateBefore` with `PastEpochWindow = 32`, and **epochs advance on commits, not on
+     clocks**. So an `EPH(1)` one-hour record of epoch *n* stays re-derivable by every member device for
+     as long as epoch *n* sits inside thirty-two epochs, which in a quiet group is indefinite.
+
+     **What this does and does not cost the 2026-09-13 sitting.** It does **not** touch the reversal:
+     `PERMANENT`, `DURABLE` and `MEDIA` are unchanged, and moving an `EPH` head off `K_durable[n]` — a
+     key that descends from `storage_root[n]`, rides every recovery wrap and is destroyed nowhere — onto
+     `K_eph[n][b][t]` is a strict improvement against **every** adversary. It **does** bound the prize:
+     the conversion from behavioural to cryptographic is complete for **retained server ciphertext** (the
+     server never holds `eph_root`), for **a newly provisioned device** and for **a seedphrase holder**
+     (I4 and MASTER §5.4 keep it out of every wrap and every bundle), and is **not established for a
+     seized member device**. MASTER §12.1's own statement of the guarantee never claimed the seized
+     device and needs no change; §8.1's did, and is narrowed.
+
+     **What is owed:** a destruction rule for `K_eph[n][b][t]` and for `eph_root[n]` expressed in the
+     unit ruling 2 defined — for example, a device destroys `K_eph[n][b][t]` at the close of window
+     `t + 1` and `eph_root[n]` at the close of bucket 5's window from the epoch's own end — **or**, if
+     that is not the intent, a correction to MASTER §12.4's required UI string, which promises *"the key
+     is destroyed on every device"* and is the only place the corpus makes that promise to a user. One
+     of the two is owed; silence is what this item refuses.
+
+     **The property this must be ruled against**, satisfiable and falsifiable, presupposing nothing
+     unruled: **for an `EPH(1..5)` record more than one window old, a member device that holds the
+     record's epoch state and the record's ciphertext cannot produce the plaintext.** That is false on
+     every conforming implementation today, which is the whole of the finding. **Mutation target:**
+     retain `eph_root[n]` past the schedule and require the open to fail; a suite that only ever deletes
+     the record row cannot see it. **No test code is supplied.**
+
+     *Blocks:* nothing mechanically — `EphKey` is buildable, m1 Task 15 and Task 17 are unaffected, and
+     no wire byte moves. It blocks a **claim**: MASTER §8.1's four-adversary sentence, §12.4's UI string
+     and ledger item **181**'s *"cryptographically dead whether the column is cleared or not"*. **Not
+     wire-visible.** Carried at the claim sites in MASTER §8.1, §9.2 and §12.4, Spec A §3.5 and §8.1,
+     Spec B §10.4, Spec C §8.1, m1 `M1-27`, and item **181** above.
 
 
 ## 6. Change process
@@ -13547,6 +13758,237 @@ outbox re-seal and the bucket-0 answer each rest only on rules this sitting rule
 standing. **No test code is supplied** — the refusals are named and the mutation targets are stated
 (the four places `eph_window` can be dropped without a round trip noticing), and the implementer
 derives the test.
+
+**Verification:** `go build ./...` clean, `go test ./... -timeout 600s` green and
+`go test ./ -run TestThePlanLinter -timeout 300s` ok, **before and after**. `connect` (`beta/message`,
+`71d2482`) and `sdk` (`beta/message`, `54785de`) clean and unmodified after. `git ls-files` equals
+`git ls-tree -r HEAD` at **105**.
+
+
+### 2026-09-13 — the two rulings' review closed: a field count the ruling made wrong, a character-for-character block that reached two documents of three, a wrap the ruling makes unpublishable, and the prize measured smaller than three documents claimed
+
+**Change:** eleven files, **documents only**. MASTER (§0, §8, §8.1, §8.2, §9.2, §12.4); Spec A to
+**A-26** (§3.5, §5.1, §5.3, §5.11, §7.4, §8.1, **S19**); Spec B to **21** (§3.1, §5.1, §7.1, §10.4, and
+item 181's anchors); Spec C §8.1; the `m1`, `s2` and `k1` plans; `PROGRESS.md`; two files under
+`docs/reviews/`; and this ledger — items **152**, **181** and **184** annotated, items **185** and
+**186** new. **No Go file in this repository changed, and `connect` and `sdk` were read and never
+written.**
+
+**Why:** the first pass of 2026-09-13 wrote the owner's two rulings down. This is its review, and the
+verdict was **needs-repair** on nine findings. Both rulings stand; nothing here reopens either. What
+is repaired is how they were written and two consequences they create and did not discharge.
+
+**THE FOUR THAT MATTER, EACH REPRODUCED BEFORE IT WAS WRITTEN DOWN.**
+
+**(1) MASTER §8 said *"The fourteen fields below it are the ones `connect/message` serialises"* and the
+same commit made it fifteen.** Reproduced:
+`sed -n '/^RECORD$/,/^```$/p' <MASTER> | grep -cE '^  [a-z_]+ +'` → **16** at `81f47cc` against **15**
+at `0590aa3`; `git show 81f47cc -- <MASTER> | grep -n fourteen` → **nothing**, so the word was never
+touched. The sentence was exactly right at the parent and exactly wrong after, in the paragraph that
+is the normative statement of what `connect/message` serialises. **No regex over `ct_head`, `durable`
+or `eph_window` reaches the word "fourteen".** It is now **fifteen**, and it is stated as a **rule**
+rather than a number — *"every line of the `RECORD` block except `record_id` itself"* — so the next
+field added moves it and a reader who counts the block is the check.
+
+**(2) Ruling 2b's bucket-0 sentinel reached MASTER §8 and Spec B §3.1 and NOT Spec A §5.1, and the two
+copies that existed did not match each other.** That block is restated **character-for-character** by
+contract, and each of the other two copies names Spec A §5.1 as the third party — *"a divergence makes
+every `EPH` record fail both AEAD and MAC"*. Three fences, three texts, in the one block whose whole
+contract is that all three are identical: ledger item **141**'s class, which Spec A §5.11 calls the
+worst kind because a wire-block annotation is *"the form a second implementation transcribes rather
+than reads."* **All three fences now carry one text and each document's commentary is moved OUTSIDE
+the fence, so the commentary cannot diverge again.** Verified by hash:
+`awk '/^retention_class wire byte:/{p=1} p{print} /^              for b in 0..4/{if(p)exit}' <f> | md5sum`
+— identical across all three, **23 lines each**.
+
+**(3) THE RULING MAKES ONE RECORD UNPUBLISHABLE AND NOTHING SAID SO — ledger open item 185, new.** The
+`eph_root` device wrap is `EPH(5)`, so §8's presence rule makes its `eph_window` non-zero and Spec A
+**S19**, Spec B §5.1 check 3 and Spec B §7.1 all refuse an implausible one **with no carve-out for a
+wrap anywhere** — while the value's own formula divides a `sent_at` that Spec A §5.11 (5) says a wrap
+head does not have. A builder writing `0` is refused and the epoch fan-out stops; a builder computing
+from its clock is equally conforming. **A builder MUST NOT publish that record until the owner rules
+the value**, and the refusal is placed at MASTER §8.2, Spec A §5.11 and m1 Task 14. **And the
+circularity reappeared one level in:** m1 Task 14's inherited precondition said *"an `EPH` record's
+class key is `EphKey(ephRoot, b, window)`"* applied to the record whose **payload is `eph_root[k]`** —
+which would require `eph_root[k]` to open the record that delivers it. The `env_key[k]` carve-out
+existed and was stated only far from the rule; it is now named **at** the rule in MASTER §8.1, Spec A
+§5.3 (both the rule sentence and precondition (1)) and m1 Task 11(a) and Task 14.
+
+**(4) THE HEADLINE PRIZE PRESUPPOSED A KEY-DESTRUCTION SCHEDULE THAT DOES NOT EXIST — ledger open item
+186, new, and this is the finding worth the review.** `K_eph[n][b][t] = HKDF-Expand(eph_root[n],
+"eph/v1" ‖ u8(b) ‖ u64(t), 32)`: `eph_root[n]` is **one** 32-octet per-epoch CSPRNG value and `t` is
+an HKDF `info` term, so any holder recomputes every window's key for every bucket — and **ruling 2 now
+prints `t` in the clear**. Ruling 2 therefore falsifies four published sentences that located the
+window at the **root** (MASTER §8.1, Spec A §3.5 and §8.1's storage table, Spec B §10.4), and the only
+deletion the corpus names is epoch-scoped — `DeleteGroupStateBefore`, `PastEpochWindow = 32`, advanced
+by commits and not clocks. **Consequence, stated rather than absorbed:** the conversion from
+behavioural to cryptographic is **real** for *retained server ciphertext*, *a newly provisioned device*
+and *a seedphrase holder*, and is **not established for a seized member device**. MASTER §8.1's
+four-adversary sentence — which the first pass listed as *"false before, true as written now, not
+edited"* — is **narrowed to those three with its old text kept beside it**; MASTER §12.1's own list
+never claimed the seized device and is unchanged, so the two sections now agree. §12.4's required UI
+string and Spec C's `msg_disappearing_explainer` are **NOT changed**, because they state the
+requirement correctly and what is missing is the mechanism. It does **not** touch the reversal, which
+is a strict improvement against every adversary; it bounds what the reversal **bought**.
+
+**THE OTHER FIVE.** *(5)* Item **184** said **four** carriers of *"blocked by 152 and nothing else"*
+(five with `PROGRESS.md`'s tracks row) **with no query beside it** — the failure item 184 is itself
+about. Seven more are live, **all seven inside the query's own `docs/plans` glob**, three of them in
+the strong form. All seven corrected;
+see the sweep below. *(6)* **Anchors.** Item **181** is LIVE and UNRULED, was re-examined and answered
+by the first pass, and had **both** of its two anchors staled by that same commit; both are re-anchored
+by section and by line, with the old numbers beside the new, in Spec B and in the item. Item **152**'s
+seventeen anchors are **17 of 17 stale**, not *"most"*; 152 is CLOSED so its dated block stands as
+written, and the section-level equivalents are now recorded on the item. *(7)* **`docs/reviews/` was
+outside the first pass's query paths and outside its complement entirely.** Owner **decision 60** —
+the only normative statement of the `record_bytes` octet layout in this repository, *"`u8
+format_version=0x01`"* and fifteen elements — is amended with `u64 eph_window` after
+`u8 retention_class_wire`, sixteen elements, `format_version` → `0x02`, and the golden vector named as
+needing a rebuild. The 2026-09-12 red team's *"governed by M1-6"* pointer is annotated, M1-6 having
+been reversed. *(8)* MASTER §8's field block disclaims itself (*"the block is a field listing"*) while
+the only sentence making a new field's wire position determinate sat far below under the AADs; the
+block's **order** is now stated as normative where the disclaimer is, with decision 60 named as where
+the **encoding** lives. *(9)* Spec A §7.4's *"the reaction-body rule of §7.4a is the first producer"* of
+`GapReason "malformed"` now names §5.3's opener ahead-refusal as the second, with `"expired"` kept
+distinct from it.
+
+**THE SWEEP — EVERY QUERY PUBLISHED, AND THE COMPLEMENT PRINTED BESIDE IT.**
+
+```
+Q1  grep -rniE 'ct_head.*durable|head.*durable class|durable.*ct_head' --include=*.md .
+Q2  grep -rn  'M1-6\b' --include=*.md .
+Q3  grep -rniE 'time-slic|window closes|closes on the timer|destroyed .{0,40}window' --include=*.md .
+Q4  grep -rn  'eph_window\|EphWindow\|ephWindow' --include=*.md .
+Q5  grep -rnE 'item 152|ledger 152' --include=*.md docs/plans docs/specs PROGRESS.md
+Q6  grep -rn  'format_version' --include=*.md .
+Q7  grep -n   'fourteen\|fifteen\|thirteen' <MASTER>
+Q8  grep -rniE 'cryptographic rather than behavioural|behavioural to cryptographic|seized device'
+Q9  grep -rn  'item 152\|ledger 152' ../connect ../sdk --include=*.go
+Q10 awk '/^retention_class wire byte:/{p=1} p{print} /^  +for b in 0..4/{if(p)exit}' <f> | md5sum
+```
+
+**Note the paths: `.` and not `docs/specs/*.md docs/plans/*.md SPEC-LEDGER.md`.** Widening the paths is
+what reached `docs/reviews/` and Spec C, and both were outside the first pass's complement.
+
+**WHAT THE QUERIES CANNOT FIND, stated plainly, and the first two are new categories this pass adds.**
+**(a) A COUNT.** No regex over the rule's own vocabulary reaches the word *"fourteen"*; finding (1) is
+reachable only by reading the paragraph under the block you have just edited. **(b) A MISSING
+PARAGRAPH.** A sweep searches for text that IS there; a copy that never received a paragraph has
+nothing to match, so finding (2) is invisible to every query and was found only by putting the three
+fences side by side. **An empty complement is the tell — and so is a query for a block that is
+supposed to be identical in three places, because the interesting case is absence.** *(c)* Prose
+paraphrase naming neither token, which is where the 2026-09-11 amendment of this same rule had five of
+its eight sites. *(d)* A claim expressed as a consequence rather than as the rule. *(e)* Anything in
+`connect` or `sdk`, which this pass may not write and which is named as a dispatch instead.
+*(f)* Anything outside `*.md` — Go source, protobuf, testdata, golden vectors.
+
+**EVERY SITE CHANGED — 51 hunks in 11 files, and each is listed in the pass's own return with its
+file and line.** By document: MASTER — §0's ninth amendment (the conversion qualified, plus a
+four-part second-pass block), §8's field count, §8's sentinel paragraph and its new below-fence
+commentary, §8's *"the block's ORDER is normative"* clause naming decision 60, §8.1's rule sentence
+(device-wrap carve-out), §8.1's prize paragraph (qualified), §8.1's four-adversary sentence (narrowed,
+old text kept), §8.2 (the wrap's `eph_window` refusal), §9.2's outbox *"destroyed on schedule"* clause,
+§12.4's required string (note only, string untouched). Spec A — the **A-26** row, §3.5, §5.1's fence
+and commentary, §5.3's rule sentence, its prize paragraph and its precondition (1), §5.11's `eph_root`
+wrap bullet and its §8.1-quote parenthesis, §7.4, §8.1's storage table, **S19**. Spec B — revision
+**21**, §3.1's fence and commentary, §5.1 check 3, §7.1, §10.4, and item 181's two anchors. Spec C —
+§8.1's note. Plans — `m1` Task 11(a), Task 14 (twice), Task 15 and `M1-27`; `s2` :490, :3209, :3386 and
+the §5.3-scope bullet; `k1` :23, :309, :1366 and :1473. `PROGRESS.md` — the tracks row, the prize, the
+site count, the wave-2 statement. `docs/reviews/` — decision 60's application notes, the red team's
+M1-6 pointer.
+
+**EVERY SITE CONSIDERED AND LEFT, WITH THE REASON. The complement is longer than the change list and
+that is the point.**
+
+1. **MASTER §0:173** — *"§8's `RECORD` block **listed** `record_id` as its first field beside fourteen
+   fields"*. **Left: past tense, inside a dated 2026-08-25 amendment, and TRUE of the block as it then
+   was.** It is named here so the next sweep does not file it as a miss.
+2. **`SPEC-LEDGER.md:2998`** — quotes MASTER §8:829's *"The fourteen…"*. **Left: a dated ledger entry
+   quoting the corpus at a past commit; accurate as a quotation and append-only.**
+3. **MASTER §12.1's guarantee list** — *"including a device provisioned tomorrow and a seedphrase
+   holder"*. **Left: it is CORRECT**, and §8.1 was narrowed to agree with it rather than the reverse.
+4. **MASTER §12.4's required UI string** and **Spec C's `msg_disappearing_explainer` /
+   `msg_expired_fact_explainer`**. **Left UNCHANGED.** They state the requirement correctly; what item
+   186 is about is the missing mechanism, not the wording. Spec C §16.3 lint 1 compares these by
+   codepoint against MASTER, and both notes sit outside every quoted value.
+5. **MASTER §13's *"including against a device set up tomorrow and against a seedphrase holder"***.
+   **Left: TRUE — both adversaries are established and neither depends on item 186.**
+6. **The three wire tables' own lines** (`0x00`…`0x15`, the bucket ladder, `size_bucket`). **Left
+   untouched**: only the sentinel paragraph and the commentary around it moved.
+7. **Spec A §5.11 (5)'s *"what a wrap head's `ct_head` PLAINTEXT holds is not stated"***. **Left
+   DELIBERATELY.** It is the sentence item 185 rests on; closing it is the owner's ruling and not this
+   pass's, and item 185 states the two candidate answers with what each costs.
+8. **Spec B §7.2's class table and the `EPH(1..5)` sweep row.** **Left: unchanged by either ruling**, and
+   item 181 says so in terms.
+9. **Spec B §3.2's `CHECK (eph_window = 0 OR (17 <= retention_class AND retention_class <= 21))`.**
+   **Left: it is a floor and is deliberately weaker than §5.1 check 3.** It permits `0` on an `EPH` row,
+   which is exactly the value a builder meeting item 185 would write; tightening it in the schema would
+   pre-empt the owner's ruling.
+10. **Spec A §5.1's `EphWindow` field comment and Spec B's `eph_window` DDL and protobuf comments** —
+    *"the eph ladder's time-slice"*. **Left: CORRECT.** `t` does slice the ladder's key; what it does
+    not slice is the root.
+11. **The opener's ahead-refusal, the server's ±1, the outbox re-seal rule and `EPH(0)`'s `t = 0`.**
+    **Left: verified consistent and satisfiable for an ordinary record**, with no circularity and no
+    presupposition. Item 185 is about the wrap alone.
+12. **m1 Task 11(a)'s and Task 14's quoted pre-reversal blockquotes.** **Left: deliberately preserved**,
+    so a reader holding a printout can recognise which ruling their copy carries.
+13. **Item 128's text and item 152's dated block.** **Left whole** — the append-only rule. The reversal
+    is an annotation at the ruling sentence, which the review confirmed is legible from both directions.
+14. **`PROGRESS.md:1446`** — the verbatim quotation of `connect/messagegroup/doc.go:70-77`, which says
+    *"gated on ledger item 152"*. **Left: editing it would stop it being a verbatim quotation of
+    read-only source.** The `doc.go` change is `connect`'s.
+15. **Nine matching lines in `connect`, in five files** — `messagegroup/doc.go:74`,
+    `enginejoin_test.go:1643` and `:1681`, `m1w1repairs_test.go:678`, `ratchetrepairs_test.go:415`,
+    `:430` and `:841`, `streamindex.go:90` and `:152`, all stating 152 as unruled or future. **Left:
+    read-only tree, LATER DISPATCH, named not made.** `sdk` has zero.
+16. **`connect/message/record.go:131` and `:143`** — `EphBucketSeconds` answering `-1` for bucket 0 and
+    `-1` for `6..255`. **Left: LATER DISPATCH.** Re-verified at `71d2482`.
+17. **`connect/messagegroup/seal.go:119` and `:387`** — still refusing every class but `DURABLE`.
+    **Left: LATER DISPATCH**, now wider than before because the refusal is lifted in full.
+18. **`docs/reviews/2026-08-12-r2-spec-review.md:15`, `r3:82`, `r3:93`, `r3:147`, `r3:157`, and
+    `2026-09-12-m1-wrap-and-welcome-redteam.md:204`.** **Left: dated review documents recording what a
+    review said on its date.** They are not normative and make no claim about now. `:204` quotes §8.1's
+    four-adversary sentence, which is narrowed — and Spec A §5.11, where that argument is *applied*,
+    carries the pointer instead, because that is where a reader acts on it.
+19. **m1 `:4383` and `:6204`** — *"the item as it was filed"* blocks quoting the old `M1-27`. **Left:
+    dated as-filed text.** The live `M1-27` entry above them carries the second pass.
+20. **Spec A §7.4a's reaction-body rule.** **Left: *"first producer"* stays true as history**; the
+    second producer is named beside it rather than replacing it.
+21. **m1 `:2953`** — *"outlives the timer, the seized device, the device provisioned tomorrow and the
+    seedphrase holder"*. **Left: TRUE.** It is a counterfactual about `K_durable[n]`, which does
+    survive all four; it is the reason the reversal was right.
+22. **Spec A §5.11's and Spec B §3.5's *"makes the promise cryptographic rather than behavioural"***
+    for **ruling 3**. **Left: a different and still-true claim** — about a device X-Wing key that never
+    rotates opening every retained wrap, which is not the path item 186 is about.
+
+**THE SWEEP OVER THIS PASS'S OWN EDIT, because a repair ships this class as readily as a first draft —
+measured on this project at seven fresh instances while fixing twelve.** Four defects were found in
+this pass's own text and corrected before commit. **(i)** It published *"eleven carriers, seven
+corrected, four named as dispatch"* — `7 + 4 ≠ 11`, and the ten left were miscounted as four. The
+measurement is **twenty-two carriers: five corrected on the first pass, seven here, ten left**, and
+the `connect` figure is now stated as **a LINE count and not a claim count**, with its query beside it.
+**(ii)** It wrote *"sixty lines below it"* and *"seventy-five lines below this one"* — both already
+stale **from this pass's own insertions** before the file was saved. Every distance claim is now a
+section reference; the one surviving line count, *"35 lines above"*, was re-measured at the commit and
+lands. **(iii)** Spec A's **A-26** row read *"four repairs and one narrowing"* over four numbered
+items. **(iv)** Item 181's re-anchor was written with `§3.2:853` and `§7.2:2706`, and this pass's own
+later Spec B edits moved both again; the numbers were re-measured against the saved file and verified
+by reading the lines back.
+
+**Reviewed by:** self, against the properties and against this pass's own edit rather than the diff.
+**Both new items carry a property that is satisfiable by a correct implementation, falsifiable by an
+incorrect one, and presupposes no unruled sentence** — 185: *an honest publisher of an epoch's device
+wraps emits both records of a leaf and a conforming server accepts both*; 186: *for an `EPH(1..5)`
+record more than one window old, a member device holding the record's epoch state and its ciphertext
+cannot produce the plaintext* (**false today, which is the finding**). Each names its mutation target.
+**No test code is supplied.**
+
+**What this pass does NOT close, said plainly.** Items **185** and **186** are **filed and not ruled**
+and are the owner's; the corpus now refuses rather than guesses where 185 bites, and states what is and
+is not established where 186 bites. **m1 wave 2 is NOT unblocked.** Task 14 step 3 is blocked by
+`M1-52`; Task 14 step 1 is unblocked for the `PERMANENT` `pq_secret` wrap and **not** for its `EPH(5)`
+twin, so Property 1's *"exactly two"* is not buildable; Task 17 is unblocked in full; Tasks 13, 15 and
+16 are unaffected.
 
 **Verification:** `go build ./...` clean, `go test ./... -timeout 600s` green and
 `go test ./ -run TestThePlanLinter -timeout 300s` ok, **before and after**. `connect` (`beta/message`,

@@ -24,6 +24,25 @@ rather than by archaeology.
 - Decision 60 is pending confirmation by the implementation now in flight. If the record layer
   lands a different layout, this row is wrong and must be corrected rather than the code bent to
   match it — but the *rule* (fixed raw, variable LP, no `record_id`) is the part that must hold.
+- **DECISION 60'S OCTET LIST IS AMENDED BY THE OWNER'S RULING OF 2026-09-13, and the amendment is
+  recorded here because this row is the only normative statement of the `record_bytes` octet layout
+  in this repository.** Ledger items **152** / **183** put `t`, the `K_eph` window, on the wire as a
+  new plaintext field. **Two changes to the list above:** `u64 eph_window` is inserted **immediately
+  after `u8 retention_class_wire`** and before `u8 size_bucket`, making it **sixteen** elements; and
+  `format_version` becomes **`0x02`**, with a decoder meeting `0x01` refusing rather than mis-parsing
+  — whether `0x01` is refused outright or tolerated for one release is the one clause still open, as
+  ledger item **182**. The layout's *rule* is unchanged and the amendment follows it: `eph_window` is
+  fixed-width, so it encodes raw at its natural width. **The hand-built golden vector this row pins
+  the layout with must be rebuilt**, along with every record AEAD and `write_auth` vector and
+  `api/testdata/secondimplementation/control.go`; that is `connect`'s work and is a later dispatch,
+  not made by the pass that writes this note. *(Added 2026-09-13, second pass of that date. The first
+  pass's sweep ran over `docs/specs/*.md`, `docs/plans/*.md` and `SPEC-LEDGER.md` and **could not
+  reach this file**, and its published list of what the query cannot find did not name
+  `docs/reviews/` — the directory that holds the owner-decision records — as a category at all.)*
+- **Whether these decision records are append-only is not settled, and this note treats them as
+  append-only.** Decision 60's row is left exactly as the owner wrote it and the amendment is added
+  beside it, which is the ledger's convention for a ruling that moves. If the owner wants the row
+  itself rewritten, that is a one-line change and it is theirs.
 - Decision 62 retires decision 53. The Latin-only coverage question is **not** retired and needs
   its own owner call before any script beyond Latin is promised.
 - Decision 63 explains a red `Provider Beta Release` run on `beta/message` dated 2026-08-25. It is

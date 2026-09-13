@@ -380,7 +380,9 @@ outliving its timer was **a cooperating server** — Spec B §7.2's sweep, an *o
 against the adversary §8.1 names as *"retained server ciphertext"*: a backup, a replica that missed
 the sweep, a legal hold, a seized snapshot. **The guarantee is now cryptographic rather than
 behavioural**, which is the conversion ruling 3 of 2026-09-13 made for `eph_root[n]` and left the
-head out of.
+head out of — **against the three adversaries listed in the second-pass note below, and NOT yet
+against a seized member device**, which is ledger open item **186** and is qualified there rather than
+claimed here.
 
 **What the reopening costs, stated rather than absorbed.** `K_eph[n][b][t]` had no computable `t` —
 m1 open item **M1-27** — so the window is now a **new plaintext `u64` field, `eph_window`**, in
@@ -397,6 +399,23 @@ field was always there.** Two further additions land with it: §8's bucket table
 `EphBucketSeconds` to answer bucket 0 and an off-ladder bucket **differently** (M1-27's second half),
 and §9.2's outbox rule now requires a stale-window `EPH` record to be **re-sealed** rather than
 re-MAC'd, which is what makes the server's window check satisfiable by a correct client.
+
+**SECOND PASS, SAME DATE — four corrections to the amendment above, and the largest of them narrows
+what it claims.** *(1)* **The conversion to cryptographic is real and is narrower than the first pass
+wrote it.** It holds against **retained server ciphertext**, a **newly provisioned device** and a
+**seedphrase holder** — the three adversaries §8.1 now names. It does **not** yet hold against a
+**seized member device**, because `eph_root[n]` is one per-epoch value with `t` as an HKDF `info` term,
+so a device holding that epoch's state recomputes every window's key and reads `t` off the record this
+ruling put in the clear. No document schedules the destruction of `eph_root[n]` or `K_eph[n][b][t]`,
+and §12.4's required UI string promises one. **Ledger open item 186**, filed and not ruled; §8.1 and
+§12.4 carry it at the sentences that make the claim. *(2)* **The `eph_root` device wrap is an `EPH(5)`
+record and no document says what `eph_window` it carries**, while the server refuses an implausible
+one — a builder MUST NOT publish it until that is ruled (**ledger open item 185**, §8.2). *(3)* §8.1's
+`ct_head` rule sentence enumerates four class keys and reads as exhaustive; the device wrap takes
+none of them, and the carve-out is now named at the rule rather than only at the far end of §8.1. *(4)*
+§8's bucket-0 sentinel paragraph reached this document and Spec B §3.1 on the first pass and Spec A
+§5.1 not at all, and the two copies that existed did not match each other — the three copies are now
+one text (ledger item **141**'s class, caught by reading rather than by any query).
 
 ## 1. Purpose and product target
 
@@ -1070,8 +1089,15 @@ RECORD
 ```
 
 **`record_id` is a field of the record and not a field of `record_bytes`** (amended 2026-08-25,
-found by implementing the codec). The fourteen fields below it are the ones `connect/message`
-serialises; `record_id` is not one of them and never can be. It is assigned by the server *after*
+found by implementing the codec). The fifteen fields below it — **every line of the `RECORD` block
+except `record_id` itself**, which is the rule rather than the number, so the next field added to that
+block moves the count and a reader who counts the block is the check — are the ones `connect/message`
+serialises; `record_id` is not one of them and never can be. *(**Amended 2026-09-13, second pass of
+that date.** This read *"The fourteen fields below it"* and was exactly right until that same date's
+first pass inserted `eph_window` into the block 35 lines above and did not touch the word. No regex
+over `ct_head`, `durable` or `eph_window` reaches the word "fourteen": it is reachable only by reading
+the paragraph under the block you have just edited, which is what this document's own `body_hash` note
+and ledger item **141** each already record against it.)* It is assigned by the server *after*
 acceptance, which is after `write_auth` has been computed and verified, so a `record_id` inside those
 bytes would be a value the MAC covers — which is exactly what the line above says it is not, and
 would make the id unassignable without invalidating the record. It appears in neither AAD and in
@@ -1081,7 +1107,17 @@ the server call `EncodeRecord` and then set the id separately. `EncodeRecord` ig
 and `ParseRecord` always answers zero for it, so encoding a record, assigning it an id, and encoding it
 again produces identical bytes. A reader who took this block as the layout of `record_bytes` would build
 a codec that disagrees with the shipped one on every record; the block is a field listing, and the wire
-layout is `connect/message`'s, stated in `codec.go`.
+layout is `connect/message`'s, stated in `codec.go`. **The block's ORDER is nevertheless normative and
+the layout follows it** — the codec's field order *is* this listing's, which is what fixes the wire
+position of any field added to the block, `eph_window` included (stated here 2026-09-13, second pass of
+that date: until then the only sentence saying so sat far below this one, under the AADs, while this
+one reads as an instruction to ignore the block — the distance is not restated as a line count,
+because a line count is the thing this corpus has had go stale most often). What the block does **not** give is
+each field's *encoding*. That rule — **fixed-width Go fields encode raw at their natural width,
+variable-length fields as `LP(x)`** — and the resulting octet list are **owner decision 60**
+(`docs/reviews/2026-08-25-owner-decisions-59-63.md`), which is the only normative statement of the
+`record_bytes` octet layout in this repository and which the 2026-09-13 ruling amends in two places:
+`u64 eph_window` immediately after `u8 retention_class_wire`, and `format_version` to `0x02`.
 
 The `retention_class` and `size_bucket` bytes have exactly one encoding:
 
@@ -1100,19 +1136,28 @@ places the class and the bucket are joined or split.
 eph bucket → seconds:  [0] transient (never persisted), [1] 3600, [2] 28800,
                        [3] 86400, [4] 604800, [5] 2419200
 
-  The bucket-0 answer and the off-ladder answer MUST DIFFER. RULED 2026-09-13 (m1 open
-  item M1-27, second half). Bucket 0 is "the transient rung, never persisted"; 6 and up
-  are "not a bucket", and a lookup that returns ONE value for both cannot be asked which
-  it met. connect/message.EphBucketSeconds answers -1 for both today. It MUST answer
-  0 for bucket 0 — the true retention window of a rung that is never stored — and keep
-  a negative for 6..255, which is unreachable through a parsed record because
-  RetentionClassOf refuses every wire byte outside 0x10..0x15, and is therefore a
-  programmer-error sentinel rather than a value. The code change is connect's.
+  The bucket-0 answer and the off-ladder answer MUST DIFFER. RULED 2026-09-13, M1-27.
+  EphBucketSeconds MUST answer 0 for bucket 0 — the true retention window of a rung that
+  is never stored — and a NEGATIVE for 6..255, which is not a bucket at all. It answers
+  -1 for both today, so a caller cannot ask it which of the two it met. The code change
+  is connect's.
 
 size_bucket:  0 = 256 B, 1 = 1024 B, 2 = 4096 B, 3 = 16384 B, 4 = 65536 B, 5 = blob-ref
               octet_length(ct_body) MUST equal size_bucket_bytes[b] + 16 exactly (the AEAD tag),
               for b in 0..4. For b = 5, ct_body is absent and blob_id is present.
 ```
+
+**The bucket-0 sentinel paragraph inside the block above is restated character-for-character in Spec A
+§5.1 and Spec B §3.1, and this document's commentary on it is kept OUT of the block for exactly that
+reason.** *(Amended 2026-09-13, second pass of that date. On the first pass the paragraph was written
+into this document and into Spec B §3.1, into Spec A §5.1 **not at all**, and the two copies that did
+exist did not match each other — three fences, three texts, in the one block whose whole contract is
+that all three are identical. That is ledger item **141**'s class, which Spec A §5.11 calls the worst
+kind because a wire-block annotation is the form a second implementation transcribes rather than
+reads.)* The negative for `6..255` is **unreachable through a parsed record** — `RetentionClassOf`
+refuses every wire byte outside `0x10..0x15` — so it is a programmer-error sentinel rather than a
+value a record can carry, while `0` for bucket 0 is a real retention window a caller may act on. That
+asymmetry is the whole of why the two must not share one answer.
 
 Per **I7**, the two ciphertexts use **distinct keys and distinct AADs**, and `body_hash` appears only
 in the head's AAD — never in the body's, which would be circular:
@@ -1244,7 +1289,15 @@ record_key[i+1] = HKDF-Expand(record_key[i], "ratchet/v1", 32)
 A real forward ratchet: the sender overwrites `record_key[i]` after use, keeping a bounded skipped-key
 window for out-of-order receipt. **`ct_head` is keyed under the record's OWN class key — `K_perm`,
 `K_durable`, `K_media` or `K_eph[n][b][t]` — exactly as `ct_body` is. RULED 2026-09-13, and it
-REVERSES the ruling of 2026-09-07.**
+REVERSES the ruling of 2026-09-07.** **THAT ENUMERATION IS NOT EXHAUSTIVE, and this clause is here so
+that nobody reads it as though it were** (added 2026-09-13, second pass of that date): **the device
+wrap takes no class key at all** — its ladder is rooted at `env_key[k]`, stated in full at the end of
+this section and in §8.2. It is named *here*, at the rule, because the rule is the sentence an
+implementer transcribes and the carve-out is at the far end of this section, and because the
+`eph_root` device
+wrap is an **`EPH(5)`** record: a builder applying the rule literally would key the record that
+*delivers* `eph_root[k]` under a key derived *from* `eph_root[k]`, which is the same circularity that
+disqualified `sent_at` as the carrier of `t`, one level in.
 
 **Head and body therefore take ONE ladder, at one position.** `key_head` and `key_body` are separated
 by their HKDF labels — `"rec/v1/head"` and `"rec/v1/body"` off the same `record_key[i]` — which is
@@ -1282,7 +1335,10 @@ thing stopping an `EPH` head outliving its timer was **a cooperating server**: S
 `ct_head = NULL` sweep. That is an **operational** erasure, and the adversary the next paragraph names
 is *"retained server ciphertext"* — a backup, a replica that missed the sweep, a legal hold, a seized
 snapshot — which is precisely the case an erasure does not cover. **This ruling converts that
-guarantee from behavioural to cryptographic**, which is the same conversion ruling 3 of 2026-09-13
+guarantee from behavioural to cryptographic** *(for retained server ciphertext, a newly provisioned
+device and a seedphrase holder — and **not** for a seized member device, which is ledger open item
+**186** and is stated in full two paragraphs below; qualification added 2026-09-13, second pass of
+that date)*, which is the same conversion ruling 3 of 2026-09-13
 made for `eph_root[n]` itself. The head was the half that ruling left behind; it is not left behind
 now. One consequence worth naming rather than leaving to be found: Spec B §7.2's sweep is no longer
 what the guarantee **rests on**, and ledger item **181** is re-examined in that light and answered
@@ -1294,11 +1350,32 @@ supplies one, `eph_window` in §8 above. That field is an **addition to a frozen
 requires §8, §8.3 and §9.2 to be final before slice 2 starts, and slice 2 is `connect/message`, which
 has shipped. §0 carries the revision and what reopening it means.
 
-`eph_root[n]` is independently sampled, time-sliced by window `t`, never wrapped to a recovery key,
-never in a provisioning bundle, deleted when its window closes. **After the timer, retained server
-ciphertext, a seized device, a newly provisioned device, and a seedphrase holder all fail to
-decrypt.** This is the most easily broken property here — deriving `eph_root` from `storage_root`
-would compile, pass tests, and silently make every expired message recoverable forever.
+`eph_root[n]` is independently sampled, never wrapped to a recovery key and never in a provisioning
+bundle. **After the timer, retained server ciphertext, a newly provisioned device and a seedphrase
+holder all fail to decrypt.** This is the most easily broken property here — deriving `eph_root` from
+`storage_root` would compile, pass tests, and silently make every expired message recoverable forever.
+
+*(**Amended 2026-09-13, second pass of that date, and the amendment NARROWS this sentence rather than
+extending it.** It read: *"`eph_root[n]` is independently sampled, **time-sliced by window `t`**, never
+wrapped to a recovery key, never in a provisioning bundle, **deleted when its window closes**. After
+the timer, retained server ciphertext, **a seized device**, a newly provisioned device, and a
+seedphrase holder all fail to decrypt."* **Ruling 2 of the same date puts `t` at the DERIVED key and
+not at the root**, and the tree at the head of this section is explicit about what that leaves:
+`eph_root[n]` is **one** 32-octet CSPRNG value per epoch and `t` is an HKDF `info` term, so anyone
+holding `eph_root[n]` recomputes **every** window's key for **every** bucket — and ruling 2 now prints
+`t` in the clear on the record, so there is nothing left to search for. Spec A §5.3 states this
+directly, as the reason for the opener's ahead-refusal: *"the opener can derive **any** window's key
+from `eph_root[n]`."* The root therefore has **no window of its own to close**, and **a seized member
+device is not covered by anything this document states**: it holds `eph_root[n]` for as long as it
+retains epoch `n`'s state, and the only deletion the corpus names anywhere is epoch-scoped — Spec A
+§3.5's `DeleteGroupStateBefore` with `PastEpochWindow = 32`, and epochs advance on commits rather than
+on clocks, so in a quiet group that is indefinite. **What is owed is a destruction schedule for
+`K_eph[n][b][t]` and for `eph_root[n]`, in the unit ruling 2 has just defined** — §12.4's required UI
+string already promises it (*"the key is destroyed on every device"*) and no section of any document
+schedules it. **Ledger open item 186**, filed and not ruled. The three adversaries left in the
+sentence above ARE established and none of them depends on that schedule: the message server never
+holds `eph_root` at all, and **I4** with §5.4 keep it out of every recovery wrap and every provisioning
+bundle. §12.1's own statement of this guarantee never claimed the seized device, and is unchanged.)*
 
 **Ruling 3 of 2026-09-13 is what makes the paragraph above cryptographic rather than behavioural.**
 `eph_root[n]` now travels in its own `EPH(5)` device-wrap record, on the four-week rung the server
@@ -1338,6 +1415,22 @@ header already carries. The reason for the split is §8.1's disappearing-message
 §5.11 carries the three accepted costs — the doubled device-wrap count, the interaction with the
 wrap-index uniqueness repair ledger open item **132** reaches for, and the `EPH` wrap's expiry being
 measured from its publication rather than from its epoch's end.
+
+**WHAT `eph_window` THE `eph_root` DEVICE WRAP CARRIES IS NOT RULED, AND A BUILDER MUST NOT PUBLISH
+THAT RECORD UNTIL IT IS. FILED 2026-09-13, second pass of that date — ledger open item 185.** The
+record is `EPH(5)`, so its retention-class wire byte is `0x15`, §8's presence rule makes `eph_window`
+**non-zero** on it, and §9.2's server check together with Spec A requirement **S19** refuses any
+`EPH(1..5)` record whose window is more than one from its arrival window — **none of the three carries
+a carve-out for a wrap**. But the field's own formula is `floor(sent_at_ms / …)`, and Spec A §5.11 (5)
+states in terms that **what a wrap head's plaintext holds is not stated**, because a wrap is the one
+record class carrying no MLS frame and therefore no `sent_at`. A builder that reasons *"this record's
+key does not come from `K_eph`, so it has no window"* writes `0` and is refused by the server, which
+stops the epoch fan-out and leaves no device able to obtain `eph_root[k]`; a builder that computes a
+window from its own clock at publication is equally conforming on the text as it stands. **Two
+implementers, two answers, one of them fatal, and no document between them** — so the refusal stands
+until the owner rules which, and whether S19 applies to a record whose `eph_window` selects no key.
+It does **not** touch the `pq_secret` device wrap, which is `PERMANENT` and whose `eph_window` is `0`
+by §8's presence rule.
 
 ```
 archive_secret[n] = sender_data_secret[n] ‖ encryption_secret[n]     RFC 9420 §8.1
@@ -1831,9 +1924,13 @@ nonce and looks it up from the connection, never from the request.
 the new connection's nonce before submission. On `REASON_EPOCH_STALE`, a queued record MUST be
 discarded and re-sealed at the new epoch, consuming a **fresh** `stream_index`. **And a queued
 `EPH(1..5)` record whose `eph_window` is no longer the current window MUST be discarded and re-sealed
-the same way, for the same reason and at the same cost (added 2026-09-13 with `eph_window`).** Its old
-window's key is being destroyed on schedule, so re-MAC'ing it would submit a record the server is
-required to refuse and that no recipient could open.
+the same way, for the same reason and at the same cost (added 2026-09-13 with `eph_window`).**
+Re-MAC'ing it would submit a record the message server is **required to refuse** under the ±1 check
+below, carrying a window a conforming recipient has already left. *(This clause read *"Its old window's
+key is being destroyed on schedule, so re-MAC'ing it would submit a record the server is required to
+refuse and that no recipient could open."* **Amended 2026-09-13, second pass of that date: there is no
+schedule** — ledger open item **186** — and this rule never needed one. The server's refusal is the
+whole of the reason and it holds on the text as it stands.)*
 
 **What this gives up versus per-device capabilities:** the server cannot attribute a record to a
 device, so `OBSERVER` is enforced in the UI and by MLS proposal rules rather than at the server, and
@@ -2302,7 +2399,12 @@ expects, and §13 states it to users in those terms.
 ### 12.4 Required UI language
 
 - Disappearing: *"After the timer, this message can no longer be read by anyone — the key is destroyed
-  on every device and on the server."*
+  on every device and on the server."* **This string is a promise about key destruction and is the only
+  place the corpus states that promise to a user, so what discharges it matters: "on the server" is
+  discharged (the message server never holds `eph_root[n]` at all), and "on every device" is NOT
+  scheduled anywhere — ledger open item 186, filed 2026-09-13 (second pass) and not ruled. The string
+  is NOT changed, because it states the requirement correctly; what is missing is the mechanism, and
+  §8.1 carries the same note at the sentence that makes the same claim.**
 - Delete for everyone: *"Removed from this conversation on every device that is online and honest.
   Anyone who already read it may have kept a copy, and we cannot detect that."*
 - Durable default: *"Messages are kept so your new devices can see your history. That means the server

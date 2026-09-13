@@ -582,6 +582,21 @@ and it is a **later dispatch** along with `connect/message`'s codec change, its 
 to `0x02` and `EphBucketSeconds`'s bucket-0 answer. None of that is made by the pass that writes this
 revision, and saying so here is what stops it being rediscovered as a divergence.
 
+**Revision 21 — 2026-09-13, second pass of the same date — the review of revision 20: two repairs
+here, and one of them is a divergence revision 20 itself created.** **(1) §3.1's bucket-0 sentinel
+paragraph reached this document and MASTER §8 and NOT Spec A §5.1** — the document §3.1's own sentence
+names as the third party to the character-for-character contract — **and this document's copy did not
+match MASTER's either.** Three fences, three texts. All three now carry one text and each document's
+commentary is outside the fence; ledger item **141**'s class, found by reading the three blocks side by
+side and by no query. **(2) §10.4's backup argument rested on a clause the window ruling makes false**
+— *"`eph_root[n]` … is destroyed on every device when its window closes"* — because `t` names the
+**derived** key's slice, `eph_root[n]` is one value per epoch, and no document schedules its
+destruction on a device (**ledger open item 186**). The argument is restated on what this server can
+actually claim, which is that it never holds `eph_root[n]` at all, and is complete without the clause.
+**No schema, no check, no reason code and no wire field changes in this revision.** §5.1 check 3 and
+§7.1 gain a note that they carry **no carve-out for a wrap record**, which is ledger open item **185**
+and is Spec A §5.11's refusal to publish, not this server's to relax.
+
 ---
 
 **One contradiction found while reading §3.2 against §7.2 is FILED AND NOT RULED — ledger item
@@ -596,6 +611,16 @@ ruled here because the two repairs are not equivalent and the choice is the owne
 a fetch returns for a pruned ephemeral record and what §6.3's `head_hash` comparison means. §7.2's
 `body_hash` *"zeroed"* is the precedent for the second reading and is the reason the item exists
 rather than being repaired in passing.
+
+**Where the two lines actually are, because this item's whole content is two lines of this document
+quoted against each other and both moved.** The `NOT NULL` declaration is in §3.2's `message_record`
+DDL, the `ct_head bytea NOT NULL` column line; the sweep action is §7.2's class table, the
+`EPH(1..5)` row. As measured at the commit that adds this paragraph they are **§3.2:889** *(was 805 at
+`0590aa3` and 853 after revision 20)* and **§7.2:2744** *(was 2629, then 2706)*. Cited by **section** first and by line second, on purpose: item 152's own warning is that
+an item whose weight is that it quotes the corpus against itself, read with citations that no longer
+land, gets dismissed on its next reading rather than answered. *(Added 2026-09-13, second pass of that
+date — 181 is LIVE and UNRULED, and the first pass re-examined and answered it while leaving both of
+its anchors stale by its own edit.)*
 
 ---
 
@@ -720,16 +745,27 @@ places the class and the bucket are joined or split.
 eph bucket → seconds:  [0] transient (never persisted), [1] 3600, [2] 28800,
                        [3] 86400, [4] 604800, [5] 2419200
 
-  The bucket-0 answer and the off-ladder answer MUST DIFFER (MASTER §8, ruled 2026-09-13):
-  connect/message.EphBucketSeconds returns 0 for bucket 0 and a negative for 6..255. This
-  server reaches the table only through §7.1's class deadline, and §7.1 routes EPH(0) to
-  §7.6 before it gets there, so the value is not load-bearing here — it is restated because
-  this block is restated character-for-character and a divergence is what it exists to stop.
+  The bucket-0 answer and the off-ladder answer MUST DIFFER. RULED 2026-09-13, M1-27.
+  EphBucketSeconds MUST answer 0 for bucket 0 — the true retention window of a rung that
+  is never stored — and a NEGATIVE for 6..255, which is not a bucket at all. It answers
+  -1 for both today, so a caller cannot ask it which of the two it met. The code change
+  is connect's.
 
 size_bucket:  0 = 256 B, 1 = 1024 B, 2 = 4096 B, 3 = 16384 B, 4 = 65536 B, 5 = blob-ref
               octet_length(ct_body) MUST equal size_bucket_bytes[b] + 16 exactly (the AEAD tag),
               for b in 0..4. For b = 5, ct_body is absent and blob_id is present.
 ```
+
+**On the bucket-0 sentinel, which is inside the block above and whose commentary is deliberately
+outside it.** This server reaches that table only through §7.1's class deadline, and §7.1 routes
+`EPH(0)` to §7.6 before it gets there, so the value is **not load-bearing here**. It is in the block
+because the block is restated character-for-character and a divergence is what it exists to stop.
+*(**Amended 2026-09-13, second pass of that date.** On the first pass the paragraph was written into
+this document and into MASTER §8 and **not into Spec A §5.1** — the document the sentence above this
+block names as the third party to the contract — and this document's copy and MASTER's did not match
+each other either. Three fences, three texts, in the one block whose contract is that all three are
+identical: ledger item **141**'s class. All three now carry one text, and each document's own
+commentary sits outside the fence so that it cannot diverge again.)*
 
 ### 3.2 DDL
 
@@ -2051,7 +2087,7 @@ Order matters for denial of service, not just correctness. Nothing that costs a 
 |---|---|---|---|
 | 1 | Frame decodes; fragment reassembly within `max_request_bytes` | CPU, bounded | `REASON_OVERSIZE`, free buffer |
 | 2 | Connection is authenticated at the connect layer (`ByJwt` validated by the platform; §4.3 master). The `server_nonce` is **not** carried in the request — the server knows its own connection's nonce and looks it up from the connection, never from the request | memory | `REASON_REJECTED` |
-| 3 | **Static shape.** `octet_length(sender_handle)==16`, `body_hash`==32, `retention_class` and `size_bucket` in range, **`eph_window` is zero unless the retention-class wire byte is 17..21, and for 17..21 it is within ONE window of the window this record's own arrival stamp falls in — `floor(create_time_ms / (eph_bucket_seconds[b] × 1000))` — in either direction, else `REASON_REJECTED` (§7.1, Spec A requirement S19, added revision 20)**, `expire_at` parses, `ct_head` ≤ head cap, and **`octet_length(ct_body)` is exactly `size_bucket_bytes[b] + 16`** (the AEAD tag) — equality, not a range, because §9.5 pads into buckets. `size_bucket == 5` requires `ct_body` absent and a 32-byte `blob_id` present in the parsed header; any other `size_bucket` requires `blob_id` absent. Both are read from `message.ParseRecord`, never from the request's projection alone. And `server_attachment` parses via `message.ParseServerAttachment` and is well-formed for its record kind: `EpochAttachment` iff `is_commit`, with `epoch == current_epoch + 1`, `write_key` exactly 32 bytes, `read_key` exactly 32 bytes — **different in every epoch, and therefore never compared against a previously installed one** — known `alg_id`, retention fields in range — both `durable_ttl_seconds` sentinels, `0` and `4294967295`, are legal values here and are resolved at §6.1 step (6), never refused — and `expected_wrap_count > 0`; `RecoveryTag` with a 16-byte handle and a 32-byte Ed25519 pub; `WrapTag` with a 16-byte target; `EpochComplete` with a matching `wrap_count`. Every projection field of `Record` equals the corresponding field of `ParseRecord(record_bytes)` (§4.3.3). **Three of the clauses above are the SERVER's and not the parser's, stated 2026-08-26 because the list reads as though `message.ParseServerAttachment` answers all of them and it can answer none of these three:** `epoch == current_epoch + 1` and `EpochComplete` matching its epoch's `expected_wrap_count` both need group state the attachment does not carry, and `EpochAttachment` **iff** `is_commit` needs the record header beside the attachment. `connect/message` validates every clause that is a property of the attachment's own bytes and deliberately makes none of these three — a codec that reached for `current_epoch` would be a codec with a database. The server makes them here, in check 3, from state it already holds; none costs a read | CPU | `REASON_OVERSIZE` / `REASON_REJECTED` |
+| 3 | **Static shape.** `octet_length(sender_handle)==16`, `body_hash`==32, `retention_class` and `size_bucket` in range, **`eph_window` is zero unless the retention-class wire byte is 17..21, and for 17..21 it is within ONE window of the window this record's own arrival stamp falls in — `floor(create_time_ms / (eph_bucket_seconds[b] × 1000))` — in either direction, else `REASON_REJECTED` (§7.1, Spec A requirement S19, added revision 20; **no carve-out for a wrap record, and the `eph_root` device wrap is `EPH(5)` with an unruled window — ledger open item 185, §7.1**)**, `expire_at` parses, `ct_head` ≤ head cap, and **`octet_length(ct_body)` is exactly `size_bucket_bytes[b] + 16`** (the AEAD tag) — equality, not a range, because §9.5 pads into buckets. `size_bucket == 5` requires `ct_body` absent and a 32-byte `blob_id` present in the parsed header; any other `size_bucket` requires `blob_id` absent. Both are read from `message.ParseRecord`, never from the request's projection alone. And `server_attachment` parses via `message.ParseServerAttachment` and is well-formed for its record kind: `EpochAttachment` iff `is_commit`, with `epoch == current_epoch + 1`, `write_key` exactly 32 bytes, `read_key` exactly 32 bytes — **different in every epoch, and therefore never compared against a previously installed one** — known `alg_id`, retention fields in range — both `durable_ttl_seconds` sentinels, `0` and `4294967295`, are legal values here and are resolved at §6.1 step (6), never refused — and `expected_wrap_count > 0`; `RecoveryTag` with a 16-byte handle and a 32-byte Ed25519 pub; `WrapTag` with a 16-byte target; `EpochComplete` with a matching `wrap_count`. Every projection field of `Record` equals the corresponding field of `ParseRecord(record_bytes)` (§4.3.3). **Three of the clauses above are the SERVER's and not the parser's, stated 2026-08-26 because the list reads as though `message.ParseServerAttachment` answers all of them and it can answer none of these three:** `epoch == current_epoch + 1` and `EpochComplete` matching its epoch's `expected_wrap_count` both need group state the attachment does not carry, and `EpochAttachment` **iff** `is_commit` needs the record header beside the attachment. `connect/message` validates every clause that is a property of the attachment's own bytes and deliberately makes none of these three — a codec that reached for `current_epoch` would be a codec with a database. The server makes them here, in check 3, from state it already holds; none costs a read | CPU | `REASON_OVERSIZE` / `REASON_REJECTED` |
 | 4 | **Rate limits** (§4.7), including the §9.6 quarantine check | Redis / DB | `REASON_RATE_LIMITED` |
 | 5 | **Known-group filter.** An in-memory cuckoo filter of every `group_id`. An unknown group is rejected here with **no database read**. See the insert path below — the timer is a backstop only | memory | `REASON_REJECTED` |
 | 6 | **Epoch key lookup.** In-process LRU keyed `(group_id, epoch)`; miss reads `message_epoch` once, unwraps under the `kek_id` in the row, caches. Negative results cached 5 s with jitter. The **current** epoch's key and one briefly-retired predecessor both resolve (§5.3) | memory / 1 read | `REASON_REJECTED` |
@@ -2683,6 +2719,8 @@ It costs nothing this server does not already hold: `retention_class` is plainte
 
 **What makes the check satisfiable by a correct client, and it is a client rule rather than a server one:** master §9.2's outbox rule now requires a queued `EPH(1..5)` record whose window has closed to be **discarded and re-sealed** at the current window, consuming a fresh `stream_index` — the same shape as its existing `REASON_EPOCH_STALE` rule. A client that only re-MACs is the implementation this refusal is written to catch.
 
+**AND THERE IS ONE `EPH(1..5)` RECORD THIS CHECK IS NOT KNOWN TO BE SATISFIABLE FOR, NAMED HERE RATHER THAN DISCOVERED IN PRODUCTION.** The `eph_root` device wrap is an `EPH(5)` record (master §8.2) whose key does **not** come from `K_eph` at all — its ladder is rooted at `env_key[k]` — so its `eph_window` selects nothing, and **no document says what value it carries**. This check has no carve-out for it, and neither does §5.1 check 3 nor Spec A **S19**; that is deliberate, because the refusal belongs on the publisher and Spec A §5.11 carries it — a builder MUST NOT publish that record until the value is ruled. **Ledger open item 185**, filed 2026-09-13 (second pass of that date) and not ruled. **Nothing in this server changes for it.** This paragraph exists so that an operator meeting a refused wrap reads it as the specification gap it is rather than as a client bug.
+
 > `expire_at` is **unix milliseconds, `u64`, big-endian, `0` meaning unset**, on the wire, in `AAD_head`,
 > and in the `write_auth` preimage. The `timestamp` column in Postgres is a lossy convenience projection
 > with **no authority**: `write_auth` is computed and verified only over request bytes via
@@ -3313,7 +3351,7 @@ Three things are required before any user beyond the two beta testers, and none 
 > also verifies that the restored target's PITR window is **48 hours and not the default seven**, since a
 > restore target inherits its own configuration.
 
-**Why backups do not break the disappearing-message guarantee.** A restored `EPH` body is still undecryptable: `eph_root[n]` was never wrapped to a recovery key, never in a provisioning bundle, and is destroyed on every device when its window closes (master §8.1). Master spec §12.1's guarantee is stated in terms of key destruction rather than server deletion **precisely so that it survives backups, replicas, forensic disk images, and operator error.** A deletion-based guarantee would be false the moment WAL archiving was switched on. This is the design's single most load-bearing choice on the storage side, and it should be quoted at anyone who proposes weakening it for convenience.
+**Why backups do not break the disappearing-message guarantee.** A restored `EPH` body is still undecryptable **by this server, by anyone who takes its backups, and by a device provisioned later or a seedphrase holder**: `eph_root[n]` was never wrapped to a recovery key, was never in a provisioning bundle, and **this server never holds it at all** (master §8.1). Master spec §12.1's guarantee is stated in terms of key destruction rather than server deletion **precisely so that it survives backups, replicas, forensic disk images, and operator error** — and that is the adversary this section is about, so the argument here is complete. *(**Amended 2026-09-13, second pass of that date.** This sentence read *"and is destroyed on every device when its window closes (master §8.1)"*. After that date's window ruling `t` names the **derived** key's slice and `eph_root[n]` is one 32-octet value per epoch, so the root has no window of its own to close, and **no document schedules its destruction on a member device** — master §12.4 requires it and ledger open item **186** is filed against that gap. The clause is removed rather than repaired because **this section does not need it**: a backup of this server is a copy of ciphertext plus a key this server never had, whatever member devices do with their own copies.)* A deletion-based guarantee would be false the moment WAL archiving was switched on. This is the design's single most load-bearing choice on the storage side, and it should be quoted at anyone who proposes weakening it for convenience.
 
 ### 10.5 Rotation runbooks
 

@@ -449,7 +449,15 @@ not a compromise between the two options: it is the only shape in which the reco
 **(3) Epoch snapshot — unchanged.** Correction **E2** already rules it under `K_snapshot[n]`, and it is a
 blob-ref record with no `ct_body`. The ruling should say **explicitly** that the snapshot is not in the
 wrap-body class at all, because two of the three options quietly put it there and a reader of either would
-conclude otherwise. Its `ct_head` is governed by **M1-6**, not by this ruling.
+conclude otherwise. Its `ct_head` is governed by **M1-6**, not by this ruling. *(**Annotated
+2026-09-13, second pass of that date, and this document is NOT edited otherwise — it is a dated
+decision record and it stands as written.** `M1-6` was **REVERSED** on 2026-09-13, ledger items **128**
+and **152**: `ct_head` is no longer *"always sealed under the DURABLE class ratchet"* but is keyed
+under the **record's own** class key. The snapshot is a `PERMANENT` record, so nothing about the
+snapshot's head actually changes — `K_perm` and `K_durable` both descend from `storage_root[n]` and
+neither is destroyed — and this paragraph's point, that the snapshot is not in the wrap-body class,
+is untouched. The pointer is corrected because a reader following `M1-6` from here lands on a
+reversed rule.)*
 
 **(4) A signature over every wrap body under the publisher's identity key, verified before the wrap is
 honoured.** This is not new policy — MASTER §5.3:441 already mandates it for the `RecoveryTag`, which

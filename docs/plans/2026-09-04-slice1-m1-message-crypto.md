@@ -2889,7 +2889,12 @@ Do not re-derive the order; the signatures already carry it.
 
 **(a) Which `record_key` seals the head. RULED 2026-09-13 — BOTH AEADs take the SAME
 `record_key[i]`, from the ladder rooted at the RECORD'S OWN class key.** For an `EPH(b)` record that
-class key is `EphKey(ephRoot, b, window)` off the record's own `eph_window` field. The two AEADs are
+class key is `EphKey(ephRoot, b, window)` off the record's own `eph_window` field — **except for a
+device-wrap record, which takes no class key at all and is rooted at `env_key[k]`** (Spec A §5.11 (1),
+MASTER §8.2; carve-out named here 2026-09-13, second pass of that date, because the sentence before it
+reads as exhaustive and the `eph_root` device wrap is `EPH(5)` whose payload **is** `eph_root[k]` —
+applying the rule literally to it would require `eph_root[k]` to open the record that delivers
+`eph_root[k]`). The two AEADs are
 separated by their HKDF labels, `"rec/v1/head"` against `"rec/v1/body"`, which is what MASTER **I7**
 has always meant. Ledger items **152** and **128**; Spec A revision **A-25**.
 
@@ -3466,10 +3471,28 @@ task too** — see Task 11(a): both records this task builds are non-`DURABLE`, 
 lift the `EPH(5)` `eph_root` wrap was still refused under **ledger 152**, so the `PERMANENT`
 `pq_secret` wrap was through the gate and its twin was not, and a fan-out emitting one without the
 other breaks Property 1's *"exactly two"*. **Ledger 152 was RULED 2026-09-13** and the refusal is
-lifted **in full**, so both records this task builds can now be sealed. *(Two preconditions travel
+lifted **in full**, so both records this task builds can now be sealed *(**corrected 2026-09-13, second
+pass of that date: the SEAL refusal is lifted in full and both records can be sealed, but the `EPH(5)`
+`eph_root` wrap cannot be PUBLISHED, because ledger open item 185 leaves its `eph_window` value
+unstated and the server refuses an implausible one. Step 1 is unblocked for the `PERMANENT` half
+only.**)*. *(Two preconditions travel
 with the lift and this task inherits them from Task 11(a): an `EPH` record's class key is
 `EphKey(ephRoot, b, window)` off the record's own `eph_window` field, and `OpenRecord` refuses a
 window more than one ahead of the opener's clock.)*
+
+**AND BOTH PRECONDITIONS READ WRONG FOR THE SECOND OF THE TWO RECORDS THIS TASK BUILDS, so the
+statement above is corrected here rather than inherited** (2026-09-13, second pass of that date).
+**(i) The `eph_root` device wrap does NOT take `EphKey`.** It is `EPH(5)` on the wire and its payload
+**is `eph_root[k]`**, so `EphKey(ephRoot, 5, window)` would require `eph_root[k]` to open the record
+that delivers `eph_root[k]`. Its root is `env_key[k]` — MASTER §8.1's device-wrap carve-out and Spec A
+§5.11 (1) — exactly as the `pq_secret` wrap's is, and neither wrap calls `EphKey` at all. This is the
+`sent_at` circularity that killed the cheap answer to `M1-27`, reappearing one level in. **(ii) What
+`eph_window` that record CARRIES is not ruled, and this task MUST NOT publish it until it is** —
+MASTER §8's presence rule makes it non-zero on `EPH(1..5)`, Spec A **S19** and Spec B §5.1 check 3
+refuse an implausible one with no wrap carve-out, and a wrap head has no `sent_at` to divide (Spec A
+§5.11 (5)). **Ledger open item 185**, filed and not ruled. **So Task 14 step 1 is unblocked for the
+`PERMANENT` `pq_secret` wrap and is NOT unblocked for its `EPH(5)` twin**, and Property 1's *"exactly
+two"* is not buildable until 185 is answered.
 
 **Step 3 is BLOCKED, by `M1-52`, which is filed and not ruled.** Its own words: *"the signature
 preimage is 1,320 or 1,356 octets and no document says which, so nothing in Task 14 can sign"*, and
@@ -4385,7 +4408,13 @@ undefined and that is the gap. MASTER writes `u64(t)` and says `eph_root` is 'ti
 which clock."* **M1-27 is ruled** (ledger item **183**): `t` is the record's own plaintext
 `eph_window` field, `floor(sent_at_ms / (eph_bucket_seconds[b] × 1000))`, Unix origin, **sender's**
 clock, and an opener takes the wire value and never recomputes it. §2.2 still assigns *"eph_root,
-buckets, window expiry"* to `eph.go`.
+buckets, window expiry"* to `eph.go`. **`EphKey` is called for an ordinary `EPH(1..5)` record and for
+nothing else** — a device-wrap record is rooted at `env_key[k]` and calls it not at all, even though
+the `eph_root` wrap's own wire class is `EPH(5)` (noted 2026-09-13, second pass of that date; Task 14
+and MASTER §8.1's device-wrap carve-out). **And "window expiry" in §2.2's assignment has no rule
+behind it**: the ruling slices the derived key and leaves `eph_root[n]` one per-epoch value that
+nothing schedules the destruction of — **ledger open item 186**, which this task does not need in
+order to produce `EphKey` and which a reader of `eph.go`'s name would reasonably expect to find.
 
 **Three things this task now owes that it did not before, and each is a refusal rather than a
 round trip.** *(1)* `EphKey` **must not read a clock** — assert by construction, the same shape as
@@ -6193,6 +6222,17 @@ In brief, because Task 17 is dispatched against this line:
 - **Second half:** `EphBucketSeconds` must answer **0** for bucket 0 and a **negative** for 6..255,
   because *"transient rung, never persisted"* and *"not a bucket"* are two answers and today they are
   one. **The code change is `connect`'s and is a later dispatch.**
+
+**SECOND PASS, SAME DATE — two things the ruling leaves owed, both filed and neither blocking Task
+17.** *(a)* **Ledger open item 185** — the `eph_root` device wrap is `EPH(5)`, so the presence rule
+above makes its `eph_window` non-zero and **S19** refuses an implausible one, while the wrap's key
+comes from `env_key[k]` and a wrap head has no `sent_at` to divide. **No document gives that record a
+window value**, and Task 14 MUST NOT publish it until one is ruled. *(b)* **Ledger open item 186** —
+the ruling defines `t` at the **derived** key, so `eph_root[n]` is one per-epoch value with no window
+of its own, and **nothing schedules its destruction on a device**. That does not touch Task 17, and it
+does bound what the sitting bought: the conversion to cryptographic holds against retained server
+ciphertext, a newly provisioned device and a seedphrase holder, and **not** against a seized member
+device. MASTER §8.1 and §12.4 now say so at the sentences that make the claim.
 
 *Blocks:* nothing — Task 17 is unblocked. **Wire-visible, and it SPENDS the freeze**: ledger item
 **182** carries what reopening §8 and §9.2 after slice 2 obliges, including `format_version` → `0x02`.
