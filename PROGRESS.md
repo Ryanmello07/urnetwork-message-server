@@ -1809,8 +1809,10 @@ trees, which were read and never written.
 test, for item 190's cause. `connect` (`beta/message`, `b0155d9`) and `sdk` (`beta/message`,
 `54785de`) were **read-only to this pass** — every command against either was `git show`,
 `git status`, `git rev-parse`, `grep` or `sed -n`. `sdk` is clean. **`connect` is not, and that is
-recorded rather than rounded off**: it began clean and ends with three modified files under
-`messagegroup/` at an unchanged HEAD, because **another agent is writing that tree concurrently**.
+recorded rather than rounded off**: it began clean and ends dirty under `messagegroup/` at an
+unchanged HEAD. **The count is deliberately not written down — it moved between two readings minutes
+apart**, and that movement is the finding rather than the number: **another agent is writing that tree
+concurrently**.
 None of them is this pass's, and no measurement above depends on `connect`'s working tree — every
 `connect` number was taken with `git show <commit>:<path>` against committed objects. `git ls-files`
 equals `git ls-tree -r HEAD` at **105** here, checked before the first edit and after the commit.

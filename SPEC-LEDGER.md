@@ -14603,10 +14603,11 @@ today.
 pass** — every command issued against either was `git show`, `git status`, `git rev-parse`, `grep` or
 `sed -n`, and nothing was written to either tree. `sdk` is clean. **`connect` is NOT, and it is said
 here rather than rounded to "clean":** it was clean at `git status --porcelain` when this pass began
-and carries **three modified files** at the end — `messagegroup/ephkey_test.go`,
-`messagegroup/m1w1repairs_test.go`, `messagegroup/seal_test.go` — at an unchanged HEAD of `b0155d9`.
-**Another agent is writing that tree concurrently**, and those three are the follow-up its own review
-named. None of this pass's edits is in `connect`, and the sibling being mid-edit changes no
+and is dirty under `messagegroup/` at the end, at an unchanged HEAD of `b0155d9`. **The count is
+deliberately not written down, because it moved between two measurements minutes apart** — three files
+and then four, the fourth being `messagegroup/doc.go` — and **that movement is the finding**, not the
+number: it is the evidence that **another agent is writing that tree concurrently**, which a count
+frozen at either reading would have hidden. None of this pass's edits is in `connect`, and the sibling being mid-edit changes no
 measurement above: every number taken from `connect` was taken with `git show <commit>:<path>`,
 against committed objects, never against its working tree. `git ls-files` equals `git ls-tree -r HEAD`
 at **105** in this repository, checked before the first edit and after the commit.
