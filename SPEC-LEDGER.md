@@ -15447,3 +15447,15 @@ Every `connect` number here was taken from a committed object, and where a build
 was `git archive`-d at `e17cfad` into the scratchpad rather than compiled from the dirty working
 copy. `EphWindowAt` itself is byte-identical between `e17cfad` and that dirty tree, which was
 diffed rather than assumed.
+
+**POSTSCRIPT, same pass, minutes after the commit above: `connect` MOVED.** Its HEAD is now
+**`993a4ea`** — *"Close the clock gate line with the argument it can actually carry"* — with
+`e17cfad` its ancestor, and its working tree is now **clean**. A state line is a claim about now,
+so this one is corrected rather than left to read as current. **Nothing in the finding moves**, and
+that was measured and not assumed: `messagegroup/eph.go`'s `EphWindowAt` is **byte-identical** at
+`e17cfad` and `993a4ea` (diffed), and both comparisons were re-run against a `git archive` of
+`993a4ea` — the 32-pair grid **32 agree, 0 disagree**, and the 57-row table **57 agree, 0
+disagree**. What `connect` owes is unchanged and is still owed: its half of
+`testdata/eph-window-kat.txt` and a test that drives its own `EphWindowAt` over it. The measurements
+in this entry stay labelled `e17cfad`, because that is the tree they were taken against and
+relabelling a dated measurement is item **152**'s defect.
