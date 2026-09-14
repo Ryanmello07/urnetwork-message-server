@@ -2505,10 +2505,34 @@ comparison, because the length of a tag is public.
 
 **The read key is an explicit parameter, and that is a finding rather than a style choice — but it
 carries its EPOCH, which the earlier draft's bare `[]byte` did not.** `msgrepo/harness/client.go`'s
-own `Fetch` takes `readKey []byte` for exactly the first reason: it has no session to ask. `s2`
-**will** have a session, and the session will not tell it — `GroupSession` holds the read key
-privately and exposes none of its seven methods to reach it. Making the parameter explicit keeps the
-gap visible at every call site instead of burying a re-derivation inside the fetch path. **S2-1.**
+own `Fetch` takes `readKey []byte` for exactly the first reason: it has no session to ask.
+
+***CORRECTED 2026-09-13, fourth pass of that date. Old wording kept, per this file's convention.***
+This paragraph read: *"`s2` **will** have a session, and the session will not tell it —
+`GroupSession` holds the read key privately and **exposes none of its seven methods to reach it**."*
+**Both clauses are false**, and this same document has said so since the third pass of 2026-09-13,
+700 lines below at S2-1's own amendment — this is the sentence that pass's complement named at
+`SPEC-LEDGER.md:14887` and left, and leaving it meant the first place a reader meets the claim, at
+task-design altitude and tagged with the item number, still carried the falsified premise. Measured
+at `connect` `e17cfad`, query beside it:
+
+```
+git grep -h 'func (self \*GroupSession) [A-Z]' e17cfad -- 'messagegroup/*.go' | grep -v _test
+  -> ELEVEN: AdvanceEpoch Close Epoch EpochKeys InstallEphRoot OpenRecord ReauthRecord
+             RebindServerNonce SealRecord SenderHandle TrackSender
+git grep -h 'func (self \*EpochKeys) [A-Z]' e17cfad -- 'messagegroup/epochkeys.go'
+  -> Epoch() ReadKey() WriteKey() Destroy()
+```
+
+**What is true instead, and it does not change the decision.** The session DOES tell `s2` the LIVE
+epoch's read key, via `EpochKeys().ReadKey()`. What it still does not tell it is the read key for a
+**superseded** epoch — Spec B §5.3 retains those for ninety days and no accessor answers for one —
+nor `read_key[n+1]`, which every `EpochAttachment` carries and which `ProvisionalEpoch` has no
+`ReadKey()` to give, nor `group_handle_key`, which has no accessor on either type. So the parameter
+stays explicit for the fetches that cannot be answered from the session, and the gap it keeps
+visible is smaller and real rather than total. **S2-1's PREMISE is false and closes; the ITEM does
+not** — see its amendment below. Making the parameter explicit keeps that gap visible at every call
+site instead of burying a re-derivation inside the fetch path. **S2-1.**
 Making it a `readKeyRef` rather than a `[]byte` is Property 3's precondition: a bare slice cannot
 answer *"is this the key for `read_epoch`?"*, so the local refusal that property owes would be
 undecidable at the signature and the property unfalsifiable.
@@ -3192,7 +3216,7 @@ git grep -n 'func (self \*GroupSession) [A-Z]' 7ce25a2 -- 'messagegroup/*.go' | 
   -> ELEVEN: AdvanceEpoch Close Epoch EpochKeys InstallEphRoot OpenRecord ReauthRecord
              RebindServerNonce SealRecord SenderHandle TrackSender
 messagegroup/session.go:387  func (self *GroupSession) EpochKeys() (*EpochKeys, error)
-messagegroup/session.go:~394   keys = newEpochKeys(self.epoch, self.readKey, self.writeKey)
+messagegroup/session.go:395    keys = newEpochKeys(self.epoch, self.readKey, self.writeKey)   (was published as ~394; EXACT at 7ce25a2 and e17cfad)
 messagegroup/epochkeys.go:88,96,104  Epoch() ReadKey() WriteKey()
 ```
 

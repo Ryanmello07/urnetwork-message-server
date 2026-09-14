@@ -20,6 +20,13 @@ var (
 	// at all. Refused rather than clamped to zero: zero is the answer the presence rule gives an
 	// unwindowed class, and a clock fault that produced it would be indistinguishable from one.
 	ErrEphWindowSentAt = errors.New("harness: a sent_at before the unix epoch has no eph window")
+	// A bucket byte above the ladder's last rung. Refused rather than answered with zero, for
+	// the reason the 2026-09-13 sentinel ruling exists at all: zero is the TRANSIENT RUNG's real
+	// window, so answering zero here would collapse "bucket 0, window 0 by definition" and
+	// "this is not a bucket" into one answer -- which is the sentinel collision that ruling was
+	// made to eliminate, reintroduced one repository over. [connect/messagegroup.EphWindowAt]
+	// refuses it; this refuses it in the same order and with the same precedence.
+	ErrEphBucketOffLadder = errors.New("harness: this bucket names no rung of the eph ladder")
 )
 
 // One record to seal, in the terms a sender chooses them.
@@ -195,12 +202,22 @@ func projectionOf(header *message.RecordHeader, attachment *message.ServerAttach
 // MASTER §8's `eph_window`, as a SENDER computes it: `floor(sent_at_ms / (eph_bucket_seconds[b]
 // × 1000))`, origin the unix epoch, off the same wall-clock reading the sender puts in `sent_at`.
 //
-// It answers ZERO for every class that carries no window, and it reaches that answer by ARITHMETIC
-// rather than by a branch on the class: [message.EphBucketSeconds] is zero for bucket 0 and
-// negative off the ladder, and both are answered here as a window of zero. §5.1 check 3 and §3.2's
-// CHECK phrase the windowed half as the wire byte 17..21, which — since MASTER §8 gives the byte as
-// `0x10 | bucket` — is buckets 1..5 and excludes EPH(0) at 16. A caller sealing PERMANENT, DURABLE
-// or MEDIA passes bucket 0 and gets the zero the presence rule requires.
+// IT IS THREE ANSWERS OVER [message.EphBucketSeconds]'S THREE, IN THAT ORDER. A negative is a
+// bucket that is not a bucket and is refused with [ErrEphBucketOffLadder], BEFORE the clock
+// reading is looked at. A zero is the transient rung: window 0 by definition, no division, and
+// the reading is not consulted at all. A positive divides, and only then is a reading before the
+// unix epoch refused with [ErrEphWindowSentAt].
+//
+// THE ORDER IS PART OF THE ANSWER AND NOT A STYLE CHOICE. Until 2026-09-13 this function read
+// `if seconds <= 0 { return 0, nil }`, which gave the off-ladder bucket and the transient rung
+// ONE answer -- exactly the sentinel collision M1-27's second half was ruled to eliminate,
+// reintroduced in the server's copy of the formula. Under that reading this harness would seal a
+// record at window 0 for a bucket that names no rung, where the shipped sender refuses it; the
+// two copies disagreed on 9 of 32 `(bucket, sent_at_ms)` pairs probed from a module outside both
+// repositories -- NOT over `testdata/eph-window-kat.txt`, which is a different and larger grid;
+// the measurement and both its commit ids are in item 193. Refusing off-ladder first, and
+// refusing the pre-epoch reading only on a rung that divides, is
+// [connect/messagegroup.EphWindowAt]'s order and is now this one.
 //
 // WHY THIS IS WRITTEN HERE AND NOT LINKED. `connect/messagegroup` publishes `EphWindowAt` with this
 // arithmetic for the real sender, and Spec B §2.2 does not allow this module to import that package
@@ -208,15 +225,27 @@ func projectionOf(header *message.RecordHeader, attachment *message.ServerAttach
 // nothing else. This is therefore a SECOND SITE of one formula by construction of the dependency
 // rule, and the divergence risk is real and filed rather than absorbed.
 //
+// WHAT HOLDS THE TWO SITES TOGETHER, since the import that would compare them directly is
+// forbidden: `testdata/eph-window-kat.txt` at the root of this module, a table of answers pinned
+// BY VALUE rather than by a call. TestTheSenderFormulaAnswersTheSharedKAT drives this function
+// over every row of it. `connect` owes the other half -- the identical file and a test that
+// drives its own `EphWindowAt` over it -- and until it lands, the table binds this copy alone.
+// Item 193 carries the file's digest and what is owed.
+//
 // `sentAtMs` is a reading and not a source: a harness that read a clock in here would be a harness
 // that could not seal the record §7.1 is supposed to refuse.
 func EphWindowAt(bucket uint8, sentAtMs int64) (uint64, error) {
+	seconds := message.EphBucketSeconds(bucket)
+	switch {
+	case seconds < 0:
+		return 0, fmt.Errorf("%w: bucket %d", ErrEphBucketOffLadder, bucket)
+	case seconds == 0:
+		// The transient rung. One window for the life of eph_root[n], no division, and the
+		// reading is not consulted -- which is what MASTER §8.1's "never computed" means.
+		return 0, nil
+	}
 	if sentAtMs < 0 {
 		return 0, fmt.Errorf("%w: %d is before the unix epoch, which is the window's origin", ErrEphWindowSentAt, sentAtMs)
-	}
-	seconds := message.EphBucketSeconds(bucket)
-	if seconds <= 0 {
-		return 0, nil
 	}
 	return uint64(sentAtMs) / (uint64(seconds) * 1000), nil
 }

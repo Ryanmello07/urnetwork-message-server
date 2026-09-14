@@ -1005,8 +1005,7 @@ func validateRecord(record *Record) error {
 	if EphWindowMax < record.EphWindow {
 		return ErrEphWindowRange
 	}
-	if record.EphWindow != 0 &&
-		!(ClassEphBase < record.RetentionClass && record.RetentionClass <= ClassEphMax) {
+	if record.EphWindow != 0 && !ephWindowClassAllows(record.RetentionClass) {
 		return ErrEphWindowClass
 	}
 	// inline XOR blob, never both (§3.2)
@@ -1046,6 +1045,29 @@ func validateRecord(record *Record) error {
 		}
 	}
 	return nil
+}
+
+// §3.2's CLASS half of the `eph_window` CHECK, as a predicate with a name: exactly the wire bytes
+// `17 <= retention_class AND retention_class <= 21`, which migration 010 carries verbatim.
+//
+// WHY IT IS A NAMED FUNCTION AND NOT THE INLINE CONDITION IT WAS UNTIL 2026-09-13. Inline, at its
+// one call site, this predicate was UNKILLABLE. [validateRecord] returns [ErrTransientRecord] for
+// `RetentionClass == ClassEphBase` several lines ABOVE the window block, and `ClassEphBase` is the
+// only class the `<` / `<=` distinction changes — so widening it to `ClassEphBase <=` was a mutant
+// that the whole repository, including 458 seconds of pgx contract against a real PostgreSQL,
+// stayed green under. That survivor is measured and named in the ledger's 2026-09-13 entries; a
+// ledger that says a mutant is killed when it survives is worse than no entry, and the repair is
+// to give the predicate a place where it can be read on its own.
+//
+// It is also the sentence item 189 is about, which is the better reason for the name. MASTER §8's
+// presence rule is phrased on the CLASSES and §3.2's CHECK on the WIRE BYTES, and the two agree
+// only because `ClassEphBase` is `0x10` = 16 and sits OUTSIDE 17..21 with `PERMANENT`, `DURABLE`
+// and `MEDIA` in the must-be-zero half. That is an arithmetic claim about a byte range, it is the
+// claim a reader is most likely to get backwards — it has already been published inverted once —
+// and TestTheEphWindowClassPredicateIsExactlyTheWireRange17To21 now states it over all 256 class
+// bytes with the complement named and asserted, rather than leaving it to a comment.
+func ephWindowClassAllows(retentionClass uint8) bool {
+	return ClassEphBase < retentionClass && retentionClass <= ClassEphMax
 }
 
 func checkLength(value []byte, want int) error {

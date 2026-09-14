@@ -106,19 +106,45 @@ func newFixtureWith(t *testing.T, config Config) *fixture {
 // that cannot fail. What is NOT written out is the ladder — the bucket's length comes from
 // [message.EphBucketSeconds], so a bucket whose window moves is a bucket this moves with.
 //
-// The zero answer is arithmetic and not a special case. EphBucketSeconds is ZERO for bucket 0,
-// which is the transient rung's true window, and NEGATIVE off the ladder; neither is a divisor,
-// and both are classes MASTER §8's presence rule gives a window of zero.
-func ephWindowAt(t *testing.T, bucket uint8, sentAtMs int64) uint64 {
-	t.Helper()
+// The zero answer is arithmetic and not a special case for the TRANSIENT RUNG, and it is not the
+// answer AT ALL off the ladder. [message.EphBucketSeconds] gives three answers and this gives
+// three back, in its order: a negative is a bucket that names no rung and is refused BEFORE the
+// reading is looked at; a zero is bucket 0, whose window is 0 by definition and which does not
+// consult the reading; a positive divides, and only then is a pre-epoch reading refused.
+//
+// Until 2026-09-13 this read `if seconds <= 0 { return 0, nil }`, which gave the off-ladder
+// bucket and the transient rung ONE answer -- the sentinel collision M1-27's second half was
+// ruled to eliminate. That is the same defect [harness.EphWindowAt] carried, and it is why this
+// arithmetic is now driven over the shared table rather than trusted: see
+// TestTheFixturesCopyOfTheSenderFormulaAnswersTheSharedKAT in ephkat_test.go, and ledger item 193.
+//
+// It answers in the shared table's own vocabulary -- a window, or the NAME of a refusal -- rather
+// than through a sentinel of its own. A test fixture that declared two error values would be
+// declaring a third set of identities for one formula's two refusals, which is more of exactly
+// what item 193 files.
+func ephWindowAnswer(bucket uint8, sentAtMs int64) (uint64, string) {
 	seconds := message.EphBucketSeconds(bucket)
-	if seconds <= 0 {
-		return 0
+	switch {
+	case seconds < 0:
+		return 0, katOffLadder
+	case seconds == 0:
+		return 0, ""
 	}
 	if sentAtMs < 0 {
-		t.Fatalf("a sent_at of %d is before the unix epoch, which is the window's origin", sentAtMs)
+		return 0, katSentAt
 	}
-	return uint64(sentAtMs) / (uint64(seconds) * 1000)
+	return uint64(sentAtMs) / (uint64(seconds) * 1000), ""
+}
+
+// [ephWindowAnswer] for a caller that has a *testing.T and no use for a window that does not
+// exist.
+func ephWindowAt(t *testing.T, bucket uint8, sentAtMs int64) uint64 {
+	t.Helper()
+	window, refused := ephWindowAnswer(bucket, sentAtMs)
+	if refused != "" {
+		t.Fatalf("no eph window exists for bucket %d at sent_at_ms %d: %s", bucket, sentAtMs, refused)
+	}
+	return window
 }
 
 // The window §7.1 computes from this record's own arrival stamp, which for a submission this

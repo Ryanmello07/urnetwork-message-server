@@ -7511,7 +7511,64 @@ fourteen are dispositioned below.
      no test that compares it with `connect`'s, and it could not have one without the import §2.2
      forbids, which is the finding. **No test code is supplied.**
 
-     *Blocks:* **nothing.** All three copies agree today, by inspection and by the suite. Carried at
+     **CORRECTED 2026-09-13, fourth pass of that date. The *Blocks* line below was FALSE WHEN IT
+     WAS FILED**, and it is kept rather than replaced because the way it was wrong is the finding.
+     It read:
+
+     > *Blocks:* **nothing.** All three copies agree today, **by inspection and by the suite**.
+
+     *"By inspection"* was the inspection being wrong the first time it was run, and *"by the
+     suite"* named a suite that could not have seen it: no test in this repository called both
+     functions, because §2.2 will not let one. **MEASURED**, in a throwaway module in the
+     scratchpad that imports `connect/messagegroup` and `message-server/harness` together — the
+     only place the two may be imported at once, and outside both repositories:
+
+     ```
+     QUERY: a Go program over bucket × sent_at_ms, buckets {0,1,2,3,4,5,6,255} × sent_at_ms
+            {-1, 0, 1, 1767225600000}, comparing the VALUE or the SENTINEL CLASS of each answer
+     AT:    connect e17cfad, msgrepo d7e4f7f
+
+     bucket  sent_at_ms       connect        harness        agree?
+     0       -1               0              ERR SentAt     *** NO ***
+     1..5    -1               ERR SentAt     ERR SentAt     yes
+     6, 255  -1               ERR OffLadder  ERR SentAt     *** NO ***  (x2)
+     6, 255  0 / 1 / now      ERR OffLadder  0              *** NO ***  (x6)
+     0..5    0 / 1 / now      equal                         yes
+
+     TOTAL pairs=32 agree=23 DISAGREE=9
+     ```
+
+     **9 of 32, not zero.** The cause is the order of the guards. `connect` reads the ladder
+     first and refuses an off-ladder bucket before looking at the clock; `harness` read the clock
+     first and then collapsed `seconds <= 0` — zero *and* negative — to `(0, nil)`. That collapse
+     is **the sentinel collision M1-27's second half was ruled to eliminate**, reintroduced in the
+     server's copy: the transient rung's real window of 0 and "this is not a bucket" became one
+     answer. The third copy, `api/fixture_test.go`'s `ephWindowAt`, carried the same collapse.
+
+     **REPAIRED, and now gated.** `harness.EphWindowAt` and the fixture's copy both answer
+     `message.EphBucketSeconds`'s three answers in `connect`'s order, and `harness` grew
+     `ErrEphBucketOffLadder` to say the third one. Re-measured with the same program: **32 of 32
+     agree, 0 disagree.**
+
+     *Blocks:* **nothing.** *Gated*, over the domain the gate covers, by
+     **`testdata/eph-window-kat.txt`** — a table of 57 known answers whose values were computed
+     from MASTER §8's sentence in Python and then confirmed against `connect`'s own answers,
+     rather than read out of either implementation. `harness/ephkat_test.go` drives
+     `harness.EphWindowAt` over every row and pins the table by digest;
+     `api/ephkat_test.go` drives the fixture's copy over the same rows and pins the table's shape
+     by count. **The canonical digest is**
+
+     ```
+     sha256(testdata/eph-window-kat.txt, CRLF folded to LF)
+       = f6ef2ae645294a085ae88705209b756578f403029dcd0e0f5b2ef726e897712a
+     ```
+
+     **WHAT `connect` OWES, and it is not owed by this repository:** a byte-identical copy of that
+     table, and a test that drives `connect/messagegroup.EphWindowAt` over it and asserts the same
+     digest. **Nothing in msgrepo can make connect's half red**, and no test here claims to — the
+     gate holds msgrepo's two copies to a value, and holds `connect` only for as long as somebody
+     checks the two digests are the same string. That is a weaker fastening than a call and it is
+     the strongest one §2.2 permits. Until connect's half lands, the item stays FILED. Carried at
      Spec B §2.2 and §12.1, and at `harness/seal.go`'s own doc comment, which says this in its own
      voice at the function.
 
@@ -15013,15 +15070,48 @@ migration 010   17 <= retention_class -> 16 <=       -> FAIL "eph bucket 0 with 
                                                         accepted by the schema"
 ```
 
-**Mutation-tested, eleven mutants, all killed.** ±1 → ±0 and → ±2; the check removed entirely; the
-must-be-zero half removed; one bucket's seconds read for another; `rebuildRecord` and `columnsOf`
-dropped; the memory store's two `CHECK`s disabled; migration 010's constraints dropped; and migration
-010's class predicate widened to 16. The one mutant that the **store contract could not kill** is
-named rather than left: widening the memory store's predicate to admit `EPH(0)` survives, because
-§7.6 refuses an `EPH(0)` a row before the window constraint is reached. It is killed at the API layer
-(where check 3 answers `REASON_REJECTED` and check 9's `REASON_INTERNAL` is distinguishable) and at
-the DDL (by a raw INSERT that never calls this package — which is what §3.2's own *"so a second writer
-cannot put a nonzero window on a DURABLE row"* sentence asks for, and which nothing asserted before).
+**Mutation-tested, ~~eleven mutants, all killed~~ — CORRECTED 2026-09-13, fourth pass: THIRTEEN
+mutants were run, TWELVE were killed, ONE SURVIVED.** The enumeration that followed listed eleven
+and omitted two, one of which is printed in the fenced block immediately above it. The thirteen:
+±1 → ±0 and → ±2; the check removed entirely; the must-be-zero half removed; one bucket's seconds
+read for another; `rebuildRecord` and `columnsOf` dropped; the memory store's two `CHECK`s disabled;
+migration 010's constraints dropped; migration 010's class predicate widened to 16 — **and the two
+that were missing: `api/submit.go`'s `seconds <= 0` → `seconds < 0`, and the survivor below.**
+
+**One of the twelve kills is a PANIC and not the *"named assertion"* the paragraph below claims for
+each.** Re-measured rather than taken from the earlier report:
+
+```
+QUERY: go test -overlay=<api/submit.go: `seconds <= 0` -> `seconds < 0`> ./api/ -timeout 300s -count=1
+--- FAIL: TestTheRecordKindsThisBuildCannotServeAreRefusedRatherThanStored/an_EPH(0)_transient
+panic: runtime error: integer divide by zero [recovered, repanicked]
+FAIL github.com/urnetwork/message-server/api  0.927s
+```
+
+A panic is a kill. It is not a named property: a crash says *something* broke, an assertion says
+*which* sentence stopped being true, and this corpus's whole argument for mutation over reading is
+that second thing.
+
+**THE SURVIVOR, and the claim about it that was FALSE.** This paragraph said of widening the memory
+store's predicate to admit `EPH(0)` — `store/memory.go`'s `ClassEphBase <` → `ClassEphBase <=` —
+that *"it is killed at the API layer … and at the DDL."* **It was killed nowhere.** Measured at
+`d7e4f7f`, with the tree untouched (`-overlay` substitutes the file at compile time):
+
+```
+QUERY: go test -overlay=<store/memory.go:1009 `ClassEphBase <` -> `<=`> <pkg> -timeout 900s -count=1
+  ./store/  (no DSN)                                        -> ok  0.248s
+  ./api/    (no DSN)                                        -> ok  0.961s
+  ./...     (no DSN, every package)                         -> ok  all five
+  ./store/  (URMESSAGE_TEST_DSN set, the FULL pgx contract) -> SEE THE EDIT-LOG ENTRY BELOW
+```
+
+The reason is structural and was already written one sentence away: `validateRecord` returns
+`ErrTransientRecord` for `RetentionClass == ClassEphBase` **before** the window block, so the
+mutated predicate is unreachable for the only class it changes. What IS killed at the API layer is a
+**different** mutant (`api/submit.go`'s, above, by panic), and what is killed at the DDL is a
+**third** (migration 010's `17 <=` → `16 <=`, by a named row). The class-phrased READING is killed
+in two places; *this mutant* was killed in none, and the difference is the whole residue the
+sentence existed to bound.
 
 **THE REVIEW'S FINDINGS, EACH CLOSED OR REFUTED.**
 
@@ -15033,8 +15123,22 @@ cannot put a nonzero window on a DURABLE row"* sentence asks for, and which noth
   `newEpochKeys(self.epoch, self.readKey, self.writeKey)` with `ReadKey()`/`WriteKey()`/`Epoch()` on
   it; `RebindServerNonce` is at `:499`. **S2-1's premise is false on BOTH clauses and S2-2's "no
   setter" clause is closed.** Neither item closes, and this pass says which residue survives rather
-  than declaring victory: `ProvisionalEpoch` exports `StorageRoot() WriteKey() EphRoot() PqSecret()
-  Wraps()` and **no `ReadKey()`**, so epoch *n+1*'s read key is still unreachable; `group_handle_key`
+  than declaring victory: ~~`ProvisionalEpoch` exports `StorageRoot() WriteKey() EphRoot()
+  PqSecret() Wraps()`~~ **— CORRECTED 2026-09-13, fourth pass: that list is FIVE and omits `Epoch()`;
+  the exported set is NINE and the ACCESSORS are six. The query and what it actually returns:**
+
+  ```
+  git grep -h 'func (self \*ProvisionalEpoch) [A-Z]' e17cfad -- 'messagegroup/*.go'
+    -> 9 LINES: Epoch StorageRoot WriteKey EphRoot PqSecret Wraps InstallWraps Destroyed Destroy
+  ```
+
+  **Six of those nine are accessors** (`Epoch StorageRoot WriteKey EphRoot PqSecret Wraps`); the
+  other three are a setter and the destroy pair. This fact is published at three arities in this
+  corpus — `:13569` says the exported set is **9** (correct, and older), this bullet said **five**,
+  and `s2:3214` says **six** (the accessors, correct for what it claims). Nine is the set, six is the
+  accessor subset, and neither number is wrong for the sentence it is in once the sentence says
+  which it means. **The substantive point is untouched and is the one that matters: there is
+  no `ReadKey()`**, so epoch *n+1*'s read key is still unreachable; `group_handle_key`
   has no accessor on either type; and S2-2's sequencing question — *when* to rebind, with a record in
   flight — outlives its mechanism clause.
 - **F3 (MEDIUM) — CLOSED.** The CP3b sentence is restated as an addition, not an answer, and the four
@@ -15069,7 +15173,17 @@ renumbering would restate a dated measurement as though taken today, which is it
 **184**'s defect one level down. **The 28, by file, at `a21a6ee`'s `*.md` line numbers** — that
 coordinate system and not this commit's, because a list of line numbers into a file this same commit
 edits is the defect being filed: `SPEC-LEDGER.md` × **14** (`:454`, `:1978`, `:2461`, `:6059`,
-`:7179`, `:7187`×2, `:7190`×2, `:9614`, `:9633`×2, `:9694`, `:10209`), Spec A × **4** (`:97`,
+`:7179`×2, `:7187`×2, `:7190`×2, `:9614`, `:9633`, `:9694`, `:10209` — **two multiplicities
+CORRECTED 2026-09-13, fourth pass; the published list had them transposed, as `:7179` ×1 and `:9633`
+×2. Derived at `a21a6ee` and checked end by end: `:7179` carries the RANGE
+`api/roundtrip_test.go:250-303` and BOTH ends drift (`:250` moves off *"The field set is
+[message.RecordHeader]'s own, walked"*, `:303` off `len(uncovered), uncovered)`), so it contributes
+TWO; `:9633` carries `store/memory.go:979` and `store/contract.go:145`, and only the second drifts
+(`:979` is `if len(record.CtHead) == 0 {` at BOTH trees, being above the insertion), so it
+contributes ONE. The headline 28 is unchanged and reproduces — 14 + 4 + 4 + 3 + 2 + 1. The
+per-entry error is worth correcting in a list whose own paragraph says it was already corrected once
+for this class, and whose item 191 names "require a NAMED site to be reported" as its mutation
+target**), Spec A × **4** (`:97`,
 `:2047`, `:2295`, `:2361`), the 2026-09-12 red-team review × **4** (`:59`, `:116`, `:270`, `:310`),
 Spec B × **3** (`:358`, `:2352`, `:2505`), `m1` × **2** (`:4022`, `:5880`), `k1` × **1** (`:358`).
 14 + 4 + 4 + 3 + 2 + 1 = **28**, and the arithmetic is printed because the first form of this list
@@ -15080,8 +15194,21 @@ here; anchors whose file was renamed; and the correctness of an anchor that stil
 *identical* text at a different logical place.
 
 **Every `store/migrations.go` anchor in the corpus SURVIVED, and that is the design working.** Migration
-010 is appended, so `:149`, `:159`, `:160`, `:179`, `:180`, `:222-226` and `:351-362` all still land
-exactly — checked individually. §10.3's append-only rule buys anchor stability as a side effect.
+010 is appended, so ~~`:149`, `:159`, `:160`, `:179`, `:180`, `:222-226` and `:351-362`~~ all still
+land exactly — checked individually. **CORRECTED 2026-09-13, fourth pass: the corpus contains SIX
+`store/migrations.go` anchors, not seven, and `:179` is not one of them.** The set, DERIVED rather
+than transcribed:
+
+```
+QUERY: for f in $(git ls-tree -r a21a6ee --name-only | grep '\.md$'); do
+         git show "a21a6ee:$f" | grep -o 'store/migrations\.go:[0-9]*\(-[0-9]*\)*'; done | sort -u
+  -> store/migrations.go:149  :159  :160  :180  :222-226  :351-362          SIX
+```
+
+`:179` does land (`CHECK (0 <= stream_index),`), so the survival claim was not false — it was one
+member longer than the class it said *"every"* over, which in a sentence whose whole point is the
+completeness of an enumeration is the defect and not a rounding. **All six real anchors survive and
+the headline holds.** §10.3's append-only rule buys anchor stability as a side effect.
 
 **What this pass did NOT do, said plainly.** It did not touch `connect` or `sdk`; every number taken
 from either was taken with `git show <commit>:<path>` or a read-only `git grep <tree-ish>` against
@@ -15091,9 +15218,12 @@ anchors. It did not implement Spec B §4.3.3's projection field 14, **because it
 does not exist in `connect/protocol` (item **192**), and that is reported as a finding rather than
 worked around. It did not amend **Spec B's revision-20 note**, which says *"`store/migrations.go` in the message-server repository is NOT edited for this … `eph_window` is a new migration in that ordered slice … None of that is made by the pass that writes this revision"* — that prediction came true exactly as written, migration **010** is that new migration, and a revision note is a dated record of what one revision did: amending it would restate history and would owe a revision bump this pass has no reason to take. The closure is recorded in item **190** instead, which is the register for it.
 
-**Reviewed by:** self, by mutation rather than by reading — eleven mutants, each run against the
+**Reviewed by:** self, by mutation rather than by reading — ~~eleven mutants, each run against the
 suite, each killed by a **named** assertion, and the one the store contract could not kill named with
-the reason and with where it IS killed. **No test code is supplied in any document.** Every property
+the reason and with where it IS killed.~~ **CORRECTED 2026-09-13, fourth pass: THIRTEEN mutants were
+run, TWELVE killed, ONE SURVIVED; one of the twelve kills is a panic and not a named assertion; and
+the survivor was killed NOWHERE, not "at the API layer and at the DDL" — see the corrected paragraph
+above and the edit-log entry of this date's fourth pass.** **No test code is supplied in any document.** Every property
 filed is satisfiable by a correct implementation, falsifiable by an incorrect one, and presupposes no
 unruled sentence; each names its mutation target.
 
@@ -15113,3 +15243,207 @@ which `store/coverage_test.go` exists to say and which is why the DSN was set.
 `connect` (`beta/message`, `7ce25a2`) and `sdk` (`beta/message`, `54785de`) were **read-only**;
 `connect`'s working tree is dirty under `messagegroup/ephkey_test.go` at an unchanged HEAD, which is
 **another agent writing that tree concurrently** and is recorded rather than rounded off.
+
+
+### 2026-09-13 (fourth pass of that date) — one formula at two sites that disagreed on 9 of 32 pairs, a mutant published as killed in two places that was killed in none, and a count of eleven that was thirteen
+
+**THE SHIPPING DEFECT, AND IT WAS NOT A DOCUMENT.** `msgrepo/harness/seal.go`'s `EphWindowAt` and
+`connect/messagegroup/eph.go`'s — one function, two sites, by construction of Spec B §2.2 —
+**disagreed**. The harness read `if seconds <= 0 { return 0, nil }`, which collapses
+`message.EphBucketSeconds`'s **zero** (the transient rung, whose window is 0 by definition) and its
+**negative** (a bucket that names no rung) into ONE answer. That is precisely the sentinel collision
+**M1-27**'s second half was ruled to eliminate on 2026-09-13, reintroduced in the server's copy of
+the formula: the harness would seal a record at window 0 for a bucket that is not a bucket, where
+the shipped sender refuses. It also checked the clock reading BEFORE the ladder, so a pre-epoch
+stamp on an off-ladder bucket answered the wrong refusal.
+
+**MEASURED, both ends pinned to commits, from a throwaway module in the scratchpad that imports
+`connect/messagegroup` and `message-server/harness` together — the one place the two may be
+imported at once, and outside both repositories:**
+
+```
+QUERY: a Go program over bucket × sent_at_ms
+       buckets    {0, 1, 2, 3, 4, 5, 6, 255}
+       sent_at_ms {-1, 0, 1, 1767225600000}                          = 32 pairs
+       compared on the VALUE, or on the SENTINEL CLASS of the refusal (not on message text:
+       the two packages prefix theirs differently on purpose)
+       both sides built from `git archive`-d trees, NOT from working copies — connect's
+       working tree is dirty under another agent, and `EphWindowAt` itself is byte-identical
+       there, which was checked rather than assumed
+
+BEFORE   connect@e17cfad  vs  msgrepo@d7e4f7f    agree 23   DISAGREE  9 of 32
+AFTER    connect@e17cfad  vs  msgrepo@<this>     agree 32   DISAGREE  0 of 32
+```
+
+The nine: `(0, -1)`, where the transient rung must answer 0 without consulting a reading it is not
+allowed to have an opinion about, and the eight off-ladder pairs on buckets 6 and 255. The third
+copy, `api/fixture_test.go`'s `ephWindowAt`, carried the same collapse and is repaired with it.
+
+**THE GATE, AND IT IS A GATE AND NOT A COMMENT — but only over msgrepo's two copies.**
+`testdata/eph-window-kat.txt`, a table of **57 known answers**. What crosses a forbidden import is a
+value, so the table is the shared artefact and each copy is driven over it in its own repository.
+
+- **Its values were NOT read out of the code they check.** They were computed in Python from MASTER
+  §8's sentence, and then CONFIRMED against the shipped sender: a program outside both repositories
+  drove `connect/messagegroup.EphWindowAt`@`e17cfad` over every row — **57 rows, 57 agree, 0
+  disagree**. A table generated from the implementation under test is a table that agrees with a bug.
+- `harness/ephkat_test.go` drives `harness.EphWindowAt` over every row and **pins the table by
+  digest**: `sha256(canonical bytes, CRLF folded to LF) =
+  f6ef2ae645294a085ae88705209b756578f403029dcd0e0f5b2ef726e897712a`. Canonical and not raw because
+  the other repository's checkout rules are not this one's to set.
+- `api/ephkat_test.go` drives the fixture's copy over the same rows. It pins the table's **shape by
+  count** (57 rows, 12 `ERR_EPH_BUCKET_OFF_LADDER`, 5 `ERR_EPH_WINDOW_SENT_AT`) and **not** by
+  digest, because it may not: a first draft imported `crypto/sha256` and **two gates in `api` went
+  red on it**, correctly — §12.1 A-1 says api uses `connect/message`'s published surface and nothing
+  else. An exemption would have been the laundering
+  `TestNothingThisPackageCanReachHoldsASecondImplementation`'s own failure message warns about. The
+  gate caught the author of this entry; that is recorded rather than tidied away.
+- **The complement is asserted, not printed.** `harness`'s second gate derives the 256 bucket bytes
+  from the width, partitions them off `message.EphBucketSeconds` (6 rungs, 250 off the ladder),
+  asserts the table names every rung, prints the **246** off-ladder bytes the table does not name,
+  asserts that number against `256 - rungs - named`, refuses every one of them at both signs of the
+  reading, and **fatals if the complement is ever empty**.
+
+**WHAT `connect` OWES, and this repository cannot make it red.** A byte-identical copy of the table
+and a test that drives `connect/messagegroup.EphWindowAt` over it and asserts the same digest.
+Until that lands, the fastening between the two repositories is **one string compared by a human**,
+not a call — which is the strongest thing §2.2 permits and is weaker than a call. **`connect` was
+NOT edited**; it is another agent's tree this pass and was read only through `git show`,
+`git grep <tree-ish>` and one `git archive` into the scratchpad. Item **193** carries all of this
+and stays FILED.
+
+**THE MUTANT PUBLISHED AS KILLED IN TWO PLACES THAT WAS KILLED IN NONE.** The ledger said of
+`store/memory.go`'s `ClassEphBase <` → `ClassEphBase <=` that *"it is killed at the API layer … and
+at the DDL."* Reproduced at `d7e4f7f` with the tree untouched (`-overlay` substitutes a file at
+compile time; `git status --porcelain` was empty before and after):
+
+```
+QUERY: go test -overlay=<store/memory.go `ClassEphBase <` -> `<=`> <pkg> -count=1
+  ./store/  (no DSN)                                        -> ok    0.248s
+  ./api/    (no DSN)                                        -> ok    0.961s
+  ./...     (no DSN, every package)                         -> ok    all five
+  ./store/  (URMESSAGE_TEST_DSN set, the FULL pgx contract) -> ok  438.899s   <- the DDL leg
+```
+
+**It survived the whole repository, including 438.899 seconds of contract against a real PostgreSQL
+17.6.** The reason is structural: `validateRecord` returns `ErrTransientRecord` for
+`RetentionClass == ClassEphBase` several lines ABOVE the window block, so the mutated predicate is
+unreachable for the only class it changes. What is killed at the API layer is a **different** mutant
+and what is killed at the DDL is a **third**; the class-phrased READING is killed twice, *this
+mutant* was killed nowhere, and the sentence existed to bound the residue.
+
+**IT IS KILLED NOW, BY A NAMED ASSERTION, AND THE REPAIR IS NOT A MUTATION-CHASER.** §3.2's class
+half is given a name — `ephWindowClassAllows` in `store/memory.go` — so the predicate can be read
+somewhere it is reachable, and
+`store/ephwindowclass_test.go`'s `TestTheEphWindowClassPredicateIsExactlyTheWireRange17To21` states
+it over all 256 class bytes: the allowed side must be exactly `ClassEphBase+1 .. ClassEphMax`, which
+is migration 010's `17 <= retention_class AND retention_class <= 21`; the complement is asserted
+member for member against the set derived from the two constants; and **`ClassEphBase` = `0x10` = 16
+is asserted to be in the complement BY NAME**, because that arithmetic — item **189**'s — has been
+published inverted in this corpus once already.
+
+**THE COUNT.** *"Mutation-tested, eleven mutants, all killed"* was published twice. **Thirteen were
+run, twelve killed, one survived**; the enumeration listed eleven and omitted two, one of them
+printed in the fenced block immediately above it. And *"each killed by a **named** assertion"* is
+false for one: re-measured rather than taken from the earlier report, `api/submit.go`'s
+`seconds <= 0` → `seconds < 0` dies by `panic: runtime error: integer divide by zero` in
+`TestTheRecordKindsThisBuildCannotServeAreRefusedRatherThanStored/an_EPH(0)_transient`. A panic is a
+kill; it is not a named property.
+
+**EVERY MUTATION THIS PASS RAN, with what fired.** None is reported that was not run.
+
+| # | mutation | outcome |
+|---|---|---|
+| M1 | `harness` `EphWindowAt` back to the shipped `seconds <= 0` collapse | **KILLED**, 13 of 57 KAT rows + the complement half |
+| M2 | `harness` order alone: clock reading tested before the ladder | **KILLED**, 5 rows + the complement half |
+| M3 | `api` fixture collapsed the same way | **KILLED**, 13 rows |
+| M4 | the table edited, digest not republished — **via `-overlay`** | **SURVIVED, and the MUTATION was invalid.** `-overlay` is a COMPILER substitution and the gates read the table with `os.ReadFile` at RUN time, so the overlay was inert. Recorded because it is the exact shape of a green run that measured nothing |
+| M4' | the same, by editing the real file | **KILLED**, the digest clause, in `harness` |
+| M5' | a rung's rows dropped, digest republished | **KILLED**, *"exercises 5 of the ladder's 6 rungs and names none of [3]"* |
+| M6' | the off-ladder rows dropped, digest republished | **KILLED**, api's off-ladder count pin |
+| M7 | the complement's arithmetic, `256` → `255` | **KILLED**, *"holds 246 … the arithmetic says 245"* |
+| M8 | the complement forced empty | **KILLED**, the fail-closed fatal |
+| M9' | every row removed, digest republished | **KILLED**, *"parsed to no rows at all"* |
+| M10' | one row loses its answer column, digest republished | **KILLED**, the field-count fatal |
+| M11 | off-ladder rows dropped from the real table | **KILLED**, api's row-count and off-ladder pins |
+| F1 | `store/memory.go` `ClassEphBase <` → `<=`, **at `d7e4f7f`** | **SURVIVED EVERYTHING**, including the 438.899 s pgx contract — the finding above |
+| F2 | the same, against the new named predicate | **KILLED**, *"admits [16 17 18 19 20 21] and the range is [17 18 19 20 21]"*, plus the by-name EPH(0) assertion and the complement's symmetric difference `[16]` |
+| F3 | `<= ClassEphMax` → `< ClassEphMax`, the other end | **KILLED**, *"admits [17 18 19 20]"* |
+| F4 | `ClassEphMax` `0x15` → `0x10`, emptying the range | **KILLED**, *"the windowed range is empty and this gate derived nothing"* |
+| SUB | `api/submit.go` `seconds <= 0` → `seconds < 0` | **KILLED by a PANIC**, not by an assertion — the correction above |
+
+**CLAUSES ADDED THAT NO MUTATION FIRED, named rather than left as decoration.** Three parse fatals
+in `readEphKat` (a bucket byte that will not parse, a `sent_at_ms` that will not parse, an answer
+that is neither a window nor a refusal name) and `api`'s read-failure fatal: each is reachable only
+in the republish state — the table changed AND the digest changed with it — and the two of that
+class that WERE fired (M9', M10') are evidence for them rather than a substitute. `harness`'s
+`256`-partition fatal and its rungs/off-ladder emptiness fatal are reachable only by a change to
+`connect`'s ladder, which this pass may not make.
+
+**THE SMALLER CORRECTIONS FROM THE SAME REVIEW.**
+
+- **F3 — `s2` §*"the read key is an explicit parameter"*, which still carried S2-1's falsified
+  premise LIVE, tagged with the item number, 700 lines above the amendment in its own document that
+  refutes it.** *"Exposes none of its seven methods"* is false on both clauses at `e17cfad`: eleven
+  methods, and `EpochKeys().ReadKey()` reaches the live epoch's read key. Amended in the shape the
+  S2-1 block already uses — old wording kept, query printed. **The DECISION survives the correction
+  and only its stated reason narrows**, which is the distinction that matters: what the session
+  still cannot give is `read_key` for a **superseded** epoch (§5.3's ninety days), `read_key[n+1]`
+  (`ProvisionalEpoch` has no `ReadKey()`), and `group_handle_key` (no accessor on either type). So
+  **S2-1's PREMISE is false and closes; the ITEM does not.**
+- **F5 — `ProvisionalEpoch` published at three arities.** The query returns **9 lines**
+  (`Epoch StorageRoot WriteKey EphRoot PqSecret Wraps InstallWraps Destroyed Destroy`), of which
+  **six are accessors**. `:13569`'s *"the exported set is 9"* was right; this pass's own bullet
+  listed five and omitted `Epoch()`; `s2:3214`'s six is right for the accessors it names. Corrected
+  with the query's real output beside it. The substantive point — **no `ReadKey()`** — is untouched.
+- **F6 — two multiplicities transposed in the 28-anchor list.** Derived at `a21a6ee`: `:7179`
+  carries the RANGE `api/roundtrip_test.go:250-303` and BOTH ends drift, so ×2; `:9633` carries two
+  anchors and only `store/contract.go:145` drifts (`store/memory.go:979` is identical text at both
+  trees), so ×1. The headline **28** is unchanged and reproduces.
+- **F7 — the migrations-anchor list names an anchor the corpus does not contain.** Derived rather
+  than transcribed, the corpus holds **SIX** `store/migrations.go` anchors, not seven, and `:179` is
+  not one of them. All six survive. *(The review that found this said "all seven real anchors
+  survive" and listed six; that is corrected here too rather than carried forward.)*
+- **F8 — a quoted banner that prints the other number, and it has NO SITE IN THIS REPOSITORY.**
+  The handoff's Concerns quoted `store/coverage_test.go` as printing *"PARTIAL RUN: 0 of 2
+  implementations"* on a run with no `URMESSAGE_TEST_DSN`. Measured, unfiltered and with the
+  variable unset, it prints **`PARTIAL RUN: 1 of 2`** — the memory store always runs the contract;
+  **`0 of 2` is what a `-run`-FILTERED run prints**, reproduced as well. The banner does its job in
+  both cases. Recorded here and not corrected in place because **no file in this repository carries
+  the quotation**: it lives in the handoff, and the next agent will grep for the published string.
+- **F9 — `s2`'s one approximate anchor is off by one.** `messagegroup/session.go:~394` is **395** at
+  both `7ce25a2` and `e17cfad`. Corrected to the exact line.
+
+**WHAT THIS PASS DID NOT DO.** It did not rule **185**, **186**, **187**, **191**, **192**, **194**
+or **MG-2**, and did not narrow any of them. It did not edit `connect` or `sdk`. It did not close
+**193**, which needs connect's half of the table. It did not re-run the other eight mutants of the
+previous pass; the two it did re-run behaved exactly as published, and the one it re-measured
+(`api/submit.go`'s) did not.
+
+**Reviewed by:** self, by mutation. **17 mutations run, 15 killed, 1 survived (F1 at `d7e4f7f`, the
+finding), and 1 whose mutation was itself invalid (M4) and is reported as such** — a mutation that
+turned nothing red is the most useful thing in this table, and one of the two here turned nothing
+red because the *harness* of the mutation was wrong rather than the code. No test code is supplied
+in any document.
+
+**Verification:**
+`git ls-files` == `git ls-tree -r HEAD --name-only` == **106** checked before the first edit;
+**110** after it — **four** additions and no deletions: `testdata/eph-window-kat.txt`,
+`harness/ephkat_test.go`, `api/ephkat_test.go` and `store/ephwindowclass_test.go`.
+`go build ./...`, `go vet ./...` and `gofmt -l` clean.
+`go test ./ -run TestThePlanLinter -timeout 300s` **ok**.
+`go test ./... -timeout 900s -count=1` — **GREEN, every package**, with and without the DSN.
+**`-race` was NOT run and no concurrency property is claimed anywhere**: `CGO_ENABLED=0`, no C
+compiler.
+The portable **PostgreSQL 17.6** on `127.0.0.1:55432` was **NOT running** when this pass began (port
+closed, no `postmaster.pid`) — so the previous review's *"I stopped it cleanly"* is accurate and the
+pass before that one's *"I LEFT IT RUNNING"* remains stale. It was **started** by this pass and is
+**left running**, because another agent is working in `connect` and may want it; stop it with
+`"$PG/pgsql/bin/pg_ctl.exe" -D "$PG/pgdata" stop`.
+`connect` (`beta/message`, `e17cfad`) and `sdk` (`beta/message`, `54785de`) were **read-only**.
+`connect`'s working tree is **dirty under another agent** — `messagegroup/eph.go`,
+`messagegroup/enginejoin_test.go`, `messagegroup/OPENITEMS.md` and one more — at an unchanged HEAD.
+Every `connect` number here was taken from a committed object, and where a build was needed the tree
+was `git archive`-d at `e17cfad` into the scratchpad rather than compiled from the dirty working
+copy. `EphWindowAt` itself is byte-identical between `e17cfad` and that dirty tree, which was
+diffed rather than assumed.
