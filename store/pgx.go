@@ -478,7 +478,7 @@ func recordColumns(headsOnly bool) string {
 		body = "NULL::bytea AS ct_body"
 	}
 	return `r.record_id, r.sender_handle, r.epoch, r.stream_index, r.is_commit,
-                   r.retention_class, r.size_bucket, r.expire_at, r.prune_after,
+                   r.retention_class, r.eph_window, r.size_bucket, r.expire_at, r.prune_after,
                    r.body_hash, r.ct_head, ` + body + `, r.blob_id, r.server_attachment,
                    r.recovery_handle, r.wrap_target_handle,
                    r.attachment_kind, r.attachment_epoch, r.attachment_alg_id,
@@ -504,6 +504,7 @@ type storedRecord struct {
 	streamIndex      *int64
 	isCommit         *bool
 	retentionClass   *int16
+	ephWindow        *int64
 	sizeBucket       *int16
 	expireAt         *time.Time
 	pruneAfter       *time.Time
@@ -536,7 +537,7 @@ type storedRecord struct {
 func (self *storedRecord) targets() []any {
 	return []any{
 		&self.recordId, &self.senderHandle, &self.epoch, &self.streamIndex, &self.isCommit,
-		&self.retentionClass, &self.sizeBucket, &self.expireAt, &self.pruneAfter,
+		&self.retentionClass, &self.ephWindow, &self.sizeBucket, &self.expireAt, &self.pruneAfter,
 		&self.bodyHash, &self.ctHead, &self.ctBody, &self.blobId, &self.serverAttachment,
 		&self.recoveryHandle, &self.wrapTarget,
 		&self.kind, &self.attachmentEpoch, &self.algId,
@@ -560,6 +561,7 @@ func (self *PgxStore) recordOf(groupId []byte, row *storedRecord) (*Record, erro
 		StreamIndex:      uint64(*row.streamIndex),
 		IsCommit:         *row.isCommit,
 		RetentionClass:   uint8(*row.retentionClass),
+		EphWindow:        uint64(*row.ephWindow),
 		SizeBucket:       uint8(*row.sizeBucket),
 		BodyHash:         row.bodyHash,
 		CtHead:           row.ctHead,
@@ -1565,7 +1567,7 @@ func insertRecord(ctx context.Context, transaction pgx.Tx, groupId []byte, recor
 	attachment := projectAttachment(record)
 	_, err := transaction.Exec(ctx, `
         INSERT INTO message_record (group_id, record_id, sender_handle, epoch, stream_index,
-                                    is_commit, retention_class, size_bucket, expire_at,
+                                    is_commit, retention_class, eph_window, size_bucket, expire_at,
                                     prune_after, pruned, policy_version, body_hash, ct_head,
                                     ct_body, blob_id, server_attachment, recovery_handle,
                                     wrap_target_handle, create_time,
@@ -1574,11 +1576,15 @@ func insertRecord(ctx context.Context, transaction pgx.Tx, groupId []byte, recor
                                     attachment_group_context_hash, attachment_expected_wrap_count,
                                     attachment_leaf_index, attachment_verify_pub,
                                     attachment_wrap_count)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, false, $11, $12, $13, $14, $15,
-                     $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, false, $12, $13, $14, $15, $16,
+                     $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30)
         ON CONFLICT (group_id, record_id) DO NOTHING`,
 		groupId, int64(record.RecordId), record.SenderHandle, int64(record.Epoch),
 		int64(record.StreamIndex), record.IsCommit, int16(record.RetentionClass),
+		// int64 and not a cast that can wrap: validateRecord has already refused a window above
+		// math.MaxInt64 with ErrEphWindowRange, which is §3.2's `0 <= eph_window` CHECK made
+		// reachable in Go, so the conversion here cannot produce the negative that CHECK refuses
+		int64(record.EphWindow),
 		int16(record.SizeBucket), expireAt(record.ExpireAtMs), prune, int32(policyVersion),
 		record.BodyHash, record.CtHead, record.CtBody, record.BlobId, record.ServerAttachment,
 		attachment.recoveryHandle, attachment.wrapTarget, now,

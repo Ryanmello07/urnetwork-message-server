@@ -141,6 +141,59 @@ func TestEveryPartitionedTableGetsAllOfItsPartitions(t *testing.T) {
 	t.Logf("%d partitioned tables, each with %d partitions", counted, recordPartitions)
 }
 
+// §3.2's two `eph_window` CHECKs are IN THE DATABASE and not only in Go.
+//
+// This is the one property [validateRecord] cannot have. §3.2 says the constraint is there
+// "rather than only in §5.1 so a second writer cannot put a nonzero window on a DURABLE row and
+// have §7.1 read it", and a second writer is by definition a writer that does not call this
+// package. So the INSERTs below are raw and bypass every Go check there is — which is also the
+// only way to reach the EPH(0) row at all, since §7.6 refuses it a row through the store.
+//
+// The migration adding the column and forgetting the constraints is legal DDL that applies
+// cleanly, passes every other test in this package, and is discovered by a `DURABLE` row whose
+// key the server then computes at the wrong window. The negative half of this table is what
+// says the CHECKs are real; the positive half is what says they are not refusing everything.
+//
+// The class CHECK is phrased on the WIRE BYTE, 17..21. EPH(0)'s byte is `0x10` = 16, so it is on
+// the must-be-zero side — MASTER §8's presence rule exactly — and the `eph bucket 0` row below is
+// the one a class-phrased rewrite of the same predicate would start accepting.
+func TestTheEphWindowChecksRefuseASecondWriterThatNeverCallsThisPackage(t *testing.T) {
+	store := pgxTestStore(t, DefaultLimits())
+	ctx := context.Background()
+
+	for index, current := range []struct {
+		name           string
+		retentionClass int16
+		ephWindow      int64
+		accepted       bool
+	}{
+		{"durable with no window", 1, 0, true},
+		{"durable with a window", 1, 1, false},
+		{"eph bucket 0 with no window", 16, 0, true},
+		{"eph bucket 0 with a window", 16, 1, false},
+		{"eph bucket 1 with a window", 17, 490896, true},
+		{"eph bucket 5 with a window", 21, 730, true},
+		// what an implementation that cast a u64 above math.MaxInt64 into this `bigint` would
+		// offer, which is the input §3.2's `0 <= eph_window` CHECK exists for
+		{"a window that wrapped negative", 17, -1, false},
+	} {
+		_, err := store.pool.Exec(ctx, `
+            INSERT INTO message_record (group_id, record_id, sender_handle, epoch, stream_index,
+                                        is_commit, retention_class, eph_window, size_bucket,
+                                        body_hash, ct_head)
+                 VALUES ($1, $2, $3, 1, $2, false, $4, $5, 0, $6, $7)`,
+			testBytes(GroupIdBytes, 0x71), int64(index+1), testHandle(0x72),
+			current.retentionClass, current.ephWindow,
+			testBytes(BodyHashBytes, 0x73), testBytes(48, 0x74))
+		if current.accepted && err != nil {
+			t.Errorf("%s was refused by the schema: %v; §3.2's CHECKs must admit every row the presence rule allows", current.name, err)
+		}
+		if !current.accepted && err == nil {
+			t.Errorf("%s was accepted by the schema, so §3.2's CHECK is not in this database and only Go refuses it — which is nothing at all against a second writer", current.name)
+		}
+	}
+}
+
 // §5.5's wrap format, and what it is bound to.
 //
 // No database: this is arithmetic over bytes, and it is the one piece of this store a stolen

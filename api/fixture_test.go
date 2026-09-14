@@ -50,6 +50,10 @@ type fixture struct {
 	conn        *Connection
 	groupId     []byte
 	sleeps      []time.Duration
+
+	// the clock the handler was built with, so a test can read the same stamp §7.1's arrival
+	// window is computed from rather than a second one that drifts from it
+	now func() time.Time
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -90,7 +94,38 @@ func newFixtureWith(t *testing.T, config Config) *fixture {
 		t.Fatalf("New: %v", err)
 	}
 	current.handler = handler
+	current.now = config.Now
 	return current
+}
+
+// MASTER §8's `eph_window`: `floor(sent_at_ms / (eph_bucket_seconds[b] × 1000))`, origin the unix
+// epoch, as the SENDER computes it.
+//
+// Written out here rather than taken from the handler's own arithmetic, for the reason
+// [clientProjection] is written out: a check whose two sides come from one function is a check
+// that cannot fail. What is NOT written out is the ladder — the bucket's length comes from
+// [message.EphBucketSeconds], so a bucket whose window moves is a bucket this moves with.
+//
+// The zero answer is arithmetic and not a special case. EphBucketSeconds is ZERO for bucket 0,
+// which is the transient rung's true window, and NEGATIVE off the ladder; neither is a divisor,
+// and both are classes MASTER §8's presence rule gives a window of zero.
+func ephWindowAt(t *testing.T, bucket uint8, sentAtMs int64) uint64 {
+	t.Helper()
+	seconds := message.EphBucketSeconds(bucket)
+	if seconds <= 0 {
+		return 0
+	}
+	if sentAtMs < 0 {
+		t.Fatalf("a sent_at of %d is before the unix epoch, which is the window's origin", sentAtMs)
+	}
+	return uint64(sentAtMs) / (uint64(seconds) * 1000)
+}
+
+// The window §7.1 computes from this record's own arrival stamp, which for a submission this
+// fixture makes is the handler's clock.
+func (self *fixture) arrivalWindow(t *testing.T, bucket uint8) uint64 {
+	t.Helper()
+	return ephWindowAt(t, bucket, self.now().UnixMilli())
 }
 
 func groupId(seed byte) []byte {
@@ -168,12 +203,17 @@ type sealed struct {
 	isCommit    bool
 	class       message.RetentionClass
 	ephBucket   uint8
-	bucket      message.SizeBucket
-	expireAt    uint64
-	head        []byte
-	body        []byte
-	attachment  *message.ServerAttachment
-	writeKey    []byte
+	// MASTER §8's `t`. Always encoded; zero on PERMANENT, DURABLE, MEDIA and EPH(0), and on
+	// EPH(1..5) the sender's own [ephWindowAt]. Settable rather than computed inside seal because
+	// the whole of §7.1's refusal is about a value a sender got wrong, and a fixture that could
+	// only produce the right one could not reach it.
+	ephWindow  uint64
+	bucket     message.SizeBucket
+	expireAt   uint64
+	head       []byte
+	body       []byte
+	attachment *message.ServerAttachment
+	writeKey   []byte
 
 	// §8.3's blob rung: the body lives in an object this names and `ct_body` is absent, which is
 	// the one rung the server binds rather than stores. Set alongside bucket SizeBucketBlob; the
@@ -225,6 +265,7 @@ func (self *fixture) seal(t *testing.T, spec sealed) *protocol.Record {
 		IsCommit:         spec.isCommit,
 		RetentionClass:   spec.class,
 		EphBucket:        spec.ephBucket,
+		EphWindow:        spec.ephWindow,
 		SizeBucket:       spec.bucket,
 		ExpireAt:         spec.expireAt,
 		BodyHash:         bodyHash,

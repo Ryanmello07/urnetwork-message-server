@@ -34,8 +34,8 @@ code at all**, which is the gap every external leg in the m1 plan points at.
 | Spec C — Windows client UI | Revision 6 — **1,895 lines**, re-measured 2026-09-13, second pass of that date. **No revision and no string changed**: §8.1 gains a note that `msg_disappearing_explainer`'s *"destroyed on every device"* half has no schedule anywhere (ledger **186**), placed outside every quoted value so §16.3 lint 1 is unaffected. *(Was "1,893".)* |
 | Blockers | **0 from r1–r4** — down from 41. **r8's two are not in that count**; both are fixed in the text and neither is recorded as fixed. Item **165**. |
 | Review findings | **Dispositioned per finding in §5, not counted.** r3's twelve blockers were re-grepped by id; its fourteen remaining majors are items **149–162**, one item per id, each opening with the id and a disposition verb, so `git grep "M-7"` returns a disposition rather than silence. **r2's, r3's and r4's minors, r6's 30 and r8's 25 are NOT dispositioned** — item **165** measures that and publishes the query; those findings carry no ids, so an id-keyed gate cannot see them at all. The count this row used to carry (*"30: 8 major, 22 minor"*) was r6's file, not r3's majors, and the two had been read as one set for five weeks. |
-| Implementation plan | **Written and part-executed.** Fifteen documents in `docs/plans/`; `m1` (24 tasks) has wave 0 and wave 1 landed. **Ledger 152 was ruled 2026-09-13 and no longer stops wave 2. Task 14 is NOT thereby unblocked:** m1 open item **M1-52** is filed, not ruled, and its own *Blocks* line is *"signing, and therefore all of Task 14 step 3"*. **Task 14 step 1 is unblocked for the `PERMANENT` `pq_secret` wrap and NOT for its `EPH(5)` `eph_root` twin — ledger open item 185, filed 2026-09-13 (second pass), leaves that record's `eph_window` unstated while Spec A S19 refuses an implausible one; step 3 is not unblocked at all**, and Tasks 13, 15 and 16 stand where they did. *(The unqualified "step 1 is unblocked" was written on the first pass of 2026-09-13 and is corrected here on the second.)* *(This cell read **"is stopped in front of wave 2 by ledger 152 — and by nothing else, since 2026-09-09"**, and that clause was stale from 2026-09-12, when the red team filed M1-51 through M1-55 and nothing re-derived this row. It is one of the four sites ledger item **184** names; a state row is a claim about now, so it is corrected in place with its old wording kept beside it.)* **`s2` is now written** — 15 tasks, of which Tasks 1–12 are the CP3b prefix — and its own first paragraph states that it does **not** reach CP3b alone: four upstream `connect` blockers (**S2-1** through **S2-4**) sit outside both of its legs. **`j1` is now written too** — 7 tasks, all of them on the CP3b prefix — and it takes **S2-4**, the first of the four and the one that blocks CP3b outright; **S2-1**, **S2-2** and **S2-3** still have no owner. `s3` through `s10` are still cited as owners of unwritten work and have no document. **AMENDED 2026-09-13, second pass of that date, by the pass that filed items 187–190 against the landed `eph_window` work.** Task 14's blocker list is **unchanged** by that work: `M1-52` still blocks step 3, item **185** still blocks step 1's `EPH(5)` half, and **none of the three new spec items — 187, 188, 189 — is added to it**. Item **188** is the one that touches Task 14 at all, and it blocks *writing the receive leg from the documents* rather than executing it: the leg that opens an `eph_root` wrap and installs its payload is described by one sentence in the corpus, Spec A §5.11's residual (2), which names no function, while `connect` ships `InstallEphRoot` and three siblings that **no document names**. That is `M1-32`'s shape, whose own *Blocks* line is *"sizing"*, It had also left `s2`'s published `TrackSender` short by one parameter against the shipped tree; that one is **corrected in place in this commit**, being a transcription error rather than a question. **And the CP3b answer has a new, measured owner.** *"What blocks CP3b is the message-server leg"* now has something concrete inside it: item **190** — `eph_window` is ruled, landed in `connect`, and carried in no Go file of this repository, so this repository's own suite is red. None of 187, 188, 189 or 182's open half blocks that leg or any other. |
-| Code | **`connect` `beta/message` at `b0155d9`** — **1,125 tracked files, 8,252 tests passing / 0 failing**, unfiltered over `mls/`, `message/` and `messagegroup/`. *(Was* **`33932e0`** *— 1,105 tracked files, 217 Go files, 7,631 tests, nine-platform* `CGO_ENABLED=0` *build green. Re-measured 2026-09-13, second pass of that date, after* `6248284` *landed the* `eph_window` *wire field and* `b0155d9` *the key schedule and the full seal lift; both passes were adversarially reviewed and both returned SOUND. A state row is a claim about now.)* **This repository** — 57 Go files, 26,402 lines, `go build ./...` clean and `go test ./ -run TestThePlanLinter` ok, **but `go test ./...` is RED**: one test, `api.TestARecordTravelsEndToEnd`, because `eph_window` is ruled and landed in `connect` and is carried in **no Go file here** (`grep -rn 'eph_window\|EphWindow' --include=*.go .` returns **0**). Ledger item **190**; the cell said `go test ./...` green and that stopped being true without this repository changing a byte. **`sdk`** — nothing; six external legs wait on it. |
+| Implementation plan | **Written and part-executed.** Fifteen documents in `docs/plans/`; `m1` (24 tasks) has wave 0 and wave 1 landed. **Ledger 152 was ruled 2026-09-13 and no longer stops wave 2. Task 14 is NOT thereby unblocked:** m1 open item **M1-52** is filed, not ruled, and its own *Blocks* line is *"signing, and therefore all of Task 14 step 3"*. **Task 14 step 1 is unblocked for the `PERMANENT` `pq_secret` wrap and NOT for its `EPH(5)` `eph_root` twin — ledger open item 185, filed 2026-09-13 (second pass), leaves that record's `eph_window` unstated while Spec A S19 refuses an implausible one; step 3 is not unblocked at all**, and Tasks 13, 15 and 16 stand where they did. *(The unqualified "step 1 is unblocked" was written on the first pass of 2026-09-13 and is corrected here on the second.)* *(This cell read **"is stopped in front of wave 2 by ledger 152 — and by nothing else, since 2026-09-09"**, and that clause was stale from 2026-09-12, when the red team filed M1-51 through M1-55 and nothing re-derived this row. It is one of the four sites ledger item **184** names; a state row is a claim about now, so it is corrected in place with its old wording kept beside it.)* **`s2` is now written** — 15 tasks, of which Tasks 1–12 are the CP3b prefix — and its own first paragraph states that it does **not** reach CP3b alone: four upstream `connect` blockers (**S2-1** through **S2-4**) sit outside both of its legs. **`j1` is now written too** — 7 tasks, all of them on the CP3b prefix — and it takes **S2-4**, the first of the four and the one that blocks CP3b outright; **S2-1**, **S2-2** and **S2-3** still have no owner. *(**AMENDED 2026-09-13, third pass of that date.** Old wording kept. **S2-1's and S2-2's PREMISES are falsified** against `connect` `7ce25a2` and both items are amended in place: `GroupSession`'s exported set is **eleven**, not seven, `EpochKeys()` returns `read_key` and `write_key`, and `RebindServerNonce` is the server-nonce setter S2-2 says does not exist. Neither item CLOSES — `ProvisionalEpoch` has no `ReadKey()`, `group_handle_key` has no accessor anywhere, and S2-2's sequencing question survives its mechanism clause — so both still have no owner, in strictly smaller form. **S2-3 is untouched by this** and is the one of the three that is unchanged. `k1`'s handoff predicted exactly this trigger — *"when the code of this plan lands, S2-1 and S2-2 become closable"* — and the previous pass measured the eleven in its own edit at `s2` `:417-423`, drew the implication for S2-2 in that sentence, and did not draw it for S2-1.)* `s3` through `s10` are still cited as owners of unwritten work and have no document. **AMENDED 2026-09-13, second pass of that date, by the pass that filed items 187–190 against the landed `eph_window` work.** Task 14's blocker list is **unchanged** by that work, and **none of the three new spec items — 187, 188, 189 — is added to it**. *(**Enumeration CORRECTED 2026-09-13, third pass of that date.** This read *"`M1-52` still blocks step 3 and item **185** still blocks step 1's `EPH(5)` half"* with no qualifier, which reads as Task 14's blockers and is **two of five**. The *unchanged* claim is true and is re-derived; the list was not. Task 14's own text names **five**: `M1-52` (step 3, signing), item **185** (step 1's `EPH(5)` half), **`M1-53`** (*"blocks Property 11's third refusal, recorded there as 'owed rather than writable'"*), and **`M1-54`** and **`M1-55`**, which *"neither block step 1; both decide what step 1 can claim it showed"*. The two named above are **the two that block STEPS**, which is the qualifier that was missing — the same shape as the *"and by nothing else, since 2026-09-09"* clause item **184** was filed about.)* Item **188** is the one that touches Task 14 at all, and it blocks *writing the receive leg from the documents* rather than executing it: the leg that opens an `eph_root` wrap and installs its payload is described by one sentence in the corpus, Spec A §5.11's residual (2), which names no function, while `connect` ships `InstallEphRoot` and three siblings that **no document names**. That is `M1-32`'s shape, whose own *Blocks* line is *"sizing"*, It had also left `s2`'s published `TrackSender` short by one parameter against the shipped tree; that one is **corrected in place in this commit**, being a transcription error rather than a question. **And the CP3b answer had a new, measured owner — item 190 — which is now CLOSED.** *(**AMENDED 2026-09-13, third pass of that date; old wording kept below.**)* Item **190** is **DONE**: `eph_window` is carried end to end by this server — harness, store contract, both store implementations, migration **010**, `rebuildRecord`, and §5.1 check 3's clause with §7.1's ±1 refusal — and **`go test ./... -timeout 900s` is GREEN in every package**, including the pgx contract against a real PostgreSQL 17.6. `api.TestARecordTravelsEndToEnd` is green because the field TRAVELS, not because the test stopped asking: the test is unchanged except that the record it seals now carries a window, and dropping `EphWindow` from `rebuildRecord` or from `columnsOf` puts it back to red (both mutations run, both killed). **What blocks the message-server leg is now nothing filed here.** The old wording, which stated item 190 as *the* CP3b answer in the singular, follows — and the singular was wrong on its own terms even then, because four `s2` open items each carry a *Blocks* line naming CP3b (**S2-1**, premise now falsified; **S2-2**, mechanism clause now closed; **S2-3**, genuinely open and untouched by any of this; **S2-4**, which `PROGRESS.md` row A records CLOSED since `j1` Task 5). The defensible sentence was *"item 190 is a new, measured blocker inside this repository"*, and it is the one this row now carries. Old wording: *"**And the CP3b answer has a new, measured owner.** "What blocks CP3b is the message-server leg" now has something concrete inside it: item **190** — `eph_window` is ruled, landed in `connect`, and carried in no Go file of this repository, so this repository's own suite is red."* None of 187, 188, 189 or 182's open half blocks that leg or any other. |
+| Code | **`connect` `beta/message` at `7ce25a2`** — **1,125 tracked files** (`git ls-tree -r 7ce25a2 --name-only | wc -l`, re-measured read-only 2026-09-13, third pass of that date). *(Was pinned at* **`b0155d9`** *, also 1,125 files; the pin moved under this repository while another agent was writing that tree, which is the movement `a21a6ee` was filed about. The* **8,252 tests passing / 0 failing** *figure is the last one anyone RAN, at* `b0155d9`*, and is NOT re-derived here: this pass does not run that suite, because another agent holds that tree. It is carried with its commit rather than restated as a claim about `7ce25a2`.)* *(Was* **`33932e0`** *— 1,105 tracked files, 217 Go files, 7,631 tests, nine-platform* `CGO_ENABLED=0` *build green. Re-measured 2026-09-13, second pass of that date, after* `6248284` *landed the* `eph_window` *wire field and* `b0155d9` *the key schedule and the full seal lift; both passes were adversarially reviewed and both returned SOUND. A state row is a claim about now.)* **This repository** — **58 Go files, 26,972 lines, and `go test ./... -timeout 900s` GREEN in every package**, `go build ./...` and `go vet ./...` clean, `go test ./ -run TestThePlanLinter` ok, and the **pgx contract held against a real PostgreSQL 17.6** (`URMESSAGE_TEST_DSN` set; 460 s unfiltered) rather than skipped. `grep -rn 'eph_window\|EphWindow' --include=*.go .` now returns **74 lines across 12 files** (was **0**; the query is `--include=*.go` so it cannot match this ledger and does not match its own claim, and it counts comment lines as well as code — the property, not the count, is the one below in item **190**). Ledger item **190** is CLOSED by this commit. *(Was: "57 Go files, 26,402 lines, `go build ./...` clean and `go test ./ -run TestThePlanLinter` ok, **but `go test ./...` is RED**: one test, `api.TestARecordTravelsEndToEnd`, because `eph_window` is ruled and landed in `connect` and is carried in **no Go file here**". A state row is a claim about now.)* **`sdk`** — nothing; six external legs wait on it. |
 
 **Ready for owner review, and for handoff once the owner has read them.** Four review rounds and two
 edit passes have taken this from 41 blockers to none. What is left is not a count: r3's fourteen
@@ -6871,18 +6871,28 @@ fourteen are dispositioned below.
        Spec A §5.2's published Go block** — a surface break with no wire byte in it — and with it the
        three other sites that transcribe the signature: `s2` at `:400-402`, `m1` at `:2870` and `k1`
        at `:488`. Every caller in the `s2` submit leg and the `k1` seam changes. Buys: the rule
-       becomes true of the function rather than of the caller, and a gate can reach it.
+       becomes true of the function rather than of the caller, and a gate can reach it. **Risk** *(added
+       2026-09-13, third pass of that date, because (a) was the only candidate here with no Risk line
+       and it is the one this item's surrounding argument leans toward)*: it is the only candidate that
+       breaks a published signature and the only one whose cost is paid by four documents and every
+       caller, for a discrepancy this item itself measures as *"at most one bucket, inside the ±1 that
+       S19 already allows"*.
      - **(b) State that the sealer's own clock IS the sender's clock**, and that `sent_at` MUST be
        consistent with it. **Changes MASTER §8.1 and Spec A §5.3** — the two copies of the *"same
        wall-clock reading"* sentence — replacing it with an obligation on the caller. Costs no code
        and no signature, and makes the corpus say what the tree does. Risk: the obligation lands on a
        caller **no gate can reach**, because nothing at this layer parses `headPlain`, so it is a
        sentence with no mechanism behind it — which is the shape this file has recorded under several
-       numbers.
+       numbers. **Buys** *(added 2026-09-13, third pass)*: it is the only candidate that makes the
+       corpus agree with the shipped tree without moving a byte of either, and it leaves `sent_at`'s
+       consistency where every other plaintext obligation in the design already sits.
      - **(c) Leave it, on the measurement above, and record the tolerance where a second implementer
        meets it.** **Changes Spec A §5.3 alone**, one sentence naming the permitted divergence and its
        bound. Cheapest. Risk: it is (b) without the MUST, and a tolerance the corpus does not state is
-       what gets rediscovered as a divergence — which is what this item is.
+       what gets rediscovered as a divergence — which is what this item is. **Buys** *(added
+       2026-09-13, third pass)*: it is the only candidate that states the bound a second implementer
+       actually needs — one bucket — at the place that implementer reads, and it asserts nothing that
+       no mechanism can hold.
 
      **The property this must be ruled against**, satisfiable by a correct implementation, falsifiable
      by an incorrect one, and presupposing none of (a), (b) or (c): **two conforming sealers handed
@@ -6906,7 +6916,14 @@ fourteen are dispositioned below.
      and its position are ruled; this is which reading fills it. Carried at the rule in MASTER §8.1
      and Spec A §5.3, at the signature in Spec A §5.2, and in `connect` as `MG-2`.
 
-188. **FILED, NOT RULED as to the DECLARATION — the symbols themselves are CONFIRMED KEPT by the
+188. **FILED AS A DISPATCH WITH ONE QUESTION INSIDE IT, IN THE REGISTER ITEM 190 LABELS ITSELF WITH
+     — added 2026-09-13, third pass of that date.** Of its four lettered edits, (b), (c) and (d) are
+     dispatches against sentences already ruled, and (c) is already made; the one genuine choice is
+     *"Spec A §5.2 **or** §5.11 declares `InstallEphRoot`"*. Item **190** flagged the same shape in
+     itself and this item did not, which is the asymmetry the review of this pass found. Whether the
+     "Open items" register holds only rulings is not decided here; what is decided is that the two
+     items describe themselves the same way.
+     **FILED, NOT RULED as to the DECLARATION — the symbols themselves are CONFIRMED KEPT by the
      owner. `eph_root[n]` has no declared route into a `GroupSession`: invariant I4 forbids deriving
      it, its carrier is m1 Task 14's device wrap and that does not exist, so `connect` invented four
      symbols, shipped them, and NO DOCUMENT NAMES ONE OF THEM.** Filed 2026-09-13. This is `M1-32`'s
@@ -7031,9 +7048,21 @@ fourteen are dispositioned below.
      Task 14's receive leg from the documents**: the leg that opens a received `eph_root` wrap and
      installs its payload is described by exactly one sentence in the corpus, §5.11's residual (2)
      above, and that sentence names no function — so a planner sizing it repeats `M1-32`'s outcome,
-     *"misses roughly the same amount of code again"*. It blocks **`s2` Task 12**, whose published
-     `TrackSender` no longer compiles. **Not wire-visible.** Carried at Spec A §5.2, §5.3 and
-     §5.11 (2), and at `s2` `:408-409`.
+     *"misses roughly the same amount of code again"*. **AMENDED 2026-09-13, third pass of that date.**
+     This line read *"It blocks **`s2` Task 12**, whose published `TrackSender` no longer compiles"*,
+     present tense and with no date beside it, and it was **stale at the commit that wrote it**: edit
+     (c) of this same item — labelled *"DONE in the commit that files this item"* — corrected `s2`
+     `:408-409`, and the corrected five-parameter signature now at `s2` `:415-416` matches
+     `connect b0155d9 session.go:521` character-for-character. Two other sites in that same commit
+     already said so: `PROGRESS.md`'s 188 bullet (*"corrected in place in this commit"*, past tense)
+     and §1's Implementation-plan row (*"None of 187, 188, 189 or 182's open half blocks that leg or
+     any other"*, a universal). Three sites, two right, one wrong, and the wrong one was the ***Blocks***
+     field — the exact field items **152** and **184** exist about. Old wording kept above, per item
+     **182**'s shape, which is the one this should have followed. **What is left of the block is (a)
+     alone**: `s2` Task 12 compiles, and no document declares `InstallEphRoot`. **Not wire-visible.**
+     Carried at Spec A §5.2, §5.3 and §5.11 (2), and at `s2` `:415-416` (the corrected block; the
+     pointer read `:408-409` and now lands on the first two lines of that block's CORRECTION comment,
+     which is item **191**'s class).
 
 189. **FILED, NOT RULED — nothing states whether `ParseRecord` refuses a non-zero `eph_window` on a
      class the presence rule makes zero, and the corpus states exactly that rule for BOTH sibling
@@ -7064,8 +7093,17 @@ fourteen are dispositioned below.
 
      **What is actually missing is the PARSER's half, and only that.** Both landed statements are the
      **server's**: check 3 is a submit check and the `CHECK` is a Spec B §3.2 column constraint.
-     **Spec A carries no matching sentence for `eph_window` anywhere** — and it carries the exact
-     analogue for both sibling fields:
+     **Spec A carries no PRESENCE refusal for `eph_window`** — and it carries the exact analogue for
+     both sibling fields. *(NARROWED 2026-09-13, third pass of that date. This read "Spec A carries no
+     matching sentence for `eph_window` anywhere", which is broader than what was verified and is
+     false as written: Spec A §5.3 at `:1415` and `:4057` already refuses — at the OPENER — an
+     `EPH(1..5)` record whose `eph_window` is more than one window AHEAD of that opener's clock, and
+     S19 at `:5642` is the server's ±1. Neither is a presence refusal, so the narrow claim survives
+     intact; but shape **(b)**'s stated risk — "an opener reading from its own store has nothing that
+     refuses" — is argued without naming the opener refusal that already exists one rule over, and an
+     owner ruling (b) is owed both in front of them. The ahead-refusal is one-directional and
+     class-scoped, so it does not reach a nonzero window on a `DURABLE` record, which is this item's
+     case.)*
 
      - §5.1 — *"`ParseRecord` rejects a record whose `BlobId` presence disagrees with its
        `SizeBucket`"*, with `var ErrBlobIdPresence error   // blob_id presence disagrees with
@@ -7075,9 +7113,24 @@ fourteen are dispositioned below.
      There is **no `ErrEphWindowPresence`** on that surface and no sentence anywhere. Measured:
 
      ```
+     (at d2e7a51)
      grep -rn 'ParseRecord' --include=*.md . | grep -iE 'reject|refus|MUST NOT'
-       -> one presence-refusal sentence in the whole corpus, Spec A §5.1, and it is blob_id's
+       -> 7 lines across 4 files: SPEC-LEDGER 1, docs/reviews/...59-63 1, Spec A 2, Spec B 3
      ```
+
+     **CORRECTED 2026-09-13, third pass of that date. The arrow above read *"-> one presence-refusal
+     sentence in the whole corpus, Spec A §5.1, and it is blob_id's"*, and that is a HAND
+     CLASSIFICATION standing in the position this file reserves for a query's output.** The command
+     returns **seven** lines; a reader who ran it and got seven could not tell which discipline had
+     failed. The classification is true and is restated below as what it is — a reading of the seven,
+     not the seven:
+
+     - **Spec A §5.1** — *"`ParseRecord` rejects a record whose `BlobId` presence disagrees with its
+       `SizeBucket`"*. The only **presence** refusal in the seven.
+     - the other six are `write_auth`, the projection-equality reject, Spec B §5.1 check 3, decision
+       61's `ct_body` length, and this ledger's own and the decisions file's restatements of those.
+
+     Nothing the item concludes moves. What moves is that the query and its output now agree.
 
      **Measured against the shipped tree, and the permissive answer is already pinned.**
      `connect/message`'s `checkRecord` (`message/codec.go:298-326`) validates `blob_id` presence and
@@ -7114,7 +7167,12 @@ fourteen are dispositioned below.
        *"`ParseRecord` is deliberately more permissive about `ct_body` length than the server's submit
        check, and this is not a bug to be fixed later"*, 2026-08-25 — so it costs no new sentinel, no
        second document and no code. Risk: a client that never submits, an opener reading from its own
-       store, has nothing that refuses.
+       store, has nothing that refuses **at the parser** — though Spec A §5.3's ahead-refusal
+       (`:1415`, `:4057`) already refuses an opener's `EPH(1..5)` window more than one ahead, so the
+       uncovered case is narrower than "nothing": it is a nonzero window on a class the presence rule
+       makes zero. **Buys** *(added 2026-09-13, third pass)*: it keeps one rule for this parser's
+       permissiveness rather than two, which is decision 61's whole argument, and it leaves the refusal
+       in the one place that holds the group state to say what a record is for.
 
      **Decision 61 is the standing precedent and it points at (b). It is deliberately NOT applied
      here**, because 61 was taken about a **length the server re-checks**, and `eph_window` is a **key
@@ -7220,6 +7278,285 @@ fourteen are dispositioned below.
      and **nothing in m1 Task 14**. Wire-visible only in the sense that the octets already moved in
      `connect` and have not moved here. Carried at Spec B §3.2 and §5.1 check 3, Spec A **S19**, and
      `PROGRESS.md`'s tracks row.
+
+     ---
+
+     **DONE 2026-09-13, third pass of that date. All five edits are made, and the suite is GREEN
+     because the field TRAVELS — not because a test stopped asking.** The distinction is the whole
+     point of this item, so it is measured rather than asserted:
+
+     ```
+     go build ./...                                   -> clean
+     go vet ./...                                     -> clean
+     go test ./ -run TestThePlanLinter -timeout 300s  -> ok          (before and after)
+     go test ./... -timeout 900s -count=1             -> ok, EVERY package
+     URMESSAGE_TEST_DSN=<local pg 17.6> go test ./store/ -timeout 900s -count=1
+                                                      -> ok  (460 s, the pgx contract RAN)
+     ```
+
+     **`api/roundtrip_test.go`'s `assertEveryHeaderFieldTravelled` is UNCHANGED** — no field is
+     excused, the `unbuildable` map still holds exactly `BlobId` behind its live
+     declared-unbuilt tripwire, and the reflective walk over `message.RecordHeader` is untouched. What
+     changed is that the EPH(1) record that test already sealed now carries a window, which is the
+     only class §3.2's CHECK lets carry one. **Mutation-tested, both directions, both killed:**
+
+     ```
+     rebuildRecord: EphWindow: record.EphWindow -> 0     -> FAIL: "the header came back different:
+                                                            sealed EphWindow:490896 / returned 0"
+     columnsOf:     drop the EphWindow column            -> FAIL, same assertion
+     ```
+
+     **Where each landed, at THIS commit** — written with the tree-ish because item **191**, filed
+     below, is about exactly what happens to these numbers otherwise. At the commit this block is
+     written in: `harness/seal.go:111` (the `RecordHeader` literal) and `:213` (`EphWindowAt`);
+     `store/store.go:51` (`EphWindowMax`) and `:153` (`Record.EphWindow`, inside `type Record struct`
+     at `:138`); `store/migrations.go:390` (migration 010); `api/fetch.go:210` (`rebuildRecord`,
+     unmoved); `api/submit.go:389` (`Handler.ephWindow`); `api/roundtrip_test.go:264`
+     (`assertEveryHeaderFieldTravelled`, unchanged in body). The three pointers in the *"what is
+     owed"* list above — `harness/seal.go:95-108`, `store/store.go:112-144`,
+     `api/roundtrip_test.go:250-303` — were exact at `d2e7a51` and are **left as the dated
+     measurements they are**, which is item **191**'s whole subject.
+
+     **The five edits, each against the sentence that asked for it.**
+
+     1. `harness.Sealed.EphWindow` + `harness.Client.Seal` writes it, and `harness.EphWindowAt` is
+        MASTER §8's sender formula (see item **193** for why that function exists here at all).
+     2. `store.Record.EphWindow`, carried by **both** implementations through write and read, and
+        covered by the contract's own silent-zero gate — `EveryColumnOfARecordSurvivesTheRoundTrip`
+        walks `Record` reflectively and now has a **fourth** fixture, an `EPH(1)` row, because a
+        nonzero window is reachable on no other class.
+     3. Migration **`010 message_record eph_window`** — a NEW migration, not an edit to 003, which is
+        §10.3 and which Spec B revision 20 asked for by name. Column plus **both** §3.2 `CHECK`s.
+     4. `api/fetch.go`'s `rebuildRecord` carries it.
+     5. §5.1 check 3's clause and §7.1 / **S19**'s ±1 refusal, in `api/submit.go`.
+
+     **THE WIRE-BYTE PHRASING IS CARRIED THROUGH INTO CODE, AND IT IS FALSIFIABLE THERE.** Item
+     **189**'s correction — that the must-be-zero half is *"the wire byte is not 17..21"* and that the
+     class-phrased reading is wrong by one class because `EPH(0)` is `0x10` = **16** — is now a
+     property with a refusal behind it. The server asks
+     `message.EphBucketSeconds(bucket) > 0`, which is the wire range arithmetically and carries no
+     second copy of the table; the DDL carries §3.2's predicate verbatim. Both readings were mutated
+     and both mutants died:
+
+     ```
+     api/submit.go   seconds <= 0  ->  seconds < 0   (EPH(0) treated as windowed)
+        -> integer divide by zero, EPH(0)'s window is 0 BY DEFINITION -- the exact failure
+           connect/message's own EphBucketSeconds comment predicts for this caller
+     migration 010   17 <= retention_class  ->  16 <= retention_class
+        -> FAIL: "eph bucket 0 with a window was accepted by the schema"
+     ```
+
+     **What the ±1 refusal is tested against**, all five buckets, offsets −2..+2 plus zero; mutating
+     the bound to ±0 or ±2, dropping the check, or reading one bucket's seconds for another all go
+     red. And the refusal is proved to be a check on a value the MAC covers: a record whose bytes are
+     rewritten to a window check 3 would ACCEPT, under its original `write_auth`, is refused at check 7
+     and never reaches the transaction, with the untouched re-encode accepted as the control.
+
+     **What is NOT done, and it is not this repository's to do.** Spec B §4.3.3's projection field
+     **`uint64 eph_window = 14`** does not exist in `connect/protocol`'s `Record`, so this server
+     cannot populate or verify it. Filed as item **192**. The projection check itself is already
+     descriptor-driven on both sides — `projectionOf` builds a whole message and check 3 compares it
+     with `proto.Equal`, and `TestEveryProjectionFieldIsCheckedAgainstTheParse` walks the descriptor
+     — so the field is covered the day `connect` adds it, with no edit here.
+
+191. **FILED, NOT RULED — this corpus pins Go source by LINE NUMBER, and one ordinary commit to the
+     server moved 28 of the 106 anchors that point into the files it touched. The scheme, not this
+     commit, is the defect.** Filed 2026-09-13, third pass of that date, by a mechanical sweep rather
+     than by meeting one.
+
+     **The measurement, and the procedure beside it** — this is not a grep, because a grep cannot say
+     whether an anchor still lands on what it was written against. Two trees are needed:
+
+     ```
+     for every `path:line` (and both ends of `path:line-line`) in every *.md of this repository
+     whose path names a .go file THIS COMMIT CHANGED:
+         old = (git show HEAD:<path>)[line]          new = (working tree <path>)[line]
+         DRIFTED iff old.strip() != new.strip()
+
+     first measurement, before this pass reduced its own footprint:   81 of 106 DRIFTED
+     after removing two `import "math"` lines (see below):            28 of 106 DRIFTED
+     after THIS ITEM was written:                                     29 of 107 DRIFTED
+     ```
+
+     **THE QUERY MATCHES ITS OWN CLAIM, AND THAT IS STATED RATHER THAN ROUNDED OFF.** The twenty-ninth
+     is this item's candidate *(a)* example, `store/contract.go:145 @ d2e7a51`, which is **deliberately**
+     pinned and is correct as written — the procedure counts it as drifted because *"pinned to a
+     tree-ish"* is not something a `path:line` regex can see. So the number above is 28 sites plus one
+     self-match, and a reader who re-runs the procedure after this commit gets 29 for a reason that
+     has nothing to do with the corpus. This is the discipline item **188** wrote into its own query
+     block and it is applied here to this one.
+
+     **Fifty-three of the eighty-one were caused by TWO IMPORT LINES.** Adding `"math"` to
+     `store/memory.go` and to `store/contract.go` shifted every anchor below line 6 of each by one —
+     and those two files carry the densest anchor population in the corpus. They were replaced with a
+     `store.EphWindowMax` constant declared beside the class bytes, which needs no import. **That is a
+     repair to this commit, not to the class:** the 28 that remain are below genuine insertions and
+     cannot be avoided by writing the code differently.
+
+     **This pass did NOT renumber the 28**, and the reason is the corpus's own convention rather than
+     effort: an anchor here is part of a *measurement*, and the items that do this well pin the
+     measurement to a tree-ish (item **188** writes *"MEASURED AT `d2e7a51`"* in the query itself).
+     Renumbering would restate a dated measurement as though it had been taken today, which is the
+     defect items **152** and **184** are about, one level down. The 28 are listed in this commit's
+     edit-log entry with their files, so the next reader meets a list rather than a surprise.
+
+     **Candidates, NONE CHOSEN HERE.** *(a)* **Write the tree-ish beside every source anchor**, as 188
+     already does — `store/contract.go:145 @ d2e7a51`. Buys: an anchor becomes checkable forever and
+     drift becomes visible rather than silent. Risk: it is a convention every future writer must keep,
+     and nothing mechanical holds them to it. *(b)* **Anchor by SYMBOL and not by line** —
+     ``store/contract.go`'s `ARecordWithNoHeadAtAll`` — which several sites already do beside the
+     number. Buys: survives every edit that does not rename. Risk: it cannot point at a statement
+     inside a function, which is what a good half of these do. *(c)* **A gate that recomputes the
+     procedure above against the previous commit and fails on drift.** Buys: mechanical. Risk: it makes
+     every source edit a documentation edit, which is the cost this corpus has declined before, and it
+     cannot tell a drifted anchor from a deliberately re-pointed one.
+
+     **The property this must be ruled against**, satisfiable and falsifiable, presupposing none of the
+     three: **every `path:line` anchor a document publishes either lands on the text it was written
+     against, or names the tree-ish at which it did.** Falsified today by the 28, and by a further
+     class the procedure above **cannot see**, named here rather than left: anchors into files this
+     commit did NOT change are not measured by it, and neither are anchors written as prose
+     (*"`store/memory.go`'s `validateRecord`"*), anchors into `connect` or `sdk`, or anchors whose file
+     was renamed. **Mutation target:** insert one line at the top of any file the corpus anchors into
+     and require a NAMED site to be reported. A check that reports a count cannot say which anchor
+     moved, and a count is what hid item **184**'s five-of-seventeen. **No test code is supplied.**
+
+     *Blocks:* **nothing.** Every one of the 28 still lands inside the right file and most within a
+     dozen lines of their target. It blocks **trusting a source anchor without opening it**, which is
+     what an anchor is for. Carried nowhere normative — this is a convention of this ledger and of the
+     plans, and (a) would put it in §6's change process.
+
+192. **FILED, NOT RULED — Spec B §4.3.3's projection field `uint64 eph_window = 14` does not exist in
+     `connect/protocol`, so the one half of the `eph_window` work this server cannot do is the half a
+     document already publishes. A `connect` change is required and this pass does not make it.**
+     Filed 2026-09-13, third pass of that date.
+
+     **Measured, read-only, against a tree another agent is writing:**
+
+     ```
+     (connect, working tree at 7ce25a2)
+     grep -rn 'eph_window\|EphWindow' protocol/            ->  0
+     protocol/message.proto:225-248  message Record { ... uint64 record_id = 13; }
+                                     -- fields 1..13, no 14
+     (msgrepo)
+     docs/specs/...spec-b...md:1526  uint64 eph_window = 14;  // ... Added revision 20.
+     ```
+
+     Spec B §4.3.3 is explicit that 14 is *"a new number and not a renumber, because 7..13 are on the
+     wire"*, and §5.1 check 3 requires **every** projection field to equal the parsed value. With no
+     field there is nothing to populate and nothing to compare, so this server is conforming to a
+     §4.3.3 that has one fewer field than the published one.
+
+     **Why nothing here is owed when it lands, which is the part worth recording.** Both sides of
+     check 3 are DESCRIPTOR-DRIVEN by construction and neither names a field list: `projectionOf`
+     builds a whole `protocol.Record` and check 3 compares it with `proto.Equal` — its own comment
+     says *"a twelfth projection added to `Record` tomorrow would be a field the client populates, the
+     server indexes and nothing checks, which is the exact shape check 3 exists to refuse"* — and
+     `TestEveryProjectionFieldIsCheckedAgainstTheParse` walks the descriptor and mutates each field.
+     **So the day `connect` adds field 14, this repository goes RED until `projectionOf` sets it**, and
+     that is the design working. The `covered < 11` floor in that test is the one line that will need
+     its number moved, and it fails loudly rather than silently.
+
+     **The property**, satisfiable and falsifiable, presupposing nothing unruled: **the set of fields
+     `protocol.Record`'s descriptor publishes equals the set Spec B §4.3.3 publishes.** False today by
+     exactly one member, `eph_window = 14`. **Mutation target:** add field 14 to the proto without
+     teaching `projectionOf` about it and require a named failure; this repository already produces
+     one. **No test code is supplied.**
+
+     *Blocks:* **nothing in this repository** — the field travels inside `record_bytes`, which §4.3.3
+     makes authoritative, and §5.1 check 3's window clause and §7.1's refusal are both asked of
+     `ParseRecord` and not of the projection. It blocks a **conformance claim** against §4.3.3, and it
+     blocks any client that populates the field from compiling against the shipped `connect`. Owner:
+     `connect`. **Not wire-visible for `record_bytes`; visible on the enclosing protobuf.**
+
+193. **FILED, NOT RULED (LOW) — MASTER §8's sender-side window formula now exists in three places
+     that this repository can reach, and the dependency rule is what put it there.** Filed 2026-09-13,
+     third pass of that date.
+
+     ```
+     connect/messagegroup/eph.go:158  func EphWindowAt(bucket uint8, sentAtMs int64) (uint64, error)
+     msgrepo/harness/seal.go          func EphWindowAt(bucket uint8, sentAtMs int64) (uint64, error)
+     msgrepo/api/fixture_test.go      func ephWindowAt(t *testing.T, bucket uint8, sentAtMs int64) uint64
+     ```
+
+     **This is not an oversight and it is not fully repairable here.** Spec B §2.2 allows this module
+     `connect/message` and `connect/protocol` and nothing else, and §12.1's published surface for the
+     server is `connect/message`'s; `connect/messagegroup` is off both lists, and `deps_test.go`
+     enforces it. So the harness — which plays the sender, because the MLS key schedule that would
+     make a real one is plan p4 and is absent — cannot link the shipped `EphWindowAt` and has to carry
+     the arithmetic. The third copy is deliberate and is **not** part of the question: the test
+     fixture writes it out for the reason `clientProjection` is written out, *"a check whose two sides
+     come from one function is a check that cannot fail"*.
+
+     **The SERVER's own copy is NOT one of the three and is not a duplication at all.** §7.1 gives the
+     server `arrival_window = floor(create_time_ms / (eph_bucket_seconds[b] × 1000))` as its own
+     obligation over its own stamp, and §12.1 hands it `EphBucketSeconds` to compute it with. Two
+     parties computing one formula over two inputs is what the rule says.
+
+     **Candidates, NONE CHOSEN.** *(a)* **Put `EphWindowAt` on §12.1's published surface by moving it
+     into `connect/message`**, where the ladder it divides by already lives. Buys: one implementation,
+     linkable by the harness, and §12.1 stops publishing a divisor without the division. Risk: it moves
+     a function out of the package that owns the sender, for a caller that is a test double. *(b)*
+     **State in Spec B §12.1 that the arithmetic may be restated by a harness, with the bound**, which
+     is what the corpus does elsewhere for permitted divergence. Buys: costs nothing. Risk: it is a
+     tolerance with no mechanism, the shape item **187**'s candidate (c) is criticised for. *(c)*
+     **Leave it unstated.** Risk: exactly what this item is.
+
+     **The property**, satisfiable and falsifiable: **every implementation of MASTER §8's window
+     formula that this corpus admits produces the same value for the same `(bucket, sent_at_ms)`.**
+     Satisfiable under all three candidates. **Mutation target:** change the divisor in one copy and
+     require a named assertion in a DIFFERENT package to move. Today none does — the harness copy has
+     no test that compares it with `connect`'s, and it could not have one without the import §2.2
+     forbids, which is the finding. **No test code is supplied.**
+
+     *Blocks:* **nothing.** All three copies agree today, by inspection and by the suite. Carried at
+     Spec B §2.2 and §12.1, and at `harness/seal.go`'s own doc comment, which says this in its own
+     voice at the function.
+
+194. **FILED, NOT RULED — §5.1 check 3 tells the server to compute the ±1 window from
+     `create_time_ms`, and check 3 runs SIX CHECKS BEFORE the transaction that assigns `create_time`.
+     Two different clock readings, and no sentence says which is normative.** Filed 2026-09-13, third
+     pass of that date, by implementing the check.
+
+     ```
+     Spec B §5.1 check 3: "...it is within ONE window of the window this record's own arrival stamp
+                            falls in -- floor(create_time_ms / (eph_bucket_seconds[b] x 1000))"
+     Spec B §7.1:          "create_time is the same stamp the class deadline above is computed from"
+     Spec B §5.1:          check 3 is the third of nine; the transaction is check 9
+     Spec B §3.2:          create_time timestamp NOT NULL DEFAULT now()
+     ```
+
+     `create_time` does not exist when check 3 runs. In this server the check reads the API layer's
+     clock and the row's `create_time` is the store's, taken inside the transaction — two readings
+     separated by checks 4 through 9, a row lock and a round trip. **It is filed rather than absorbed
+     because the two can straddle a boundary**: a record accepted at check 3 as within ±1 can land in
+     a row whose `create_time` is one window later, and nothing re-checks. The consequence is bounded
+     at exactly one window and is inside the tolerance ±1 already exists to absorb, which is why this
+     is filed and not escalated — the same shape, and the same reasoning, as item **187**.
+
+     **Candidates, NONE CHOSEN.** *(a)* **Name the ADMISSION stamp normative** and say check 3's
+     reading is the arrival stamp, with `create_time` a projection of it like `expire_at`'s column is
+     of the wire field. Buys: the check is where §5.1 puts it, costs no code, and matches what a
+     reject-before-you-read server must do. Risk: `create_time` then has no stated relation to the
+     value that was checked, and §7.2's sweep computes `prune_after` from `create_time`. *(b)* **Pass
+     the admission stamp INTO the transaction** and have the row's `create_time` be it, rather than
+     `now()`. Buys: one stamp, one window, nothing to straddle; `prune_after` and the window check then
+     agree by construction. Risk: it changes §3.2's column default and gives a client-facing layer
+     control of a stored timestamp. *(c)* **Re-check inside the transaction.** Buys: exact. Risk: it
+     puts a refusal after the row lock, which is the ordering §5.1 is written to avoid.
+
+     **The property this must be ruled against**, satisfiable and falsifiable, presupposing none of the
+     three: **the window a record is ACCEPTED against and the window its stored `create_time` falls in
+     are the same window.** Falsifiable by holding a submission between check 3 and check 9 across a
+     bucket boundary; satisfiable under (b) by construction and under (a) by redefinition.
+     **Mutation target:** move one of the two clocks by one window and require a NAMED assertion to
+     move. Today none does, in either implementation. **No test code is supplied.**
+
+     *Blocks:* **nothing.** The bound is one window and ±1 absorbs it, which this repository's own
+     tests exercise at every bucket. It blocks a **conformance claim**: a second implementation that
+     read `create_time` at check 3 would have to open the transaction first, and would be conforming
+     to the same sentence by a different order. Carried at Spec B §5.1 check 3, §7.1 and §3.2, and at
+     Spec A **S19**.
 
 
 ## 6. Change process
@@ -14611,3 +14948,163 @@ frozen at either reading would have hidden. None of this pass's edits is in `con
 measurement above: every number taken from `connect` was taken with `git show <commit>:<path>`,
 against committed objects, never against its working tree. `git ls-files` equals `git ls-tree -r HEAD`
 at **105** in this repository, checked before the first edit and after the commit.
+
+
+---
+
+### 2026-09-13 (third pass of that date) — the server half of `eph_window`, and the review's eight findings
+
+**Change:** the message server now carries `eph_window` end to end, and ledger item **190** is
+**CLOSED by implementation**. Ledger items **191**, **192**, **193** and **194** are filed and **none
+is ruled**. Items **188** and **189** are repaired against the review of `da2dca7`+`a21a6ee`; `s2`'s
+open items **S2-1** and **S2-2** have their premises falsified in place with the old wording kept;
+§1's Implementation-plan row and Code row are re-derived. **Nothing in 185, 186, 187 or `MG-2` is
+ruled, touched or narrowed.**
+
+**THE ANSWER TO THE QUESTION THIS PASS WAS SET, FIRST.** The suite is **GREEN**, and it is green
+because the server carries the field end to end — **not** because a test stopped asking.
+`api/roundtrip_test.go`'s `assertEveryHeaderFieldTravelled` is **unchanged**: no field is excused, the
+`unbuildable` map still holds `BlobId` alone behind its live tripwire, and the reflective walk over
+`message.RecordHeader` is untouched. The one edit in that file is that the `EPH(1)` record it already
+sealed now carries a window — the only class §3.2's `CHECK` lets carry one. Both directions were
+mutated and both mutants died:
+
+```
+api/fetch.go   rebuildRecord: EphWindow: record.EphWindow -> 0
+   -> FAIL roundtrip_test.go:246 "the header came back different: sealed EphWindow:490896,
+                                  returned EphWindow:0"
+api/submit.go  columnsOf: drop the EphWindow column
+   -> FAIL, same assertion, same field
+```
+
+**What was implemented, against the sections rather than against the brief** — which mattered, because
+the brief for the previous pass was inverted on the one point this one turns on. Spec B §3.1 / §3.2 /
+§4.3.3 / §5.1 check 3 / §7.1, MASTER §8's presence rule and §9.2's preimage were each read in full:
+
+1. **`harness.Sealed.EphWindow`**, written into the `RecordHeader` `Seal` builds, plus
+   `harness.EphWindowAt` — MASTER §8's sender formula. Item **193** files why that function exists
+   here at all rather than being linked from `connect/messagegroup`.
+2. **`store.Record.EphWindow`**, carried by **both** implementations. The contract's own silent-zero
+   gate (`EveryColumnOfARecordSurvivesTheRoundTrip`, a reflective walk of `Record`) demanded a
+   **fourth** fixture, an `EPH(1)` row, because a nonzero window is reachable on no other class — the
+   same gate, one layer down, that caught this at the API layer.
+3. **Migration `010 message_record eph_window`** — a NEW migration and not an edit to 003, which is
+   §10.3 and which Spec B revision 20 asked for by name. Column plus **both** §3.2 `CHECK`s.
+4. **`rebuildRecord` carries it.**
+5. **§5.1 check 3's clause and §7.1 / Spec A `S19`'s ±1 refusal**, in `api/submit.go`, plus two new
+   store sentinels for §3.2's two `CHECK`s (`ErrEphWindowClass`, `ErrEphWindowRange`) — owed because
+   the contract derives its class from the sentinels declared beside the `Store` interface.
+
+**THE WIRE-BYTE PHRASING IS NOW FALSIFIABLE IN CODE, IN TWO PLACES.** Item 189's correction — that
+`EPH(0)` is `0x10` = **16**, outside 17..21, so the class-phrased reading is wrong by one class — was
+re-derived from MASTER §8, Spec B §2090 and §918-919 before anything was written, and it holds. The
+server asks `message.EphBucketSeconds(bucket) > 0`, which IS the wire range arithmetically and carries
+no second copy of the table; migration 010 carries §3.2's predicate verbatim. Both were mutated toward
+the class-phrased reading and both died:
+
+```
+api/submit.go   seconds <= 0 -> seconds < 0          -> integer divide by zero (EPH(0)'s window is
+                                                        0 BY DEFINITION), which is the exact failure
+                                                        connect/message's EphBucketSeconds comment
+                                                        predicts for this caller
+migration 010   17 <= retention_class -> 16 <=       -> FAIL "eph bucket 0 with a window was
+                                                        accepted by the schema"
+```
+
+**Mutation-tested, eleven mutants, all killed.** ±1 → ±0 and → ±2; the check removed entirely; the
+must-be-zero half removed; one bucket's seconds read for another; `rebuildRecord` and `columnsOf`
+dropped; the memory store's two `CHECK`s disabled; migration 010's constraints dropped; and migration
+010's class predicate widened to 16. The one mutant that the **store contract could not kill** is
+named rather than left: widening the memory store's predicate to admit `EPH(0)` survives, because
+§7.6 refuses an `EPH(0)` a row before the window constraint is reached. It is killed at the API layer
+(where check 3 answers `REASON_REJECTED` and check 9's `REASON_INTERNAL` is distinguishable) and at
+the DDL (by a raw INSERT that never calls this package — which is what §3.2's own *"so a second writer
+cannot put a nonzero window on a DURABLE row"* sentence asks for, and which nothing asserted before).
+
+**THE REVIEW'S FINDINGS, EACH CLOSED OR REFUTED.**
+
+- **F1 (HIGH) — CLOSED.** Item 188's *Blocks* line was stale at the commit that wrote it, and two
+  other sites in that commit said the opposite. Corrected in item 182's shape: old wording kept, what
+  edit (c) closed named, and what is left — (a) alone — stated.
+- **F2 (HIGH) — CLOSED, and re-derived independently at `7ce25a2` rather than at `b0155d9`.**
+  `GroupSession`'s exported set is **eleven**; `EpochKeys()` at `session.go:387` returns
+  `newEpochKeys(self.epoch, self.readKey, self.writeKey)` with `ReadKey()`/`WriteKey()`/`Epoch()` on
+  it; `RebindServerNonce` is at `:499`. **S2-1's premise is false on BOTH clauses and S2-2's "no
+  setter" clause is closed.** Neither item closes, and this pass says which residue survives rather
+  than declaring victory: `ProvisionalEpoch` exports `StorageRoot() WriteKey() EphRoot() PqSecret()
+  Wraps()` and **no `ReadKey()`**, so epoch *n+1*'s read key is still unreachable; `group_handle_key`
+  has no accessor on either type; and S2-2's sequencing question — *when* to rebind, with a record in
+  flight — outlives its mechanism clause.
+- **F3 (MEDIUM) — CLOSED.** The CP3b sentence is restated as an addition, not an answer, and the four
+  `s2` *Blocks* lines naming CP3b are enumerated with their states.
+- **F4 (MEDIUM) — CLOSED.** Task 14's blockers are **five**, not two; the qualifier *"the two that
+  block steps"* is added and `M1-53`, `M1-54`, `M1-55` are named. The *unchanged* claim was re-checked
+  and holds.
+- **F5 (MEDIUM) — CLOSED.** Item 189's query now prints what it returns — **7 lines across 4 files at
+  `d2e7a51`** — with the hand classification restated below it as a reading, not as output.
+- **F6 (LOW) — CLOSED.** *"Spec A carries no matching sentence for `eph_window` anywhere"* is narrowed
+  to *"no PRESENCE refusal"*, with §5.3's opener ahead-refusal at `:1415`/`:4057` and `S19` at
+  `:5642` named beside shape (b)'s risk.
+- **F7 (LOW) — CLOSED as framing.** Candidate **(a)** in both 187 and 189 now carries a **Risk** line
+  and every other candidate carries a **Buys** line. **No candidate is chosen in either item, and 187
+  is untouched in substance** — it is one of the four this pass may not rule.
+- **F8 (LOW) — CLOSED.** Item 188 now labels its own register the way 190 labelled itself: three
+  dispatches and one genuine choice.
+- **F9 (LOW) — acknowledged and made worse by this commit, which is why it is now item 191.** The
+  `s2` `:408-409` pointer is re-pointed to `:415-416` with the drift explained; the class behind it is
+  filed.
+
+**THE SWEEP, AND ITS COMPLEMENT.** The sweep this pass ran is not a grep, because the question it asks
+— *does an anchor still land on what it was written against* — needs two trees. The procedure is in
+item **191**. **Result: of the 106 `path:line` anchors in this repository's `*.md` that point into Go
+files this commit changes, 81 DRIFTED on the first measurement.** **Fifty-three of the eighty-one were
+caused by two `import "math"` lines**, which were removed in favour of a `store.EphWindowMax` constant;
+the figure is now **28**, plus **one self-match** — item 191's own deliberately-pinned example — for
+**29 of 107** after this commit. **What this pass CHANGED:** the two imports, and nothing else about
+the anchors. **What it CONSIDERED AND LEFT, with the reason:** the 28, because an anchor here is part
+of a dated measurement and the items that do this well pin the measurement to a tree-ish (188 writes
+*"MEASURED AT `d2e7a51`"* inside its own query); renumbering would restate a dated measurement as
+though taken today, which is item **152** and **184**'s defect one level down. They are, by file:
+`SPEC-LEDGER.md` × 13 (`:454`, `:1978`, `:2461`, `:6059`, `:7237`×2, `:7245`×2, `:7248`×2,
+`:9931`, `:9950`, `:10011`, `:10526`), Spec A × 4 (`:97`, `:2047`, `:2295`, `:2361`), Spec B × 3
+(`:358`, `:2352`, `:2505`), the 2026-09-12 red-team review × 4 (`:59`, `:116`, `:270`, `:310`), `m1`
+× 2 (`:4022`, `:5880`), `k1` × 1 (`:358`). **WHAT THE PROCEDURE CANNOT FIND**, named rather than left:
+anchors into files this commit did **not** change; anchors written as prose (*"`store/memory.go`'s
+`validateRecord`"*) rather than as `path:line`; anchors into `connect` or `sdk`, which are read-only
+here; anchors whose file was renamed; and the correctness of an anchor that still lands on
+*identical* text at a different logical place.
+
+**Every `store/migrations.go` anchor in the corpus SURVIVED, and that is the design working.** Migration
+010 is appended, so `:149`, `:159`, `:160`, `:179`, `:180`, `:222-226` and `:351-362` all still land
+exactly — checked individually. §10.3's append-only rule buys anchor stability as a side effect.
+
+**What this pass did NOT do, said plainly.** It did not touch `connect` or `sdk`; every number taken
+from either was taken with `git show <commit>:<path>` or a read-only `git grep <tree-ish>` against
+committed objects. It did not rule **185**, **186**, **187** or **MG-2**, and did not narrow any of
+them — 187's edits are two balance lines that choose nothing. It did not renumber the 28 drifted
+anchors. It did not implement Spec B §4.3.3's projection field 14, **because it cannot**: the field
+does not exist in `connect/protocol` (item **192**), and that is reported as a finding rather than
+worked around. It did not amend **Spec B's revision-20 note**, which says *"`store/migrations.go` in the message-server repository is NOT edited for this … `eph_window` is a new migration in that ordered slice … None of that is made by the pass that writes this revision"* — that prediction came true exactly as written, migration **010** is that new migration, and a revision note is a dated record of what one revision did: amending it would restate history and would owe a revision bump this pass has no reason to take. The closure is recorded in item **190** instead, which is the register for it.
+
+**Reviewed by:** self, by mutation rather than by reading — eleven mutants, each run against the
+suite, each killed by a **named** assertion, and the one the store contract could not kill named with
+the reason and with where it IS killed. **No test code is supplied in any document.** Every property
+filed is satisfiable by a correct implementation, falsifiable by an incorrect one, and presupposes no
+unruled sentence; each names its mutation target.
+
+**Verification:**
+`git ls-files` == `git ls-tree -r HEAD --name-only` == **105** checked **before the first edit**;
+**106** after this commit, the one addition being `api/ephwindow_test.go`.
+`go build ./...` and `go vet ./...` clean **before and after**.
+`go test ./ -run TestThePlanLinter -timeout 300s` **ok before and ok after**.
+`go test ./... -timeout 900s -count=1` — **RED before** (one test, `api.TestARecordTravelsEndToEnd`,
+reproduced exactly as `a21a6ee` recorded it) and **GREEN after, every package**. Counted from that run: **135 top-level `--- PASS` plus 340 subtest `--- PASS`, 475 invocations, 0 `--- FAIL`** (`go test ./... -v | grep -cE '^--- PASS'` and `'^\s+--- PASS'`; the two greps are disjoint by their anchors and neither matches this file). The store contract's own banner printed **`FULL RUN: 2 of 2 implementations of Store were held to RunContract`**, which is the line that distinguishes a green run from a green run in which the second implementation never executed a statement.
+`URMESSAGE_TEST_DSN=<portable PostgreSQL 17.6 on 127.0.0.1:55432> go test ./store/ -timeout 900s
+-count=1` — **ok, 460 s**, so the pgx contract **RAN** rather than skipping: migration 010 applied,
+both `CHECK`s exist in a real database, the INSERT's parameter renumbering is right and the scan arity
+is right. That last is the one thing a skipped pgx run makes textually indistinguishable from a pass,
+which `store/coverage_test.go` exists to say and which is why the DSN was set.
+**`-race` was NOT run and no concurrency property is claimed**: `CGO_ENABLED=0`, no C compiler.
+`connect` (`beta/message`, `7ce25a2`) and `sdk` (`beta/message`, `54785de`) were **read-only**;
+`connect`'s working tree is dirty under `messagegroup/ephkey_test.go` at an unchanged HEAD, which is
+**another agent writing that tree concurrently** and is recorded rather than rounded off.

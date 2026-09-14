@@ -318,6 +318,11 @@ func (self *Handler) staticShape(groupId []byte, pass *recordPass) protocol.Reas
 		}
 	}
 
+	// `eph_window` is zero off the windowed classes and within one window of arrival on them.
+	if reason := self.ephWindow(header); reason != protocol.Reason_REASON_OK {
+		return reason
+	}
+
 	// `server_attachment` parses and is well-formed for its record kind. The widths, the alg_ids
 	// and `expected_wrap_count > 0` are message.ParseServerAttachment's, which is the one place
 	// they are written; what belongs to the server is the relation to the record beside it.
@@ -354,6 +359,65 @@ func (self *Handler) staticShape(groupId []byte, pass *recordPass) protocol.Reas
 	// not making a claim the server has to refuse
 	sent.RecordId = 0
 	if !proto.Equal(projectionOf(parsed, attachment), sent) {
+		return protocol.Reason_REASON_REJECTED
+	}
+	return protocol.Reason_REASON_OK
+}
+
+// Check 3's `eph_window` clause, which is also §7.1's ±1 refusal and Spec A requirement S19.
+//
+// WHICH CLASSES CARRY A WINDOW IS ASKED OF [message.EphBucketSeconds] RATHER THAN OF A BYTE RANGE
+// WRITTEN OUT HERE. §5.1 check 3 and §3.2's CHECK both phrase the half on the WIRE BYTE, 17..21.
+// MASTER §8 gives that byte as `0x10 | bucket`, so 17..21 is buckets 1..5 and EPH(0), at
+// `0x10` = 16, is OUTSIDE it — which is exactly where MASTER §8's presence rule puts EPH(0), in
+// the must-be-zero half with PERMANENT, DURABLE and MEDIA. EphBucketSeconds answers a POSITIVE
+// for precisely buckets 1..5, ZERO for bucket 0 (the transient rung's true window, not a marker
+// for the absence of one) and a NEGATIVE off the ladder — the three-answer distinction ruled on
+// 2026-09-13 for this caller — so `0 < seconds` IS the wire range, arithmetically, with no second
+// copy of the table here and with no chance of the class-phrased reading that is wrong by one
+// class.
+//
+// The two refusals this owes:
+//
+//   - a nonzero window on PERMANENT, DURABLE, MEDIA or EPH(0)  → REASON_REJECTED
+//   - a window on EPH(1..5) more than one from the arrival one  → REASON_REJECTED, either
+//     direction
+//
+// The submitted value is inside the `write_auth` preimage (MASTER §9.2), so this is a check on a
+// value the MAC covers rather than on a field anyone in the path may rewrite — which is what
+// makes it a check worth making in a server that reads nothing else about a record.
+func (self *Handler) ephWindow(header *message.RecordHeader) protocol.Reason {
+	seconds := message.EphBucketSeconds(header.EphBucket)
+	if header.RetentionClass != message.RetentionEph || seconds <= 0 {
+		if header.EphWindow != 0 {
+			return protocol.Reason_REASON_REJECTED
+		}
+		return protocol.Reason_REASON_OK
+	}
+
+	// §7.1: `arrival_window = floor(create_time_ms / (eph_bucket_seconds[b] × 1000))`. The stamp
+	// is this handler's clock rather than the row's `create_time`, because check 3 runs before
+	// there is a transaction to have one. They differ by what the remaining checks and the
+	// transaction take, which is orders below the shortest bucket's 3600 seconds; what that
+	// difference can do is straddle a boundary, and ±1 is what absorbs it — the same skew §7.1's
+	// one-hour `grace` already absorbs, expressed in this field's unit.
+	millis := self.now().UnixMilli()
+	if millis < 0 {
+		// the formula's origin is the unix epoch and a clock before it has no window for the
+		// submitted one to be within one of. REASON_INTERNAL and not REASON_REJECTED: nothing the
+		// client sent is wrong, and §4.5's merged refusal is a statement about a party that holds
+		// no key
+		return protocol.Reason_REASON_INTERNAL
+	}
+	arrival := uint64(millis) / (uint64(seconds) * 1000)
+	// the distance, taken so that it cannot underflow: both sides are u64 and the submitted value
+	// is a client's, so `arrival - header.EphWindow` on a window one ahead is 2^64-1 and passes
+	// every bound anyone would write against it
+	distance := arrival - header.EphWindow
+	if arrival < header.EphWindow {
+		distance = header.EphWindow - arrival
+	}
+	if 1 < distance {
 		return protocol.Reason_REASON_REJECTED
 	}
 	return protocol.Reason_REASON_OK
@@ -559,6 +623,7 @@ func columnsOf(pass *recordPass) (*store.Record, error) {
 		StreamIndex:      header.StreamIndex,
 		IsCommit:         header.IsCommit,
 		RetentionClass:   retentionWire,
+		EphWindow:        header.EphWindow,
 		SizeBucket:       uint8(header.SizeBucket),
 		ExpireAtMs:       header.ExpireAt,
 		BodyHash:         bytes.Clone(header.BodyHash[:]),

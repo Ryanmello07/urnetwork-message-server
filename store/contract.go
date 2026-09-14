@@ -131,6 +131,29 @@ func contractCallerErrors(t *testing.T, newStore func(Limits) Store, seen *recor
 		"ASizeBucketOffTheLadder": {want: ErrSizeBucket, damage: func(record *Record) {
 			record.SizeBucket = 6
 		}},
+		// §3.2's class CHECK on eph_window, which is stated on the WIRE BYTE: `eph_window = 0 OR
+		// (17 <= retention_class AND retention_class <= 21)`. The fixture is DURABLE, whose byte
+		// is 1, so a nonzero window on it is a row Postgres refuses — and a memory store with no
+		// constraints of its own would take it, which is the divergence this scenario exists for.
+		"AWindowOnAClassThatCarriesNone": {want: ErrEphWindowClass, damage: func(record *Record) {
+			record.EphWindow = 1
+		}},
+		// EPH(0) is the member of the must-be-zero half that a class-phrased reading of the same
+		// CHECK loses: its wire byte is 0x10 = 16, which is OUTSIDE 17..21, so the window must be
+		// zero on it exactly as on DURABLE. It answers ErrTransientRecord and not
+		// ErrEphWindowClass because §7.6 refuses the row outright and refuses it first — the
+		// point of the scenario is that a nonzero window does not buy an EPH(0) a row either.
+		"AWindowOnTheTransientRung": {want: ErrTransientRecord, damage: func(record *Record) {
+			record.RetentionClass = ClassEphBase
+			record.EphWindow = 1
+		}},
+		// §3.2's range CHECK, `0 <= eph_window`. The Go field is unsigned and the column is a
+		// SIGNED bigint, so the CHECK is about exactly this input: a value above [EphWindowMax],
+		// which an implementation that cast it would hand Postgres as a negative.
+		"AWindowThatDoesNotFitTheColumn": {want: ErrEphWindowRange, damage: func(record *Record) {
+			record.RetentionClass = ClassEphBase + 1
+			record.EphWindow = EphWindowMax + 1
+		}},
 		// inline XOR blob (§3.2). It answered ErrSizeBucket until this scenario existed, which
 		// is an operator log line sending the reader to the wrong field of the wrong record
 		"ABodyThatIsInlineAndABlobAtOnce": {want: ErrInlineOrBlob, damage: func(record *Record) {
@@ -2953,9 +2976,16 @@ func contractRecordColumns(t *testing.T, newStore func(Limits) Store, seen *reco
 	blob.CtBody = nil
 	blob.SizeBucket = 5
 	blob.BlobId = testBytes(BlobIdBytes, 0x65)
+	// a fourth, because eph_window is reachable on no other one: §3.2's CHECK confines a nonzero
+	// window to the wire bytes 17..21, and the three records above are MEDIA, DURABLE and
+	// PERMANENT. Without it EphWindow is compared at zero against zero on every fixture here,
+	// which is a column a store could drop with this scenario still green
+	windowed := ordinaryRecord(sender, 1, 3, 0x67)
+	windowed.RetentionClass = ClassEphBase + 1
+	windowed.EphWindow = 490896
 	// last, because it moves the group's epoch out from under everything after it
-	commit := commitRecord(sender, 1, 3, 2, 0x66)
-	fixtures := []*Record{inline, blob, commit}
+	commit := commitRecord(sender, 1, 4, 2, 0x66)
+	fixtures := []*Record{inline, blob, windowed, commit}
 
 	covered := map[string]bool{}
 	for _, fixture := range fixtures {

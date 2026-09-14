@@ -361,6 +361,42 @@ CREATE TABLE message_recovery (
     CHECK (octet_length(verify_pub) = 32)
 );
 `),
+
+	// ── 010  message_record.eph_window (§3.2, Spec B revision 20) ────────────────────
+	//
+	// A NEW migration and not an edit to 003, which is §10.3 — "a landed migration is never
+	// edited, only superseded" — and which Spec B's own revision-20 note spells out for this
+	// column by name: `store/migrations.go` is not edited for it, `eph_window` is a new
+	// migration in this ordered slice. 003's text therefore still reads as it did on the day it
+	// ran, and `migration_audit` still holds it under its own name at its own position.
+	//
+	// `t`, the time-slice of the record's own `K_eph[n][b][t]` (MASTER §8), ruled onto the wire
+	// 2026-09-13 (ledger 152 / m1 M1-27). The column is a projection like every other one here:
+	// `record_bytes` and the `write_auth` preimage are authoritative and this copy is what §7.1's
+	// ±1 refusal reads and §4.3.4 re-encodes.
+	//
+	// Both CHECKs are §3.2's, transcribed. The second is stated on the WIRE BYTE, and that is
+	// load-bearing rather than stylistic: MASTER §8 gives the byte as `0x10 | bucket`, so EPH(0)
+	// is 16 and falls OUTSIDE 17..21 — the CHECK puts the transient rung in the must-be-zero half
+	// exactly where MASTER §8's presence rule puts it, and a rewrite of this predicate into "a
+	// non-EPH class" would be wrong by one class and would admit a window on EPH(0).
+	//
+	// `NOT NULL DEFAULT 0` is why this is safe on a populated table: §3.2's default is the same
+	// value every row predating the ruling would have to carry, because no class but EPH(1..5)
+	// may carry anything else. The constraints are added in the same statement as the column, on
+	// a table that is empty in every deployment this build has, so there is no NOT VALID / VALIDATE
+	// dance to stage — and §10.3's `newCodeMigration`, which is what that dance would need, still
+	// does not exist and is still owed by the first index on a populated table.
+	newSqlMigration("010 message_record eph_window", `
+ALTER TABLE message_record
+    ADD COLUMN eph_window bigint NOT NULL DEFAULT 0;
+
+ALTER TABLE message_record
+    ADD CONSTRAINT message_record_eph_window_range
+        CHECK (0 <= eph_window),
+    ADD CONSTRAINT message_record_eph_window_class
+        CHECK (eph_window = 0 OR (17 <= retention_class AND retention_class <= 21));
+`),
 }
 
 // §10.3: migrations are executed by a dedicated init job or `messagectl migrate`, NEVER by N

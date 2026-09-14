@@ -16,6 +16,10 @@ var (
 	ErrGroupWidth  = errors.New("harness: a record names its group in a fixed-width header field, and this group_id is not that width")
 	ErrSenderWidth = errors.New("harness: a record names its sender in a fixed-width header field, and this sender_handle is not that width")
 	ErrNoRung      = errors.New("harness: §9.5 pads a body to exactly the rung its size bucket names, and this body does not fit that rung")
+	// MASTER §8's window has the unix epoch as its origin, so a reading before it has no window
+	// at all. Refused rather than clamped to zero: zero is the answer the presence rule gives an
+	// unwindowed class, and a clock fault that produced it would be indistinguishable from one.
+	ErrEphWindowSentAt = errors.New("harness: a sent_at before the unix epoch has no eph window")
 )
 
 // One record to seal, in the terms a sender chooses them.
@@ -36,6 +40,18 @@ type Sealed struct {
 	Class     message.RetentionClass
 	EphBucket uint8
 	Bucket    message.SizeBucket
+
+	// MASTER §8's `t`: the time-slice of this record's own `K_eph[n][b][t]`, plaintext and on the
+	// wire. ALWAYS ENCODED, and zero on PERMANENT, DURABLE, MEDIA and EPH(0) — the presence rule,
+	// which §5.1 check 3 and §3.2's CHECK both state as "the wire byte is 17..21" and which puts
+	// EPH(0), at 16, in the must-be-zero half.
+	//
+	// It is a field of this struct rather than something computed inside Seal because the sender
+	// computes it ONCE, off the same clock reading it puts in `sent_at` — a reading this package
+	// does not have — and because a test that cannot submit a window the server should refuse is
+	// a test that cannot reach §7.1 at all. [EphWindowAt] is the value a conforming sender puts
+	// here.
+	EphWindow uint64
 
 	// §5.1's advisory upper bound, Unix milliseconds. Zero is unset.
 	ExpireAt uint64
@@ -98,6 +114,7 @@ func (self *Client) Seal(spec Sealed) (*protocol.Record, error) {
 		IsCommit:         spec.IsCommit,
 		RetentionClass:   spec.Class,
 		EphBucket:        spec.EphBucket,
+		EphWindow:        spec.EphWindow,
 		SizeBucket:       spec.Bucket,
 		ExpireAt:         spec.ExpireAt,
 		BodyHash:         blobd.ContentHash(body),
@@ -173,4 +190,33 @@ func projectionOf(header *message.RecordHeader, attachment *message.ServerAttach
 		projection.RecoveryHandle = append([]byte{}, attachment.Recovery.RecoveryHandle...)
 	}
 	return projection, nil
+}
+
+// MASTER §8's `eph_window`, as a SENDER computes it: `floor(sent_at_ms / (eph_bucket_seconds[b]
+// × 1000))`, origin the unix epoch, off the same wall-clock reading the sender puts in `sent_at`.
+//
+// It answers ZERO for every class that carries no window, and it reaches that answer by ARITHMETIC
+// rather than by a branch on the class: [message.EphBucketSeconds] is zero for bucket 0 and
+// negative off the ladder, and both are answered here as a window of zero. §5.1 check 3 and §3.2's
+// CHECK phrase the windowed half as the wire byte 17..21, which — since MASTER §8 gives the byte as
+// `0x10 | bucket` — is buckets 1..5 and excludes EPH(0) at 16. A caller sealing PERMANENT, DURABLE
+// or MEDIA passes bucket 0 and gets the zero the presence rule requires.
+//
+// WHY THIS IS WRITTEN HERE AND NOT LINKED. `connect/messagegroup` publishes `EphWindowAt` with this
+// arithmetic for the real sender, and Spec B §2.2 does not allow this module to import that package
+// — §12.1's published surface for the server is `connect/message` and `connect/protocol` and
+// nothing else. This is therefore a SECOND SITE of one formula by construction of the dependency
+// rule, and the divergence risk is real and filed rather than absorbed.
+//
+// `sentAtMs` is a reading and not a source: a harness that read a clock in here would be a harness
+// that could not seal the record §7.1 is supposed to refuse.
+func EphWindowAt(bucket uint8, sentAtMs int64) (uint64, error) {
+	if sentAtMs < 0 {
+		return 0, fmt.Errorf("%w: %d is before the unix epoch, which is the window's origin", ErrEphWindowSentAt, sentAtMs)
+	}
+	seconds := message.EphBucketSeconds(bucket)
+	if seconds <= 0 {
+		return 0, nil
+	}
+	return uint64(sentAtMs) / (uint64(seconds) * 1000), nil
 }

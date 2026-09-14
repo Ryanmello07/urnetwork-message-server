@@ -994,6 +994,21 @@ func validateRecord(record *Record) error {
 	if record.RetentionClass == ClassEphBase {
 		return ErrTransientRecord
 	}
+	// §3.2's two CHECKs on eph_window, in the order the column is written: the range first,
+	// because a value that cannot be stored is not a value whose class question is worth asking.
+	//
+	// `ClassEphBase < class` and not `<=`: ClassEphBase is 0x10 = 16 and ClassEphMax is
+	// 0x15 = 21, so the predicate below is exactly the CHECK's `17 <= retention_class AND
+	// retention_class <= 21`. EPH(0) sits at 16 and is therefore in the must-be-zero half with
+	// PERMANENT, DURABLE and MEDIA — MASTER §8's presence rule, which is phrased on the classes
+	// and agrees with the byte range arithmetically rather than by wording.
+	if EphWindowMax < record.EphWindow {
+		return ErrEphWindowRange
+	}
+	if record.EphWindow != 0 &&
+		!(ClassEphBase < record.RetentionClass && record.RetentionClass <= ClassEphMax) {
+		return ErrEphWindowClass
+	}
 	// inline XOR blob, never both (§3.2)
 	if record.CtBody != nil && record.BlobId != nil {
 		return ErrInlineOrBlob

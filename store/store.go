@@ -43,6 +43,12 @@ const (
 	ClassMedia     uint8 = 0x02
 	ClassEphBase   uint8 = 0x10
 	ClassEphMax    uint8 = 0x15
+
+	// The top of §3.2's `eph_window bigint`, which is SIGNED, as an unsigned bound. It is here
+	// rather than as a `math.MaxInt64` at each site so that neither implementation file has to
+	// import math to state §3.2's `CHECK (0 <= eph_window)` — and so that the one place the
+	// column's width is written down is the one place the wire field's width meets it.
+	EphWindowMax uint64 = 1<<63 - 1
 )
 
 // eph bucket to seconds, §3.1. Bucket 0 is the transient that is never persisted, so it has no
@@ -88,6 +94,26 @@ var (
 	ErrRetentionClass  = errors.New("store: not a retention-class wire byte of §3.1")
 	ErrSizeBucket      = errors.New("store: size_bucket is outside 0..5")
 
+	// §3.2's two CHECKs on `eph_window`, one sentinel each for the reason ErrInlineOrBlob has
+	// its own: an operator meeting "size_bucket is outside 0..5" for a window fault is sent to
+	// the wrong field of the wrong record.
+	//
+	// The class CHECK is `eph_window = 0 OR (17 <= retention_class AND retention_class <= 21)`,
+	// and it is stated on the WIRE BYTE rather than on the class. That is not a paraphrase of
+	// "an EPH class": MASTER §8 gives the byte as `0x10 | bucket`, so EPH(0) is `0x10` = 16,
+	// which is OUTSIDE 17..21 — the CHECK therefore puts the transient rung in the must-be-zero
+	// half beside PERMANENT, DURABLE and MEDIA, which is exactly where MASTER §8's presence rule
+	// puts it. A class-phrased reading would be wrong by one class.
+	ErrEphWindowClass = errors.New("store: eph_window is nonzero on a class whose §3.1 wire byte is not 17..21")
+
+	// The range CHECK is `0 <= eph_window`, and it is not vacuous just because the Go field is
+	// unsigned: the wire field is a `u64` and §3.2's column is a `bigint`, which is SIGNED. A
+	// window above math.MaxInt64 has no representation in that column, and an implementation
+	// that converted it anyway would offer Postgres a negative the CHECK refuses while a store
+	// with no constraints of its own accepted it — the two implementations disagreeing on one
+	// input, which is the whole thing [RunContract] exists to make impossible.
+	ErrEphWindowRange = errors.New("store: eph_window does not fit §3.2's signed bigint column")
+
 	// §3.2: a record's body is inline or it is a blob, never both. It has its own sentinel
 	// because it used to answer ErrSizeBucket, and "size_bucket is outside 0..5" is an
 	// operator log line that sends the reader to the wrong field of the wrong record.
@@ -115,12 +141,23 @@ type Record struct {
 	StreamIndex    uint64
 	IsCommit       bool
 	RetentionClass uint8
-	SizeBucket     uint8
-	ExpireAtMs     uint64
-	BodyHash       []byte
-	CtHead         []byte
-	CtBody         []byte
-	BlobId         []byte
+
+	// §3.2's `eph_window bigint NOT NULL DEFAULT 0`: `t`, the time-slice of this record's own
+	// `K_eph[n][b][t]` (MASTER §8), projected out of the plaintext header field like every other
+	// column in this struct. The authoritative copy is inside `record_bytes` and inside the
+	// `write_auth` preimage; this one is what §7.1's ±1 refusal reads and what §4.3.4 re-encodes.
+	//
+	// Zero on every class but `EPH(1..5)`. The constraint is §3.2's and is repeated here rather
+	// than left to §5.1 alone so that a second writer cannot land a nonzero window on a DURABLE
+	// row and have §7.1 read it.
+	EphWindow uint64
+
+	SizeBucket uint8
+	ExpireAtMs uint64
+	BodyHash   []byte
+	CtHead     []byte
+	CtBody     []byte
+	BlobId     []byte
 
 	// The authenticated attachment bytes as submitted, and the projection of them the API
 	// layer verified against message.ParseServerAttachment. §3.2 keeps both: the bytes are

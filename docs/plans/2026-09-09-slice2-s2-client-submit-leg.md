@@ -3177,7 +3177,51 @@ silently.** Where this plan took a position because something had to compile, th
 labelled as a position and the rejected alternative is named.
 
 **S2-1 — the epoch keys are not reachable from `sdk`, and the only workaround is a second copy of the
-one derivation the record layer is proved against.** `GroupSession`'s complete exported method set is
+one derivation the record layer is proved against.**
+
+***THE PREMISE BELOW IS FALSE ON BOTH OF ITS CLAUSES, AND THE COMMIT THAT EARNED THE EDIT HAS LANDED.
+Amended 2026-09-13, third pass of that date. Old wording kept, per this file's convention.*** This
+item's premise read: *"`GroupSession`'s complete exported method set is seven methods — `Close`,
+`Epoch`, `SenderHandle`, `AdvanceEpoch`, `TrackSender`, `SealRecord`, `OpenRecord` — and none returns
+`storage_root`, `read_key`, `write_key` or `group_handle_key`."* Measured against the shipped tree,
+with the query beside it:
+
+```
+(connect, at 7ce25a2)
+git grep -n 'func (self \*GroupSession) [A-Z]' 7ce25a2 -- 'messagegroup/*.go' | grep -v _test
+  -> ELEVEN: AdvanceEpoch Close Epoch EpochKeys InstallEphRoot OpenRecord ReauthRecord
+             RebindServerNonce SealRecord SenderHandle TrackSender
+messagegroup/session.go:387  func (self *GroupSession) EpochKeys() (*EpochKeys, error)
+messagegroup/session.go:~394   keys = newEpochKeys(self.epoch, self.readKey, self.writeKey)
+messagegroup/epochkeys.go:88,96,104  Epoch() ReadKey() WriteKey()
+```
+
+**`EpochKeys()` is the door, and it returns `read_key` and `write_key`.** The set is eleven, not
+seven, and the "none returns" clause is false. This pass measured the eleven **independently of the
+`k1` handoff that predicted it** — `k1`'s *"Open asks on other plans"* wrote *"when the code of this
+plan lands, S2-1 and S2-2 become closable … that is the commit that earns the edit"*, and the code
+has landed (`EpochKeys` at `session.go:387`, `RebindServerNonce` at `:499`).
+
+**WHAT IS CLOSED AND WHAT IS NOT, because the premise falling is not the item falling.** Of the three
+things this item says leg 4 needs:
+
+- **`write_key[0]` for `CreateGroupRequest.bootstrap_write_key`** — **closed.** At epoch 0,
+  `EpochKeys().WriteKey()`, with `EpochKeys().Epoch()` there to say which epoch it is for.
+- **`read_key[e]` for every Fetch** — **closed for the CURRENT epoch and not for an older one.**
+  `EpochKeys()` answers the session's live epoch; Spec B §5.3 retains read keys for ninety days, so a
+  fetch against a superseded epoch still has no accessor.
+- **both keys of epoch *n+1* for the `EpochAttachment`** — **NOT closed.** `ProvisionalEpoch` exports
+  `Epoch() StorageRoot() WriteKey() EphRoot() PqSecret() Wraps()`; there is **no `ReadKey()`**, and
+  deriving one from the exported `StorageRoot()` needs the label and length that are still unexported
+  constants, which is the §12.1 A-1 defect this item's *Rejected:* line already names.
+
+**And `group_handle_key` still has no accessor anywhere on either type.** So the item survives, in a
+strictly smaller form: what is unreachable is `read_key[n+1]`, `read_key` for a superseded epoch, and
+`group_handle_key`. The *Position taken* below — injection at one struct — is unchanged for those
+three and is now **avoidable** for `write_key[0]` and the live epoch's `read_key`.
+
+The old premise follows, kept so a reader holding a printout can tell which copy they have:
+`GroupSession`'s complete exported method set is
 seven methods — `Close`, `Epoch`, `SenderHandle`, `AdvanceEpoch`, `TrackSender`, `SealRecord`,
 `OpenRecord` — and none returns `storage_root`, `read_key`, `write_key` or `group_handle_key`. But
 leg 4 needs `read_key[e]` for **every** Fetch (§4.3.8 makes `req_auth` REQUIRED and the server refuses
@@ -3196,7 +3240,11 @@ as a constructor parameter**, so it does not derive it either, and it covers the
 survives it:** re-measured against that working tree rather than only against the commit,
 `grep 'func (self \*GroupSession) [A-Z]'` still returns the same **seven** methods and still returns
 no accessor for `readKey`, `writeKey`, `storageRoot` or `groupHandleKey`. This is a gap in the
-interface, not an artefact of reading an old commit. *Position taken:* every key crosses this plan's
+interface, not an artefact of reading an old commit. *(That re-measurement was correct on
+2026-09-09 and is superseded by the block at the head of this item: at `connect` `7ce25a2` the same
+grep returns **eleven**, and `EpochKeys()` returns two of the four. It is kept because the dated
+measurement is the evidence that the interface MOVED, which a silently updated number would hide —
+ledger item **152**'s discipline, and the reason `a21a6ee` kept both readings of a count.)* *Position taken:* every key crosses this plan's
 boundary as an **injected parameter** — `messageClientConfig.StorageRootZero` and
 `messageClientConfig.PqSecretZero` at the seam (Task 8a), and `Fetch`'s `readKeyRef`, which carries
 the epoch the key is for — so `s2` contains no copy of the label and the gap stays visible at every
@@ -3204,10 +3252,37 @@ call site. The injection point is **one struct** rather than one per task, which
 review forced: two structs carrying the same injected key are two places to inject it differently. *Rejected:* spelling the
 exporter label in `sdk`, which is the §12.1 A-1 defect by construction and defeats the session's own
 zeroize discipline. **Blocks:** Tasks 9, 10 and 11 against a real server; CP3b. **Owner:** `connect`,
-and nobody has it.
+and nobody has it. *(**Blocks AMENDED 2026-09-13, third pass of that date.** Old wording kept above.
+With `EpochKeys()` landed, this no longer blocks the `bootstrap_write_key` of Task 9's CreateGroup nor
+a Fetch at the session's live epoch. What it still blocks is **an `EpochAttachment` built from epoch
+*n+1*'s read key** — `ProvisionalEpoch` has no `ReadKey()` — and anything needing `group_handle_key`
+or a superseded epoch's `read_key`. Whether that residue blocks **CP3b** is not asserted here: CP3b's
+record is `DURABLE` and its commit is `j1`'s, and re-deriving that chain is `j1`'s measurement to
+make, not this amendment's. Stated as a narrowing rather than a closure for that reason.)*
 
 **S2-2 — `server_nonce` is captured once at construction and cannot be rebound, so the first
-reconnect invalidates every record sealed after it.** `NewGroupSession` copies the nonce at
+reconnect invalidates every record sealed after it.**
+
+***THE "NO SETTER" CLAUSE IS CLOSED. Amended 2026-09-13, third pass of that date; old wording kept
+below.*** `connect` ships one:
+
+```
+(connect, at 7ce25a2)
+messagegroup/session.go:499  func (self *GroupSession) RebindServerNonce(serverNonce []byte) error
+```
+
+It is the second setter on the type, and item **188**'s edit (a) is about the first
+(`InstallEphRoot`) being built on its precedent. This pass measured it independently; `k1`'s handoff
+had already named the trigger. **What that changes and what it does not.** The item's *mechanism*
+clause is false: a session that outlives a reconnect does not have to be rebuilt, and the *Rejected:*
+paragraph below — rebuilding the `GroupSession` per reconnect, at the cost of every ratchet — is no
+longer the alternative to anything, because rebinding is. The item's *consequence* clause is
+unaffected where it is about `s2`'s own code: Task 10 Property 4 still refuses locally rather than
+submitting to be refused, and a plan that calls `RebindServerNonce` has to decide **when** — which
+record is in flight when the nonce changes — and no document states that. **That residue is what is
+left of S2-2, and it is a smaller question than the one filed.**
+
+The old wording follows: `NewGroupSession` copies the nonce at
 construction; there is no setter — a grep over production files finds the field, the parameter, the
 emptiness check, the copy and one read in `seal.go`. Meanwhile the server draws a fresh 32-octet nonce
 per connection and replaces it at **every** Hello, and CP3c already proves a record sealed under a
@@ -3218,6 +3293,11 @@ that drops every sender and receiver ratchet, re-walks each ladder from the stor
 **refused outright** above `maxLadderWalk` for every class of that sender, and needs `pq_secret` and
 `groupHandleKeyEpoch0` back in hand — a cost nothing has priced and neither leg 4 nor leg 5 mentions.
 **Blocks:** any session that outlives one connection; CP3b on a real network. **Owner:** `connect`.
+*(**AMENDED 2026-09-13, third pass of that date.** Old wording kept. `RebindServerNonce` has landed,
+so a session outliving one connection is no longer blocked by the ABSENCE of a setter. What is left
+is the sequencing question in the block at the head of this item, and it is owned by whoever writes
+Task 7's reconnect recovery — which this plan already records as *"a session rebuild whose cost
+nothing has priced"*, a line the setter makes cheaper rather than moot.)*
 
 **S2-3 — `pq_secret` has a sampler in flight and no delivery channel, and an `s2`-invented value is a
 bar violation rather than a shortcut.** `NewGroupSession` refuses an empty `pq_secret` and so does

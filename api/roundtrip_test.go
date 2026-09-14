@@ -213,16 +213,25 @@ func TestARecordTravelsEndToEnd(t *testing.T) {
 	// because `eph_bucket` is a header field, it is covered by write_auth like every other
 	// one, and without a record that sets it the round trip below would compare it at zero
 	// against zero.
+	//
+	// It carries `eph_window` for the same reason, and it is the ONLY record in this test that
+	// can: MASTER §8's presence rule and §3.2's CHECK confine a nonzero window to the wire bytes
+	// 17..21, which is EPH(1..5) — EPH(0)'s byte is 16 and is outside it. Every other record here
+	// is PERMANENT or DURABLE and owes a zero.
 	transient := fixture.seal(t, sealed{
 		sender:      senderA,
 		epoch:       1,
 		streamIndex: 5,
 		class:       message.RetentionEph,
 		ephBucket:   1,
-		bucket:      message.SizeBucket256,
-		head:        []byte("an hour from now"),
-		body:        []byte("an hour from now"),
-		writeKey:    fixture.writeKey(1),
+		// MASTER §8's `t`, the sender's own, and the only class of record that carries a nonzero
+		// one. §7.1 refuses a window more than one from the one this record's arrival stamp falls
+		// in, so a fixture that left it zero would be refused rather than round-tripped
+		ephWindow: fixture.arrivalWindow(t, 1),
+		bucket:    message.SizeBucket256,
+		head:      []byte("an hour from now"),
+		body:      []byte("an hour from now"),
+		writeKey:  fixture.writeKey(1),
 	})
 	results = fixture.submit(t, transient)
 	if results[0].GetReason() != protocol.Reason_REASON_OK {

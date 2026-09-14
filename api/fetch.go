@@ -219,6 +219,7 @@ func rebuildRecord(groupId []byte, record *store.Record, headsOnly bool) (*proto
 			IsCommit:         record.IsCommit,
 			RetentionClass:   class,
 			EphBucket:        ephBucket,
+			EphWindow:        record.EphWindow,
 			SizeBucket:       message.SizeBucket(record.SizeBucket),
 			ExpireAt:         record.ExpireAtMs,
 			BlobId:           bytes.Clone(record.BlobId),
