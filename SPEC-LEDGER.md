@@ -15811,10 +15811,20 @@ gives, at the price §5.1's filter exists to avoid, and that price is now writte
 `api.StoreKnownGroupsNotBuilt`.
 
 **The interface gained `NotBuilt()`.** That is the half of F1 that was not a defect in the code. The
-per-process filter was wired for four passes, `/readyz` printed twenty-one `not-built` lines, and
-the ops document said *"every one of these is printed by `/readyz`"* — so a reader was entitled to
-read the list as complete, and the one absence that could lose every tester's history was on none of
-it. The declaration is now emitted by the filter that is actually wired, in the same shape
+per-process filter was wired for four passes, `/readyz` printed a list of `not-built` lines, and the
+ops document said *"every one of these is printed by `/readyz`"* — so a reader was entitled to read
+the list as complete, and the one absence that could lose every tester's history was on none of it.
+
+> **The length of that list, measured rather than quoted.** The review reported twenty-one lines on
+> `/readyz`. It is **nineteen** at `5510517`, and twenty at this commit. Measured by building
+> `5510517` in a detached worktree beside this one and running it against a migrated database:
+> `curl -s localhost:PORT/readyz | grep -c '^not-built'` → **19** (the whole body is 22 lines: one
+> `not ready`, two `not-ready <name>`, nineteen `not-built`). The review's other count is exact:
+> `--print-config` → **13** at `5510517`, **14** here. The arithmetic behind nineteen is that
+> `peer.Checks` declares TWO front checks unbuilt and not three — `peer` really does run §5.1 checks
+> 1 and 2 — so the list is `configurationNotWired` 9 + `deploymentNotWired` 4 + front 2 +
+> capabilities 3 + the unpadded reject path 1. Nothing in this pass rests on the number; it is
+> corrected because this entry would otherwise republish it. The declaration is now emitted by the filter that is actually wired, in the same shape
 `FrontChecks` already used, so a build that rewires the volatile one prints the volatile one's own
 sentence instead of going quiet. `--print-config` prints it too, which is why
 `StoreKnownGroupsNotBuilt` is exported: that mode opens nothing and builds no handler, so without an
