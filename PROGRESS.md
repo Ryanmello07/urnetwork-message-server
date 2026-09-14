@@ -1908,13 +1908,23 @@ The question a source anchor asks — *does it still land on what it was written
 answered by a grep; it needs two trees. Procedure and full result are ledger item **191**.
 
 ```
-for every path:line in every *.md whose path names a .go file THIS COMMIT CHANGED:
-    DRIFTED iff (git show HEAD:<path>)[line].strip() != (working tree <path>)[line].strip()
+BASE = a21a6ee   HEAD = this commit
+for every path:line in every *.md AS IT STOOD AT BASE whose path names a .go file
+changed between BASE and HEAD:
+    DRIFTED iff (git show BASE:<go>)[line].strip() != (git show HEAD:<go>)[line].strip()
 
-  81 of 106 DRIFTED  on the first measurement
-  28 of 106          after two `import "math"` lines were replaced by a store.EphWindowMax constant
-  29 of 107          after item 191 was written -- the 29th is its own pinned example, a SELF-MATCH
+  106 pre-existing anchors in scope
+   81 of 106 DRIFTED  as this work was first written
+   28 of 106 DRIFTED  at the landed commit, after two `import "math"` lines were replaced
+                      by a store.EphWindowMax constant
 ```
+
+**Reading the `*.md` from BASE is load-bearing, and the first form of this procedure did not.** It
+read them from the working tree, so this commit's own new anchors -- written to describe the NEW tree,
+including item 191's deliberately pinned `store/contract.go:145 @ d2e7a51` example -- were counted as
+drift against the old one. That form said *"29 of 107"*, and then **41 of 120** once the edit-log
+entry was appended: the number moved with the size of the prose, which is the tell. The published
+figure is the BASE-to-HEAD one, reproducible from two commit ids alone.
 
 **Fifty-three of the eighty-one were two import lines.** **What was changed:** those two imports.
 **What was considered and LEFT, with the reason:** the remaining 28, because an anchor here belongs to

@@ -7368,23 +7368,25 @@ fourteen are dispositioned below.
      whether an anchor still lands on what it was written against. Two trees are needed:
 
      ```
-     for every `path:line` (and both ends of `path:line-line`) in every *.md of this repository
-     whose path names a .go file THIS COMMIT CHANGED:
-         old = (git show HEAD:<path>)[line]          new = (working tree <path>)[line]
-         DRIFTED iff old.strip() != new.strip()
+     BASE = a21a6ee   HEAD = the commit that files this item
+     for every `path:line` (and both ends of `path:line-line`) in every *.md **AS IT STOOD AT BASE**
+     whose path names a .go file changed between BASE and HEAD:
+         DRIFTED iff (git show BASE:<go>)[line].strip() != (git show HEAD:<go>)[line].strip()
 
-     first measurement, before this pass reduced its own footprint:   81 of 106 DRIFTED
-     after removing two `import "math"` lines (see below):            28 of 106 DRIFTED
-     after THIS ITEM was written:                                     29 of 107 DRIFTED
+                                                          106 pre-existing anchors in scope
+     as first written, with two `import "math"` lines:      81 of 106 DRIFTED
+     as landed, those two replaced by store.EphWindowMax:   28 of 106 DRIFTED
      ```
 
-     **THE QUERY MATCHES ITS OWN CLAIM, AND THAT IS STATED RATHER THAN ROUNDED OFF.** The twenty-ninth
-     is this item's candidate *(a)* example, `store/contract.go:145 @ d2e7a51`, which is **deliberately**
-     pinned and is correct as written — the procedure counts it as drifted because *"pinned to a
-     tree-ish"* is not something a `path:line` regex can see. So the number above is 28 sites plus one
-     self-match, and a reader who re-runs the procedure after this commit gets 29 for a reason that
-     has nothing to do with the corpus. This is the discipline item **188** wrote into its own query
-     block and it is applied here to this one.
+     **READING THE `*.md` FROM *BASE* IS LOAD-BEARING, AND GETTING THAT WRONG COST THIS ITEM A
+     PUBLISHED NUMBER ONCE ALREADY — recorded rather than quietly fixed.** The first form of this
+     procedure read the `*.md` from the **working tree**, which meant the commit's own new text —
+     including this item's candidate *(a)* example, `store/contract.go:145 @ d2e7a51`, deliberately
+     pinned and correct as written — was scanned as though it were a pre-existing anchor. That form
+     reported *"29 of 107"*, and then **41 of 120** once the edit-log entry was appended, because every
+     anchor this commit writes to describe the NEW tree is counted as drift against the OLD one. The
+     number moved with the size of the prose, which is the tell. **The BASE-to-HEAD form above is
+     stable and reproducible from two commit ids alone**, and it is the one this item publishes.
 
      **Fifty-three of the eighty-one were caused by TWO IMPORT LINES.** Adding `"math"` to
      `store/memory.go` and to `store/contract.go` shifted every anchor below line 6 of each by one —
@@ -15056,19 +15058,22 @@ cannot put a nonzero window on a DURABLE row"* sentence asks for, and which noth
 
 **THE SWEEP, AND ITS COMPLEMENT.** The sweep this pass ran is not a grep, because the question it asks
 — *does an anchor still land on what it was written against* — needs two trees. The procedure is in
-item **191**. **Result: of the 106 `path:line` anchors in this repository's `*.md` that point into Go
-files this commit changes, 81 DRIFTED on the first measurement.** **Fifty-three of the eighty-one were
-caused by two `import "math"` lines**, which were removed in favour of a `store.EphWindowMax` constant;
-the figure is now **28**, plus **one self-match** — item 191's own deliberately-pinned example — for
-**29 of 107** after this commit. **What this pass CHANGED:** the two imports, and nothing else about
-the anchors. **What it CONSIDERED AND LEFT, with the reason:** the 28, because an anchor here is part
-of a dated measurement and the items that do this well pin the measurement to a tree-ish (188 writes
-*"MEASURED AT `d2e7a51`"* inside its own query); renumbering would restate a dated measurement as
-though taken today, which is item **152** and **184**'s defect one level down. They are, by file:
-`SPEC-LEDGER.md` × 13 (`:454`, `:1978`, `:2461`, `:6059`, `:7237`×2, `:7245`×2, `:7248`×2,
-`:9931`, `:9950`, `:10011`, `:10526`), Spec A × 4 (`:97`, `:2047`, `:2295`, `:2361`), Spec B × 3
-(`:358`, `:2352`, `:2505`), the 2026-09-12 red-team review × 4 (`:59`, `:116`, `:270`, `:310`), `m1`
-× 2 (`:4022`, `:5880`), `k1` × 1 (`:358`). **WHAT THE PROCEDURE CANNOT FIND**, named rather than left:
+item **191**. **Result: of the 106 `path:line` anchors that stood in this repository's `*.md` AT
+`a21a6ee` and point into Go files this commit changes, 81 DRIFTED as this work was first written.**
+**Fifty-three of the eighty-one were caused by two `import "math"` lines**, which were replaced by a
+`store.EphWindowMax` constant; **28 of 106 drift at the landed commit.** **What this pass CHANGED:**
+those two imports, and nothing else about the anchors. **What it CONSIDERED AND LEFT, with the
+reason:** the 28, because an anchor here is part of a dated measurement and the items that do this
+well pin the measurement to a tree-ish (188 writes *"MEASURED AT `d2e7a51`"* inside its own query);
+renumbering would restate a dated measurement as though taken today, which is item **152** and
+**184**'s defect one level down. **The 28, by file, at `a21a6ee`'s `*.md` line numbers** — that
+coordinate system and not this commit's, because a list of line numbers into a file this same commit
+edits is the defect being filed: `SPEC-LEDGER.md` × **14** (`:454`, `:1978`, `:2461`, `:6059`,
+`:7179`, `:7187`×2, `:7190`×2, `:9614`, `:9633`×2, `:9694`, `:10209`), Spec A × **4** (`:97`,
+`:2047`, `:2295`, `:2361`), the 2026-09-12 red-team review × **4** (`:59`, `:116`, `:270`, `:310`),
+Spec B × **3** (`:358`, `:2352`, `:2505`), `m1` × **2** (`:4022`, `:5880`), `k1` × **1** (`:358`).
+14 + 4 + 4 + 3 + 2 + 1 = **28**, and the arithmetic is printed because the first form of this list
+said *"× 13"* over fourteen entries. **WHAT THE PROCEDURE CANNOT FIND**, named rather than left:
 anchors into files this commit did **not** change; anchors written as prose (*"`store/memory.go`'s
 `validateRecord`"*) rather than as `path:line`; anchors into `connect` or `sdk`, which are read-only
 here; anchors whose file was renamed; and the correctness of an anchor that still lands on
