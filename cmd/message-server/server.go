@@ -594,9 +594,16 @@ func (self *server) announce(ctx context.Context) {
 			"It receives frames only over connect, which dials the operator's platform and is not a socket it can bind (§9.1). " +
 			"Set message_server.yml's <ordinal>.by_jwt and message_fleet.yml's server_id, then restart.")
 	} else {
-		self.log.Info("attached to the operator platform",
+		// NOT "attached". Reaching here means a connect.Client was CONSTRUCTED and a
+		// platform transport started; the dial is asynchronous and its outcome is not
+		// known at announce time. Saying "attached" here contradicted /readyz, which
+		// answers `not-ready connect_client_attached` for the whole time a dial to an
+		// unresolvable host is failing -- so the log asserted success while the probe
+		// asserted the opposite, and the log is the thing an operator reads first.
+		self.log.Info("URnetwork client constructed, dialling the operator platform",
 			"platform_url", self.attachment.platformUrl,
-			"api_url", self.attachment.apiUrl)
+			"api_url", self.attachment.apiUrl,
+			"attached", "unknown here -- /readyz connect_client_attached is the authority")
 	}
 	if failed := self.ready.unmet(ctx); 0 < len(failed) {
 		self.log.Warn("not ready", "preconditions", summarise(failed))
