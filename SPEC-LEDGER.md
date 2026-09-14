@@ -7560,17 +7560,34 @@ fourteen are dispositioned below.
 
      ```
      sha256(testdata/eph-window-kat.txt, CRLF folded to LF)
-       = f6ef2ae645294a085ae88705209b756578f403029dcd0e0f5b2ef726e897712a
+       = 6cdbff6c52021bae040a79beda712b18afbe342036ea84cf3066dee24c1521b8   <- current
+       = f6ef2ae645294a085ae88705209b756578f403029dcd0e0f5b2ef726e897712a   <- superseded 2026-09-13
      ```
 
-     **WHAT `connect` OWES, and it is not owed by this repository:** a byte-identical copy of that
-     table, and a test that drives `connect/messagegroup.EphWindowAt` over it and asserts the same
-     digest. **Nothing in msgrepo can make connect's half red**, and no test here claims to — the
-     gate holds msgrepo's two copies to a value, and holds `connect` only for as long as somebody
-     checks the two digests are the same string. That is a weaker fastening than a call and it is
-     the strongest one §2.2 permits. Until connect's half lands, the item stays FILED. Carried at
-     Spec B §2.2 and §12.1, and at `harness/seal.go`'s own doc comment, which says this in its own
-     voice at the function.
+     **CONNECT'S HALF LANDED, 2026-09-13.** `connect@4289bf7` added a byte-identical copy at
+     `messagegroup/testdata/eph-window-kat.txt` and `messagegroup/ephwindowkat_test.go`, which
+     drives `connect/messagegroup.EphWindowAt` over all 57 rows and pins the same digest constant.
+     So the paragraph that stood here — *"WHAT connect OWES … until connect's half lands, the item
+     stays FILED"* — has had its first half answered, and it is replaced rather than kept because
+     what it described is an event and not a measurement. **The fastening is now TWO GATES rather
+     than one digest string somebody compares by eye:** an edit to the table in either repository
+     turns the OTHER repository's gate red on its next run.
+
+     **It is still true that nothing in msgrepo can make connect's half red**, and no test here
+     claims to. §2.2 forbids the import in the direction that would make it a call, and that limit
+     does not move. **The item therefore stays FILED and is NOT closed:** what is fastened is a set
+     of 57 values, the three copies of the formula are still three, and the candidates above are
+     still unchosen. Carried at Spec B §2.2 and §12.1, and at `harness/seal.go`'s own doc comment.
+
+     **THE PROCEDURE FOR CHANGING THE TABLE, which is what this item now carries.** The digest
+     covers the WHOLE file, its prose included, so an edit on one side is drift the other side goes
+     red on. Any change is therefore: edit both copies to identical bytes, recompute
+     `sha256(canonical LF bytes)`, republish it in `harness/ephkat_test.go` AND in
+     `messagegroup/ephwindowkat_test.go`, and run both suites. The first exercise of that procedure
+     was the digest move recorded above: 57 rows before and after, **no answer changed**, prose only
+     — the stale *"THIS FILE IS msgrepo's HALF … connect owes the other half"* paragraph removed
+     from both copies, and a paragraph added naming `sent_at_ms 1767225600000` as
+     `2026-01-01T00:00:00Z` and listing the five windows a real sender computes at it.
 
 194. **FILED, NOT RULED — §5.1 check 3 tells the server to compute the ±1 window from
      `create_time_ms`, and check 3 runs SIX CHECKS BEFORE the transaction that assigns `create_time`.
@@ -15459,3 +15476,63 @@ disagree**. What `connect` owes is unchanged and is still owed: its half of
 `testdata/eph-window-kat.txt` and a test that drives its own `EphWindowAt` over it. The measurements
 in this entry stay labelled `e17cfad`, because that is the tree they were taken against and
 relabelling a dated measurement is item **152**'s defect.
+
+---
+
+### 2026-09-13 — the shared window table's prose corrected in both repositories, and its digest republished
+
+**Change:** `testdata/eph-window-kat.txt` edited — **prose only, 57 rows before and after, not one
+answer moved** — and the pinned digest republished in `harness/ephkat_test.go`. The identical bytes
+were written to `connect/messagegroup/testdata/eph-window-kat.txt` and the identical constant to
+`connect/messagegroup/ephwindowkat_test.go` in the same change, by the same pass. Item **193** is
+updated to record that connect's half landed and to carry the procedure for changing the table.
+
+```
+sha256(canonical LF bytes)
+  before  f6ef2ae645294a085ae88705209b756578f403029dcd0e0f5b2ef726e897712a
+  after   6cdbff6c52021bae040a79beda712b18afbe342036ea84cf3066dee24c1521b8
+```
+
+**Why, and why it could not be done from one side.** The header said *"THIS FILE IS msgrepo's HALF.
+connect owes the other half … Until that lands …"*. `connect@4289bf7` **is** that landing, so the
+paragraph had been false since that commit. It could not be corrected here alone: each repository
+pins the whole file, prose included, by SHA-256, so a one-sided comment edit is drift the other
+repository's gate goes red on. That is the fastening working as designed, and the correction is its
+first exercise.
+
+**What else the edit added.** A paragraph naming `sent_at_ms 1767225600000` as
+`2026-01-01T00:00:00Z` and listing the windows it answers for every rung — 0 / 490896 / 61362 /
+20454 / 2922 / 730. Those are not new values; they are rows this table already carried. They are
+named as an instant because `connect`'s `EphKey` known answers now pin K_eph at those same five
+windows, and a gate over there recomputes them from that instant rather than copying them. The
+paragraph also records that **bucket 5's answer is 730, which is below 1000** and does not exceed
+1000 until 2046-09-27 — stated because a reader would otherwise assume the four-weekly rung is
+inside the band the neighbouring gate is about, and it is not.
+
+**What this pass did NOT do here.** It did not rule **185**, **186**, **187**, **191**, **192**,
+**193**, **194**, **MG-2** or **MG-3**, and narrowed none of them. **193 stays FILED**: connect's
+half landing answers "what is owed", not the question the item files, which is that MASTER §8's
+formula exists at three sites this module can reach and no test may compare two of them. It did not
+touch `api/ephkat_test.go`'s shape pin (57 / 12 / 5 are unchanged, and it may not hold a digest —
+§12.1 A-1). It did not edit `store`, `peer`, `blobd`, `sweep`, `kt`, `redact`, `metrics` or `cmd`.
+It did not touch `sdk`. The PostgreSQL instance on `127.0.0.1:55432` was **not** started, stopped or
+connected to by this pass.
+
+**Reviewed by:** self, by mutation, in `connect`. **The mutation that matters here is the one from
+the previous pass, re-run rather than quoted:** editing an answer in the real file turns the digest
+clause red in both repositories on the row, and the same edit applied through `go test -overlay`
+is **INERT and reports `ok`** — `-overlay` is a compiler substitution and `os.ReadFile` is a run
+time read. Both gates read the real file and both fatal when they cannot.
+
+**Verification:**
+`git ls-files` == `git ls-tree -r HEAD --name-only` == **110**, unchanged — this pass adds no file
+to this repository and deletes none.
+`git ls-files --eol testdata/eph-window-kat.txt` → `i/lf w/lf attr/text eol=lf`, and **0 CR bytes on
+disk**, before and after.
+`cmp` against `connect`'s copy → **identical**; `sha256sum` of both → the same digest; both pinned
+constants → that same string.
+`go build ./...` and `go vet ./...` clean; `gofmt -l` clean.
+`go test ./ -run TestThePlanLinter -timeout 300s` **ok**.
+`go test ./... -timeout 900s -count=1` — **GREEN, every package**.
+**`-race` was NOT run and no concurrency property is claimed**: `CGO_ENABLED=0`, no C compiler.
+`sdk` (`beta/message`, `54785de`) was not read, built or tested.

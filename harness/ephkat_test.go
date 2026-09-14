@@ -30,9 +30,17 @@ import (
 // WHAT CROSSES A FORBIDDEN IMPORT IS A VALUE. `testdata/eph-window-kat.txt` at the root of this
 // module is one table of answers, computed from §8's sentence rather than from either
 // implementation, and each copy of the formula is driven over it in its own repository. This
-// file is msgrepo's half and it binds msgrepo's two copies. `connect` owes the other half, and
-// NOTHING HERE CAN MAKE CONNECT'S HALF RED — that boundary is the honest limit of this gate and
-// is stated in ledger item 193 beside what is owed.
+// file is msgrepo's half and it binds msgrepo's two copies.
+//
+// CONNECT LANDED THE OTHER HALF on 2026-09-13 — `messagegroup/ephwindowkat_test.go`, over a
+// byte-identical copy of this table, pinning the same digest — so the fastening is now TWO GATES
+// rather than one digest string a person compares. It is still true that NOTHING HERE CAN MAKE
+// CONNECT'S HALF RED, and that remains the honest limit of this gate: §2.2 forbids the import, so
+// what holds the two together is that an edit to the table in EITHER repository turns the OTHER's
+// gate red on its next run. The table's prose was itself corrected in both repositories in one
+// change on that date, and both digests were republished
+// (`f6ef2ae6…712a` → `6cdbff6c…21b8`, 57 rows before and after, no answer changed). Ledger item
+// 193 carries the procedure and stays FILED.
 const ephKatPath = "../testdata/eph-window-kat.txt"
 
 // The table's digest over its CANONICAL bytes — CRLF folded to LF before hashing.
@@ -44,7 +52,7 @@ const ephKatPath = "../testdata/eph-window-kat.txt"
 // the assertion.
 //
 // MEASURED, not typed from memory: sha256 of testdata/eph-window-kat.txt with \r\n -> \n.
-const ephKatDigest = "f6ef2ae645294a085ae88705209b756578f403029dcd0e0f5b2ef726e897712a"
+const ephKatDigest = "6cdbff6c52021bae040a79beda712b18afbe342036ea84cf3066dee24c1521b8"
 
 // The refusal names the table uses. They name the SENTINEL and not the message text, because
 // the two repositories prefix their messages differently on purpose ("harness: …" against
