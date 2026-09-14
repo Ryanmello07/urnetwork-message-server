@@ -16047,9 +16047,14 @@ packages reported `skip` are `[no test files]`. Zero test-level skips is the loa
 pgx store contract and every database-backed start-up test RAN.
 
 **`-race` over the whole module**, MinGW-w64 UCRT GCC 16.2.0, same environment:
-`CGO_ENABLED=1 go test -race -count=1 -timeout 60m ./...` — root 35.3 s, `api` 2.5 s,
-`cmd/message-server` 189.0 s, `harness` 2.1 s, `peer` 2.0 s, `store` 285.1 s, all **ok**, no race
-reported. The restart test's child processes are race-built too, since they are this binary
+`CGO_ENABLED=1 go test -race -count=1 -timeout 60m ./...` — root 26.2 s, `api` 2.3 s,
+`cmd/message-server` 359.5 s, `harness` 2.1 s, `peer` 1.9 s, `store` 484.7 s, all **ok**, no race
+reported. Those are the numbers from the run **on the committed tree**. An earlier race run, on a
+tree two edits older, gave 35.3 / 2.5 / 189.0 / 2.1 / 2.0 / 285.1 and is not what is published here:
+it did not include `TestTheStoreBackedFilterIsSafeUnderConcurrentUse` or the two `not-built`
+assertions, so it was not a measurement of this commit. The wall-clock spread between the two runs
+is machine variance and not a change in the work — the same `store` package was 269 s without
+`-race` — which is why the times are reported and nothing is concluded from them. The restart test's child processes are race-built too, since they are this binary
 re-executed. `TestTheStoreBackedFilterIsSafeUnderConcurrentUse` exists so that the new filter's
 double-checked map has something to bite on: sixteen goroutines, overlapping ids, reads and writes
 interleaved.
