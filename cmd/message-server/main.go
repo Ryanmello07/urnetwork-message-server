@@ -1,18 +1,27 @@
 // The message server process entrypoint of spec B §2.1.
 //
-// This build is a skeleton and says so on every run: it prints what version it is and what
-// configuration it would run under, and then it exits. It opens no socket, binds no port,
-// loads no vault resource and dials nothing — there is no store behind it yet, and a
-// skeleton that listens is one somebody deploys.
+// This build runs. It loads §10.2's `message.yml` and the vault resources beside it, opens the
+// message-server Postgres cluster of decision B10, asserts §3.1's clock and §10.3's migrations,
+// builds the store, the §5.1 pipeline and §4.2's frame dispatch on top of them, attaches a
+// URnetwork client to the operator's platform, serves §10.1's `/healthz` and `/readyz` on a
+// private port, and shuts down in §2.3's order.
 //
-// The configuration printed here is the shape of spec B §10.2 with that section's defaults,
-// not a file that was read. Two of the values have no honest default and print as unset:
-// §10.1 has /readyz refuse readiness until `operator_host` and `hosting_jurisdiction` are
-// both non-empty, because §4.3.1 advertises them to clients and an advertised jurisdiction
-// nobody set is worse than no answer at all.
+// It binds exactly one socket, and that socket is the health port. **The message plane is not a
+// listener and cannot be**: a client reaches this server over `connect`, which dials the
+// operator's platform at `wss://connect.<operator_host>` and receives frames the platform routes
+// to this replica's `client_id`. transport.go is where that is argued from `connect`'s own code,
+// and it is also where the one thing this repository cannot produce is named — the per-ordinal
+// `network_client` credential of §9.1, which an admin of that operator creates.
 //
-// Nothing here prints a secret, and nothing here can: the vault resources of §10.2 are named
-// in the output and read by neither this file nor anything it calls.
+// Without that credential this process still starts, still serves both health endpoints, and
+// refuses readiness on `ordinal_credential` while saying in one log line that it will serve no
+// message traffic. It does not stand up a client that receives nothing: see transport.go.
+//
+// Nothing here prints a secret and nothing it calls does. The three secrets — `pg.yml`'s DSN,
+// `message_fleet.yml`'s KEK and `message_server.yml`'s transport credential — are reported as
+// present or ABSENT and never as a value, the resource reader's parse errors carry a line number
+// and never a line, and a DSN that fails to parse is reported without pgx's own message, which
+// quotes it.
 //
 // May import: any package of this module. An entrypoint that cannot import a package cannot
 // start it, so the layering the other packages declare stops here — what this file may reach
@@ -22,10 +31,15 @@
 package main
 
 import (
+	"context"
+	"flag"
 	"fmt"
+	"log/slog"
 	"os"
+	"os/signal"
 	"runtime"
 	"runtime/debug"
+	"syscall"
 )
 
 // stamped at link time with -ldflags "-X main.version=...". `dev` is the honest answer for a
@@ -33,100 +47,109 @@ import (
 // an operator, so it is a word rather than an empty string.
 var version = "dev"
 
-// The §10.2 `message.yml` values this process runs on, with that section's defaults. This is
-// config, never a constant in code: §10.2 is normative that changing an advertised value must
-// not require a release, so the defaults live in one struct that a loader can overwrite whole.
-type configuration struct {
-	operatorHost                string
-	hostingJurisdiction         string
-	readKeyWindowSeconds        int64
-	durableTtlDefaultSeconds    int64
-	durableTtlMaxSeconds        int64
-	rendezvousTtlSeconds        int64
-	rendezvousDepositTtlSeconds int64
-	rendezvousMailboxDepth      int64
-	cardTombstoneSeconds        int64
-	diagnosticSessionMaxMinutes int64
-}
-
-// The defaults of spec B §10.2, verbatim.
-func defaultConfiguration() configuration {
-	return configuration{
-		operatorHost:                "",
-		hostingJurisdiction:         "",
-		readKeyWindowSeconds:        7776000,
-		durableTtlDefaultSeconds:    31536000,
-		durableTtlMaxSeconds:        0,
-		rendezvousTtlSeconds:        7776000,
-		rendezvousDepositTtlSeconds: 604800,
-		rendezvousMailboxDepth:      16,
-		cardTombstoneSeconds:        7776000,
-		diagnosticSessionMaxMinutes: 60,
-	}
-}
-
-// One printed configuration line: what it is called in `message.yml`, what this process would
-// run on, and what a reader needs to know about that value beyond its number.
-type setting struct {
-	name  string
-	value string
-	note  string
-}
-
-func (self configuration) settings() []setting {
-	return []setting{
-		{"operator_host", self.operatorHost, "unset — /readyz refuses readiness until it is configured (§10.1)"},
-		{"hosting_jurisdiction", self.hostingJurisdiction, "unset — advertised to clients in Capabilities (§4.3.1)"},
-		{"read_key_window_seconds", fmt.Sprint(self.readKeyWindowSeconds), "90 days; a write key is still retired after 60 s (§5.3)"},
-		{"durable_ttl_default_seconds", fmt.Sprint(self.durableTtlDefaultSeconds), "1 year, the DURABLE default when a group asks for none (§7.3)"},
-		{"durable_ttl_max_seconds", fmt.Sprint(self.durableTtlMaxSeconds), "0 means no fleet cap, and stores NULL rather than a clamp (§7.3)"},
-		{"rendezvous_ttl_seconds", fmt.Sprint(self.rendezvousTtlSeconds), "§4.3.7"},
-		{"rendezvous_deposit_ttl_seconds", fmt.Sprint(self.rendezvousDepositTtlSeconds), "7 days (§4.3.7)"},
-		{"rendezvous_mailbox_depth", fmt.Sprint(self.rendezvousMailboxDepth), "the 17th uncollected deposit is refused (§13.38)"},
-		{"card_tombstone_seconds", fmt.Sprint(self.cardTombstoneSeconds), "a retired id answers identically until the sweep reclaims it (§13.39)"},
-		{"diagnostic_session_max_minutes", fmt.Sprint(self.diagnosticSessionMaxMinutes), "the one bounded exception to §11.1 (§11.5)"},
-	}
-}
-
-// The §10.2 vault and config resources, named so an operator can see what this process will
-// ask for. None of them is read here.
-var resources = []struct {
-	name string
-	kind string
-	what string
-}{
-	{"pg.yml", "vault", "postgres connection, message-server cluster (decision B10: not the operator's)"},
-	{"db.yml", "config", "pool sizing"},
-	{"redis.yml", "vault + config", "redis connection and pool (§2.4)"},
-	{"minio.yml", "vault", "object store endpoint, credentials, prefix (§8.3)"},
-	{"message_server.yml", "vault", "this ordinal's client_id and transport credential (§9.1)"},
-	{"message_fleet.yml", "vault", "write_key_kek, grant_kek, channel_key, signing sidecar, fleet root public key (§9.1)"},
-	{"message.yml", "config", "the values above; watched and reloaded, bumping capability_version (§10.2)"},
-}
-
 func main() {
-	out := os.Stdout
+	printOnly := flag.Bool("print-config", false,
+		"print what this process would run on and exit, reading every resource but opening nothing")
+	flag.Parse()
 
+	if err := run(*printOnly); err != nil {
+		fmt.Fprintf(os.Stderr, "message-server: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+// Load, start, serve until a signal, then shut down.
+//
+// The signal context is established BEFORE anything is opened. A SIGTERM that arrives during a
+// slow startup — a database that takes twenty seconds to answer, on a node that is being drained
+// — then cancels the startup instead of being delivered to a process that has not installed a
+// handler yet, which is the default disposition and is an immediate exit with a half-open pool.
+func run(printOnly bool) error {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+
+	deploy, message, err := loadDeployment(osEnvironment)
+	if err != nil {
+		return err
+	}
+	loaded, err := loadConfiguration(message, osEnvironment)
+	if err != nil {
+		return err
+	}
+
+	if printOnly {
+		printConfiguration(deploy, loaded)
+		return nil
+	}
+
+	// The collaborators' own lifetime, which is deliberately NOT the signal's.
+	//
+	// §2.3 shuts down by draining in-flight transactions AFTER the signal arrives. A pool and a
+	// connect client whose context died with the signal have nothing left to drain on: the
+	// teardown would be reading from collaborators it had already cancelled, and the 60 s window
+	// §2.3 specifies would be 60 s of failed queries. [server.Close] ends these; the signal ends
+	// the wait below.
+	lifetime, endLifetime := context.WithCancel(context.Background())
+	defer endLifetime()
+
+	current, err := newServer(lifetime, deploy, loaded, log)
+	if err != nil {
+		return err
+	}
+	defer current.Close()
+
+	// a signal that arrived while the pool was opening is a shutdown and not a start: bind
+	// nothing, announce nothing, and let the deferred Close run
+	if ctx.Err() != nil {
+		log.Info("shutting down", "reason", "signal during startup")
+		return nil
+	}
+
+	if err := current.listen(); err != nil {
+		return fmt.Errorf("§10.1's private health port: %w", err)
+	}
+	current.announce(ctx)
+
+	<-ctx.Done()
+	// the signal has been received; stop catching it, so a second one kills a process that is
+	// stuck in teardown rather than being swallowed by the same handler
+	stop()
+	log.Info("shutting down", "reason", "signal")
+	return nil
+}
+
+// `--print-config`: every resource read and nothing opened.
+//
+// It is the one mode that survives from the build before this one, and it survives because it is
+// the thing an operator does first on a new box — confirm the process can see its configuration,
+// before it has a database to point at.
+func printConfiguration(deploy deployment, loaded configuration) {
+	out := os.Stdout
 	fmt.Fprintf(out, "message-server %s\n", version)
 	fmt.Fprintf(out, "  go          %s %s/%s\n", runtime.Version(), runtime.GOOS, runtime.GOARCH)
 	for _, line := range buildLines() {
 		fmt.Fprintf(out, "  %s\n", line)
 	}
 
-	fmt.Fprintf(out, "\nconfiguration (spec B §10.2 defaults; no resource was read)\n")
-	for _, resource := range resources {
-		fmt.Fprintf(out, "  %-20s %-14s %s\n", resource.name, resource.kind, resource.what)
-	}
-	fmt.Fprintf(out, "\n")
-	for _, item := range defaultConfiguration().settings() {
-		value := item.value
-		if value == "" {
-			value = "(unset)"
-		}
-		fmt.Fprintf(out, "  %-32s %-12s %s\n", item.name, value, item.note)
+	fmt.Fprintf(out, "\nresources (spec B §10.2; values are never printed, only whether they were supplied)\n")
+	for _, line := range deploy.lines() {
+		fmt.Fprintf(out, "  %s\n", line)
 	}
 
-	fmt.Fprintf(out, "\nthis build is a skeleton: it binds no port, reads no vault resource, and connects to nothing.\n")
+	fmt.Fprintf(out, "\nconfiguration (spec B §10.2)\n")
+	for _, line := range loaded.lines() {
+		fmt.Fprintf(out, "  %s\n", line)
+	}
+
+	fmt.Fprintf(out, "\nnot built\n")
+	for _, item := range configurationNotWired {
+		fmt.Fprintf(out, "  %s\n", item.String())
+	}
+	for _, item := range deploymentNotWired {
+		fmt.Fprintf(out, "  %s\n", item.String())
+	}
 }
 
 // What the toolchain stamped into this binary about where it came from. Read rather than

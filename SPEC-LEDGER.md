@@ -7635,6 +7635,102 @@ fourteen are dispositioned below.
      Spec A **S19**.
 
 
+195. **FILED, NOT RULED — §4.3.1 puts a 16-octet `server_id` in every `HelloResponse` and §10.2's
+     resource table names no resource that holds it.** Filed 2026-09-14 by making the server run.
+
+     ```
+     Spec B §4.3.1:  bytes server_id = 2;    // 16 B, stable per fleet
+     Spec B §9.1:    "server_id is stable per fleet and any replica must be able to sign any
+                      FetchAttestation, so the public server_keys set and the sidecar endpoint
+                      ... are FLEET-WIDE configuration, not the per-instance message_server.yml entry"
+     Spec B §10.2:   message_fleet.yml | vault | "write_key_kek, grant_kek, channel_key, the
+                      signing-sidecar endpoint and credential, and the fleet root public key"
+                      -- and nothing else
+     ```
+
+     §9.1 rules that `server_id` is fleet-wide and §10.2's fleet resource does not list it, so there
+     is no named place for an operator to put it. It is not derivable: it is what a client pins a
+     `ServerKey` chain to (§4.3.1's `sig_by_root` preimage is
+     `"URmessage/v1/serverkeyroot" ‖ LP(server_id) ‖ …`), so a fleet that computed it from anything
+     a redeploy can change would invalidate every pinned client.
+
+     **What this build did, and why it is not a ruling.** It reads `server_id` from
+     `message_fleet.yml` as hex, and refuses readiness when it is absent — under §10.1's OWN stated
+     rule, *"every advertised value that has no honest default present"*, which `server_id` satisfies
+     verbatim. That places the key without ruling the resource: an equally defensible answer is a new
+     `message_fleet.yml` line in §10.2, a `message.yml` key, or a value the operator's discovery
+     directory hands down at registration. **`cmd/message-server` reads one location today and the
+     spec names none.**
+
+     **The property this must be ruled against:** a replica and every other replica of one fleet
+     advertise the same `server_id`, and a redeploy of any of them does not change it.
+     **Mutation target:** change the value on one replica and require a NAMED assertion to move.
+     Today nothing in either repository compares two replicas' advertisements, because nothing stands
+     up two.
+
+     *Blocks:* nothing in this build — a single replica is self-consistent. It blocks **N ≥ 2**, and
+     it blocks the `ServerKey` chain of §4.3.1 whenever that is built, because a client that pinned
+     one fleet id and reached a replica advertising another is §4.3.1's refusal path and not a
+     warning. Carried at Spec B §4.3.1, §9.1 and §10.2.
+
+196. **FILED, NOT RULED — §10.2's `message.yml` carries `operator_host` and no environment name, so
+     a non-production URnetwork environment cannot be addressed.** Filed 2026-09-14 by making the
+     server run.
+
+     A URnetwork service URL is `<scheme>://<env>-<service>.<host>` for every environment but `main`,
+     where it is `<scheme>://<service>.<host>` — `sdk/network_space.go`'s `ServiceUrl`, measured at
+     `sdk` `c02c4fb`. `message.yml` has one host key. This build therefore derives
+     `https://api.<operator_host>` and `wss://connect.<operator_host>` and **can only reach `main`**.
+
+     It is filed rather than absorbed because the consequence is a deployment class and not a
+     cosmetic one: a staging message server against a staging operator is not expressible, so the
+     first end-to-end test of the platform attachment has to be run against production.
+
+     **Candidates, NONE CHOSEN.** *(a)* an `operator_env` key in `message.yml`, mirroring `sdk`'s
+     `NetworkSpaceKey.EnvName`; *(b)* absolute `api_url` / `platform_url` overrides, mirroring
+     `sdk`'s `NetworkSpaceValues.ApiUrl` / `PlatformUrl`, which is what `sdk` added for exactly this;
+     *(c)* rule that a message server is production-only and say so.
+
+     *Blocks:* any pre-production exercise of §9.1's attachment. Carried at Spec B §9.1 and §10.2.
+
+197. **FILED, NOT RULED — §10.2 says "Every value in `Capabilities` is config, never a constant in
+     code", and five of them are Go constants with no §10.2 key.** Filed 2026-09-14 by making the
+     server run.
+
+     ```
+     Spec B §10.2:  "**Every value in `Capabilities` is config, never a constant in code.** Changing
+                     the blob cap must not require a release, and `CapabilityChange` pushes the new
+                     values to connected clients."
+     Spec B §10.2:  message.yml's contents list names `Capabilities values` as a category and then
+                     enumerates ten keys, none of which is one.
+     ```
+
+     | `Capabilities` field | where its value comes from today |
+     |---|---|
+     | `max_request_bytes` | `peer.DefaultMaxRequestBytes`, a Go constant |
+     | `max_response_bytes` | `peer.DefaultMaxResponseBytes`, a Go constant |
+     | `max_records_per_submit` | `api.DefaultMaxRecordsPerSubmit`, a Go constant |
+     | `max_records_per_fetch` | `api.DefaultMaxRecordsPerFetch`, a Go constant |
+     | `max_blob_bytes` | nothing advertises it; there is no blob plane |
+
+     The first two are the ones with a second reason to be careful: `peer.New` **refuses** a wiring in
+     which the number advertised and the number §5.1 check 1 enforces differ, which is correct and
+     which means a `message.yml` key for either has to feed both. That is a design constraint on the
+     answer, not an argument against asking the question.
+
+     **What this build did, and why it is not a ruling.** It advertises the constants and does not
+     invent keys for them, because inventing a §10.2 key is a spec amendment. `durable_ttl_default_seconds`
+     and `durable_ttl_max_seconds` — the two §10.2 DOES name — do reach `store.Limits` and §7.3's
+     clamp.
+
+     **The property this must be ruled against:** an operator changes an advertised limit and the
+     server enforces the new one after a restart, without a rebuild. **Mutation target:** change the
+     value in `message.yml` and require a NAMED assertion on the enforced bound to move. Today no
+     such key exists, so the mutation cannot be written.
+
+     *Blocks:* §10.2's `CapabilityChange` in full, and item **1**'s retention-floor negotiation in
+     part. Carried at Spec B §4.3.1 and §10.2.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
@@ -15536,3 +15632,141 @@ constants → that same string.
 `go test ./... -timeout 900s -count=1` — **GREEN, every package**.
 **`-race` was NOT run and no concurrency property is claimed**: `CGO_ENABLED=0`, no C compiler.
 `sdk` (`beta/message`, `54785de`) was not read, built or tested.
+
+---
+
+### 2026-09-14 — the server runs: config loaded, store opened, health served, and the one thing that stops it is a credential no repository here can mint
+
+**Change:** `cmd/message-server` stops being a skeleton. It loads §10.2's `message.yml` and the
+vault resources beside it, opens the message-server Postgres cluster, asserts §3.1's clock, builds
+the store, the §5.1 pipeline and §4.2's frame dispatch on it, attaches a URnetwork client to its
+operator's platform, serves §10.1's `/healthz` and `/readyz` on a private port, and shuts down in
+§2.3's order. `cmd/messagectl` gains `migrate` and `status`, which is where §10.3 puts migrations.
+Six new files in `cmd/message-server`, five new test files, two new exported functions in `store`,
+and `docs/ops/2026-09-14-running-the-message-server.md`. **No spec text was edited. Three items are
+filed and none is ruled.**
+
+**The finding this pass was sent to get, answered from `connect`'s code and not from the brief.**
+
+> **The message server binds no socket for message traffic and cannot.** `connect` has no inbound
+> listener for client frames. A `connect.Client` receives a frame in exactly two ways: an in-process
+> `connect.Route`, which is what `cmd/message-server/stack_test.go` wires between two clients in one
+> test binary, and a `connect.PlatformTransport`, which **dials out** to the operator at
+> `wss://connect.<host>` and receives what the platform routes to this client's `client_id`.
+
+Measured rather than asserted. `grep -rlnE 'net\.Listen|websocket\.Upgrader|http\.Server\{'
+--include=*.go . | grep -v _test` over `connect` at `27c50c2` returns five files, and not one of
+them accepts a peer: `egress.go:40` is a comment about a `Control` callback; `ip_mux_upgrade.go:337`
+is the provider-side DNS/TCP listener inside the IP mux; `transport.go:1423` is a local UDP socket
+for QUIC's own client side; `tun.go:965` is `gonet.ListenTCP` inside the userspace netstack;
+`extender/extender.go` is the extender, a separate relay program. §9.1's sentence is therefore
+literal — *"Each instance runs a `connect.Client` against the platform transport exactly as any
+client does"* — and spec A §9.3's client settings are its mirror: a client's `network_space_host`
+must resolve to the same platform this server's `operator_host` names, and this replica's
+`client_id` **is** the client's `message_server_id`.
+
+**What that means for the alpha, stated as loudly as the brief asked.** A running message server
+needs a `network_client` credential on the operator in `operator_host`. §9.1 has an admin **of that
+operator** create the network once and one `network_client` per ordinal. **Nothing in this
+repository can mint one, and neither can `connect`:** `BringYourApi.AuthNetworkClient` mints a
+client credential and authenticates with a *user* credential that §9.2 has an operator issue and
+that this process is never given. So the provisioning step is real, is external, and is step 1 of
+the ops document's bring-up order.
+
+**S2-7, from the server side.** The item asks whether CP3b runs over two loopback clients or two
+authenticated ones. The server half is now answered and the answer does not close it: this server's
+production client is `connect.NewClient` + `ApiOutOfBandControl` + `PlatformTransport` against
+`wss://connect.<operator_host>`, built in `cmd/message-server/transport.go`, and it is
+**unexercised** — no account, no dial, and no test here claims one. The client half is still `sdk`'s
+and still open.
+
+**What was built rather than stubbed, and what was declared rather than built.** The dangerous shape
+is a function returning a plausible empty result, so the absences are values and not silences.
+`/readyz` prints one `not-built` line per gap — on the **ready** answer as well as the not-ready one
+— and `--print-config` prints the same list. Fourteen gaps are declared there, including the four
+that decide a deployment: §2.3's `Drain` cannot be sent because `peer` has no push path of any kind
+(§4.2 *does* specify one — `MessageMessageServerPush = 1002`, *"Server → client pushes use the same,
+reversed"* — so this is an implementation gap and is not filed as a spec item); no Redis, so a second
+replica shares nothing but Postgres; no sweep, so nothing prunes; and `message.yml` is not watched,
+so changing an advertised value **does** require a restart, which is the thing §10.2 says it must
+not. **Run one replica.**
+
+**Where a credential is absent, nothing is constructed.** No `connect.Client`, no `peer.Peer`. A
+client with no transport receives nothing forever while eight workers and a sweep loop run behind it
+and every counter reads zero — which is indistinguishable at a glance from a server nobody has
+messaged. `TestAFirstStartAgainstAnEmptyDatabaseServesHealthAndNamesWhatIsMissing` asserts both
+nils.
+
+**Migrations are `messagectl`'s and not the server's,** because §10.3 is normative: *"a dedicated
+init job or `messagectl migrate`, **never** N replicas racing at startup"*. The server reads whether
+the list has run — `store.MigrationsAtHead`, new, a read with no lock and no DDL — and refuses
+readiness until it has. No `--migrate` flag was added to the server; a flag that contradicts a
+normative sentence is a decision, and this pass takes none.
+
+**No YAML library was added.** §2.2's allow list is closed and `deps_test.go` enforces it in the
+direction that matters, so adding one is a spec amendment. `cmd/message-server/resource.go` reads
+the flat `key: value` shape §10.2's `RequireSimpleResource` naming implies and **refuses everything
+else by line number** — indentation, sequences, unterminated quotes, duplicate keys, and any
+`message.yml` key no §10.2 setting claims. A reader that skipped what it could not parse is how
+`hosting_juristiction:` becomes a server running on a default with nothing saying so, which is
+§10.1's own stated failure mode.
+
+**Nothing prints a secret.** The three — `pg.yml`'s DSN, `message_fleet.yml`'s KEK,
+`message_server.yml`'s credential — are reported `present` or `ABSENT` and never as values; the
+resource reader's errors carry a line number and never a line; and the DSN's own parse failure is
+reported without pgx's message, which quotes it. `TestNoSecretReachesAnError` and
+`TestNeitherEndpointReturnsAConfiguredValue` hold it, with sentinels that appear nowhere else.
+
+**One `connect` defect guarded against rather than reported upstream.** `ParseByJwtUnverified`
+(`connect/jwt.go:14`) does not fail on a claim it cannot read — it leaves the field at its zero — so
+a credential with no `client_id` arrives as `Id{}`, sixteen zero bytes, which `connect` would use as
+this replica's address. `loadDeployment` refuses it (`errJwtNoClientId`), and
+`TestACredentialWithNoClientIdIsRefused` is the mutation target.
+
+**Reviewed by:** self, by mutation: **26 clauses deleted one at a time, each reverted, 25 killed on
+the first pass and one SURVIVED.** The survivor is the reason the rule exists.
+`store.MigrationsAtHead` has two "not at head" branches and only one had ever been reached: an empty
+database has no `migration_audit` and returns from the first, while the loop's branch -- the table
+is there and a version in the list is not in it -- is the **partially migrated** state, and nothing
+created one. That state is not hypothetical; `Migrate` runs each migration in its own transaction
+precisely so a failure leaves it, which is what an operator is looking at when the init job goes
+red. `TestADatabaseMissingOneMigrationIsNotAtHead` now creates it, and re-running the mutation kills
+it. Re-running that one mutation surfaced a **second** survivor in the same function -- the
+`errMigrationRewritten` refusal on the read path, which §10.3's append-only rule is not suspended
+for -- and `TestAMigrationThatRanUnderADifferentNameIsRefusedByTheReaderToo` kills that. Both are
+tests this pass would not have written from the property alone.
+
+**One kill was uninformative and was repaired rather than counted.** Renaming the
+`migrations_at_head` precondition was "killed" by a PANIC: the test helper that selects the
+preconditions a database-less test may evaluate matched on NAMES, the renamed entry slipped past it
+and ran against a nil pool, and a panic takes the whole test binary down -- including the test that
+should have caught the rename. `precondition` now declares `needsDatabase` and the helper filters on
+that, so the complement is derived from the set instead of typed beside it.
+
+**Verification:**
+`go build ./...`, `go vet ./...`, `gofmt -l .` -- all clean.
+Every line of `release-platforms.txt` built: `linux/amd64 cgo=0` OK, `linux/arm64 cgo=0` OK.
+`GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build ./cmd/message-server` -> **ELF 64-bit LSB
+executable, x86-64, statically linked**, 40,011,222 bytes.
+Full suite **with PostgreSQL 17.6 running**, `URMESSAGE_TEST_DSN` and
+`URMESSAGE_REQUIRE_CONTRACT_COVERAGE` both set:
+`go test ./... -count=1 -timeout 45m -json | grep -c '"Action":"pass".*"Test":'` -> **583**;
+the same over `"fail"` -> **0**; over `"skip"` -> **0**. Every package `pass`. **Zero skips is the
+load-bearing half:** the pgx store contract and the new start-up tests RAN rather than skipping.
+**`-race` was run, and it is the first time anything in this repository has been:**
+`CGO_ENABLED=1 go test -race ./...` with MinGW-w64 UCRT GCC 16.2.0 -- `cmd/message-server`,
+`peer`, `api`, `harness`, `store` (279.8 s) and the root package (29.2 s) all **ok**, no race
+reported anywhere.
+The process was **run**, not only tested: `messagectl status` on a fresh schema exits 2 naming
+"migration 1 of 11 has not run"; `messagectl migrate` applies 11 and `status` then exits 0; the
+server starts, answers `/healthz` 200 and `/readyz` 503 naming exactly `ordinal_credential` and
+`connect_client_attached`, logs the capitalised NO MESSAGE TRAFFIC warning, and releases its port on
+SIGTERM. `--print-config` with sentinel secrets in every vault value printed **none** of them
+(`grep -c` over the output -> 0).
+`git ls-files` == `git ls-tree -r HEAD --name-only` == **125** after this commit, up from 110 by
+the fifteen files this pass adds. **The brief said 110 was 106; it was 110 at `3d0dd47`, measured.**
+`sdk` was not read, built or tested; `connect` was read only and not modified -- `git status` in it
+is clean.
+The local PostgreSQL on `127.0.0.1:55432` was started for this pass and **stopped at the end of
+it**, and the 204 abandoned schemas an earlier killed run left behind were dropped rather than left
+for the next person.

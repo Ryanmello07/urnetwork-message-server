@@ -8,10 +8,24 @@ the MLS (RFC 9420) group state held by clients.
 
 ## Status
 
-Early development. The module is a skeleton: the package layout of
-[spec B §2.1](docs/specs/2026-08-12-spec-b-message-server-operator.md), an entrypoint that prints
-what it is and what it would run on, and the dependency gate of §2.2. Nothing stores a record yet,
-and nothing listens on anything.
+Early development, and the process runs. It loads
+[spec B §10.2](docs/specs/2026-08-12-spec-b-message-server-operator.md)'s configuration, opens the
+message-server Postgres cluster, asserts §3.1's clock and §10.3's migrations, builds the store, the
+§5.1 pipeline and §4.2's frame dispatch on top of them, attaches a URnetwork client to its
+operator's platform, serves §10.1's `/healthz` and `/readyz` on a private port, and shuts down in
+§2.3's order. A first start against an empty database is a tested path.
+
+**It binds exactly one socket, and that socket is the health port.** The message plane is not a
+listener and cannot be: clients reach this server over `connect`, which dials the operator's
+platform and receives the frames the platform routes to this replica's `client_id`. That means a
+running message server needs a `network_client` credential on that operator, created by an admin of
+it — §9.1 — and nothing in this repository or in `connect` can mint one. Without it the process
+starts, serves both health endpoints, and refuses readiness on `ordinal_credential` rather than
+standing up a client that silently receives nothing.
+
+To deploy one, read
+[docs/ops/2026-09-14-running-the-message-server.md](docs/ops/2026-09-14-running-the-message-server.md).
+It also lists, in one place, everything this build does not do.
 
 ## Layout
 
@@ -55,11 +69,29 @@ lands with the first import.
 ```bash
 go build ./...
 go vet ./...
-go test -count=1 -run '.' -timeout 5m ./...
-go run ./cmd/message-server        # prints its version and configuration, then exits
+go test -count=1 -run '.' -timeout 30m ./...
+go run ./cmd/message-server --print-config   # reads every resource, opens nothing, prints it
+
+# the release configuration, which is what CI builds and what deps_test.go measures against
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build ./cmd/message-server
 ```
 
-Go 1.26.5. There is no `go.sum` because there is no dependency outside the standard library yet.
+Go 1.26.5. Measured 2026-09-14 with PostgreSQL 17.6 running:
+
+```
+go test ./... -count=1 -timeout 45m -json | grep -c '"Action":"pass".*"Test":'   ->  583
+                                             grep -c '"Action":"fail".*"Test":'  ->    0
+                                             grep -c '"Action":"skip".*"Test":'  ->    0
+```
+
+**Zero skips is the number that matters.** Without `URMESSAGE_TEST_DSN` the pgx store contract and
+the server's start-up tests skip loudly, `store/coverage_test.go` prints a PARTIAL RUN banner, and
+the total drops by well over a hundred — a green line that executed §6.1's transaction against
+PostgreSQL exactly zero times. Set the variable to a DSN the suite may create and drop schemas in,
+and set `URMESSAGE_REQUIRE_CONTRACT_COVERAGE=1` so that a run which somehow did not is a failure
+rather than a banner.
+
+`-race` is clean over every package, with `CGO_ENABLED=1` and a C compiler on `PATH`.
 
 ## The dependency gate
 
@@ -80,11 +112,14 @@ test's comment says so at the point where somebody will be tempted.
 
 ## Postgres
 
-There is none on a developer box, and none in this repository's CI at the time of writing. The store
-therefore gets a memory implementation first (the next task), against the same interface the pgx one
-will satisfy. Anything that can only be tested against a live database — the commit race of §13
-item 2, the migration-on-populated-database of item 11 — is a CI concern, and is not claimed to pass
-here until it has actually run somewhere.
+`.github/workflows/gates.yml` runs a `postgres:17` service and sets `URMESSAGE_TEST_DSN` and
+`URMESSAGE_REQUIRE_CONTRACT_COVERAGE`, so the pgx half of the store contract RUNS in CI and a job
+that somehow did not run it fails rather than passing with a banner. The store has a memory
+implementation and a pgx one held to one contract ([`store/contract.go`](store/contract.go)), and
+`store/migrations.go` is the append-only list of §10.3.
+
+Migrations are run by [`cmd/messagectl`](cmd/messagectl) and never by a replica at startup, which is
+normative in §10.3. The server reads whether the list has run and refuses readiness until it has.
 
 ## License
 

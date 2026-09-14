@@ -494,3 +494,56 @@ func appliedMigrations(ctx context.Context, connection *pgx.Conn) (map[int]strin
 	}
 	return found, rows.Err()
 }
+
+// §10.1's "migrations at head", as a question a readiness probe can ask.
+//
+// It exists because §10.3 forbids the answer being produced by running them: "Who executes
+// migrations: a dedicated init job or `messagectl migrate`, **never** N replicas racing at
+// startup". A replica therefore has to be able to tell that the job has run without being the
+// job, and this is that — a read, no advisory lock, no DDL, and no write of any kind.
+//
+// It reports the version it is missing rather than a bare false, because "not at head" and
+// "which one" are different pages for whoever is woken up by it. A `migration_audit` that does
+// not exist at all is the empty database before the job's first run and is reported as missing
+// version 1, not as an error: an operator reading `/readyz` on a fresh cluster should see the
+// migration that has not run, not a relation that does not exist.
+//
+// A version that ran under a different name is [errMigrationRewritten], the same refusal
+// [Migrate] gives, because §10.3's append-only rule is not suspended for a reader.
+func MigrationsAtHead(ctx context.Context, pool *pgxpool.Pool) (bool, int, error) {
+	connection, err := pool.Acquire(ctx)
+	if err != nil {
+		return false, 0, err
+	}
+	defer connection.Release()
+
+	var present bool
+	if err := connection.QueryRow(ctx, `SELECT to_regclass('migration_audit') IS NOT NULL`).Scan(&present); err != nil {
+		return false, 0, err
+	}
+	if !present {
+		return false, 1, nil
+	}
+	applied, err := appliedMigrations(ctx, connection.Conn())
+	if err != nil {
+		return false, 0, err
+	}
+	for index, current := range migrations {
+		version := index + 1
+		name, found := applied[version]
+		if !found {
+			return false, version, nil
+		}
+		if name != current.name {
+			return false, version, fmt.Errorf("%w: version %d ran as %q and this list holds %q", errMigrationRewritten, version, name, current.name)
+		}
+	}
+	return true, 0, nil
+}
+
+// How many migrations this build holds. §10.3 makes the list append-only, so it is a number that
+// only ever grows, and an operator comparing it against `migration_audit` is comparing the
+// binary's list against the database's.
+func MigrationCount() int {
+	return len(migrations)
+}
