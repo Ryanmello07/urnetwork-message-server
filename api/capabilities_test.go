@@ -123,7 +123,7 @@ func TestAFoundingCommitOnAnUnservableRungCreatesNothing(t *testing.T) {
 	if counted.createGroup != 0 {
 		t.Fatal("a founding commit on the blob rung reached §6.1's transaction")
 	}
-	if fixture.knownGroups.Contains(fixture.groupId) {
+	if known, _ := fixture.knownGroups.Contains(context.Background(), fixture.groupId); known {
 		t.Fatal("a refused CreateGroup put the group into §5.1 check 5's filter")
 	}
 }

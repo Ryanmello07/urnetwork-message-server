@@ -42,7 +42,7 @@ It does **not** stand up a client that silently receives nothing.
 
 | | |
 |---|---|
-| **PostgreSQL 17** | A cluster **separate from the operator's** — decision B10, and §9.2 makes it enforceable rather than advisory: the operator must not be given read access to this database. The cluster clock must read UTC; the process asserts it at startup and refuses to start otherwise (§3.1). |
+| **PostgreSQL 17** | A cluster **separate from the operator's** — decision B10, and §9.2 makes it enforceable rather than advisory: the operator must not be given read access to this database. **The cluster's `timezone` must be `UTC`** (§3.1). It is a READINESS precondition and not a startup check — deliberately, because the case that produces a non-UTC cluster is a failover to a replica configured in another zone, which happens to a process that is already running — so a wrong zone makes `/readyz` refuse on `clock_utc` while the process runs and says why. The host clock must also agree with the cluster's, which is the separate `clock_skew` precondition. An earlier revision of this document said the process "refuses to start otherwise"; it does not, and never did. |
 | **The two binaries** | `message-server` and `messagectl`, built static — see *Building* below. |
 | **Nothing else** | No Redis, no object store, no Prometheus. This build opens none of them; see *What this build does not do*. |
 
@@ -140,8 +140,18 @@ wrapped under it, and there is no second copy anywhere.
 1.by_jwt: eyJhbGciOi...
 ```
 
-Or `URMESSAGE_BY_JWT` for a single instance. Which entry is selected comes from
+Or `URMESSAGE_BY_JWT` — **for a single instance only**. Which entry is selected comes from
 `MESSAGE_SERVER_ORDINAL` (default `0`), per §9.1.
+
+> **`URMESSAGE_BY_JWT` is one value for the whole process, and the environment beats the file for
+> *every* ordinal.** One Kubernetes Secret or one shared systemd `EnvironmentFile` across a
+> StatefulSet therefore gives every replica the same credential and so the same `client_id`, which
+> §9.1 forbids — it requires one `network_client` **per ordinal**. The process cannot see its
+> siblings, so it cannot refuse; it prints a `WARNING` line on every start and in `--print-config`
+> whenever the credential came from that variable. At N ≥ 2, put the credentials in
+> `message_server.yml`, keyed by ordinal.
+
+Every resource line says **which source won**: `present (file)` or `present (environment)`.
 
 The `client_id` is read out of the credential and never configured beside it. You may write
 `0.client_id: <uuid>` as documentation; if you do, it is **checked** against the id inside the
@@ -159,7 +169,11 @@ URMESSAGE_RESOURCE_DIR=/etc/urmessage ./message-server --print-config
 ```
 
 Reads every resource, opens no socket and no database, and prints what it would run on. Secrets are
-printed as `present` or `ABSENT` and never as values. This is the first thing to run on a new box.
+printed as `present (file)`, `present (environment)` or `ABSENT`, and never as values. This is the
+first thing to run on a new box, and it **works before `pg.yml` exists**: a missing DSN prints as
+`ABSENT` with a `this configuration WILL NOT START` line under it, and the command still exits 0.
+Every other resource is read and reported, so the answer is whole rather than truncated at the
+first thing that is missing.
 
 ### 2. Migrate
 
@@ -176,6 +190,24 @@ head, and works against a completely empty one.
 ```bash
 ./messagectl status     # exit 0 at head, exit 2 with the missing version named
 ```
+
+It prints §3.1's two clock answers on separate lines, because they are two faults with two
+repairs — a `postgresql.conf` and an NTP daemon:
+
+```
+timezone:   UTC
+clock skew: within 30s
+migrations: at head, 11 applied
+```
+
+An earlier build printed one line, `clock: UTC`, and printed it against a cluster configured
+`America/Phoenix`: it asked the question through the pool, and every pooled connection pins
+`timezone = UTC` in its startup packet, so the comparison ran against the value it was checking
+for. If your `timezone:` line reads `NOT UTC`, the cluster is what is wrong, not the host.
+
+**The exit code is about migrations only** — 0 at head, 2 behind — so a cluster in the wrong zone
+exits 0 here while `/readyz` refuses on `clock_utc`. If you gate a deploy on this command, read the
+`timezone:` line as well as the status.
 
 ### 3. Run
 
@@ -216,6 +248,8 @@ The preconditions, which are §10.1's list plus the two §9.1 adds:
 | Name | Met when |
 |---|---|
 | `database_reachable` | the pool answers |
+| `clock_utc` | the cluster's own `timezone` renders every month of this year as UTC does. Read on a connection that does **not** send the `timezone` parameter, because every pooled connection pins it to `UTC` and the cluster's own value cannot be seen through the pool |
+| `clock_skew` | the database's wall clock and this host's agree to within 30 s. §7.1 stamps `prune_after` from the host's clock and §7.4 sweeps against the database's |
 | `migrations_at_head` | `messagectl migrate` has run this binary's whole list |
 | `kek_loaded` | `message_fleet.yml` supplied a 32-octet `write_key_kek` |
 | `server_id_set` | `message_fleet.yml` supplied a 16-octet `server_id` |
@@ -251,6 +285,13 @@ MESSAGE_SERVER_ORDINAL=99 ./message-server & sleep 1
 curl -s localhost:9099/readyz
 kill %1
 
+# a cluster that is not UTC: clock_utc, and clock_skew NOT named
+#   (`options` is what a postgresql.conf would have done; the pool's own timezone=UTC does not
+#    hide it, which is the whole point of the check)
+URMESSAGE_PG_DSN="$(cat /etc/urmessage/pg.yml | sed 's/^dsn: //')&options=-c%20timezone%3DAmerica/Phoenix"   ./message-server & sleep 1
+curl -s localhost:9099/readyz | grep -E 'clock_utc|clock_skew'
+kill %1
+
 # a database that is not there at all: database_reachable, and /healthz still 200
 URMESSAGE_PG_DSN='postgres://nobody@127.0.0.1:1/nothing' ./message-server & sleep 1
 curl -s localhost:9099/readyz | grep database_reachable
@@ -284,6 +325,25 @@ as long as the teardown takes. A second signal is not swallowed.
 Every one of these is printed by `/readyz` under `not-built`, and by `--print-config`. They are
 listed here so a deployment plan is made with them in view rather than around them.
 
+> That claim of completeness was false once, and it is worth knowing how. §5.1 check 5's
+> known-group filter was a per-process `map[string]bool` wired at `cmd/message-server/server.go`,
+> populated only by a `CreateGroup` that committed on that process and never read back from
+> Postgres. **Every group created before a restart became permanently `REASON_REJECTED`** — which
+> §4.5 makes indistinguishable from a bad MAC — while `/readyz` went on answering `ready`. It was
+> on no `not-built` list and in no version of this document, and the list said it was complete.
+> Each entry below is now emitted by the collaborator that has the hole rather than typed into a
+> list beside it.
+
+- **§5.1's cuckoo filter, its Redis-published add, and its 60-second refresh.** Check 5 itself
+  **is** run, and it reads the truth: a filter miss does one indexed `message_group` lookup and
+  caches the hit, so a restarted replica, a second replica and a replica that has never seen a
+  group all answer the same thing. What is absent is the machinery §5.1 describes for answering
+  that question without the read. The price is one indexed row read per **distinct unknown**
+  `group_id` — an attacker holding no `write_key` can force that read, and §4.7's per-`client_id`
+  limits that would bound it are check 4, which is also not built. The refresh is absent because a
+  read-through filter has nothing for it to back up: a negative is never stored, so it cannot go
+  stale. The positive cache is never evicted, so it holds roughly a hundred bytes per distinct
+  group served since the process started, and only a restart empties it.
 - **§2.3's drain.** SIGTERM does not send `Drain{reconnect_after_ms}` to attached clients, because
   `peer` has no push path of any kind. At N ≥ 2 a rolling deploy therefore migrates the whole
   attached population at once. **Run one replica until this lands.**

@@ -42,7 +42,7 @@ type readStage struct {
 func (self *Handler) fetchStages() []readStage {
 	return []readStage{
 		{number: 3, name: "static shape of the request's own fields", run: self.checkFetchShape},
-		{number: 5, name: "the known-group filter, with no database read", run: self.checkFetchKnownGroup},
+		{number: 5, name: "the known-group filter, with no database read on a hit", run: self.checkFetchKnownGroup},
 		{number: 6, name: "the read-key lookup on (group_id, read_epoch)", run: self.checkReadKey},
 		{number: 7, name: "req_auth", run: self.checkRequestAuth},
 	}
@@ -141,9 +141,20 @@ func (self *Handler) checkFetchShape(ctx context.Context, pass *fetchPass) proto
 	return protocol.Reason_REASON_OK
 }
 
-// Check 5, unchanged from the submit path: an unknown group is refused with no database read.
+// Check 5, unchanged from the submit path, including the three answers: a hit costs no database
+// read, an unknown group is REASON_REJECTED, and a filter that could not reach its own source of
+// truth is REASON_INTERNAL rather than a refusal §4.5 makes indistinguishable from a bad MAC.
+//
+// The read path is where that distinction is worth the most. A member fetching their history is
+// the party who has the least to go on: §4.5 gives them one code for "the group is gone", "your
+// MAC is wrong" and "your key aged out", and adding "the database blinked" to that list is the
+// difference between a client that retries and a client that renders an empty group.
 func (self *Handler) checkFetchKnownGroup(ctx context.Context, pass *fetchPass) protocol.Reason {
-	if !self.knownGroups.Contains(pass.request.GetGroupId()) {
+	known, err := self.knownGroups.Contains(ctx, pass.request.GetGroupId())
+	if err != nil {
+		return protocol.Reason_REASON_INTERNAL
+	}
+	if !known {
 		return protocol.Reason_REASON_REJECTED
 	}
 	return protocol.Reason_REASON_OK

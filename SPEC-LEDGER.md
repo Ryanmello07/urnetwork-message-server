@@ -15770,3 +15770,318 @@ is clean.
 The local PostgreSQL on `127.0.0.1:55432` was started for this pass and **stopped at the end of
 it**, and the 204 abandoned schemas an earlier killed run left behind were dropped rather than left
 for the next person.
+---
+
+### 2026-09-14 (second pass of that date) — the restart that made every existing group unreachable behind a green probe, and a clock check that could not fail for the reason it existed
+
+**Change:** six findings from the entrypoint review, repaired. `api` gains a second implementation
+of §5.1 check 5's `KnownGroups` — one that reads `message_group` on a miss instead of answering out
+of a per-process map — and the interface gains a `NotBuilt()` method so that whichever filter is
+wired says what it is not. `store.CheckClock` is split into `CheckClockSkew` and
+`CheckClusterTimezone`, and `/readyz` gains `clock_skew` beside a `clock_utc` that now measures the
+cluster. `connect.ParseByJwtUnverified`'s panic is caught at this module's boundary.
+`--print-config` runs with no DSN. Every §10.2 value prints which source supplied it. The bind
+failure prints no address. Three new test files, `+35` test cases (583 → 618). **No spec text was
+edited, and no ledger item is ruled.**
+
+---
+
+#### F1 — CRITICAL. A restart made every pre-existing group permanently unreachable, and `/readyz` said `ready`
+
+`cmd/message-server/server.go` wired `api.NewMemoryKnownGroups()` — a `map[string]bool` whose only
+writer is a `CreateGroup` that committed **on that process**. Nothing read it back from PostgreSQL
+and §5.1's 60-second refresh backstop was unbuilt. Every group created before a restart was
+therefore answered `REASON_REJECTED`, which §4.5 makes indistinguishable from a bad MAC, while
+every readiness precondition stayed met and the endpoint answered `ready`.
+
+**The repair reads the truth.** `api.NewStoreKnownGroups(store.Store)` answers a hit from a map with
+no database read — which is what check 5 is for — and answers a MISS by asking
+`store.GroupState`, §6.1 step (1)'s read without step (1)'s lock: one lookup on `message_group`'s
+primary key, `ErrGroupUnavailable` for a group that is unknown and for one that is closed,
+identically, for the reason §4.5 gives. A hit is then cached, so the read happens once per group per
+process. **The negative is never cached**, which is what makes a restart, a second replica and a
+replica that has never served the group all answer the same thing.
+
+**§5.1's refresh is not built, and the reason is stated rather than the absence hidden.** A refresh
+bounds how long a filter may hold a false negative. A read-through filter cannot hold one for any
+interval, because a negative is not stored — every miss reads the table inside the same call. A
+60-second timer over this would change when a HIT is first cached and would change no answer any
+client can observe. What it would buy over §5.1's cuckoo filter is exactly what read-through already
+gives, at the price §5.1's filter exists to avoid, and that price is now written down:
+`api.StoreKnownGroupsNotBuilt`.
+
+**The interface gained `NotBuilt()`.** That is the half of F1 that was not a defect in the code. The
+per-process filter was wired for four passes, `/readyz` printed twenty-one `not-built` lines, and
+the ops document said *"every one of these is printed by `/readyz`"* — so a reader was entitled to
+read the list as complete, and the one absence that could lose every tester's history was on none of
+it. The declaration is now emitted by the filter that is actually wired, in the same shape
+`FrontChecks` already used, so a build that rewires the volatile one prints the volatile one's own
+sentence instead of going quiet. `--print-config` prints it too, which is why
+`StoreKnownGroupsNotBuilt` is exported: that mode opens nothing and builds no handler, so without an
+exported value it would print two of three halves while the document claimed three.
+
+**The third answer.** `Contains` returns `(bool, error)`. A filter that cannot reach its own source
+of truth has produced no client-caused refusal, and answering `REASON_REJECTED` there would tell a
+member of a real group — in the one code §4.5 refuses to explain — that their group does not exist,
+for as long as the database was unreachable and with nothing in any log. It is `REASON_INTERNAL`.
+
+**The test crosses a process boundary, because the property does.**
+`TestAGroupCreatedBeforeARestartIsStillReachableAfterIt` re-executes this test binary twice against
+one PostgreSQL schema: process 1 runs `newServer`, creates the group and submits a record, and
+exits; process 2 runs `newServer` and fetches. Each child serves **that server's own handler,
+connection table and front checks** through `newStackWith` rather than a pipeline the test builds —
+the defect was one line inside `newServer` and everything downstream of it was correct, so a stack
+that rebuilt the pipeline would have gone green over it. Between the two, the parent reads the group
+out of the database through a third pool, so a failure would be a failure of REACHABILITY over rows
+it had just seen.
+
+**Measured, both directions.** Green as committed. With `api.NewMemoryKnownGroups()` put back at
+that one line and nothing else changed:
+
+```
+--- FAIL: TestAGroupCreatedBeforeARestartIsStillReachableAfterIt (1.58s)
+    the fetch process failed (exit status 1).
+        restart_test.go:194: the fetch was answered REASON_REJECTED, want REASON_OK
+```
+
+---
+
+#### F2 — HIGH. `clock_utc` could not fail because a cluster was not UTC, and this machine is the counterexample
+
+`store.NewPgxPool` pins `RuntimeParams["timezone"] = "UTC"` on every connection, and
+`store.CheckClock` asked `SELECT now()::timestamp` **through that pool** — so it compared against a
+zone the startup packet had just set to the one it was checking for. It was not lenient; it was
+blind by construction, and it was met on every run of this suite against a cluster configured
+`America/Phoenix`:
+
+```
+$ psql -Atc "SELECT current_setting('TimeZone'), now()::timestamp"
+America/Phoenix|2026-09-14 11:27:29.458166
+$ PGOPTIONS='-c timezone=UTC' psql -Atc "SELECT current_setting('TimeZone'), now()::timestamp"
+UTC|2026-09-14 18:27:29.637598
+$ date -u  ->  2026-09-14 18:27:29
+```
+
+Three claims were false on that evidence and all three are corrected: `server.go`'s citation of §13
+item 21, `startup_test.go`'s *"the tolerance is narrowed rather than the cluster reconfigured,
+because this cluster IS correct"*, and the ops document's *"the process asserts it at startup and
+refuses to start otherwise"* — it is a readiness precondition, deliberately, and nothing refuses to
+start. The document's precondition table listed eight of the nine the binary logged; it now lists
+all ten.
+
+**`CheckClusterTimezone(ctx, dsn)` opens its own connection and deletes the `timezone` runtime
+parameter before it dials.** Four other ways to read the value through the pool were measured and
+none works: inside a session whose startup packet carried `timezone`, `RESET TimeZone` returns to
+that value and not the cluster's; `pg_settings.reset_val` is that value too and `source` is
+`client`; and `pg_file_settings` needs a privilege the message-server role has no reason to hold and
+sees only config FILES, not `ALTER DATABASE`, `ALTER ROLE` or a `-c`.
+
+> **A correction to the review that prompted this.** It reported *"`pg_file_settings` returned no
+> `TimeZone` row"*. It does carry the row — under the name as spelled in `postgresql.conf`:
+> `SELECT name, setting, sourceline FROM pg_file_settings WHERE lower(name) LIKE '%timezone%'` →
+> `timezone|America/Phoenix|…/postgresql.conf|738`. The query in the review asked for `'TimeZone'`.
+> The conclusion is unchanged — the privilege and the `ALTER DATABASE` blind spot rule it out — but
+> the stated reason was not the true one and is not built on.
+
+**The predicate is an offset and a year, not a name and an instant.** A name test would need a list
+of the spellings PostgreSQL treats as UTC and would still pass `Europe/London`, whose offset is zero
+every January and one hour every July. So the check asks whether the session renders **every month
+of the current year** exactly as UTC does, with the twelve instants generated by the database from
+`now()` rather than written down. Measured, one forced session at a time: `UTC` and `Etc/UTC` pass;
+`America/Phoenix` fails all twelve; `Europe/London` and `Atlantic/Azores` each fail the half of the
+year they are not at zero, in opposite directions; `Africa/Casablanca`, at zero only for Ramadan,
+fails too.
+
+**One clause was deleted and is gone.** A separate reading of the current instant was written beside
+the sweep and removed: `now()`'s own month is one of the twelve and every sample renders in the
+session's current zone, so deleting it turned no test red. It defended nothing while reading like a
+safeguard. Deleting the sweep instead turns `Atlantic/Azores` and `Europe/London` green — that is
+the clause that carries the property.
+
+**A defect in this repair, found by running it and not by reading it.** The first draft parsed with
+`pgx.ParseConfig`, which does not know pgxpool's `pool_*` keys — it forwards them to the server as
+runtime parameters and the connection dies with `unrecognized configuration parameter
+"pool_max_conns"`. The ops document's own example `pg.yml` carries `pool_max_conns=16`, so every
+readiness probe on a fleet that sizes its pool in the DSN would have refused `clock_utc` forever, for
+a reason that has nothing to do with a timezone, and no test would have caught it because test DSNs
+are written without sizing. It parses with `pgxpool.ParseConfig` and takes `.ConnConfig`, and
+`TestTheClusterTimezoneCheckWorksOnADsnThatCarriesPoolSizing` is the regression.
+
+**The skew half keeps its own name and its own precondition.** `CheckClockSkew` measures what it
+always measured: §7.1 stamps `prune_after` from this process's clock and §7.4 sweeps against the
+database's, so two machines that disagree about the instant prune by the difference even on a
+correctly configured cluster. It is `clock_skew`, and the narrowed-tolerance device in
+`startup_test.go` moves to it — where it was always actually operating. `clock_utc` needs no such
+device any more: a wrong zone is something a DSN can ask for, and
+`TestReadinessRefusesOnAClusterWhoseTimezoneIsNotUtc` watches `/readyz` refuse on it and **not** on
+`clock_skew`, which is the assertion that would have caught the original defect.
+
+`messagectl status` prints two lines where it printed one, because they are two faults with two
+repairs — a `postgresql.conf` and an NTP daemon. Its exit code still tracks migrations only, and the
+ops document now says so rather than leaving a deploy gate to discover it.
+
+Run against the local cluster through a session forced to `America/Phoenix`:
+
+```
+timezone:   NOT UTC — §3.1 makes this normative and §7.4 would prune against it
+clock skew: within 30s
+not-ready clock_utc: the cluster's own timezone is not UTC; …
+```
+
+---
+
+#### F3 — MEDIUM. A config file could panic the process
+
+`connect/jwt.go:31` does `claims["network_name"].(string)` with no comma-ok inside
+`ParseByJwtUnverified`, which `loadDeployment` calls. Reproduced before the guard, exactly as
+reported:
+
+```
+panic: interface conversion: interface {} is float64, not string
+    github.com/urnetwork/connect.ParseByJwtUnverified  .../connect/jwt.go:31
+```
+
+`connect` is read only from here, so the defence is `parseCredential`, a two-line recover that turns
+it into `errJwtClaimType` — the same shape as `errJwtNoClientId`, the guard immediately below its
+call site, which covers the sibling defect in the same forty lines. The recovered value never
+reaches the error: a type-assertion panic carries no secret today, but a future claim reader's panic
+could carry a fragment of the credential. **The upstream repair is reported and not made here.**
+
+`TestACredentialWhoseClaimIsTheWrongTypeIsRefusedAndDoesNotPanic` is a table over `network_name`,
+`user_id` and `client_id`. **`network_id` is deliberately absent, and that is a third `connect`
+defect.** `connect/jwt.go:33` opens `if networkIdStr, ok := claims["network_name"]` where it means
+`network_id`, so that claim is never read and `ByJwt.NetworkId` is parsed out of `network_name`.
+Measured: a credential carrying two different ids in the two claims comes back with `NetworkId`
+equal to the `network_name` one. A case for it would assert that a wrong-typed claim is IGNORED and
+would go red on the day the upstream spelling is fixed, which is the wrong direction for a test to
+fail in.
+
+---
+
+#### F4, F5, F6 — the three smaller ones
+
+**F4.** `--print-config` required a DSN its own doc comment said it should not, so the first command
+of the documented bring-up sequence failed on the first box state it is documented for.
+`loadDeployment` now builds that one error and returns it at the BOTTOM, after every other resource
+is read — an early return would have made the mode print `ABSENT` for three resources it had not
+looked at, which is a worse answer than an error. `run` tolerates exactly `errResourceMissing` and
+exactly in that mode; starting is still refused. Because the mode exits 0, the absence is said in
+words as well as in a column:
+
+```
+$ (empty directory) message-server --print-config
+  pg.yml                 ABSENT   postgres connection, message-server cluster …
+  …
+this configuration WILL NOT START: pg.yml has no `dsn` and URMESSAGE_PG_DSN is unset.
+EXIT=0
+```
+
+**F5.** `pick` prefers the environment for every ordinal, so one fleet-wide `URMESSAGE_BY_JWT` gives
+N replicas one `client_id` where §9.1 requires one `network_client` per ordinal — and the printed
+line named the file. `pick` now returns which source won, every §10.2 value that has two sources
+records it, and the line says `present (file)` or `present (environment)`. It stays a warning rather
+than a refusal because the ops document offers the variable as the legitimate single-instance way to
+hold a credential and one process cannot see how many siblings share its environment — but it can
+see which source won, and it now says so on every start and in `--print-config`:
+
+```
+$ MESSAGE_SERVER_ORDINAL=99 URMESSAGE_BY_JWT=<jwt> message-server --print-config
+  message_server.yml     present (environment)  ordinal 99 (MESSAGE_SERVER_ORDINAL)
+  message_server.yml     WARNING                this ordinal's credential came from URMESSAGE_BY_JWT,
+                                                which is ONE value for the whole process: §9.1 requires
+                                                one network_client per ordinal …
+```
+
+**F6.** `server.announce` omits the bind address and `health.go` pays a real diagnostic cost for the
+same literal reading of §11.1, and the bind FAILURE printed it two functions away. The guarantee is
+derived rather than curated: the cause is unwrapped out of `*net.OpError`, whose own `Error()` is
+`listen tcp <address>: <cause>`, and the result is replaced wholesale if it names the host or the
+port — so a Go release that rewords a bind error cannot reopen it. Three shapes are tested (a port
+held, an address that will not parse, a host this machine does not have) with the assertion stated
+in the test rather than by calling the predicate under test, plus a control that the predicate can
+say yes and can say no.
+
+```
+message-server: §10.1's private health port: bind: Only one usage of each socket address
+(protocol/network address/port) is normally permitted.
+```
+
+---
+
+#### Clauses deleted, and what did not go red
+
+- `api.NewStoreKnownGroups` → `api.NewMemoryKnownGroups` at `server.go`: **RED**, one test, with the
+  defect's own words in the failure.
+- `CheckClusterTimezone`'s twelve-month sweep: **RED** (`Atlantic/Azores`, `Europe/London`).
+- `CheckClusterTimezone`'s separate reading of the current instant: **GREEN — so it was removed.**
+- `pgx.ParseConfig` → `pgxpool.ParseConfig` in `CheckClusterTimezone`: **RED**
+  (`…WorksOnADsnThatCarriesPoolSizing`); this is the mutation that found the defect in the first
+  place, by being run before it was written.
+- The `errors.Is(err, store.ErrGroupUnavailable)` arm of the store-backed filter: not deleted as a
+  mutation, but both sides are asserted — `…DoesNotRememberThatAGroupDidNotExist` holds the false
+  arm and `…IsAFactAboutTheStore…` the true one.
+
+**What is asserted and is not individually load-bearing, named rather than left to be found:**
+`TestNothingCostingADatabaseReadHappensBeforeTheChecksThatCostAHash` still holds §5.1's ideal — an
+unknown group costs ZERO store calls — and it holds it against `NewMemoryKnownGroups`, because the
+`api` fixture wires that one. The store-backed filter cannot meet it and does not claim to;
+`TestTheStoreBackedFilterCostsOneReadPerDistinctUnknownGroupAndNoneForAHit` measures what it does
+cost (hit #1 = 1 read, hits #2..#9 = 0, two misses on one unknown group = 2) so the trade is a
+number beside the declaration rather than a sentence in it.
+
+#### Verification
+
+`go build ./...`, `go vet ./...`, `gofmt -l .` — all clean.
+
+Both released platforms, from `release-platforms.txt`:
+`GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build ./cmd/message-server` → **ELF 64-bit LSB executable,
+x86-64, statically linked**, 40,032,083 bytes (was 40,011,222); `arm64` → **ELF 64-bit LSB
+executable, ARM aarch64, statically linked**, 37,993,186 bytes. `messagectl` builds for both.
+`grep -c GLIBC` → 0; `grep -c -E 'ld-linux|libc\.so'` → 0.
+
+Full suite **with PostgreSQL 17.6 running**, `URMESSAGE_TEST_DSN` and
+`URMESSAGE_REQUIRE_CONTRACT_COVERAGE` both set:
+`go test ./... -count=1 -timeout 45m -json | grep -c '"Action":"pass".*"Test":'` → **618**;
+the same over `"fail"` → **0**; over `"skip"` → **0**. Up from 583. Every package `pass`; the six
+packages reported `skip` are `[no test files]`. Zero test-level skips is the load-bearing half: the
+pgx store contract and every database-backed start-up test RAN.
+
+**`-race` over the whole module**, MinGW-w64 UCRT GCC 16.2.0, same environment:
+`CGO_ENABLED=1 go test -race -count=1 -timeout 60m ./...` — root 35.3 s, `api` 2.5 s,
+`cmd/message-server` 189.0 s, `harness` 2.1 s, `peer` 2.0 s, `store` 285.1 s, all **ok**, no race
+reported. The restart test's child processes are race-built too, since they are this binary
+re-executed. `TestTheStoreBackedFilterIsSafeUnderConcurrentUse` exists so that the new filter's
+double-checked map has something to bite on: sixteen goroutines, overlapping ids, reads and writes
+interleaved.
+
+The binaries were **run**, not only tested. Against a fresh `urmessage_run` database:
+`messagectl status` → exit 2, `migration 1 of 11 has not run`; `migrate` → `at head: 11 migrations`,
+exit 0; `status` → `timezone: UTC`, `clock skew: within 30s`, `migrations: at head, 11 applied`,
+exit 0. The server started, answered `/healthz` 200 and `/readyz` 503 naming **exactly**
+`ordinal_credential` and `connect_client_attached` — `clock_utc` and `clock_skew` both met — printed
+twenty `not-built` lines including the filter's, and released its port on shutdown. Against the same
+database through a session forced to `America/Phoenix`, `/readyz` named `clock_utc` and **not**
+`clock_skew`.
+
+`git ls-files` == `git ls-tree -r HEAD --name-only` == **128** after this commit, up from 125 by the
+three test files this pass adds.
+
+`connect` and `sdk` were read only and not modified; `git status` in `connect` is clean. The local
+PostgreSQL on `127.0.0.1:55432` was started for this pass and **stopped at the end of it**, and
+`urmessage_test` was left with **0** leftover `urmsg%` schemas and 415 relations, the count it
+started at.
+
+#### What this pass did not do
+
+- **No credential still exists**, so no frame has ever reached this process over a real transport.
+  The restart test carries records over two in-process `connect.Client`s on a `connect.Route`, which
+  is the same transport `stack_test.go` has always used and is not the platform.
+- **`run()`'s signal path is still untested.** `TestPrintConfigRunsOnABoxThatHasNoDatabaseYet` is the
+  first test in this repository to call `run` at all, and it exercises only the `--print-config`
+  branch; the signal context, the lifetime split and `stop()` after the first signal remain a
+  coverage gap (the review's F8, not repaired here).
+- **F7 was not repaired.** `migrations_at_head`'s `why` still sends an operator to `messagectl
+  migrate` for `errMigrationRewritten`, which that command also refuses.
+- **The dial has no backoff and logs nothing**, which the review measured (eight attempts in ~9 s,
+  no DNS/TLS/auth classification). §11.1's MAY list would permit a classification; none is invented
+  here.

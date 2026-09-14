@@ -73,7 +73,7 @@ type stage struct {
 func (self *Handler) submitStages() []stage {
 	return []stage{
 		{number: 3, name: "static shape, and every projection against the parse", run: self.checkStaticShape},
-		{number: 5, name: "the known-group filter, with no database read", run: self.checkKnownGroup},
+		{number: 5, name: "the known-group filter, with no database read on a hit", run: self.checkKnownGroup},
 		{number: 6, name: "the epoch key lookup", run: self.checkEpochKey},
 		{number: 7, name: "write_auth", run: self.checkWriteAuth},
 		{number: 8, name: "body_hash against the body", run: self.checkBodyHash},
@@ -458,11 +458,22 @@ func projectionOf(parsed *message.Record, attachment *message.ServerAttachment) 
 
 // ── §5.1 check 5 ─────────────────────────────────────────────────────────────────────────
 
-// The known-group filter, answered from memory, with no database read at all. An attacker
-// without a `write_key` cannot force a single row lock, a single index write or a single WAL
-// byte, and this is the check that makes that true for a group that does not exist.
+// The known-group filter. A hit is answered from memory with no database read at all, which is
+// what keeps a party holding no `write_key` from forcing a row lock, an index write or a WAL byte
+// for a group that does not exist.
+//
+// **Three answers, not two.** §4.5 merges every client-caused refusal into REASON_REJECTED, and a
+// filter that could not reach its own source of truth has produced no client-caused refusal at
+// all: answering REASON_REJECTED there would tell a member of a real group, in the one code the
+// spec deliberately refuses to explain, that their group does not exist — for as long as the
+// database was unreachable, and with nothing in any log to say why. REASON_INTERNAL is the honest
+// answer, and it is the one a client retries.
 func (self *Handler) checkKnownGroup(ctx context.Context, pass *submitPass) refusal {
-	if !self.knownGroups.Contains(pass.groupId) {
+	known, err := self.knownGroups.Contains(ctx, pass.groupId)
+	if err != nil {
+		return refuse(protocol.Reason_REASON_INTERNAL, wholeSubmission)
+	}
+	if !known {
 		return refuse(protocol.Reason_REASON_REJECTED, wholeSubmission)
 	}
 	return passed

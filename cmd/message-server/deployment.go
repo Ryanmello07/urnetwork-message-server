@@ -48,6 +48,42 @@ type deployment struct {
 	// read out of the credential rather than configured beside it, so the two cannot disagree.
 	byJwt    string
 	clientId connect.Id
+
+	// WHICH of §10.2's two sources supplied each value above that has two.
+	//
+	// It is recorded because the printed line used to name the file for a value the environment
+	// supplied, and that is not a cosmetic error. §9.1 requires one `network_client` per ordinal;
+	// `URMESSAGE_BY_JWT` is one variable for the whole process and [pick] prefers the environment
+	// for EVERY ordinal, so a single Kubernetes Secret or a shared systemd EnvironmentFile gives
+	// all N replicas the same `client_id` — and the one line an operator would use to notice said
+	// `message_server.yml present ordinal 99` for an ordinal that file has no entry for.
+	dsnSource      source
+	kekSource      source
+	serverIdSource source
+	byJwtSource    source
+}
+
+// Where a §10.2 value came from. Every one of them can come from a file or from the environment,
+// and "the environment wins" is the documented rule — so the question an operator debugging a
+// deployment has is not what the value is but which of the two won, which is the question nothing
+// here could answer.
+type source uint8
+
+const (
+	sourceAbsent source = iota
+	sourceFile
+	sourceEnvironment
+)
+
+func (self source) String() string {
+	switch self {
+	case sourceFile:
+		return "present (file)"
+	case sourceEnvironment:
+		return "present (environment)"
+	default:
+		return "ABSENT"
+	}
 }
 
 // §10.2's resource names, which are also the file names.
@@ -73,6 +109,7 @@ var (
 	errWrongLength     = errors.New("is the wrong length")
 	errNoOrdinalEntry  = errors.New("message_server.yml has no entry for this ordinal (§9.1); /readyz will refuse")
 	errJwtNoClientId   = errors.New("the transport credential carries no client_id claim, so this replica has no identity to route to")
+	errJwtClaimType    = errors.New("a claim in the transport credential is not the type connect's parser asserts it to be (network_name, user_id, network_id and client_id are read as strings); the credential is not printed here, and the claim that is wrong is in whoever minted it")
 )
 
 // §9.1: "The process reads MESSAGE_SERVER_ORDINAL from the environment and selects that keyed
@@ -140,9 +177,22 @@ func loadDeployment(lookupEnvironment func(string) (string, bool)) (deployment, 
 	if err != nil {
 		return loaded, message, err
 	}
-	loaded.dsn = pick(postgres, "dsn", lookupEnvironment, dsnVariable)
+	loaded.dsn, loaded.dsnSource = pick(postgres, "dsn", lookupEnvironment, dsnVariable)
+
+	// §2.3 makes Postgres authoritative, so a deployment with no DSN cannot serve — but the
+	// refusal is HELD to the end of this function rather than returned here, and that is F4.
+	//
+	// `--print-config` is documented as "the one mode an operator does first on a new box —
+	// confirm the process can see its configuration, BEFORE it has a database to point at", and it
+	// could not run on a box in that state: `run` called this function first and a missing DSN was
+	// a hard return. Returning here also truncates the answer — `message_fleet.yml` and
+	// `message_server.yml` are read below — so an early return would have made --print-config
+	// print ABSENT for three resources it had not looked at, which is a worse answer than an
+	// error. The error is built now, while the path that produced it is in hand, and returned at
+	// the bottom with everything else loaded.
+	var missingDsn error
 	if loaded.dsn == "" {
-		return loaded, message, fmt.Errorf("%w: %s has no `dsn` and %s is unset; §2.3 makes Postgres authoritative and there is nothing to serve without it",
+		missingDsn = fmt.Errorf("%w: %s has no `dsn` and %s is unset; §2.3 makes Postgres authoritative and there is nothing to serve without it",
 			errResourceMissing, filepath.Join(loaded.resourceDir, pgResource), dsnVariable)
 	}
 
@@ -150,34 +200,41 @@ func loadDeployment(lookupEnvironment func(string) (string, bool)) (deployment, 
 	if err != nil {
 		return loaded, message, err
 	}
-	if value := pick(fleet, "write_key_kek", lookupEnvironment, kekVariable); value != "" {
+	if value, from := pick(fleet, "write_key_kek", lookupEnvironment, kekVariable); value != "" {
 		loaded.kek, err = fixedHex(value, kekBytes, "write_key_kek")
 		if err != nil {
 			return loaded, message, err
 		}
+		loaded.kekSource = from
 	}
-	if value := pick(fleet, "write_key_kek_id", lookupEnvironment, kekIdVariable); value != "" {
+	if value, _ := pick(fleet, "write_key_kek_id", lookupEnvironment, kekIdVariable); value != "" {
 		parsed, err := strconv.ParseUint(value, 10, 8)
 		if err != nil {
 			return loaded, message, fmt.Errorf("%s: write_key_kek_id is not an integer in 0..255", fleetResource)
 		}
 		loaded.kekId = uint8(parsed)
 	}
-	if value := pick(fleet, "server_id", lookupEnvironment, serverIdVariable); value != "" {
+	if value, from := pick(fleet, "server_id", lookupEnvironment, serverIdVariable); value != "" {
 		loaded.serverId, err = fixedHex(value, serverIdBytes, "server_id")
 		if err != nil {
 			return loaded, message, err
 		}
+		loaded.serverIdSource = from
 	}
 
 	credentials, _, err := readResource(filepath.Join(loaded.resourceDir, messageServerResource))
 	if err != nil {
 		return loaded, message, err
 	}
-	loaded.byJwt = pick(credentials, loaded.ordinal+".by_jwt", lookupEnvironment, byJwtVariable)
+	loaded.byJwt, loaded.byJwtSource = pick(credentials, loaded.ordinal+".by_jwt", lookupEnvironment, byJwtVariable)
 	if loaded.byJwt != "" {
-		parsed, err := connect.ParseByJwtUnverified(loaded.byJwt)
+		parsed, err := parseCredential(loaded.byJwt)
 		if err != nil {
+			if errors.Is(err, errJwtClaimType) {
+				// a named startup failure, in the same shape as the guard below it, and carrying
+				// no part of the credential
+				return loaded, message, fmt.Errorf("ordinal %s: %w", loaded.ordinal, err)
+			}
 			// the credential is NOT in this message and must never be
 			return loaded, message, fmt.Errorf("the transport credential for ordinal %s does not parse as a JWT", loaded.ordinal)
 		}
@@ -198,16 +255,52 @@ func loadDeployment(lookupEnvironment func(string) (string, bool)) (deployment, 
 			}
 		}
 	}
-	return loaded, message, nil
+	return loaded, message, missingDsn
 }
 
-// One value, from the environment if it is there and from the resource file otherwise.
-func pick(file *resource, key string, lookupEnvironment func(string) (string, bool), variable string) string {
+// [connect.ParseByJwtUnverified], with the panic it can take turned into a named refusal.
+//
+// `connect/jwt.go:31` reads `claims["network_name"].(string)` with no comma-ok, so a credential
+// whose `network_name` claim is a number — or a bool, or an object — takes the process down with
+// `panic: interface conversion: interface {} is float64, not string`. The same shape applies to
+// `user_id`, `network_id` and `client_id`, which are asserted to string before ParseId sees them.
+// That fires inside `--print-config`, which the ops document calls the first thing to run on a new
+// box: a mistyped config file kills the process with a stack trace instead of a sentence.
+//
+// **`connect` is read-only from this repository, so the defence is here and the repair is
+// reported.** This is deliberately the same shape as [errJwtNoClientId], the guard immediately
+// below its call site, which covers the sibling defect in the same forty lines — a claim
+// ParseByJwtUnverified silently drops rather than one it asserts. Two defects, one function, one
+// style of refusal.
+//
+// The recovered value is never put in the error. A type-assertion panic carries no secret today,
+// but a panic from a future claim reader could carry a fragment of the credential, and the rule
+// this file keeps is that no error it returns contains any part of one.
+func parseCredential(byJwt string) (parsed *connect.ByJwt, err error) {
+	defer func() {
+		if recover() != nil {
+			parsed, err = nil, errJwtClaimType
+		}
+	}()
+	return connect.ParseByJwtUnverified(byJwt)
+}
+
+// One value, from the environment if it is there and from the resource file otherwise, and which
+// of the two it was.
+//
+// The second return is not optional at any call site. A value whose source is not recorded is a
+// value [deployment.lines] has to guess about, and the guess it used to make — "it is in the file
+// this key belongs to" — is wrong exactly when it matters most, because the environment is where a
+// fleet-wide secret comes from.
+func pick(file *resource, key string, lookupEnvironment func(string) (string, bool), variable string) (string, source) {
 	if value, found := lookupEnvironment(variable); found && value != "" {
-		return value
+		return value, sourceEnvironment
 	}
 	value, _ := file.lookup(key)
-	return value
+	if value == "" {
+		return "", sourceAbsent
+	}
+	return value, sourceFile
 }
 
 // An exact-width hexadecimal value. The value is never in the error: two of the three callers
@@ -227,20 +320,40 @@ func fixedHex(value string, width int, name string) ([]byte, error) {
 // deployment supplied it. Never a value — three of these are secrets and the fourth is a DSN
 // that carries one.
 func (self deployment) lines() []string {
-	present := func(supplied bool) string {
-		if supplied {
-			return "present"
-		}
-		return "ABSENT"
+	lines := []string{
+		fmt.Sprintf("%-22s %-22s %s", "resource directory", "", self.resourceDir),
+		fmt.Sprintf("%-22s %-22s ordinal %s (%s)", messageServerResource, self.byJwtSource, self.ordinal, ordinalVariable),
+		fmt.Sprintf("%-22s %-22s %s", pgResource, self.dsnSource, "postgres connection, message-server cluster (decision B10: not the operator's)"),
+		fmt.Sprintf("%-22s %-22s %s", fleetResource, self.kekSource, "write_key_kek (§5.5)"),
+		fmt.Sprintf("%-22s %-22s %s", fleetResource, self.serverIdSource, "server_id, 16 octets, stable per fleet (§4.3.1)"),
+		fmt.Sprintf("%-22s %-22s %s", messageResource, "", "the §10.2 values below"),
 	}
-	return []string{
-		fmt.Sprintf("%-22s %-14s %s", "resource directory", "", self.resourceDir),
-		fmt.Sprintf("%-22s %-14s ordinal %s (%s)", messageServerResource, present(self.byJwt != ""), self.ordinal, ordinalVariable),
-		fmt.Sprintf("%-22s %-14s %s", pgResource, present(self.dsn != ""), "postgres connection, message-server cluster (decision B10: not the operator's)"),
-		fmt.Sprintf("%-22s %-14s %s", fleetResource, present(self.kek != nil), "write_key_kek (§5.5)"),
-		fmt.Sprintf("%-22s %-14s %s", fleetResource, present(self.serverId != nil), "server_id, 16 octets, stable per fleet (§4.3.1)"),
-		fmt.Sprintf("%-22s %-14s %s", messageResource, "", "the §10.2 values below"),
+	if warning := self.ordinalCredentialWarning(); warning != "" {
+		lines = append(lines, warning)
 	}
+	return lines
+}
+
+// §9.1's one-credential-per-ordinal rule, when the deployment has quietly defeated it.
+//
+// `URMESSAGE_BY_JWT` is ONE variable for the whole process and [pick] prefers the environment for
+// EVERY ordinal, so the same Kubernetes Secret or systemd EnvironmentFile mounted across a
+// StatefulSet gives every replica the same credential and therefore the same `client_id`. §9.1
+// requires one `network_client` per ordinal. Nothing refused, nothing warned, and the one printed
+// line said `message_server.yml present ordinal 99` — naming the file, for an ordinal that file
+// has no entry for at all.
+//
+// It is a warning and not a refusal, and the line is where it is: the ops document offers
+// `URMESSAGE_BY_JWT` as the single-instance way to hold the credential, which is legitimate, and a
+// single process cannot see how many siblings share its environment. What it CAN see is that the
+// credential it is about to use came from a variable that is fleet-wide by nature, and it can say
+// so on every start and in `--print-config`.
+func (self deployment) ordinalCredentialWarning() string {
+	if self.byJwtSource != sourceEnvironment {
+		return ""
+	}
+	return fmt.Sprintf("%-22s %-22s this ordinal's credential came from %s, which is ONE value for the whole process: §9.1 requires one network_client per ordinal, and N replicas sharing this variable share a client_id",
+		messageServerResource, "WARNING", byJwtVariable)
 }
 
 // The §10.2 resources this build does not read at all, and what is missing because it does not.

@@ -101,7 +101,7 @@ func TestAFoundingCommitThatNamesAnotherGroupCreatesNothing(t *testing.T) {
 	if counted.createGroup != 0 {
 		t.Fatal("the confused founding commit reached §6.1's transaction")
 	}
-	if fixture.knownGroups.Contains(fixture.groupId) {
+	if known, _ := fixture.knownGroups.Contains(context.Background(), fixture.groupId); known {
 		t.Fatal("the confused founding commit put the group into §5.1 check 5's filter")
 	}
 }

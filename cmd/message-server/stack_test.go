@@ -40,7 +40,10 @@ type stack struct {
 	serverClient *connect.Client
 	clientClient *connect.Client
 
-	store   *store.MemoryStore
+	// The store the server side reads and writes. An interface and not the memory implementation,
+	// because [newStackWith] also builds a stack over the PgxStore a real [newServer] opened —
+	// which is the only way a test can ask what survives a process restart.
+	store   store.Store
 	peer    *peer.Peer
 	handler *api.Handler
 	client  *harness.Client
@@ -50,13 +53,35 @@ type stack struct {
 
 const stackProtocolVersion = 1
 
+// The group every stack in this directory names.
+//
+// A function rather than a field initialiser, because two PROCESSES have to agree on it:
+// restart_test.go's second half asks about a group it was never told about by anything except
+// the database, and the id it asks about has to be the id the first half created.
+func stackGroupId() []byte {
+	return bytes.Repeat([]byte{0x71}, store.GroupIdBytes)
+}
+
+// The stack over a memory store, with api's pipeline built here.
+func newStack(t *testing.T) *stack {
+	t.Helper()
+	return newStackWith(t, store.NewMemoryStore(store.DefaultLimits()), nil)
+}
+
 // The two connect clients, wired to each other through two plain channels, exactly the way
 // connect's own ip_test.go does it (ip_test.go:211).
 //
 // No network space, no operator and no ByJwt: NewNoContractClientOob plus AddNoContractPeer is
 // what removes the contract requirement, which is why connect's own data-path tests run offline
 // and why these do.
-func newStack(t *testing.T) *stack {
+//
+// `process` is the process's own server when there is one, and nil otherwise. When it is given,
+// the frame dispatcher is built over THAT server's handler, connection table and front checks —
+// the values [newServer] wired, including §5.1 check 5's filter — rather than over a second set
+// built here that agrees with them today. That distinction is the whole of
+// TestAGroupCreatedBeforeARestartIsStillReachableAfterIt: a stack that rebuilt the pipeline would
+// go green against a server whose own wiring was wrong.
+func newStackWith(t *testing.T, records store.Store, process *server) *stack {
 	t.Helper()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -74,22 +99,32 @@ func newStack(t *testing.T) *stack {
 	serverClient.RouteManager().UpdateTransport(connect.NewReceiveGatewayTransport(), []connect.Route{toServer})
 	serverClient.ContractManager().AddNoContractPeer(clientClient.ClientId())
 
-	connections, err := peer.NewConnections(rand.Reader, time.Now, time.Hour)
-	if err != nil {
-		t.Fatalf("NewConnections: %v", err)
-	}
-	checks, err := peer.NewChecks(connections, peer.DefaultMaxRequestBytes)
-	if err != nil {
-		t.Fatalf("NewChecks: %v", err)
-	}
-	memory := store.NewMemoryStore(store.DefaultLimits())
-	handler, err := api.New(api.Config{
-		Store:       memory,
-		KnownGroups: api.NewMemoryKnownGroups(),
-		Front:       checks,
-	})
-	if err != nil {
-		t.Fatalf("api.New: %v", err)
+	var connections *peer.Connections
+	var checks *peer.Checks
+	var handler *api.Handler
+	if process != nil {
+		connections, checks, handler = process.connections, process.checks, process.handler
+		if connections == nil || checks == nil || handler == nil {
+			t.Fatal("newServer left one of its own §4.2 collaborators nil, so this stack would serve something it built itself")
+		}
+	} else {
+		var err error
+		connections, err = peer.NewConnections(rand.Reader, time.Now, time.Hour)
+		if err != nil {
+			t.Fatalf("NewConnections: %v", err)
+		}
+		checks, err = peer.NewChecks(connections, peer.DefaultMaxRequestBytes)
+		if err != nil {
+			t.Fatalf("NewChecks: %v", err)
+		}
+		handler, err = api.New(api.Config{
+			Store:       records,
+			KnownGroups: api.NewStoreKnownGroups(records),
+			Front:       checks,
+		})
+		if err != nil {
+			t.Fatalf("api.New: %v", err)
+		}
 	}
 	served, err := peer.New(peer.Config{
 		Client:          serverClient,
@@ -117,11 +152,11 @@ func newStack(t *testing.T) *stack {
 		cancel:       cancel,
 		serverClient: serverClient,
 		clientClient: clientClient,
-		store:        memory,
+		store:        records,
 		peer:         served,
 		handler:      handler,
 		client:       client,
-		groupId:      bytes.Repeat([]byte{0x71}, store.GroupIdBytes),
+		groupId:      stackGroupId(),
 	}
 	t.Cleanup(func() {
 		client.Close()

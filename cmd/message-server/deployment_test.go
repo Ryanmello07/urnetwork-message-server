@@ -121,6 +121,145 @@ func TestACredentialWithNoClientIdIsRefused(t *testing.T) {
 	}
 }
 
+// A credential whose claim is not the type connect's parser asserts is refused, and does not take
+// the process down.
+//
+// `connect/jwt.go:31` reads `claims["network_name"].(string)` with no comma-ok. A credential minted
+// with a numeric `network_name` panics inside [connect.ParseByJwtUnverified] — measured, before the
+// guard: `panic: interface conversion: interface {} is float64, not string`, raised from
+// `main.loadDeployment`. It fires in `--print-config`, which the ops document calls the first thing
+// to run on a new box, so a mistyped credential kills the process with a stack trace rather than a
+// sentence.
+//
+// The three claims are the three that parser actually reads, and each is asserted to a string
+// before anything else looks at it. They are a table rather than one case because a guard around
+// one call is only as good as the claim that happens to be tested: a later `connect` that stopped
+// asserting `network_name` and started asserting `user_id` would leave a single-case test green.
+//
+// **`network_id` is deliberately not in the table, and that is a third `connect` defect rather
+// than an omission here.** `connect/jwt.go:33` opens `if networkIdStr, ok := claims["network_name"]`
+// where it means `network_id`, so the `network_id` claim is never read at all and `ByJwt.NetworkId`
+// is parsed out of `network_name`. Measured: a credential carrying two different ids in the two
+// claims comes back with `NetworkId` equal to the `network_name` one. A case for `network_id` here
+// would assert that a wrong-typed claim is IGNORED, and would go red on the day the upstream
+// spelling is fixed — which is the wrong direction for a test to fail in. `msgrepo` reads only
+// `ClientId`, so nothing here depends on the field.
+//
+// `connect` is read-only from this repository, so this holds the local guard, in the same shape as
+// [errJwtNoClientId] holds the sibling defect in the same forty lines. The upstream repair is
+// reported as a finding and is not made here.
+func TestACredentialWhoseClaimIsTheWrongTypeIsRefusedAndDoesNotPanic(t *testing.T) {
+	identity := connect.NewId()
+	for _, claim := range []string{"network_name", "user_id", "client_id"} {
+		t.Run(claim, func(t *testing.T) {
+			claims := map[string]any{
+				"network_name": "urmessage",
+				"client_id":    identity.String(),
+			}
+			// a number where connect asserts a string. JSON has one number type, so it arrives at
+			// the assertion as a float64, which is the exact panic measured above.
+			claims[claim] = 5
+
+			directory := resourceDirectory(t, map[string]string{
+				pgResource:            "dsn: postgres://x/y\n",
+				messageServerResource: "0.by_jwt: " + jwtWithClaims(t, claims) + "\n",
+			})
+			_, _, err := loadDeployment(environment(map[string]string{resourceDirVariable: directory}))
+			if !errors.Is(err, errJwtClaimType) {
+				t.Fatalf("a credential whose %s claim is a number was answered %v, want %v", claim, err, errJwtClaimType)
+			}
+		})
+	}
+}
+
+// Every §10.2 value that has two sources says which one it came from, and a credential that came
+// from the fleet-wide variable is warned about.
+//
+// The printed line used to say `message_server.yml present ordinal 99` for a credential
+// `URMESSAGE_BY_JWT` supplied and a file that has no entry for ordinal 99 at all. That is not a
+// cosmetic error: [pick] prefers the environment for EVERY ordinal, and `URMESSAGE_BY_JWT` is one
+// variable for the whole process — a single Kubernetes Secret or a shared systemd EnvironmentFile
+// therefore gives all N replicas the same credential and so the same `client_id`, while §9.1
+// requires one `network_client` per ordinal. Nothing refused, nothing warned, and the one line an
+// operator would have used to notice named the wrong source.
+//
+// It stays a warning rather than becoming a refusal because the ops document offers
+// `URMESSAGE_BY_JWT` as the legitimate single-instance way to hold the credential, and one process
+// cannot see how many siblings share its environment. What it can see is which source won, and
+// that is now what it prints.
+func TestEveryResourceSaysWhetherTheFileOrTheEnvironmentSuppliedIt(t *testing.T) {
+	identity := connect.NewId()
+	credential := jwtWithClaims(t, map[string]any{"client_id": identity.String(), "network_name": "urmessage"})
+
+	fromFile := resourceDirectory(t, map[string]string{
+		pgResource:            "dsn: postgres://x/y\n",
+		fleetResource:         "write_key_kek: " + strings.Repeat("00", kekBytes) + "\nserver_id: " + strings.Repeat("00", serverIdBytes) + "\n",
+		messageServerResource: "0.by_jwt: " + credential + "\n",
+	})
+	loaded, _, err := loadDeployment(environment(map[string]string{resourceDirVariable: fromFile}))
+	if err != nil {
+		t.Fatalf("a deployment held entirely in files was refused: %v", err)
+	}
+	filed := strings.Join(loaded.lines(), "\n")
+	for _, want := range []string{"present (file)"} {
+		if !strings.Contains(filed, want) {
+			t.Fatalf("a value that came from a file is not reported as %q:\n%s", want, filed)
+		}
+	}
+	if strings.Contains(filed, "present (environment)") {
+		t.Fatalf("a deployment with no relevant environment variable set reports a value as coming from the environment:\n%s", filed)
+	}
+	if strings.Contains(filed, "WARNING") {
+		t.Fatalf("a per-ordinal credential read from %s is warned about; the warning is for the fleet-wide variable:\n%s", messageServerResource, filed)
+	}
+
+	// the reviewer's repro: an ordinal the file has no entry for, and a credential from the one
+	// variable that is the same for every ordinal
+	empty := resourceDirectory(t, map[string]string{
+		pgResource:            "dsn: postgres://x/y\n",
+		messageServerResource: "# no entry for any ordinal\n",
+	})
+	loaded, _, err = loadDeployment(environment(map[string]string{
+		resourceDirVariable: empty,
+		ordinalVariable:     "99",
+		byJwtVariable:       credential,
+	}))
+	if err != nil {
+		t.Fatalf("a credential from the environment was refused: %v", err)
+	}
+	fromEnvironment := strings.Join(loaded.lines(), "\n")
+	// the credential's OWN line, not merely the block: the defect was that this one line named
+	// message_server.yml for a value that file does not contain
+	credentialLine := ""
+	for _, line := range loaded.lines() {
+		if strings.HasPrefix(line, messageServerResource) && strings.Contains(line, "ordinal 99") {
+			credentialLine = line
+		}
+	}
+	if credentialLine == "" {
+		t.Fatalf("no line reports this ordinal's credential at all:\n%s", fromEnvironment)
+	}
+	if !strings.Contains(credentialLine, "present (environment)") {
+		t.Fatalf("the credential line reports a value the environment supplied as %q; %s has no entry for ordinal 99",
+			credentialLine, messageServerResource)
+	}
+	if !strings.Contains(fromEnvironment, "WARNING") || !strings.Contains(fromEnvironment, byJwtVariable) {
+		t.Fatalf("a credential from the fleet-wide variable is not warned about; §9.1 requires one network_client per ordinal and this one is shared:\n%s", fromEnvironment)
+	}
+
+	// and the DSN, whose source has the same two answers and had the same silence
+	loaded, _, err = loadDeployment(environment(map[string]string{
+		resourceDirVariable: empty,
+		dsnVariable:         "postgres://from/the-environment",
+	}))
+	if err != nil {
+		t.Fatalf("a DSN from the environment was refused: %v", err)
+	}
+	if !strings.Contains(strings.Join(loaded.lines(), "\n"), pgResource) || loaded.dsnSource != sourceEnvironment {
+		t.Fatalf("a DSN the environment supplied is recorded as %v", loaded.dsnSource)
+	}
+}
+
 // No DSN is a startup failure, not a readiness refusal.
 //
 // §2.3 makes Postgres authoritative and there is nothing at all for this process to serve without

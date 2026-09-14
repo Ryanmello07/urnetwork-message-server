@@ -132,7 +132,7 @@ func TestEveryRuleOfTheCreateGroupCarveOutRefusesBeforeTheTransaction(t *testing
 			if counted.createGroup != 0 {
 				t.Fatalf("%s reached §6.1's transaction, where the store refuses it as an error rather than as a client's answer", current.name)
 			}
-			if fixture.knownGroups.Contains(fixture.groupId) {
+			if known, _ := fixture.knownGroups.Contains(context.Background(), fixture.groupId); known {
 				t.Fatalf("%s put the group into §5.1 check 5's filter", current.name)
 			}
 		})

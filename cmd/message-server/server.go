@@ -30,10 +30,17 @@ type server struct {
 	deploy deployment
 	log    *slog.Logger
 
-	pool       *pgxpool.Pool
-	records    *store.PgxStore
-	handler    *api.Handler
-	dispatch   *peer.Peer
+	pool     *pgxpool.Pool
+	records  *store.PgxStore
+	handler  *api.Handler
+	dispatch *peer.Peer
+
+	// §4.2's connection table and §5.1's front checks, which [peer.New] is given and which the
+	// handler above was built against. Kept because they are this process's, and because a
+	// replica with no credential builds no peer — so these are the only handles to them.
+	connections *peer.Connections
+	checks      *peer.Checks
+
 	attachment *attachment
 
 	// Where "is the transport carrying traffic right now" is read from.
@@ -44,11 +51,15 @@ type server struct {
 	// precondition can never be observed met in a test is a precondition nothing exercises.
 	attached func() bool
 
-	// The slack [store.CheckClock] is given, as a field rather than the constant, so that the
-	// clock_utc precondition can be observed REFUSING. It is the one precondition whose failure a
-	// test cannot arrange by withholding configuration: it needs a database whose clock disagrees
-	// with this process, and the only way to have one on a correctly configured cluster is to
-	// narrow the tolerance. Zero takes [clockSlack].
+	// The slack [store.CheckClockSkew] is given, as a field rather than the constant, so that the
+	// clock_skew precondition can be observed REFUSING. Its failure is the one a test cannot
+	// arrange by withholding configuration: it needs a database whose wall clock disagrees with
+	// this process, and the only way to have one without moving a machine's clock is to narrow
+	// the tolerance. Zero takes [clockSlack].
+	//
+	// clock_utc needs no such device. Its failure IS arrangeable — a DSN that asks for a session
+	// zone that is not UTC produces exactly the cluster §3.1 forbids — which is the difference
+	// between a check that can be observed doing its job and the one this replaced.
 	clockSlack time.Duration
 
 	ready    *readiness
@@ -70,7 +81,7 @@ const shutdownTimeout = 20 * time.Second
 // §5.7 and spec B §4.3.1, so the wire protocol this build speaks is version 1.
 const protocolVersion = 1
 
-// §3.1's clock assertion, with the slack store.CheckClock takes.
+// §3.1's skew assertion, with the slack store.CheckClockSkew takes.
 const clockSlack = 30 * time.Second
 
 var (
@@ -125,9 +136,33 @@ func newServer(ctx context.Context, deploy deployment, loaded configuration, log
 		pool.Close()
 		return nil, err
 	}
+	// The process's own §4.2 collaborators, kept as fields rather than dropped as locals.
+	//
+	// peer.New takes both, and when there is no credential there is no peer.New call to take them
+	// — so without these the connection table and the front checks THIS handler was built with
+	// would be unreachable from outside [newServer], and a test could only reach the wiring below
+	// by building a copy of it. A copy is exactly what the restart defect hid behind: everything
+	// downstream of this file was correct, and the one line that named the filter was not.
+	self.connections = connections
+	self.checks = checks
+
+	// §5.1 check 5's filter, read from where the truth is.
+	//
+	// It is [api.NewStoreKnownGroups] and not [api.NewMemoryKnownGroups], and the difference is
+	// the difference between a replica that can be restarted and one that cannot. The memory
+	// filter's only writer is a CreateGroup that committed in this process, so a restart empties
+	// it: every group made before the restart is answered REASON_REJECTED, §4.5 makes that
+	// indistinguishable from a bad MAC, and — because the rows are all still in Postgres and the
+	// pool still answers — every precondition below is met and `/readyz` answers `ready` the
+	// whole time. This process has a store; the filter reads it.
+	//
+	// What the substitution costs is declared by [api.NewStoreKnownGroups]'s own NotBuilt entry,
+	// which reaches §10.1's endpoint through [server.notBuilt]. That entry is as much the point
+	// as the wiring is: the per-process map was on no NotBuilt list and in no ops document, and a
+	// list that claims to be complete and is not is worse than no list.
 	self.handler, err = api.New(api.Config{
 		Store:       self.records,
-		KnownGroups: api.NewMemoryKnownGroups(),
+		KnownGroups: api.NewStoreKnownGroups(self.records),
 		Front:       checks,
 	})
 	if err != nil {
@@ -299,11 +334,33 @@ func (self *server) preconditions() []precondition {
 			// ran once at startup could not see the case that actually produces it: a failover to
 			// a streaming replica configured in another zone, which happens to a process that is
 			// already running.
+			//
+			// It asks the DSN and not the pool, and [store.CheckClusterTimezone] is where that is
+			// argued: every pooled connection has `timezone = UTC` in its startup packet, so the
+			// pool is the one place in this process from which the cluster's own zone cannot be
+			// seen. Under the old wiring this precondition was met on every run of a suite whose
+			// cluster is `America/Phoenix` -- it was not lenient, it was blind.
 			name:          "clock_utc",
 			needsDatabase: true,
-			why:           "the database clock does not agree with this process; §3.1 makes `timezone = UTC` normative on the primary, every replica and every restore target, and §7.4 prunes against it",
+			why:           "the cluster's own timezone is not UTC; §3.1 makes `timezone = UTC` normative on the primary, every replica and every restore target, and §7.4 prunes against it",
 			met: func(ctx context.Context) error {
-				return store.CheckClock(ctx, self.pool, self.clockSlack)
+				return store.CheckClusterTimezone(ctx, self.deploy.dsn)
+			},
+		},
+		{
+			// The other half of §3.1, which the check above cannot see and which the check above
+			// used to be mistaken for: the two machines agree about the instant.
+			//
+			// A cluster correctly set to UTC whose host clock has drifted prunes early by the
+			// drift, for the same reason and with the same consequence -- §7.1 reads Go's clock
+			// and §7.4 reads the database's. It is a separate precondition and not a second
+			// clause inside clock_utc because they fail for different reasons and send an
+			// operator to different places: one is a postgresql.conf, the other is NTP.
+			name:          "clock_skew",
+			needsDatabase: true,
+			why:           "the database's wall clock and this process's disagree by more than the allowed slack; §7.1 computes prune_after from this process's clock and §7.4 sweeps against the database's",
+			met: func(ctx context.Context) error {
+				return store.CheckClockSkew(ctx, self.pool, self.clockSlack)
 			},
 		},
 		{
@@ -395,7 +452,7 @@ func (self *server) notBuilt() []api.NotBuilt {
 func (self *server) listen() error {
 	listener, err := net.Listen("tcp", self.deploy.healthAddress)
 	if err != nil {
-		return err
+		return self.bindFailure(err)
 	}
 	self.listener = listener
 	self.health = &http.Server{
@@ -409,6 +466,60 @@ func (self *server) listen() error {
 		}
 	}()
 	return nil
+}
+
+// A failed bind, with the value §11.1 forbids taken out of it.
+//
+// [server.announce] omits the bind address deliberately — §11.1's MUST-NOT list says "any IP
+// address", without qualifying whose, and `health.go` pays a real diagnostic cost for reading it
+// that literally — and then the bind FAILURE printed it, two functions away:
+//
+//	message-server: §10.1's private health port: listen tcp 127.0.0.1:443: bind: Only one usage
+//	of each socket address ... is normally permitted.
+//
+// The harm was small, which is exactly why it is worth fixing rather than arguing about: it is the
+// process's own loopback address echoed back to the operator who typed it. But the rule was read
+// literally enough elsewhere to cost an operator their `database_reachable` diagnosis, and a rule
+// that holds in the function that pays for it and not in the function beside it is not a rule.
+// This picks the literal reading, everywhere.
+//
+// The guarantee is derived rather than curated: the message that comes back is checked against the
+// configured address and replaced wholesale if it names any part of it, so a Go release that
+// reworded a bind error cannot reopen this. `*net.OpError`'s own Error() is "listen tcp <address>:
+// <cause>" — the operation, the address, then the cause — so the cause alone is what is kept, and
+// §11.1's MAY list permits exactly that: "error classes without identifiers".
+func (self *server) bindFailure(err error) error {
+	var opError *net.OpError
+	if errors.As(err, &opError) && opError.Err != nil {
+		err = opError.Err
+	}
+	if namesTheAddress(err.Error(), self.deploy.healthAddress) {
+		return fmt.Errorf("%w (%s); §11.1 forbids logging the address, so it is not repeated here",
+			errNotBound, healthAddressVariable)
+	}
+	return err
+}
+
+var errNotBound = errors.New("the configured address could not be bound")
+
+// Whether a message contains any part of an address §11.1 forbids printing.
+//
+// Host and port are checked separately as well as together, because the two appear apart: a
+// malformed address reaches `*net.AddrError`, whose message is "address <what was typed>: missing
+// port in address". An address that will not split is treated as named rather than as safe — the
+// direction that cannot understate is the only one worth defaulting to here.
+func namesTheAddress(message string, address string) bool {
+	if address == "" {
+		return false
+	}
+	if strings.Contains(message, address) {
+		return true
+	}
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return true
+	}
+	return (host != "" && strings.Contains(message, host)) || (port != "" && strings.Contains(message, port))
 }
 
 // The address §10.1's endpoints are actually on. Not the configured one: a configured port of 0

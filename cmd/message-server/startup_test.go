@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -9,12 +10,14 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/urnetwork/message-server/api"
 	"github.com/urnetwork/message-server/store"
 )
 
@@ -117,6 +120,15 @@ func TestAFirstStartAgainstAnEmptyDatabaseServesHealthAndNamesWhatIsMissing(t *t
 			removed, added)
 	}
 
+	// §10.1's endpoint names §5.1 check 5's filter for what it is.
+	//
+	// This is the half of F1 that was not a defect in the code: the per-process filter was wired
+	// for four passes and appeared on no not-built list, while the ops document said the list was
+	// complete. The entry now comes from the filter itself, so a build that rewires it says so.
+	if !strings.Contains(body, api.StoreKnownGroupsNotBuilt.What) {
+		t.Fatalf("/readyz does not name what §5.1 check 5's filter substitutes for:\n%s", body)
+	}
+
 	// what is left is the provisioning a bare box does not have, and nothing else
 	if !slices.Equal(afterMigration, []string{"ordinal_credential", "connect_client_attached"}) {
 		t.Fatalf("a migrated server with no credential refuses on %v; the only two things missing are §9.1's network_client and the attachment that needs it",
@@ -134,25 +146,128 @@ func TestAFirstStartAgainstAnEmptyDatabaseServesHealthAndNamesWhatIsMissing(t *t
 		t.Fatalf("database_reachable refuses while the pool is open: %v", err)
 	}
 
-	// §13 item 21, reached: "/readyz fails on a cluster whose timezone is not UTC."
+	// §3.1's two halves, and the correction that split them.
 	//
-	// The tolerance is narrowed rather than the cluster reconfigured, because this cluster IS
-	// correct and reconfiguring PostgreSQL from a test is not something this suite may do. The
-	// predicate is the same one a wrong timezone trips -- store.CheckClock compares
-	// `SELECT now()::timestamp` against time.Now().UTC() and refuses outside the slack -- at a
-	// nanosecond instead of at fourteen hours. Without this the precondition is one nothing in
-	// this suite has ever seen refuse.
+	// This block used to assert one precondition and to say, in its own comment, that the
+	// tolerance was narrowed rather than the cluster reconfigured "because this cluster IS
+	// correct". The cluster this suite runs on is `America/Phoenix`, seven hours out, and the
+	// precondition was met on every run: it asked `SELECT now()::timestamp` through a pool that
+	// pins `timezone = UTC` on every connection, so it was comparing against the value it was
+	// checking for. It was not lenient; it was blind, and the sentence claiming otherwise was
+	// false about the machine it was written on.
+	//
+	// clock_utc now reads the cluster on a connection that does not force the parameter, and
+	// [freshSchemaDsn] asks this test's own session for UTC, which is what §10.3 asks an operator
+	// for. So it is met here --
 	if err := byName["clock_utc"].met(ctx); err != nil {
-		t.Fatalf("clock_utc refuses against a cluster whose pool sets timezone=UTC: %v", err)
+		t.Fatalf("clock_utc refuses against a session this test asked for UTC: %v", err)
+	}
+	// -- and it is observed REFUSING, for the reason it is named for and at §10.1's endpoint, in
+	// TestReadinessRefusesOnAClusterWhoseTimezoneIsNotUtc, which needs no narrowed tolerance
+	// because a wrong zone is something a DSN can ask for.
+	//
+	// clock_skew is the half that still cannot be arranged by configuration -- it needs two
+	// machines that disagree about the instant -- so the tolerance trick stays where it belongs,
+	// on the check it was always actually exercising.
+	if err := byName["clock_skew"].met(ctx); err != nil {
+		t.Fatalf("clock_skew refuses between this process and the database it is talking to: %v", err)
 	}
 	current.clockSlack = -1
-	if err := byName["clock_utc"].met(ctx); err == nil {
-		t.Fatal("clock_utc is met with a tolerance no clock can satisfy, so it is not comparing the database clock with anything")
+	if err := byName["clock_skew"].met(ctx); err == nil {
+		t.Fatal("clock_skew is met with a tolerance no clock can satisfy, so it is not comparing the database clock with anything")
 	}
 	current.clockSlack = clockSlack
 	current.pool.Close()
 	if err := byName["database_reachable"].met(ctx); err == nil {
 		t.Fatal("database_reachable is met against a pool that has been closed, so nothing about the database is being asked")
+	}
+}
+
+// §13 item 21, at the endpoint: "`/readyz` fails on a cluster whose timezone is not UTC."
+//
+// Before this, that sentence was false about this build and nothing said so. `clock_utc` asked
+// `SELECT now()::timestamp` through a pool that pins `timezone = UTC` on every connection it hands
+// out, so the only thing it could measure was host-vs-database skew — and on a cluster set to
+// `America/Phoenix` it answered `ready`, `messagectl status` printed `clock: UTC`, and the ops
+// document said the process "refuses to start otherwise". Three published claims, none true.
+//
+// The test is arranged rather than skipped, and that is the difference the fix makes. A wrong
+// timezone is now something a deployment can ASK for — this one asks for `America/Phoenix`
+// through the DSN's `options`, which is what a `postgresql.conf` or an `ALTER DATABASE` produces
+// — so the precondition can be watched refusing without touching a shared cluster and without a
+// narrowed tolerance standing in for the real cause.
+//
+// The second half is the one that would have caught the original defect: `clock_skew` must NOT be
+// named. The two are different faults with different repairs — a postgresql.conf and an NTP
+// daemon — and a single precondition covering both is how one of them went unobserved.
+func TestReadinessRefusesOnAClusterWhoseTimezoneIsNotUtc(t *testing.T) {
+	dsn := freshSchemaDsn(t)
+	ctx := context.Background()
+
+	pool, err := store.NewPgxPool(ctx, dsn)
+	if err != nil {
+		t.Fatal("a pool for the migration job could not be created")
+	}
+	defer pool.Close()
+	if err := store.Migrate(ctx, pool); err != nil {
+		t.Fatalf("migrating: %v", err)
+	}
+
+	loaded := defaultConfiguration()
+	loaded.operatorHost = "ur.network"
+	loaded.hostingJurisdiction = "US"
+
+	for _, current := range []struct {
+		zone    string
+		refuses bool
+		why     string
+	}{
+		{zone: "UTC", refuses: false, why: "§3.1's requirement, met"},
+		{zone: "America/Phoenix", refuses: true, why: "seven hours out, in every month of the year"},
+		{zone: "Europe/London", refuses: true, why: "zero every January and one hour every July: the half-year fault a single reading passes"},
+	} {
+		t.Run(current.zone, func(t *testing.T) {
+			replica, err := newServer(ctx, deployment{
+				ordinal:       "0",
+				healthAddress: "127.0.0.1:0",
+				dsn:           withSessionTimezone(t, dsn, current.zone),
+				kek:           make([]byte, kekBytes),
+				serverId:      make([]byte, serverIdBytes),
+			}, loaded, slog.New(slog.NewTextHandler(io.Discard, nil)))
+			if err != nil {
+				t.Fatalf("newServer: %v", err)
+			}
+			defer replica.Close()
+			if err := replica.listen(); err != nil {
+				t.Fatalf("listen: %v", err)
+			}
+
+			status, body := get(t, replica.healthAddress(), "/readyz")
+			if status != http.StatusServiceUnavailable {
+				t.Fatalf("/readyz answered %d on a replica with no credential:\n%s", status, body)
+			}
+			refused := refusedNames(body)
+
+			if slices.Contains(refused, "clock_utc") != current.refuses {
+				t.Fatalf("a cluster in %s (%s): /readyz refused on %v, and clock_utc should have been named: %v",
+					current.zone, current.why, refused, current.refuses)
+			}
+			// the other half of §3.1 is a different fault and must not be blamed for this one
+			if slices.Contains(refused, "clock_skew") {
+				t.Fatalf("a cluster in %s made clock_skew refuse as well; the two machines' wall clocks have not moved and an operator sent to NTP by a timezone fault has been sent to the wrong place: %v",
+					current.zone, refused)
+			}
+			// and nothing else moved: a wrong zone is one precondition and not a cascade
+			without := []string{}
+			for _, name := range refused {
+				if name != "clock_utc" {
+					without = append(without, name)
+				}
+			}
+			if !slices.Equal(without, []string{"ordinal_credential", "connect_client_attached"}) {
+				t.Fatalf("a cluster in %s changed the refusal set beyond clock_utc: %v", current.zone, refused)
+			}
+		})
 	}
 }
 
@@ -198,7 +313,162 @@ func TestShutdownReleasesTheHealthPort(t *testing.T) {
 	listener.Close()
 }
 
+// `--print-config` runs on the box it is documented for: one with no database to point at.
+//
+// Its own doc comment calls it "the one mode an operator does first on a new box — confirm the
+// process can see its configuration, BEFORE it has a database to point at", and the ops document
+// makes it step 1 of the bring-up sequence. It could not do that: `run` called `loadDeployment`
+// before it consulted `printOnly`, and a missing DSN was a hard startup failure, so the first
+// command of the documented sequence failed on the first box state it is documented for.
+//
+// This is also the first test in this repository that calls [run] at all — the signal path, the
+// lifetime split and this branch had never been executed by the suite.
+//
+// Three assertions, and the third is the one that keeps the fix from becoming a different defect:
+// the mode must still report the absence in words, because it exits 0 and an operator who reads
+// exit 0 as "this will start" has been misled by a command that knew better.
+func TestPrintConfigRunsOnABoxThatHasNoDatabaseYet(t *testing.T) {
+	directory := t.TempDir()
+	if err := os.WriteFile(filepath.Join(directory, messageResource),
+		[]byte("operator_host: ur.network\nhosting_jurisdiction: US\n"), 0o600); err != nil {
+		t.Fatalf("writing %s: %v", messageResource, err)
+	}
+	t.Setenv(resourceDirVariable, directory)
+	t.Setenv(dsnVariable, "")
+
+	printed := captureStdout(t, func() {
+		if err := run(true); err != nil {
+			t.Errorf("--print-config on a box with no database answered %v, and that box is the one it exists for", err)
+		}
+	})
+
+	if !strings.Contains(printed, pgResource) || !strings.Contains(printed, "ABSENT") {
+		t.Fatalf("--print-config did not report %s as ABSENT:\n%s", pgResource, printed)
+	}
+	// every other resource was still read, so the answer is whole rather than truncated at the
+	// first thing that was missing
+	for _, name := range []string{fleetResource, messageServerResource, messageResource} {
+		if !strings.Contains(printed, name) {
+			t.Fatalf("--print-config stopped before it reached %s:\n%s", name, printed)
+		}
+	}
+	if !strings.Contains(printed, "WILL NOT START") {
+		t.Fatalf("--print-config exits 0 on a configuration that cannot start and does not say so:\n%s", printed)
+	}
+	// and the third not-built half, which this mode used to leave out while the ops document said
+	// it printed all of them. It is a fact of the binary's wiring rather than of a running process,
+	// so a mode that opens nothing has no excuse to be silent about it.
+	if !strings.Contains(printed, api.StoreKnownGroupsNotBuilt.What) {
+		t.Fatalf("--print-config does not name what §5.1 check 5's filter substitutes for, and the ops document says this mode prints every not-built entry:\n%s", printed)
+	}
+
+	// and the refusal is unchanged for the mode that would actually open the database
+	if err := run(false); !errors.Is(err, errResourceMissing) {
+		t.Fatalf("starting with no DSN answered %v, want %v: §2.3 makes Postgres authoritative", err, errResourceMissing)
+	}
+}
+
+// A bind failure names no address, which is the rule [server.announce] already keeps.
+//
+// §11.1's MUST-NOT list says "any IP address" without qualifying whose, and this build reads that
+// literally in the announcement and in `health.go`, where it costs a real diagnostic — a pgx dial
+// error "goes nowhere at all" for exactly this reason. The bind failure printed
+// `listen tcp 127.0.0.1:443: bind: ...` two functions away. A rule that holds where it is expensive
+// and lapses where it is cheap is not a rule, and the cheap lapse is the one nobody notices.
+//
+// The three cases are the three shapes a listen error takes, and they are different code paths in
+// `net`: a port that is held (`*os.SyscallError` under an `*net.OpError`, whose message carries no
+// address of its own), an address that will not parse (`*net.AddrError`, whose message IS the
+// address), and a host that is not this machine's (`*os.SyscallError` again, on a different
+// errno). The assertion is the same for all three and it is derived from the configured value
+// rather than from a list of phrases: neither the host nor the port may appear.
+func TestABindFailureNamesNoAddressSpecB111Forbids(t *testing.T) {
+	held, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("taking a port: %v", err)
+	}
+	defer held.Close()
+	taken := held.Addr().String()
+
+	for _, current := range []struct {
+		name    string
+		address string
+	}{
+		{name: "a port that is already held", address: taken},
+		{name: "an address that does not parse", address: "this-is-not-an-address"},
+		{name: "a host this machine does not have", address: "203.0.113.9:9099"},
+	} {
+		t.Run(current.name, func(t *testing.T) {
+			replica := &server{deploy: deployment{healthAddress: current.address}}
+			err := replica.listen()
+			if err == nil {
+				replica.listener.Close()
+				t.Fatalf("binding %q succeeded, so this case is not a bind failure at all", current.address)
+			}
+
+			// stated here rather than by calling namesTheAddress, which is the predicate under
+			// test: a test that asserts a function against itself asserts nothing, and this one
+			// would also inherit that function's deliberately conservative treatment of an address
+			// it cannot split.
+			message := err.Error()
+			if strings.Contains(message, current.address) {
+				t.Fatalf("the bind failure repeats the configured address: %v", err)
+			}
+			if host, port, splitErr := net.SplitHostPort(current.address); splitErr == nil {
+				if host != "" && strings.Contains(message, host) {
+					t.Fatalf("the bind failure names the host §11.1 forbids: %v", err)
+				}
+				if port != "" && strings.Contains(message, port) {
+					t.Fatalf("the bind failure names the port: %v", err)
+				}
+			}
+			t.Logf("%s -> %v", current.name, err)
+		})
+	}
+
+	// The negative control for the predicate the fix rests on: it has to be able to say YES, or
+	// the assertions above are three ways of reading an answer that is always no.
+	if !namesTheAddress("listen tcp "+taken+": bind: ...", taken) {
+		t.Fatal("namesTheAddress does not recognise the whole address inside a message, so it would clear anything")
+	}
+	host, port, _ := net.SplitHostPort(taken)
+	if !namesTheAddress("something about "+host, taken) || !namesTheAddress("something about port "+port, taken) {
+		t.Fatal("namesTheAddress recognises the address only when host and port appear together, and *net.AddrError separates them")
+	}
+	if namesTheAddress("bind: Only one usage of each socket address is normally permitted.", taken) {
+		t.Fatal("namesTheAddress finds the address in a message that does not contain it, so every bind failure would be replaced by the generic sentence and no cause would ever reach an operator")
+	}
+}
+
 // ── the fixtures ─────────────────────────────────────────────────────────────────────────
+
+// What a function wrote to os.Stdout while it ran.
+//
+// [printConfiguration] writes to os.Stdout directly, which is right — it is a command's output and
+// not a log — and it is why nothing had ever asserted on it.
+func captureStdout(t *testing.T, during func()) string {
+	t.Helper()
+	read, write, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("a pipe: %v", err)
+	}
+	saved := os.Stdout
+	os.Stdout = write
+
+	collected := make(chan string, 1)
+	go func() {
+		captured, _ := io.ReadAll(read)
+		collected <- string(captured)
+	}()
+
+	during()
+
+	os.Stdout = saved
+	write.Close()
+	output := <-collected
+	read.Close()
+	return output
+}
 
 // The DSN variable the store's own contract uses. The same one, deliberately: a developer who has
 // set it for `store` has set it for this, and a CI job that sets one sets both.
@@ -244,6 +514,35 @@ func freshSchemaDsn(t *testing.T) string {
 	query := parsed.Query()
 	query.Set("search_path", schema)
 	query.Set("pool_max_conns", strconv.Itoa(4))
+	// §3.1's requirement, asked of this test's own sessions.
+	//
+	// It is `options` and not the `timezone` runtime parameter, because the timezone parameter is
+	// exactly what [store.CheckClusterTimezone] strips before it asks — that key is the one
+	// [store.NewPgxPool] writes, and stripping it is the whole mechanism of the check. A zone
+	// arriving through `options` is the cluster speaking as far as any connection can tell, which
+	// is what a `postgresql.conf` or an `ALTER DATABASE` produces.
+	//
+	// Without it this suite asserts §3.1 against whatever zone the developer's cluster happens to
+	// be in — which on the machine this was written on is `America/Phoenix`, and every readiness
+	// test in this file would refuse on clock_utc for a reason that has nothing to do with what it
+	// is testing. The check is exercised in the OTHER direction, deliberately and from both sides:
+	// store's TestASessionThatIsNotUtcIsRefusedIncludingOneThatIsUtcHalfTheYear, and this
+	// directory's TestReadinessRefusesOnAClusterWhoseTimezoneIsNotUtc.
+	query.Set("options", "-c timezone=UTC")
+	parsed.RawQuery = query.Encode()
+	return parsed.String()
+}
+
+// The same DSN with a session zone that is not UTC, which is what §3.1 forbids and §13 item 21
+// says `/readyz` must refuse.
+func withSessionTimezone(t *testing.T, dsn string, zone string) string {
+	t.Helper()
+	parsed, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatal("the schema DSN does not parse as a URL")
+	}
+	query := parsed.Query()
+	query.Set("options", "-c timezone="+zone)
 	parsed.RawQuery = query.Encode()
 	return parsed.String()
 }

@@ -129,16 +129,28 @@ func migrate(ctx context.Context, arguments []string) error {
 // only other way to get it is to read `/readyz` on a replica that may be refusing for four other
 // reasons at the same time.
 func status(ctx context.Context, arguments []string) error {
-	pool, err := open(ctx)
+	dsn, pool, err := openWithDsn(ctx)
 	if err != nil {
 		return err
 	}
 	defer pool.Close()
 
-	if err := store.CheckClock(ctx, pool, 30*time.Second); err != nil {
-		fmt.Fprintf(os.Stdout, "clock:      NOT UTC — §3.1 makes this normative and §7.4 would prune against it\n")
+	// Two lines and not one, because they used to be one — and the one that was printed could not
+	// fail for the reason it was named for. `clock: UTC` was printed against a cluster configured
+	// `America/Phoenix`: every pooled connection pins `timezone = UTC` in its startup packet, so
+	// the comparison ran against the value it was checking for. The zone is now read on a
+	// connection that does not send that parameter, and the skew comparison keeps its own line
+	// under its own name, because the two send an operator to different places — a postgresql.conf
+	// and an NTP daemon.
+	if err := store.CheckClusterTimezone(ctx, dsn); err != nil {
+		fmt.Fprintf(os.Stdout, "timezone:   NOT UTC — §3.1 makes this normative and §7.4 would prune against it\n")
 	} else {
-		fmt.Fprintf(os.Stdout, "clock:      UTC\n")
+		fmt.Fprintf(os.Stdout, "timezone:   UTC\n")
+	}
+	if err := store.CheckClockSkew(ctx, pool, 30*time.Second); err != nil {
+		fmt.Fprintf(os.Stdout, "clock skew: the database's wall clock and this host's disagree by more than 30s; §7.1 reads one and §7.4 the other\n")
+	} else {
+		fmt.Fprintf(os.Stdout, "clock skew: within 30s\n")
 	}
 	head, missing, err := store.MigrationsAtHead(ctx, pool)
 	if err != nil {
@@ -157,6 +169,17 @@ func status(ctx context.Context, arguments []string) error {
 //
 // The DSN is never in an error here. pgx puts it in its own, and it carries a password.
 func open(ctx context.Context) (*pgxpool.Pool, error) {
+	_, pool, err := openWithDsn(ctx)
+	return pool, err
+}
+
+// The pool, and the DSN it was opened from.
+//
+// The DSN comes back because [store.CheckClusterTimezone] cannot be asked through the pool: every
+// pooled connection carries `timezone = UTC` in its startup packet, which is exactly the value
+// that check exists to read. Handling it is the caller's business, and the rule is the one the
+// whole of this repository keeps — it is never printed and never put in an error.
+func openWithDsn(ctx context.Context) (string, *pgxpool.Pool, error) {
 	dsn := os.Getenv(dsnVariable)
 	if dsn == "" {
 		directory := os.Getenv(resourceDirVariable)
@@ -165,19 +188,19 @@ func open(ctx context.Context) (*pgxpool.Pool, error) {
 		}
 		file, err := os.ReadFile(filepath.Join(directory, pgResource))
 		if err != nil {
-			return nil, fmt.Errorf("%w: %s is unset and %s/%s could not be read",
+			return "", nil, fmt.Errorf("%w: %s is unset and %s/%s could not be read",
 				errNoDsn, dsnVariable, directory, pgResource)
 		}
 		dsn = dsnFrom(string(file))
 		if dsn == "" {
-			return nil, fmt.Errorf("%w: %s/%s has no `dsn` line", errNoDsn, directory, pgResource)
+			return "", nil, fmt.Errorf("%w: %s/%s has no `dsn` line", errNoDsn, directory, pgResource)
 		}
 	}
 	pool, err := store.NewPgxPool(ctx, dsn)
 	if err != nil {
-		return nil, errors.New("the pg.yml DSN did not parse, or a pool could not be created from it")
+		return "", nil, errors.New("the pg.yml DSN did not parse, or a pool could not be created from it")
 	}
-	return pool, nil
+	return dsn, pool, nil
 }
 
 var errNoDsn = errors.New("no DSN")

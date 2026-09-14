@@ -328,11 +328,18 @@ func pgxSchemaStore(dsn string, limits Limits) *PgxStore {
 	if err != nil {
 		panic(fmt.Errorf("a pool on schema %s: %w", schema, err))
 	}
-	// §3.1's own readiness check, on the pool this store is about to use. Without it the
-	// RuntimeParams line in NewPgxPool is decoration: nothing else in this suite reads a
-	// database clock, and a cluster in the wrong zone would be found by a user's media
-	// disappearing hours early rather than here
-	if err := CheckClock(ctx, pool, 30*time.Second); err != nil {
+	// The skew half of §3.1, on the pool this store is about to use. §7.1 stamps `prune_after`
+	// from this process's clock and §7.4 sweeps against the database's, so two machines that
+	// disagree about the instant prune by the difference.
+	//
+	// The other half of §3.1 — that the CLUSTER is UTC — is deliberately NOT asserted here, and
+	// the distinction is the one this suite got wrong for four passes. Every connection this pool
+	// makes pins `timezone = UTC`, so within it the cluster's own zone is unobservable and every
+	// timestamp this suite writes and reads is UTC by construction. Asserting it here would refuse
+	// to run the store's contract on a correctly-behaving pool over a misconfigured cluster, which
+	// is a deployment question and not a store question. [TestTheClusterTimezoneCheckReadsTheCluster]
+	// is where it is asked, on a connection that does not force it.
+	if err := CheckClockSkew(ctx, pool, 30*time.Second); err != nil {
 		panic(fmt.Errorf("the database clock on schema %s: %w", schema, err))
 	}
 	if err := Migrate(ctx, pool); err != nil {
