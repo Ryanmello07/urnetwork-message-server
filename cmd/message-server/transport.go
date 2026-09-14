@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/urnetwork/connect"
+	"github.com/urnetwork/connect/protocol"
 )
 
 // How this process obtains the `*connect.Client` that [peer.Config] requires, and what it
@@ -141,6 +142,24 @@ func attachToPlatform(ctx context.Context, deploy deployment, loaded configurati
 		},
 		transportSettings,
 	)
+
+	// WITHOUT THIS THE PLATFORM DELIVERS NOTHING AND THE PROCESS LOOKS HEALTHY.
+	//
+	// Measured on the first real deployment: the client attached, `/readyz` answered `ready`,
+	// the probe's Hello was sent, and the server's log recorded no incoming frame at all --
+	// only its pool statistics. A `connect.Client` accepts a peer's frames only for a provide
+	// mode its contract manager has enabled, and this process enabled none.
+	//
+	// `Public` rather than `Network`: §9.1 gives this replica its own account on the operator,
+	// and every USER holds their own separate account, so a client reaching this server is
+	// never on its network. `Network` would accept only frames from the server's own network,
+	// which contains nothing but the server.
+	//
+	// `Stream` comes with it because a request is only half of §4.3: the response is this
+	// process SENDING to a client it did not contract with, and that is return traffic.
+	client.ContractManager().SetProvideModesWithReturnTraffic(map[protocol.ProvideMode]bool{
+		protocol.ProvideMode_Public: true,
+	})
 
 	return &attachment{
 		client:      client,
