@@ -95,6 +95,47 @@ verification before it can be trusted with the same claim.
 
 ---
 
+## 5. A reconnecting `client_id` is not routed to for ~60 seconds — BUG, and it blocks the alpha
+
+**Measured**, on the beta operator, against the deployed alpha message server. One client, one
+`client_id`, nothing else running:
+
+    baseline, a fresh connection      Hello OK in 27ms
+    close the connect.Client, then re-dial and Hello repeatedly:
+      +12s   FAILED      +24s   FAILED      +37s  FAILED
+      +49s   FAILED      +1m1s  FAILED      +1m1s  OK in 32ms
+
+Attempts 5 and 6 fall in the **same second** — one fails, the next succeeds — so this is a hard
+edge at ~60s, not a gradual recovery. Reproduced three times with different gaps; the pattern is
+always "the first connection after a previous one for that `client_id` is not answered, until about
+a minute has passed."
+
+**What it looks like from the client:** the new connection attaches (`IsConnected()` is true, routes
+registered), the Hello is sent, and **nothing comes back**. No error, no refusal — silence until the
+transport's own deadline. The message server never sees the request: its log records no incoming
+frame, and it sets no send contract to that `client_id` during the window.
+
+**Why it blocks the alpha rather than merely annoying it:** every real client reconnects — app
+resume, laptop lid, network flap, a restart. On this platform each of those costs **a minute of
+total silence** before the first message can be sent. A messenger that cannot talk for 60s after
+waking is not shippable, and no amount of client-side work removes the window; the client can only
+retry into it.
+
+**Candidates, named without asserting which** — I measured the behaviour, not the cause, and did not
+change anything on the operator. In `server/connect/resident.go`'s settings block there are two
+60-second values, `DrainStragglerSweepTimeout: 60 * time.Second` (:545) and `StreamPollTimeout:
+60 * time.Second` (:549). `ExchangeResidentTtl` is 300s and `ForwardIdleTimeout` 15m, both too long
+to be this. **Whether the fix is to invalidate the old route when a new connection for the same
+`client_id` registers, rather than waiting for a sweep, is the operator team's call.**
+
+**What URmessage will do regardless**, so the two are not confused: `Device.Connect` currently sends
+one Hello and fails after a single timeout, so a reconnecting client reports a hard error where the
+truth is "not yet". That is URmessage's bug and is being fixed on our side — retry with backoff
+across the window, and say "reconnecting" rather than "failed". **It does not close this item**: the
+60 seconds remain, and the user waits them.
+
+---
+
 ## Not operator work, recorded here so the list is not read as complete
 
 `HelloResponse.server_keys` and `kt_gossip` are declared NOT BUILT by the message server itself —
