@@ -128,6 +128,24 @@ change anything on the operator. In `server/connect/resident.go`'s settings bloc
 to be this. **Whether the fix is to invalidate the old route when a new connection for the same
 `client_id` registers, rather than waiting for a sweep, is the operator team's call.**
 
+**REFINED, and this is the part that decides what a client can do about it: a request sent into the
+window is LOST, not queued.** Measured separately — one connection, one Hello, a **100-second**
+timeout spanning the whole handover:
+
+    attempt 1 at +1m40s   Hello FAILED in 1m40.003s     (one request, waiting throughout)
+    attempt 2 at +1m41s   Hello OK in 257ms              (a new request, one second later)
+
+The route demonstrably moved during attempt 1's wait, and attempt 1 was **still never answered**.
+So the platform drops the frame rather than holding it for the connection that is about to own the
+route. Two consequences: **a longer client timeout is not merely insufficient, it is the wrong
+remedy** — it spends the entire window on a request that can never succeed; and **sleeping does not
+substitute for retrying** — a client that waits 75 seconds and then sends once still fails, measured.
+Only re-sending works.
+
+Also worth knowing operationally: the window applies to **any** session that follows another within
+a minute for the same `client_id`, not just to a deliberate reconnect. Two back-to-back runs of the
+same tool fail on the second one's first Hello.
+
 **What URmessage will do regardless**, so the two are not confused: `Device.Connect` currently sends
 one Hello and fails after a single timeout, so a reconnecting client reports a hard error where the
 truth is "not yet". That is URmessage's bug and is being fixed on our side — retry with backoff
