@@ -7761,6 +7761,18 @@ fourteen are dispositioned below.
     delete-for-everyone, typing, attachment descriptors, system records, and Spec C gate 8 meaning
     anything.
 
+    **2026-09-16: DESIGNED WITH A RECOMMENDATION, STILL NOT RULED.**
+    `docs/reports/2026-09-16-content-kinds.md` puts the kind in the first octet of the signed MLS
+    application plaintext, not in `ct_head`. The reason is measured: `ct_head` is outside the
+    sender's signature, since `TestTheHeadPlaintextIsNotBoundByTheFrame` → PASS at `connect` d368fea
+    (MG-6). The report gives a registry of stored and transient codes, a layout and a 256-octet-rung
+    budget for every kind the owner named, a rule for unknown kinds that makes editing additive, and
+    thirteen owner choices. **Sub-question (a)** is answered there by that measurement. **Sub-question
+    (b)** is shown not to be closable by any content kind: a record carrying a server attachment has
+    no application frame to put a kind in. It stays with MG-5 and item 199. The report's measurements
+    also widened M1-25 (item **208**) and found three dependencies the kinds cannot route around
+    (items **209**, **210** and **211**).
+
 199. **FILED, NOT RULED — FIVE HEADER FIELDS ARE OUTSIDE EVERY SIGNATURE AND CANNOT BE BROUGHT
     INSIDE ONE, AND THE SERVER ACTS ON THE FIRST OF THEM.** MASTER §8.4.2's `aad_mls` binds
     `AAD_body`, so `group_id`, `sender_handle`, `epoch`, `stream_index`, `retention_class` and
@@ -7832,6 +7844,13 @@ fourteen are dispositioned below.
     fetch, or whether the transient rung should be excluded from the id space entirely. **It is
     filed rather than ruled because the answer belongs with item 198**: whether a transient can be
     the *target* of anything is a question about kinds.
+
+    **2026-09-16: A RECOMMENDED ANSWER, NOT RULED.** The recommendation keeps the derivation for every
+    record, as MASTER §8.4.5 says, and never *surfaces* a transient's id. A call naming an id that is
+    not a stored record in the local store is a call error that emits no record
+    (`docs/reports/2026-09-16-content-kinds.md` §5.5, property K5). That answer becomes load-bearing
+    if M1-25 is ruled toward a separate transient counter. A transient and a stored record would then
+    share `(group_id, sender_handle, stream_index)`, and so share a `message_id` (item **208**).
 
 203. **FILED, NOT RULED — A 198-OCTET BAND OF BODY LENGTHS FITS TODAY, DOES NOT FIT AFTER THE
     RULING, AND HAS NOWHERE TO GO.** MASTER §8.4.4, measured: the 64 KiB rung's usable application
@@ -7944,6 +7963,118 @@ fourteen are dispositioned below.
     cheapest correct answer may be to delete a copy rather than gate three** — Spec A §5.3's Go
     comment is the one a builder transcribes and Spec A §5.1's prose copy is the one nothing
     transcribes, so two of the three may not need to exist. That is the ruling this item wants.
+
+208. **FILED, NOT RULED. M1-25 IS WIDER THAN FILED IN BOTH HALVES, AND ITS "OPTION A" NO LONGER
+    CLOSES IT AFTER 2026-09-15.** Measured 2026-09-16 by a probe outside all three repositories that
+    imports `connect` d368fea read only. It rebuilds `messagegroup`'s two-member fixture from exported
+    API (`docs/reports/2026-09-16-content-kinds.md` §2.3), and `connect`'s `git status` was empty after
+    every run. Three results:
+
+    - **(i) Every later record is lost, not the next one.** A receiver takes one DURABLE record, then
+      the sender seals 1,025 `EPH(0)` records the receiver never gets. **All 2,004 later DURABLE
+      records offered are refused:** *"index 1027 is 1025 ahead of head 2, and the window is
+      1024"*. With 1,024 transients, 0 of 2,004 are refused.
+    - **(ii) An online receiver is not spared.** A receiver that opens all 1,025 transients on its own
+      `EPH(0)` ladder refuses **2 of 2** later DURABLE records offered, with the same sentence. The
+      transients advance the `EPH(0)` ladder and not the DURABLE one.
+    - **(iii) The MLS half.** After MASTER §8.4 a transient is an MLS application message (the
+      predicate at `mlsframe.go:161` ignores the class). 1,025 `Protect` calls that reserve **no**
+      stream index, which is exactly what a separate transient counter does, leave **3 of 3** later
+      DURABLE records refused: *"mls: ratchet generation too far ahead: generation 1026, head 1, bound
+      1024"*. At 1,024 all three open. `mls/secret_tree.go:875-880` states the refusal lasts until the
+      epoch's next commit (read; no commit was driven).
+
+    So the m1 plan's *"a separate counter for transients — nothing server-side checks them, so nothing
+    breaks"* (`docs/plans/2026-09-04-slice1-m1-message-crypto.md:6195`) **is false on two counts
+    after 2026-09-15.** The MLS half remains. And a separate counter lets a transient and a stored
+    record share a `message_id` (item **202**). `mls/secret_tree.go`'s *"reached by a RESTORE and not
+    by ordinary delivery"* does not hold for a transient: it is delivered and never stored, so a
+    member who was offline when it was pushed never receives it.
+    `TestTransientsOnTheSharedCounterStarveADurableReceiverWindow` asserts only the first record past
+    the wall, and no `messagegroup` case observes the MLS half. Query:
+    `grep -rn 'too far ahead\|ErrRatchetGenerationTooFarAhead' --include=*_test.go messagegroup` → 0.
+
+    **Candidates, NONE CHOSEN.**
+    - *(a)* **A budget with a stored COVER anchor.** A sender puts a stored record on the ladder before
+      it has consumed 1,024 positions since its last one. **Measured holding** over 5,000 transients
+      in five rounds of 1,000, and **measured red** with one anchor skipped: *"3002 ahead of head
+      2004"*. It covers the MLS half only for receivers that fetch the anchor, which in a disappearing
+      conversation is not guaranteed. That last point is derived and not measured.
+    - *(b)* **A separate counter, and no MLS frame on `EPH(0)`.** Closes both halves. Costs sender
+      authentication of receipts and typing, adds a MASTER §8.4.1 row, and needs item 202 answered as
+      "never referenceable".
+    - *(c)* **A separate counter with the frame kept.** **Measured not to close it.**
+    - *(d)* **Accept it.** A stored message is lost to receipts and typing, at every receiver.
+
+    **The property, which presupposes none of them:** a sender's transients never make any of its
+    stored records unopenable at a receiver that processes every stored record. **Mutation target:**
+    under *(a)*, skip one anchor and require a named assertion to go red. The probe did exactly that
+    and it went red. **No test code is supplied.** *Blocks:* delivery receipts, read receipts,
+    typing, and the delivery-receipt batch size. Carried at the m1 plan's M1-25 and Spec A §5.6.
+
+209. **FILED, NOT RULED. A RECEIVER LADDER FIRST TRACKED AT HEAD 0, AND A STORED CLASS STARVED BY
+    OTHER CLASSES: A RECORD OFF THE CONVERSATION'S OWN LADDER IS LOST.** Measured 2026-09-16 with the
+    probe of item 208.
+
+    **Head 0.** `sdk/urmessage/group.go:1504` (read) tracks every first-seen `(leaf, class, window)`
+    ladder at head 0, and an `EPH(1..5)` ladder is keyed by its window (`session.go:571`, read), so
+    **every new window is first-seen**. Results:
+    - After 1,030 DURABLE records the receiver opened, the sender's first MEDIA record (index 1031)
+      is refused at head 0 (*"1031 ahead of head 0"*) and opens at head 1031.
+    - The first EPH(1) record at index 1031 is refused at head 0.
+
+    **Starvation.** Two MEDIA records with 1,025 DURABLE records between them, every one opened: the
+    second MEDIA is refused. With 1,024 between, it opens. Re-tracking the MEDIA ladder at the highest
+    authenticated index plus 1 opened the refused record. **None of this is reachable today only
+    because `group.go:1341` skips every non-DURABLE record.** It is a disappearing-messages defect as
+    much as a content-kinds one, and it is the concrete loss behind item **200**'s *"`1024/k`"*.
+
+    **What is NOT established.** The measured head value (the highest authenticated index plus 1) is
+    not safe as written: a record of a new class arriving after a later record of another class lands
+    below it. Re-tracking discards that ladder's retained skipped keys, and whether that is acceptable
+    was not examined. **Properties:** a receiver opens the first record of a ladder it has not tracked
+    at any index within the window of the last record it authenticated from that sender; and stored
+    records of other classes between two records of one class never lose the second. **Both measured
+    red today.** *Owner:* `sdk` and `connect`'s `TrackSender` contract. *Blocks:* MEDIA bodies,
+    disappearing messages past a sender's 1,024th record, and any reaction or tombstone whose class
+    differs from the conversation's current one.
+
+210. **FILED, NOT RULED. A `size_bucket = 5` RECORD IS AN APPLICATION RECORD UNDER MASTER §8.4.1 AND
+    HAS NO `ct_body` TO CARRY A FRAME IN.** Read, 2026-09-16:
+    - `is_commit == 0 && kind == NONE` holds for a blob-ref record that carries no server attachment.
+    - MASTER §8 says `ct_body` is absent for `b = 5`.
+    - `OpenRecord` refuses such a record outright (`connect/messagegroup/seal.go:751`,
+      `ErrBlobRecordUnsupported`), and the server refuses it before the transaction
+      (`msgrepo/api/submit.go:613`).
+
+    Framing the whole object as one MLS message has three costs: the descriptor-before-download that
+    Spec A §7.4's auto-download hold depends on, Spec B §8.3's `Range` reads, and a whole file under
+    one AEAD and one signature. **The recommendation** (`docs/reports/2026-09-16-content-kinds.md`
+    §5.8) is that a `size_bucket 5` record carries no frame. Its integrity then comes from a signed
+    descriptor's `sha256(ciphertext)`, and the descriptor names the sender's own stream index.
+    **Property:** attachment bytes render only through a descriptor that opened, whose referenced body
+    sits at the same sender's position and matches its digest. **Mutation target:** skip the digest
+    comparison. **Not established:** whether MASTER §8.2's epoch snapshot, also a blob-ref record,
+    carries a server attachment and so takes the other arm. *Blocks:* every attachment above about
+    65 KB, and the blob plane's client half.
+
+211. **FILED, NOT RULED. THE 24-HOUR DELETE-FOR-EVERYONE BOUND NAMES NO CLOCK, AND EVERY CLOCK INSIDE
+    A RECORD IS WITHIN THE ORIGINAL SENDER'S REACH.** MASTER §12.1:2564 and Spec A §7.4:4143 bound
+    delete-for-everyone to *"24 hours from `SentAtMs`"*, and ignore a late tombstone on receipt
+    because *"otherwise the bound would be a client-side courtesy that any modified client could
+    ignore"*. There are three candidate clocks:
+    - **Sender claims.** The original sender wrote both ends, so the bound is exactly that courtesy
+      against the one party it names, in any design where time is a sender claim.
+    - **The receiver's first-stored time of the target.** The sender cannot move it, but it diverges
+      across devices: one offline for days applies a tombstone that an online one ignores.
+    - **The head's `sent_at`, as shipped.** Any member can move it (MG-6, `TestTheHeadPlaintextIsNotBoundByTheFrame`
+      → PASS). That would let a third member make the true sender's in-window tombstone be ignored,
+      **if** MG-6 is reachable, which MG-6 itself does not establish.
+
+    **Candidates, NONE CHOSEN**, in the report's §5.4. **Property:** a member other than the target's
+    sender can neither make a genuine in-window tombstone be ignored nor a genuine out-of-window one
+    be applied. **Mutation target:** read the window off `ct_head`. Carried at MASTER §12.1 and Spec A
+    §7.4, beside item **204**.
 
 ## 6. Change process
 
@@ -16633,4 +16764,79 @@ unchanged: this pass adds no file.
 clean at `27c50c2` and nothing there is committed. `sdk` was read and not written, since another
 agent holds that tree. Every number in this entry that names `connect` was produced by one of
 those two cases or by a `git`/`grep` query printed beside it.
+
+---
+
+### 2026-09-16 — the content kinds designed and not ruled, M1-25 measured wider than filed, and three dependencies no kind can route around
+
+**Change:** `docs/reports/2026-09-16-content-kinds.md` is added. Item **198** gains a dated note
+saying it is designed and not ruled, item **202** gains a recommended answer that is also not ruled,
+and four open items are filed: **208**, **209**, **210** and **211**. **No spec is edited, and no Go
+file in any repository changed.** `connect` and `sdk` were read only.
+
+**Why.** The owner asked for receipts, reactions, GIFs, images, video, replies, delete and edit, and
+every one of them waits on item 198. The two 2026-09-15 rulings made the kind answerable: the body
+is signed, and `message_id` exists.
+
+**The answer, first sentence of the report:** every kind the owner asked for encodes under the
+measured constraints, with no wire field, no `format_version` change and no server change. **Three
+cannot ship, and the encoding blocks none of them:**
+- **Receipts and typing** wait on the `EPH(0)` path (0 production `InstallEphRoot` call sites; the
+  server refuses at `submit.go:610`) and on M1-25, which is **item 208, now measured wider**.
+- **Media above about 65 KB** waits on the blob plane and on **item 210**.
+- **Editing** is ruled out. It is reserved so that adding it later is additive.
+
+**What was measured, with the query beside each number:**
+
+- **Budgets.** `TestTheSizeLadderCostOfTheInnerFrameIsMeasuredHere` → PASS at `connect` d368fea,
+  logging 59, 826, 3,898, 16,186 and 65,334 usable octets. The same boundaries hold through
+  `SealRecord` in the probe: 59/60, 826/827, 3,898/3,899, 16,186/16,187, and 65,334 seals while
+  65,335 is refused. `OpenRecord` returns exactly the octets sealed, trailing zero included.
+- **The head.** `TestTheHeadPlaintextIsNotBoundByTheFrame` → PASS. The head's version byte therefore
+  cannot select a body's grammar, and the kind goes inside the signed plaintext.
+- **Emoji.** Emoji 17.0 `emoji-test.txt` (sha256 `1d8a944f…a201acda`), fully-qualified rows, UTF-8
+  length: 3,944 sequences, longest 35 octets. The recommended reaction layout fits **3,748 (95.0%)** on
+  the 256 B rung. Spec A §5.1's layout behind a kind octet fits **3,405 (86.3%)**.
+- **The probe behind items 208 and 209.** A scratch module outside all three repositories rebuilds
+  `messagegroup`'s two-member fixture from exported API; `connect`'s `git status` was empty after
+  every run.
+  - With 1,025 transients, all **2,004 of 2,004** later DURABLE records are refused; with 1,024,
+    none are. An **online** receiver fares no better.
+  - 1,025 `Protect` calls with no stream index leave every later record refused at the MLS layer.
+  - A budget of 1,000 transients per anchor holds across 5,000 transients, and is **red with one
+    anchor skipped**.
+  - The first MEDIA record, or the first EPH(1) record, at index 1031 is refused when its ladder is
+    tracked at head 0.
+  - 1,025 DURABLE records between two MEDIA records lose the second.
+
+**Three claims in the brief did not reproduce, and none is built on:**
+- **The reaction-set contradiction.** Spec C revision 5 (`:104`) reverses revision 3 (`:102`),
+  and owner decision 49 is the ruling.
+- **"1,025 typing indicators destroy the next durable message."** It understates: every later one
+  is destroyed, and online receivers lose them too.
+- **"`sdk` routes every record through `Protect`."** Every record goes through `SealRecord`, but only
+  the text record is framed.
+
+**Every clause added was deleted and the suite re-run, and nothing went red. That is named here,
+not implied.** The removal wrote `git show HEAD:SPEC-LEDGER.md` into place and moved the new report
+out of the tree, without `git checkout` and without touching the index. Then
+`go test ./... -count=1 -timeout 900s -json` was re-run with no `URMESSAGE_TEST_DSN`: pass
+**471**, fail **0**. That is identical to the run with every
+clause present (below) and to the 4b465ae baseline taken before any edit: pass **471**, fail **0**,
+skip **14**, top-level **179**. **No test in this repository reads the report, the item-198 or
+item-202 notes, or items 208–211.** `api/checks_test.go:698`, `deps_test.go:1556` and
+`peer/checks_test.go:229` read Spec B only. `planlint_test.go` reads this ledger only for items a
+plan cites, and no plan cites 198 or 208–211 as a ledger item (the plans' "208"s are ValSem codes).
+What would defend the design is code that does not exist yet (`connect/messagegroup/reaction.go`,
+`tombstone.go`) and the report's §9 properties, which are stated with their mutations. **No test
+code is supplied.**
+
+**Verification on the tree committed:** `go build ./...` → **BUILD_OK**.
+`go test ./... -count=1 -timeout 900s -json`, with no PostgreSQL: pass **471**, fail
+**0**, skip **14**, of which **179** are top-level. The queries are
+`grep -c '"Action":"pass".*"Test":'` and the same over `fail` and `skip`, with top-level counted by
+excluding `"Test":"[^"]*/`. Before the commit, `git ls-files | wc -l` ==
+`git ls-tree -r HEAD --name-only | wc -l` == **130**; after it, **131**, since this pass adds one
+file. Both edited documents are LF in the working tree: `grep -c $'\r'` → 0 on each, measured after
+an edit tool had written CRLF into both.
 
