@@ -23,7 +23,7 @@ section and specifies the **Go types, package boundaries, and test obligations**
 | Item | State |
 |---|---|
 | MASTER protocol design | Revision 9, owner rulings applied |
-| This spec | Revision A-6, owner rulings applied |
+| This spec | Revision **A-27**, owner rulings applied. A-27 is 2026-09-15's two rulings: `ct_body` becomes a real MLS `PrivateMessage` for an application record, and `message_id` is defined. |
 | Code | **`connect` `beta/message` at `33932e0`** — `mls/`, `message/` and `messagegroup/` are m1 wave 0 and wave 1 plus ruling **A1**; 217 Go files, 7,631 tests passing, nine-platform `CGO_ENABLED=0` build green. **`sdk` holds no messaging code**, so every external leg — the durable `StreamIndexReserver` of §5.6 and §8.2 among them — is still unbuilt. Corrected 2026-09-07; this row read *"None. `beta/message` branches not yet cut"* for five weeks after they were. |
 | Go toolchain | 1.26.5, verified on the build host (`go version` → `go1.26.5`) |
 | `crypto/mlkem` | Verified present: `NewDecapsulationKey768(seed)` takes a **64-byte** `d ‖ z` seed |
@@ -107,6 +107,7 @@ Append-only. Newest last. One entry per commit that changes this spec. Every cha
 | 2026-09-13 | A-25 | **REVISION A-20 IS REVERSED, NOT INVERTED THIS TIME — `ct_head` is keyed under the record's OWN class key, and `record_bytes` gains a field to make an `EPH` one derivable.** Ledger item **152** and m1 open item **M1-27**, RULED TOGETHER by the owner in one sitting, which is what 152 required. **Ruling 1.** A-20 ruled *"`ct_head` is sealed under the DURABLE class ratchet, whatever the record's own retention class"*, on *"the head is always retained."* **The premise is false for exactly one class and it is the class the question was about** — Spec B §7.2 sets `ct_head = NULL` for `EPH(1..5)` at `prune_after` — and it was ruled on ledger 128's narrower bookkeeping terms **without 152 beside it although 152 asked in those terms that it be**. Head and body now take **one** ladder, the record's own, at one position, separated by their HKDF labels per **I7**. `PERMANENT`/`DURABLE`/`MEDIA` unchanged in effect; `EPH(1..5)` metadata now dies with `K_eph`. **The prize:** the disappearing guarantee for the head was behavioural, resting on Spec B §7.2's sweep against an adversary MASTER §8.1 names as *"retained server ciphertext"*; it is now **cryptographic**. §5.3's rule, its Go block, §5.1's `RecordHeader`, §5.6's position clause, §5.11 (3)'s snapshot parenthesis and the refusal lift all move; **the `EPH` refusal is lifted in full and 152 closes.** **Ruling 2.** `EphKey`'s window is a **new plaintext `u64` field, `eph_window`**, sender-computed as `floor(sent_at_ms / (eph_bucket_seconds[b] × 1000))`, Unix origin, always present and zero off `EPH(1..5)`, in `AAD_head`, `AAD_body` and the `write_auth` preimage immediately after `u8(retention_class)`. New conformance row **S19** is the server's ±1-window refusal; an **opener** refuses a window more than one ahead of its own clock and never refuses one behind. **This ADDS A FIELD to a wire format MASTER §14 froze before slice 2, and slice 2 has shipped** — `format_version` becomes `0x02`; nothing encoded is migrated because nothing encoded is retained. **A-21's shape A1 is NOT withdrawn** — its load-bearing case is the device wrap's classless shared root, which the reversal does not reach. |
 | 2026-09-13 | A-26 | **A-25's REVIEW, same date: four repairs, the last of which NARROWS what A-25 claims. No ruling of A-25 is reopened.** **(1) The bucket-0 sentinel paragraph reached MASTER §8 and Spec B §3.1 and NOT this document**, breaking the character-for-character contract §5.1's own sentence declares by naming Spec B — ledger item **141**'s class, found by reading the three fences side by side and by no query. All three now carry **one** text, with each document's commentary moved outside the fence so it cannot diverge again. **(2) §5.3's rule sentence and its precondition (1) read as exhaustive and are not** — a device-wrap record takes no class key at all, and the `eph_root` wrap is `EPH(5)`, so the unqualified sentence tells its builder to open the record that delivers `eph_root[k]` with a key derived from `eph_root[k]`. The `env_key[k]` carve-out is now named at the rule, not only sixty lines away in §5.11. **(3) What `eph_window` that wrap carries is NOT RULED and §5.11 now REFUSES its publication** — presence makes it non-zero, S19 refuses an implausible one with no wrap carve-out, and §5.11 (5) says a wrap head's plaintext is unstated, so the formula's own input does not exist for it (ledger open item **185**). **(4) §3.5's *"eph_root is time-sliced and its window closes on the timer"* and §8.1's storage row are FALSE under A-25's own definition of `t`**: `t` slices the derived key and `eph_root[n]` is one per-epoch value, so the root has no window and `DeleteGroupStateBefore` is the only deletion named anywhere. Both are corrected to what is true, and the destruction schedule §5.3's opener rule and MASTER §12.4 both presuppose is ledger open item **186**, filed and not ruled. §7.4 also gains the second producer of `GapReason "malformed"` that §5.3's ahead-refusal created. |
 | 2026-09-11 | A-24 | **Requirement S10 stated the head-retention premise unqualified, and the 2026-09-11 MASTER amendment turned a disagreement with Spec B into a contradiction of S10's own cited authority.** S10 read *"Prune by retention class **and** `expire_at` … ; retain `ct_head` and `body_hash` when `ct_body` is erased"*, sourced to *"MASTER §8, §9.1, §12.2"*. **It is false for `EPH(1..5)` on both clauses** — Spec B §7.2 sets `ct_head = NULL` **and** zeroes `body_hash` at `prune_after` — and the three sources beside it now say so or say nothing: MASTER §8's record listing excludes `EPH(1..5)` from **both** fields in its own voice after that day's two amendments, MASTER §12.2 enumerates what an expired ephemeral record leaves behind and names **neither** field, and MASTER §9.1 requires pruning by class and is silent on retention of either. **Why this row and not another:** a server implementer works from §7's table, so of every site the premise survived at, this was the one a second implementation would build from — and it is the *server* side of exactly the divergence A-23 recorded on the client side. **What changed:** S10 gains the per-class scope, the `EPH(1..5)` erasure, the `EPH(0)` note that it is never persisted, and Spec B §7.2 as a fourth source. **S16 is unchanged** and always was correct: it already required the placeholder row and the zeroed `sender_handle`, which is the remainder of the same sweep statement. **Two more sites in this document, both found by reading §5.1 rather than by any query:** `RecordHeader.BodyHash`'s comment read *"RETAINED after CtBody is erased"* and `Record.CtHead`'s read *"AEAD, always retained"* — **the second is MASTER §8's pre-amendment wording verbatim, in this document's own Go type**, which is the sharpest form the divergence took anywhere: the rule §5.3 has excluded `EPH` from since **A-20** was restated forty sections earlier without the exclusion, in the comment a builder transcribes into `message/record.go`. Neither matched either of the 2026-09-11 class queries, because `CtHead` is not `ct_head` and a Go comment is not a fenced field listing. **Nothing is ruled here.** `EPH` sealing stays refused under ledger item **152**, to be ruled in one sitting with **M1-27**; ledger item **181** is filed and not ruled. **No wire byte, no derivation label, no key-schedule rule, no `GroupResult.Reason`, no interface signature and no Go file in `connect` changed** — and S10's `expire_at` clause, which is the half Spec B §7.1 computes `prune_after` from, is untouched. |
+| 2026-09-15 | A-27 | **THE BODY BECOMES A REAL MLS `PrivateMessage`, AND `message_id` IS DEFINED — the owner's two rulings of 2026-09-15, taken in one sitting because they are one question asked twice.** MASTER §8.4 is normative; this document carries the builder's copy, the construction-order stage and the measurements, which is the division of labour A-18 established. **Ruling 1 REMOVES A DIVERGENCE rather than changing a rule.** MASTER §8's record block has read *"`ct_body` … the MLS PrivateMessage payload"* since revision 4 and its `I5` paragraph *"Sender authentication is MLS's, inside the ciphertext"* for as long; the shipped build padded the application plaintext and sealed it under a record key, using MLS as a key schedule and skipping the part that authenticates senders, and **declared that nowhere** — no erratum, no open item, no `NotBuilt`. **Not one line of the corpus had to change for it to be wrong**, which is why four review rounds and every grep over these documents missed it. **The measured consequence that forced the expensive option:** `record_key[0]` takes the class key every member holds plus a **leaf number**, `sender_handle` is the same shape, `write_auth` is a group-wide MAC, and `messagegroup/seal.go` contains no signature at all (`grep -c ignature` → 4, all of them the Go word) — so **any member seals a record attributed to any other member and every member opens it**, which `connect`'s own `TestAnyMemberCanWriteARecordAttributedToAnotherLeaf` asserts as a standing property and which was **RUN, green, at `27c50c2`**. **What moves here:** §5.1 gains the `message_id` block and the rule for what `ct_body` carries; §5.2 gains one stage at the front of the construction order — `reserve stream_index → build aad_mls → Protect → seal ct_body` — **with `SealRecord`'s and `OpenRecord`'s published signatures UNCHANGED**, because `GroupSession` already holds a `GroupHandle` and `GroupHandle` already declares `Protect` and `Unprotect` (`messagegroup/engine.go:121-122`): the seam is **wired, not built**; §5.3 gains `MessageId`; §7.1 gains the hex spelling; §8.3a gains the width `LP(message_id)` takes. **The AAD, where the corpus was silent:** `aad_mls = H("URmessage/v1/aad/mls" ‖ AAD_body)` — `AAD_body` because it already carries the six fields that fix a record's identity and position and one builder cannot drift from itself; **hashed** because verbatim its 104 octets leave the 256-octet rung carrying **nothing at all**. **Two refusals, and neither implies the other** (MASTER §8.4.3): the sender binding turns *"someone in this group"* into *"Alice"*, the position binding stops a signed frame being re-enveloped into another stream position or another retention class. **Ruling 2:** `message_id = HKDF-Expand(group_handle_key, "mid/v1" ‖ LP(group_id) ‖ LP(sender_handle) ‖ u64(stream_index), 32)` — the triple MLS now signs by way of `aad_mls`, keyed so the server cannot compute it, known to the sender before the send and to a receiver without opening the body. **The generation was rejected on four measured grounds**, the decisive one being that it lives inside the encrypted `SenderData` (`mls/framing.go:802`) and an id that needs the body cannot key the row that outlives it — Spec B §7.2 erases `EPH(1..5)` bodies while the row stays. **The bill, measured on `connect` at `27c50c2` and published per rung in MASTER §8.4.4:** the 256-octet rung falls from **252** usable octets to **59**, the other four lose 194–198, and the 64 KiB ceiling moves by 198 into a blob plane that is not built. **What did NOT change:** no wire field, `format_version` stays `0x02`, `octet_length(ct_body)` is identical at every rung, no preimage moves an octet, no Spec B revision, no schema, no `CHECK`, no reason code. **What it does NOT rule:** the content **KIND** — ledger open item **198**, the next ruling — and items **199**–**207**. |
 
 ---
 
@@ -1162,6 +1163,55 @@ bound. It is used for pagination and for hole detection only. It is **never auth
 neither `AAD_head`, nor `AAD_body`, nor the `write_auth` preimage, nor the `req_auth` preimage. It is
 ignored on submit and populated on read.
 
+**`message_id`. RULED 2026-09-15; MASTER §8.4.5 is normative and this is the builder's copy.**
+
+`message_id` is a **32-octet** value derived from the three header fields that name a record's origin
+and position, keyed under the group's lifetime handle key:
+
+```
+message_id = HKDF-Expand(group_handle_key,
+                         "mid/v1" ‖ LP(group_id) ‖ LP(sender_handle) ‖ u64(stream_index),
+                         32)
+
+  LP(x)  32-bit big-endian length then x — connect/message's WriteOpaqueLP, NOT MLS's varint
+  u64    eight big-endian octets
+  HKDF   HKDF-SHA-256; the info string is 6 + 36 + 20 + 8 = 70 octets
+```
+
+It is **not** `record_id` and the paragraph above says why: `record_id` is assigned after acceptance,
+so a client has nothing to quote in the record it is sealing. It is **stable across epochs**, because
+`group_handle_key` is fixed for the life of the group (§5.3) — a reply to a message from four commits
+ago still names it. It is **computable by the sender before the send**, because `stream_index` is
+reserved before anything is sealed (§5.6), and **by a receiver without opening the body**, because all
+three inputs are plaintext header fields — which is what lets an `EPH` row whose `ct_body` has been
+erased keep its identity for the placeholder that must still render in order.
+
+It is **keyed and not hashed** because all three inputs are visible to the message server: an unkeyed
+id would let the server compute the identifier of every record it stores and join it against any id
+that ever left a client. `group_handle_key` needs no new distribution — every member holds it or
+cannot write at all.
+
+**The SDK spelling is lowercase hex**, 64 characters from `[0-9a-f]`, no prefix and no separator.
+Where a preimage takes `LP(message_id)` — §8.3a's local-store row key is the only one — it takes **the
+32 octets**, never the 64-character spelling.
+
+**Every record has one**, because the derivation reads only header fields; what differs is whether the
+product surfaces it. An `EPH(0)` transient consumes an index locally and is never stored, so its id
+names nothing fetchable (ledger open item **202**).
+
+**What goes inside `ct_body`, and it is not this layer's opaque octets any more.** MASTER §8.4.1, RULED
+2026-09-15: for an **application record** — the predicate is `is_commit == 0 && server_attachment.kind
+== NONE`, and it is computed in one place — the padded plaintext is `LP(inner) ‖ 0*` where `inner` is
+the marshalled MLS `MLSMessage` that `GroupHandle.Protect(aad_mls, bodyPlain)` returned. A **commit**
+record's `ct_body` already held an `MLSMessage` and is unchanged; a **wrap**, an **epoch** and a
+**complete** record carry no MLS frame at all and are unchanged. `aad_mls = H("URmessage/v1/aad/mls" ‖
+AAD_body)`. The size ladder's usable body shrinks accordingly and MASTER §8.4.4 publishes the measured
+column: **59** octets on the 256 rung where there were 252, 826 on 1 KiB, 3,898 on 4 KiB, 16,186 on
+16 KiB, 65,334 on 64 KiB. **`octet_length(ct_body)` is unchanged at every rung**, because the rung is
+what is sealed and the frame sits inside it — so the table below, Spec B's `CHECK`s and the codec are
+untouched.
+
+
 **Size-bucket byte lengths, including the AEAD tag.** Spec B indexes and `CHECK`s on the right-hand
 column; it is published here so the two never diverge (§12.1 A-3).
 
@@ -1224,6 +1274,48 @@ Spec B's server-side code never seals or opens; it uses `message.ParseRecord`, `
 and `message.VerifyWriteAuth`, which are the only exported functions it needs (§12.1). It links
 `connect/message` and never `connect/messagegroup`, so `SealRecord` and `OpenRecord` are not merely
 absent from its surface — they are absent from its binary.
+
+**The order gains one stage at the front, and the published signature does not move. RULED
+2026-09-15, MASTER §8.4.** For an **application record** the sealer protects the body under MLS
+before it seals it:
+
+```
+reserve stream_index  →  build aad_mls  →  inner = Protect(aad_mls, bodyPlain)
+                      →  build server_attachment  →  encrypt ct_body over LP(inner) ‖ 0*
+                      →  compute body_hash  →  encrypt ct_head  →  compute write_auth
+```
+
+Three things about that line, each of which is the reason it is where it is:
+
+- **`Protect` comes after the reservation and not before**, because `aad_mls` is a digest of
+  `AAD_body` and `AAD_body` carries `stream_index`. There is no legal ordering in which the frame is
+  built first.
+- **`SealRecord`'s and `OpenRecord`'s signatures are UNCHANGED**, and that is deliberate: `bodyPlain`
+  keeps its name and its meaning to the caller — the application content — and what changes is what
+  the layer does with it. §5.2 publishes those two signatures and a change to either is a change to a
+  published block; none is needed, because `GroupSession` already holds the `GroupHandle` and
+  `GroupHandle` already declares `Protect(aad, plaintext)` and `Unprotect(message)`. **Nothing is
+  built here; the seam is wired.**
+- **A second write-once resource is now consumed per application record.** `Protect` consumes a
+  generation of this leaf's MLS ratchet and persists group state whether or not the record is ever
+  submitted, exactly as §5.6's reservation consumes an index whether or not it is. So a refused submit
+  leaves a legal gap in **both** sequences. Both are monotonic and both tolerate gaps; the bound is
+  ledger open item **201**.
+
+**The open path gains two refusals and no stage.** `OpenRecord` unpads, hands `inner` to
+`GroupHandle.Unprotect`, and refuses the whole record unless **both** of MASTER §8.4.3's conditions
+hold — the sender binding `sender_handle(group_handle_key, senderLeaf) == header.SenderHandle`, and
+the position binding `aad == H("URmessage/v1/aad/mls" ‖ AAD_body(alg_id, header.BodyBinding()))`.
+Neither implies the other and MASTER §8.4.3 says why. What it returns is the application plaintext, so
+`OpenRecord`'s two return values keep their meaning too.
+
+**`OpenRecord` was already non-idempotent and stays so, for a second reason.** Measured on `connect`
+at `27c50c2`: a second `OpenRecord` of the same record fails today with *"a record key is outside this
+receiver's skipped key window: index 1 is below this receiver's head 2"*, and a second `Unprotect` of
+the same frame fails with *"mls: ratchet generation already consumed"*. The change adds a second
+refusal to a case that already refused; it does not make a working call stop working. Which of the two
+answers first is ledger open item **200**.
+
 
 ### 5.3 Key schedule
 
@@ -1300,6 +1392,25 @@ func RecordAeadBody(recordKey []byte) (key, nonce []byte)
 // this function's ANSWER and not the storage_root[0] it was given — see below. A-19.
 func GroupHandleKey(storageRootEpoch0 []byte) []byte
 func SenderHandle(groupHandleKey []byte, leaf uint32) [16]byte
+
+// message_id = HKDF-Expand(group_handle_key,
+//                          "mid/v1" ‖ LP(group_id) ‖ LP(sender_handle) ‖ u64(stream_index),
+//                          32)                                       MASTER S8.4.5
+//
+// RULED 2026-09-15. It is here, beside SenderHandle, because it takes the same key and for
+// the same reason: group_handle_key is the group's one LIFETIME value, so an id derived from
+// it survives every commit -- which is what a reply to a four-epoch-old message needs and
+// what an id under storage_root[n] could not give.
+//
+// LP is connect/message's WriteOpaqueLP, the 32-bit big-endian prefix, and NOT MLS's varint;
+// the info string is 6 + 36 + 20 + 8 = 70 octets and the output is 32. It is KEYED rather
+// than hashed because all three inputs are plaintext record fields the message server holds,
+// so an unkeyed id would be one the server could compute for every record it stores.
+//
+// It reads only header fields, so it needs neither the body nor any epoch secret: an EPH row
+// whose ct_body has been erased still has its id.
+func MessageId(groupHandleKey []byte, groupId [32]byte, senderHandle [16]byte,
+    streamIndex uint64) [32]byte
 
 // messagegroup/eph.go — NewEphRoot and EphKey are declared above under keyschedule.go's
 // header and belong in eph.go, per §2.2's tree.
@@ -3933,7 +4044,10 @@ func (self *MessageClient) DownloadAttachment(groupId string, messageId string, 
     destPath string, callback DownloadCallback) *MessageSendTicket
 
 type MessageEntry struct {
-    MessageId        string
+    MessageId        string   // MASTER §8.4.5's 32 octets as LOWERCASE HEX, 64 characters
+                              // from [0-9a-f], no prefix and no separator. RULED 2026-09-15.
+                              // NOT record_id, which the server assigns after acceptance;
+                              // this one exists before the send, which is what a reply needs
     GroupId          string
     SenderId         string   // stable per group; maps to a MessageMember
     SenderLeafIndex  int32
@@ -4934,6 +5048,11 @@ local_store_key   32 B, CSPRNG at first run, sealed by the Sealer (§8.3) and, o
 
 per row:  key ‖ nonce = HKDF-Expand(local_store_key, "entry/v1" ‖ LP(group_id)
                                     ‖ LP(message_id), 44)
+
+          LP(message_id) takes MASTER §8.4.5's THIRTY-TWO OCTETS and never the
+          sixty-four-character hex spelling §7.1 publishes. RULED 2026-09-15,
+          and it is a definition rather than a migration: no local store
+          exists yet, so nothing has been keyed either way.
           body_sealed  = XChaCha20-Poly1305(key, nonce, aad = the row's plaintext
                          index columns, plaintext = the decrypted body, sender display
                          name, caption and attachment filenames)

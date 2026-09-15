@@ -417,6 +417,37 @@ none of them, and the carve-out is now named at the rule rather than only at the
 §5.1 not at all, and the two copies that existed did not match each other — the three copies are now
 one text (ledger item **141**'s class, caught by reading rather than by any query).
 
+**Amendment to revision 9 — 2026-09-15 — §8's `ct_body` line and `I5` paragraph, and a new §8.4: the
+owner's two rulings, taken together because they are one question asked twice.** Not a new revision,
+and **this is the first amendment whose larger half REMOVES A DIVERGENCE rather than changing a rule**.
+*(1)* **`ct_body` becomes what this document has said it is since revision 4.** The block has read
+*"the MLS PrivateMessage payload"* throughout, and the `I5` paragraph has read *"Sender authentication
+is MLS's, inside the ciphertext"* throughout; the shipped build did neither. It padded the application
+plaintext and sealed it under a record key, using MLS as a key schedule and skipping the part of MLS
+that authenticates senders. **Not one line of this document had to change for that to be wrong**, which
+is why no review round and no grep over this corpus found it: the documents were right and the code was
+not, and the divergence was declared in no erratum, no open item and no `NotBuilt` entry. The measured
+consequence, which is what forced the expensive option: `record_key[0]` derives from the **class key
+every member holds** plus a **leaf number**, `sender_handle` is the same shape, `write_auth` is a MAC
+under a group-wide key, and `messagegroup/seal.go` contains no signature at all — so **any member can
+seal a record attributed to any other member and every member opens it**, which `connect`'s own
+`TestAnyMemberCanWriteARecordAttributedToAnotherLeaf` asserts as a standing property of the shipped
+tree. §8.4.1 states the scope, which is the **body only**, and §8.4.4 measures the bill, which lands
+almost entirely on the 256-octet rung: **252 usable octets become 59**. *(2)* **§8.4.2 writes the rule
+where the document was silent**: the inner frame's AAD is `H("URmessage/v1/aad/mls" ‖ AAD_body)`, a
+digest rather than the preimage because the preimage's 104 octets would leave the 256-octet rung
+carrying **nothing at all**. *(3)* **§8.4.3 states two refusals an opener owes**, and neither implies
+the other — the sender binding is what turns *"someone in this group"* into *"Alice"*, and the position
+binding is what stops a signed frame being re-enveloped into another stream position or another
+retention class. *(4)* **§8.4.5 defines `message_id`**, which this corpus has referenced as the referent
+of a reaction, a reply, a tombstone, a read cursor, a local-store row key and a pagination cursor since
+revision 9 while **defining it nowhere**. It derives from `(group_id, sender_handle, stream_index)` —
+the triple MLS now signs, by way of the AAD in (2) — keyed under `group_handle_key` so the server
+cannot compute it. **No wire field changes, `format_version` stays `0x02`, no preimage in this document
+moves an octet, and Spec B is untouched.** The content **KIND** is deliberately NOT ruled here and is
+the next ruling; ledger open item **198** carries it, and items **199**–**207** carry the rest of what
+this leaves open.
+
 ## 1. Purpose and product target
 
 URmessage is a private messenger built on the URnetwork mesh. It reuses URnetwork's transport and
@@ -1084,7 +1115,11 @@ RECORD
                           "AEAD, always retained" with no exception in it. Amended again
                           2026-09-13; it then read "so §8.1's durable-class rule excludes
                           EPH, and the class an EPH head is keyed under is unruled".)
-  ct_body            AEAD, erasable; the MLS PrivateMessage payload
+  ct_body            AEAD, erasable; the MLS PrivateMessage payload. THE SHIPPED BUILD DID
+                     NOT DO THIS AND THE DIVERGENCE WAS DECLARED NOWHERE; see §8.4, RULED
+                     2026-09-15, which states WHICH records carry an MLS frame, what its
+                     AAD is, the two refusals an opener owes, and what the rung costs.
+                     This line is UNCHANGED in meaning and always was the rule.
   write_auth         MAC, computed last; see §9.2
 ```
 
@@ -1216,6 +1251,16 @@ Construction order: build `server_attachment` → encrypt `ct_body` → compute 
 
 Per **I5**, this layer adds no signature **over content**. Sender authentication is MLS's, inside the
 ciphertext.
+
+**AND THAT SENTENCE WAS ASPIRATIONAL UNTIL 2026-09-15, WHICH IS THE SECOND THING THIS PARAGRAPH GOT
+WRONG AND THE LARGER ONE.** *"Sender authentication is MLS's, inside the ciphertext"* was true of this
+document and false of the shipped build, which put no MLS frame inside `ct_body` for an application
+record at all — so there was no inner signature for I5 to defer to, and what the layer actually
+offered was a group-wide AEAD proving *"someone in this group wrote this"* and nothing more. §8.4 is
+the ruling that makes the sentence TRUE rather than a change to it. **I5 itself is untouched and needs
+no amendment**, for the same reason its wrap exception needed none: its wording is *"no second
+signature over content"*, and a layer that had no FIRST one was not violating it — it was failing to
+earn the deference the sentence above extends to MLS.
 
 **The wrap is the exception, and this sentence used to omit it. Corrected 2026-09-19.** It read *"this
 layer adds no signature"* flat, which §8.2's *"Every wrap body is signed under the publisher's
@@ -1774,6 +1819,252 @@ both. A server that advertises a one-year text default and receives an unset val
 server that advertises a cap and receives a request for indefinite retention stores the cap and
 reports what it applied. Neither case refuses the commit. The server-side arithmetic is Spec B §6.1
 and Spec B §7.3.
+
+### 8.4 The inner MLS frame, its AAD, and `message_id`
+
+**RULED 2026-09-15 — BOTH HALVES IN ONE SITTING, because they are one question asked twice.** The
+first half is *what is inside `ct_body`*; the second is *what names a message*. The second is only
+answerable because of the first: the identifier this section defines is a triple MLS signs, and
+before the first half it was a triple only the group's own shared key covered.
+
+#### 8.4.1 The body is a real MLS frame, and this REMOVES A DIVERGENCE rather than adding a rule
+
+**§8's record block has said `ct_body` is *"the MLS PrivateMessage payload"* since revision 4, and
+§8's `I5` paragraph has said *"Sender authentication is MLS's, inside the ciphertext"* for as long.
+Neither sentence changes here.** What changes is that the shipped build did not do it — it padded the
+application plaintext and sealed it under a record key, using MLS as a key schedule and skipping the
+part of MLS that authenticates senders — and **that divergence was declared nowhere**: not as an
+erratum, not as an open item, not as a `NotBuilt` entry. It is declared now, and the rule this
+document already carried is made satisfiable by reading this document alone.
+
+**WHAT FORCED IT, measured rather than argued.** §8.1's `record_key[0] = HKDF-Expand(class_key,
+"sender/v1" ‖ LP(leaf_index), 32)` takes the **class key every member of the group holds** and a
+**leaf number**, and a leaf number is an INPUT rather than a credential. `sender_handle` is the same shape. `write_auth` is a
+MAC under a group-wide key. So **any member can derive any other member's record key at any position
+and seal a record the whole group opens as that member's.** The record layer's AEAD proves *"someone
+in this group wrote this"*; it has never proved *"Alice wrote this"*, and nothing in the record layer
+can, because every input to it is group-shared by construction. A real `PrivateMessage` closes it
+because MLS signs every application message under the sender's own credential, which is the one
+secret in the system that is not group-shared.
+
+**Scope, and it is held.** The **body only**. The record layer, the retention classes, the size
+ladder, the blob path, `ct_head`, `write_auth`, the codec, `format_version`, every server-side check
+and every line of Spec B stand exactly as they are. **No wire field is added, removed, widened or
+reordered, and no octet of the record's encoding moves.** What changes is the plaintext *inside* one
+AEAD the server cannot read. The outer AEAD keeps doing what it does for the server — erasure,
+retention class, ordering, position; the inner frame does what it does for members — authentication
+and per-message forward secrecy.
+
+`ct_body`'s plaintext, before padding, is `LP(inner) ‖ 0*` to the rung — **unchanged**, the padder is
+untouched — where `inner` is one marshalled MLS `MLSMessage`. **Which records carry which `inner` is
+derived from two values the sealer already holds**, never from a new parameter:
+
+```
+is_commit   server_attachment.kind   inner
+----------------------------------------------------------------------------------
+    1       any                      the MLS COMMIT this record announces. ALREADY an
+                                     MLSMessage today; nothing about a commit record changes.
+    0       NONE                     an MLS APPLICATION message, ContentTypeApplication,
+                                     produced by Protect. THIS ROW IS THE WHOLE OF THE CHANGE.
+    0       WRAP | EPOCH | COMPLETE  NO MLS FRAME AT ALL. ct_body carries that record kind's
+            | any other              own body, exactly as it does today.
+```
+
+A record in the middle row is an **application record**. The predicate is `is_commit == 0 &&
+kind == NONE`, stated once and computed once. Row 3 is not a carve-out invented here: §8.2 and Spec A
+§5.11 (5) already say a wrap *"carries no MLS frame at all"*, which is why a wrap head has no
+`sent_at` and why ledger item **185** exists. Row 1 is not a change either: a commit record's
+`ct_body` has always held an `MLSMessage`, so **MASTER §8's sentence was already true for commit
+records and false only for application records** — which is the precise shape of the divergence and
+the reason no reader caught it by grepping this document.
+
+**An application record is therefore DOUBLE-SEALED, and the two seals answer different questions.**
+The inner seal answers *who wrote this, and in what position*, to members. The outer seal answers
+*which class, which window, which stream position, and may this be erased*, to the server. Neither
+substitutes for the other, and **I7**'s *"distinct keys and distinct AADs"* now spans three AEADs
+rather than two.
+
+#### 8.4.2 `aad_mls` — what the inner frame authenticates, and what that defends
+
+MLS's `authenticated_data` is covered by the `PrivateMessage`'s own two AEADs **and by the sender's
+signature**, so it is the place a record binds itself to the credential that wrote it.
+
+```
+aad_mls = H("URmessage/v1/aad/mls" ‖ AAD_body)                          32 octets
+
+  where AAD_body is §8's, verbatim and unchanged:
+  "URmessage/v1/aad/body" ‖ u16(alg_id) ‖ LP(group_id) ‖ LP(sender_handle)
+                          ‖ u64(epoch) ‖ u64(stream_index) ‖ u8(retention_class)
+                          ‖ u64(eph_window)
+```
+
+**It is `AAD_body` and not a new preimage** because `AAD_body` already carries exactly the six fields
+that decide a record's identity and position, because one preimage builder cannot drift from itself,
+and because a field added to `AAD_body` later is bound here automatically rather than by a second
+edit somebody forgets. **It is HASHED and not carried verbatim** because `AAD_body` is 104 octets and
+those octets come out of the size rung: verbatim, the 256-octet rung carries **no application body at
+all** — measured, not estimated — while hashed it carries 59. §8.4.4 publishes both columns.
+
+**`AAD_head` is NOT bound and cannot be**, in either form: `AAD_head` contains `body_hash =
+H(ct_body)`, and `ct_body` is sealed over the frame this AAD is inside. That is §8's construction
+order and the circularity guardrail, seen from the inside. The fields `AAD_head` carries and
+`AAD_body` does not — `is_commit`, `size_bucket`, `expire_at`, `blob_id`, `H(server_attachment)` —
+are therefore **still authenticated only by the group**, which is what it means for this ruling to
+cover the body only. Ledger open item **199** carries `is_commit`, which is the one of the five the
+server acts on.
+
+**What binding `AAD_body` defends, stated as the attack it stops.** Without it, a member who cannot
+forge Alice's *signature* can still take a frame Alice signed and **re-envelope it**: seal it into a
+different record. Concretely it could move Alice's message to a different `stream_index` — a replay
+into a later conversational position, indistinguishable from Alice saying it again — or into a
+different `retention_class`: a `DURABLE` message dropped into `EPH(1)` so it self-destructs within
+the hour, or an `EPH` message promoted to `PERMANENT` so it never does. Both are attacks on what the
+product promises rather than on what the ciphertext says. With `aad_mls`, each of those is a record
+whose inner AAD names a position it is not in, and §8.4.3's second refusal catches it.
+
+#### 8.4.3 The two refusals an opener owes, and neither implies the other
+
+A record layer that computes `aad_mls` and never checks it has bought nothing: MLS verifies that *the
+sender signed whatever AAD is in the frame*, and only the record layer can say whether that AAD is
+**this record's**. Likewise MLS reports which leaf signed, and only the record layer knows which
+handle the record claims.
+
+```
+R1  (sender binding)    REFUSE unless
+      sender_handle(group_handle_key, inner.sender_leaf) == record.sender_handle
+
+R2  (position binding)  REFUSE unless
+      inner.authenticated_data == H("URmessage/v1/aad/mls" ‖ AAD_body(alg_id, record.header))
+```
+
+**R1 is the one that converts *"someone in this group"* into *"Alice"*.** R2 does not imply it: a
+member at leaf B can perfectly well call `Protect` with an `aad_mls` naming leaf A's handle — R2
+passes, the signature is B's, and the record then claims A while the frame says B. An opener without
+R1 has two answers to *who wrote this* and no rule for choosing, which is a forgery with extra steps.
+
+**R2 is the one that makes the AAD load-bearing rather than decorative**, and R1 does not imply it:
+R1 pins the writer and says nothing about the position, the class or the window the writer's frame
+was put into.
+
+Both are refusals of the **whole record**. A record failing either is not rendered as a message from
+anybody — not as a gap attributed to a sender, and not as *"malformed"* under Spec A §7.4, which is a
+different condition about a body that opened.
+
+#### 8.4.4 What it costs: the size ladder, measured
+
+Every number below is `len(Protect(aad, plaintext))` on the shipped `connect/mls` at `27c50c2`, over a
+two-member group with a 32-octet `group_id` and ciphersuite **C5**. **Query:** a temporary
+`mls`-package case that Protects at each length and walks the largest plaintext whose protected form
+fits `rung − 4`; it was run, read, and deleted, and `connect` is unmodified. The frame's overhead is a
+step function of the plaintext length, because RFC 9420's varint prefix widens at 64 and at 16,384:
+
+```
+MLSMessage wrapper           4      version u16, wire_format u16
+group_id                    33      varint(32)=1 + 32
+epoch, content_type          9      u64 + u8
+authenticated_data     1 + |aad|    varint(32)=1 + 32   for aad_mls
+encrypted_sender_data       29      varint(28)=1 + (leaf u32 + generation u32 + reuse_guard[4] + tag 16)
+ciphertext          varint(C) + C   C = varint(P) + P + varint(64)=2 + signature 64 + tag 16
+```
+
+| rung | `ct_body` octets | body today | body with `aad_mls` (32 B) | lost | with `AAD_body` verbatim (104 B) |
+|---|---|---|---|---|---|
+| 0 — 256 B | 272 | **252** | **59** | 193 | **0 — the rung carries nothing** |
+| 1 — 1 KiB | 1,040 | 1,020 | **826** | 194 | 753 |
+| 2 — 4 KiB | 4,112 | 4,092 | **3,898** | 194 | 3,825 |
+| 3 — 16 KiB | 16,400 | 16,380 | **16,186** | 194 | 16,113 |
+| 4 — 64 KiB | 65,552 | 65,532 | **65,334** | 198 | 65,261 |
+
+**The 256-octet rung is where the whole bill lands, and it is the rung the next ruling's features live
+on.** A reaction, a receipt and a typing indicator are all tens of octets; a text message of more than
+**59** octets — about 59 ASCII characters, or 15 to 20 CJK or emoji — now pays the 1 KiB rung, which
+is `1040` stored octets where it used to pay `272`. That is **3.8x** for a large fraction of real
+traffic, and it is the reason `aad_mls` is a digest: the verbatim column kills the rung outright, and
+a rung that carries nothing turns every reaction into a 1 KiB record.
+
+**The 64 KiB ceiling moves by 198 octets.** A body of 65,335 to 65,532 octets fits today and does not
+fit after this ruling; the only place it can go is the blob rung, and the blob plane is **not built**
+(ledger open item **203**).
+
+**What it does not cost.** No wire field, no `format_version` bump, no schema change, no `CHECK`, no
+reason code, no Spec B revision, and no re-derivation of any AEAD or MAC vector: every preimage in §8
+is byte-identical before and after. The cost is entirely in the size-bucket distribution, which is an
+operator capacity number rather than a format one.
+
+#### 8.4.5 `message_id`
+
+**RULED 2026-09-15. The identifier is not invented, and it is not `record_id`.**
+
+The corpus has used `message_id` as the referent of a reaction, a reply, a tombstone, a read cursor,
+the local store's per-row key and the C ABI's pagination cursor since revision 9, and **no document
+has ever defined it**. It cannot be `record_id`: the server assigns that *after* acceptance, so a
+client would have nothing to quote in the record it is sealing, and §8's own block rules `record_id`
+out of every preimage for exactly that reason.
+
+```
+message_id = HKDF-Expand(group_handle_key,
+                         "mid/v1" ‖ LP(group_id) ‖ LP(sender_handle) ‖ u64(stream_index),
+                         32)
+```
+
+Every term is in this document's own notation: `LP(x)` is the 32-bit big-endian length prefix then
+`x`; `u64` is eight big-endian octets; HKDF is HKDF-SHA-256. The `info` string is therefore
+`6 + 4+32 + 4+16 + 8 = 70` octets and the output is 32. **Two implementers building from this block
+alone produce the same 32 octets.**
+
+**Why this triple.** `(group_id, sender_handle, stream_index)` is unique per message **by a rule this
+document already enforces**: §8 makes `stream_index` write-once per `(group_id, sender_handle)`, a
+device MUST durably record *"index k consumed"* before encrypting, and the server enforces
+monotonicity. It is known to the **sender before it sends**, because the index is reserved before
+anything is sealed — so a reply can name its own parent and a send can be quoted optimistically. It
+is readable by a **receiver without opening the body**, because all three fields are plaintext record
+fields — so an id still keys the row of an `EPH` record whose body has been erased and whose
+placeholder must still render in order. **And, since §8.4.1, it is authenticated by MLS**: the triple
+is inside `AAD_body`, `AAD_body` is inside `aad_mls`, and `aad_mls` is inside the bytes the sender's
+own credential signed. **The id is the sender's claim, not the group's** — and that sentence is false
+without the first half of this ruling, which is why the two were ruled together.
+
+**It is KEYED, and `group_handle_key` is the key.** All three inputs are visible to the message
+server, so an unkeyed id would be computable by the server for every record it stores, handing it a
+join key between any id that ever appears anywhere and the record it names. `group_handle_key` is the
+group's one lifetime value: §8 fixes it at creation, never rotates it, and delivers it in the
+`Welcome`, so **every member already holds it and no new distribution is needed** — and a member who
+does not hold it *"cannot compute its own handle and therefore cannot write"*, so it was already the
+floor for participation. Using it rather than `storage_root[n]` is what makes an id **stable across
+epochs**, which a reply to a message from four commits ago requires.
+
+**Why NOT the MLS generation, which is the other triple MLS authenticates.** Measured against
+`connect` at `27c50c2`:
+
+1. **It is not on the surface.** `mls.ApplicationMessage` (`mls/group.go:3665`) has three fields —
+   `SenderLeaf`, `AuthenticatedData`, `Plaintext` — and the generation is not one; the storage
+   layer's own seam, `messagegroup.GroupHandle.Unprotect` (`messagegroup/engine.go:122`), returns
+   four values and the generation is not one either. Surfacing it changes two published surfaces, one
+   of them the RFC-validated `mls` package, for a value nothing else wants.
+2. **It is inside the ENCRYPTED `SenderData`** (`mls/framing.go:802`), under a key derived from the
+   content ciphertext. So it is computable only by a party that can open the frame — and an id that
+   requires opening the body **cannot key a row that outlives the body**. Spec B §7.2 erases
+   `ct_body` and `ct_head` for `EPH(1..5)` at `prune_after` while the row stays for gap detection. An
+   id that dies with the body cannot name the record that survives it. **This is decisive, and it is
+   a property of this system rather than of MLS.**
+3. **It resets at every epoch**: the generation is per `(leaf, epoch, content_type)`. So the unique
+   tuple is a four-tuple including `epoch`, not a triple, and one of its four members is the one in
+   (2).
+4. **The sender cannot cheaply compute it either.** `Group.Protect` (`mls/group.go:4332`) returns one
+   `[]byte`, and reading the generation off the ratchet before the call means reaching past the one
+   seam the storage layer keeps narrow.
+
+**Spelling.** The 32 octets are the identifier. Spec A §7.1 types it `string` on the SDK surface; that
+string is the **lowercase hex** of those octets, 64 characters from `[0-9a-f]`, with no prefix and no
+separator. Where a preimage takes `LP(message_id)` — Spec A §8.3a's local-store row key is the only
+one today — it takes **the 32 octets and not the 64-character spelling**. Stated here because nothing
+stated it, and it is free to state now: no local store exists yet, so this is a definition rather than
+a migration.
+
+**Every record has one.** The derivation reads only header fields, so a commit record, a wrap and an
+`EPH(0)` transient each have a well-defined `message_id`; what differs is whether the product ever
+surfaces it. Ledger open item **202** carries the transient, which consumes an index locally, is never
+stored, and therefore has an id nothing can fetch.
 
 ## 9. Message server
 
