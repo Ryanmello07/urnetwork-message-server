@@ -375,7 +375,7 @@ Day separators, and a system-record row type rendered as a centred, muted, non-b
 | History grant | **Persistent banner**, not a row — §5.5 |
 | Retention policy changed | "Ana set media to be kept for 1 month." |
 | Observer message hidden | "A message from an observer was hidden." (§5.6) |
-| Gap (`Kind == "gap"`) | Per reason: `expired` → §9.7's ephemeral line; `out_of_window` → *"A message here couldn't be decrypted — this computer was offline while the group's keys changed too many times."*, with the supporting line *"Linking another computer, or restoring from your phrase, brings the rest back."*; `not_a_member_yet` → reuse §9.1's "You joined here" boundary; `withheld` → §9.6's attestation copy; `no_wrap` → *"This device hasn't received its key for this part of the conversation yet."*; `malformed` → *"Something arrived here that this version couldn't read."* — no retry affordance and no error code; a record that fails validation is shown rather than hidden, because a messenger that silently drops what it cannot read cannot be trusted to have shown everything |
+| Gap (`Kind == "gap"`) | Per reason: `expired` → §9.7's ephemeral line; `out_of_window` → *"A message here couldn't be decrypted — this computer was offline while the group's keys changed too many times."*, with the supporting line *"Linking another computer, or restoring from your phrase, brings the rest back."*; `not_a_member_yet` → reuse §9.1's "You joined here" boundary; `withheld` → §9.6's attestation copy; `no_wrap` → *"This device hasn't received its key for this part of the conversation yet."*; `malformed` → *“Something arrived here that couldn’t be read.”* — no retry affordance, no error code, and NOT the upgrade sentence: a malformed record is a fault no upgrade fixes, and offering one would send the user somewhere that cannot help; `unsupported` → *“This was sent using a newer feature. Update URmessage to see it.”* — an UPGRADE affordance and no error code. The record opened and its signature verified, so the sender did nothing wrong and the malformed sentence would accuse them — no retry affordance and no error code; a record that fails validation is shown rather than hidden, because a messenger that silently drops what it cannot read cannot be trusted to have shown everything |
 | Invite accepted / declined | "Bo joined." / "Bo declined the invitation." |
 | Message deleted for everyone | "This message was deleted." — a permanent placeholder in place of the bubble, never a removed row |
 | Ownership transferred | "Ana made Bo the owner of this group." |
@@ -1673,7 +1673,7 @@ The client's entire dependency is `URmessageSdk.dll` (cgo `c-shared`), reached t
 | 22 About | hosting jurisdiction | `MessageServerInfo.HostingJurisdiction` |
 | 32 Contact card | link, QR, digits, rotation time, state, expiry | CLOSED: `MessageContactCard{Url, QrPayload, SafetyDigits, RotatedAtMs, State, ExpiresAtMs}` |
 
-**The `gap` entry kind** is a first-class `MessageEntry.Kind` value with a reason of `expired` / `out_of_window` / `not_a_member_yet` / `withheld` / `no_wrap` / `malformed`, rendered per §5.1.
+**The `gap` entry kind** is a first-class `MessageEntry.Kind` value with a reason of `expired` / `out_of_window` / `not_a_member_yet` / `withheld` / `no_wrap` / `malformed` / `unsupported`, rendered per §5.1.
 
 **Requirements C places on A:**
 

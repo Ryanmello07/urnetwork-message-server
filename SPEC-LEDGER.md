@@ -8364,7 +8364,7 @@ fourteen are dispositioned below.
     and therefore to every conversation older than its `durable_ttl_seconds`. Blocked behind item 219
     having an open path to render from. *Owner:* this repository for the vocabulary, `sdk` for the walk.
 
-221. **FILED 2026-09-17. `Kind "unsupported"` / `GapReason "unsupported"` IS OWED** — owner choice 11
+221. **SPEC HALF DONE 2026-09-17, THE sdk SURFACE STILL OWED. `GapReason "unsupported"`** — owner choice 11
     of the content-kinds design. The unknown-kind rule requires that a record carrying a code this
     build does not know **keeps its position and its `message_id`**, is **not** a `fail()`, does not
     count toward `ErrRecordAbandoned`, and renders as one closed placeholder. `"malformed"` is the
@@ -8373,7 +8373,26 @@ fourteen are dispositioned below.
     six, and Spec C §16.1 gate 8 asserts **set equality** against Spec A — three places.
     **This is the clause that makes every later kind additive rather than a format break**, so it is
     owed by the same commit that ships the first kind a receiver can fail to know.
-    *Owner:* this repository for Spec A and Spec C, `sdk` for the walk.
+
+    **DONE 2026-09-17, the specification half.** `"unsupported"` is added to Spec A §7.4's closed
+    `GapReason` set with the distinction stated in both directions — a build that called a future kind
+    `"malformed"` would **accuse correct senders**, and one that called a malformed body
+    `"unsupported"` would **tell a user to upgrade out of a bug no upgrade fixes**. Spec C §5.1's
+    render table and §14.2's restatement follow. **It is filed as `GapReason` and not as a `Kind`**
+    because the record *is* a gap — something is there and cannot be shown — and that reuses the
+    rendering path rather than adding a seventh entry kind.
+
+    **A defect found while making the edit and fixed in it:** Spec C's copy for `"malformed"` read
+    *"Something arrived here that this version couldn't read."* — which is the **`unsupported`**
+    sentence, and actively misleading for a genuine fault, because it points the user at an upgrade
+    that cannot help. `"malformed"` now reads *"…that couldn't be read"* with no upgrade affordance,
+    and `"unsupported"` takes the upgrade sentence and the affordance with it.
+
+    **STILL OWED:** the `sdk` surface. `sdk/urmessage` answers `ContentUnsupported` and already does
+    the accounting correctly (`TestAnUnknownKindKeepsItsPositionAndIsNotAFailure`), but it renders as
+    a `Message` carrying an unknown `ContentKind` and an empty `Text` — there is **no gap entry type
+    in `sdk/urmessage` at all**, so nothing yet maps that to the vocabulary this edit landed.
+    *Owner:* `sdk`.
 
 222. **FILED 2026-09-17. SHOULD `ct_head` BE PADDED TO A FIXED WIDTH — A HEAD RUNG?** Filed as the
     **single change that reverses the kind-carrier ruling of this date**, and as the gate on any future

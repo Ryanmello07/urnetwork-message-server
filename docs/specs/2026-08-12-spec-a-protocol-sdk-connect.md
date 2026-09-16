@@ -4250,7 +4250,22 @@ with a `sent_at` far in the past or the future lands in `record_id` position.
 
 `Kind == "gap"` is a first-class entry type: an undecryptable or missing record renders as a visible gap
 with its reason. `GapReason` is a **closed set**: `"expired"`, `"out_of_window"`, `"not_a_member_yet"`,
-`"withheld"`, `"no_wrap"`, `"malformed"`. `"malformed"` is a record that arrived and failed
+`"withheld"`, `"no_wrap"`, `"malformed"`, `"unsupported"`.
+
+**`"unsupported"` was added 2026-09-17 as ledger item 221, and it is the value that makes every later
+content kind additive rather than a format break.** It is a record that **opened**, whose signature
+verified, and whose application plaintext carries a **kind code this build does not know** — a newer
+feature, not a fault. It is emphatically **not** `"malformed"`: malformed means the sender broke a
+rule that is already written, and a future kind breaks none. The distinction is load-bearing in both
+directions. A build that reported a future kind as `"malformed"` would accuse correct senders; a build
+that reported a genuinely malformed body as `"unsupported"` would tell a user to upgrade out of a bug
+that no upgrade fixes. The rule that produces it is the content envelope's unknown-kind rule: the
+record **keeps its position and its `message_id`**, the walk continues, it is **not** a failure and
+does not count toward `ErrRecordAbandoned`, and it is **never parsed as any known kind**. A code in
+the transient range arriving on a stored class is the sender breaking the range rule and stays
+`"malformed"`.
+
+`"malformed"` is a record that arrived and failed
 validation — the reaction-body rule of §7.4a is the first producer of it, and **§5.3's opener refusal
 of an `EPH(1..5)` record whose `eph_window` is more than one window AHEAD of the opener's clock is the
 second** (added 2026-09-13, second pass of that date; *"first"* above stays true as history and is not
