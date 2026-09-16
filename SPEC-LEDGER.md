@@ -8460,6 +8460,73 @@ fourteen are dispositioned below.
     the message rather than write through it, so every pointer ever handed out stays frozen.
     *Owner:* `sdk`.
 
+228. **RULED 2026-09-17 AS A PROPERTY, NOT BUILT, AND THE MECHANISM IS OPEN — THE READ-RECEIPT
+    AUTHENTICATION TAG.** The owner ruled that the **sender of a message can verify a receipt for it
+    and no one else can**: not another member holding a copy, not a court, not a stolen device. So
+    the tag is a **MAC, never a signature** — in an RFC 9420 tree a signature is verifiable with **no
+    secret at all**, which makes it transferable third-party evidence of a *passive* act.
+
+    **The wrinkle, found while recording the ruling:** a `READ_THROUGH` watermark acknowledges
+    messages from **several authors at once**, and a pairwise key is shared with exactly one.
+    - **1:1** — one tag, 16 octets, `33 + 16 = 49`, fits the 256 B rung.
+    - **Group, one tag per unacknowledged author** — unforgeable by a third member, but the **count
+      of authors leaks through the rung**.
+    - **Group, one group-scoped key** — flat 16 octets at any size, but **every member can forge**
+      it, weakening the property to *non-transferable but member-forgeable*.
+
+    The primitive exists for either: `connect/mls/group.go:821` `Group.Export`, the RFC 9420 §8.5
+    exporter, which MASTER §7 already derives `mls_secret` from. **Unruled:** which of the two, and
+    the exact preimage. Nothing may be built against a guessed answer.
+    *Owner:* this repository to rule the construction, `connect`/`sdk` to build.
+
+229. **FILED 2026-09-17. EVERY PRIVATE KEY THIS PRODUCT HOLDS IS ON DISK IN THE CLEAR, AND IT IS NOW
+    A BLOCKER FOR A NAMED FEATURE RATHER THAN AN UNOWNED NOTE.** `sdk/urmessage/statestore_durable.go:26-48`,
+    verbatim: *"Every octet this store writes is written in the CLEAR: ... this device's Ed25519
+    identity private key, and each group's `pq_secret` and `group_handle_key`. There is no
+    passphrase, no key derivation, no OS keychain and no hardware."* Protection is **file mode
+    alone**, and on Windows this code sets no ACL.
+
+    **The source comment files this as "S2-24", which does not resolve** — `SPEC-LEDGER.md:13423` is
+    a different item, about a torn-tail repair in §8.2. This item is the real filing; cite it and not
+    S2-24.
+
+    **Why it is load-bearing now:** it is the asymmetry that decided item 228. A signature verifies
+    under exactly this key, so a stolen device would let a thief **forge receipts as that person**
+    while the honest user carried the evidentiary weight of a signature a court treats as
+    attributable. The MAC ruling sidesteps that for receipts; it does **not** sidestep it for
+    ordinary messages, which are signed under the same unprotected key today.
+    *Owner:* `sdk`. The signing key needs a platform keystore.
+
+230. **FILED 2026-09-17. A CLIENT THAT PROCESSES A FETCH PAGE NEWEST-FIRST BREAKS AT A PAGE OF
+    1,026.** Measured at `connect 4a70be8` over the two-device fixture: reversed pages of **64**,
+    **1,024** and **1,025** all open; a reversed page of **1,026** is refused at receipt 1,025, and
+    one of **2,048** at receipt 2,047:
+
+    ```
+    index 1027 is 1025 ahead of head 2, and the window is 1024
+    ```
+
+    **The mechanism:** the receiver's head jumps to the **first record offered**, which newest-first
+    is the page's **highest** index, so a reversed page of `p` looks back `p−1` and crosses the
+    1,024 window at `p = 1,026`.
+
+    **NOT reachable through the shipped path today** — the server caps a page at
+    `Capabilities.max_records_per_fetch`, default **512** — so this is a **latent** constraint, and
+    it is written down because *newest-first is the natural order for a chat UI* and because raising
+    that cap would arm it silently. *Owner:* `sdk` for the walk, Spec C for the UI rule.
+
+231. **FILED 2026-09-17. A WATERMARK RECEIPT DEFEATS §5.5's OWN COVER-CORRELATION MITIGATION.** §5.5
+    names the tension — a server that correlates a fetch with the receipt that follows it learns
+    which stored records were real content and which were `COVER` — and offers **batching** as the
+    blur. **A watermark has nothing to batch:** one `id[32]`, 33 octets, always the 256 B rung. So
+    the mitigation §5.5 relies on does not exist for the one receipt kind being built, and the only
+    remaining knob is emission cadence, which is tied to actual reading.
+
+    Candidates, **none chosen**: emit a receipt for `COVER` records too and discard it at the
+    receiver, which removes the correlation at its root and costs one record per cover; or decouple
+    emission from reading with a fixed cadence, so the presence of a receipt carries no information
+    and only its *contents* do. *Owner:* this repository.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
@@ -17802,3 +17869,179 @@ bound, and the cap needs a ruling because it must not be a `fail()`); a post-ope
 three times though permanent by construction; the `headVersion` flag day does not reach the local
 sent-copy, which is the one population it was bumped for; there is no rule for reacting to a kind the
 build cannot read; and `Messages()` promises a snapshot while handing out live pointers.
+
+---
+
+### 2026-09-17 (fifth pass of that date) — the owner rules receipts: authenticated but NOT signed, and self-erasing; and the measurement that moved read receipts off the blocked list
+
+**A note on this document's dates, measured rather than assumed.** This entry is dated for
+**monotonicity with the entries above it**, not from a clock. The corpus's dates run **ahead of
+git's**: `git log -1 --date=short` gives **2026-09-15** for both `connect 4a70be8` and
+`sdk 5e48113`, which the four entries above label 2026-09-17. The drift predates this session and
+nothing load-bearing rests on it — **the append ORDER is the chronology**, and every claim in this
+document is anchored to a commit rather than to a day. Read a date here as a sequence label.
+
+**Change:** the owner rules **three things** about receipts and typing. Ledger item **208** (D1 /
+M1-25) **stops blocking read receipts** and is re-scoped to transients only. Four items are filed:
+**228**–**231**. `DELIVERED` is **dropped from v1**. No implementation is in this commit.
+
+#### What the owner was asked, and what he answered
+
+He was given the counter problem — *"1,025 typing indicators destroyed every message after them"* —
+and split it **by consequence**, which is the split the measurements then justified:
+
+> *"a typing indicator is very low risk and doesn't really mean anything.. it can be cheaply done for
+> now. Read receipts are more important so I feel like it should be verifiable. However please
+> consider any potential limits or issues that can arise theoretically."*
+
+He was then asked what *verifiable* should mean, and what the server should learn.
+
+**RULING 1 — TYPING is unauthenticated and transient.** D1 option (b): a separate counter and no MLS
+frame. Forgeable by any member, and that is accepted. It still needs the `EPH(0)` fan-out channel,
+which does not exist, so **typing is the feature that waits.**
+
+**RULING 2 — A READ RECEIPT IS AUTHENTICATED BUT NOT SIGNED.** The sender of a message can verify
+that a receipt for it is genuine. **No one else can** — not another member holding a copy, not a
+court, not whoever ends up with a stolen laptop. The owner's own words on being shown the fork:
+
+> *"Messages are e2ee so a court can only get a message if someone in the party decrypted it. A read
+> receipt that anyone can verify even if they don't know the message content feels weird."*
+
+**RULING 3 — RECEIPTS SELF-ERASE.** They take a class the retention sweep clears rather than one it
+keeps. Spec B §7.2 overwrites an `EPH(1..5)` row's **`sender_handle` with sixteen zero bytes** at
+prune, so the operator's read log erases itself on a schedule.
+
+#### Why "authenticated" must not mean "signed", stated so it is not re-litigated
+
+**In an RFC 9420 tree, signed means TRANSFERABLE.** The verifier needs **no secret at all**, and the
+credential identity **is** the signing key's public half — one key per device across every group. So
+a signed receipt is a selectively-disclosable, third-party-verifiable statement that a named person
+read a specific message at a specific position.
+
+**The owner's instinct about the outsider is correct and was verified.** An outsider holding raw
+traffic gets nothing: the body is inside `ct_body`, and `message_id` is a **keyed** derivation
+(`connect/messagegroup/handle.go:170`) that an outsider cannot compute or link. It takes a member, or
+a seized device, to make any of it legible.
+
+**But that is the case that matters, and there the difference is total.** On disclosure, a signature
+stands by itself and the reader cannot deny it; a MAC the discloser could have produced proves
+nothing.
+
+**The argument that nearly went the other way, recorded because it is true.** Ordinary messages are
+*already* signed — `SignAuthenticatedContent` at `connect/mls/group.go:4409` — and
+`docs/specs/2026-08-12-urmessage-protocol-design.md:550` names **"deniability of authorship to other
+group members"** a **permanent non-goal**. So a signed receipt would breach no property this product
+has. What would be new is the **category**: speaking is voluntary and reading is not, so a signed
+receipt proves a *passive* act — that someone read a message they never answered, never wanted and
+never acknowledged.
+
+**What decided it is an asymmetry that is true today regardless of the crypto.** The Ed25519 identity
+private key is written **in the clear** (`sdk/urmessage/statestore_durable.go:26-48`: *"no passphrase,
+no key derivation, no OS keychain and no hardware"*), and on Windows this code sets no ACL. So a
+stolen device lets a thief **forge receipts as that person**, while the honest user carries the
+evidentiary weight of a signature a court treats as attributable. **A guarantee strong against its
+users and weak against their attackers is backwards.** And it is the irreversible direction: a MAC
+can be upgraded to a signature later, and proofs already emitted can never be un-published.
+
+#### The measurement that unblocked read receipts
+
+**Hypothesis: the generation-skip refusal is caused by a receiver MISSING generations, not by a
+sender SPENDING them.** Measured on `connect 4a70be8` through `messagegroup`'s own two-device fixture,
+every record round-tripped through `EncodeRecord`/`ParseRecord`:
+
+```
+DURABLE ARM  n=1100  1100 receipts sealed and opened IN ORDER; the text after them OPENED
+DURABLE ARM  n=2100  ditto; tail probe: sender generation 3127, receiver head 2102
+CONTROL      1024 SKIPPED records -> the next text OPENS
+CONTROL      1025 SKIPPED records -> REFUSED, at BOTH layers:
+   record: index 1027 is 1025 ahead of head 2, and the window is 1024
+   mls:    ratchet generation too far ahead: generation 1026, head 1, bound 1024
+```
+
+**The control goes red at the exact boundary, so the durable arm is not a test that cannot fail.**
+The tail probe is the mechanism rather than an inference: **the receiver's head moves with delivery**,
+and the 1,024 wall sits 1,024 behind the *current* head rather than at an absolute ceiling. Realistic
+delivery was swept too: **losing half of 2,100 receipts permanently costs nothing**, because no single
+hole approaches 1,024.
+
+**So D1 is a TRANSIENT problem, not a receipt problem.** It is re-scoped accordingly: it blocks
+typing, which the owner has already agreed can wait.
+
+#### The constraint that ruling 3 buys, and it is the build's long pole
+
+The same pass measured the complement, which is what makes it a result:
+
+```
+SAME CLASS   1025 DURABLE receipts between two DURABLE texts -> the second text OPENS
+OTHER CLASS  1025 MEDIA   receipts between two DURABLE texts -> the second text is REFUSED
+             (same count, same receiver, every record opened, the text at the same index 1027)
+```
+
+**`stream_index` is class-blind while the ladder is per class**, so records on one class advance the
+shared index without advancing another class's head. **A self-erasing receipt is by definition on a
+different class from the text**, so **ruling 3 puts receipts on the starving side of D3 by
+construction.** The design's own S6-retrack notes that re-tracking at authenticated state heals the
+measured case; that repair is now a **prerequisite** of receipts rather than parallel work.
+
+#### Consequences for the build, in order
+
+1. **Item 221 first.** A receipt code on a stored class is refused as `"malformed"` by the landed
+   range rule (`sdk/urmessage/kind_test.go`'s `TestTheRangeRuleRefusesACodeOnAClassItsRangeDoesNotAllow`
+   asserts exactly this, and it PASSES). Until an unknown stored kind renders as a **placeholder**
+   rather than a hole, **emitting a receipt would punch holes in every conversation on every older
+   build.** The rollout is a format break, not an additive change.
+2. **`READ_THROUGH` moves out of the transient range.** `0x40`–`0x7F` is legal on `EPH(0)` **only**,
+   and a self-erasing receipt is `EPH(1..5)`, a **stored** class. So it takes a code in `0x01`–`0x3F`.
+   The registry's `0x41` is withdrawn.
+3. **D3's re-track repair**, per the constraint above.
+4. **`DELIVERED` (`0x40`) is DROPPED FROM v1.** The watermark subsumes it — *read through X* implies
+   *delivered through X* — for a tenth to a twenty-fifth of the records, and it is the only receipt
+   shape that reaches `maxLadderWalk` within a product lifetime. Nothing is lost that
+   `READ_THROUGH` does not already say.
+5. **Items 219 and 220** remain owed and are now on this feature's path.
+
+#### Items filed
+
+**228. RULED, NOT BUILT — the receipt authentication tag's exact construction.** Ruling 2 fixes the
+*property* (the message's sender can verify; no one else can) and **not the mechanism**, because the
+mechanism has an open wrinkle found while recording this: **a `READ_THROUGH` watermark acknowledges
+messages from SEVERAL authors at once, and a pairwise key is shared with exactly one.** In a 1:1 that
+is one tag of 16 octets, which fits the 256 B rung at `33 + 16 = 49`. In a group it is either one tag
+per unacknowledged author — whose *count* then leaks through the rung — or a group-scoped key, which
+every member can forge and which therefore weakens the property to *"non-transferable but
+member-forgeable"*. **The primitive exists either way:** `connect/mls/group.go:821` `Group.Export` is
+the RFC 9420 §8.5 exporter, and MASTER §7 already derives `mls_secret` from it. Unruled: which of the
+two, and the exact preimage.
+
+**229. THE AT-REST KEY IS NOW A BLOCKER FOR A NAMED FEATURE, not a filed-and-unowned item.**
+`sdk/urmessage/statestore_durable.go:26-48` writes this device's Ed25519 identity private key, each
+group's `pq_secret` and each `group_handle_key` **in the clear**, protected by file mode alone — and
+on Windows not even that. The source comment files this as "S2-24", which **does not resolve**:
+`SPEC-LEDGER.md:13423` is a different item about a torn-tail repair. This item is the real filing.
+It became load-bearing the moment receipts became a feature, because the forgery asymmetry above is
+what decided ruling 2. *Owner:* `sdk`, and the signing key needs a platform keystore.
+
+**230. A CLIENT THAT PROCESSES A FETCH PAGE NEWEST-FIRST BREAKS AT A PAGE OF 1,026.** Measured:
+reversed pages of 64, 1,024 and **1,025** all open; a reversed page of **1,026** is refused at
+receipt 1,025, and a reversed page of 2,048 at receipt 2,047. The head jumps to the first record
+offered — the page's **highest** index — so a reversed page of `p` looks back `p−1`. **Not reachable
+through the shipped path today**, because the server caps a page at `max_records_per_fetch` (default
+512), so this is a **latent** constraint on any client that renders newest-first, which is the natural
+UI order. Write it down before someone raises the cap. *Owner:* `sdk`, and Spec C for the UI rule.
+
+**231. RECEIPTS DEFEAT §5.5's OWN COVER-CORRELATION MITIGATION.** §5.5 names the tension — a server
+that correlates a fetch with the receipt following it learns which stored records were real content
+and which were `COVER` — and offers **batching** as the blur. A watermark has **nothing to batch**:
+one id, 33 octets, always the 256 B rung. So the stated mitigation does not exist for the one receipt
+kind that is being built. Candidates, none chosen: emit a receipt for `COVER` records too and discard
+it at the receiver; or decouple emission from reading with a fixed cadence, so the presence of a
+receipt carries no information. *Owner:* this repository.
+
+#### What this entry does not claim
+
+- **The exact tag is not ruled** (item 228), so nothing here fixes a wire format for it.
+- **The pairwise-versus-group-scoped choice is not made**, and it is a real difference: pairwise is
+  unforgeable by a third member, group-scoped is not.
+- The traffic, storage and mobile figures that accompanied this analysis were produced by one pass
+  and **are not independently reproduced**; they informed the decision to drop `DELIVERED` and are
+  recorded there, not relied on here.
