@@ -8558,6 +8558,24 @@ fourteen are dispositioned below.
     `ErrAlphaOneAdd`, every candidate shape emits the **identical 49 octets on the identical 256 B
     rung** — so the correct key costs the shippable product **nothing**. The key is the
     **irreversible** half; the tag width and the padding rule are re-versionable through a new stored
+    **BUILT 2026-09-17 at `connect f2f4f78` / `sdk 6487b9b`. AND THE TEST NAMED FOR THIS ITEM'S
+    THIRD-MEMBER PROPERTY DID NOT HOLD IT.** `TestAThirdMemberWithTheWholeScheduleAndTree
+    DerivesSomethingDifferent` could never have failed: `PairwiseExport` always puts the caller's own
+    leaf on one side, so **a third member cannot name the pair's key through the API at all** — it can
+    ask only for its own pairs, which differ because the **context** differs, and the context differs
+    under a group-scoped key exactly as much as under a DH. **Measured:** substituting
+    `self.schedule.Export(...)` for the `X25519DH` call — which is shape C, the shape this item
+    rejects — leaves that case **green**.
+
+    **The property is held by `TestThePairwiseKeyDependsOnTheLeafPrivateScalarAndNotOnGroupSecrets
+    Alone`**, which fixes everything group-scoped — group, epoch, schedule, tree, peer, and therefore
+    the identical context octets, since the context reads its points out of the **tree** — and changes
+    **only the caller's own leaf scalar**. A group-scoped key cannot notice that; a DH cannot ignore
+    it. It **FAILS** under the same mutation. **Cite that case, not the third-member one, as this
+    item's gate.** The implementer's own twelve-row mutation table had no survivors and still missed
+    this, because every row mutated a **parameter** of the construction and none mutated the
+    **construction**.
+
     kind code under §4.3. *Owner:* `connect` for `PairwiseExport` and its KAT, `messagegroup` for the
     `GroupHandle` seam, `sdk` for the build site.
 
