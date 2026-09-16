@@ -218,8 +218,10 @@ connect/                                   (existing; never imports its own chil
     card.go                                §5.14's card derivations and the sealed deposit
     rendezvous.go                          the client's five §5.14 signatures, over the preimages
                                            connect/message builds
-    tombstone.go                           TOMBSTONE construction and verification
-    reaction.go                            §5.1's REACTION body, and COVER
+    (tombstone.go, reaction.go)            STRUCK 2026-09-17 by the kind-carrier ruling. The
+                                           content codec is sdk/urmessage/kind.go and this layer
+                                           parses no application body. COVER-as-traffic stays
+                                           here, in pad.go. See §5.1 and §7.4a.
     eph.go                                 eph_root, buckets, window expiry
     errors.go
 sdk/                                       (existing)
@@ -1243,18 +1245,29 @@ column; it is published here so the two never diverge (§12.1 A-3).
 | 4 | 65536 | 65552 |
 | 5 | blob-ref | `ct_body` absent; `blob_id` present |
 
-**Record bodies with a fixed shape.** Most application records carry an opaque body inside `ct_body`
-and this layer never looks at it. The reaction is the exception, because its body is validated on
-both sides:
+**Record bodies are opaque to this layer, without exception.** **AMENDED 2026-09-17 by the
+kind-carrier ruling; the reaction is no longer an exception and this layer looks at no body at all.**
+Every application record carries an opaque body inside `ct_body`. The content grammar — which kind a
+body is, and how it parses — lives in **`sdk/urmessage/kind.go`**, above `OpenRecord` and below the
+`Message` the walk builds.
+
+The reaction's shape is now the content codec's, and it changed in three ways. It is recorded here
+because §7.4a still references it:
 
 ```
-REACTION { u8 op, LP(target_message_id), LP(emoji_utf8) }
-  op        0x01 = add, 0x02 = remove
-  emoji_utf8  1..64 bytes, valid UTF-8, exactly one extended grapheme cluster, and every
+kind 0x05 = REACTION_ADD, 0x06 = REACTION_REMOVE      (two CODES, not a u8 op inside the body)
+body := target_message_id[32] ‖ emoji_utf8            (RAW 32 octets, never LP; emoji is the TAIL)
+  emoji_utf8  1..64 octets, valid UTF-8, exactly one extended grapheme cluster, and every
               codepoint drawn from the emoji set of the pinned Unicode version (§7.4a).
               Validated on send AND on receipt; a record failing validation renders as a
               gap with reason "malformed" rather than as a reaction.
 ```
+
+**The grapheme-cluster and pinned-set halves are NOT yet enforced** — Go's standard library has no
+UAX-29 segmentation (open item **M1-41**), and that dependency decision moved to `sdk` with the
+codec. What ships first validates UTF-8 and the 1..64 octet bound, and says so at the call site.
+Why the whole assignment moved, and why §2.2's two file names are struck: SPEC-LEDGER, 2026-09-17,
+third pass.
 
 ### 5.2 Construction order is a type, not a convention
 
@@ -4284,9 +4297,10 @@ not. MASTER §9.5 and §13 state it.
 #### 7.4a Reactions
 
 **A reaction carries any emoji, and the field is a string on the wire.** `React(groupId, targetId,
-emoji, cb)` takes whatever the user picked. The record body is `REACTION { u8 op,
-LP(target_message_id), LP(emoji_utf8) }` (§5.1), and `connect/messagegroup` validates `emoji_utf8` on
-**both** send and receipt against one pinned Unicode version:
+emoji, cb)` takes whatever the user picked. The record body is `target_message_id[32] ‖ emoji_utf8`
+under kind `0x05`/`0x06` (§5.1, **amended 2026-09-17**), and **the sdk content codec**
+(`sdk/urmessage/kind.go`) validates `emoji_utf8` on **both** send and receipt against one pinned
+Unicode version:
 
 - valid UTF-8, 1 to 64 bytes;
 - exactly **one extended grapheme cluster**, so a joined sequence is one reaction and can never

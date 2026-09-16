@@ -8335,6 +8335,64 @@ fourteen are dispositioned below.
     explain, where the two disagree and only the measurement is under test. *Owner:* `connect` for
     the comment, this repository for §8.4.4, done in this commit.
 
+219. **FILED 2026-09-17. A PRUNED `DURABLE` RECORD IS A `fail()`, AND EVERY CONVERSATION REACHES ITS
+    OWN PRUNE DATE.** Read and verified 2026-09-17 at `connect 4a70be8`:
+    - `connect/messagegroup/seal.go:800-802` hashes `record.CtBody` and compares it in constant time
+      against the **retained** `header.BodyHash`, returning `ErrRecordAeadOpen` — **before either
+      AEAD runs**. The guard is deliberate and its comment says so: *"with this check in front, no
+      input opens `ct_head` and then fails `ct_body`."*
+    - Spec B §7.2 erases the body of a `DURABLE` record at `create_time + durable_ttl_seconds`,
+      **one year by default**, and **keeps the head and `body_hash`**. `MEDIA` is the same shape.
+    - `sdk/urmessage/group.go:803` seals **every** message at `DURABLE`.
+    - In the walk that refusal is `fail()` and counts toward `ErrRecordAbandoned`.
+
+    **So on a record's prune date it stops opening, and it does not degrade — it fails.** The server
+    already supports the read that fixes it: `heads_only` fetch is implemented
+    (`msgrepo/api/fetch.go:86, :103, :214`, with `TestAHeadsOnlyFetchWithholdsTheBodyEvenFromAStore
+    ThatKeptIt`). What is missing is a head-only **open** path in `connect/messagegroup`, and a
+    rendering for it, which is item 220.
+
+    **This is independent of content kinds and is owed either way.** **No live probe could have caught
+    it: the trigger is a date, not a condition** — the alpha's oldest record is hours old, and every
+    probe run to date has been minutes long. *Owner:* `connect` for the open path, `sdk` for the walk.
+
+220. **FILED 2026-09-17. A `GapReason` FOR "THE SERVER ERASED THE BODY" IS OWED, AND IT IS STRICTLY
+    LARGER THAN ITEM 221.** `GapReason` is a closed set of six — `expired`, `out_of_window`,
+    `not_a_member_yet`, `withheld`, `no_wrap`, `malformed` (Spec A §7.4) — and **none of them means a
+    pruned body**. `expired` is defined as a **destroyed key**, which is a different condition: the
+    key is fine, the ciphertext is gone. Applies to every pruned `TEXT`, not only to unknown kinds,
+    and therefore to every conversation older than its `durable_ttl_seconds`. Blocked behind item 219
+    having an open path to render from. *Owner:* this repository for the vocabulary, `sdk` for the walk.
+
+221. **FILED 2026-09-17. `Kind "unsupported"` / `GapReason "unsupported"` IS OWED** — owner choice 11
+    of the content-kinds design. The unknown-kind rule requires that a record carrying a code this
+    build does not know **keeps its position and its `message_id`**, is **not** a `fail()`, does not
+    count toward `ErrRecordAbandoned`, and renders as one closed placeholder. `"malformed"` is the
+    wrong value, because **a future kind is not malformed**. **It is not a one-line edit:** both
+    vocabularies are closed and asserted by `TestVocabulariesAreClosed`, Spec C §14.2 restates the
+    six, and Spec C §16.1 gate 8 asserts **set equality** against Spec A — three places.
+    **This is the clause that makes every later kind additive rather than a format break**, so it is
+    owed by the same commit that ships the first kind a receiver can fail to know.
+    *Owner:* this repository for Spec A and Spec C, `sdk` for the walk.
+
+222. **FILED 2026-09-17. SHOULD `ct_head` BE PADDED TO A FIXED WIDTH — A HEAD RUNG?** Filed as the
+    **single change that reverses the kind-carrier ruling of this date**, and as the gate on any future
+    head field. The asymmetry that the ruling rests on:
+    - `ct_body`'s width is quantised **and the server enforces the equality** (Spec B §5.1 check 3;
+      `msgrepo/api/submit.go:299-306`). The body is length-opaque by construction.
+    - `ct_head` travels as a bare `WriteOpaqueLP` (`connect/message/codec.go:155`) bounded only by a
+      cap (`DefaultMaxCtHeadBytes`). The head is length-**transparent** by construction.
+
+    **So R2 is not dead, it is DORMANT** — true only while the head has exactly one layout, which is
+    what invariant H1 gates. Pad the head and it becomes length-opaque, the asymmetry disappears, and
+    the rejected carrier becomes a live option again.
+
+    **The query that settles it, not run:** what does padding `ct_head` to a fixed 64 octets cost in
+    stored octets across the live table (3,758 rows × ~39 ≈ 147 KB), and **does any server check read
+    `octet_length(ct_head)` other than the cap?** Believed not; **not enumerated**. Note the head is
+    *not* in the size ladder, so padding it cannot push `ct_body` across a rung boundary.
+    *Owner:* this repository.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
@@ -17373,3 +17431,198 @@ read. The next work is the content surface — the envelope of the 2026-09-16 co
 and **its registry table must be re-measured before it is built**, because that design was written
 before v2 landed and every row of its §4.2 table is computed from a usable-octet count v2 may have
 moved.
+
+---
+
+### 2026-09-17 (third pass of that date) — the kind octet is ruled on the tree that exists, the design's own reasoning having rotted under a ruling made the same day; and a body-hash check that turns every conversation's first birthday into an abandonment
+
+**Change:** the content-kind carrier is **RULED**. Ledger item **198** advances from *designed, not ruled*
+to *ruled, building*. Spec A §2.2's assignment of `tombstone.go` and `reaction.go` to
+`connect/messagegroup` is **struck, narrowly**; §5.1 and §7.4a are amended to move emoji validation
+with it. A new invariant **H1** is filed with a gate. **Four items are filed: 219–222**, one of which
+is a live defect with a date on it.
+
+**Why this entry exists at all:** the 2026-09-16 content-kinds design recommended a carrier and said
+of its first reason *"The first is measured and decides it alone."* `aad_mls` v2 landed **one commit
+after that design was audited** and falsified it. A second reason was falsified by a live census of
+the production table taken this session. A fourth was falsified by a ledger item closing the other
+way. **Three of four reasons dead, including the decisive one.** The conclusion survives. Its
+reasoning does not, and a permanent wire format may not rest on a justification known to be false.
+
+#### First, the question the design could not have asked
+
+**Is `aad_mls` — and therefore `head_commit`, and therefore the head plaintext — covered by the
+SENDER'S SIGNATURE, or only by the AEAD?** These are different properties with different
+consequences, and the whole fork turns on it.
+
+**Measured: BOTH.** `aad_mls` rides in exactly one field, `FramedContent.AuthenticatedData`, and that
+field has two consumers — the signature preimage and the content AEAD's associated data.
+
+```
+mls/framing.go:365          w.WriteOpaque(self.AuthenticatedData)   <- field 4 of FramedContent
+mls/framing_preimage.go:301-306, :333-338                           <- wrapped in framedContentTBS
+mls/framing_protect.go:84-88  SignWithLabel(priv, framedContentTBSLabel, tbs)
+mls/framing_protect.go:832    AuthenticatedData: header.AuthenticatedData
+```
+
+That last line is the closing link: the verifier rebuilds its preimage from the **cleartext wire
+header**, so whatever aad an attacker puts on the wire is the aad the signature is checked against.
+There is no path where a tampered aad is checked against a signature over a different one.
+
+**And the honest part of that measurement, which is why it is trusted here.** The agent ran the
+RFC 9420 known-answer vectors, got **PASS**, and then **refused to count them as evidence**: it
+enumerated the corpus keys and found no `authenticated_data` column at all, so every KAT case seals
+and signs an **empty** aad — byte-identical under both hypotheses. *"The KAT is therefore a green
+control, not the measurement."* It built a mutation test instead. Arm (a) flips one bit of the aad
+with the AEAD entirely out of the path: **signature verification fails.** That is the discriminator,
+and it is the only thing here that answers the question.
+
+#### The ruling
+
+**OPTION A, amended: the kind is octet 0 of the application plaintext. The head does not change
+width.**
+
+```
+plaintext := u8 kind ‖ body(kind)                     minimum length 1; a zero-length plaintext
+                                                      is refused, there is no kind
+0x00        RESERVED, refused on every class, always
+0x01..0x3F  STORED     legal on PERMANENT/DURABLE/MEDIA/EPH(1..5); on EPH(0) -> "malformed"
+0x40..0x7F  TRANSIENT  legal on EPH(0) only;          on any stored class -> "malformed"
+0x80..0xFE  UNASSIGNED the class alone decides; the unknown-kind rule applies
+0xFF        ESCAPE     0xFF ‖ u8 kind2 ‖ body(...)    kind2 != 0x00, != 0xFF
+                       No code assigned in v1, but the SKELETON IS FIXED NOW: a v1 receiver must
+                       know the body begins at offset 2 and must not refuse it for shape.
+
+head := u8 version = 0x02 ‖ u64be sent_at_ms          9 octets, UNCHANGED in width
+```
+
+`headVersion` bumps **0x01 → 0x02** and `headBytes` stays **9**, so `ct_head` stays
+`9 + chacha20poly1305.Overhead(16) = 25` — which is the codec's own derivation of the live
+measurement of 25 octets on all 3,758 rows. The bump exists because an sdk at `eebd50c` does
+`Text: string(bodyPlain)` **unconditionally**, and handed a kinded record would render
+`0x05 ‖ <32 octets> ‖ 👍` as a text line attributed to a real sender.
+
+#### Three justifications, each a property of the tree at `connect 4a70be8` / `sdk eebd50c`
+
+**1. The tree already holds one bug of exactly the rejected option's shape, and it is open because it
+cannot be fixed in place.** Open item **MG-2**, `connect/messagegroup/seal.go:121-131`, verbatim:
+*"sent_at lives inside headPlain, which is opaque to this layer"* — and the repair is blocked at
+`:129-131` because *"closing that gap is a signature change to a published block rather than
+something this file may do."* A **semantic** field in the opaque head produced a defect the layer
+that must reason about it cannot reach. The rejected option puts a **second** semantic field there,
+and it is the one that decides the record's meaning. The range rule's two operands are the kind and
+the retention class; the class is chosen by messagegroup's sealer and carried in `AAD_body`. Under
+the ruling both operands arrive at one place already covered by **one** Ed25519 signature.
+
+**2. The head's only extension mechanism is a strict-equality version byte; the body has an additive
+rule built for growth.** `decodeHead` refuses on length AND value with no tolerance, no TLV, no
+optional field, no tail — and in the walk that refusal is `fail()`, counting toward
+`ErrRecordAbandoned`. The registry is a value space designed to grow: **13 of 256 codes assigned**.
+Adding a kind is a new code and no record is refused. Adding a head field is a version bump that
+refuses every record every prior build wrote.
+
+**3. The grammar selector must not be equivocable.** Under the ruling the kind octet is inside the
+Ed25519 preimage **as an octet** (`ApplicationData` is field 6 of `FramedContent`,
+`mls/framing.go:369`). Under the rejected option it would be bound only through
+`head_commit = HMAC-SHA-256(HKDF-Expand(record_key[i], "rec/v1/head-bind", 32), head_plain)`, whose
+key walks from `RecordKeyZero(class_key, leaf)` — **group-derivable, and held by the sender**. A
+malicious sender could pre-plant a collision between two heads of its own choosing at ~2^128 and
+obtain **one record, one `message_id`, one signature, that means two things to two receivers.** For
+`sent_at` that exposure is already ruled and already load-bearing. Extending it to the grammar
+selector is new, and avoidable at zero cost.
+
+#### The losing argument was answered on its own ground, and it was right about one thing
+
+The strongest case for the head was **survival past pruning**, and it rests on a fact the design got
+**wrong**: §7.2 does **not** erase head and body together except for `EPH(1..5)`. For `DURABLE` — the
+class sdk seals **every** message at — and for `MEDIA`, **the head is kept and the body erased**, and
+`heads_only` fetch is implemented, not hypothetical. **The design's R3 is struck.**
+
+It loses anyway, and the third reason is the one worth keeping: **for COVER it inverts.** Cover
+traffic exists to be indistinguishable from a real message. In the head, its kind lives in a column
+§7.2 keeps **forever** for DURABLE and MEDIA. The server cannot read it, but every member can — and
+any member later compromised hands an adversary a **permanently labelled corpus of which records
+were cover**. In the body, the kind dies with the body and the cover stays cover.
+
+**The octet arithmetic decided nothing and was not used.** The head option costs +1 stored octet on
+100% of records; the ruled option costs 0 except on a plaintext exactly at a rung boundary, where it
+costs 768. Break-even is a boundary-record share of ~0.13%, which **nobody has measured**. Both are
+trivial against a 272-octet floor and a 193-octet frame.
+
+#### What would reverse this ruling, named so it can be tested rather than argued
+
+**Padding `ct_head` to a fixed width — a head rung.** `ct_body`'s width is quantised and *the server
+enforces the equality*; `ct_head` travels as a bare `WriteOpaqueLP` bounded only by a 64 KiB cap. So
+**R2 is not dead, it is DORMANT** — true only while the head has exactly one layout. Pad the head and
+it becomes length-opaque, the asymmetry disappears, and the rejected option becomes live again. The
+query that settles it: what does padding `ct_head` to 64 octets cost across the live table
+(3,758 × 39 ≈ 147 KB), and does any server check read `octet_length(ct_head)` beyond the cap?
+**That was not enumerated.**
+
+#### Invariant H1, filed as a gate rather than a sentence
+
+**`head_plain` is exactly 9 octets and `ct_head` exactly 25 on every record this build seals, of every
+class, across all four record kinds** — founding commit, device wrap, epoch-complete marker,
+application record. **Its complement is non-empty and is the whole point:** it removes any future
+head field, any kind-dependent head width, any second head layout, and it catches on the **seal**
+side at test time, before anything ships. A head that has changed width once is a head that can change
+width again; H1 makes the second time a ruling rather than an edit.
+
+#### Spec A §2.2 struck, narrowly, on Spec A's own rationale
+
+`spec-a:221-222` assign `tombstone.go` and `reaction.go` to `connect/messagegroup`. **Three facts.**
+*(1)* **Neither file exists** — this is a conflict about a plan, not about landed code. *(2)* **The
+assignment's own rationale is validation, not dispatch:** §5.1 gives it in one sentence — *"the
+reaction is the exception, because its body is validated on both sides"* — a claim about **emoji
+validation** and nothing else. It is not a claim that connect should decide which grammar a body is
+parsed under. *(3)* **The validation it names cannot be performed there without a dependency nobody
+has taken:** open item **M1-41** — Go's standard library has no UAX-29 segmentation, so honouring
+`spec-a:222` means linking a segmenter plus vendored Unicode tables into the module that is **also
+the VPN dataplane** and carries the record layer's crypto.
+
+**The codec is `sdk/urmessage/kind.go`. `connect` changes by zero lines.** The property §2.2 was
+protecting — that a value validated on both sides is validated by **one** piece of code — is kept:
+one file, one package, called on send and on receipt. **COVER splits:** `sdk` decides what a cover
+record *says*; `messagegroup` decides when one is *sent* and how big, because that needs the rung and
+the record key (`spec-a:198`'s assignment of `pad.go` stands).
+
+#### Items filed
+
+**219. A pruned `DURABLE` record is a `fail()`, and every conversation reaches its own prune date.**
+`connect/messagegroup/seal.go:800-802` hashes `record.CtBody` and compares it in constant time against
+the **retained** `header.BodyHash` **before either AEAD runs**. §7.2 erases the body of a `DURABLE`
+record at `create_time + durable_ttl_seconds`, **one year by default**, and keeps the head and
+`body_hash`. So on that date the record refuses with `ErrRecordAeadOpen`, the walk turns that into
+`fail()`, and it counts toward `ErrRecordAbandoned`. **This is independent of content kinds and is
+owed either way.** It needs the head-only open path that the server's `heads_only` fetch already
+supports. **Nothing in the live probe could have caught this: it is dated, not conditional.**
+
+**220. A `GapReason` for "the server erased the body" is owed, and it is larger than item 221.**
+`GapReason` is a closed set of six — `expired`, `out_of_window`, `not_a_member_yet`, `withheld`,
+`no_wrap`, `malformed` — and none means a pruned body. `expired` is defined as a **destroyed key**,
+a different condition. This applies to every pruned TEXT, not only to unknown kinds.
+
+**221. `Kind "unsupported"` / `GapReason "unsupported"` is owed** (owner choice 11). Needed by the
+unknown-kind rule: a future kind is **not** malformed. Both vocabularies are closed and asserted by
+`TestVocabulariesAreClosed`, restated in Spec C §14.2, and set-equality-checked by Spec C §16.1
+gate 8 — **three places, not a one-line edit**.
+
+**222. Whether `ct_head` should be padded to a fixed width — the head rung.** Filed as the single
+change that reverses this ruling. It is also the gate on any future head field. Unruled.
+
+#### What this entry does not claim
+
+- **The ruling is a judgement, not a derivation.** It is stated so in the ruling itself: no kind in
+  the registry requires the kind and its body to be parsed jointly from one contiguous signed string.
+  If one ever does, the ruling strengthens; its absence is what keeps it a judgement.
+- **The panel caught errors in all three position papers, including the winner's.** The winning
+  paper's failure-mode argument — that a head-layout disagreement would surface at R2's constant-time
+  compare — is **unsound**: `headCommit` HMACs `head_plain` raw with no canonicalisation, so both
+  sides commit to the same octets whatever they mean, and skew surfaces as `ErrHeadFormat` in sdk.
+  **That argument is excluded from this ruling.** A third paper turned an unmeasured quantity into a
+  measured zero (it claimed no emoji sequence is exactly 27 octets; *"kiss: woman, man"* is 27).
+- **The 0xFE FALLBACK proposal is rejected and named so it is not rediscovered.** It concedes in its
+  own falsification section that it *"lets a sender show different content to different builds"* —
+  incoherent beside a ruling whose third justification is that the grammar selector must not be
+  equivocable.
+- No implementation is in this commit.
