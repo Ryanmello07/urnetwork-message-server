@@ -470,6 +470,25 @@ func (self *Group) ProcessMessage(message []byte) (*Processed, error)
 func (self *Group) ApplyCommit(processed *Processed) error
 
 func (self *Group) Protect(aad, plaintext []byte) (privateMessage []byte, err error)
+
+// AMENDED 2026-09-17, MASTER §8.4.2 v2. aad_mls now names the generation this frame is
+// sealed at, and Protect chooses that generation INSIDE, from the sender ratchet -- so the
+// AAD cannot exist before the call. The door is therefore a BUILDER and not a value, and
+// the generation is read, the AAD built, the content signed and the frame sealed under ONE
+// hold of the group's own lock:
+//
+//     func (self *Group) ProtectBound(
+//         aad func(generation uint32) ([]byte, error), plaintext []byte,
+//     ) (privateMessage []byte, err error)
+//
+// AND THE SEAL PINS IT. If the generation the seal actually consumes is ever not the one
+// the builder was handed, ProtectBound MUST refuse and return no ciphertext. It must not
+// emit a frame whose AAD names a generation the frame is not at: that frame is refused by
+// every peer, and the sender cannot tell why. The pin's own refusal costs one generation
+// and is an ordinary gap (ledger 201).
+//
+// Protect above is kept for the callers that pass a constant AAD. An application record
+// does not, and MUST go through ProtectBound.
 func (self *Group) Unprotect(privateMessage []byte) (*ApplicationMessage, error)
 
 type CommitResult struct {
@@ -1280,10 +1299,29 @@ absent from its surface — they are absent from its binary.
 before it seals it:
 
 ```
-reserve stream_index  →  build aad_mls  →  inner = Protect(aad_mls, bodyPlain)
+refuse on framed_length(len(bodyPlain))            ← AMENDED 2026-09-17, MASTER §8.4.6
+                      →  reserve stream_index
+                      →  head_commit = HMAC-SHA-256(
+                             HKDF-Expand(record_key[i], "rec/v1/head-bind", 32), headPlain)
+                      →  inner = ProtectBound(g ↦ aad_mls(g, head_commit), bodyPlain)
                       →  build server_attachment  →  encrypt ct_body over LP(inner) ‖ 0*
                       →  compute body_hash  →  encrypt ct_head  →  compute write_auth
 ```
+
+**AMENDED 2026-09-17, MASTER §8.4.2 v2.** Three stages move and none of the published
+signatures of §5.2 does. *(a)* The **length refusal moves to the front** and runs on the
+**framed** length, so a body no rung can hold reserves no index and spends no generation
+(MASTER §8.4.6, ledger **203**). *(b)* **`head_commit` is computed before the frame**, which is
+legal because `SealRecord` is handed `headPlain` as an argument and the ladder rung exists the
+moment the index is reserved — the order is not circular the way `AAD_head`'s is, and MASTER
+§8.4.2 says why. *(c)* **`Protect` becomes `ProtectBound`**, because the AAD now names the
+generation and the generation is chosen inside the seal.
+
+**THE PREIMAGE IS NOT RESTATED HERE, AND THAT IS DELIBERATE.** Ledger item **207** is the
+finding that `message_id`'s derivation landed in three documents at once and nothing holds them
+together, and that *"the cheapest correct answer may be to delete a copy rather than gate
+three"*. So `aad_mls` v2 has **one** normative statement, MASTER §8.4.2, and this document
+names it rather than copying it. A builder transcribes MASTER.
 
 Three things about that line, each of which is the reason it is where it is:
 
@@ -1295,19 +1333,28 @@ Three things about that line, each of which is the reason it is where it is:
   the layer does with it. §5.2 publishes those two signatures and a change to either is a change to a
   published block; none is needed, because `GroupSession` already holds the `GroupHandle` and
   `GroupHandle` already declares `Protect(aad, plaintext)` and `Unprotect(message)`. **Nothing is
-  built here; the seam is wired.**
+  built here; the seam is wired.** *(**AMENDED 2026-09-17.** The first sentence still holds and the
+  last one no longer does. `SealRecord` and `OpenRecord` keep their signatures under v2 — `headPlain`
+  was always an argument and `head_commit` needs nothing else — but **`GroupHandle` changes in three
+  places**: `ProtectBound`, a generation on `Unprotect`, and a peek that answers the generation. So v2
+  is a seam that is BUILT and not merely wired, and the three are listed at §8.2's `GroupHandle`
+  block.)*
 - **A second write-once resource is now consumed per application record.** `Protect` consumes a
   generation of this leaf's MLS ratchet and persists group state whether or not the record is ever
   submitted, exactly as §5.6's reservation consumes an index whether or not it is. So a refused submit
   leaves a legal gap in **both** sequences. Both are monotonic and both tolerate gaps; the bound is
   ledger open item **201**.
 
-**The open path gains two refusals and no stage.** `OpenRecord` unpads, hands `inner` to
-`GroupHandle.Unprotect`, and refuses the whole record unless **both** of MASTER §8.4.3's conditions
-hold — the sender binding `sender_handle(group_handle_key, senderLeaf) == header.SenderHandle`, and
-the position binding `aad == H("URmessage/v1/aad/mls" ‖ AAD_body(alg_id, header.BodyBinding()))`.
-Neither implies the other and MASTER §8.4.3 says why. What it returns is the application plaintext, so
-`OpenRecord`'s two return values keep their meaning too.
+**The open path gains refusals and no stage.** `OpenRecord` unpads, hands `inner` to
+`GroupHandle.Unprotect`, and refuses the whole record unless **all** of MASTER §8.4.3's conditions
+hold — **R1** the sender binding, **R2** the position binding, and **R3** the rule that both are
+decided on a reading that steps no ratchet and erases no key. None implies another and MASTER §8.4.3
+says why. What it returns is the application plaintext, so `OpenRecord`'s two return values keep their
+meaning too. *(**AMENDED 2026-09-17.** This paragraph carried R2's preimage verbatim, at v1, and a
+verbatim copy here is exactly ledger item **207**'s finding — so the copy is **deleted** rather than
+updated. MASTER §8.4.2 is the one normative statement of what R2 compares against. Under v2 that
+digest additionally covers the frame's own MLS generation and a keyed commitment to the head
+plaintext, and R3 is what makes the refusal arrive before the generation is spent.)*
 
 **`OpenRecord` was already non-idempotent and stays so, for a second reason.** Measured on `connect`
 at `27c50c2`: a second `OpenRecord` of the same record fails today with *"a record key is outside this
@@ -1315,6 +1362,20 @@ receiver's skipped key window: index 1 is below this receiver's head 2"*, and a 
 the same frame fails with *"mls: ratchet generation already consumed"*. The change adds a second
 refusal to a case that already refused; it does not make a working call stop working. Which of the two
 answers first is ledger open item **200**.
+
+**CORRECTED 2026-09-17: THE SECOND HALF OF THAT SENTENCE IS FALSE, AND MASTER §8.4.7 (1) NOW RULES
+WHAT REPLACES IT.** The measurement behind *"it does not make a working call stop working"* was a
+**second** `OpenRecord` of one record, which already refused at the record layer's skipped-key
+window. A **first** `OpenRecord` of **this device's own** record was a working call and it has
+stopped working: `Protect` spends a generation of this leaf's own sending ratchet and MLS derives no
+*receiving* ratchet for a member's own leaf, so a member cannot open its own application record at
+all. The two cases were conflated, and the `mls` error quoted above — *"generation 0, head 1"* — is
+in fact the error a **first** self-`Unprotect` answers. **The ruling:** a device renders its own sent
+lines from a copy it kept, never by decrypting the record it wrote, and an own record it holds no
+copy of is authenticated by that refusal, counted, and is not a failure. `sdk` had already built
+exactly that and holds it in 37 `cp3b` cases; MASTER §8.4.7 ratifies it and records that it was
+built ahead of the ruling. It also records the option that is **refused**: exempting a record at this
+member's own `sender_handle` from the inner open re-opens the forgery §8.4 closed.
 
 
 ### 5.3 Key schedule
@@ -3176,6 +3237,16 @@ type GroupHandle interface {
     Process(message []byte) (*EngineProcessed, error)
     ApplyCommit(processed *EngineProcessed) error
 
+    // AMENDED 2026-09-17 for MASTER §8.4.2 v2. Three changes, all forced by the
+    // generation being inside aad_mls:
+    //
+    //   ProtectBound(aad func(generation uint32) ([]byte, error), plaintext []byte) ([]byte, error)
+    //   Unprotect(message []byte) (aad, plaintext []byte, senderLeaf uint32, generation uint32, err error)
+    //   PeekSender(frame []byte) (senderLeaf uint32, aad []byte, generation uint32, err error)
+    //
+    // The peek is the one §8.4.3 R3 turns from an optimisation into a requirement: it must
+    // answer the GENERATION as well as the leaf and the aad, and all three come out of one
+    // SenderData open under the epoch's sender_data_secret, so it still touches no ratchet.
     Protect(aad, plaintext []byte) ([]byte, error)
     Unprotect(message []byte) (aad, plaintext []byte, senderLeaf uint32, err error)
 

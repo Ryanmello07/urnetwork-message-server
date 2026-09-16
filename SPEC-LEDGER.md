@@ -10,8 +10,11 @@ document; this ledger is the map, the reasoning, and the audit trail.
 
 ## 1. Current state
 
-**Protocol design at revision 9**, with errata E1–E3 fixed and **nine** dated amendments on top of it
-(*was "eight"; the ninth is 2026-09-15's two rulings. Was "four" before that; corrected 2026-09-11 in
+**Protocol design at revision 9**, with errata E1–E3 fixed and **ten** dated amendments on top of it
+(*was "nine"; the tenth is 2026-09-17's `aad_mls` v2 — the first amendment since §8's `eph_window` to
+change a PREIMAGE, and the first to do it at zero wire cost. Query, published beside the number:
+`grep -c "^\*\*Amendment to revision 9" docs/specs/2026-08-12-urmessage-protocol-design.md` → **10**
+at this commit and **9** at `dc204a9`.*) (*was "eight"; the ninth is 2026-09-15's two rulings. Was "four" before that; corrected 2026-09-11 in
 the pass that added the eighth — this is a state row and a state row is a claim about now*).
 Group key agreement is MLS (RFC 9420), implemented in Go. Storage, retention, deletion, recovery, and
 identity verification are ours. v1 targets one operator, one message server, many providers.
@@ -28,14 +31,14 @@ code at all**, which is the gap every external leg in the m1 plan points at.
 
 | Item | State |
 |---|---|
-| MASTER protocol design | Revision 9, **nine** amendments — **2,868 lines** *(re-measured 2026-09-15, the pass that added the **ninth** section-0 amendment block and §8.4. **The word "nine" became TRUE here rather than staying true, and the ordinals below it are therefore one out.** The query is `grep -c "^\*\*Amendment to revision 9" docs/specs/2026-08-12-urmessage-protocol-design.md`; it answers **8** at `64f5fe9` and **9** at this commit. So this cell claimed nine while the document carried eight, and the sentence further down that reads *"The ninth is 2026-09-13"* is describing the **eighth** — kept as written, per the rule that a corrected ordinal keeps its old wording beside it, and annotated here rather than silently renumbered. **2026-09-15 is the ninth**, and it is the first amendment whose larger half REMOVES A DIVERGENCE rather than changing a rule: `ct_body` becomes the MLS `PrivateMessage` payload MASTER §8 has said it was since revision 4, and `message_id` is defined. The count is published with its query from here on rather than as a number somebody increments.)* *(Was "nine — 2,577".)* *(was "nine — 2,475"; re-measured 2026-09-13, second pass of that date, which added no amendment: it is the ninth's own review and is carried as a SECOND PASS block inside it, plus the §8.1 narrowing and the §8.2 refusal)*. *(Was "eight — 2,329".)* **The ninth is 2026-09-13 and it is the first that REVERSES a ruling rather than amending a statement**: `ct_head` is keyed under the record's own class key, and `record_bytes` gains `eph_window`, which reopens a section §14 froze. *(Was "six — 2,249 lines"; re-measured 2026-09-11.)* The seventh and eighth are both **2026-09-11** and are the only two that open by saying a rule in this document changes: §8's record listing and §8.1's ratchet paragraph carry Spec A §5.3's `EPH` carve-out in MASTER's own voice, `ct_head` first and then the `body_hash` line six above it |
-| Spec A — protocol / sdk / connect | Revision **A-27** — **5,915 lines**, re-measured 2026-09-15 (`grep -c "" docs/specs/2026-08-12-spec-a-protocol-sdk-connect.md`). **A-27 carries the two rulings of 2026-09-15**: §5.1 gains `message_id` and the rule for what `ct_body` carries, §5.2 gains one stage at the front of the construction order with both published signatures UNCHANGED, §5.3 gains `MessageId`, §7.1 the hex spelling, §8.3a the width `LP(message_id)` takes. *(Was "A-26 — 5,796 lines", re-measured 2026-09-13, second pass of that date.)* **A-26 is A-25's review**: §5.1 receives the bucket-0 sentinel it was the only one of three documents to miss, §5.3's rule sentence and precondition (1) gain the device-wrap carve-out, §5.11 refuses to publish the `eph_root` wrap until ledger **185** is ruled, §3.5 and §8.1's storage row are corrected off ledger **186**, and §7.4 names the second producer of `"malformed"`. *(Was "A-25 — 5,722 lines".)* A-25 carries both 2026-09-13 rulings: §5.3's rule reversed, §5.1's `RecordHeader` gains `EphWindow`, §5.7's preimage gains the term, §5.11 (3)'s snapshot parenthesis corrected, the `EPH` seal refusal lifted **in full**, and new server-conformance row **S19**. *(Was "A-24 — 5,631 lines".)* *(Was "A-22 — 5,618"; re-measured 2026-09-11.)* A-23 names the inversion of A-20; A-24 amends server-conformance row **S10** and §5.1's two Go struct comments |
+| MASTER protocol design | Revision 9, **ten** amendments — **3,341 lines** *(re-measured 2026-09-17, the pass that added the **tenth** section-0 amendment block, replaced §8.4.2 with `aad_mls` **v2**, added §8.4.6 and §8.4.7, and CORRECTED §8.4.4's overhead step function, which had four steps and published three. The query for both numbers is printed above this table. **v2 is the first preimage change since `eph_window` and it costs ZERO wire octets**: `aad_mls` is a 32-octet digest at both versions, so `octet_length(ct_body)` is unchanged at every rung and no `format_version`, schema, `CHECK`, reason code or Spec B line moves.)* *(Was "nine — 2,868"; re-measured 2026-09-15, the pass that added the **ninth** section-0 amendment block and §8.4. **The word "nine" became TRUE here rather than staying true, and the ordinals below it are therefore one out.** The query is `grep -c "^\*\*Amendment to revision 9" docs/specs/2026-08-12-urmessage-protocol-design.md`; it answers **8** at `64f5fe9` and **9** at this commit. So this cell claimed nine while the document carried eight, and the sentence further down that reads *"The ninth is 2026-09-13"* is describing the **eighth** — kept as written, per the rule that a corrected ordinal keeps its old wording beside it, and annotated here rather than silently renumbered. **2026-09-15 is the ninth**, and it is the first amendment whose larger half REMOVES A DIVERGENCE rather than changing a rule: `ct_body` becomes the MLS `PrivateMessage` payload MASTER §8 has said it was since revision 4, and `message_id` is defined. The count is published with its query from here on rather than as a number somebody increments.)* *(Was "nine — 2,577".)* *(was "nine — 2,475"; re-measured 2026-09-13, second pass of that date, which added no amendment: it is the ninth's own review and is carried as a SECOND PASS block inside it, plus the §8.1 narrowing and the §8.2 refusal)*. *(Was "eight — 2,329".)* **The ninth is 2026-09-13 and it is the first that REVERSES a ruling rather than amending a statement**: `ct_head` is keyed under the record's own class key, and `record_bytes` gains `eph_window`, which reopens a section §14 froze. *(Was "six — 2,249 lines"; re-measured 2026-09-11.)* The seventh and eighth are both **2026-09-11** and are the only two that open by saying a rule in this document changes: §8's record listing and §8.1's ratchet paragraph carry Spec A §5.3's `EPH` carve-out in MASTER's own voice, `ct_head` first and then the `body_hash` line six above it |
+| Spec A — protocol / sdk / connect | Revision **A-28** — **5,986 lines**, re-measured 2026-09-17 (`grep -c "" docs/specs/2026-08-12-spec-a-protocol-sdk-connect.md`). **A-28 carries `aad_mls` v2 in six places and NOT the preimage**: §8.2's `mls.Group` and `GroupHandle` blocks gain `ProtectBound` and a generation on the peek and on `Unprotect`, §5.2's construction order gains the framed-length refusal and `head_commit`, the *"signatures are UNCHANGED"* bullet is corrected to say the seam is BUILT rather than wired, the open path's **verbatim copy of R2's v1 preimage is DELETED rather than updated** — which is ledger item **207**'s own recommendation applied to the one new place it would have recurred — and §5.2's *"it does not make a working call stop working"* is corrected in place with its old wording kept beside it (MG-4, item **214**). *(Was "A-27 — 5,915 lines", re-measured 2026-09-15 (`grep -c "" docs/specs/2026-08-12-spec-a-protocol-sdk-connect.md`). **A-27 carries the two rulings of 2026-09-15**: §5.1 gains `message_id` and the rule for what `ct_body` carries, §5.2 gains one stage at the front of the construction order with both published signatures UNCHANGED, §5.3 gains `MessageId`, §7.1 the hex spelling, §8.3a the width `LP(message_id)` takes. *(Was "A-26 — 5,796 lines", re-measured 2026-09-13, second pass of that date.)* **A-26 is A-25's review**: §5.1 receives the bucket-0 sentinel it was the only one of three documents to miss, §5.3's rule sentence and precondition (1) gain the device-wrap carve-out, §5.11 refuses to publish the `eph_root` wrap until ledger **185** is ruled, §3.5 and §8.1's storage row are corrected off ledger **186**, and §7.4 names the second producer of `"malformed"`. *(Was "A-25 — 5,722 lines".)* A-25 carries both 2026-09-13 rulings: §5.3's rule reversed, §5.1's `RecordHeader` gains `EphWindow`, §5.7's preimage gains the term, §5.11 (3)'s snapshot parenthesis corrected, the `EPH` seal refusal lifted **in full**, and new server-conformance row **S19**. *(Was "A-24 — 5,631 lines".)* *(Was "A-22 — 5,618"; re-measured 2026-09-11.)* A-23 names the inversion of A-20; A-24 amends server-conformance row **S10** and §5.1's two Go struct comments |
 | Spec B — message-server / operator | Revision **21** — **3,742 lines**, re-measured 2026-09-13, second pass of that date. **Revision 21 changes no schema, no check, no reason code and no wire field**: §3.1's sentinel paragraph is brought to one text with MASTER §8 and Spec A §5.1, §10.4's backup argument drops a clause ledger **186** makes false, §5.1 check 3 and §7.1 note that they carry no wrap carve-out (ledger **185**), and item 181's two anchors are re-stated. *(Was "20 — 3,704 lines".)* **Revision 20 is the first SCHEMA change in nine revisions**: `eph_window bigint NOT NULL DEFAULT 0` with two `CHECK`s, protobuf projection field 14, a §5.1 check-3 clause and §7.1's ±1-window refusal. §7.2's table is unedited. *(Was "19 — 3,627 lines".)* *(Was "18 — 3,587"; re-measured 2026-09-11.)* Revision 19 changes no SQL statement: §3.2's `body_hash` DDL comment and §7.2's verbatim quote of MASTER. **The document's own "Current state" row still reads "Revision 6"** — seen, not repaired, and named in the edit log |
 | Spec C — Windows client UI | Revision 6 — **1,895 lines**, re-measured 2026-09-13, second pass of that date. **No revision and no string changed**: §8.1 gains a note that `msg_disappearing_explainer`'s *"destroyed on every device"* half has no schedule anywhere (ledger **186**), placed outside every quoted value so §16.3 lint 1 is unaffected. *(Was "1,893".)* |
 | Blockers | **0 from r1–r4** — down from 41. **r8's two are not in that count**; both are fixed in the text and neither is recorded as fixed. Item **165**. |
 | Review findings | **Dispositioned per finding in §5, not counted.** r3's twelve blockers were re-grepped by id; its fourteen remaining majors are items **149–162**, one item per id, each opening with the id and a disposition verb, so `git grep "M-7"` returns a disposition rather than silence. **r2's, r3's and r4's minors, r6's 30 and r8's 25 are NOT dispositioned** — item **165** measures that and publishes the query; those findings carry no ids, so an id-keyed gate cannot see them at all. The count this row used to carry (*"30: 8 major, 22 minor"*) was r6's file, not r3's majors, and the two had been read as one set for five weeks. |
 | Implementation plan | **Written and part-executed.** Fifteen documents in `docs/plans/`; `m1` (24 tasks) has wave 0 and wave 1 landed. **Ledger 152 was ruled 2026-09-13 and no longer stops wave 2. Task 14 is NOT thereby unblocked:** m1 open item **M1-52** is filed, not ruled, and its own *Blocks* line is *"signing, and therefore all of Task 14 step 3"*. **Task 14 step 1 is unblocked for the `PERMANENT` `pq_secret` wrap and NOT for its `EPH(5)` `eph_root` twin — ledger open item 185, filed 2026-09-13 (second pass), leaves that record's `eph_window` unstated while Spec A S19 refuses an implausible one; step 3 is not unblocked at all**, and Tasks 13, 15 and 16 stand where they did. *(The unqualified "step 1 is unblocked" was written on the first pass of 2026-09-13 and is corrected here on the second.)* *(This cell read **"is stopped in front of wave 2 by ledger 152 — and by nothing else, since 2026-09-09"**, and that clause was stale from 2026-09-12, when the red team filed M1-51 through M1-55 and nothing re-derived this row. It is one of the four sites ledger item **184** names; a state row is a claim about now, so it is corrected in place with its old wording kept beside it.)* **`s2` is now written** — 15 tasks, of which Tasks 1–12 are the CP3b prefix — and its own first paragraph states that it does **not** reach CP3b alone: four upstream `connect` blockers (**S2-1** through **S2-4**) sit outside both of its legs. **`j1` is now written too** — 7 tasks, all of them on the CP3b prefix — and it takes **S2-4**, the first of the four and the one that blocks CP3b outright; **S2-1**, **S2-2** and **S2-3** still have no owner. *(**AMENDED 2026-09-13, third pass of that date.** Old wording kept. **S2-1's and S2-2's PREMISES are falsified** against `connect` `7ce25a2` and both items are amended in place: `GroupSession`'s exported set is **eleven**, not seven, `EpochKeys()` returns `read_key` and `write_key`, and `RebindServerNonce` is the server-nonce setter S2-2 says does not exist. Neither item CLOSES — `ProvisionalEpoch` has no `ReadKey()`, `group_handle_key` has no accessor anywhere, and S2-2's sequencing question survives its mechanism clause — so both still have no owner, in strictly smaller form. **S2-3 is untouched by this** and is the one of the three that is unchanged. `k1`'s handoff predicted exactly this trigger — *"when the code of this plan lands, S2-1 and S2-2 become closable"* — and the previous pass measured the eleven in its own edit at `s2` `:417-423`, drew the implication for S2-2 in that sentence, and did not draw it for S2-1.)* `s3` through `s10` are still cited as owners of unwritten work and have no document. **AMENDED 2026-09-13, second pass of that date, by the pass that filed items 187–190 against the landed `eph_window` work.** Task 14's blocker list is **unchanged** by that work, and **none of the three new spec items — 187, 188, 189 — is added to it**. *(**Enumeration CORRECTED 2026-09-13, third pass of that date.** This read *"`M1-52` still blocks step 3 and item **185** still blocks step 1's `EPH(5)` half"* with no qualifier, which reads as Task 14's blockers and is **two of five**. The *unchanged* claim is true and is re-derived; the list was not. Task 14's own text names **five**: `M1-52` (step 3, signing), item **185** (step 1's `EPH(5)` half), **`M1-53`** (*"blocks Property 11's third refusal, recorded there as 'owed rather than writable'"*), and **`M1-54`** and **`M1-55`**, which *"neither block step 1; both decide what step 1 can claim it showed"*. The two named above are **the two that block STEPS**, which is the qualifier that was missing — the same shape as the *"and by nothing else, since 2026-09-09"* clause item **184** was filed about.)* Item **188** is the one that touches Task 14 at all, and it blocks *writing the receive leg from the documents* rather than executing it: the leg that opens an `eph_root` wrap and installs its payload is described by one sentence in the corpus, Spec A §5.11's residual (2), which names no function, while `connect` ships `InstallEphRoot` and three siblings that **no document names**. That is `M1-32`'s shape, whose own *Blocks* line is *"sizing"*, It had also left `s2`'s published `TrackSender` short by one parameter against the shipped tree; that one is **corrected in place in this commit**, being a transcription error rather than a question. **And the CP3b answer had a new, measured owner — item 190 — which is now CLOSED.** *(**AMENDED 2026-09-13, third pass of that date; old wording kept below.**)* Item **190** is **DONE**: `eph_window` is carried end to end by this server — harness, store contract, both store implementations, migration **010**, `rebuildRecord`, and §5.1 check 3's clause with §7.1's ±1 refusal — and **`go test ./... -timeout 900s` is GREEN in every package**, including the pgx contract against a real PostgreSQL 17.6. `api.TestARecordTravelsEndToEnd` is green because the field TRAVELS, not because the test stopped asking: the test is unchanged except that the record it seals now carries a window, and dropping `EphWindow` from `rebuildRecord` or from `columnsOf` puts it back to red (both mutations run, both killed). **What blocks the message-server leg is now nothing filed here.** The old wording, which stated item 190 as *the* CP3b answer in the singular, follows — and the singular was wrong on its own terms even then, because four `s2` open items each carry a *Blocks* line naming CP3b (**S2-1**, premise now falsified; **S2-2**, mechanism clause now closed; **S2-3**, genuinely open and untouched by any of this; **S2-4**, which `PROGRESS.md` row A records CLOSED since `j1` Task 5). The defensible sentence was *"item 190 is a new, measured blocker inside this repository"*, and it is the one this row now carries. Old wording: *"**And the CP3b answer has a new, measured owner.** "What blocks CP3b is the message-server leg" now has something concrete inside it: item **190** — `eph_window` is ruled, landed in `connect`, and carried in no Go file of this repository, so this repository's own suite is red."* None of 187, 188, 189 or 182's open half blocks that leg or any other. |
-| Code | **`connect` `beta/message` at `27c50c2`** — **1,128 tracked files** (`git ls-tree -r 27c50c2 --name-only | wc -l`, re-measured read-only 2026-09-15). **No test count is restated for this pin.** This pass ran `./mls/` and `./messagegroup/` filtered — `TestProtectAndUnprotectRoundTrip`, `TestVectorMessageProtection` and `TestAnyMemberCanWriteARecordAttributedToAnotherLeaf` all **PASS** — and did not run that module's full suite, so the last figure anyone RAN unfiltered stays pinned to the commit it was run at rather than being re-attributed to this one. *(Was pinned at* **`7ce25a2`** *— 1,125 tracked files, re-measured read-only 2026-09-13, third pass of that date.)* *(Was pinned at* **`b0155d9`** *, also 1,125 files; the pin moved under this repository while another agent was writing that tree, which is the movement `a21a6ee` was filed about. The* **8,252 tests passing / 0 failing** *figure is the last one anyone RAN, at* `b0155d9`*, and is NOT re-derived here: this pass does not run that suite, because another agent holds that tree. It is carried with its commit rather than restated as a claim about `7ce25a2`.)* *(Was* **`33932e0`** *— 1,105 tracked files, 217 Go files, 7,631 tests, nine-platform* `CGO_ENABLED=0` *build green. Re-measured 2026-09-13, second pass of that date, after* `6248284` *landed the* `eph_window` *wire field and* `b0155d9` *the key schedule and the full seal lift; both passes were adversarially reviewed and both returned SOUND. A state row is a claim about now.)* **This repository** — **78 Go files, 32,958 lines** (`git ls-files "*.go" | wc -l` and `| xargs cat | wc -l`, re-measured 2026-09-15; *this cell read "58 Go files, 26,972 lines" and both were stale — a state row is a claim about now, and this one had not been re-derived since the entrypoint work landed three test files and the two 2026-09-15 reports*), **and `go test ./... -count=1 -timeout 900s` GREEN in every package**: `"Action":"pass"` with a `"Test"` → **471**, `"fail"` → **0**, `"skip"` → **14**, of which all fourteen are the PostgreSQL-backed cases and none is a test-level skip on a path this pass touched; **179** of the 471 are top-level tests (the same query with `| grep -v '"Test":"[^"]*/'`). *(The brief for this pass carried "353 without PostgreSQL"; it does not reproduce at `64f5fe9` under either counting and is not built on.)*, `go build ./...` and `go vet ./...` clean, `go test ./ -run TestThePlanLinter` ok, and the **pgx contract held against a real PostgreSQL 17.6** (`URMESSAGE_TEST_DSN` set; 460 s unfiltered) rather than skipped. `grep -rn 'eph_window\|EphWindow' --include=*.go .` now returns **74 lines across 12 files** (was **0**; the query is `--include=*.go` so it cannot match this ledger and does not match its own claim, and it counts comment lines as well as code — the property, not the count, is the one below in item **190**). Ledger item **190** is CLOSED by this commit. *(Was: "57 Go files, 26,402 lines, `go build ./...` clean and `go test ./ -run TestThePlanLinter` ok, **but `go test ./...` is RED**: one test, `api.TestARecordTravelsEndToEnd`, because `eph_window` is ruled and landed in `connect` and is carried in **no Go file here**". A state row is a claim about now.)* **`sdk`** — nothing; six external legs wait on it. |
+| Code | **`connect` at `d368fea`** — **1,130 tracked files** (`git ls-tree -r d368fea --name-only | wc -l`, re-measured read-only 2026-09-17; `git status` empty before and after this pass, which wrote nothing there). **NO TEST COUNT IS CLAIMED FOR THIS PIN.** This pass ran no test in `connect`: its measurements came from a probe module **outside all three repositories** that imports `connect` read-only, and the last figure anyone RAN unfiltered stays pinned to the commit it was run at. **`sdk` at `5835228` was READ ONLY and was DIRTY throughout** — three modified files under `cgo/` — which is another agent holding that tree, so the brief's `cp3b` 37 and `urmessage` 44 are carried with their owner and are not restated here as measurements of this pass. *(Was pinned at* **`27c50c2`** *— 1,128 tracked files* (`git ls-tree -r 27c50c2 --name-only | wc -l`, re-measured read-only 2026-09-15). **No test count is restated for this pin.** This pass ran `./mls/` and `./messagegroup/` filtered — `TestProtectAndUnprotectRoundTrip`, `TestVectorMessageProtection` and `TestAnyMemberCanWriteARecordAttributedToAnotherLeaf` all **PASS** — and did not run that module's full suite, so the last figure anyone RAN unfiltered stays pinned to the commit it was run at rather than being re-attributed to this one. *(Was pinned at* **`7ce25a2`** *— 1,125 tracked files, re-measured read-only 2026-09-13, third pass of that date.)* *(Was pinned at* **`b0155d9`** *, also 1,125 files; the pin moved under this repository while another agent was writing that tree, which is the movement `a21a6ee` was filed about. The* **8,252 tests passing / 0 failing** *figure is the last one anyone RAN, at* `b0155d9`*, and is NOT re-derived here: this pass does not run that suite, because another agent holds that tree. It is carried with its commit rather than restated as a claim about `7ce25a2`.)* *(Was* **`33932e0`** *— 1,105 tracked files, 217 Go files, 7,631 tests, nine-platform* `CGO_ENABLED=0` *build green. Re-measured 2026-09-13, second pass of that date, after* `6248284` *landed the* `eph_window` *wire field and* `b0155d9` *the key schedule and the full seal lift; both passes were adversarially reviewed and both returned SOUND. A state row is a claim about now.)* **This repository** — **78 Go files, 32,958 lines** (`git ls-files "*.go" | wc -l` and `| xargs cat | wc -l`, re-measured 2026-09-15; *this cell read "58 Go files, 26,972 lines" and both were stale — a state row is a claim about now, and this one had not been re-derived since the entrypoint work landed three test files and the two 2026-09-15 reports*), **and `go test ./... -count=1 -timeout 900s` GREEN in every package**: `"Action":"pass"` with a `"Test"` → **471**, `"fail"` → **0**, `"skip"` → **14**, of which all fourteen are the PostgreSQL-backed cases and none is a test-level skip on a path this pass touched; **179** of the 471 are top-level tests (the same query with `| grep -v '"Test":"[^"]*/'`). *(The brief for this pass carried "353 without PostgreSQL"; it does not reproduce at `64f5fe9` under either counting and is not built on.)*, `go build ./...` and `go vet ./...` clean, `go test ./ -run TestThePlanLinter` ok, and the **pgx contract held against a real PostgreSQL 17.6** (`URMESSAGE_TEST_DSN` set; 460 s unfiltered) rather than skipped. `grep -rn 'eph_window\|EphWindow' --include=*.go .` now returns **74 lines across 12 files** (was **0**; the query is `--include=*.go` so it cannot match this ledger and does not match its own claim, and it counts comment lines as well as code — the property, not the count, is the one below in item **190**). Ledger item **190** is CLOSED by this commit. *(Was: "57 Go files, 26,402 lines, `go build ./...` clean and `go test ./ -run TestThePlanLinter` ok, **but `go test ./...` is RED**: one test, `api.TestARecordTravelsEndToEnd`, because `eph_window` is ruled and landed in `connect` and is carried in **no Go file here**". A state row is a claim about now.)* **`sdk`** — nothing; six external legs wait on it. |
 
 **Ready for owner review, and for handoff once the owner has read them.** Four review rounds and two
 edit passes have taken this from 41 blockers to none. What is left is not a count: r3's fourteen
@@ -7796,6 +7799,17 @@ fourteen are dispositioned below.
     question *"what does `AAD_head` carry that `AAD_body` does not"* has a five-element answer, and
     printing it is what surfaced this.
 
+    **2026-09-17: STILL OPEN, AND THE LIST LOSES ITS SIXTH ENTRY RATHER THAN ANY OF ITS FIVE.**
+    `aad_mls` v2 binds two things v1 did not — the MLS generation (item **212**) and the head
+    plaintext (item **213**) — and reaches **none** of the five fields above. `is_commit`,
+    `size_bucket`, `expire_at`, `blob_id` and `H(server_attachment)` are still authenticated by
+    *"someone in this group"*, and the impossibility argument is unchanged: `AAD_head` contains
+    `body_hash = H(ct_body)` and `ct_body` is sealed over the frame the AAD would sit in. The head
+    plaintext, which `mlsframe.go` had added to this complement as a **sixth** entry, is the one that
+    was bindable and is now bound, because both sides hold it at the right moment. So the complement
+    printed beside `aad_mls` goes back to **five**, and the three options here — accept it and say so,
+    move `is_commit` into `AAD_body`, or a second header signature — are untouched by v2.
+
 200. **FILED, NOT RULED — TWO SKIPPED-KEY WINDOWS NOW GOVERN ONE APPLICATION STREAM, AND NOTHING
     SAYS WHICH ANSWERS FIRST.** Before 2026-09-15 an application record passed through exactly one
     replay/reordering window, the record layer's: Spec A §5.5's, keyed per `(sender_handle,
@@ -7818,6 +7832,13 @@ fourteen are dispositioned below.
     a record refused by one and openable by the other is a gap or an error, and whose window a
     memory budget is written against. §14 open item 7 still owes that budget.
 
+    **2026-09-17: UNTOUCHED BY `aad_mls` v2, and that is measured rather than assumed.** v2 changes
+    what the digest covers and changes nothing about either window's scope, size or eviction rule.
+    What it DOES change is which of the two can be *driven by an attacker*: item **212** measured that
+    a member could walk another member's MLS application ratchet forward at will, which made the MLS
+    window's bound an attacker's parameter rather than a delivery property. After v2 it is a delivery
+    property again, so this item's question is now the honest one it was always phrased as.
+
 201. **FILED, NOT RULED — AN MLS GENERATION IS NOW CONSUMED ON THE SEAL PATH, SO A RUN OF FAILED
     SUBMITS CAN PUT A SENDER PAST `MaxGenerationSkip`.** `Protect` consumes a generation of the
     sender's leaf ratchet and persists group state **whether or not the record is ever submitted** —
@@ -7834,6 +7855,15 @@ fourteen are dispositioned below.
     on 1,024. It does **not** worsen `M1-25`'s threshold and does not create a new hazard class —
     it adds a second cause to one that is already filed and unruled, which is why it is filed beside
     it rather than folded into it.
+
+    **2026-09-17: ONE CAUSE REMOVED, ONE CAUSE ADDED, AND THE BOUND IS STILL UNRULED.** *Removed:* a
+    body of 65,335 to 65,532 octets used to spend a generation on its way to a refusal that was
+    certain, and MASTER §8.4.6 now refuses it before anything is spent (item **203**). *Added:* MASTER
+    §8.4.2's sender-side pin — a seal whose consumed generation is not the one its AAD names MUST
+    refuse and emit nothing — costs one generation when it fires. That is deliberate and is the
+    cheaper of the two available failures: the alternative is a frame every peer refuses for a reason
+    the sender cannot see. It fires only if the atomicity argument in MASTER §8.4.2 is wrong, so its
+    expected rate is zero and its purpose is to make a wrong argument LOUD rather than silent.
 
 202. **FILED, NOT RULED — AN `EPH(0)` TRANSIENT HAS A WELL-DEFINED `message_id` THAT NAMES NOTHING
     FETCHABLE.** MASTER §8.4.5's derivation reads only header fields, so every record has an id,
@@ -7864,7 +7894,37 @@ fourteen are dispositioned below.
     download. So this item does not create the blob dependency; it adds a second, smaller caller to
     one already on the critical path, and it puts a number on what a client must refuse until then.
 
-204. **FILED, NOT RULED — `sent_at` IS NOW THE LARGEST FORGEABLE FIELD IN THE SYSTEM, AND IT IS THE
+    **2026-09-17: THE DEFECT HALF IS RULED AND THE PRODUCT HALF STAYS OPEN. Both halves are named
+    here because this item carried them as one.** *(i)* **The defect half — RULED, MASTER §8.4.6.**
+    The question was never *whether* a 65,335-octet body is refused; it always was. It was what
+    refusing it COSTS, and the answer was a **stream index and an MLS generation**, because the early
+    check ran on the caller's length while the octets actually sealed are 193 to 198 longer. Read at
+    `connect` `d368fea`: `newRecordBuilderOnLoop` calls `bucketForBody(len(bodyPlain))`, then
+    `ratchet.Next()` — *"FROM HERE THE INDEX IS SPENT"* — then `frameBodyOnLoop`, and only then
+    `bucketForBody(len(bodySeal))`, which is the refusal. The rule is now that the early refusal runs
+    on the **framed** length, and it is implementable because the frame's length is a function of the
+    plaintext's length alone (measured, MASTER §8.4.4). **The implementation is `connect`'s, in
+    `messagegroup/seal.go`, and NOTHING OF IT IS BUILT IN THIS COMMIT** — this repository's server
+    checks `octet_length(ct_body) == size_bucket_bytes[b] + 16` and that arithmetic does not move.
+    **`sdk` has already closed the same hole at its own door** (`MaxTextOctets = 65334`, refused ahead
+    of the seal, `urmessage/group.go`), which §8.4.6 **ratifies**; what it adds is that `SealRecord`
+    owes the same refusal, because it is a published surface with callers `sdk`'s door does not front.
+    *(ii)* **The product half — STILL OPEN.** A body in the band has nowhere to go but the blob rung
+    and the blob plane is not built. Unchanged by this ruling.
+
+204. **CLOSED 2026-09-17 BY `aad_mls` v2. Filed 2026-09-15 as the item below; the ruling that closes
+    it is MASTER §8.4.2's fourth preimage term.** `head_commit` is a keyed commitment to the head
+    plaintext, carried inside the digest the sender's own credential signs, so a `sent_at` written by
+    anyone but the sender produces a record that refuses at R2. The asymmetry this item was filed
+    about — an authenticated message rendered beside an unauthenticated time — is gone: after v2 the
+    timestamp is inside the same signature as the words. **The cheap repair this item proposed** —
+    put `sent_at` inside the MLS application plaintext — **is NOT what was done**, and the difference
+    is the rung: that repair spends octets item **198** is competing for on a 59-octet rung, while
+    `head_commit` spends **zero wire octets** because it goes into a preimage. **What is NOT closed:**
+    `sent_at` is still a **claim by the sender about its own clock** — v2 makes it unforgeable by
+    third parties and does not make it true. The original filing follows.
+
+    **FILED, NOT RULED — `sent_at` IS NOW THE LARGEST FORGEABLE FIELD IN THE SYSTEM, AND IT IS THE
     ONE THE UI RENDERS.** `ct_head` carries the timestamp (Spec A's nine-octet head envelope, `sdk/
     urmessage/record.go`), the head is sealed under the group-wide record ladder, and MASTER §8.4's
     scope is the **body only** — so after 2026-09-15 a member cannot forge *what Alice said* and can
@@ -7937,6 +7997,19 @@ fourteen are dispositioned below.
     and the constants in that file are deliberate transcriptions whose whole purpose is to disagree
     with the package when the package changes. **Owner:** `connect`, not this repository. Nothing
     here is a licence to land the change without the control clause above.
+
+    **2026-09-17: `aad_mls` v2 CHANGES NOTHING IN THIS DISPATCH, AND THE ONE THING IT COULD HAVE
+    CHANGED IS NAMED.** The repair — `inner` becomes a fourth injected value carried as octets — is
+    unaffected: v2 makes `inner` depend on one more input (the head plaintext, through `head_commit`)
+    and it was already not a function of the three injected values. **The rung constants do not move
+    a second time**: `aad_mls` is a 32-octet digest at v1 and at v2, so `len(frame)` is identical at
+    every plaintext length (measured, MASTER §8.4.4), so `keySourceRungBytes = 1024` and
+    `keySourceSizeBucketCode = 0x01` are right for v2 as they were for v1 and this file is edited
+    once, not twice. **One clause is ADDED to what the dispatch owes:** `head_commit` is derived from
+    `record_key[i]` by HKDF and HMAC, both of which the reproduction already computes directly, so the
+    reproduction can and MUST recompute `head_commit` itself rather than accept it inside the injected
+    frame — otherwise the one new keyed octet-producer of v2 is the one thing the CP3b property does
+    not cover.
 
 207. **FILED BY THE PASS THAT CAUSED IT, NOT RULED — THE `message_id` DERIVATION NOW EXISTS IN THREE
     PLACES AND NOTHING HOLDS THEM TOGETHER. This is ledger item 141's class, created on 2026-09-15 by
@@ -8075,6 +8148,192 @@ fourteen are dispositioned below.
     sender can neither make a genuine in-window tombstone be ignored nor a genuine out-of-window one
     be applied. **Mutation target:** read the window off `ct_head`. Carried at MASTER §12.1 and Spec A
     §7.4, beside item **204**.
+
+    **2026-09-17: STILL NOT RULED, AND THE THIRD CANDIDATE IS USABLE FOR THE FIRST TIME.** This item's
+    third clock — the head's `sent_at`, as shipped — was dismissed with *"any member can move it
+    (MG-6)"*. `aad_mls` v2 binds the head plaintext (item **213**), so that clause is now false and
+    the third candidate reduces to the **first**: `sent_at` is the original sender's own claim,
+    unforgeable by anyone else and unverifiable against anything. That is a strictly better position
+    and it is **not an answer**, because the first candidate's objection stands untouched — the
+    original sender wrote both ends of the 24-hour bound, so the bound remains a courtesy against the
+    one party it names. **What v2 removes from this item is the THIRD-PARTY attack**: a member other
+    than the sender can no longer make a genuine in-window tombstone be ignored. The half of the
+    stated property that names a third party is therefore **held** after v2; the half that names the
+    sender is not, and no clock in a record can hold it.
+
+212. **RULED 2026-09-17 AND CLOSED BY `aad_mls` v2 — THE MLS GENERATION WAS OUTSIDE EVERY SIGNATURE,
+    AND A MEMBER COULD RE-ENVELOPE A GENUINE FRAME AT A GENERATION OF ITS OWN CHOOSING.** This was
+    the open CRITICAL the 2026-09-17 pass was called to rule.
+
+    **The mechanism, established by READING and then by MEASURING.** RFC 9420 §6.1's
+    `FramedContentTBS` — the byte string a sender signs — is
+    `ProtocolVersion ‖ WireFormat ‖ FramedContent ‖ GroupContext`, and `FramedContent` carries the
+    group id, the epoch, the sender, the `authenticated_data`, the content type and the content.
+    **The generation is in none of it.** It lives in `SenderData`, sealed under the epoch's
+    group-shared `sender_data_secret`, so any member can write one; and RFC 9420 §9 derives every
+    leaf's ratchet from the epoch's group-shared `encryption_secret`, so any member can seal at one.
+    Query: `connect/mls/framing_preimage.go`, the `framedContentTBS` struct and its `MarshalMLS`.
+
+    **Measured 2026-09-17 against `connect` `d368fea`** by a probe module **outside all three
+    repositories** that imports `connect` read-only; `connect`'s `git status` was empty before and
+    after, and no file in `connect` or `sdk` was written by this pass.
+
+    - A member opens the victim's genuine frame, keeps its `FramedContent` **and its signature
+      octets byte for byte**, and re-seals them at generations of its own choosing. **3 of 3
+      substitutes ACCEPTED** through `OpenPrivateMessage` — signature verified, leaf reported as the
+      victim's. The probe also asserts the two frames carry the **same signature octets** and the
+      **same `authenticated_data`**: `true` for both.
+    - **THE BRIEF'S SECOND FIGURE, *"7 of 7 of the victim's genuine records then DEAD"*, DOES NOT
+      REPRODUCE AS STATED AND IS NOT BUILT ON.** It depends on a shape the brief does not name.
+      Measured, three shapes:
+        - *Substitutes 40 generations ahead, victim at 0..7:* **0 of 8** die. The receiver retains
+          skipped keys inside `RatchetWindowSize`, so the low generations still open.
+        - *One substitute at a generation the victim has NOT REACHED YET:* **1 of 7** dies — the
+          victim's own frame at exactly that generation, for ever, with
+          *"ratchet generation already consumed: generation 5, head 6"*. **This is the sharper
+          finding**: one ordinary record deletes one chosen future message.
+        - *Four substitutes, each ~1,020 generations past the moving head:* **7 of 7** die, with
+          *"generation 0, head 4084"*. The retained-key bound is what gives way.
+      So the figure is reachable and the brief's shape is not the one that reaches it. **The ruling
+      does not depend on which:** one aimed deletion is enough.
+    - **The counterfactual, same probe, one change.** With the generation named inside the AAD and
+      the receiver recomputing the AAD from the generation it reads off the wire: **0 of 3**
+      substitutes accepted, all three refused **before any ratchet moved**, and **0 of 8** of the
+      victim's genuine frames dead. The sender obtained the generation from
+      `SecretTree.SenderGeneration(leaf, RatchetApplication)` before sealing and all eight of its own
+      frames opened, which is the sender-side agreement measured rather than argued.
+
+    **The ruling is MASTER §8.4.2 v2.** `u32(generation)`, big-endian, is term (3) of the preimage.
+    **Zero wire octets:** `aad_mls` stays a 32-octet digest, so `authenticated_data` stays 32 octets,
+    so no rung moves and no size-bucket distribution changes. *Closed by this commit; what it hands
+    on is item **217**'s flag day and item **216**'s `connect` work.*
+
+213. **RULED 2026-09-17 AND CLOSED BY `aad_mls` v2 — `connect` open item MG-6, the head plaintext,
+    which owed a number here and did not have one.** `ct_head` is sealed under the same
+    `record_key[i]` every member derives, and under v1 no field of the inner frame covered the head
+    plaintext — so a member could take another member's **genuine** body, frame and signature and
+    all, and re-issue it at the **same position** under a head of its own writing. R1 passed, R2
+    passed, and the record opened to the true sender's plaintext under an attacker's head; the
+    substitute was **accepted**, so it spent the rung and the genuine record then could not open at
+    all. `connect`'s `TestTheHeadPlaintextIsNotBoundByTheFrame` is the standing case and it says in
+    its own failure message that a build which refuses the substitute has closed this item and should
+    delete the case. **The ruling** is term (4) of MASTER §8.4.2's v2 preimage,
+    `head_commit = HMAC-SHA-256(HKDF-Expand(record_key[i], "rec/v1/head-bind", 32), head_plain)` —
+    **keyed and not a bare hash**, because `AAD_body` is public and `aad_mls` travels in the clear as
+    the frame's `authenticated_data`, so `H(public ‖ sent_at)` would hand the **server** a guessable
+    commitment to a timestamp the record layer keeps inside an AEAD. **It is not circular**, and that
+    was checked rather than assumed: `sealRecordOnLoop` takes `headPlain` as an argument and runs
+    `frameBodyOnLoop` before `sealHead`, and `openRecordOnLoop` opens `ct_head` above
+    `unframeBodyOnLoop` — both read at `connect` `d368fea`. That is unlike `AAD_head`, which contains
+    `body_hash = H(ct_body)` and cannot be bound in either form.
+
+214. **RULED 2026-09-17 — `connect` open item MG-4, which owed a number here. A MEMBER CANNOT OPEN
+    ITS OWN APPLICATION RECORD, AND THE PRODUCT'S ANSWER IS THE COPY THE SENDER KEPT.** `Protect`
+    consumes a generation of this leaf's own **sending** ratchet and MLS derives no receiving ratchet
+    for a member's own leaf, so `OpenRecord` of a record this same device sealed answers *"ratchet
+    generation already consumed"*. It silently broke four things — a restarted device rebuilding its
+    own half, a record whose submit answer was lost, the clone check's evidence, and a restored group
+    that could never `Send` again — and all four are one missing sentence: **where a device reads its
+    own messages from**. **RULED as MG-4's first option**, MASTER §8.4.7 (1). Spec A §5.2's
+    *"it does not make a working call stop working"* is corrected in place with its old wording kept
+    beside it.
+
+    **IT WAS BUILT BEFORE IT WAS RULED AND THAT IS RECORDED RATHER THAN SMOOTHED OVER.** `sdk` chose
+    this option, implemented it and holds it in `cp3b`; `sdk/cp3b/ownrecord_test.go`'s own header says
+    the change *"turned 12 of this package's 30 cases red"* before `sdk` moved. **The 37-case figure
+    in the brief for this pass was NOT re-run here** — `sdk` is another agent's tree and this pass
+    read it only — so it is carried as the brief's number with its owner, not restated as this pass's
+    measurement. The query a later pass should publish beside it is a `go test ./cp3b/ -count=1 -json`
+    pass count at a named `sdk` commit.
+
+    **The refused option is written down so it is refused rather than rediscovered:** exempting a
+    record at this member's own `sender_handle` from the inner open re-opens exactly the forgery §8.4
+    closed, narrowed to self-attribution — any member could seal a record attributed to Alice and
+    **Alice's own device** would render it.
+
+215. **RULED IN PART 2026-09-17 — `connect` open item MG-5, which owed a number here. A CEREMONY
+    RECORD'S `sender_handle` IS ROUTING AND NOT ATTRIBUTION, AND FULL MLS ADOPTION DOES NOT REACH
+    THAT ARM.** MASTER §8.4.1 row 3 — a wrap, an epoch fan-out, a completion marker — carries no MLS
+    frame at all, so §8.4.3's refusals do not apply and no member's credential signs one. Adopting
+    MLS *fully* cannot change that: a wrap is HPKE addressed to a device and an epoch marker is a
+    counter, and neither is a thing a `PrivateMessage` could carry without ceasing to be what it is.
+    **Ruled, MASTER §8.4.7 (2), in three parts, two of which were already built:** *(a)* such a
+    record's `sender_handle` MUST NOT be rendered, attributed or treated as evidence — **this is the
+    part that was missing**; *(b)* a door named for opening a message MUST refuse the arm — built,
+    `OpenCeremonyRecord`; *(c)* an acceptance on the arm MUST spend nothing — built,
+    `TestTheCeremonyDoorSpendsNoneOfTheHandleItNames`. **What is ruled and NOT built** is the commit
+    row: the epoch machinery MUST require the commit to be one `mls` accepts **and** to have been
+    signed by the leaf the record's `sender_handle` names. Nothing calls `OpenCeremonyRecord` today,
+    so no shipping path changes. **What stays open is item 199**: `is_commit` and
+    `H(server_attachment)` *choose* which row a record takes and are outside every signature, so the
+    arm is selected by something no member signs.
+
+216. **FILED 2026-09-17, NOT DONE — `ReceiverKey` IS RULED UNEXPORTED AND THE CHANGE IS `connect`'s.**
+    `(*SecretTree).ReceiverKey(leaf, kind, generation)` commits a ratchet with **no authentication**:
+    a caller handing it values taken off the wire has skipped the sender-data AEAD on which every
+    argument about what one forged header can buy rests. Per call it materialises the victim leaf's
+    node secret and **both** of that leaf's ratchets, destructively, plus up to
+    `MaxGenerationSkip` = 1,024 steps and their retention, with **nothing bounding repetition**.
+    **Measured before deciding, query published:** `grep -rn "\.ReceiverKey(" --include=*.go connect
+    sdk msgrepo` → **42 lines in exactly two files**, `connect/mls/secret_tree_test.go` and
+    `connect/mls/secret_tree_kat_test.go`, **both `package mls`** (`grep -n "^package"` on each), and
+    **zero** production call sites in any repository. So the rename breaks no caller that exists, and
+    the two legitimate needs — look a generation up, then commit it — are already
+    `MessageKey` / `CommitMessageKey`, which sit behind the sender-data open. **Kept-with-a-reason was
+    considered and refused:** a door whose safety rests on *"there is no caller to have learned it
+    from"* is held by an absence, and the next caller is the defect. **Not run here.** This pass owns
+    `msgrepo` and read `connect` only, so no number is claimed for `connect`'s suite; the pass that
+    lands the rename owes `go test ./mls/` with its query, and owes it because this package's gates
+    are keyed on its exported surface. **Same measured class, NOT ruled here:** `NextSenderKey` also
+    has zero production callers, and `SenderGeneration` has zero today and **acquires one** under
+    item 212's ruling.
+
+217. **FILED 2026-09-17, NOT RULED — `aad_mls` v1 AND v2 DO NOT INTEROPERATE, THERE IS NO WIRE SIGNAL
+    THAT SAYS WHICH IS IN USE, AND THAT IS ON PURPOSE.** A v2 opener rebuilds a v2 preimage, so a v1
+    frame refuses at R2; a v1 opener rebuilds a v1 preimage, so a v2 frame refuses at R2. Both
+    directions fail closed, and both fail **silently to the user** as a record that will not open.
+    **`format_version` is NOT bumped and MUST NOT be**, and the reason is the one the split exists
+    for: `format_version` names the record's octet layout, which is byte-identical under v2, and the
+    only party that reads it is the **message server**, which must not learn anything about a change
+    inside an AEAD it cannot open. The version therefore lives in the **label**, `"URmessage/v2/aad/mls"`,
+    where only members can read it. **The consequence is a flag day**, and what is unruled is the
+    deployment, not the format: every client in a group cuts over together, or the group splits into
+    two halves that each refuse the other's application records while commits, wraps and epoch
+    markers keep flowing — which is the worst-looking failure this design can produce, because the
+    group looks alive. There are no deployed clients but the owner's live probe, so the cost today is
+    one re-run; **this item exists so that it is still a cost that was chosen.** *Blocks:* nothing
+    today. *Becomes blocking:* the first release with users in it.
+
+218. **FILED 2026-09-17 BY THE PASS THAT FOUND IT — A DERIVED CONSTANT PUBLISHED BESIDE A MEASURED
+    ONE, WHERE ONLY THE DERIVED ONE WAS WRONG AND NO TEST COULD SEE IT.** MASTER §8.4.4 said the MLS
+    frame's overhead *"is a step function of the plaintext length, because RFC 9420's varint prefix
+    widens at 64 and at 16,384"*, and `connect/messagegroup/mlsframe.go`'s header says *"193 octets
+    for P < 64, 194 for 64 <= P < 16,384 and 198 for P >= 16,384"*. **Both are wrong in one band and
+    both were wrong in the same way.** Two varints widen, not one: `varint(P)` inside the ciphertext
+    and `varint(C)` around it, where `C ≈ P + 82`. Swept 2026-09-17 by the item-212 probe over
+    `P = 0..66,000`, printing `len(frame) − P` at each change:
+
+    ```
+    193 for      0 ≤ P <     64
+    194 for     64 ≤ P < 16,300
+    196 for 16,300 ≤ P < 16,384      ← named nowhere in the corpus
+    198 for 16,384 ≤ P
+    ```
+
+    **Why no test saw it.** The rung ladder — 59 / 826 / 3,898 / 16,186 / 65,334 — was measured by
+    **walking** `Protect` at each length, and 16,186 is below 16,300, so no rung boundary falls in the
+    missing band and every published number stayed right. The step function beside it was **derived**,
+    and a derived value published next to a measured one is invisible to every case that uses the
+    measured one. **It became load-bearing on the day it was filed:** MASTER §8.4.6's early size
+    refusal is arithmetic over exactly this function. **The rule, ruled in §8.4.4:** an implementation
+    MUST derive the overhead from the ciphersuite, the group-id width, the signature width and the
+    32-octet `aad_mls`, and MUST NOT hard-code the four numbers — they are the expected answer a
+    second implementation checks itself against, not a table to copy. **What to mutation-test:**
+    hard-code the three-step form and require a 16,350-octet body to go from sealed to refused.
+    **The class, which is item 141's with one turn:** 141 is a value restated in three documents that
+    can drift. This is a value **derived** in one document beside the **measurement** it claims to
+    explain, where the two disagree and only the measurement is under test. *Owner:* `connect` for
+    the comment, this repository for §8.4.4, done in this commit.
 
 ## 6. Change process
 
@@ -16840,3 +17099,174 @@ excluding `"Test":"[^"]*/`. Before the commit, `git ls-files | wc -l` ==
 file. Both edited documents are LF in the working tree: `grep -c $'\r'` → 0 on each, measured after
 an edit tool had written CRLF into both.
 
+---
+
+### 2026-09-17 — `aad_mls` goes to v2: the generation and the head bound in one version, the three half-adopted items ruled, and a step function this document published with one band missing
+
+**Change:** MASTER §8.4.2 is replaced with the **v2** normative definition; §8.4.3 gains a third
+refusal; §8.4.4 is corrected and re-measured; **§8.4.6** and **§8.4.7** are new; §8.4.5 is amended;
+§0 gains a **tenth** amendment block. Spec A goes to **A-28** in six places, none of which is a second
+copy of the preimage. Seven ledger items gain dated notes, one **closes**, and seven are filed:
+**212**–**218**. **No Go file in any repository changed, and no line of any implementation is in this
+commit.**
+
+**The answer, first sentence:** **yes — two implementers can build the same `aad_mls` v2 octets from
+§8.4.2 alone.** The preimage is 160 octets, four terms, and the block gives each term's width, its
+endianness, its label, whether it is length-prefixed, and where its inputs come from.
+
+#### What was ruled
+
+```
+aad_mls = H("URmessage/v2/aad/mls" ‖ AAD_body ‖ u32(generation) ‖ head_commit)     32 octets
+
+  20 octets  label, raw ASCII, no prefix and no terminator
+ 104 octets  AAD_body, §8's own octets, its own label still at v1
+   4 octets  u32(generation), BIG-ENDIAN, RFC 9420 §6.3.2's SenderData.generation
+  32 octets  head_commit = HMAC-SHA-256(HKDF-Expand(record_key[i], "rec/v1/head-bind", 32),
+                                        head_plain)
+```
+
+Applies to **§8.4.1's middle row only** — `is_commit == 0 && server_attachment empty`. **Zero wire
+octets**: the digest is 32 octets at v1 and v2 alike, so no rung moves, no `format_version` bumps, no
+schema changes, and the message server is neither edited nor redeployed.
+
+#### The crux, and why the chosen shape cannot emit a divergence
+
+`Group.Protect(aad, plaintext)` takes the AAD as an **input** and chooses the generation **inside**,
+from the sender ratchet, so the generation cannot be in the AAD before `Protect` is called. **The rule is NORMATIVE at §8.4.2 as S1, S2 and S3** — build the AAD from the generation
+actually sealed under, make the reservation and the build atomic, and REFUSE rather than emit a frame
+whose AAD names a generation it is not at. **The ruled
+shape: an aad-BUILDER**, `ProtectBound(aad func(generation uint32) ([]byte, error), plaintext []byte)`,
+which reads the next generation, calls the builder, signs and seals under **one** hold of the group's
+own `stateLock` — the lock `Protect` already takes and the lock `sealAndRecordLocked` documents as
+held.
+
+**Why it cannot race, in four measured parts.** *(1)* **One consumer.** The only thing that advances a
+leaf's *application* ratchet is `sealPrivateMessage`'s `keys.NextMessageKey(ContentTypeApplication,
+leaf)`; proposals and commits are `ContentTypeProposal`/`ContentTypeCommit` and draw from the
+**handshake** ratchet. *(2)* **No external door.** `Group.secretTree` is unexported and never handed
+out, and `SecretTree`'s own generation doors have **zero** production callers in any of the three
+repositories — measured for `ReceiverKey` with the query at item **216**, and the same query answers
+zero for `NextSenderKey` and `SenderGeneration`. *(3)* **One lock hold** covers read, build, sign and
+seal. *(4)* **AND THE SEAL PINS IT**, which is the part that makes the rule falsifiable rather than an
+argument: if the generation the seal consumes is ever not the one the builder was handed, the seal
+**refuses and emits nothing**. So a wrong argument produces one local refusal costing one generation —
+an ordinary gap — rather than a sender every one of whose messages is refused by its own peers for a
+reason it cannot see.
+
+**Alternatives, refused with reasons.** *Expose the generation and require `Protect` to use it*: two
+calls, two lock acquisitions, a window between them, and nowhere for the pin to live. *Return the
+generation and rebuild the AAD*: impossible — the AAD is an input to the signature. *Reserve, then
+`Protect(generation, …)`*: splits reservation from consumption and makes an unconsumed reservation a
+new durable state to persist.
+
+**And on the receive side one surface widens.** §8.4.3's **R3** requires R1 and R2 to be decided on a
+reading that steps no ratchet, and under v2 that reading must answer the **generation** as well as the
+leaf and the AAD. All three come out of **one** `SenderData` open under a secret every member already
+holds, so nothing new is decrypted and no ratchet is reached — but `PeekPrivateMessageSender` returns
+two values today and must return three. That is `connect`'s change and it is named at Spec A §8.2's
+`GroupHandle` block rather than built here.
+
+#### What reproduced, what did not, and the query beside each number
+
+**Every number below came from a probe module OUTSIDE all three repositories** that imports `connect`
+`d368fea` read-only. `connect`'s `git status` was **empty** before and after every run and is empty
+now. `sdk` was read and never written; its tree was already dirty when this pass read it — three
+modified files under `cgo/` — which is another agent holding it, exactly as *one writer per
+repository* predicts.
+
+- **REPRODUCES — the generation is outside every signature.** RFC 9420's `FramedContentTBS` is
+  `ProtocolVersion ‖ WireFormat ‖ FramedContent ‖ GroupContext` and carries no generation (read,
+  `connect/mls/framing_preimage.go`). Measured: a member opens the victim's frame, keeps its
+  `FramedContent` **and its signature octets**, re-seals at generations of its own choosing, and
+  **3 of 3 substitutes are ACCEPTED** — signature verified, leaf reported as the victim's. The probe
+  also asserts both frames carry the **same signature octets** and the **same `authenticated_data`**:
+  `true` for both.
+- **DOES NOT REPRODUCE AS STATED — *"7 of 7 of the victim's genuine records then DEAD"*.** It depends
+  on a shape the brief does not name, and **nothing here is built on the figure**. Three shapes
+  measured: substitutes 40 generations ahead → **0 of 8** die, because the skipped-key window retains
+  them; one substitute at a generation the victim has not reached → **1 of 7** dies, the one aimed at,
+  for ever; four substitutes each ~1,020 past the moving head → **7 of 7** die, with *"generation 0,
+  head 4084"*. The sharpest of the three is the middle one: **one ordinary record deletes one chosen
+  future message**. The ruling does not depend on which.
+- **REPRODUCES — the counterfactual.** Same probe, one change: the AAD names the generation and the
+  receiver recomputes it from what it reads off the wire. **0 of 3** substitutes accepted, all three
+  refused **before any ratchet moved**, **0 of 8** genuine frames dead. The sender took the generation
+  from `SenderGeneration(leaf, RatchetApplication)` before sealing and all eight of its own frames
+  opened.
+- **REPRODUCES — the size ladder, and it does not move under v2.** Binary search for the largest `P`
+  with `len(frame) + 4 ≤ rung`: **59 / 826 / 3,898 / 16,186 / 65,334**, identical to §8.4.4's table.
+- **NEW — the frame's length depends on the plaintext's length ALONE.** Twelve lengths × three
+  different 32-octet AAD values (all-zero, all-`0xff`, random): identical at every length. **This is
+  what makes §8.4.6 implementable** — the rung is computable before an index is reserved.
+- **NEW DEFECT — the overhead step function has four steps and this corpus published three.** Swept
+  `P = 0..66,000`: 193 below 64, 194 to 16,300, **196 from 16,300 to 16,383**, 198 from 16,384. MASTER
+  §8.4.4 said the varint *"widens at 64 and at 16,384"* and `connect/messagegroup/mlsframe.go` says
+  *"193 … 194 … 198"*; **two** varints widen, not one. No published rung number is affected — 16,186
+  is below 16,300 — which is exactly why it survived: the ladder was **measured** and the step function
+  beside it was **derived**, and only the derived one is wrong. Item **218**, and it is load-bearing
+  from today because §8.4.6 is arithmetic over it.
+- **DOES NOT REPRODUCE — the brief's *"bodies of 65,335..65,532 answer `ErrTextTooLong`"* at the
+  `sdk` door.** `sdk` already refuses above `MaxTextOctets = 65334` **before** the seal
+  (`urmessage/group.go`), so that door costs nothing. The defect is real one layer down and is read
+  rather than run: `connect`'s `newRecordBuilderOnLoop` checks `bucketForBody(len(bodyPlain))`, then
+  spends the index, then the generation, then checks `bucketForBody(len(bodySeal))`. §8.4.6 rules the
+  record layer's door; `sdk`'s is **ratified**, not introduced.
+- **CARRIED, NOT RE-RUN — the brief's `cp3b` 37 and `urmessage` 44.** `sdk` is another agent's tree
+  and this pass read it only, so those are carried with their owner rather than restated as this
+  pass's measurement. Item **214** says what query a later pass owes instead.
+
+#### Every clause added was deleted and the suite re-run, and NOTHING went red. That is said by name.
+
+All three edited documents were replaced with their `dc204a9` content — by writing
+`git show HEAD:<path>` into place, never by `git checkout`, so the index was never touched — and
+`go test ./... -count=1 -timeout 900s -json` was re-run with no `URMESSAGE_TEST_DSN`: `"pass"` →
+**471**, `"fail"` → **0**, `"skip"` → **14**. **Identical to the run with every clause present, and
+identical to the `dc204a9` baseline taken before any edit.** `go test ./ -run TestThePlanLinter` → `ok`
+in all three runs.
+
+**So no test in this repository reads MASTER §8.4, Spec A's six amended sites, or ledger items
+212–218.** The queries: `api/checks_test.go:703`, `deps_test.go:1561` and `peer/checks_test.go:231`
+each glob `docs/specs/*-spec-b-*.md` and read a rule out of **Spec B only**; `planlint_test.go:1121`
+reads this ledger only to check that an item a **plan** cites exists, and
+`grep -rn "item 21[2-8]" docs/plans/` → **0**. **What would defend these clauses lives in `connect`**:
+`messagegroup`'s seal and open cases for R1/R2/R3, `mls`'s framing cases for the builder and the pin,
+`keysource_test.go` for item **206**'s added clause, and `seal.go`'s early refusal for §8.4.6. The
+brief for this pass forbids supplying test code, so each is stated as a property with its mutation
+rather than written. **Nothing in this commit should be read as mechanically held.**
+
+**And one clause is predicted to defend nothing, named before it is written rather than after.**
+§8.4.3 requires R1 and R2 to be taken a second time on the authenticated reading. For the **generation**
+that second reading is unreachable-by-construction: the content AEAD's key is derived from the
+generation the sender data named, so a frame that opens at all opened under exactly the generation the
+pre-reading read. The clause is written anyway, because its premise is a property of the implementation
+rather than of this document — and §8.4.3 **requires the implementing pass to delete it, run, and say
+by name whether anything went red.** Likewise §8.4.3 mutation *(f)*: replacing the keyed
+`head_commit` with a bare `SHA-256` changes **no refusal** and reddens **nothing**, because what it
+defends is a confidentiality property against the **server** that no refusal can observe. That clause
+is held by a stated rule and by nothing else, and saying so is the point.
+
+#### Verification on the tree committed
+
+`go build ./...` → **BUILD_OK**. `go vet ./...` → clean. `gofmt -l .` → empty.
+`go test ./... -count=1 -timeout 900s -json`, **without** PostgreSQL and with no `URMESSAGE_TEST_DSN`:
+`grep -c '"Action":"pass".*"Test":'` → **471**, the same over `"fail"` → **0**, over `"skip"` →
+**14**, and **179** top-level (the same query with `| grep -v '"Test":"[^"]*/'`). All fourteen skips
+are the PostgreSQL-backed cases; this pass touched no Go file. `go test ./ -run TestThePlanLinter` →
+`ok`.
+
+`git ls-files | wc -l` == `git ls-tree -r HEAD --name-only | wc -l` == **131** before the commit,
+unchanged: this pass adds no file and removes none.
+
+**Line endings, and the published query for them is CORRECTED.** All three edited documents are LF:
+`python -c "import io;print(io.open(P,'rb').read().count(b'\r'))"` → **0** on each. The query previous
+entries published, `grep -c $'\r' <file>`, **does not do what it says on this machine**: inside a
+`for`-loop in the shell this session drives, `$'\r'` degraded to an empty pattern and grep answered
+the file's **full line count** on files that contain no CR at all. The failure direction is a false
+**positive**, so it would have been noticed rather than believed — but a query that reports 3,298
+CR-bearing lines in a file with zero is not a query to publish. `grep -cU` with a `printf '\r'`
+pattern is correct; the Python form above is what this entry used.
+
+**`connect` and `sdk` were READ ONLY.** No file in either was written. `connect` is clean at `d368fea`
+(1,130 tracked files). `sdk` at `5835228` had three modified files under `cgo/` throughout, which is
+another agent's work and not this pass's.

@@ -190,6 +190,66 @@ AEAD on every record. §8's own key derivation settles it — a 24-octet nonce i
 so the answer was always `0x0021`, and §8 now says so rather than leaving it to be inferred from a
 nonce length. Found by building the two preimages, before the sealer that would have chosen.
 
+**Amendment to revision 9 — 2026-09-17 — §8.4: `aad_mls` goes to v2, and the three half-adopted items
+are ruled.** **This one changes a rule and it changes a preimage**, which is the first amendment since
+§8's `eph_window` to do the second. The owner ruled that MLS is adopted **fully** rather than
+partially, on the finding that half-adopting it is what left the holes below.
+
+*(1)* **§8.4.2 now carries v2.** `aad_mls = H("URmessage/v2/aad/mls" ‖ AAD_body ‖ u32(generation) ‖
+head_commit)`, 160 octets of preimage, still a 32-octet digest. Two things v1 left outside the
+signature are now inside it. **The MLS generation:** RFC 9420's `FramedContentTBS` covers the group
+id, the epoch, the sender, the `authenticated_data`, the content type and the content — **and no
+generation** — while the generation sits in `SenderData` under a **group-shared** secret and every
+leaf's ratchet is derivable from a **group-shared** `encryption_secret`. So a member could open
+another member's frame, keep its `FramedContent` and its signature octets byte for byte, and re-seal
+them at a generation of its own choosing; the receiver obeyed it, and the true sender's own frame at
+that generation was then dead for ever. **The head plaintext:** `ct_head` is sealed under the same
+`record_key[i]` every member derives and no field of the frame covered it, so a member could re-issue
+another member's genuine body at the same position under a head — and therefore a `sent_at` — of its
+own writing. `head_commit` is **keyed**, `HMAC-SHA-256` under
+`HKDF-Expand(record_key[i], "rec/v1/head-bind", 32)`, because `aad_mls` travels in the clear and an
+unkeyed hash of a public preimage and a millisecond timestamp is a few million guesses for the
+**server**.
+
+*(2)* **The two land as ONE version, one flag day, one live re-run**, because two wire changes would
+cost two of each and the second would re-measure the first. **And the wire cost is zero:** `aad_mls`
+is a digest at both versions, so `authenticated_data` stays 32 octets, `octet_length(ct_body)` is
+unchanged at every rung, no rung moves, the message server is not edited and Spec B is not revised.
+
+*(3)* **§8.4.3 gains a third refusal, and it is about ORDER rather than about a value.** R1 and R2
+must be decided on a reading that steps no ratchet and erases no key. Under v1 that ordering was a
+defence against a denial channel; under v2 it is the refusal itself, because opening a frame is what
+commits the generation the frame names. The pre-ratchet reading must therefore answer the sender
+leaf, the `authenticated_data` **and the generation** — all three out of one `SenderData` open — and
+a reading that answers the first two only does not satisfy R3.
+
+*(4)* **§8.4.4 is CORRECTED: the frame's overhead step function has four steps and this document
+published three.** Two varints widen, not one, and the band `16,300 ≤ P < 16,384` costs 196 octets
+and was named nowhere. The ladder columns are unaffected, which is why it survived — the ladder was
+measured by walking and the step function beside it was derived — and it becomes load-bearing at
+§8.4.6, which is arithmetic over exactly this function.
+
+*(5)* **§8.4.6 rules the size ceiling** (ledger **203**'s defect half): the early size refusal runs on
+the **framed** length, not the caller's, so a body of 65,335 to 65,532 octets no longer reserves a
+stream index and spends an MLS generation on its way to a refusal that was certain. It is
+implementable because §8.4.4 measures that the frame's length is a function of the plaintext's length
+alone.
+
+*(6)* **§8.4.7 rules the three half-adopted items.** A member cannot open its own application record,
+that is MLS, and a device renders its own sent lines from a copy it kept — **ratifying what `sdk` had
+already built and holds in 37 `cp3b` cases**, and recording that it was built ahead of the ruling. A
+ceremony record's `sender_handle` is **routing and not attribution**, full adoption does not reach
+that arm, and the one row that admits an authentication is the commit row, where the epoch machinery
+owes it. And `ReceiverKey` is **unexported**: measured at **zero** production callers across all
+three repositories, it commits a ratchet with no authentication and nothing bounds repetition.
+
+*(7)* **What this ruling CLOSES and what it does not.** It closes `connect` open items **MG-6** and
+**MG-4**, records **MG-5**, and closes ledger item **204** — `sent_at` was the largest forgeable field
+in the system and is now covered by the sender's signature. It does **not** close ledger item **199**:
+`is_commit`, `size_bucket`, `expire_at`, `blob_id` and `H(server_attachment)` are still outside every
+signature and still cannot be brought inside one, and the first of them is the one the server acts on.
+Item 199's list loses its sixth entry and keeps its five.
+
 **Amendment to revision 9 — 2026-09-18 — §7, §8.1, §8.2, §8.3: three owner rulings transcribed, and
 one red-team finding adopted four weeks late.** **Unlike the two amendments above, this one does change
 rules** — and it is filed as an amendment rather than as revision 10 because the rules changed when the
@@ -1884,45 +1944,189 @@ The inner seal answers *who wrote this, and in what position*, to members. The o
 substitutes for the other, and **I7**'s *"distinct keys and distinct AADs"* now spans three AEADs
 rather than two.
 
-#### 8.4.2 `aad_mls` — what the inner frame authenticates, and what that defends
+#### 8.4.2 `aad_mls` v2 — what the inner frame authenticates, and what that defends
+
+**RULED 2026-09-17. THIS SECTION CARRIED v1 UNTIL THIS RULING AND CARRIES v2 FROM IT. ONE VERSION,
+ONE FLAG DAY, ONE LIVE RE-RUN.** v1 bound six header fields and nothing else, and the two things it
+left outside are each a standing forgery with a measured reproduction: the MLS **generation**
+(reproduced below) and the **head plaintext** (ledger **MG-6**). They land together because two wire
+changes would cost two flag days and two live re-runs of every number this project holds, and
+because the second of them would re-measure the first.
 
 MLS's `authenticated_data` is covered by the `PrivateMessage`'s own two AEADs **and by the sender's
-signature**, so it is the place a record binds itself to the credential that wrote it.
+signature**, so it is the place a record binds itself to the credential that wrote it. v2 puts three
+things there rather than one, and the digest stays 32 octets, so **no wire field moves and no rung
+moves**.
 
 ```
-aad_mls = H("URmessage/v1/aad/mls" ‖ AAD_body)                          32 octets
+aad_mls = H("URmessage/v2/aad/mls" ‖ AAD_body ‖ u32(generation) ‖ head_commit)      32 octets
 
-  where AAD_body is §8's, verbatim and unchanged:
-  "URmessage/v1/aad/body" ‖ u16(alg_id) ‖ LP(group_id) ‖ LP(sender_handle)
-                          ‖ u64(epoch) ‖ u64(stream_index) ‖ u8(retention_class)
-                          ‖ u64(eph_window)
+  The preimage is 160 octets and has exactly four terms, concatenated in this order with no
+  separator, no padding and no framing of any kind:
+
+  (1) the label        20 octets   "URmessage/v2/aad/mls", US-ASCII, raw. No length prefix, no
+                                   NUL terminator, no version octet beside it. The label is the
+                                   version: a v1 opener handed a v2 frame rebuilds v1's preimage,
+                                   gets a different digest and refuses at R2, which is the
+                                   fail-closed direction.
+  (2) AAD_body        104 octets   §8's, VERBATIM AND UNCHANGED, and its own label stays at v1:
+                                   "URmessage/v1/aad/body" ‖ u16(alg_id) ‖ LP(group_id)
+                                   ‖ LP(sender_handle) ‖ u64(epoch) ‖ u64(stream_index)
+                                   ‖ u8(retention_class) ‖ u64(eph_window)
+                                   104 octets for v1's fixed 32-octet group_id and 16-octet
+                                   sender_handle; alg_id is 0x0021. The term is AAD_body's OWN
+                                   OCTETS, taken from the one builder that produces them, and
+                                   never a second assembly of its fields here.
+  (3) u32(generation)   4 octets   BIG-ENDIAN, four octets, most significant first. It is RFC 9420
+                                   §6.3.2's SenderData.generation of THIS frame — the generation of
+                                   the sender's own application ratchet that this frame's content
+                                   is sealed under. u32 and not u64 because u32 is the width RFC
+                                   9420 gives the field, and a second width here is a preimage no
+                                   MLS implementation reproduces.
+  (4) head_commit      32 octets   RAW, no length prefix, the full 32-octet HMAC output:
+
+                                     head_bind_key = HKDF-Expand(record_key[i],
+                                                                 "rec/v1/head-bind", 32)
+                                     head_commit   = HMAC-SHA-256(head_bind_key, head_plain)
+
+                                   record_key[i] is §8.1's ladder rung at i = stream_index — the
+                                   SAME rung key_head ‖ nonce_head and key_body ‖ nonce_body come
+                                   off, reached by no new ladder and no new walk. The info string
+                                   is the raw ASCII "rec/v1/head-bind", 16 octets, length-prefixed
+                                   by nothing, which is exactly what "rec/v1/head" and
+                                   "rec/v1/body" already are; it stays at v1 because it names a
+                                   derivation off the v1 record ladder. head_plain is the head
+                                   PLAINTEXT octets exactly as they are sealed into ct_head — the
+                                   same array, of whatever length including zero, with no length
+                                   prefix, no padding, no re-encoding and no canonicalisation.
+
+H is SHA-256 and HKDF is HKDF-SHA-256, as §0's notation fixes them. The output is 32 octets and
+`aad_mls` IS those 32 octets. **Two implementers building from this block alone produce the same 32
+octets.**
 ```
 
-**It is `AAD_body` and not a new preimage** because `AAD_body` already carries exactly the six fields
-that decide a record's identity and position, because one preimage builder cannot drift from itself,
-and because a field added to `AAD_body` later is bound here automatically rather than by a second
-edit somebody forgets. **It is HASHED and not carried verbatim** because `AAD_body` is 104 octets and
-those octets come out of the size rung: verbatim, the 256-octet rung carries **no application body at
-all** — measured, not estimated — while hashed it carries 59. §8.4.4 publishes both columns.
+**WHICH RECORDS THIS REACHES, and it is not "every record".** Exactly §8.4.1's middle row: an
+**application record**, the predicate `is_commit == 0 && server_attachment is empty`, computed once
+and read identically by the sealer and the opener. Row 1 (a commit record) and row 3 (a wrap, an
+epoch fan-out, a completion marker) carry **no `aad_mls` at all** and nothing in this section reaches
+them; §8.4.7 says what does and does not authenticate those.
 
-**`AAD_head` is NOT bound and cannot be**, in either form: `AAD_head` contains `body_hash =
-H(ct_body)`, and `ct_body` is sealed over the frame this AAD is inside. That is §8's construction
-order and the circularity guardrail, seen from the inside. The fields `AAD_head` carries and
-`AAD_body` does not — `is_commit`, `size_bucket`, `expire_at`, `blob_id`, `H(server_attachment)` —
-are therefore **still authenticated only by the group**, which is what it means for this ruling to
-cover the body only. Ledger open item **199** carries `is_commit`, which is the one of the five the
-server acts on.
+**`AAD_body` IS STILL THE SECOND TERM AND IS STILL NOT RE-ASSEMBLED HERE**, for v1's reasons, which
+this ruling does not disturb: it already carries exactly the six fields that fix a record's identity
+and position, one preimage builder cannot drift from itself, and a field added to `AAD_body` later is
+bound here automatically rather than by a second edit somebody forgets. **It is still HASHED and not
+carried verbatim**: `AAD_body` is 104 octets and those octets come out of the size rung — verbatim,
+the 256-octet rung carries **no application body at all** (measured, §8.4.4). v2 adds 36 octets to
+the **preimage** and **zero to the wire**, because the digest's width is what travels.
 
-**What binding `AAD_body` defends, stated as the attack it stops.** Without it, a member who cannot
-forge Alice's *signature* can still take a frame Alice signed and **re-envelope it**: seal it into a
-different record. Concretely it could move Alice's message to a different `stream_index` — a replay
-into a later conversational position, indistinguishable from Alice saying it again — or into a
-different `retention_class`: a `DURABLE` message dropped into `EPH(1)` so it self-destructs within
-the hour, or an `EPH` message promoted to `PERMANENT` so it never does. Both are attacks on what the
-product promises rather than on what the ciphertext says. With `aad_mls`, each of those is a record
-whose inner AAD names a position it is not in, and §8.4.3's second refusal catches it.
+**WHY THE GENERATION, stated as the attack it stops, and it is not the attack v1 stopped.** The
+generation is **not in the signature preimage**: RFC 9420 §6.1's `FramedContentTBS` is
+`ProtocolVersion ‖ WireFormat ‖ FramedContent ‖ GroupContext`, and `FramedContent` carries the group
+id, the epoch, the sender, the `authenticated_data`, the content type and the content — and no
+generation. The generation lives in `SenderData`, sealed under the epoch's **group-shared**
+`sender_data_secret`, so every member can write one. And every member can seal *at* one: RFC 9420 §9
+derives every leaf's ratchet from the epoch's `encryption_secret`, which is group-shared by
+construction, so a member holds any other member's message key at any generation it likes.
 
-#### 8.4.3 The two refusals an opener owes, and neither implies the other
+So a member who cannot forge Alice's signature can **open Alice's frame, keep her `FramedContent` and
+her signature octets unchanged, and re-seal them at a generation of its own choosing.** Under v1 that
+record passes R1 (the frame really is Alice's) and R2 (the position really is that record's), and the
+receiver obeys the generation the attacker wrote. What it buys is a **deletion the attacker aims**:
+an accepted frame commits its generation at that receiver, and Alice's own later frame at that
+generation is then refused for ever with *"ratchet generation already consumed"*. Aimed one at a
+time, or a few at a time past the retained-key bound, it takes the lot. **Measured, and the two
+shapes differ — §8.4.4 publishes the numbers and the query.**
+
+With the generation inside `aad_mls`, that record is one whose inner AAD names a generation it is not
+at, and §8.4.3's R2 catches it — **before any ratchet moves**, which is R3.
+
+**WHAT TERM (3) OBLIGES A SEALER TO DO, because the obvious reading of it is impossible.** MLS's
+`Protect(aad, plaintext)` takes the AAD as an **input** and chooses the generation **inside**, from
+the sender ratchet, so the generation cannot be in the AAD before `Protect` is called. Term (3) is
+therefore not a value a caller looks up and passes; it is a value the seal must **agree with itself
+about**. The rule:
+
+```
+S1  The sealer MUST build aad_mls from the generation the frame is ACTUALLY sealed under.
+S2  The reservation of that generation and the construction of aad_mls MUST be ATOMIC with
+    respect to every other seal on this group's own sender ratchets.
+S3  If the generation consumed is ever not the one aad_mls names, the seal MUST REFUSE and
+    emit NOTHING. It MUST NOT return a frame whose AAD names a generation the frame is not at.
+```
+
+**The shape this document rules, and why it cannot emit a divergence.** The seal takes an **AAD
+builder** rather than an AAD — `f(generation) → aad` — and reads the next generation, calls the
+builder, signs and seals under **one** hold of the lock that already serialises this group's seals.
+Four parts, and the fourth is the one that makes S1 a rule rather than an argument. *(i)* **One
+consumer**: a leaf's *application* ratchet is advanced by the application seal and by nothing else —
+a proposal and a commit draw from the **handshake** ratchet, which is a different ratchet of the same
+leaf. *(ii)* **No external door**: the secret tree is not reachable from outside the MLS
+implementation, so nothing can step that ratchet behind the seal's back. *(iii)* **One lock hold**
+spans read, build, sign and seal, so no other seal on this group can interleave between the read and
+the consume. *(iv)* **S3 is the pin.** If (i) to (iii) are ever wrong, the result is one local
+refusal costing one generation — an ordinary gap, exactly like a refused submit — instead of a sender
+**every one of whose messages is refused by its own peers** for a reason it cannot see. That
+asymmetry is why S3 is a MUST: a wrong atomicity argument must be loud at the sender rather than
+silent everywhere else.
+
+**Three shapes are refused and the reasons are recorded so they are not re-proposed.** *Expose the
+next generation and require the seal to use exactly that one*: two calls, two lock acquisitions, a
+window between them, and no place for S3 to live — nothing in the seal's signature says which
+generation the caller assumed. *Return the generation and let the caller rebuild the AAD*: impossible,
+because the AAD is an input to the **signature**. *Reserve the generation, then seal against it*:
+splits reservation from consumption and makes an unconsumed reservation a new durable state that
+`§8.4`'s persist rule would have to carry.
+
+**And the property to mutation-test, which is not the same as S1.** *Every frame a sealer emits names,
+in its AAD, the generation it is sealed under.* **Falsifiable:** hand the seal a key source that skips
+one generation and require the call to refuse rather than return octets. A build that returns them is
+one whose every message is refused by its own peers, and the case that catches it is the only thing
+between that and a silent outage.
+
+**WHY THE HEAD, and why the bind is KEYED.** `ct_head` is sealed under the same `record_key[i]` every
+member derives, and under v1 **no field of the inner frame covered the head plaintext**. So a member
+could take another member's genuine body — frame, signature and all — and re-issue it at the **same
+position** under a head of its own writing: R1 passed, R2 passed, and the record opened to the true
+sender's plaintext under an attacker's head. The head is not decoration: it carries `sent_at`, which
+is what a conversation is ordered by and what §12.1's delete-for-everyone window is measured from.
+And the substitute is *accepted*, so it spends the rung and the genuine record at that index then
+cannot open at all. That is ledger **MG-6** and ledger open item **204**, and `head_commit` closes
+both.
+
+**It is `HMAC-SHA-256` under a key and never a bare `H(head_plain)`**, and the reason is a leak rather
+than a preference: `AAD_body` is public to the server, and `aad_mls` travels **in the clear** as the
+frame's `authenticated_data`. An unkeyed commitment to a nine-octet head whose only variable is a
+millisecond timestamp is a few million guesses, which would hand the server a confirmable
+`sent_at` — the one clock value the record layer deliberately keeps inside an AEAD.
+`record_key[i]` is the key because both sides hold it at the right moment and no non-member ever
+does.
+
+**AND IT IS NOT CIRCULAR, which is the whole reason this one can be bound and `AAD_head` cannot.**
+The order is a fact about the construction and is stated here so an implementer does not have to
+rediscover it. The **sealer** is handed `head_plain` as an argument and frames the body *after* the
+stream index is reserved and *before* `ct_head` is sealed, so every input to `head_commit` — the
+rung key and the head octets — exists at the moment `aad_mls` is built. The **opener** opens
+`ct_head` *above* the point where it unframes the body, so it holds `head_plain` before it needs
+`aad_mls`. Contrast `AAD_head`, which contains `body_hash = H(ct_body)` and `ct_body` is sealed over
+the very frame the AAD would sit in: that one cannot be bound in either form, in principle and not
+merely in this build.
+
+**WHAT v2 STILL DOES NOT BIND, printed rather than described, because the complement is the part a
+reader has to be told.** `AAD_head` carries five fields `AAD_body` does not — `is_commit`,
+`size_bucket`, `expire_at`, `blob_id`, `H(server_attachment)` — and v2 reaches **none of them**.
+They stay authenticated by the group-wide `write_auth` MAC and the group-wide head AEAD, that is, by
+*"someone in this group"*. `is_commit` is the one the **server** acts on. Ledger open item **199**
+carries all five and is **not** closed by this ruling; what is removed from its list is the sixth
+entry, the head plaintext, which was the only one with a live consumer.
+
+**AND ONE THING v2 MAKES TRUE THAT WAS FALSE, stated because a ruling that only adds is a ruling
+nobody checks.** `head_commit` covers the head plaintext and therefore covers `sent_at`. A `sent_at`
+a member other than the sender wrote now produces a record that refuses at R2, so ledger open item
+**204** — *"`sent_at` is the largest forgeable field in the system and it is the one the UI
+renders"* — is **CLOSED by this ruling**, and item **211**'s third clock candidate becomes usable for
+the first time.
+
+#### 8.4.3 The refusals an opener owes: two on values, one on ORDER, and none implies another
 
 A record layer that computes `aad_mls` and never checks it has bought nothing: MLS verifies that *the
 sender signed whatever AAD is in the frame*, and only the record layer can say whether that AAD is
@@ -1930,11 +2134,20 @@ sender signed whatever AAD is in the frame*, and only the record layer can say w
 handle the record claims.
 
 ```
-R1  (sender binding)    REFUSE unless
+R1  (sender binding)      REFUSE unless
       sender_handle(group_handle_key, inner.sender_leaf) == record.sender_handle
 
-R2  (position binding)  REFUSE unless
-      inner.authenticated_data == H("URmessage/v1/aad/mls" ‖ AAD_body(alg_id, record.header))
+R2  (position binding)    REFUSE unless
+      inner.authenticated_data == H("URmessage/v2/aad/mls"
+                                    ‖ AAD_body(alg_id, record.header)
+                                    ‖ u32(inner.sender_data.generation)
+                                    ‖ HMAC-SHA-256(HKDF-Expand(record_key[i],
+                                                               "rec/v1/head-bind", 32),
+                                                   head_plain))
+      where i = record.stream_index and head_plain is what THIS record's ct_head opened to.
+
+R3  (order)               R1 and R2 MUST be decided on a reading that steps no ratchet and
+                          erases no key, and the record MUST be refused before either happens.
 ```
 
 **R1 is the one that converts *"someone in this group"* into *"Alice"*.** R2 does not imply it: a
@@ -1943,12 +2156,63 @@ passes, the signature is B's, and the record then claims A while the frame says 
 R1 has two answers to *who wrote this* and no rule for choosing, which is a forgery with extra steps.
 
 **R2 is the one that makes the AAD load-bearing rather than decorative**, and R1 does not imply it:
-R1 pins the writer and says nothing about the position, the class or the window the writer's frame
-was put into.
+R1 pins the writer and says nothing about the position, the class, the window, the generation or the
+head the writer's frame was put into.
 
-Both are refusals of the **whole record**. A record failing either is not rendered as a message from
-anybody — not as a gap attributed to a sender, and not as *"malformed"* under Spec A §7.4, which is a
-different condition about a body that opened.
+**R3 IS NOT A RESTATEMENT OF EITHER AND IS THE ONE v2 MAKES NON-OPTIONAL.** Under v1 the ordering was
+a defence against a denial channel and a correct opener could be written without it. Under v2 it is
+the refusal itself: the **generation** is the value being bound, and opening a frame is what commits
+its generation at this receiver. A refusal taken after the open has already spent the ratchet
+position the attacker named — which is the whole of the attack — so an opener that checks R2 late has
+implemented the check and kept the vulnerability. Stated as a property: **a record that this opener
+refuses leaves every ratchet of this receiver exactly where it was.**
+
+**R3 is satisfiable, and this is the one paragraph an implementer needs.** All three inputs R1 and R2
+require are readable *before* any ratchet is touched: the sender leaf, the `authenticated_data` and
+the **generation** all come out of **one** open of the frame's `SenderData` under the epoch's
+`sender_data_secret` — a value every member already holds — plus the cleartext `authenticated_data`
+header field; and `head_plain` comes from `ct_head`, which the opener has already opened, above the
+frame, in order to have a head at all. **No ratchet is reached by any of it**, because a ratchet is
+keyed on the leaf and the generation that reading *produces*. A reading that answers the leaf and the
+AAD but **not** the generation does not satisfy R3, and that is the surface change v2 forces: the
+pre-ratchet reading MUST answer all three.
+
+**THE PRE-RATCHET READING AUTHENTICATES NOTHING, AND IT DOES NOT HAVE TO.** Every value it reads is
+sealed under a group-shared secret or is a cleartext header field, so a member chooses all of them.
+A refusal on them is honest — a refusal needs no authentication — while an **acceptance** on them is
+an acceptance of an attacker's claim. So the three values are the opener's **pre-filter** and never
+its answer: the opener takes R1 and R2 **again** on what the open has authenticated, and that second
+reading is the one that decides.
+
+**AND ONE HALF OF THAT SECOND READING IS PREDICTED TO DEFEND NOTHING. It is named here rather than
+left to be discovered.** For the leaf and the AAD the second reading is load-bearing in the ordinary
+way. For the **generation** it is not, and the reason is mechanical: the content AEAD's key is
+derived from the generation the sender data named, so a frame that OPENS AT ALL opened under exactly
+the generation the pre-reading read, and a disagreement between the two readings is unreachable
+through any octets. **The clause is still written**, because the alternative to writing it is an
+argument a reader has to reconstruct rather than a rule, and because the argument's premise — one
+`SenderData` open feeding both the pre-reading and the key derivation — is a property of the
+implementation rather than of this document. **What is owed:** the pass that implements it MUST
+delete the generation half of the second reading, run `connect`'s `mls` and `messagegroup` suites,
+and **say by name** whether anything went red. If nothing does, that is the expected answer and it is
+reported rather than hidden.
+
+All three are refusals of the **whole record**. A record failing any is not rendered as a message
+from anybody — not as a gap attributed to a sender, and not as *"malformed"* under Spec A §7.4, which
+is a different condition about a body that opened.
+
+**What to mutation-test, one mutation per clause, each stated so it can be run without re-deriving
+it.** *(a)* Drop term (3) from the preimage on **both** sides: a substitute frame re-sealed at
+another generation must go from refused to accepted. *(b)* Drop term (4) on both sides: a genuine
+body re-issued under another member's head at the same position must go from refused to accepted.
+*(c)* Change the label's `v2` to `v1` on the **opener** only: every genuine record must stop opening.
+*(d)* Encode term (3) little-endian on the sealer only: every genuine record must stop opening at
+every peer. *(e)* Take R2 **after** the open rather than before: the substitute must still be refused
+and the victim's genuine frame at the named generation must go from openable to dead — the refusal
+survives and the denial appears, which is the mutation that separates R3 from R2. *(f)* Replace
+`HMAC-SHA-256(head_bind_key, ·)` with `SHA-256(·)`: no refusal changes and **nothing goes red**, which
+is the point — that clause defends a confidentiality property no refusal can see, and it must be
+held by a stated rule rather than by a case.
 
 #### 8.4.4 What it costs: the size ladder, measured
 
@@ -1958,14 +2222,56 @@ two-member group with a 32-octet `group_id` and ciphersuite **C5**. **Query:** a
 fits `rung − 4`; it was run, read, and deleted, and `connect` is unmodified. The frame's overhead is a
 step function of the plaintext length, because RFC 9420's varint prefix widens at 64 and at 16,384:
 
+**CORRECTED 2026-09-17: THE STEP FUNCTION HAS FOUR STEPS AND THIS SECTION PUBLISHED THREE.** The
+sentence above says the varint *"widens at 64 and at 16,384"* and names two boundaries. There are
+**three**, because **two different varints** widen: `varint(P)` inside the ciphertext, at 64 and at
+16,384, and `varint(C)` around it, where `C ≈ P + 82`, at `C = 16,384` and therefore at `P = 16,300`.
+Swept rather than reasoned:
+
+```
+overhead = len(frame) − len(plaintext), 32-octet aad, two-member group, 32-octet group_id
+
+  193   for      0 ≤ P <     64
+  194   for     64 ≤ P < 16,300
+  196   for 16,300 ≤ P < 16,384      ← the band this section and connect/messagegroup both omitted
+  198   for 16,384 ≤ P
+```
+
+**Query, re-measured 2026-09-17 against `connect` `d368fea`:** a probe module **outside all three
+repositories** that imports `connect` read-only, seals at every `P` from 0 to 66,000 and prints
+`len(frame) − P` at each change of value; `connect`'s `git status` was empty before and after.
+Ciphersuite `0x0003` (X25519 / ChaCha20-Poly1305 / SHA-256 / Ed25519). **The rung column below is
+unaffected** — 16,186 is below 16,300, so no rung boundary falls in the missing band — which is
+exactly why the error survived: the ladder was measured by *walking*, and the step function beside it
+was *derived*, and only the derived one is wrong. **It is load-bearing now** because §8.4.6's early
+size refusal is arithmetic over this function, and an implementer who takes the three-step form
+refuses a legal 16,300-to-16,383-octet body, or admits one it must then refuse late.
+
+**AND THE OVERHEAD DEPENDS ON THE PLAINTEXT LENGTH ALONE, WHICH IS WHAT MAKES §8.4.6 POSSIBLE.**
+Measured in the same run at twelve lengths against three different 32-octet `aad_mls` values
+(all-zero, all-`0xff`, and random): the frame length was **identical** at every length. It cannot
+depend on the AAD's *value* because the AAD is sealed under no length-varying encoding, and it does
+not depend on the AAD's *length* here because `aad_mls` is a 32-octet digest at v1 and at v2 alike.
+So `len(frame)` is a pure function of `len(bodyPlain)` for a given epoch — computable **before** a
+stream index is reserved or a generation is spent.
+
 ```
 MLSMessage wrapper           4      version u16, wire_format u16
 group_id                    33      varint(32)=1 + 32
 epoch, content_type          9      u64 + u8
-authenticated_data     1 + |aad|    varint(32)=1 + 32   for aad_mls
+authenticated_data     1 + |aad|    varint(32)=1 + 32   for aad_mls, at v1 and at v2 alike
 encrypted_sender_data       29      varint(28)=1 + (leaf u32 + generation u32 + reuse_guard[4] + tag 16)
 ciphertext          varint(C) + C   C = varint(P) + P + varint(64)=2 + signature 64 + tag 16
 ```
+
+**v2 COSTS ZERO WIRE OCTETS AGAINST v1, AND THE WHOLE TABLE BELOW STANDS UNCHANGED.** `aad_mls` is a
+SHA-256 digest at both versions, so `authenticated_data` is 32 octets at both, so `len(frame)` is
+identical at every `P`, so `octet_length(ct_body)` is identical at every rung, so no rung moves, no
+`size_bucket` distribution changes, and no operator capacity number is re-taken. The 36 octets v2
+adds are added to a **preimage**, and a preimage has no width on any wire. **Re-derived rather than
+assumed:** the ladder below — 59 / 826 / 3,898 / 16,186 / 65,334 — was re-measured by the same
+2026-09-17 probe, by binary search for the largest `P` with `len(frame) + 4 ≤ rung`, and reproduces
+exactly.
 
 | rung | `ct_body` octets | body today | body with `aad_mls` (32 B) | lost | with `AAD_body` verbatim (104 B) |
 |---|---|---|---|---|---|
@@ -1982,14 +2288,20 @@ is `1040` stored octets where it used to pay `272`. That is **3.8x** for a large
 traffic, and it is the reason `aad_mls` is a digest: the verbatim column kills the rung outright, and
 a rung that carries nothing turns every reaction into a 1 KiB record.
 
-**The 64 KiB ceiling moves by 198 octets.** A body of 65,335 to 65,532 octets fits today and does not
-fit after this ruling; the only place it can go is the blob rung, and the blob plane is **not built**
-(ledger open item **203**).
+**The 64 KiB ceiling moves by 198 octets, and §8.4.6 now rules what a sealer does about it.** A body
+of 65,335 to 65,532 octets fitted before §8.4 and does not fit after it; the only place it can go is
+the blob rung, and the blob plane is **not built** (ledger open item **203**). What was unruled until
+2026-09-17 was not *whether* such a body is refused — it always was — but *what it costs to refuse
+it*, and the answer was a stream index and an MLS generation. §8.4.6 rules that.
 
-**What it does not cost.** No wire field, no `format_version` bump, no schema change, no `CHECK`, no
-reason code, no Spec B revision, and no re-derivation of any AEAD or MAC vector: every preimage in §8
-is byte-identical before and after. The cost is entirely in the size-bucket distribution, which is an
-operator capacity number rather than a format one.
+**What v2 does not cost, beside what §8.4 did not cost.** No wire field, no `format_version` bump, no
+schema change, no `CHECK`, no reason code, no Spec B revision, no change to `octet_length(ct_body)`
+at any rung, and no re-derivation of `AAD_body`, `AAD_head`, `write_auth`, `key_head ‖ nonce_head`,
+`key_body ‖ nonce_body`, `record_key[i]`, `sender_handle`, `message_id` or any other preimage in §8:
+every one of them is byte-identical before and after. **The message server is not edited and is not
+redeployed for this ruling** — it checks `octet_length(ct_body) == size_bucket_bytes[b] + 16`, and
+that arithmetic is untouched. What v2 adds is one HKDF expansion and one HMAC per application record
+at each end, over a ladder rung both ends already hold.
 
 #### 8.4.5 `message_id`
 
@@ -2054,6 +2366,19 @@ epochs**, which a reply to a message from four commits ago requires.
    `[]byte`, and reading the generation off the ratchet before the call means reaching past the one
    seam the storage layer keeps narrow.
 
+**AMENDED 2026-09-17. TWO OF THOSE FOUR REASONS ARE NOW FALSE AND `message_id` DOES NOT CHANGE.**
+§8.4.2 v2 puts `u32(generation)` inside the frame's AAD, so the generation **is** on the surface now —
+the pre-ratchet reading answers it and the sealer computes it before it seals — and reasons **(1)**
+and **(4)** above are spent. They are kept above, struck through by this paragraph rather than
+deleted, because a reason that stops being true is the shape this corpus has most often lost track
+of. **Reasons (2) and (3) are untouched and each is independently decisive**, which is why the
+identifier stands exactly as ruled: the generation is inside the **encrypted** `SenderData`, so an id
+built from it could not key a row whose body has been erased and whose placeholder must still render
+in order — and it **resets at every epoch**, so the unique tuple would be a four-tuple one of whose
+members is the first problem. `message_id` remains
+`HKDF-Expand(group_handle_key, "mid/v1" ‖ LP(group_id) ‖ LP(sender_handle) ‖ u64(stream_index), 32)`,
+unchanged, and **no octet of it moves under v2**.
+
 **Spelling.** The 32 octets are the identifier. Spec A §7.1 types it `string` on the SDK surface; that
 string is the **lowercase hex** of those octets, 64 characters from `[0-9a-f]`, with no prefix and no
 separator. Where a preimage takes `LP(message_id)` — Spec A §8.3a's local-store row key is the only
@@ -2065,6 +2390,154 @@ a migration.
 `EPH(0)` transient each have a well-defined `message_id`; what differs is whether the product ever
 surfaces it. Ledger open item **202** carries the transient, which consumes an index locally, is never
 stored, and therefore has an id nothing can fetch.
+
+#### 8.4.6 The size ceiling: the early refusal runs on the FRAMED length
+
+**RULED 2026-09-17. Ledger open item 203's defect half. The product half — where a body above the
+ceiling goes — stays open and stays with the blob plane.**
+
+A sealer refuses a body no rung can hold. **The rule is which length it refuses on**, and until this
+ruling it refused on the wrong one:
+
+```
+An application record's early size refusal is taken over  framed_length(len(bodyPlain)),
+and for every other record over  len(bodyPlain).
+
+framed_length(P) is the length of the marshalled MLSMessage the sealer will produce for an
+application plaintext of P octets in this epoch. It is a function of P alone (§8.4.4), so it is
+computable with no key material, no signature, no ratchet step and no reserved index.
+
+The refusal MUST be taken BEFORE the stream index is reserved and BEFORE the generation is spent.
+```
+
+**What the old rule cost.** The early check ran over the caller's `len(bodyPlain)` against the rung
+ladder, which is **necessary and not sufficient**: the octets actually sealed are 193 to 198 longer.
+A body of 65,335 to 65,532 octets passes that check, **reserves a stream index**, **spends an MLS
+generation**, builds the frame, and is only then refused — so a call that always fails costs the
+sender one write-once index and one write-once generation per attempt, both of them gaps every
+receiver must then absorb, and a caller in a retry loop walks its own ratchet toward
+`MaxGenerationSkip` on a request that can never succeed. That is ledger open item **201**'s hazard
+reached by a cause that is pure waste.
+
+**Why it is implementable, in one sentence, because that was the open question.** §8.4.4 measures
+that the frame's length depends on the plaintext's length and **not** on the AAD's value, and
+`aad_mls` is a 32-octet digest at v1 and v2 alike, so `framed_length` is a pure function the sealer
+can evaluate in front of both reservations.
+
+**It is DERIVED and MUST NOT be a table of constants.** An implementation MUST compute
+`framed_length` from the epoch's ciphersuite, the group id's width, the signature's width and the
+32-octet `aad_mls`, by the same construction that produces the frame — never by hard-coding 193,
+194, 196 and 198. Those four numbers are this document's **expected answer** for a second
+implementation to check itself against at ciphersuite `0x0003` with a 32-octet group id, and a
+builder that transcribes them instead of deriving them has built a client that silently mis-sizes on
+the first suite, group-id width or signature algorithm that differs — and §8.4.4 records that this
+document itself published three of the four correctly and the fourth not at all for two days.
+
+**The derived ceiling, which is what a caller above the record layer must enforce.** The largest
+application body an inline rung can carry is **65,334** octets. A caller that offers more is refused
+before anything is spent. `sdk` already enforces exactly this at its own door — `MaxTextOctets =
+65334`, refused ahead of the seal — and **that enforcement is ratified here rather than introduced**;
+what this section adds is that the record layer owes the same refusal at *its* door, because
+`SealRecord` is a published surface with callers `sdk`'s door does not front.
+
+**Property, and it presupposes no unruled sentence:** *for every body length, a `SealRecord` call
+that will be refused for length reserves no stream index and spends no MLS generation.* **Falsifiable
+by an incorrect implementation:** seal a 65,400-octet body twice, then seal a legal one, and read the
+legal record's `stream_index` — under the old rule it is 2, under this rule it is 0. **What to
+mutation-test:** put the early check back on `len(bodyPlain)` and require a named assertion on that
+index to go red; and, separately, hard-code the three-step overhead function of §8.4.4's old text and
+require a 16,350-octet body to go from sealed to refused.
+
+#### 8.4.7 What full adoption means for the three things half-adopted
+
+**RULED 2026-09-17, in the same sitting as §8.4.2, because each of the three is a question the
+2026-09-15 ruling opened and left open.**
+
+**(1) A MEMBER CANNOT OPEN ITS OWN APPLICATION RECORD. That is MLS, it is accepted, and the product's
+answer is the copy the sender kept.** `Protect` consumes a generation of **this leaf's own sending
+ratchet**, and MLS derives no *receiving* ratchet for a member's own leaf — a member never receives
+its own messages. So `OpenRecord` of a record this same device sealed answers *"ratchet generation
+already consumed"*, and before 2026-09-15 it opened. **Ratified: a device renders its own sent lines
+from a copy it kept and never by decrypting the record it wrote**, and a record of its own it holds
+no copy of is **authenticated by that very refusal**, counted, and is not a failure.
+
+Four things this silently broke and the ruling therefore has to name: a restarted device rebuilding
+its own half of a conversation, a record whose submit answer was lost, the clone check's evidence,
+and a restored group that could never `Send` again. All four are the same missing sentence — *where
+does a device read its own messages from* — and the answer above is that sentence.
+
+**IT WAS BUILT BEFORE IT WAS RULED, AND THAT IS RECORDED RATHER THAN SMOOTHED OVER.** `sdk` chose this
+option, implemented it, and holds it in 37 `cp3b` cases while this document still said the opposite;
+the ruling ratifies work that was already load-bearing rather than commissioning it. The two other
+options are recorded as **refused**: answering the sealer its own plaintext beside the record changes
+a published signature for a value the caller already has, and exempting a record at this member's own
+`sender_handle` from the inner open **re-opens exactly the forgery §8.4 closed**, narrowed to
+self-attribution — any member could seal a record attributed to Alice and Alice's own device would
+render it. That third option is written down here so it is refused rather than rediscovered.
+
+**Spec A §5.2's sentence *"it does not make a working call stop working"* is FALSE of this and is
+corrected there.** Its measurement was a *second* `OpenRecord` of one record, which already refused
+at the record layer's skipped-key window; a **first** `OpenRecord` of one's own record was a working
+call and it has stopped working.
+
+**(2) THE CEREMONY ARM CARRIES NO SIGNATURE, ITS `sender_handle` IS ROUTING AND NOT ATTRIBUTION, AND
+FULL ADOPTION DOES NOT CHANGE THAT.** §8.4.1 row 3 — a wrap, an epoch fan-out, a completion marker —
+carries no MLS frame at all, so §8.4.3's refusals do not apply to it and **no member's credential
+signs it**. Every key those records use is group-shared, so any member can write one at any other
+member's `sender_handle`. Adopting MLS *fully* does not reach them: a wrap is HPKE addressed to a
+device and an epoch marker is a counter, and neither is a thing a `PrivateMessage` could carry
+without changing what it is.
+
+So the ruling is what the shape already forces, said out loud in three parts. *(a)* **A ceremony
+record's `sender_handle` is a routing label and MUST NOT be rendered, attributed, or used as
+evidence that a particular member wrote anything.** *(b)* **A door named for opening a message MUST
+refuse the ceremony arm**, so a member's choice of arm is a choice between being checked and being
+refused rather than a way around the check. *(c)* **An acceptance on the ceremony arm MUST spend
+nothing** — no receiver ratchet rung, no index — because an acceptance taken on an unauthenticated
+claim costs the victim while a refusal taken on one costs the attacker. (b) and (c) are already
+built; (a) is the sentence that was missing.
+
+**And the one row that DOES admit an authentication is the commit row, which is not this door's.**
+A commit record's body *is* an `MLSMessage` and *is* signed. What authenticates it is **processing
+the commit**, which belongs to the epoch machinery: that machinery MUST require the commit to be one
+MLS accepts **and** to have been signed by the leaf the record's `sender_handle` names, and MUST drop
+a record failing either rather than ceremonially applying it. A check taken at the record door on the
+frame's *peeked* sender leaf would be **worse than none**, because that leaf comes out of sender data
+sealed under a group-shared secret and would read as authentication while authenticating nothing.
+
+**What stays open after this, and it is item 199's list.** `is_commit` and `H(server_attachment)` —
+the two fields that *choose* which row of §8.4.1 a record takes — are in `AAD_head` and therefore
+outside every signature, and cannot be brought inside one while `AAD_head` contains
+`body_hash = H(ct_body)`. So the arm is chosen by something no member signs. That is not closed here
+and is not closable by any content kind; it is ledger open item **199**.
+
+**(3) `ReceiverKey` IS UNEXPORTED.** The raw secret-tree door `ReceiverKey(leaf, kind, generation)`
+commits a ratchet with **no authentication of any kind**, and it is the one place where the framing
+path's whole argument — *"the party choosing this generation opened an AEAD under the epoch's
+sender_data_secret, so it is a member of this group"* — comes apart, because a caller handing it a
+leaf, a kind and a generation taken off the wire has skipped that AEAD. What one unauthenticated
+header then buys is: the victim leaf's node secret taken out of the tree and **both** of that leaf's
+ratchets materialised destructively, plus up to `MaxGenerationSkip` = 1,024 ratchet steps and the
+retention that goes with them, **with nothing bounding repetition**.
+
+**Measured, with the query beside it, before deciding:** `grep -rn "\.ReceiverKey(" --include=*.go
+connect sdk msgrepo` → **42 lines in exactly two files**, `connect/mls/secret_tree_test.go` and
+`connect/mls/secret_tree_kat_test.go`, **both `package mls`**, and **zero** production call sites in
+any of the three repositories. So unexporting it is a pure in-package rename that breaks no caller
+that exists, and the two legitimate needs — look a generation up, then commit it — are already the
+`MessageKeySource` pair `MessageKey` / `CommitMessageKey`, which sit **behind** the sender-data open
+in the framing path and are where a receive path belongs.
+
+**The reason it is unexported rather than kept with a caveat.** A door whose own documentation has to
+say *"it bypasses sender data authentication"* and whose safety rests on *"there is no caller to have
+learned it from"* is held by an absence, and an absence is not a rule: the next caller is the defect,
+and nothing in the type system or the test suite is looking for it. **Property:** *no package outside
+`mls` can reach a ratchet commit that is not behind the sender-data AEAD.* **Falsifiable:** write a
+caller in `messagegroup` and require it not to compile. **What must be run in `connect`:** the `mls`
+suite, for the gates keyed on this package's exported surface — this document does not claim they are
+green, and the pass that lands the rename owes that number with its query.
+
+**This is `connect`'s change and not this repository's**, and no line of it is implemented here.
 
 ## 9. Message server
 
