@@ -17270,3 +17270,106 @@ pattern is correct; the Python form above is what this entry used.
 **`connect` and `sdk` were READ ONLY.** No file in either was written. `connect` is clean at `d368fea`
 (1,130 tracked files). `sdk` at `5835228` had three modified files under `cgo/` throughout, which is
 another agent's work and not this pass's.
+
+### 2026-09-17 (second pass of that date) — `aad_mls` v2 runs on the live mesh, and the one property the probe refuses to check is measured against the operator's own table
+
+**Change:** no specification text changes. This entry records **the implementation of v2 landing and
+being re-verified live**, and it closes the verification gap the live probe has carried since it was
+written. Three repositories are at `connect 4a70be8`, `sdk eebd50c`, `msgrepo 28c04b2`, each with a
+clean tree, `git ls-files` equal to `git ls-tree`, and nothing unpushed. **The message server was
+neither edited nor redeployed**, as §8.4.2's zero-wire-octet property predicted: `git diff --stat
+72d056c 28c04b2 -- '*.go'` is empty and `aad_mls` does not appear in the server's source.
+
+#### The live run
+
+`liveprobe_v2` (35,698,636 octets) was built with the local MinGW-w64 UCRT toolchain, deployed to the
+alpha VPS, and run against a **fresh `-dir`** (`/var/lib/urmessage/probe-v2`). The fresh directory is
+not hygiene, it is **necessary**: v1 and v2 do not interoperate and **there is no wire signal that
+says so**, because the digest is 32 octets under both. A v1 state directory would have failed at the
+AEAD with no indication of why.
+
+```
+=== 9 STEPS, 1271 ASSERTIONS, ALL HELD ===   exit=0
+  reconnecting: Hello attempt 1..5 (backoff 1,2,4,8,8s)
+  the restarted B was routed to after 1m13.02s
+  B's own 2 pre-restart line(s) came back as B's own, out of 606 in its log
+  B came back at epoch 1 under the same leaf
+  20 lines each way, concurrently: A opened 20 of B's, B opened 20 of A's, none twice
+  A: fetched=651 opened=24  ceremony=4 own=623 FAILED=0 submitted=627 pages=5
+  B: fetched=651 opened=623 ceremony=4 own=21  FAILED=0 submitted=21  pages=3
+```
+
+The restart step is the one worth naming. **MG-4 says a sender cannot open its own application
+records**, so a device's own half of the conversation must come from its local store or be lost. That
+road had only ever run in the lab. Here a killed client restarted over the same directory, was routed
+to after **1m13.02s** of re-sending, and recovered **both** of its own pre-restart lines out of 606
+entries. Transient noise observed and not a failure: `[contract]could not close ... after client close
+= Timeout` during B's teardown.
+
+#### The property the probe declines, now measured
+
+The probe's own closing text states the gap in as many words: *"WHAT THIS PROBE DOES NOT ASSERT, and
+it needs a database credential this binary must not hold: that the plaintext is absent from the
+server's `message_record` rows."* That credential exists on the VPS. The check was run directly
+against PostgreSQL.
+
+**The needles are the probe's own literals, read out of `sdk/liveprobe/main.go`, not invented.** Ten
+of them, including `strings.Repeat("0123456789abcdef", ...)` from step 6 — **40 KB of known
+plaintext**, the strongest needle available anywhere on the box. The haystack is the concatenation of
+**every `bytea` column** of `message_record`: `ct_body`, `ct_head`, `server_attachment`, `blob_id`,
+`recovery_handle`, `wrap_target_handle`, `body_hash`, `sender_handle`, `group_id`.
+
+**A search that returns zero proves nothing until it is shown it can return non-zero.** So the query
+carries its own positive control as a second haystack row, and both halves print together:
+
+```
+CONTROL needle=[0123456789abcdef0123456789abcdef]           rows_hit=1
+CONTROL ... all ten ...                                     rows_hit=1  (each)
+REAL    needle=[0123456789abcdef0123456789abcdef]           rows_hit=0
+REAL    ... all ten ...                                     rows_hit=0  (each)
+```
+
+**3,758 rows, 9 `bytea` columns, 10 needles, zero hits, with the harness proven live in the same
+statement.** An earlier and weaker form of this ran under v1 and measured 3,093 records with 0
+matches; that one guessed its needles and never established that it could find one.
+
+#### Two structural properties that fell out of the same census
+
+**`ct_head` is 25 octets on all 3,758 rows** — one width, invariant to content. A head whose length
+tracked what was typed would leak length on a column no AEAD covers.
+
+**The rung ladder moved exactly where v2's arithmetic said it would.** The census by group:
+
+```
+grp=2006ad9611e8  n=651  rungs=1040/272/65552  eph_window_distinct=1 eph_max=0  commits=1
+  (the v2 run; eight older groups carry rungs=272 or 272/65552 and none carries 1040)
+the lone 1040 record: stream_index=2 epoch=1 is_commit=false size_bucket=1 class=1 ct_head=25
+whole-table histogram: 272B x3751, 1040B x1, 65552B x6
+retention classes present: class=0 n=27, class=1 n=3731
+```
+
+**The v2 group is the only group in this database's entire history to have produced a 1040-octet
+record.** §8.4.4's framing overhead pushed exactly one line off the 256 B rung. Every ciphertext the
+operator holds is one of **three** widths, and the head is a fourth constant. `eph_window` is present
+on every row and zero on every row, which is what a DURABLE-only workload owes.
+
+#### What this does not establish
+
+- **It finds only what the probe typed.** A leak of material the probe never sent would not be caught
+  by these needles. The claim is *these plaintexts are absent*, not *no plaintext can ever appear*.
+- **It is an absence in storage, not a proof about capability.** It measures what the operator holds,
+  not what an operator who changed its own code could arrange to hold.
+- The needle scan is whole-table and therefore covers v1 and v2 rows together. That is strictly
+  stronger for an absence claim, but it means the zero is not attributable to v2 alone.
+- **Which message became the 1040-octet record was not identified**, only its position
+  (`stream_index=2`, `epoch=1`). The decomposition of the 27 `class=0` rows across 9 groups was not
+  measured either.
+
+#### Status
+
+**CP3b's bar is met live under MLS framing**: two clients, one group, durable text, every key real, no
+test-only key source on the path, over the real mesh, with the operator holding ciphertext it cannot
+read. The next work is the content surface — the envelope of the 2026-09-16 content-kinds design —
+and **its registry table must be re-measured before it is built**, because that design was written
+before v2 landed and every row of its §4.2 table is computed from a usable-octet count v2 may have
+moved.
