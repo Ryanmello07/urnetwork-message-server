@@ -17693,3 +17693,112 @@ change that reverses this ruling. It is also the gate on any future head field. 
   incoherent beside a ruling whose third justification is that the grammar selector must not be
   equivocable.
 - No implementation is in this commit.
+
+---
+
+### 2026-09-17 (fourth pass of that date) — the content envelope crosses the real mesh, and the review that found a one-member denial of service before it shipped
+
+**Change:** no specification text changes. This entry records the envelope **built, reviewed,
+repaired and verified live**. `sdk` is at **5e48113**, `connect` unchanged at `4a70be8`,
+`msgrepo` at `c7daf03`.
+
+#### Built, then attacked
+
+`sdk 95fa883` landed `urmessage/kind.go` — the registry, encoding rules R-a..R-e, the range rule,
+the unknown-kind rule, the `0xFF` escape skeleton — with TEXT, REPLY, TOMBSTONE, REACTION_ADD,
+REACTION_REMOVE and COVER built and the blocked codes defined so the ranges are exercised. The
+implementer applied **27 mutations and reported 26 killed and one not**, with the survivor's
+justification written into the code rather than omitted.
+
+A six-dimension adversarial review then returned **34 findings; an independent refutation pass
+confirmed 24 and killed 10.** The refutation earned its place: one verifier overturned the
+implementer's own no-killer claim, and several killed findings whose mechanics reproduced exactly
+while every inference drawn from them failed.
+
+#### The defect that mattered, and why no test would have found it
+
+**Reaction replay was Θ(n³).** Two reviewers found it independently; two verifiers reproduced it with
+their own probes.
+
+```
+4,000 reactions on ONE message cost every OTHER member  41 s and 1.53 GB
+mallocs: 35,090 / 133,406 / 518,105 / 2,039,370 / 8,087,950     ~4x per doubling = n^2
+control: n reactions over n DIFFERENT messages is LINEAR         0.55 / 2.17 / 2.18 / 4.44 ms
+```
+
+Three things made it an attack. **The attacker pays once**, about 1.26 ms a reaction. **The victim
+pays on every launch**, because the cursor is not persisted and history is a re-fetch against records
+Spec B §7.2 keeps a year. And **the amplification grows as n²**, crossing over near n = 1,500.
+
+**Two edits, both required.** A dirty set removes the per-effect rebuild; a `seen` set built in the
+same pass that clears `Reactions` removes the linear dedupe scan. The second is not optional, and the
+reason is the sharp one: **the server chooses the page size**, so a server handing one record per page
+defeats the first edit alone. Measured in that shape — 37.4 s with the scan, 1.21 s with the set.
+
+```
+mallocs at n = 4,000:      16,105,593  ->  16,104
+growth per doubling:  3.94/3.97/3.98  ->  1.98/1.99/2.00      (linear is 2.00)
+```
+
+**The gate is on allocations, not wall time**, because allocation counts are machine-independent and a
+wall-clock assertion is flaky. It prints its own ratios, names what linear and quadratic look like,
+and **carries a control that stays linear under the mutation that makes the treatment quadratic** — so
+it discriminates the per-target rebuild rather than noticing that something got slower. Verified by
+reverting the fix: **FAIL at 3.94/3.97/3.99 with the control still at 1.99/2.00/2.00.**
+
+**What it cannot gate, measured rather than admitted:** no allocation metric defends the `seen` set,
+because the scan it replaces allocates nothing — reverting it makes the gate *cheaper* while being
+quadratic in time. The pricing sits in the gate's comment.
+
+#### Two gates that were not gates
+
+**The migration comment was false.** It said a pre-kinds local copy beginning `"h"` is kind `0x68`,
+*"unassigned"*, rendering as a placeholder. `0x68` is in `0x40..0x7F`, which is **TRANSIENT**, so on a
+stored class it is **malformed**. Measured over printable ASCII on DURABLE: **63 malformed, 32
+placeholder, 0 parsed** — every letter, so every English sentence. The range rule is correct and
+untouched; only the account of it was wrong, and **nothing drove that path at all**. The reassuring
+half is now measured and gated: **no printable first octet parses as a known kind at any tail length**,
+so no old line is ever reinterpreted as a reply or a deletion.
+
+**The H1 seal-site gate was vacuous, and this was reproduced rather than asserted.** With a local
+`encodeHead` shadow at one seal site, the old gate body **ran green with zero complaints**. It now
+resolves the callee through `go/types` and compares object identity, across all 13 production sources
+instead of one file.
+
+#### Live, on the operator
+
+`liveprobe` gained a tenth step that drives the envelope over the real mesh and asserts every kind on
+the **far** side, because the near side proves only that a build agrees with itself.
+
+```
+=== 10 STEPS, 1283 ASSERTIONS, ALL HELD ===
+  a REPLY crossed: it names the anchor's message_id and its text survived
+  two REACTIONS crossed and one was taken back: A sees exactly the one that stands
+  and B REFUSED to delete A's line, which is the same-sender rule on the send side
+  a TOMBSTONE crossed: B's copy of A's line is marked deleted and still present
+  A: fetched=656 opened=28  own=624 FAILED=0 pages=8
+  B: fetched=657 opened=625 own=25  FAILED=0 pages=5
+```
+
+The refusal is the arm a receiver-side test alone leaves unproven: **R1 proves who wrote a TOMBSTONE
+and nothing proves they wrote its target**, so an honest build must decline to seal one.
+
+**And the ciphertext still holds nothing.** The needles now include the reply text and both emoji as
+raw UTF-8, matched as `bytea` so no encoding step can silently mangle them, with the positive control
+in the same statement:
+
+```
+REAL    [anchor text / reply text / 👍 / 🎉 / big filler]   rows_hit=0   (each)
+CONTROL [the same five]                                     rows_hit=1   (each)
+the v3 group: 657 records, ct_body in {272, 1040, 65552}, ct_head = 25 on every row
+```
+
+**Invariant H1 holds on the wire**, not only in the suite.
+
+#### Filed, not fixed
+
+Items **223**–**227**: the effects held on one message are still unbounded (Θ(n log n) is not a
+bound, and the cap needs a ruling because it must not be a `fail()`); a post-open refusal is retried
+three times though permanent by construction; the `headVersion` flag day does not reach the local
+sent-copy, which is the one population it was bumped for; there is no rule for reacting to a kind the
+build cannot read; and `Messages()` promises a snapshot while handing out live pointers.
