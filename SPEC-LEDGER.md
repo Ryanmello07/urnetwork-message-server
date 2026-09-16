@@ -8386,7 +8386,7 @@ fourteen are dispositioned below.
     and therefore to every conversation older than its `durable_ttl_seconds`. Blocked behind item 219
     having an open path to render from. *Owner:* this repository for the vocabulary, `sdk` for the walk.
 
-221. **SPEC HALF DONE 2026-09-17, THE sdk SURFACE STILL OWED. `GapReason "unsupported"`** — owner choice 11
+221. **DONE 2026-09-17 at `sdk bd4672d`, BOTH HALVES. `GapReason "unsupported"`** — owner choice 11
     of the content-kinds design. The unknown-kind rule requires that a record carrying a code this
     build does not know **keeps its position and its `message_id`**, is **not** a `fail()`, does not
     count toward `ErrRecordAbandoned`, and renders as one closed placeholder. `"malformed"` is the
@@ -8449,7 +8449,7 @@ fourteen are dispositioned below.
     later ones ignored. Each changes what two honest devices display, so it is a format-adjacent
     ruling and not a patch. *Owner:* this repository to rule, `sdk` to build.
 
-224. **FILED 2026-09-17. A POST-OPEN REFUSAL IS RETRIED THREE TIMES THOUGH IT IS PERMANENT BY
+224. **DONE 2026-09-17 at `sdk bd4672d`. A POST-OPEN REFUSAL WAS RETRIED THREE TIMES THOUGH PERMANENT BY
     CONSTRUCTION.** Every refusal raised **after** `OpenRecord` returns — a malformed body, a head
     version this build did not write — is a disagreement about **grammar**, not about keys or
     delivery, and no amount of re-fetching can repair it. The walk nevertheless routes them through
@@ -8683,6 +8683,38 @@ fourteen are dispositioned below.
     plumbing without either delaying the other. **Item 221's placeholder render must land FIRST**, or
     the rollout punches holes in every conversation on every older build. *Owner:* `sdk`, with
     `connect` for the eph-root distribution path.
+
+235. **FILED 2026-09-17. A WEDGE THIS BUILD AVOIDS BY CONSTRUCTION AND NOTHING PINS: ONE MALFORMED
+    RECORD WOULD HAVE TAKEN AWAY EVERY RESTARTED DEVICE'S ABILITY TO SEND, FOREVER.** Found while
+    building item 224, and it is the reason a malformed gap does **not** also keep the error.
+
+    Setting `walk.firstFailure` for a malformed gap reads as strictly better — a visible gap *and* a
+    loud return. It is not. `walkReconcilesLocked` gates the clone check on `firstFailure == nil`,
+    and **the cursor is not persisted**, so a restored group re-walks its whole history on every
+    launch. A malformed record would therefore set `firstFailure` **every launch, forever**: the
+    group would never reconcile and `Send` would answer `ErrNotReconciled` permanently. **Any member
+    could do it to every restarted device in the group with one record.** The existing `fail()` path
+    escapes only through abandonment, which a record that is never retried never reaches.
+
+    **The shipped code is correct and the hazard is untested.** `M15` confirms the current cases
+    refuse the `firstFailure` variant, but **the wedge itself has no case**, because the harness
+    cannot submit a raw malformed body today — `Send` refuses a non-parsed plaintext, and
+    `shapedStore.bend` corrupts `ct_body`, which fails *before* the open. **The query that settles
+    it:** seal a raw malformed plaintext as alice through `cp3b`, restart bob twice, and assert
+    `bobGroup.Send` does not answer `ErrNotReconciled`. *Owner:* `sdk`, and it wants the cp3b
+    harness to gain a raw-plaintext seal first.
+
+236. **FILED 2026-09-17. THE C ABI CANNOT TELL A GAP FROM A BLANK MESSAGE.** `sdk/cgo/exports_message.go`
+    projects a message by hand and surfaces only `Text` and `BodyLen`, so the `Gap` reason landed at
+    `sdk bd4672d` — and `Kind`, `ReplyToId`, `Reactions` and `Deleted` before it — reach a C caller
+    as **nothing at all**. A gap arrives as an empty body indistinguishable from a message somebody
+    sent with no text.
+
+    **This is the same defect one layer out from item 221**, and it lands on the platform that
+    matters: the Windows client consumes exactly this ABI. Everything the content envelope added is
+    invisible to it. Note `messageInfo` is a hand projection rather than a generated one, which is
+    why each field has to be added deliberately and why none of them arrived by default.
+    *Owner:* `sdk`, and it is a prerequisite of any UI that renders more than plain text.
 
 ## 6. Change process
 
