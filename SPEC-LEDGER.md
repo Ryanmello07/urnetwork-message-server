@@ -8393,6 +8393,73 @@ fourteen are dispositioned below.
     *not* in the size ladder, so padding it cannot push `ct_body` across a rung boundary.
     *Owner:* this repository.
 
+223. **FILED 2026-09-17. NOTHING CAPS THE EFFECTS HELD ON ONE MESSAGE, AND THE CUBIC FIX DID NOT
+    CLOSE IT.** `sdk 8e385ce` took reaction replay from Θ(n³) to Θ(n log n) — measured, mallocs at
+    n = 4,000 went 16,105,593 → 16,104 — but **asymptotics are not a bound**. Neither
+    `len(effectsOn[target])` nor `len(Message.Reactions)` has a cap, the memory is Θ(n) **forever**
+    because the cursor is not persisted and the whole history is re-walked on every launch, and Spec
+    B §7.2 keeps `DURABLE` records a year. A member can still grow both without limit; it is now
+    linear work rather than an attack.
+
+    **The cap needs a ruling and must NOT be a `fail()`.** A refusal would hand any member exactly
+    the wedge the same-sender comment already declines to hand them — the conversation would break
+    for everyone instead of merely growing. Candidates, **none chosen**: a per-target cap on held
+    effects that drops the surplus silently; a per-sender cap; a cap on *standing* reactions with
+    later ones ignored. Each changes what two honest devices display, so it is a format-adjacent
+    ruling and not a patch. *Owner:* this repository to rule, `sdk` to build.
+
+224. **FILED 2026-09-17. A POST-OPEN REFUSAL IS RETRIED THREE TIMES THOUGH IT IS PERMANENT BY
+    CONSTRUCTION.** Every refusal raised **after** `OpenRecord` returns — a malformed body, a head
+    version this build did not write — is a disagreement about **grammar**, not about keys or
+    delivery, and no amount of re-fetching can repair it. The walk nevertheless routes them through
+    the same `fail()` channel as a transport failure: the cursor is held, the record is retried
+    `maxRecordAttempts` (3) times, and then named in `ErrRecordAbandoned`.
+
+    **The boundary is already structural and only the code is blind to it** — the record opened, so
+    the key schedule and the ratchet are satisfied and committed. **The split is the fix:** a
+    permanent post-open refusal should resolve its position once, keep its `message_id`, and render
+    as a gap, exactly as the unknown-kind rule already does for a code this build does not know. That
+    also removes the only reason a malformed body costs anything more than one line.
+    Related: item 220 (a `GapReason` for the gap it would render), item 221. *Owner:* `sdk`.
+
+225. **FILED 2026-09-17. THE `headVersion` FLAG DAY DOES NOT REACH THE LOCAL SENT-COPY, SO THE ONE
+    POPULATION IT WAS BUMPED FOR IS THE ONE IT DOES NOT PROTECT.** `headVersion` went 0x01 → 0x02 so
+    a pre-kinds record is refused with a sentence rather than rendered as garbage. But
+    `openOwnFromCopyLocked` answers a device's **own** records out of the local store, which stores
+    `{StreamIndex, BodyHash, SentAtMs, Body}` and **no head at all** — `decodeHead` has exactly one
+    call site and it is on the server-record path. So an own copy written by a pre-kinds build is
+    handed to the content codec with no version check in front of it.
+
+    **Measured, and the outcome is survivable but wrong:** 63 of the 95 printable ASCII first octets
+    land in `0x40..0x7F`, which is TRANSIENT, so on a stored class they are **malformed** — the copy
+    is not shown and the record falls through to `Stats.OwnWithoutCopy`. The reassuring half is also
+    measured: **no printable first octet parses as a known kind at any tail length**, so no old line
+    is ever reinterpreted as a reply or a deletion. The repair is a discriminator on the copy itself,
+    which the store's record format already affords; do **not** reach for the record's `ct_head`,
+    which this path never opens. *Owner:* `sdk`.
+
+226. **FILED 2026-09-17. THERE IS NO RULE FOR REACTING TO, OR TOMBSTONING, A KIND THE BUILD CANNOT
+    READ.** The corpus has **T-a** for TOMBSTONE and **K9** for receipts, and **nothing for
+    reactions**. The landed build guards the tombstone arm and not the reaction arms, which is a
+    choice nothing ratifies either way.
+
+    **Do not "fix" it by copying the tombstone guard across.** A build that suppresses a reaction on
+    a code a LATER build renders as reactable would **disagree with that later build about reaction
+    counts**, which is a worse failure than the one being fixed — two honest devices showing
+    different numbers on the same message, with no way to tell which is right. Rule it once, for all
+    kinds, then gate it; the gate is the urgent half whichever way the rule goes.
+    *Owner:* this repository to rule.
+
+227. **FILED 2026-09-17. `Messages()` PROMISES A SNAPSHOT AND HANDS OUT LIVE POINTERS.** It returns
+    `append([]*Message(nil), self.log...)` — a fresh **slice** over the **same** `*Message` values.
+    The effect rebuild mutates a `Message` in place, so a reaction arriving after a caller took its
+    slice changes what that caller is already holding, without the mutex the rest of the API takes on
+    every method. It is not a data race in the walk's own use (`Receive` holds the lock across the
+    page), but it makes the documented snapshot false for any caller that holds a slice across a
+    `Receive` — which is every UI. The repair that keeps the rebuild design intact is to **replace**
+    the message rather than write through it, so every pointer ever handed out stays frozen.
+    *Owner:* `sdk`.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
