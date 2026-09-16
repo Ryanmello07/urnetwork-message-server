@@ -5,6 +5,17 @@
 of 2026-09-15. The list is read / sent / delivered receipts, emoji reactions, GIFs, images, video,
 reply, delete, edit, and *"anything else that makes a messenger great"*.
 
+> ## ⚠ READ §11 FIRST — ERRATA, 2026-09-17
+>
+> `aad_mls` v2 landed **one commit after this document was audited** and closed two open items it
+> leans on. **Three of §3's four reasons for where the kind lives are dead**, including the one §3
+> calls decisive, and **§8 choice 5 is not a choice** — item 204 is closed and went the other way.
+> **Do not build §3 as written; the placement is being re-ruled.**
+>
+> What survives unchanged: **§1's answer, and the whole budget.** The rungs re-measure at exactly
+> 59 / 826 / 3898 / 16186 / 65334, so **no row of §4.2's registry table moves**. §11 lists every
+> correction, including four to this document's own claims.
+
 Audited against `connect` **d368fea** and `sdk` **cfe3ce4** (both `beta/message`, both read only),
 and `msgrepo` **4b465ae** (`main`). Every claim carries one of three marks:
 
@@ -816,3 +827,109 @@ choice in §8, it is stated so that every option satisfies or falsifies it on it
   items a plan cites (`:102`), and no plan cites 198 or 208–211. What would defend this design is
   code that does not exist yet: `connect/messagegroup/reaction.go` and `tombstone.go`, both named in
   Spec A §2.2 and absent from the tree, and the §9 cases beside them.
+
+---
+
+## 11. ERRATA, added 2026-09-17 after a five-agent re-survey of the tree
+
+**This document was audited against `msgrepo 4b465ae`, `connect d368fea`, `sdk cfe3ce4`. All three
+have moved.** `aad_mls` v2 landed one commit after the audit and closed two open items this document
+leans on. Nothing below changes the document's §1 answer — every kind the owner asked for still
+encodes, and the budget is unchanged — but **§3's stated reasoning no longer holds, and §8 choice 5
+is not a choice.** Corrections are listed against the section that needs them.
+
+### 11.1 The budget is CONFIRMED, and unchanged
+
+Re-measured at `connect 4a70be8` by the tree's own bisection over real `Protect` calls
+(`TestTheSizeLadderCostOfTheInnerFrameIsMeasuredHere`, PASS):
+
+```
+256 B rung -> 59 usable    1 KiB -> 826    4 KiB -> 3898    16 KiB -> 16186    64 KiB -> 65334
+```
+
+**Identical to §2.1. No row of §4.2's registry table changes.** TEXT `t = 58`, REPLY `t = 26`,
+REACTION `e = 26`, TOMBSTONE always fits. The reason is structural rather than luck: v2 changed the
+digest's **preimage**, not its **width**. `aadMls` returns `[32]byte` at v1 and v2 alike
+(`connect/messagegroup/mlsframe.go:185`, `:206`), and only the aad's *length* enters the frame
+(`const aadMlsBytes = sha256.Size`, `:115`).
+
+### 11.2 §3's four reasons: three are dead
+
+| | Reason | Status |
+|---|---|---|
+| 1 | "The head is not covered by the sender's signature" | **DEAD.** v2's fourth term binds the head. `mlsframe.go:166-169`: *"the complement is FIVE things. IT WAS SIX UNTIL 2026-09-17 and the sixth was the head plaintext, which v2's fourth term binds; open item MG-6 and ledger item 204 are CLOSED by that term."* |
+| 2 | "The head's length is server-visible" | **DEAD, by live measurement.** `ct_head` is **25 octets on all 3,758 rows** of the production server's `message_record` table. It is already one fixed width and does not vary with content, so a further octet keeps it fixed-width and leaks nothing per-message. |
+| 3 | "Spec B §7.2 erases `ct_head` and `ct_body` together" | **Alive**, but it is a *no-worse-than*, not a discriminator between head and body. |
+| 4 | "Item 204 moves `sent_at` *out* of the head for reason 1" | **DEAD.** `SPEC-LEDGER.md:7915` records item 204 **CLOSED 2026-09-17 by `aad_mls` v2**, and the ledger states the repair this document recommends *"is NOT what was done"*. |
+
+**§3's conclusion may still be correct — but not for the reasons printed there, and "The first is
+measured and decides it alone" is false at HEAD.** The placement is being re-ruled on the current
+tree. Until that ruling lands, **do not build §3 as written.**
+
+The live stakes, which §3 could not have weighed because it believed reason 2: `ct_head` is **not**
+rung-quantised and `ct_body` **is**, so a kind octet in the head would buy back one octet of the
+59 — TEXT to 59, REPLY to 27, REACTION emoji to 27.
+
+### 11.3 §2.2's measurement no longer reproduces
+
+`TestTheHeadPlaintextIsNotBoundByTheFrame` **no longer exists** in `connect/messagegroup`; only a
+comment at `mlsframe_test.go:1842` mentions it. Its inverse,
+`TestASubstitutedHeadIsRefusedAndTheGenuineRecordStillOpens`, **PASSes and logs "MG-6 CLOSED"**.
+Everything built on that measurement — §3's reason 1, K1's mutation, and D5 — needs re-deriving
+rather than carrying forward.
+
+### 11.4 §8 choice 5 is not an open choice, and its cost is not being paid
+
+Choice 5 was *"move `sent_at` into the body: Yes"*, costed at **8 octets on every stored kind**
+(text to 50, reply to 18, reaction emoji to 18, fitting 3,420 of 3,944 sequences). **Item 204 is
+closed and went the other way.** That cost is not being paid by anyone. The 59-octet budget and the
+95.0% emoji figure in §2.4 stand as printed.
+
+### 11.5 §4.2's ATTACHMENT row is wrong in one cell
+
+The `0x03` row prints "never" under *Largest on the 256 B rung*. That is right for the 105-octet
+BLOB_REF descriptor, which is the only form §4.2 costed. It is **wrong for the split/BODY_REF
+descriptor this document itself recommends**: its minimum is `1 + (5 + mime) + 13 + 13 = 32 + mime`,
+i.e. **42 octets for `image/jpeg`**, which fits the 256 B rung for any MIME type of 27 octets or
+fewer.
+
+### 11.6 §5.5's quotation is not in Spec A
+
+§5.5 attributes *"a statement by a device that actually decrypted"* to Spec A §7.4. **That string
+appears nowhere in Spec A**, at the audited commit or at HEAD. The nearest real text is
+`spec-a:4258` (HEAD), *"a statement by a device that decrypted the record, never an inference by the
+server"*, and it sits in the `MessageEntry.State` closed-set block, not at the line cited. **The
+substance is right; the quotation marks are not.**
+
+### 11.7 Anchors: this document is accurate about the tree it read, and stale against the tree you
+would build from
+
+Every `file:line` in this document resolves at `4b465ae` / `d368fea` / `cfe3ce4` and **only** there.
+Re-resolved at HEAD: `spec-a:4143` → **4214**, `:4074` → **4145**, `:4020` → **4091**, `:4269` →
+**4340**; MASTER §2:479 → **539**; `connect .../seal.go:751` → **780**; `sdk .../group.go:1341` →
+**1554**, `:1504` → **1953**. The "34 `urnet_message_*` exports" of §2.5 is **38** at `sdk eebd50c`
+(it was exactly 34 at `cfe3ce4`, so the figure is stale, not wrong).
+
+### 11.8 Two notes this document does not contain, recorded so a builder does not re-derive them
+
+- **The framing overhead is a FOUR-step function, not three**: 193 for `0 ≤ P < 64`, 194 for
+  `64 ≤ P < 16300`, 196 for `16300 ≤ P < 16384`, 198 for `P ≥ 16384`
+  (`TestTheDerivedFramedLengthIsTheLengthTheSealEmits`, PASS). Two nested varints widen, not one:
+  `varint(P)` at 64 and 16,384, and `varint(C)` where `C ≈ P + 82` at `P = 16,300`. **It moves no
+  rung capacity** (16384−4−194 = 16186 and 65536−4−198 = 65334 either way); a three-step builder
+  merely refuses legal bodies of 16,300..16,383 octets bound for the 64 KiB rung.
+- **`S2-24` does not resolve.** The substance reproduces — own-message content **is** plaintext on
+  disk, measured as a canary string at offset 111 of a 186-octet file — but the identifier collides:
+  `SPEC-LEDGER.md:13423` is item S2-24 and is about a torn-tail repair in §8.2, unrelated. Cite
+  `sdk/urmessage/statestore_durable.go:26-48` and the measurement, not S2-24.
+
+### 11.9 A defect in Spec A found while checking this document, filed separately
+
+**Spec A names a test that does not exist, in two places.** §2.3 (`spec-a:277`) says the forbidden
+import edges are *"each asserted by a test in `connect/layering_test.go` and `sdk/layering_test.go`"*,
+and the compliance table at `spec-a:5551` lists both files against "the forbidden import edges of
+§2.3". **`sdk/layering_test.go` does not exist, and no test file in `sdk` mentions layering at all**
+(`ls sdk/*layering*` → no such file; `grep -rln 'layering\|must not import' --include=*_test.go sdk/`
+→ 0 files). The edges are therefore asserted from the **connect side only**
+(`connect/layering_test.go:153-176`), and Spec A's compliance table claims coverage the tree does not
+have. This is a specification defect, not a content-kinds one.
