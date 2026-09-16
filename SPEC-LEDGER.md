@@ -8356,6 +8356,28 @@ fourteen are dispositioned below.
     it: the trigger is a date, not a condition** — the alpha's oldest record is hours old, and every
     probe run to date has been minutes long. *Owner:* `connect` for the open path, `sdk` for the walk.
 
+    **CORRECTED 2026-09-17, SAME DAY — IT IS A LATENT TRAP, NOT A LIVE FAILURE, AND THAT MAKES IT
+    MORE ACTIONABLE RATHER THAN LESS.** As first written this item implies conversations are breaking
+    today. **They are not: nothing in this server ever prunes.** Measured, with a positive control in
+    the same pass so the zero means something:
+
+    ```
+    CONTROL   INSERT INTO message_record     2 hits    <- the query shape works
+              FROM message_record            1 hit
+    REAL      UPDATE message_record          0 hits    in *.go AND in *.sql
+              DELETE FROM message_record     0 hits    in *.go AND in *.sql
+    ```
+
+    `msgrepo/sweep/` is **a twelve-line `doc.go` and no code** — its own text says *"This package holds
+    no code yet"* — and nothing in `cmd/` or `api/` references it. So §7.2's erase is **specified and
+    unbuilt**, and no `message_record` row has ever been modified or deleted by this server.
+
+    **The consequence is a sequencing rule, and it is the whole value of this item: close 219 BEFORE
+    §7.4's sweep is written.** Whoever builds the sweep will be working in `msgrepo`, against a spec
+    that says the head and `body_hash` are deliberately **kept**, with no reason to suspect that what
+    they leave behind is unreadable to every client. The failure would surface a year after their
+    commit, in a different repository, at every user at once.
+
 220. **FILED 2026-09-17. A `GapReason` FOR "THE SERVER ERASED THE BODY" IS OWED, AND IT IS STRICTLY
     LARGER THAN ITEM 221.** `GapReason` is a closed set of six — `expired`, `out_of_window`,
     `not_a_member_yet`, `withheld`, `no_wrap`, `malformed` (Spec A §7.4) — and **none of them means a
