@@ -8491,7 +8491,7 @@ fourteen are dispositioned below.
     kinds, then gate it; the gate is the urgent half whichever way the rule goes.
     *Owner:* this repository to rule.
 
-227. **FILED 2026-09-17. `Messages()` PROMISES A SNAPSHOT AND HANDS OUT LIVE POINTERS.** It returns
+227. **FILED 2026-09-17, ESCALATED SAME DAY — IT IS A REAL DATA RACE, NOT A DOCUMENTATION DEFECT. `Messages()` PROMISES A SNAPSHOT AND HANDS OUT LIVE POINTERS.** It returns
     `append([]*Message(nil), self.log...)` — a fresh **slice** over the **same** `*Message` values.
     The effect rebuild mutates a `Message` in place, so a reaction arriving after a caller took its
     slice changes what that caller is already holding, without the mutex the rest of the API takes on
@@ -8500,6 +8500,20 @@ fourteen are dispositioned below.
     `Receive` — which is every UI. The repair that keeps the rebuild design intact is to **replace**
     the message rather than write through it, so every pointer ever handed out stays frozen.
     *Owner:* `sdk`.
+
+    **ESCALATED 2026-09-17: reproduced under `-race`, two races, both writes.** A probe rendering
+    `Group.Messages()` on one goroutine while another calls `Group.Receive` reports **two data
+    races**, both writes in `reapplyLocked` (`sdk/urmessage/group.go:2511-2512`, `held.Deleted =
+    false` and `held.Reactions = nil`), reached by `Receive → commitWalkLocked → rebuildDirtyLocked`.
+    **Any Go caller that renders while it polls has it**, which is every UI. The mechanism reads
+    straight off the source: `Messages()` copies the **slice** and shares the `*Message` values, and
+    the effect rebuild writes through those same pointers after they are already in the log.
+
+    **It is not new** — `reapplyLocked` wrote through them before the cubic fix too; the fix only
+    changed *when*. **The C ABI is already defended against it** by a different route: `sdk bf4674b`
+    makes a list handle a **snapshot**, so `_reaction_count` and `_reaction_info` cannot answer from
+    two instants. The Go surface has no such protection. **`-race` runs on this box now** (MinGW at
+    `toolchain/mingw64`), so this is measurable rather than inferred.
 
 228. **RULED 2026-09-17, MECHANISM AND ALL — THE READ-RECEIPT AUTHENTICATION TAG. AND ITS RULED
     PROPERTY IS NOT DELIVERABLE BY ANY TAG WHILE THE ENVELOPE IS A SIGNATURE: SEE ITEM 232.** The
@@ -8704,7 +8718,7 @@ fourteen are dispositioned below.
     `bobGroup.Send` does not answer `ErrNotReconciled`. *Owner:* `sdk`, and it wants the cp3b
     harness to gain a raw-plaintext seal first.
 
-236. **FILED 2026-09-17. THE C ABI CANNOT TELL A GAP FROM A BLANK MESSAGE.** `sdk/cgo/exports_message.go`
+236. **DONE 2026-09-17 at `sdk bf4674b`. THE C ABI COULD NOT TELL A GAP FROM A BLANK MESSAGE.** `sdk/cgo/exports_message.go`
     projects a message by hand and surfaces only `Text` and `BodyLen`, so the `Gap` reason landed at
     `sdk bd4672d` — and `Kind`, `ReplyToId`, `Reactions` and `Deleted` before it — reach a C caller
     as **nothing at all**. A gap arrives as an empty body indistinguishable from a message somebody
