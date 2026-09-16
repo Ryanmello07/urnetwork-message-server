@@ -8479,24 +8479,65 @@ fourteen are dispositioned below.
     the message rather than write through it, so every pointer ever handed out stays frozen.
     *Owner:* `sdk`.
 
-228. **RULED 2026-09-17 AS A PROPERTY, NOT BUILT, AND THE MECHANISM IS OPEN — THE READ-RECEIPT
-    AUTHENTICATION TAG.** The owner ruled that the **sender of a message can verify a receipt for it
-    and no one else can**: not another member holding a copy, not a court, not a stolen device. So
-    the tag is a **MAC, never a signature** — in an RFC 9420 tree a signature is verifiable with **no
-    secret at all**, which makes it transferable third-party evidence of a *passive* act.
+228. **RULED 2026-09-17, MECHANISM AND ALL — THE READ-RECEIPT AUTHENTICATION TAG. AND ITS RULED
+    PROPERTY IS NOT DELIVERABLE BY ANY TAG WHILE THE ENVELOPE IS A SIGNATURE: SEE ITEM 232.** The
+    owner ruled that the **sender of a message can verify a receipt for it and no one else can**. So
+    the tag is a **MAC, never a signature**.
 
-    **The wrinkle, found while recording the ruling:** a `READ_THROUGH` watermark acknowledges
-    messages from **several authors at once**, and a pairwise key is shared with exactly one.
-    - **1:1** — one tag, 16 octets, `33 + 16 = 49`, fits the 256 B rung.
-    - **Group, one tag per unacknowledged author** — unforgeable by a third member, but the **count
-      of authors leaks through the rung**.
-    - **Group, one group-scoped key** — flat 16 octets at any size, but **every member can forge**
-      it, weakening the property to *non-transferable but member-forgeable*.
+    **THE CONSTRUCTION: a pairwise, designated-verifier MAC keyed by a static-static X25519 DH over
+    the RFC 9420 LEAF HPKE KEYPAIR — NOT by `Group.Export`.** `Export` is group-scoped by
+    construction (`exporter_secret` is one of the nine epoch secrets), so it cannot yield a pairwise
+    key, and this ledger's earlier sentence *"the primitive exists for either"* was **wrong about
+    `Export`**. The primitive that does exist:
+    - private half — `connect/mls/treekem.go:94` `TreeKEMPrivate.EncryptionPriv`, live on
+      `*Group.ownPriv` and **persisted per epoch** as `groupStateBlob.OwnEncPriv`;
+    - public half — `connect/mls/leaf_node.go:60` `LeafNode.EncryptionKey`, in the ratchet tree every
+      member already holds;
+    - it **is** X25519 — both registered suites are `HpkeKemX25519HkdfSha256`, `Nsk = 32`;
+    - the DH exists — `connect/mls/crypto_x25519.go:99` `X25519DH`, which refuses low-order points.
 
-    The primitive exists for either: `connect/mls/group.go:821` `Group.Export`, the RFC 9420 §8.5
-    exporter, which MASTER §7 already derives `mls_secret` from. **Unruled:** which of the two, and
-    the exact preimage. Nothing may be built against a guessed answer.
-    *Owner:* this repository to rule the construction, `connect`/`sdk` to build.
+    A new seam method `(*Group).PairwiseExport(label, peer LeafIndex, length)` does the DH **inside
+    `mls`** so no leaf scalar ever crosses the seam, binding `group_id`, `epoch`, both leaf indices
+    **ordered**, both public points, and the **`epoch_authenticator`** — the last of which is what
+    puts the tag under the **same 32-epoch erase discipline** as everything else, so **after
+    `PastEpochWindow` nobody can verify a receipt at all, not even its sender.** A signature never
+    expires; this is the property ruling 3 was asking for, delivered by the key rather than by policy.
+
+    **THE LAYOUT, and its best feature is what it does NOT carry:**
+    ```
+    plaintext := u8 kind=0x0A ‖ raw[32] through_message_id ‖ raw[16] tag[0..M-1]
+    M = MemberCount()-1 at the header's epoch; slots ordered ASCENDING by leaf index,
+    the reader's own leaf dropped.   TOTAL = 33 + 16M.
+    ```
+    **No index field, no bitmap, no count**, because `M` is a function of the epoch and the epoch is
+    already a plaintext header field, and the reader is already named by `sender_handle`. So rule
+    R-d's *"exactly one encoding"* costs **zero octets** — the property the per-author shapes cannot
+    have, since a verifier holding `k` bare tags cannot tell *which* `k` members they cover, and
+    making them canonical costs `33 + 18k` or a bitmap that destroys the small-`k` advantage outright.
+    **A body whose length is not exactly `33 + 16(MemberCount()-1)` is MALFORMED.** `KindReadThrough`
+    moves **`0x41` → `0x0A`**: `0x40`–`0x7F` is `EPH(0)`-only and a self-erasing receipt is a stored
+    class, and `0x01`–`0x09` are taken.
+
+    **WHO CAN FORGE, exactly:** the reader; **the message's author, for its own slot — which is
+    REQUIRED, not a defect**, because a party strong enough to verify must be strong enough to forge
+    or the tag would be transferable; and anyone holding either device's disk (item **229**). **A
+    third group member cannot**, at any group size, holding every epoch secret and the whole ratchet
+    tree — the key lives on two X25519 scalars it does not have. **That is the entire delta over a
+    group-scoped key, and it is the case the owner's ruling names in words.**
+
+    **CORRECTION TO THIS ITEM'S OWN EARLIER TEXT.** It said the **count** of authors *"leaks through
+    the rung"*. **That does not reproduce.** The rung is a five-value ladder, so a per-author shape
+    leaks **one bit** — *"exactly one person"* versus *"more than one"* — for every group up to
+    **N = 50**; a three-way split at 200 and four-way at 500. Materially smaller than this item
+    claimed. Under the ruled shape it leaks **nothing new at all**: the body is a function of `N`
+    alone, and the server already counts `N` from the one `wrap_target_handle` per member per epoch.
+
+    **WHY IT COULD BE RULED DESPITE 232:** at **N = 2**, which is the entire alpha under
+    `ErrAlphaOneAdd`, every candidate shape emits the **identical 49 octets on the identical 256 B
+    rung** — so the correct key costs the shippable product **nothing**. The key is the
+    **irreversible** half; the tag width and the padding rule are re-versionable through a new stored
+    kind code under §4.3. *Owner:* `connect` for `PairwiseExport` and its KAT, `messagegroup` for the
+    `GroupHandle` seam, `sdk` for the build site.
 
 229. **FILED 2026-09-17. EVERY PRIVATE KEY THIS PRODUCT HOLDS IS ON DISK IN THE CLEAR, AND IT IS NOW
     A BLOCKER FOR A NAMED FEATURE RATHER THAN AN UNOWNED NOTE.** `sdk/urmessage/statestore_durable.go:26-48`,
@@ -8545,6 +8586,63 @@ fourteen are dispositioned below.
     receiver, which removes the correlation at its root and costs one record per cover; or decouple
     emission from reading with a fixed cadence, so the presence of a receipt carries no information
     and only its *contents* do. *Owner:* this repository.
+
+232. **FILED 2026-09-17, AND IT IS BIGGER, OLDER AND UNOWNED — RULING 228'S PROPERTY IS NOT
+    DELIVERABLE BY ANY TAG WHILE AN APPLICATION RECORD'S ENVELOPE IS AN Ed25519 SIGNATURE.** Verified
+    end to end: `connect/messagegroup/doc.go:120-133` (*"ct_body's PLAINTEXT is now an MLS frame
+    signed under the writer's own credential"*); `SignAuthenticatedContent` signs
+    `crypto.SignWithLabel(priv, "FramedContentTBS", tbs)` at `connect/mls/framing_protect.go:78-88`;
+    `FramedContentTBSBytes` marshals `{WireFormat, FramedContent, GroupContext}` at
+    `framing_preimage.go:329-338`; and **`FramedContent.ApplicationData` — the receipt's own
+    plaintext — is a field of the signed structure** (`framing.go:305-314`).
+
+    **So a member who opens a receipt holds `(TBS bytes, signature, the reader's leaf signature key
+    and credential)` — a triple a court verifies with NO SECRET AT ALL.** That is exactly the
+    transferable third-party evidence of a *passive act* that ruling 228 exists to forbid, and it
+    holds for **every** application record under **every** candidate tag shape.
+
+    **THE OWNER MUST DECIDE, and receipt work must not be allowed to look like it fixed this:** does
+    the application-record envelope become **deniable** — record-layer authentication by a group MAC
+    rather than a leaf signature — or is **ruling 228 withdrawn as unsatisfiable**? The decision
+    governs **every message, not receipts**, and it is older than this work.
+
+    **What is actually delivered today**, and what item 228 should be read as promising: *"a receipt
+    is non-transferable to a NON-MEMBER, unforgeable by a third MEMBER, unverifiable by anyone after
+    32 epochs — and NOT deniable against a member who discloses the signed envelope."* Note the
+    corpus already names **"deniability of authorship to other group members"** a **permanent
+    non-goal** (`docs/specs/2026-08-12-urmessage-protocol-design.md:550`), so this item is asking
+    whether that non-goal should be revisited now that *reading* is about to become attributable too.
+    *Owner:* the owner, then `connect`.
+
+233. **FILED 2026-09-17. A `READ_THROUGH` WATERMARK IS DEFINED OVER AN ORDER THE SERVER ASSIGNS AND
+    NOTHING AUTHENTICATES, SO A HOSTILE SERVER CAN TURN AN HONEST RECEIPT INTO A FALSE CLAIM.**
+    The content-kinds design defines the watermark in **`record_id` order**, and
+    `connect/message/codec.go:49-56` states that `record_id` is **server-assigned after acceptance**
+    and appears in **no aad and no preimage**. So a server that withholds a record and later numbers
+    it **below** a reader's watermark makes a correctly-sealed, correctly-tagged receipt assert that
+    the reader saw something it never received.
+
+    **The tag cannot fix this**, and that is the point: the receipt is honest, the signature verifies,
+    the MAC verifies, and the statement is still false — because the *meaning* of the watermark is
+    server-controlled. **The right shape of the repair:** name the **author's own `stream_index`**,
+    which sits inside the author's own MLS signature, instead of a server-assigned position. That
+    changes **what a receipt means**, so it belongs to a §5.5 semantics ruling and not to the tag's.
+    **Do not let it hold up the tag.** *Owner:* this repository for §5.5, then `sdk`.
+
+234. **FILED 2026-09-17. NO RECEIPT OF ANY SHAPE CAN BE SEALED IN THIS TREE TODAY — the build long
+    pole, and it blocks every candidate equally.** Ruling 3 puts receipts on `EPH(1..5)`, and:
+    - `connect/messagegroup/session.go:749-775` `classKeyOnLoop` refuses **every** `EPH` bucket with
+      `ErrNoEphRoot` while `len(self.ephRoot) == 0`, and **`InstallEphRoot` has zero non-test call
+      sites** in `sdk` — the only hit is a comment at `sdk/urmessage/kind.go:58-62`;
+    - `sdk/urmessage/group.go:1074-1086` `sendContentLocked` **hardcodes** `message.RetentionDurable,
+      0` into both `ParseContent` and `SealRecord`, so no send path could carry another class even if
+      a root existed.
+
+    **Because it blocks every shape equally it is not an argument for any of them**, and because it
+    is independent of the tag, the `PairwiseExport` seam can land on the same schedule as the class
+    plumbing without either delaying the other. **Item 221's placeholder render must land FIRST**, or
+    the rollout punches holes in every conversation on every older build. *Owner:* `sdk`, with
+    `connect` for the eph-root distribution path.
 
 ## 6. Change process
 
@@ -18026,7 +18124,8 @@ measured case; that repair is now a **prerequisite** of receipts rather than par
 mechanism has an open wrinkle found while recording this: **a `READ_THROUGH` watermark acknowledges
 messages from SEVERAL authors at once, and a pairwise key is shared with exactly one.** In a 1:1 that
 is one tag of 16 octets, which fits the 256 B rung at `33 + 16 = 49`. In a group it is either one tag
-per unacknowledged author — whose *count* then leaks through the rung — or a group-scoped key, which
+per unacknowledged author — which leaks **one bit** (one author versus several) up to N=50,
+NOT the count, corrected 2026-09-17 — or a group-scoped key, which
 every member can forge and which therefore weakens the property to *"non-transferable but
 member-forgeable"*. **The primitive exists either way:** `connect/mls/group.go:821` `Group.Export` is
 the RFC 9420 §8.5 exporter, and MASTER §7 already derives `mls_secret` from it. Unruled: which of the
@@ -18064,3 +18163,116 @@ receipt carries no information. *Owner:* this repository.
 - The traffic, storage and mobile figures that accompanied this analysis were produced by one pass
   and **are not independently reproduced**; they informed the decision to drop `DELIVERED` and are
   recorded there, not relied on here.
+
+---
+
+### 2026-09-17 (sixth pass of that date) — the receipt tag is ruled down to the octet, and the panel that ruled it found the ruled property is not deliverable by any tag at all
+
+**Change:** item **228** goes from *ruled as a property, mechanism open* to **ruled, mechanism and
+all**, and is rewritten — including a **correction to its own measurement**. Three items are filed:
+**232**–**234**, the first of which is an owner decision larger than receipts. No implementation is
+in this commit.
+
+#### The construction
+
+**A pairwise, designated-verifier MAC keyed by a static-static X25519 DH over the RFC 9420 leaf HPKE
+keypair.** Not `Group.Export`, which is group-scoped by construction — so **this ledger's own earlier
+sentence, "the primitive exists for either", was wrong about `Export`**, and a pass that corrected it
+was wrong in the other direction when it concluded no pairwise material exists anywhere. Both were
+shown wrong in code: the leaf HPKE keypair **is** a DHKEM(X25519) keypair, its private half is live
+on `*Group.ownPriv` **and persisted per epoch**, its public half is in the ratchet tree every member
+holds, and `X25519DH` already exists. **Pairwise was never a primitive problem; it is a ~30-line seam
+problem.**
+
+```
+k_pair = PairwiseExport("URmessage/v1/receipt-pair", authorLeaf, 32)
+  ctx = LP(group_id) ‖ u64(epoch) ‖ u32(lo) ‖ u32(hi) ‖ LP(pk_lo) ‖ LP(pk_hi)
+      ‖ LP(epoch_authenticator)                                    160 octets, fixed
+
+tag[j] = HMAC-SHA256(k_pair(reader, author_j), preimage)[0:16]
+  preimage = "URmessage/v1/read-through/v1" ‖ LP(group_id) ‖ u64(epoch)
+           ‖ u32(reader_leaf) ‖ u32(author_leaf) ‖ raw[32] through_message_id   124 octets, fixed
+
+plaintext = u8 kind=0x0A ‖ raw[32] through_message_id ‖ raw[16] tag[0..M-1]
+  M = MemberCount()-1 at the header's epoch, slots ASCENDING by leaf index
+  TOTAL = 33 + 16M.  A body of any other length is MALFORMED.
+```
+
+**The best feature is what it does not carry.** No index field, no bitmap, no count — `M` is a
+function of the epoch, and the epoch is already a plaintext header field; the reader is already named
+by `sender_handle`. So **§4.1's rule R-d, "exactly one encoding", costs zero octets** here. The
+per-author shapes cannot have that: a verifier holding `k` bare tags cannot tell **which** `k`
+members they cover, so their ordering is unenforceable, and making them canonical costs `33 + 18k` or
+a presence bitmap that destroys the small-`k` advantage it was bought for.
+
+**`epoch_authenticator` in the key context is the load-bearing term.** It puts the tag under the
+**same 32-epoch erase discipline** as everything else, so **after `PastEpochWindow` nobody can verify
+a receipt — not a member, not its sender, not a thief.** A signature never expires. That is ruling 3's
+self-erasure delivered by the key rather than by policy, and it refutes the claim that a static-static
+DH sits outside the erase discipline: `MergePendingCommit` zeroizes `ownPriv` in the same statement
+list that zeroizes the schedule and the secret tree.
+
+#### Who can forge, exactly — and why one of them is required
+
+**Can:** the reader, trivially. **The message's author, for its own slot** — and **this is required,
+not a defect**: a party strong enough to *verify* must be strong enough to *forge*, or the tag would
+be transferable. That is what a designated-verifier MAC is. And anyone holding either device's disk,
+which is item **229**.
+
+**Cannot: a third group member, at any group size** — holding `group_handle_key`, every epoch secret,
+every `Export`, the whole ratchet tree and every public leaf point, all of it useless, because the key
+lives on two X25519 scalars it does not have. **That is the entire delta over a group-scoped key, and
+it is the case the owner's ruling names in words.** Nor the server, nor an outsider, nor a future
+joiner, nor a removed member.
+
+#### The finding that outranks the ruling
+
+**Ruling 228's property is not deliverable by ANY tag while an application record's envelope is an
+Ed25519 signature.** Filed as item **232**. `FramedContent.ApplicationData` — the receipt's own
+plaintext — is a field of the signed `FramedContentTBS`, so a member who opens a receipt holds a
+triple **a court verifies with no secret at all.** The tag is real and does real work; it cannot undo
+a signature wrapped around it.
+
+**So the honest statement of what ships is narrower than the ruling's words**, and item 228 now says
+so: *non-transferable to a non-member, unforgeable by a third member, unverifiable by anyone after 32
+epochs — and not deniable against a member who discloses the signed envelope.*
+
+**Why the tag was ruled anyway rather than deferred**, and it is the owner's own reversibility test
+applied to a fork he did not see: the **key is invisible on the wire and irreversible for every
+receipt ever emitted**, while the tag width and padding rule are re-versionable through a new stored
+kind code. And **at N = 2 — the entire alpha, by `ErrAlphaOneAdd` — every candidate shape emits the
+identical 49 octets on the identical 256 B rung.** The correct key therefore costs the shippable
+product **nothing**, and the alternative bets that 232 will never be answered.
+
+#### The correction to this document
+
+Item 228 said the **count** of authors *"leaks through the rung"*. **It does not reproduce.** The rung
+is a five-value ladder, so a per-author shape leaks **one bit** — one author versus several — for
+every group up to **N = 50**. Under the ruled shape the body is a function of `N` alone and leaks
+**nothing new**, because the server already counts `N` from the one `wrap_target_handle` per member
+per epoch. Both the item and the narrative sentence are corrected in this commit.
+
+#### Two more filed
+
+**233 — a hostile server can turn an honest receipt into a false claim.** The watermark is defined
+over `record_id`, which is **server-assigned after acceptance and appears in no aad and no preimage**.
+Withhold a record, number it below the watermark, and a correctly-sealed, correctly-tagged receipt
+asserts the reader saw something it never received. **The tag cannot fix this** — everything verifies
+and the statement is still false — because the *meaning* of the watermark is server-controlled. The
+repair names the **author's own `stream_index`**, which is inside the author's own signature, and it
+changes what a receipt means, so it is a §5.5 semantics ruling.
+
+**234 — no receipt of any shape can be sealed in this tree today.** `classKeyOnLoop` refuses every
+`EPH` bucket while no eph root is installed and `InstallEphRoot` has zero non-test call sites, and
+`sendContentLocked` hardcodes `RetentionDurable, 0`. It blocks every candidate equally, so it argues
+for none of them, and the `PairwiseExport` seam can land on the same schedule without either delaying
+the other.
+
+#### What this entry does not claim
+
+- **No implementation exists.** `PairwiseExport` is specified here and is not written.
+- **The panel's own dossier contained a load-bearing error**, caught by its judge: the measuring pass
+  concluded no pairwise key material was reachable and that every pairwise shape therefore collapsed
+  into the group-scoped one. It was wrong, and the ruling rests on the refutation rather than on the
+  pass that produced it.
+- **Item 232 is not answered here**, only named. Nothing in this entry should be read as fixing it.
