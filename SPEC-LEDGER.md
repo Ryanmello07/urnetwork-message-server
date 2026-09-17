@@ -8491,7 +8491,7 @@ fourteen are dispositioned below.
     kinds, then gate it; the gate is the urgent half whichever way the rule goes.
     *Owner:* this repository to rule.
 
-227. **FILED 2026-09-17, ESCALATED SAME DAY — IT IS A REAL DATA RACE, NOT A DOCUMENTATION DEFECT. `Messages()` PROMISES A SNAPSHOT AND HANDS OUT LIVE POINTERS.** It returns
+227. **DONE 2026-09-17 at `sdk 39e10ca`. IT WAS A REAL DATA RACE, NOT A DOCUMENTATION DEFECT. `Messages()` PROMISES A SNAPSHOT AND HANDS OUT LIVE POINTERS.** It returns
     `append([]*Message(nil), self.log...)` — a fresh **slice** over the **same** `*Message` values.
     The effect rebuild mutates a `Message` in place, so a reaction arriving after a caller took its
     slice changes what that caller is already holding, without the mutex the rest of the API takes on
@@ -8729,6 +8729,59 @@ fourteen are dispositioned below.
     invisible to it. Note `messageInfo` is a hand projection rather than a generated one, which is
     why each field has to be added deliberately and why none of them arrived by default.
     *Owner:* `sdk`, and it is a prerequisite of any UI that renders more than plain text.
+
+237. **FILED 2026-09-17. THE WINDOWS UI HAS NOWHERE TO PUT ANYTHING THE CONTENT ENVELOPE ADDED, AND
+    FOUR SEPARATE WALLS STAND BEFORE ONE REAL MESSAGE REACHES A SCREEN.** Surveyed read-only against
+    `message-windows` `demo-ui` at `f2af5a9` (83 commits past `main`, ~1,759 C++ sources).
+
+    **(a) No receiving end.** `grep -rn 'reaction|emoji|reply|tombstone' app/src` → **0**. `RowKind`
+    is `{Message, DaySeparator, System}` — **no gap kind**, so a record this build cannot read is
+    indistinguishable on screen from an empty message. Everything `sdk bf4674b` and `39e10ca` put on
+    the ABI — `gap`, `reaction_count`, `reply_to_id`, `deleted`, and the four send verbs — has no
+    field, no control and no call site in the client.
+
+    **(b) No message renderer outside the demo shell.** The non-demo `ThreadPane` is a single
+    empty-state `TextBlock` whose own comment forbids mounting into it. The only surface that draws
+    messages is reachable **only** when `--demo` is on, and that shell's composer says *"Demo —
+    nothing is sent, and no message leaves this window."* **Real data inside it makes that sentence
+    false**, which is a G4 honesty collision rather than a code problem.
+
+    **(c) No background thread anywhere in the app.** Zero hits for `std::async`, `resume_background`,
+    `co_await`, `IAsyncAction` or any thread-pool API. The apartment is **single-threaded**, and the
+    code records that `join()` does not pump messages — so the UI thread must never block, while the
+    ABI is blocking with a 90 s default. `TryEnqueue` appears **exactly once**, and the codebase's
+    `StartGuardedThread` helper has **zero call sites**; a network worker would be its first user.
+
+    **(d) Fields no protocol value can fill truthfully.** Delivery state has six values and only
+    `Sent` is reachable without receipts; sender names, group names, member lists and unread counts
+    do not exist in the library at all. **Owner ruled 2026-09-17: render these as a visible
+    "unavailable" placeholder** — not hidden, and never fabricated beside real data.
+
+    **And a structural one that outlives the UI:** the alpha accepts **exactly one** `AddMember`, so
+    every real conversation is **exactly two members**, and `ConversationKind::Group` — sender
+    headers, member lists, the group chip — can never be truthfully populated.
+
+    **Better than the 2026-09-15 note claimed:** the injection seam **does** exist. Four view
+    factories already take `World const&` as a parameter and one line hands it in, after the
+    apartment is initialised. The obstacle is not the seam but the **48 `GetWorld()` call sites**, 17
+    in one file, that re-fetch the global per operation instead of reading a member.
+    *Owner:* `message-windows`, and Spec C for (a) and (d).
+
+238. **FILED 2026-09-17. THE WINDOWS DIAGNOSTIC SUITE RUNS ON EVERY LAUNCH, 31 OF ITS 71 ASSERTIONS
+    DEPEND ON THE FABRICATED WORLD BEING DETERMINISTIC, AND ONE IS UNSATISFIABLE ON REAL DATA.**
+    `CollectDiagnostics()` runs before the apartment on **every** launch, not only under
+    `--diagnose`, and writes all 71 PASS/FAIL lines to the log.
+
+    **CI greps the OUTPUT TEXT for `FAIL`, case-sensitively, and exits 1** — the harness itself
+    always returns 0 — so a network-backed world turns CI red **via the token, not the exit code**,
+    which is a failure mode that will not look like what it is.
+
+    31 assertions are determinism-dependent: a world fingerprint, hard-coded counts and row ids,
+    "identical on second call" checks, and geometry derived from one conversation's exact 24 rows.
+    **`I5` is not merely nondeterministic on real data — it is unsatisfiable**, because it requires a
+    message that is both `Delivered` and `Read`, and neither state can exist without receipts.
+    Re-scoping these is a prerequisite of any real-data build, and it must be done as a **ruling about
+    what the suite is for**, not by deleting the lines that go red. *Owner:* `message-windows`.
 
 ## 6. Change process
 
