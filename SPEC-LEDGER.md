@@ -8792,7 +8792,10 @@ fourteen are dispositioned below.
     what the suite is for**, not by deleting the lines that go red. *Owner:* `message-windows`.
 
 239. **RULED 2026-09-18 BY THE OWNER: GROUP CHATS ARE A REQUIREMENT, SO THE ONE-ADD LIMIT COMES
-    OUT.** Owner's words: *"Groupchats are planned and a requirement."* Today
+    OUT.** **STEP A1 DONE 2026-09-18 at `connect 0faedec` / `sdk 3aff7a7`:
+    `messagegroup.LoadGroup` exists, `restoredHandle` and its 25 methods are deleted, and a restored
+    group ingests a commit and reaches epoch 2 over a real process boundary — which closes J1-8 and
+    is the precondition for every later step.** Owner's words: *"Groupchats are planned and a requirement."* Today
     `sdk/urmessage/group.go:731,734` refuse a second member with **`ErrAlphaOneAdd`**, whose own text
     names the reason: *"the alpha adds one member, before Open, in the commit that opens epoch 1; a
     second add is a second epoch and is not built."*
@@ -8877,6 +8880,31 @@ fourteen are dispositioned below.
     the receiving check unwritten.
     *Owner:* `connect/mls` for validation, `sdk` for the sending refusal, Spec C for what a role
     shows.
+
+243. **RULED 2026-09-18 BY THE PROJECT LEAD, WITH A CONDITION ATTACHED — `pq_secret` IS A
+    GROUP-LIFETIME VALUE, AND ROTATING IT IS A PREREQUISITE OF REMOVAL RATHER THAN OF GROUP CHATS.**
+    The group-chat survey named this the cheapest item on its list and the one blocking the
+    second-epoch publisher: `pq_secret` is drawn once (`sdk/urmessage/group.go:604`) and its only
+    carrier is `Invite.PqSecret`, which reaches a **joiner** and no existing member —
+    `alphaWrapBody` explicitly carries no key material. Measured by the survey: an epoch change
+    reusing the same `pq_secret` round-trips cleanly, and a disagreement fails at the AEAD tag.
+
+    **Ruled lifetime, so the carrier problem disappears and the second epoch is unblocked at a cost
+    of about a day rather than the unbuilt per-epoch wrap (M1-20 / m1 task 14).**
+
+    **THE CONDITION, and it is what makes this safe rather than merely cheap.** The security cost of
+    a lifetime value is that **a removed member keeps the post-quantum contribution to every future
+    epoch's storage root**. That is tolerable only while nothing can be removed. The owner ruled the
+    **full role model** on the same day (item 242), so removal **will** exist — and a removal that
+    leaves the removed party a permanent contribution to future keys is not the removal the role
+    model promises.
+
+    **Therefore: rotating `pq_secret` per epoch is a PREREQUISITE OF SHIPPING REMOVAL (plan item B2),
+    not of group chats (track A).** The shortcut must not still be in place the day removal lands.
+    This is written as a gate rather than a note because the two are being built weeks apart by
+    different steps, and a cheap decision taken for track A is exactly the kind of thing that is
+    still there when track B ships. *Owner:* `sdk` for the rotation, and B2 must not close while this
+    is open.
 
 ## 6. Change process
 
