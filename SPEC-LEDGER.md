@@ -8641,8 +8641,16 @@ fourteen are dispositioned below.
     emission from reading with a fixed cadence, so the presence of a receipt carries no information
     and only its *contents* do. *Owner:* this repository.
 
-232. **FILED 2026-09-17, AND IT IS BIGGER, OLDER AND UNOWNED — RULING 228'S PROPERTY IS NOT
-    DELIVERABLE BY ANY TAG WHILE AN APPLICATION RECORD'S ENVELOPE IS AN Ed25519 SIGNATURE.** Verified
+232. **RULED 2026-09-18 BY THE OWNER: NOT NOW. RECEIPTS SHIP WITH WHAT THE TAG DELIVERS.**
+    Owner's words: *"Read receipts currently is fine as long as they work."* So the envelope stays an
+    Ed25519 signature, the deniability rework is NOT undertaken, and item 228's honest statement of
+    what ships — *non-transferable to a non-member, unforgeable by a third member, unverifiable by
+    anyone after 32 epochs, and not deniable against a member who discloses the signed envelope* — is
+    the property the product has. **This item stays OPEN as a known limitation rather than a task.**
+    The finding that produced it, unchanged:
+
+    **RULING 228'S PROPERTY IS NOT DELIVERABLE BY ANY TAG WHILE AN APPLICATION RECORD'S ENVELOPE IS
+    AN Ed25519 SIGNATURE.** Verified
     end to end: `connect/messagegroup/doc.go:120-133` (*"ct_body's PLAINTEXT is now an MLS frame
     signed under the writer's own credential"*); `SignAuthenticatedContent` signs
     `crypto.SignWithLabel(priv, "FramedContentTBS", tbs)` at `connect/mls/framing_protect.go:78-88`;
@@ -8782,6 +8790,44 @@ fourteen are dispositioned below.
     message that is both `Delivered` and `Read`, and neither state can exist without receipts.
     Re-scoping these is a prerequisite of any real-data build, and it must be done as a **ruling about
     what the suite is for**, not by deleting the lines that go red. *Owner:* `message-windows`.
+
+239. **RULED 2026-09-18 BY THE OWNER: GROUP CHATS ARE A REQUIREMENT, SO THE ONE-ADD LIMIT COMES
+    OUT.** Owner's words: *"Groupchats are planned and a requirement."* Today
+    `sdk/urmessage/group.go:731,734` refuse a second member with **`ErrAlphaOneAdd`**, whose own text
+    names the reason: *"the alpha adds one member, before Open, in the commit that opens epoch 1; a
+    second add is a second epoch and is not built."*
+
+    **The limit is at the sdk layer and NOT in the cryptography** — `connect/mls` carries
+    `MaxGroupMembers = 500`. What is unbuilt is **a second epoch**, and that is the real scope:
+    - **the ladders do not survive an epoch change.** `installEpochOnLoop` **zeroizes every sender
+      ratchet and every receiver** on each epoch change, and nothing re-tracks them — the caller must
+      `TrackSender` again. That is open items M1-5/M1-12's territory and it becomes load-bearing the
+      moment a group has more than one epoch.
+    - the wrap machinery has only ever run for one add;
+    - `eph_root` distribution is per epoch and has **zero non-test call sites** (item 234);
+    - the restore path documents `ErrAlphaOneAdd` by name as the reason a branch is unreachable
+      (`restore.go:39-42`), so lifting the limit reaches code nothing has exercised.
+
+    **Consequence for the Windows client, already filed as item 237(e):** every real conversation is
+    two members by construction today, so the group UI — member lists, sender headers, the group chip
+    — has no real data to show. **Lifting this is what makes that UI honest rather than hidden.**
+    *Owner:* `sdk` and `connect`, with a survey before any build.
+
+240. **FILED 2026-09-18. THE WINDOWS CLIENT IS ON THE LIVE MESH, AND THE HONESTY STRINGS NOW DEPEND
+    ON A MODE RATHER THAN A BUILD.** Recorded because the failure it fixed is one this corpus should
+    be able to recognise again. At `message-windows 1dc2549` the app renders real records over the
+    real operator — and before that commit it displayed *"Demo model: fabricated data, no crypto in
+    this build"* **directly above a message genuinely sealed and opened under MLS**. The G4 honesty
+    rule was written to stop the app CLAIMING security it lacked; it had started DENYING security it
+    had, which is the same rule failing in the direction nobody inspects.
+
+    **The subtlety worth keeping:** `--live` is true from the first instruction of a launch, through
+    the whole connect budget and for ever if the mesh never answers, while the window still draws the
+    fabricated world. **The latch is not the switch.** Keying copy off the flag would put live wording
+    over fabricated data — the original defect with its polarity flipped. The mode flips on the UI
+    thread in the same statement block as the world swap, so wording and pixels move together.
+    Every framing assertion takes the mode **explicitly** rather than reading the active one, which is
+    the only arrangement under which a fabricated launch can gate live copy. *Owner:* `message-windows`.
 
 ## 6. Change process
 
