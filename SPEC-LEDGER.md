@@ -8829,6 +8829,55 @@ fourteen are dispositioned below.
     Every framing assertion takes the mode **explicitly** rather than reading the active one, which is
     the only arrangement under which a fabricated launch can gate live copy. *Owner:* `message-windows`.
 
+241. **RULED 2026-09-18 BY THE OWNER — HISTORY SURVIVES A MEMBERSHIP CHANGE FOR THE MEMBERS WHO
+    WERE ALREADY THERE, AND A NEW MEMBER GETS NONE OF IT UNLESS THE GROUP GRANTS IT. THE CORPUS
+    ALREADY SPECIFIES THIS EXACTLY.** Owner's words:
+
+    > *"I feel like the new members shouldn't be able to read the messages unless everyone wants to
+    > share message history. This can be determined on how a person is invited so it fully depends on
+    > if the current group members want to share message history or not. Message history should always
+    > be readable to the people who were always in the group chat."*
+
+    **This is neither option the survey offered.** Option A (history ends at the change) is **ruled
+    out** — existing members keeping their scrollback is a hard requirement. Option B is ruled in for
+    existing members **and explicitly not for joiners**, which is the part neither option named.
+
+    **THE DESIGN ALREADY EXISTS AND NOTHING IS BUILT.** Spec A §7 defines `MessageHistoryGrant`
+    with `GrantId`, `GranteeMemberId`, **`FromEpoch`**, `GrantedByMemberId`, `FromMs`,
+    `GrantedAtMs`; `GrantHistory(groupId, memberId, fromEpoch, cb)` is **owner-only**;
+    `HistoryGrants(groupId)` lists them; arrival is `GroupEvent{Kind: "history_granted"}`. Spec C
+    §5.5 rules the banner: one per grant, and **no dismiss affordance and no client-side hide**,
+    because MASTER §11 makes a grant non-erasable and *"a banner the user can close is an erasure with
+    extra steps."* Measured: **0 non-test references** to `GrantHistory`, `HistoryGrants`,
+    `MessageHistoryGrant` or `history_granted` across `sdk` and `connect`.
+
+    **What the engineering therefore is, and it is NOT what the survey costed as option B.** The
+    joiner half is **free** — a member admitted at epoch *n* holds no epoch *n−1* schedule and that is
+    MLS's own behaviour, so "a new member sees nothing from before" needs no code. What needs building
+    is (a) an existing member retaining its **own** prior-epoch read schedules across a change, which
+    is the multi-epoch open that `connect/messagegroup/seal.go:773` refuses today, and (b) the
+    **grant** as an opt-in carrier of prior-epoch material, bounded by `FromEpoch`.
+    **The erasure-discipline objection the survey raised against option B does not reach (a):** a
+    member retaining keys for epochs it was *already a member of* destroys nothing it did not already
+    hold. It reaches (b) only, where the grant is the ruled, audited, non-erasable act.
+    *Owner:* `connect` for the multi-epoch open, `sdk` for the grant, Spec C for the banner.
+
+242. **RULED 2026-09-18 BY THE OWNER — THE FULL ROLE MODEL, NOW.** OWNER / ADMIN / MEMBER / OBSERVER
+    per MASTER §11, rather than a narrower v1 rule. The survey costed this at **1.5–2 weeks** against
+    roughly a week for a flat rule, and named the reason to do it now: retrofitting roles onto shipped
+    groups is harder than building them in, and the corpus already rules the model in detail.
+
+    **There is no authorization at any layer today.** `connect/mls` declares
+    `ErrAdminRemovedByNonOwner`, `ErrGroupSizeExceeded` and `ErrDeviceLimitExceeded`, and **each has
+    zero production call sites**; the only production statement that reads a `Role` is a display
+    snapshot. So **the moment a second epoch exists, any member can eject the owner**, which MASTER
+    §11 itself calls having *"no undo by construction"*. MASTER §11 also rules the enforcement shape —
+    a bad commit *"is refused by the committing client, and is rejected by every receiving client on
+    validation"* — which means **both arms are owed**, and a build that only refuses on send leaves
+    the receiving check unwritten.
+    *Owner:* `connect/mls` for validation, `sdk` for the sending refusal, Spec C for what a role
+    shows.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
