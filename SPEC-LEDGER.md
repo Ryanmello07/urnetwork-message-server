@@ -8819,7 +8819,19 @@ fourteen are dispositioned below.
     *restarted* device in a busy group whose peer had passed the 1024 window at the epoch boundary
     would meet `out_of_window` on that peer's post-change records, because the re-walk resets the head
     and the pre-change records that would have walked the ladder are now gaps. The live case passes.
-    Persisting the authenticated head is the same work as the multi-epoch open. Owner's words: *"Groupchats are planned and a requirement."* Today
+    Persisting the authenticated head is the same work as the multi-epoch open.
+
+    **PROVEN LIVE 2026-09-21 at `sdk 01ca202`.** Three real accounts on `beta-test.net`; A adds a
+    third member to a group that had been chatting for 600 messages; B ingests the commit on its next
+    `Receive` and follows into epoch 2; six directions of epoch-2 messaging each asserted on the far
+    side; a restarted B comes back at epoch 2. `=== 10 STEPS, 1328 ASSERTIONS, ALL HELD ===`. **The
+    deployed server accepted a commit sealed at epoch 1 announcing epoch 2, keyed the new epoch, and
+    served it to a non-authoring member and a Welcome-joiner — no server change was made or needed**,
+    as the survey predicted. The operator's table shows the group at epochs 0, 1, 2 with 2 commits and
+    holds no readable byte of it: five needles including all three epoch-2 lines, `CONTROL 1, REAL 0`.
+    C drains exactly 602 pre-join records as `out_of_window` gaps and opens none — MLS's own answer for
+    a later joiner, and item 241's grant is what would change it. The restarted B sees the same 602 as
+    gaps, which is the multi-epoch open this build lacks. Owner's words: *"Groupchats are planned and a requirement."* Today
     `sdk/urmessage/group.go:731,734` refuse a second member with **`ErrAlphaOneAdd`**, whose own text
     names the reason: *"the alpha adds one member, before Open, in the commit that opens epoch 1; a
     second add is a second epoch and is not built."*
