@@ -8865,6 +8865,49 @@ fourteen are dispositioned below.
     hold. It reaches (b) only, where the grant is the ruled, audited, non-erasable act.
     *Owner:* `connect` for the multi-epoch open, `sdk` for the grant, Spec C for the banner.
 
+    **VERIFIED DELIVERABLE 2026-09-20 — THE PLAN'S FEAR THAT AN ERASURE INVARIANT FORECLOSES THIS
+    DOES NOT REPRODUCE.** The group-chat plan warned that retaining prior epochs' read schedules
+    *"may run into MASTER invariant I4"* and, if so, would make ending history at a membership change
+    *"the only available answer."* Read against the texts, with every quote verified at HEAD:
+
+    - **I4, verbatim** (`MASTER:564-565`): *"Ephemeral-class key material is never wrapped to a
+      recovery key, never included in a provisioning bundle, and never derivable from any durable
+      secret."* Its subject is **ephemeral-class** material only, and its three predicates are about
+      **where it may travel** — three exfiltration paths — not about retention on the device that
+      legitimately holds it. **No invariant in MASTER §3 speaks to on-device retention at all.**
+    - **The durable classes are "never destroyed" by normative text** (`Spec A:1530`, `MASTER:1429`,
+      `:1433`), and the design deliberately delivers every prior epoch's `storage_root[n]` to a
+      seed-only restorer. A brand-new device is *designed* to read every past epoch; a continuing
+      member reading its own past is strictly weaker.
+    - **The corpus already retains 32 prior epochs of exactly this material on every device and
+      prices the cost in writing** (`connect/mls/group.go:2657-2665`: *"Every one of those epochs is an
+      epoch of FORWARD SECRECY given up … Both costs are accepted"*, Spec A §4.3).
+    - **`session.go:698-702` is a coding gate, not an invariant**, and its own control corpus names
+      the retention shape as permitted: the gate accepts erased, refused, **or moved**, its `Mover`
+      control *is* an epoch handed across a rotation, and its `Unerased` control is annotated *"what
+      task 19's past-epoch window looks like on the day it is written."* The gate anticipated this.
+
+    **What removal actually promises, and the direction matters** (`MASTER:2679-2680`): rotation on
+    `Remove` denies a removed member every key *"from that epoch forward"* — forward only. The corpus
+    never claims to take a removed member's *past* away, because it cannot.
+
+    **THE NARROWEST PERMITTED DESIGN, and it retains nothing new.** Re-derive a prior epoch's read
+    schedule **on demand** from the epoch-*n* state blob that `PastEpochWindow = 32` already keeps:
+    `LoadGroup(cfg, n, signer)` yields `Export` (→ `mls_secret[n]` → `storage_root[n]` with the
+    lifetime `pq_secret` of item 243 → class keys) and an epoch-*n* `Unprotect`. `seal.go:773` relaxes
+    from `!= self.epoch` to *"within [current−32, current] and a schedule is obtainable."* **The
+    entire gap between today and the ruling is one missing seam**: `Group.Export` reads only the
+    current schedule and connect has no `ExportAt` (Spec A revision A-14). Bounded by the same
+    32-epoch window MLS already enforces, and for EPH by item 186's still-unruled schedule, which
+    this neither creates nor worsens.
+
+    **Two narrowings the corpus supplies for free:** already-opened records never need re-opening
+    (decrypted bodies are stored locally, sealed per row, and MLS consumes a generation on
+    `Unprotect`), so the multi-epoch open is only for records *not yet opened* when the epoch moved —
+    crossed commits, offline catch-up, a second device — the same set the 32-window exists for. And
+    the joiner half costs nothing. *Owner:* `connect` for `ExportAt` or a per-epoch `LoadGroup` door,
+    then the `seal.go:773` relaxation.
+
 242. **RULED 2026-09-18 BY THE OWNER — THE FULL ROLE MODEL, NOW.** OWNER / ADMIN / MEMBER / OBSERVER
     per MASTER §11, rather than a narrower v1 rule. The survey costed this at **1.5–2 weeks** against
     roughly a week for a flat rule, and named the reason to do it now: retrofitting roles onto shipped
