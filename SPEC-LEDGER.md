@@ -8821,7 +8821,7 @@ fourteen are dispositioned below.
     and the pre-change records that would have walked the ladder are now gaps. The live case passes.
     Persisting the authenticated head is the same work as the multi-epoch open.
     **BOTH DONE 2026-09-21 — STEP A7 at `connect c9fb0a12` / `sdk 8658f23`, PROVEN LIVE at
-    `sdk 5a0…` (liveprobe).** The seam is a per-epoch `LoadGroup` door, not an `ExportAt`, because
+    `sdk 59b09bc` (liveprobe).** The seam is a per-epoch `LoadGroup` door, not an `ExportAt`, because
     merging a commit zeroizes the previous schedule in place and an application body is an MLS frame
     under that epoch's secret tree — a prior epoch's schedule is a whole epoch-*n* handle. Cached
     once per epoch (a per-record reload refuses the 1,026th record with *"generation too far ahead"*,
