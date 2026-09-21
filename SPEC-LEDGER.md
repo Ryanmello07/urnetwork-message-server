@@ -8801,7 +8801,25 @@ fourteen are dispositioned below.
     processes it — which deletes the "proposal carrier" blocker three probes filed; and the epoch
     has ONE door, `enterEpochLocked`, held by an AST gate, so a restart after an epoch change comes
     back at that epoch and seals. Found by mutation while building A2: the MLS list validator
-    accepts a key package lacking the `urmessage_leaf_keys` extension; the adapter now refuses it. Owner's words: *"Groupchats are planned and a requirement."* Today
+    accepts a key package lacking the `urmessage_leaf_keys` extension; the adapter now refuses it.
+    **STEPS A4 AND A5 DONE, AND A6'S PUBLISH PATH, 2026-09-20 at `connect 83e8ba20` / `sdk d31d7a2`
+    — THE MILESTONE PASSES:** three real devices over a real in-process server; Alice adds Carol at
+    epoch 2, Bob ingests the commit on his next `Receive` and follows, all three converge, a line from
+    each opens on both others, a restarted Bob comes back at epoch 2 with zero failures. Race-clean.
+    Commits are ingested in one place — `OpenCeremonyRecord → Process → authorize → ApplyCommit →
+    AdvanceEpoch → re-track → persist` — and the **authorization hook is on the path now**, returning
+    allow, carrying the authenticated committer leaf, the added/removed/updated leaves off the staged
+    commit, and the pre-commit membership: everything item 242's role model needs, so filling it
+    later does not move the call. Ladders survive the epoch: every peer is re-tracked at the head this
+    device has **authenticated**, never zero — and the discriminating case is a peer past the 1024
+    window, which re-tracking at zero fails while the small-index milestone stays green.
+    **Pre-change records become visible `out_of_window` gaps, not `fail()` retries.**
+
+    **One limitation, filed here because it is item 241's shape:** `peerHeads` is in memory. A
+    *restarted* device in a busy group whose peer had passed the 1024 window at the epoch boundary
+    would meet `out_of_window` on that peer's post-change records, because the re-walk resets the head
+    and the pre-change records that would have walked the ladder are now gaps. The live case passes.
+    Persisting the authenticated head is the same work as the multi-epoch open. Owner's words: *"Groupchats are planned and a requirement."* Today
     `sdk/urmessage/group.go:731,734` refuse a second member with **`ErrAlphaOneAdd`**, whose own text
     names the reason: *"the alpha adds one member, before Open, in the commit that opens epoch 1; a
     second add is a second epoch and is not built."*
