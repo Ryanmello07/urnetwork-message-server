@@ -8820,6 +8820,16 @@ fourteen are dispositioned below.
     would meet `out_of_window` on that peer's post-change records, because the re-walk resets the head
     and the pre-change records that would have walked the ladder are now gaps. The live case passes.
     Persisting the authenticated head is the same work as the multi-epoch open.
+    **BOTH DONE 2026-09-21 — STEP A7 at `connect c9fb0a12` / `sdk 8658f23`, PROVEN LIVE at
+    `sdk 5a0…` (liveprobe).** The seam is a per-epoch `LoadGroup` door, not an `ExportAt`, because
+    merging a commit zeroizes the previous schedule in place and an application body is an MLS frame
+    under that epoch's secret tree — a prior epoch's schedule is a whole epoch-*n* handle. Cached
+    once per epoch (a per-record reload refuses the 1,026th record with *"generation too far ahead"*,
+    mutation M3b), erased on the next epoch change and on Close through a `Zeroize`-declaring type
+    the mls erase gate now lists. Authenticated heads persisted per (sender, epoch) in a separate
+    store file; old directories answer an empty table and behave exactly as before. **The limitation
+    above is closed.** Live: the restarted B re-walks 609 lines with **0 gaps**, 601 of them under the
+    rebuilt epoch-1 schedule; C still drains 602 as gaps and opens none. Window edge held at 33/34.
 
     **PROVEN LIVE 2026-09-21 at `sdk 01ca202`.** Three real accounts on `beta-test.net`; A adds a
     third member to a group that had been chatting for 600 messages; B ingests the commit on its next
