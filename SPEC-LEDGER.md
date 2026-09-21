@@ -8795,7 +8795,13 @@ fourteen are dispositioned below.
     OUT.** **STEP A1 DONE 2026-09-18 at `connect 0faedec` / `sdk 3aff7a7`:
     `messagegroup.LoadGroup` exists, `restoredHandle` and its 25 methods are deleted, and a restored
     group ingests a commit and reaches epoch 2 over a real process boundary — which closes J1-8 and
-    is the precondition for every later step.** Owner's words: *"Groupchats are planned and a requirement."* Today
+    is the precondition for every later step.**
+    **STEPS A2 AND A3 DONE 2026-09-20 at `connect 9987ab7e` / `sdk 1fca34e`:** `CommitAdd` is a
+    by-value arm — one commit admits several members, and a member that never saw a proposal
+    processes it — which deletes the "proposal carrier" blocker three probes filed; and the epoch
+    has ONE door, `enterEpochLocked`, held by an AST gate, so a restart after an epoch change comes
+    back at that epoch and seals. Found by mutation while building A2: the MLS list validator
+    accepts a key package lacking the `urmessage_leaf_keys` extension; the adapter now refuses it. Owner's words: *"Groupchats are planned and a requirement."* Today
     `sdk/urmessage/group.go:731,734` refuse a second member with **`ErrAlphaOneAdd`**, whose own text
     names the reason: *"the alpha adds one member, before Open, in the commit that opens epoch 1; a
     second add is a second epoch and is not built."*
