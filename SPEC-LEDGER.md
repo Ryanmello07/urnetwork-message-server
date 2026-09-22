@@ -8970,6 +8970,76 @@ fourteen are dispositioned below.
     *Owner:* `connect/mls` for validation, `sdk` for the sending refusal, Spec C for what a role
     shows.
 
+    **SCOPED 2026-09-21 by four measuring probes and a verifying judge, at `connect c9fb0a12` /
+    `sdk 59b09bc` / this repository `da5185c`.** What is true, each reproduced:
+    - **Roles are already on the wire.** `urmessage_group_policy` (`0xF001`) exists in `connect/mls`
+      exactly as MASTER §6 draws it — `RoleEntry roles<V>` keyed by the credential identity, roles
+      observer=0 / member=1 / admin=2 / owner=3, `Validate` requiring canonical order and exactly one
+      owner. Every created group carries it with the founder as OWNER (`device.go:584`) and **nothing
+      ever writes it again**: `CommitAdd` names nobody, so **every non-founder in every live group is
+      UNNAMED**. A role change is a `GroupContextExtensions` commit, which the tree supports end to
+      end (codec, profile, ValSem208/209, apply order). A `RoleEntry` is additive to existing groups;
+      a new struct field or a fifth role byte is the wire break.
+    - **No authorization on either arm, three ways, all reproduced by throwaway tests:** a MEMBER
+      proposed a policy naming itself OWNER and the founder's own client accepted it (P2); a
+      by-value GCE that *omits* `0xF001` is accepted and the group afterwards has no policy (P3); a
+      MEMBER-built by-value Remove of the OWNER's leaf is applied by every honest receiver and the
+      policy still names the ejected identity as owner with no leaf (Q2). `ErrAdminRemovedByNonOwner`
+      has **zero** call sites — the "one" in the 2026-09-21 brief was a comment. The committing seam
+      records the doors as deliberately not landed (`group.go:2184-2199`); Spec A §3.4's
+      `checkRemovalAuthority` / `TestAdminCannotRemoveAdmin` do not exist.
+    - **Two latent bugs the first role write would hit:** the seam's `ProposeGroupPolicy` sends a
+      one-entry list into RFC 9420's *wholesale* GCE replacement and so **strips
+      `required_capabilities`** (P4); and the package holds two defaults for an unnamed member —
+      `RoleOf` without its bool says OBSERVER, `Members()` says MEMBER — so an authorizer written off
+      the wrong one reads every joiner as read-only.
+    - **The identity problem (M7).** Credential identity *is* the device signer (`device.go:301-318`),
+      so "member" == "leaf" today and the 10-devices-per-identity cap has no subject. And **nothing
+      binds a credential's identity to its leaf's signature key** — an Add whose credential *claims*
+      the owner's identity is accepted at every member and `Members()` hands it `RoleOwner` (P3 of
+      the rules probe). The rules that close this need no identity system: an Add claiming an
+      identity already in the group is valid only if that identity committed it, and a leaf's
+      identity may not change on Update or on the committer's own path.
+    - **The receiving hook lacks its inputs.** `CommitAuthorization` carries leaf + `sender_handle`
+      per member and no identity, no role, no post-commit policy; the adapter already returns the
+      identity and `sdk` discards it; `StagedCommit` already holds the post-commit context and the
+      staged tree, so both are one accessor away.
+
+    **Ruled 2026-09-21 by the project lead, so the build is not blocked on them** (each is one line
+    to flip, and each is recorded so the flip is a ruling and not a drift):
+    1. *Who may Add:* **ADMIN / OWNER**, per MASTER §11's table. Spec A §7.3a has the MEMBER who
+       minted a one-time link commit the Add — that is a conflict between a derived spec and MASTER,
+       and MASTER wins; a link minted by a MEMBER becomes a join request an admin commits.
+    2. *Self-device exemption:* a member of any role may remove its **own** leaf; Spec A §3.4's
+       literal text would stop an ADMIN revoking its own stolen device. Removing the OWNER's last leaf
+       needs a transfer in the same commit.
+    3. *By-reference proposals* are attributed to the **authenticated committer** and judged on the
+       committer's authority alone — never more permissive than by-value, and no proposer accessor.
+    4. *Ex-owner after transfer:* **ADMIN**. Leave-after-transfer may combine both in one commit.
+    5. *OBSERVER* may commit its own device add / remove and nothing else.
+    6. *Identity binding:* ship keyed on the credential identity **as it stands** (the signer);
+       when the identity layer lands, existing policies re-key with one GCE commit per group —
+       `MemberId` is opaque bytes, no format break.
+    7. *Caps:* 500 identities **and** 1,000 leaves in v1.
+    8. *Unnamed member* = **MEMBER**, written into MASTER §11 as one sentence.
+    9. The Windows roster ships on the alpha branch (`demo-ui`, where the alpha app is being built).
+    Two more are red-team decisions, not the lead's, and both gate removal only: the fix shape for
+    item 244 and the discriminator for item 245.
+
+    **What a refusal costs, stated now because it is a consequence and not a bug.** The server has
+    already accepted the refused commit and moved `current_epoch`; honest receivers that refuse stay
+    at *n* and can no longer write (`EPOCH_STALE`). **A hostile committer can HALT a group; it cannot
+    TAKE it.** Recovery is a new group. That is the honest outcome of receiving-side rejection and
+    the one MASTER §11 asks for; a rollback or re-founding flow is a later design.
+
+    **Order (plan track B1, ruled):** R1 seam plumbing + the receiving arm with structural rules and
+    removal / identity authority — first, because it closes the live hole with no sdk send arm
+    needed; R2 the committing arm (`CommitPolicy` by value, `SetRole`, `TransferOwnership`, Add
+    gated on role) using the **same predicate** as R1; R3 the read surface through cgo to the
+    Windows roster; R4 OBSERVER read-only; R5 the DM joint policy. Removal is a separate track gated
+    on **items 243, 244 and 245**; succession is last and weeks by itself. *Sized:* roles core about
+    two weeks, matching the survey; every §11 rule, nine to eleven weeks serial.
+
 243. **RULED 2026-09-18 BY THE PROJECT LEAD, WITH A CONDITION ATTACHED — `pq_secret` IS A
     GROUP-LIFETIME VALUE, AND ROTATING IT IS A PREREQUISITE OF REMOVAL RATHER THAN OF GROUP CHATS.**
     The group-chat survey named this the cheapest item on its list and the one blocking the
@@ -8994,6 +9064,77 @@ fourteen are dispositioned below.
     different steps, and a cheap decision taken for track A is exactly the kind of thing that is
     still there when track B ships. *Owner:* `sdk` for the rotation, and B2 must not close while this
     is open.
+
+244. **FILED 2026-09-21 — THE SERVED COMMIT HANDS A REMOVED MEMBER THE NEXT EPOCH'S READ AND WRITE
+    KEYS, FOREVER. A SPEC DEFECT, AND THE SECOND GATE ON REMOVAL.** Reproduced twice, by the removal
+    probe and independently by the judge, against this repository's server (`go test ./api/ -run
+    TestZZ… -timeout 120s`, in-memory store; `store/pgx.go:568,656,1675` round-trip the same raw
+    column): a fetch authenticated under `read_key[1]` returned records across epochs {0, 1, 2} —
+    **the read path applies no epoch filter** (`api/fetch.go:81-87`) — and the served epoch-1 commit's
+    `server_attachment`, rebuilt VERBATIM at `api/fetch.go:237` from the raw bytes stored at
+    `api/submit.go:644`, parsed to `read_key[2]` and `write_key[2]` equal to the fixture's. A fetch of
+    epoch 2 under the *learned* key answered `REASON_OK`; a **forged write at epoch 2 under a current
+    member's handle with the learned write key answered `REASON_OK`**; and that member's own first
+    record was then refused `REASON_STREAM_INDEX_REUSED`, which `sdk` latches as `ErrIdentityInUse`
+    for the life of the process.
+
+    **Why it is a spec defect and not a shortcut.** Spec B §5.4 (RULED, adopted) puts `read_key[n+1]`
+    and `write_key[n+1]` in the clear inside `EpochAttachment`, binds `LP(H(server_attachment))` into
+    `AAD_head` and `write_auth`, and §4 says the read path rebuilds `record_bytes` over the stored
+    columns; the only confidentiality claimed for the keys is the *submit* transport (*"over the
+    connect session's own hybrid-PQ encryption"*). MASTER §9.2 and Spec B §5.3 then promise that a
+    member removed at *n* keeps metadata access *"until epoch n's read key ages out, and no longer"*
+    — contradicted by their own §5.4, because the commit that removes the member is sealed at epoch
+    *n*, fetchable under `read_key[n]`, and carries `read_key[n+1]`. The server implements the spec
+    exactly. Consequences: **the 90-day window is defeated by construction**, even once the age-out
+    (unbuilt: `sweep/doc.go` *"holds no code yet"*, `EpochKeys` has no age predicate) exists; and,
+    worse than the cost the spec accepts, a removed member forges `write_auth` under any current
+    member's handle and **bricks that member** through the stream-index latch.
+
+    **Gates REMOVAL ONLY, exactly as item 243 does.** A role change creates no ex-member; every
+    holder of `read_key[n]` is still a member. Today's exposure is zero because nothing can be
+    removed; it becomes live the day the Remove arm ships. **Fix shapes for the red team — none
+    chosen here, all pre-A6-freeze wire work across `connect/message`, this repository and `sdk`:**
+    (F1) *hash-only on read* — serve `H(server_attachment)` in place of the attachment for commit
+    records and have receivers build `AAD_head` from the digest; simplest crypto, but the served
+    bytes stop equalling the submitted ones and Spec B §4's one-encoder rule changes. (F2) *keys
+    sealed to a server public key* — HPKE to a KEM key the server advertises; `record_bytes` stay
+    verbatim; costs a server keypair and its rotation beside §5.5's KEK. (F3) *keys out of
+    `record_bytes`* — carried as request fields MAC'd into `write_auth` by a new term; nothing served
+    can leak; costs the request shape and the preimage. Filtering the fetch by `read_epoch` is **not**
+    a fix (the removal commit is at *n*). Whichever is chosen, the 90-day sweep becomes load-bearing
+    and must ship with it. *Owner:* the red team for the shape, then `connect/message` + this
+    repository + `sdk`; removal must not close while this is open.
+
+245. **FILED 2026-09-21 — A NEWCOMER ON A REMOVED MEMBER'S LEAF INHERITS ITS `sender_handle`.
+    A CORRECTNESS BREAK OF REMOVE-THEN-ADD, AND THE THIRD GATE ON REMOVAL.** Measured:
+    `SenderHandle(group_handle_key, leaf)` takes no epoch (`connect/messagegroup/handle.go:121`) and
+    `group_handle_key` is fixed for life from `storage_root[0]` (`handle.go:31-48`, *"never
+    rotated"*); a removed leaf is blanked and the next Add refills the leftmost blank per RFC 9420
+    §7.7 (`connect/mls/tree.go:1120-1131`; probe: the newcomer landed on leaf 2). So the newcomer's
+    16-byte handle is **byte-identical** to the removed member's. The corpus never names this
+    direction: 203 `sender_handle` mentions (control), zero on a different identity inheriting one.
+    What follows, traced (the sdk half cannot run live — no Remove arm exists): the server's stream
+    monotonicity and claim map are keyed on the handle with no epoch (`store/memory.go:600-611`,
+    `:727`), the newcomer's reserver starts at 1, its first write meets the old claim →
+    `STREAM_INDEX_REUSED` → **`ErrIdentityInUse` latched; the newcomer can never send in that
+    group**; survivors keep `peerHeads` across epochs by design (`group.go:3693-3695`) and nothing
+    prunes by `RemovedLeaves`, so they **re-track the reused leaf at the removed member's head**;
+    the walk attributes the removed member's records to the newcomer (`mine :=` on the handle) and
+    `message_id` collides across occupants at equal indices. **Not a confidentiality break** — keys
+    and nonces are per epoch, and the removed member gains nothing. **Ruling needed before A6
+    freezes, wire-visible (RecordHeader, `aad_head`, `write_auth`, `message_id`, Spec B's
+    `message_sender` PK — M1-8 territory):** (i) a discriminator in the derivation — candidate
+    `HKDF(group_handle_key, "sh/v1" ‖ u32(leaf) ‖ LP(credential.identity))`, recomputable by a
+    Welcome joiner from the tree snapshot and stable across Update *once identity continuity is
+    validated* (item 242's R6c); an "occupancy epoch" is **not** derivable by a Welcome joiner and is
+    the wrong discriminator; (ii) never refill blanks — a profile deviation from §7.7 that grows
+    the tree without bound under churn; (iii) a server-side occupancy reset — unverifiable by the
+    server (I5/I6) and a reset-anyone's-handle DoS. A cheap interim that needs no wire change and
+    that the Remove arm should carry regardless: seed the newcomer's reserver from the highest index
+    seen under its own handle on the first walk, and prune `peerHeads` / `tracked` by `RemovedLeaves`
+    at `ApplyCommit` — that unbricks sending and leaves the misattribution, so it is a mitigation.
+    *Owner:* the red team for the shape; `connect/messagegroup` + `sdk` + this repository's schema.
 
 ## 6. Change process
 

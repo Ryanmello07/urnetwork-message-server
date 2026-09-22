@@ -2951,6 +2951,23 @@ No quorum for any normal operation. **Owner succession is the single exception**
 deliberate one — see below. Roles live in the group-context extension (§6), so they are covered by
 the MLS transcript hash and no server can alter them.
 
+**A member the policy does not name is a MEMBER** (ruled 2026-09-21, ledger item 242). An Add commit
+names nobody — a role is a later, separate policy commit — so every joiner is unnamed until an
+admin or the owner says otherwise, and the default must be the role that lets them send. An
+implementation whose lookup answers OBSERVER for an unnamed identity is the falsifying one.
+
+**Authority is the committer's.** Every proposal a commit carries, by value or by reference, is
+judged against the role of the **authenticated committer** and never against its proposer; a
+by-reference proposal is therefore never more permissive than the same proposal by value. An Add is
+an ADMIN's or the OWNER's to commit (the table above); a member of any role may remove its **own**
+leaf; an identity already in the group may be given a further leaf only by a commit that identity
+itself makes, and a leaf's identity does not change across an Update or the committer's own path —
+without those two rules a credential that merely *claims* an existing identity would inherit its
+role. Ownership transfers only to a current member, and the outgoing owner becomes an ADMIN. A
+commit that breaks any rule here is refused before it is built and rejected by every receiver on
+validation; because the server has already advanced the epoch by then, honest receivers stop at the
+epoch before it — a hostile committer can halt a group and cannot take it.
+
 **Self-service device management.** A member may add or remove **their own** device leaves and commit
 that change. Otherwise revoking a stolen laptop would block on an admin. An identity may hold at
 most **ten device leaves**, and a group at most **500 members** (§6). Both caps are enforced by the
