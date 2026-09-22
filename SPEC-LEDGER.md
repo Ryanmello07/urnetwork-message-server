@@ -9040,6 +9040,67 @@ fourteen are dispositioned below.
     on **items 243, 244 and 245**; succession is last and weeks by itself. *Sized:* roles core about
     two weeks, matching the survey; every §11 rule, nine to eleven weeks serial.
 
+    **R1 DONE 2026-09-21 — the receiving arm is live at `connect 9c91be24` / `sdk c176b3b`.**
+    connect: `EngineProcessed` gains `CommitterIdentity` (read off the PRE-commit tree, pinned by an
+    AST test because mls itself accepts a committer's path swapping its leaf identity),
+    `MembersAfter` (every occupied leaf of the staged tree with its identity) and
+    `ContextExtensionsAfter` (the full post-commit list); three by-value arms `CommitContextExtensions`
+    / `CommitPolicy` / `CommitRemove` beside `CommitAdd` (30 methods on the seam now; the sdk exposes
+    no product method over `CommitRemove` until 243/244/245 close); the P4 repair (`CommitPolicy`
+    and `ProposeGroupPolicy` replace only `0xF001` and keep `0x0003`); `RoleOf`'s unnamed default is
+    MEMBER; and `DiscardProcessed`, the door that erases a processed-but-refused commit's staged
+    epoch — whose first shape **erased the LIVE epoch** when called after a successful apply, caught
+    by the verifier, and repaired at both levels (the merge now detaches the staged value into a
+    shell; the erase gate learned to read a whole-value move and reports 52 sites, every one erased,
+    refused or moved). sdk: `roles.go` holds ONE pure `authorizeCommit` over a `CommitAuthorization`
+    that now carries committer identity and role, both policies, both extension lists and the
+    post-commit membership; every rule is a named function citing its MASTER §11 sentence or its
+    ruling; it **always runs**, and a configured `CommitAuthorizer` runs after it and can only refuse
+    more; a refusal erases the staged epoch, leaves the receiver at *n*, and counts
+    `Stats.CommitRefused` (projected to the cgo JSON). `mls.ErrAdminRemovedByNonOwner` has its first
+    production call site. **The bypass lens threw 55 hostile commits at it** — coups by policy,
+    removal of the owner, an Add claiming the owner's identity, a path or Update swapping identity,
+    dropping `0xF001` or `0x0003`, a phantom owner, a legal Add bundled with an illegal Remove, a
+    transfer-to-self with the owner's removal, every shape again by reference through a fold of
+    cached proposals, and a permissive configured hook — **and every honest receiver refused every
+    one by the rule that names it**, epoch unmoved, counter incremented once.
+
+    **Four rulings the build forced, 2026-09-21, by the project lead:**
+    10. *R5's "current member" is the PRE-commit membership* (MASTER §11's literal reading). An
+        owner may not add a stranger and crown it in the same commit; the first cut allowed it.
+    11. *Leaving, corrected — rulings 2 and 4 described commits RFC 9420 forbids.* A committer may
+        never remove its own leaf (`ErrRemoveCommitter`, RFC 9420 §12.4), so no identity's LAST leaf
+        ever leaves in its own commit. Self-service device removal is from ANOTHER of the identity's
+        devices. An OWNER's leaf is removed by nobody: the owner transfers (and is ADMIN from then),
+        and its leaf leaves by a Remove that the new OWNER commits (R3). A MEMBER or OBSERVER leaves
+        by proposing its own removal, which an ADMIN or the OWNER commits (ruling 3 attributes it to
+        the committer). **Leaving is therefore removal-track work (X4) and gated exactly as removal
+        is.**
+    12. *A path-only commit is the PCS self-heal, and every role may make one.* R7 as first built
+        refused a MEMBER's bare commit as "an epoch bump"; but RFC 9420 §12.4 forbids a committer
+        carrying its own Update, so a member's ONLY way to refresh its leaf keys is a commit whose
+        path does it. MASTER §11's "commit epochs" for ADMIN means commits that change membership
+        or policy. A member's commit may carry its own device adds/removes and an unchanged
+        extension list, and may carry nothing at all. Halting-by-spam is not an argument against
+        this: any garbage commit halts a group already (see the cost paragraph), and the defence
+        against that is not a rule.
+    13. *The sdk never commits by reference in production.* The bypass lens showed why: attribution
+        to the committer (ruling 3) means a fold of cached proposals (`Commit(nil)`) would let a
+        MEMBER's cached Add claiming the owner's identity ride an OWNER's commit. `AddMemberAndPublish`
+        is by value already; R2 pins it with a source test over the package.
+
+    **Known and accepted until R2 lands (days, not weeks):** the send arm has no role check, so
+    `AddMemberAndPublish` by a non-founder builds a commit every honest receiver refuses — the
+    non-founder alone moves to *n+1* and the group halts for everyone else. In the alpha, only the
+    founder adds members until R2. Hardening carried into R2: the receiving arm does not yet check
+    that an added leaf carries `urmessage_leaf_keys` (`0xF002`) — both send doors refuse such a key
+    package, a hostile mls build would not, and the seam must carry the fact for the authorizer.
+
+    **Open, for a later design (not a task):** a halted group has no recovery but re-founding. A
+    "quarantine" shape — honest receivers apply an unauthorized commit for its key schedule, keep the
+    pre-commit policy by deterministic override, and immediately commit the offender's removal — is
+    the only design that turns a halt into an eviction, and it needs removal (X4) first.
+
 243. **RULED 2026-09-18 BY THE PROJECT LEAD, WITH A CONDITION ATTACHED — `pq_secret` IS A
     GROUP-LIFETIME VALUE, AND ROTATING IT IS A PREREQUISITE OF REMOVAL RATHER THAN OF GROUP CHATS.**
     The group-chat survey named this the cheapest item on its list and the one blocking the
