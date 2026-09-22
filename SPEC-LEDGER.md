@@ -9403,6 +9403,78 @@ fourteen are dispositioned below.
     and must ship with it. *Owner:* the red team for the shape, then `connect/message` + this
     repository + `sdk`; removal must not close while this is open.
 
+    **RED-TEAMED 2026-09-22 — five advocates, two adversaries, one judge, at `connect ca6e0472` /
+    `sdk 919e015` / this repository `e9ca9e4`. The defect reproduces and is WORSE than filed; a claim
+    that all five designs rested on does NOT reproduce; and the chosen fix is one none of the
+    advocates proposed.**
+
+    **Worse than filed.** The removed member did not merely write under a current member's handle: it
+    used the learned `write_key[n+1]` to **close epoch n+1's own fan-out** — its device wrap answered
+    `REASON_OK` and so did its `EpochComplete` marker — before forging under another member's handle.
+    A later `read_epoch=1` fetch served 8 records, 4 of them above epoch 1.
+
+    **THE REFUTATION, and it is the most consequential measurement in the pass.** Every one of F1, F2,
+    F3 and both adversary repairs asserted that a removed member can still forge `write_auth` at epoch
+    *n* under the `write_key[n]` it legitimately held, and therefore that the unbuilt 60-second
+    write-key retirement is a gate on Remove. **Measured false, twice:** a write at an old epoch under
+    that epoch's write key answers `REASON_EPOCH_STALE` — after the next epoch's fan-out closed AND
+    during an incomplete fan-out — with a current-epoch write as the inline control answering
+    `REASON_OK`. **The epoch advance already retires the write key, and the commit that does the
+    removing is the commit that kills `write_key[n]`.** The write half of this item is already closed
+    by the server; only the chained READ key opens it. That takes the single largest unpriced item out
+    of all three proposals, and the saving belongs to whichever design ships.
+
+    **RULED 2026-09-22 — the fix is F3′,** a fourth option the adversary raised and the judge measured:
+    a new attachment kind **`0x0005`** carrying the six PUBLIC `EpochAttachment` fields plus
+    `LP(H(epoch_keys))`, where
+    `epoch_keys := "URmessage/v1/epochkeys" ‖ u64(opens_epoch) ‖ LP(write_key) ‖ LP(read_key)`, with
+    the two keys riding as `protocol.Record` fields (one field pair covers both submit call sites,
+    because `CreateGroupRequest.initial_commit` is a `Record`). **The binding is free and I6 is clean:**
+    the attachment is already hashed into `AAD_head` and the `write_auth` preimage, so MAC covers the
+    attachment, attachment covers the digest, digest covers the keys — the server recomputes
+    `H(epoch_keys)` over the request fields and compares against a value the MAC already covers.
+    **`RecordHeader`, the `write_auth` preimage, `message_id`, `format_version` and Spec B's
+    `message_sender` primary key all stay exactly where they are.**
+
+    **Why it dominates, measured rather than argued.** A record carrying a kind-`0x0005` attachment
+    **encodes, `ParseRecord`s back with `is_commit = true`, and the slot survives intact**, while
+    `ParseServerAttachment` refuses the same octets **by name** — *"server attachment kind is not one
+    spec A section 5.11 defines: 0x0005"* — with the real kind-`0x0001` attachment as the positive
+    control in the same test. So **a stale SERVER refuses loudly at §5.1 check 3 while a stale
+    RECEIVER follows the commit correctly.** That one property buys the whole rollout: no flag day, no
+    `format_version` bump, no preimage change. Rollout is server-accepts-both → clients-emit-`0x0005`
+    → server-refuses-`0x0001`.
+
+    **Why not the three that were proposed.** **F1** (hash-only on read) is cheapest, honours the A6
+    freeze and is right that no receive path in `connect` or `sdk` reads a single `EpochAttachment`
+    field — but **it is the only design whose security property lives nowhere on the wire.** After F1,
+    *"did this server leak the epoch keys?"* is answerable by no client, no auditor and no second
+    implementation, in a corpus whose whole method is wire-checkability and whose one holding
+    mechanism, §4.3.4's `FetchAttestation`, is unbuilt. It also fixes a SERVE PATH rather than an
+    ENCODING, so it must be re-implemented in `Subscribe`, `RecoveryFetch` and `WrapFetch`; under F3′
+    there is nothing to forget, because the response type has no key fields at all. **F2** (sealed to a
+    server KEM key) is blocked on decision B13's fleet PKI, which exists in neither repository, and its
+    interim window is a **net new key-exfiltration channel**: a client sealing to an unverified
+    advertised KEM key hands any Hello-answering attacker both keys. **F3 as proposed** buys with a new
+    unconditional `write_auth` term the same binding F3′ gets free from the attachment, at the price of
+    a total flag day, a `format_version` bump, ~116 MAC call sites and hand-recomputed KATs.
+
+    **Nothing on `beta-test.net` is migrated, and that is not a concession.** This entry already says
+    *"today's exposure is zero because nothing can be removed; it becomes live the day the Remove arm
+    ships"* — and item 244 gates Remove, so no pre-fix commit can ever reach an ex-member. F1's
+    longest section (it alone fixes today's groups) and F2's "close and recreate the three groups" are
+    both arguing about an empty set; F2's would have destroyed live state to fix an exposure the gate
+    already prevents. **The one hard ordering constraint is the corpus's own: 244 must land BEFORE the
+    first Remove ever ships**, because a member removed before the fix holds the chained keys forever
+    and nothing can claw them back.
+
+    **THE RISK, STATED: F3′ HAS HAD NO ADVERSARIAL PASS.** The judge verified its linchpin, its
+    binding chain and its stale-peer split; nobody attacked its construction. This project's first
+    URmessage crypto pass returned 28/30 CRITICAL-HIGH. **Red-team F3′ at day 2, not at day 9** — the
+    interop vectors are where it comes out clean or does not. The fallback is F1 in its strong form
+    (~5 days) with its three mandatory repairs: never store the preimage, run the backfill AFTER the
+    flip, and make the strict refusal dated and normative.
+
 245. **FILED 2026-09-21 — A NEWCOMER ON A REMOVED MEMBER'S LEAF INHERITS ITS `sender_handle`.
     A CORRECTNESS BREAK OF REMOVE-THEN-ADD, AND THE THIRD GATE ON REMOVAL.** Measured:
     `SenderHandle(group_handle_key, leaf)` takes no epoch (`connect/messagegroup/handle.go:121`) and
@@ -9432,6 +9504,143 @@ fourteen are dispositioned below.
     seen under its own handle on the first walk, and prune `peerHeads` / `tracked` by `RemovedLeaves`
     at `ApplyCommit` — that unbricks sending and leaves the misattribution, so it is a mitigation.
     *Owner:* the red team for the shape; `connect/messagegroup` + `sdk` + this repository's schema.
+
+    **RED-TEAMED 2026-09-22, SAME PASS. The defect reproduces — bob's leaf-1 handle, the leaf blanked,
+    eve added, eve's handle byte-identical, with frank landing at leaf 4 on a different handle as the
+    control. Both proposed designs died on their own headline claims, and there is a structural reason
+    neither was needed. RULED: NO WIRE CHANGE. The fix is sdk state.**
+
+    **Option (i), a discriminator in the derivation, is dead as written.** It advertised that the new
+    handle makes "both client reserver and server row restart at 1 with no coordination... the design's
+    best property and it is free." **Measured false on the client side:** a durable state store already
+    holding this device's sent copy at stream index 1 **refuses** a second copy at index 1 in the same
+    group — the sent copy is named by the index alone while the reserver partitions on the handle. The
+    sdk's real invariant is **one own-index space per (device, group), spanning handle changes**, so
+    any design that moves a device's handle inside a group is a **Send brick on the first post-switch
+    message for every member of every migrated group**. Repairable by seeding the v2 reserver at the v1
+    high water — but the headline is exactly backwards.
+
+    **Option (ii), never refill a blank leaf, is dead on the one claim it admitted it had not
+    verified** — that its marker could go in as a non-required group-context extension. **Measured
+    false:** a leaf carrying `v1Capabilities()` is REFUSED against a group context carrying one new
+    `0xF004` entry, by `checkGroupContextExtensions`, which is a SEPARATE check from the
+    required-capabilities one; today's `{0x0003, 0xF001}` and the DEFAULT type `0x0005` both pass as
+    inline controls. So its 95-byte stage 2 is **a flag day for every leaf**. Its code point was also
+    already taken: `0xF003` is `urmessage_owner_successor`, live and in `v1Capabilities()`.
+
+    **THE STRUCTURAL FINDING, and it is what decides the item.** This item's most-cited consequence —
+    *"the newcomer can never send"* — is **a special case of open item 205**, which is filed, unruled,
+    landed as a standing test (`connect/messagegroup/m1w1repairs_test.go:547`,
+    *"the true sender is squatted out of its own stream by a record nobody will ever read"*), and
+    **reachable today by any current member in a group that has never removed anybody**.
+    **Handle uniqueness was never an authenticity property.** A wire change to `sender_handle` does not
+    close 205 either. What is left that is unique to this item is three things, all sdk state:
+    1. **Misattribution** — closed by taking attribution from the **MLS-authenticated signed leaf**
+       instead of 16 plaintext octets. That leaf is already signed and already checked by MASTER
+       §8.4.3's R1 inside the open, and the sdk already uses it one line later for the R4 role ask.
+    2. **`message_id` collision** — closed by the **reserver seed alone**, because `message_id` is
+       computed from the record's own header, so disjoint index ranges give disjoint ids with no
+       preimage change. **Neither advocate connected those two facts, and both used the id collision
+       to justify moving the wire.**
+    3. **`peerHeads` re-tracking** — closed by pruning by `RemovedLeaves` at `ApplyCommit`. Note the
+       correction to this entry's own text: `peerHeads` is keyed on the **leaf**, not the handle, so
+       pruning is the right and sufficient edit and the handle must NOT be added to the ladder key.
+
+    **Plus one repair the Remove arm owes with or without this item, which option (i) deserves the
+    credit for finding:** `leavesLocked` builds the handle table at the CURRENT epoch only, so a
+    record sealed at epoch *n* by a leaf removed at *n+1* — **the ordinary first-day-of-Remove case** —
+    resolves to no leaf, takes the failure path, and is abandoned after three attempts. It must become
+    per-record-epoch, and `walk.own` must become a durable per-(device, group) SET of every handle this
+    device has held, because both graceful own-record roads are gated on `mine`.
+
+    **What it leaves, stated:** the server and any archive holder still see one 16-byte label spanning
+    two occupants of a leaf. That is linkability, not confidentiality or authenticity — keys and nonces
+    are per epoch — and it is not actionable by the server under I6. Bought at the identity layer as
+    `sh/v3`, when the credential changes anyway. **The state work is a strict prerequisite of option
+    (i) regardless, so this ruling costs nothing if it is later reversed.**
+
+246. **FILED AND RULED 2026-09-22 — F0, THE EPOCH CEILING ON THE READ PATH: FIVE LINES THAT TAKE THE
+    UNBUILT 90-DAY SWEEP OFF THE REMOVAL GATE.** The read path applies **no epoch filter**
+    (`api/fetch.go:81-87`): `read_epoch` is only an authorization term, and a fetch authorized under
+    `read_key[1]` was measured serving 8 records, **4 of them above epoch 1**. `store.FetchRequest` is
+    `{GroupId, SinceRecordId, Limit, HeadsOnly, ClassMask}` — `ClassMask` being the positive control
+    that a content filter already exists on this path. **Ruled: the store returns only rows with
+    `epoch <= read_epoch`.** Both sides are values the server verifies — the record's epoch is a §3.2
+    column and `read_epoch` is inside the `req_auth` MAC — so **I6** is clean. No wire change, no
+    client change, no ruled decision re-opened, and it needs nothing from item 244.
+
+    **What it buys:** MASTER §9.2 and Spec B §5.3 promise a removed member keeps metadata access
+    *"until epoch n's read key ages out, and no longer"* — a 90-day window resting on a sweep that
+    **does not exist** (`sweep/doc.go` *"holds no code yet"*; `EpochKeys` has no age predicate). F0
+    delivers **"up to epoch n"** instead: strictly tighter, available immediately, and independent of
+    the sweep. Combined with the epoch-stale measurement in item 244, **the 90-day sweep and the
+    60-second write-key retirement both come off the Remove gate and become storage hygiene.**
+
+    **The one real design question, which must be answered in the same change and not deferred:** what
+    `Complete` and `high_water_record_id` mean under truncation, since `high_water` is the client's
+    only omission detector. And the premise verified without its consequence: a commit sealed at epoch
+    *E* opens *E+1* and so passes a ceiling of *E*, which is why catch-up should survive — **but a
+    behind-member catch-up was not driven end to end.** If a member several epochs behind cannot walk
+    forward one epoch per round trip under the ceiling, F0 is wrong and the sweep returns to the gate.
+    Test that before shipping. *Owner:* this repository.
+
+247. **FILED 2026-09-22 — THE `REASON_EPOCH_STALE` PROPERTY IS LOAD-BEARING AND WAS MEASURED THROUGH
+    ONE STORE.** Item 244's schedule now rests on the property *a write at any epoch but the current
+    one is refused*, measured through the api handler against `store.MemoryStore` in two cases (closed
+    fan-out and incomplete fan-out), each with a current-epoch control. **Re-run the PROPERTY, not
+    those two cases, against `store/pgx.go`**, and check that no future `Subscribe` path accepts a
+    write at a non-current epoch. If pgx answers differently the removed member's forge at epoch *n*
+    returns and the 60-second retirement goes back on the critical path. Cheap, and it is the first
+    thing to re-run. *Owner:* this repository.
+
+**RULINGS 27–31, taken 2026-09-22 by the project lead** (the red team separated "owner" from "lead"
+decisions; the owner has delegated the project, so these are ruled here and recorded so any can be
+reversed by name):
+
+27. **Spec B §5.4's RULED `EpochAttachment` block IS RE-OPENED**, narrowly: `LP write_key ‖ LP read_key`
+    leave the served structure and are replaced by `LP(H(epoch_keys))` under attachment kind `0x0005`.
+    This is not a preference. **§5.4 and §5.3 cannot both be true** — one puts the next epoch's keys in
+    a structure the server serves verbatim, the other promises a removed member loses access when its
+    own epoch's key ages out — and the pass measured which one the code implements. A specification
+    that contradicts itself is amended, not chosen between.
+28. **ITEM 205 IS NOT A GATE ON REMOVE, and gating it would be circular.** 205 is a griefing attack by
+    a member who is *already trusted with the group's plaintext*, and **the remedy for a griefing
+    member is to remove them** — so blocking the removal feature on it blocks the answer to it. It is
+    filed on its own terms and ruled on its own schedule. Consequence: item 245 needs no wire change,
+    per its red-team entry. If this is ever reversed, 205 and 245 must be solved together and option
+    (i) returns at ~9–13 days.
+29. **THE RESIDUAL HANDLE LINKABILITY IS ACCEPTED until the identity layer.** One 16-byte label
+    spanning two occupants of a leaf is visible to the server and to an archive holder; it is not
+    confidentiality, not authenticity, and not actionable by the server under I6. Buying it now costs a
+    group-context extension, an all-members Update stage and a flag day for every leaf. It becomes
+    `sh/v3` when the credential changes anyway.
+30. **THE PUBLISHED 90-DAY PROMISE IS AMENDED TO WHAT F0 DELIVERS.** MASTER §9.2 and Spec B §5.3 stop
+    promising a window that rests on an unbuilt sweep and promise the bound the server actually
+    enforces: **a removed member is served nothing above the epoch it was removed at.** That is
+    strictly tighter than the text it replaces, and it is true on the day F0 ships rather than on the
+    day a sweep is written. The 90-day retention text stays as the *storage* rule it always was.
+31. **F3′ IS RED-TEAMED BEFORE IMPLEMENTATION PASSES DAY 2.** It is the only recommendation in this
+    package that no advocate wrote and no adversary attacked, and this corpus's own history is the
+    argument: the first URmessage crypto design pass returned 28 of 30 findings at CRITICAL or HIGH.
+    The interop vectors are the cheap place for it to fail.
+
+**THE REMOVAL TRACK, RE-ORDERED** (this replaces X0–X5 in item 242's R1 entry). sdk is the contended
+repo and therefore the critical path — not this repository:
+  1. **connect/message: attachment kind `0x0005`**, its codec, its `checkServerAttachment` arm and its
+     interop vectors. The joint every other repo waits on, and the cheap place F3′ proves out.
+  2. **In parallel, this repository: F0** (item 246) and the pgx re-run (item 247). Different repo,
+     no file in common, no dependency.
+  3. `connect/protocol`: the two `Record` fields — **use 15 and 16; field 14 is reserved** and Spec B
+     §4.3.3 believes it is `eph_window`.
+  4. Fan out: this repository's F3′ server half ‖ `sdk`'s F3′ committer half.
+  5. **`sdk`, serialised** (one writer): item 243's `pq_secret` rotation, then item 245's state fix —
+     the reserver seed, the `peerHeads` prune by `RemovedLeaves`, per-record-epoch `leavesLocked`,
+     `walk.own` as a durable set, and attribution from the signed leaf.
+  6. **X4: the Remove and Leave arms** — including the by-value arm that carries a Remove AND a policy
+     together, which item 242's R2 entry already names as owed.
+  7. After: the 90-day sweep and the 60-second retirement, as hygiene.
+*Sized honestly at 5–7 weeks end to end*, of which about 16 days is the part this pass measured; item
+243 and X4 are unsized here and are the halves that historically blow up.
 
 ## 6. Change process
 
