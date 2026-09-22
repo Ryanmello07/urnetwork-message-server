@@ -9169,6 +9169,53 @@ fourteen are dispositioned below.
     send-side test of R2/R3/R6a/caps over `outgoingCommit{removeLeaves}`, which no verb reaches
     yet. Filed as coverage debt of X4, not a defect of R2.
 
+    **R3 DONE 2026-09-22 — roles are on the screen, changed from the screen, and proven on the real
+    mesh.** `sdk 4dbff87` (+ `804fcb5`, `c1f5cab`), `message-windows demo-ui ff134e1`.
+    - **cgo** gained six exports — `urnet_message_group_members` with `_member_list_count` /
+      `_member_list_info` (JSON `{leaf_index, sender_handle, identity_pub, role, mine}`),
+      `_group_my_role`, `_group_set_role`, `_group_transfer_ownership` — and, because the header
+      documented no error convention for a verb that can be refused, one: `int32_t`
+      `URNET_MESSAGE_COMMIT_OK / REFUSED / LOST / INVALID / FAILED`, so a caller tells "your role
+      may not" from "someone else committed first" from transport without parsing a string.
+      `bash cgo/ctest/run.sh`: 29 steps, 340 assertions, 0 failed.
+    - **The live proof** (`liveprobe` step 10, run v6c on the VPS): `11 STEPS, 1419 ASSERTIONS, ALL
+      HELD`, 0 FAIL lines, 0 credentials in the log. Three real accounts on `beta-test.net`:
+      A=owner/B=member/C=member at epoch 2 → A promotes B to ADMIN (epoch 3) → **C, a MEMBER, calls
+      AddMemberAndPublish and is refused on the SEND side** with nothing moving at any party →
+      A transfers to B (epoch 4: A=admin, B=owner) → B demotes C to OBSERVER (epoch 5). Every stage
+      prints all three parties' own `Members()` and they agree.
+    - **The Windows alpha** renders the roster with roles and changes them from the rail. Live, on
+      the real mesh, through the ABI: Make member → epoch 3, Make admin → epoch 4, Transfer
+      ownership (behind a confirmation whose default is Keep ownership) → epoch 5, each in about
+      310 ms, with the peer's own log printing the matching roster at each epoch. Afterwards the
+      app is "You · Admin" and the new owner's row carries **no controls at all** — an admin has
+      none over an owner, which is MASTER §11's table rendered. `--diagnose` 85 assertions, 0
+      failing. Names, principals and key fingerprints still read "unavailable": there is no identity
+      layer, and the app says so rather than inventing one.
+    - **Two honesty defects the verifiers caught, both in the same control and both wordings the
+      gate allowed.** First: *"Make this member an observer, who can read but not send"* — a gate
+      this build does not have, since no send path reads a role until R4. Second, after the fix:
+      the button is also dark while the change is inside the library, and it then announced *"there
+      is no live session to change roles in"* **at the one moment the session is provably live**.
+      A screen-reader user was told the opposite of what was happening. The control name is now
+      three-state (live / waiting / no session) and `--diagnose` holds all three arms, forbidding a
+      session denial in the pending arm as well as the live one. **The pattern is item 240's,
+      twice: the honesty rule failing in the direction nobody inspects.** A check that forbade
+      *session denials* let an *enforcement claim* through; the two-arm check that replaced it let
+      a *mistimed denial* through. A gate over a string must name the STATE each string belongs to.
+    - Also fixed: `build-local.ps1 -Clean` had never run — `$targets = if ($Clean) { "/t:Rebuild" }`
+      splats a bare string one character per argument (`/ t : R e b u i l d`), and the array literal
+      alone does not fix it because an if-block is a pipeline and enumerates a one-element array
+      back to a scalar.
+
+    **What is left of item 242.** R4 (OBSERVER read-only: an application-receive drop keyed
+    sender→identity→role at the record's epoch, plus a composer gate; Spec C §5.6's
+    `SenderRoleAtSend` needs a per-epoch policy snapshot) and R5 (the DM joint retention policy,
+    which needs an `IsDirect` flag, a pending-request table and a 7-day clock — state outside MLS).
+    Then the removal track (X0 rulings and red team → X1 `pq_secret` → X2 item 244 → X3 item 245 →
+    X4 the Remove/Leave arms) and, last, succession. **Nothing in the role model is blocked on
+    anything outside it.**
+
 243. **RULED 2026-09-18 BY THE PROJECT LEAD, WITH A CONDITION ATTACHED — `pq_secret` IS A
     GROUP-LIFETIME VALUE, AND ROTATING IT IS A PREREQUISITE OF REMOVAL RATHER THAN OF GROUP CHATS.**
     The group-chat survey named this the cheapest item on its list and the one blocking the
