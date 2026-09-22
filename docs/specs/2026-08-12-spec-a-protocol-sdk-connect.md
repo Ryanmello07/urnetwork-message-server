@@ -3204,7 +3204,7 @@ Gate 5 (§4.5). The interface is declared at each consumer (A3); Go's structural
 `connect/mls` adapter satisfy both without an import edge.
 
 **It is declared in `connect/messagegroup` and not in `connect/message`.** §12.1 gives the message
-server *"no MLS type"*, and `GroupHandle` is twenty-three of them; an interface over an MLS group in
+server *"no MLS type"*, and `GroupHandle` is thirty-three of them; an interface over an MLS group in
 the package that binary links is the thing §2.2's split exists to prevent. `EngineProcessed` and the
 `connect/mls` adapter are in the same package as the interface, and that is forced rather than tidy:
 `stagedRef` is unexported, so only a member of the package that declares `EngineProcessed` can
@@ -3232,6 +3232,9 @@ type GroupHandle interface {
 
     // the two named secrets of MASTER §8.2, and the exporter. nothing else.
     Export(label string, context []byte, length int) ([]byte, error)
+    // ledger item 228: key material two named members hold and no third can derive;
+    // a static-static DH over two leaf HPKE keypairs, done behind the seam.
+    PairwiseExport(label string, peer uint32, length int) ([]byte, error)
     SenderDataSecret() ([]byte, error)
     EncryptionSecret() ([]byte, error)
     EpochAuthenticator() []byte
@@ -3241,27 +3244,38 @@ type GroupHandle interface {
     ProposeAdd(keyPackage []byte) ([]byte, error)
     ProposeRemove(leafIndex uint32) ([]byte, error)
     ProposeUpdate() ([]byte, error)
-    ProposeGroupPolicy(policy []byte) ([]byte, error)
+    ProposeGroupPolicy(policy []byte) ([]byte, error)   // replaces 0xF001 only; keeps 0x0003
 
     Commit(byReference [][]byte) (commit, welcome, ratchetTree []byte, err error)
+    // BY-VALUE arms (RFC 9420 §12.4, attributed to the committer; a receiver needs nothing
+    // cached). CommitAdd: item 239. The next three: item 242 R1. The sdk never commits by
+    // reference in production (ruling 13), and exposes no product method over CommitRemove
+    // until items 243, 244 and 245 close.
+    CommitAdd(keyPackages [][]byte) (commit, welcome, ratchetTree []byte, err error)
+    CommitContextExtensions(extensions []ExtensionBytes) (commit, welcome, ratchetTree []byte, err error)
+    CommitPolicy(policy []byte) (commit, welcome, ratchetTree []byte, err error)
+    CommitRemove(leaves []uint32) (commit, welcome, ratchetTree []byte, err error)
+
+    // item 242 R2: reads off the STAGED value, so a committer can seal and submit the epoch
+    // announcement while the group is still at n and merge only on REASON_OK (MASTER §9.3).
+    PendingEpoch() (*PendingEpoch, error)
+    PendingExport(label string, context []byte, length int) ([]byte, error)
     MergePendingCommit() error
     ClearPendingCommit()
 
     Process(message []byte) (*EngineProcessed, error)
     ApplyCommit(processed *EngineProcessed) error
+    // item 242 R1: erases a processed-but-refused commit's staged epoch. A nil no-op after a
+    // successful ApplyCommit (the merge leaves a shell, refused by name at every mls door).
+    DiscardProcessed(processed *EngineProcessed) error
 
-    // AMENDED 2026-09-17 for MASTER §8.4.2 v2. Three changes, all forced by the
-    // generation being inside aad_mls:
-    //
-    //   ProtectBound(aad func(generation uint32) ([]byte, error), plaintext []byte) ([]byte, error)
-    //   Unprotect(message []byte) (aad, plaintext []byte, senderLeaf uint32, generation uint32, err error)
-    //   PeekSender(frame []byte) (senderLeaf uint32, aad []byte, generation uint32, err error)
-    //
-    // The peek is the one §8.4.3 R3 turns from an optimisation into a requirement: it must
-    // answer the GENERATION as well as the leaf and the aad, and all three come out of one
-    // SenderData open under the epoch's sender_data_secret, so it still touches no ratchet.
+    // MASTER §8.4.2 v2: the generation is inside aad_mls, so the seal chooses it INSIDE.
+    // Protect is kept for a caller whose aad is a constant (a commit's); no production site
+    // reaches it for an application record.
     Protect(aad, plaintext []byte) ([]byte, error)
-    Unprotect(message []byte) (aad, plaintext []byte, senderLeaf uint32, err error)
+    ProtectBound(aad func(generation uint32) ([]byte, error), plaintext []byte) ([]byte, error)
+    Unprotect(message []byte) (aad, plaintext []byte, senderLeaf uint32, generation uint32, err error)
+    PeekSender(frame []byte) (senderLeaf uint32, aad []byte, generation uint32, err error)
 
     Close() error
 }
@@ -3271,10 +3285,32 @@ type EngineProcessed struct {
     SenderLeaf uint32
     Aad        []byte
     Plaintext  []byte
+
+    // what a COMMIT does, read off the staged commit at Process time (zero on other kinds).
+    // The committer is AUTHENTICATED; the leaf vectors are where proposals were RESOLVED and
+    // APPLIED against this member's own tree. Item 242 (A5, then R1): the receiving-side
+    // authorization runs over these BEFORE ApplyCommit.
+    CommitterLeaf uint32
+    AddedLeaves   []uint32
+    RemovedLeaves []uint32
+    UpdatedLeaves []uint32
+    CommitterIdentity      []byte             // off the PRE-commit tree (mls accepts a path that swaps it)
+    MembersAfter           []ProcessedMember  // every occupied leaf of the STAGED tree
+    ContextExtensionsAfter []ExtensionBytes   // the full post-commit list
+
     Raw        []byte   // opaque to connect/messagegroup; handed back to ApplyCommit
     stagedRef  any      // engine-private; connect/messagegroup never inspects it
 }
+
+type ProcessedMember struct { Leaf uint32; Identity []byte; HasLeafKeys bool }  // HasLeafKeys: 0xF002 present
+type ExtensionBytes  struct { Type uint16; Data []byte }
+type PendingEpoch    struct { Epoch uint64; MemberCount int; GroupContext []byte } // no key material
 ```
+
+**Amended 2026-09-22 to the block as measured** (`engine_test.go` holds it at 5 engine + 33 handle
+methods). The transcription above had been at twenty-six since 2026-09-17 and was missing
+`PairwiseExport` (item 228), `CommitAdd` (item 239), and the `ProtectBound` / `PeekSender` /
+five-result `Unprotect` trio that its own comment described; item 242's R1 and R2 added the rest.
 
 Note what is **not** on this interface: no tree, no node, no secret tree, no HPKE, no
 `epoch_secret`, no `confirmation_key`, no `membership_key`, no ciphersuite internals. `EngineProcessed.Raw`

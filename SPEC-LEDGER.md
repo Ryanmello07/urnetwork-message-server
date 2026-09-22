@@ -9101,6 +9101,74 @@ fourteen are dispositioned below.
     pre-commit policy by deterministic override, and immediately commit the offender's removal — is
     the only design that turns a halt into an eviction, and it needs removal (X4) first.
 
+    **R2 DONE 2026-09-22 — the committing arm is live at `connect 719968d3` / `sdk a1f2cdc`, and
+    the R1 verifiers' findings are closed at `connect c4ee5f1b` / `sdk a48b496`.** The send side
+    judges by the RECEIVERS' predicate: `authorizeOutgoingLocked` builds the `CommitAuthorization`
+    the commit *would* produce — self as committer with its pre-commit role, the intended membership
+    (added identities parsed from the key packages), the intended policy and extension list — and
+    runs the same `authorizeCommit`; a refusal is the same sentinel the receiver would answer, and
+    nothing is built or published. `AddMemberAndPublish` is gated on it (ruling 1 — the accepted
+    window is closed). New verbs: `SetRole(identity, "admin"|"member"|"observer")`,
+    `TransferOwnership(identity)` (new owner must be a pre-commit member, ruling 10; the outgoing
+    owner is ADMIN, ruling 4), `Members()` and `MyRole()`. Ruling 13 is pinned by
+    `TestNoProductionSiteCommitsByReference` (complement printed: `CommitAdd` ×2, `CommitPolicy` ×1).
+    cp3b's three-device roles case converges: owner promotes B, B adds C, C's own Add is refused on
+    the SEND side with no epoch change anywhere, a hand-built C→D commit is refused on RECEIVE, owner
+    transfers to B, B may now promote C, exporters agree at every epoch.
+
+    **The one defect the R2 verifiers found was an ordering, and it is fixed the way MASTER §9.3
+    says (submit, then merge).** The first cut merged the pending commit BEFORE submitting, so a
+    committer that lost the epoch race stood at *n+1* holding a policy nobody else had, and the
+    interim repair would have been a rollback. Instead the seam grew two reads off the STAGED value
+    — `PendingEpoch()` (epoch, member count, serialized post-commit context; no key material) and
+    `PendingExport(label, context, length)` (the exporter through the staged schedule, derived on
+    demand and erased by the caller) — so `publishCommitLocked` seals and submits the announcement
+    **with the group still at *n***, merges only on `REASON_OK`, and on any other answer clears the
+    pending commit and leaves the group exactly where it was. `COMMIT_LOST` / `EPOCH_STALE` on a
+    commit record answer **`ErrCommitLost`** (wrapping `ErrSubmitRefused`), taken *before* S2-2's
+    re-MAC recovery because Spec B §4.5 answers both only after `write_auth` verified, so neither is
+    a nonce fact. cp3b's `TestALostEpochRaceLeavesTheHonestCommitterWhereItWasAndItRetries`: five
+    devices, two races, the loser gets `ErrCommitLost`, stays, ingests one commit, retries the same
+    verb, the group converges at 7 with a mesh. **The trade, stated:** on a TRANSPORT error during a
+    commit submit the staged epoch is erased (Spec B §6.2 step 1), so in the rare lost-answer case
+    where the server did store the commit this device cannot follow its own commit — the same dead
+    end the old order met after a restart; §6.3's idempotent resubmission and §6.2 step 7's backoff
+    (`commitretry.go`) remain unbuilt. **The seam is 33 methods** (`CommitContextExtensions`,
+    `CommitPolicy`, `CommitRemove`, `DiscardProcessed`, `PendingEpoch`, `PendingExport` on top of
+    the twenty-seven); Spec A §6's block is transcribed to it in this commit.
+
+    Also closed from R1's verifiers: `DiscardProcessed`'s erase is now held by a **runtime** property
+    over a counting wrapper of the seam (the AST pin's surviving mutant — a return in the else branch
+    of the Process check — dies; the pin is deleted as dominated); the installed shell a merge leaves
+    is refused by name at every mls door; `MembersAfter`'s identities are pinned to the STAGED tree
+    by a behavioural test the half-mutant failed; `HasLeafKeys` crosses the seam and **R6d** refuses
+    a commit admitting a leaf without `urmessage_leaf_keys` (mls admits one — ValSem106 requires only
+    that the type be listed — pinned as a fact beside the rule); the R4 policy-body rows exist; the
+    cgo header's stats key list is pinned equal, in order, to the JSON's.
+
+    **Rulings 14–15, 2026-09-22, by the project lead:**
+    14. *`server_id` is the OWNER's to change.* MASTER §6 names it the message server the group
+        lives on; changing it is §2's group migration between hosts (V2+, no code) — where the group
+        *exists*, the weight of an ownership transfer and not "group metadata". The narrowest
+        authority is the default a V2 ruling can widen. (`ErrCommitServerIdChangeByNonOwner`.)
+    15. *`SetRole` is an ADMIN's or the OWNER's verb regardless of the delta.* The verifier found
+        that a NAMED member calling `SetRole(self, <its current role>)` produces a no-op policy commit
+        the predicate cannot distinguish from a path-only commit (ruling 12), so a non-admin bumps
+        the epoch through a public verb, and an UNNAMED member making the same call is refused
+        because it adds an entry. The verb's answer must not depend on whether the caller was ever
+        named: `SetRole` refuses a non-admin caller before the predicate runs, and a call that names
+        the role the identity already holds is a no-op that commits nothing. Owed to R3's sdk commit.
+
+    **For the removal track, found here and not fixable by the by-value arms as they stand:** once
+    an identity has been NAMED (any `SetRole` keeps an explicit entry; nothing calls `RemoveRole`), a
+    bare `CommitRemove` of its last leaf is an R0c phantom at every receiver — so the OWNER cannot
+    remove an ADMIN, and a new owner cannot remove the ex-owner's leaf (ruling 11's leave flow),
+    because the combining commit (a Remove AND a policy dropping the entry) exists only through
+    `Commit(nil)`, which ruling 13 forbids. **X4 needs a by-value arm carrying both** — a
+    `CommitRemoveWithPolicy(leaves, policy)` or a typed multi-proposal arm in go types — and a
+    send-side test of R2/R3/R6a/caps over `outgoingCommit{removeLeaves}`, which no verb reaches
+    yet. Filed as coverage debt of X4, not a defect of R2.
+
 243. **RULED 2026-09-18 BY THE PROJECT LEAD, WITH A CONDITION ATTACHED — `pq_secret` IS A
     GROUP-LIFETIME VALUE, AND ROTATING IT IS A PREREQUISITE OF REMOVAL RATHER THAN OF GROUP CHATS.**
     The group-chat survey named this the cheapest item on its list and the one blocking the
