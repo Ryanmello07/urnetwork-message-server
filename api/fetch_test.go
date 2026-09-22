@@ -81,8 +81,10 @@ func TestTheFetchLimitIsBoundedByMaxRecordsPerFetch(t *testing.T) {
 	recorder.Store = fixture.store
 	fixture.createOpenGroup(t)
 	// asked of the store directly, because the handler's own bound is what is under test here
-	// and a count taken through it could only ever answer the bound
-	held, err := fixture.store.Fetch(context.Background(), &store.FetchRequest{GroupId: fixture.groupId})
+	// and a count taken through it could only ever answer the bound. `read_epoch` is the group's
+	// own (the fixture builds it at epoch 1), because the ceiling of ledger item 246 is
+	// REQUIRED and a zero here would count the founding commit alone
+	held, err := fixture.store.Fetch(context.Background(), &store.FetchRequest{GroupId: fixture.groupId, ReadEpoch: 1})
 	if err != nil {
 		t.Fatalf("counting what the group holds: %v", err)
 	}
@@ -226,7 +228,7 @@ func TestAHeadsOnlyFetchWithholdsTheBodyEvenFromAStoreThatKeptIt(t *testing.T) {
 
 	// the control: this store really does answer a heads_only read with bodies attached, so a
 	// green run below is the handler's doing and not the store's
-	answered, err := forgetful.Fetch(context.Background(), &store.FetchRequest{GroupId: fixture.groupId, HeadsOnly: true})
+	answered, err := forgetful.Fetch(context.Background(), &store.FetchRequest{GroupId: fixture.groupId, HeadsOnly: true, ReadEpoch: 1})
 	if err != nil {
 		t.Fatalf("the forgetful store: %v", err)
 	}

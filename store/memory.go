@@ -231,12 +231,30 @@ func (self *MemoryStore) Fetch(ctx context.Context, request *FetchRequest) (*Fet
 		return nil, ErrGroupUnavailable
 	}
 
-	result := &FetchResult{
-		NextRecordId:      request.SinceRecordId,
-		HighWaterRecordId: group.nextRecordId - 1,
-		Complete:          true,
+	result := &FetchResult{NextRecordId: request.SinceRecordId, Complete: true}
+	// THE EPOCH CEILING of ledger item 246, and the high water it moves. The whole rule and
+	// the reasoning behind both fields live on [FetchRequest.ReadEpoch] and [FetchResult].
+	//
+	// The ceiling is applied as a FILTER and not as a `break`, even though §6.1's epoch gate
+	// makes `epoch` non-decreasing in `record_id` order and a break would therefore be
+	// equivalent. `Fetch` is a read path: if that invariant were ever broken by a writer, a
+	// break here would silently serve a SHORT page where the filter serves the same page the
+	// SQL in [PgxStore.Fetch] serves. Two implementations of one interface disagreeing on a
+	// damaged group is the class of difference the contract suite exists to prevent, and the
+	// invariant is asserted where it belongs — on the writer — rather than relied on here.
+	for _, row := range group.records {
+		if request.ReadEpoch < row.record.Epoch {
+			continue
+		}
+		// over every row at or below the ceiling, before `since`, the class mask and the
+		// limit narrow anything: the high water answers for the GROUP under this reader's
+		// ceiling, not for this page
+		result.HighWaterRecordId = max(result.HighWaterRecordId, row.record.RecordId)
 	}
 	for _, row := range group.records {
+		if request.ReadEpoch < row.record.Epoch {
+			continue
+		}
 		if row.record.RecordId <= request.SinceRecordId {
 			continue
 		}
@@ -244,7 +262,8 @@ func (self *MemoryStore) Fetch(ctx context.Context, request *FetchRequest) (*Fet
 			continue
 		}
 		if request.Limit != 0 && uint32(len(result.Records)) == request.Limit {
-			// truncated by the limit, which §4.3.4 calls normal rather than an error
+			// truncated by the limit, which §4.3.4 calls normal rather than an error. The
+			// ceiling is NOT truncation and does not reach here: see [FetchResult]
 			result.Complete = false
 			break
 		}

@@ -448,13 +448,23 @@ func (self *PgxStore) EpochKeys(ctx context.Context, groupId []byte, epoch uint6
 // withholding detector and §12.2 C-4 tells it to treat as a fault. A single statement has one
 // snapshot, so the group's counter and the rows it counted are always the same transaction's.
 //
-// The read key does NOT gate which records come back, and that is a decision rather than an
-// omission. §5.1.1's check 6 is a lookup on `(group_id, read_epoch)` — one epoch, named by the
-// request and inside the `req_auth` MAC — and what it authorizes is the REQUEST;
-// [PgxStore.EpochKeys] is where it is answered and `api.checkReadKey` is what calls it, before
-// this method is reached at all. A store that additionally dropped records whose own epoch no
-// longer retains a key would manufacture exactly the holes §4.3.4's gapless sequence exists to
-// make meaningful, in every group older than the ninety-day window of §5.3.
+// KEY CUSTODY does not gate which records come back and the EPOCH CEILING does, and the two are
+// different rules that this comment used to run together. A store that dropped records whose own
+// epoch no longer RETAINS A KEY would manufacture exactly the holes §4.3.4's gapless sequence
+// exists to make meaningful, in every group older than the ninety-day window of §5.3 — so that
+// is still not done, and [PgxStore.EpochKeys] remains the only place custody is consulted. What
+// IS done, as of ledger item 246, is `r.epoch <= $5`: the reader is served nothing above the
+// epoch it authenticated. That is a ceiling and not a hole — §6.1's epoch gate refuses a write
+// at any epoch but the current one, so epochs are non-decreasing in `record_id` and everything
+// the ceiling removes is a contiguous TAIL. The rule, the I6 argument and what it does to
+// `complete` and the high water are on [FetchRequest.ReadEpoch] and [FetchResult].
+//
+// The high water comes out of its own aggregate over the same snapshot rather than off the
+// group's `next_record_id`, because under a ceiling those are two different numbers: the second
+// is what the group has allocated and the first is what THIS reader is allowed to have seen.
+// It costs a backward scan of PRIMARY KEY (group_id, record_id) that stops at the first row at
+// or below the ceiling — one row for a caught-up reader, and at worst the rows above the ceiling
+// for one far behind, which is bounded by what that reader is about to fetch anyway.
 func (self *PgxStore) Fetch(ctx context.Context, request *FetchRequest) (*FetchResult, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -482,8 +492,18 @@ func (self *PgxStore) Fetch(ctx context.Context, request *FetchRequest) (*FetchR
 	if since > math.MaxInt64 {
 		since = math.MaxInt64
 	}
+	// §3.2's `epoch` is a signed bigint and §4.3.8's `read_epoch` is a u64 off the wire, so the
+	// ceiling is clamped for the same reason the cursor above is — except in the other
+	// direction. A cast of a value above 2^63 is NEGATIVE, and `r.epoch <= $5` would then be
+	// false of every row: a client naming a ridiculous epoch would be served an empty group
+	// rather than everything, which is the safe half of the two. It is clamped anyway, because
+	// "wrong in the safe direction" is not a property anybody can check.
+	ceiling := request.ReadEpoch
+	if ceiling > math.MaxInt64 {
+		ceiling = math.MaxInt64
+	}
 	rows, err := self.pool.Query(ctx, fetchQuery(request.HeadsOnly), request.GroupId,
-		int64(since), limit, int64(request.ClassMask))
+		int64(since), limit, int64(request.ClassMask), int64(ceiling))
 	if err != nil {
 		return nil, err
 	}
@@ -492,13 +512,18 @@ func (self *PgxStore) Fetch(ctx context.Context, request *FetchRequest) (*FetchR
 	result := &FetchResult{NextRecordId: request.SinceRecordId, Complete: true}
 	found := false
 	for rows.Next() {
-		var nextRecordId int64
+		// NULL when the group holds nothing at or below this reader's ceiling, which is a
+		// real answer — high water 0, the same value the group's own allocator has before it
+		// has allocated anything — and not a missing group
+		var highWater *int64
 		row := &storedRecord{}
-		if err := rows.Scan(append([]any{&nextRecordId}, row.targets()...)...); err != nil {
+		if err := rows.Scan(append([]any{&highWater}, row.targets()...)...); err != nil {
 			return nil, err
 		}
 		found = true
-		result.HighWaterRecordId = uint64(nextRecordId) - 1
+		if highWater != nil {
+			result.HighWaterRecordId = uint64(*highWater)
+		}
 		if row.recordId == nil {
 			// the group's row with no page beside it: the left join's answer for a cursor that
 			// is already caught up, or for a class mask nothing in the group carries
@@ -530,25 +555,43 @@ func (self *PgxStore) Fetch(ctx context.Context, request *FetchRequest) (*FetchR
 	return result, nil
 }
 
-// §3.3's Q3 and Q11, with the group row joined on so that both halves of the answer come out of
+// §3.3's Q3 and Q11, with the group row joined on so that every half of the answer comes out of
 // one snapshot. `state` is the inner source and `page` is left joined onto it, so a group that is
 // unknown or closed produces no row at all, while a page that found nothing still produces one
 // carrying the high water.
+//
+// `state` is still the existence test and it is still the INNER source even though its column is
+// no longer read: a group that is unknown or closed must produce zero rows, and `ceiling` — a
+// bare aggregate — produces exactly one row whatever the group is. Cross joining it onto `state`
+// keeps the zero-row answer that [PgxStore.Fetch] reads as ErrGroupUnavailable; making it the
+// source instead would answer one row with a NULL high water for a group that does not exist,
+// which §7.5 and §4.5 require to be indistinguishable from nothing at all — and would be.
+//
+// `ceiling` is NOT narrowed by $2 or $4. It answers for the group under this reader's epoch,
+// which is what [FetchResult] makes the omission detector; narrowing it by the cursor or the
+// class mask would have it answer for this PAGE, and a class-filtered page would then report a
+// high water that came down when the filter went on.
 func fetchQuery(headsOnly bool) string {
 	return `
         WITH state AS (
             SELECT next_record_id FROM message_group WHERE group_id = $1 AND NOT closed
+        ), ceiling AS (
+            SELECT max(r.record_id) AS high_water
+              FROM message_record r
+             WHERE r.group_id = $1
+               AND r.epoch <= $5
         ), page AS (
             SELECT ` + recordColumns(headsOnly) + `
               ` + recordSource + `
              WHERE r.group_id = $1
                AND $2 < r.record_id
+               AND r.epoch <= $5
                AND ($4 = 0 OR ($4 & (1::bigint << r.retention_class::int)) <> 0)
              ORDER BY r.record_id
              LIMIT $3
         )
-        SELECT state.next_record_id, page.*
-          FROM state LEFT JOIN page ON true
+        SELECT ceiling.high_water, page.*
+          FROM state CROSS JOIN ceiling LEFT JOIN page ON true
          ORDER BY page.record_id`
 }
 

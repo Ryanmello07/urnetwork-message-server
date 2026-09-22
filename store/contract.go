@@ -78,6 +78,7 @@ func RunContract(t *testing.T, newStore func(Limits) Store) {
 	t.Run("TheMarkerIsTheOnlyThingThatOpensAnEpoch", func(t *testing.T) { contractEpochComplete(t, newStore, seen) })
 	t.Run("TheReadPathAllocatesNothing", func(t *testing.T) { contractFetch(t, newStore, seen) })
 	t.Run("EpochKeyCustodyDoesNotGateWhichRecordsComeBack", func(t *testing.T) { contractFetchAcrossEpochs(t, newStore, seen) })
+	t.Run("TheEpochCeilingServesNothingAboveTheAuthenticatedEpoch", func(t *testing.T) { contractEpochCeiling(t, newStore, seen) })
 	t.Run("TheClassFilterReturnsExactlyTheClassesAsked", func(t *testing.T) { contractClassMask(t, newStore, seen) })
 	t.Run("RecordsAreCopiedAtTheStoreBoundary", func(t *testing.T) { contractDefensiveCopy(t, newStore, seen) })
 	t.Run("EveryColumnOfARecordSurvivesTheRoundTrip", func(t *testing.T) { contractRecordColumns(t, newStore, seen) })
@@ -572,7 +573,7 @@ func contractAllocation(t *testing.T, newStore func(Limits) Store, seen *recorde
 	// deleted the row instead would leave a hole here, and §12.2 C-4 tells clients to treat a
 	// hole as the server withholding. No scenario in this file ages a record out, so the day
 	// one does, this assertion is the one that states what §7.2 owes.
-	fetched, err := store.Fetch(ctx, &FetchRequest{GroupId: group, SinceRecordId: 0})
+	fetched, err := store.Fetch(ctx, &FetchRequest{GroupId: group, SinceRecordId: 0, ReadEpoch: everyEpochOf(t, store, group)})
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
@@ -750,7 +751,7 @@ func contractGroupAvailability(t *testing.T, newStore func(Limits) Store, seen *
 		// §5.1 check 5 refuses an unknown group before any read, and an empty page from a
 		// group_id that was never created is the enumeration answer §4.5 exists to withhold
 		wantError(t, seen, errorOf(store.GroupState(ctx, unknown)), ErrGroupUnavailable)
-		wantError(t, seen, errorOf(store.Fetch(ctx, &FetchRequest{GroupId: unknown})), ErrGroupUnavailable)
+		wantError(t, seen, errorOf(store.Fetch(ctx, &FetchRequest{GroupId: unknown, ReadEpoch: 1})), ErrGroupUnavailable)
 		wantError(t, seen, errorOf(store.EpochKeys(ctx, unknown, 1)), ErrEpochKeyUnknown)
 		wantError(t, seen, store.CloseGroup(ctx, unknown), ErrGroupUnavailable)
 	})
@@ -806,7 +807,7 @@ func contractGroupAvailability(t *testing.T, newStore func(Limits) Store, seen *
 			},
 			"Fetch": {
 				call: func(id []byte) storeAnswer {
-					return answerOf(store.Fetch(ctx, &FetchRequest{GroupId: id}))
+					return answerOf(store.Fetch(ctx, &FetchRequest{GroupId: id, ReadEpoch: 1}))
 				},
 				against: missing,
 				want:    answerOf[*FetchResult](nil, ErrGroupUnavailable),
@@ -1687,7 +1688,7 @@ func contractFetch(t *testing.T, newStore func(Limits) Store, seen *recorder) {
 	}
 
 	before := nextRecordId(t, store, group)
-	page, err := store.Fetch(ctx, &FetchRequest{GroupId: group, SinceRecordId: 0, Limit: 2})
+	page, err := store.Fetch(ctx, &FetchRequest{GroupId: group, SinceRecordId: 0, Limit: 2, ReadEpoch: everyEpochOf(t, store, group)})
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
@@ -1702,7 +1703,7 @@ func contractFetch(t *testing.T, newStore func(Limits) Store, seen *recorder) {
 	// page is the id of its last record, so a client resumes by handing the previous page's
 	// cursor straight back. §4.3.4 declares the cursor exclusive and never says which id the
 	// response carries; this is the half it left open, and the resume below is what pins it.
-	rest, err := store.Fetch(ctx, &FetchRequest{GroupId: group, SinceRecordId: page.NextRecordId})
+	rest, err := store.Fetch(ctx, &FetchRequest{GroupId: group, SinceRecordId: page.NextRecordId, ReadEpoch: everyEpochOf(t, store, group)})
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
@@ -1710,7 +1711,7 @@ func contractFetch(t *testing.T, newStore func(Limits) Store, seen *recorder) {
 		t.Fatalf("the cursor from the first page did not resume where it left off")
 	}
 
-	heads, err := store.Fetch(ctx, &FetchRequest{GroupId: group, SinceRecordId: 0, HeadsOnly: true})
+	heads, err := store.Fetch(ctx, &FetchRequest{GroupId: group, SinceRecordId: 0, HeadsOnly: true, ReadEpoch: everyEpochOf(t, store, group)})
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
@@ -1729,9 +1730,10 @@ func contractFetch(t *testing.T, newStore func(Limits) Store, seen *recorder) {
 	// The class filter reaches the same page by another route, and it is the one that matters
 	// operationally — a restore fetching one class polls a group that is busy in every other.
 	caughtUp := rest.NextRecordId
+	ceiling := everyEpochOf(t, store, group)
 	for name, request := range map[string]*FetchRequest{
-		"NothingNewerThanTheCursor": {GroupId: group, SinceRecordId: caughtUp},
-		"NothingOfThatClass":        {GroupId: group, SinceRecordId: 0, ClassMask: uint32(1) << ClassMedia},
+		"NothingNewerThanTheCursor": {GroupId: group, SinceRecordId: caughtUp, ReadEpoch: ceiling},
+		"NothingOfThatClass":        {GroupId: group, SinceRecordId: 0, ClassMask: uint32(1) << ClassMedia, ReadEpoch: ceiling},
 		// §4.3.4's cursor is a u64 on the wire and §3.2's record_id is a signed bigint, so
 		// there are cursors the wire can carry that the column cannot hold. Every one of them
 		// names a record no group can ever have allocated, so every one of them is an empty
@@ -1740,7 +1742,7 @@ func contractFetch(t *testing.T, newStore func(Limits) Store, seen *recorder) {
 		// record_id`, which is true of every row, and answer the group's whole history to a
 		// client whose cursor then never advances. That is not a refusal a client could
 		// diagnose; it is the same page forever, on every poll
-		"ACursorTheColumnCannotHold": {GroupId: group, SinceRecordId: uint64(1) << 63},
+		"ACursorTheColumnCannotHold": {GroupId: group, SinceRecordId: uint64(1) << 63, ReadEpoch: ceiling},
 	} {
 		empty, err := store.Fetch(ctx, request)
 		if err != nil {
@@ -1840,7 +1842,7 @@ func contractFetchAcrossEpochs(t *testing.T, newStore func(Limits) Store, seen *
 		want = append(want, id)
 	}
 
-	page, err := store.Fetch(ctx, &FetchRequest{GroupId: group, SinceRecordId: 0})
+	page, err := store.Fetch(ctx, &FetchRequest{GroupId: group, SinceRecordId: 0, ReadEpoch: everyEpochOf(t, store, group)})
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
@@ -1858,13 +1860,205 @@ func contractFetchAcrossEpochs(t *testing.T, newStore func(Limits) Store, seen *
 
 	// and again under the cursor a caught-up client actually polls with, because the direction
 	// that hides a withheld record is the one where the client never asks for it again
-	resumed, err := store.Fetch(ctx, &FetchRequest{GroupId: group, SinceRecordId: page.NextRecordId})
+	resumed, err := store.Fetch(ctx, &FetchRequest{GroupId: group, SinceRecordId: page.NextRecordId, ReadEpoch: everyEpochOf(t, store, group)})
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
 	if len(resumed.Records) != 0 || resumed.HighWaterRecordId != allocated-1 {
 		t.Fatalf("a client caught up at %d was answered %d records with high water %d; a caught-up cursor and a high water that disagree is §12.2 C-4's withholding signal",
 			page.NextRecordId, len(resumed.Records), resumed.HighWaterRecordId)
+	}
+}
+
+// THE EPOCH CEILING of ledger item 246, ruled 2026-09-22: a reader is served no record above
+// the epoch its `req_auth` was computed under, and a reader several epochs behind still walks
+// forward to the present one epoch per round trip.
+//
+// The second half is the whole of the risk, and the ledger says so in as many words: "a commit
+// sealed at epoch E opens E+1 and so passes a ceiling of E, which is why catch-up should
+// survive — but a behind-member catch-up was not driven end to end. If a member several epochs
+// behind cannot walk forward one epoch per round trip under the ceiling, F0 is wrong." So it is
+// driven here, from epoch 0, the way a restoring device actually starts.
+//
+// The group this builds is deliberately shaped so that every ceiling's TOP RECORD IS A COMMIT:
+//
+//	id  1  commit  epoch 0   opens 1      <- the ceiling for a reader at epoch 0
+//	id  2  marker  epoch 1
+//	id  3  ordinary epoch 1
+//	id  4  ordinary epoch 1
+//	id  5  commit  epoch 1   opens 2      <- the ceiling for a reader at epoch 1
+//	id  6  marker  epoch 2
+//	id  7  ordinary epoch 2
+//	id  8  commit  epoch 2   opens 3      <- the ceiling for a reader at epoch 2
+//	id  9  marker  epoch 3
+//	id 10  ordinary epoch 3
+//
+// That shape is not arranged, it is what §6.1 produces: a commit is sealed AT the epoch it
+// closes, so the record that tells a reader to move is always the last one its current ceiling
+// admits. If that ever stops being true the walk below stops arriving.
+func contractEpochCeiling(t *testing.T, newStore func(Limits) Store, seen *recorder) {
+	t.Parallel()
+	ctx := context.Background()
+	store, group := openGroup(t, newStore(DefaultLimits()))
+	sender := testHandle(0x21)
+	committer := testHandle(0x20)
+
+	submit(t, store, seen, group, ordinaryRecord(sender, 1, 0, 0x60))
+	submit(t, store, seen, group, ordinaryRecord(sender, 1, 1, 0x61))
+	advanceEpoch(t, store, seen, group, committer, 2)
+	submit(t, store, seen, group, ordinaryRecord(sender, 2, 2, 0x62))
+	advanceEpoch(t, store, seen, group, committer, 4)
+	submit(t, store, seen, group, ordinaryRecord(sender, 3, 3, 0x63))
+
+	current := everyEpochOf(t, store, group)
+	if current != 3 {
+		t.Fatalf("this scenario builds three epoch changes and the group is at epoch %d; every expectation below is written against a group that reached epoch 3", current)
+	}
+	whole := allRecords(t, store, group)
+	if len(whole) != 10 {
+		t.Fatalf("this scenario builds 10 records and the group holds %d; the id/epoch table in the comment above is what every expectation below is read off",
+			len(whole))
+	}
+
+	// what each ceiling admits, and — the half that matters — what it REMOVES. An expectation
+	// written only as "what came back" passes for a filter that was never applied at all
+	epochOf := map[uint64]uint64{}
+	for _, record := range whole {
+		epochOf[record.RecordId] = record.Epoch
+	}
+	for ceiling := range uint64(4) {
+		admitted, removed := []uint64{}, []uint64{}
+		for _, record := range whole {
+			if record.Epoch <= ceiling {
+				admitted = append(admitted, record.RecordId)
+			} else {
+				removed = append(removed, record.RecordId)
+			}
+		}
+		page, err := store.Fetch(ctx, &FetchRequest{GroupId: group, SinceRecordId: 0, ReadEpoch: ceiling})
+		if err != nil {
+			t.Fatalf("Fetch(read_epoch %d): %v", ceiling, err)
+		}
+		if got := recordIdsOf(page.Records); !slices.Equal(got, admitted) {
+			t.Fatalf("a reader authorized at epoch %d was served %v and the records at or below epoch %d are %v (epochs by id: %v)",
+				ceiling, got, ceiling, admitted, epochOf)
+		}
+		// the complement, printed rather than assumed. A ceiling below the group's own epoch
+		// that removed NOTHING is a ceiling that is not there, and it is the shape in which a
+		// dropped filter arrives: every assertion above still passes
+		if ceiling < current && len(removed) == 0 {
+			t.Fatalf("a ceiling of %d below the group's epoch %d removed no record at all; there is nothing here for the filter to be seen doing", ceiling, current)
+		}
+		if ceiling == current && len(removed) != 0 {
+			t.Fatalf("a ceiling at the group's own epoch %d removed records %v; current_epoch bounds every record the group holds, so this ceiling must be the positive control that filters nothing", current, removed)
+		}
+		// and what it removed is a contiguous TAIL and never a hole: §6.1's epoch gate makes
+		// epochs non-decreasing in record_id, which is the property that lets §4.3.4 keep
+		// selling a gapless sequence as the withholding detector under a ceiling
+		if len(removed) != 0 && (removed[0] != admitted[len(admitted)-1]+1 || !contiguous(removed)) {
+			t.Fatalf("a ceiling of %d served %v and withheld %v; what a ceiling removes must be the contiguous tail, or §12.2 C-4's hole and a ceiling are the same signal", ceiling, admitted, removed)
+		}
+		// CEILING-RELATIVE HIGH WATER. The absolute one is what sdk/urmessage reads as
+		// ErrFetchOmitted on any page it is told is complete, so this is the field that
+		// decides whether a behind reader accuses an honest server on every page of its walk
+		if want := admitted[len(admitted)-1]; page.HighWaterRecordId != want {
+			t.Fatalf("a reader at epoch %d was served up to record %d and told the high water is %d; the high water is that reader's omission detector and must be the top of what its own ceiling admits",
+				ceiling, want, page.HighWaterRecordId)
+		}
+		// and COMPLETE, because the ceiling is the extent of the request and not a truncation
+		if !page.Complete {
+			t.Fatalf("a reader at epoch %d was handed every record its ceiling admits and told complete=false; complete=false is how a client is told to ask again from the same cursor, which at this ceiling answers nothing",
+				ceiling)
+		}
+	}
+
+	// THE HIGH WATER DOES NOT MOVE WITH THE CLASS MASK. It answers for the group under this
+	// reader's ceiling; a page filtered to one class must not report a high water that came
+	// down with the filter, or every class-filtered restore reads as a short page
+	filtered, err := store.Fetch(ctx, &FetchRequest{
+		GroupId: group, SinceRecordId: 0, ReadEpoch: 1, ClassMask: uint32(1) << ClassDurable})
+	if err != nil {
+		t.Fatalf("Fetch(class-filtered under a ceiling): %v", err)
+	}
+	if len(filtered.Records) == 0 || len(filtered.Records) == 5 {
+		t.Fatalf("the class filter under a ceiling of 1 returned %d of the 5 records that ceiling admits; at 0 or at all of them the two filters cannot be seen composing", len(filtered.Records))
+	}
+	if filtered.HighWaterRecordId != 5 {
+		t.Fatalf("a DURABLE-only page under a ceiling of 1 reported high water %d, want 5; the class mask narrows the PAGE and the ceiling narrows the READER, and only one of them is the high water's business",
+			filtered.HighWaterRecordId)
+	}
+
+	// THE LIMIT STILL TRUNCATES UNDER A CEILING, and still says so. `complete` has exactly one
+	// meaning left and this is it
+	limited, err := store.Fetch(ctx, &FetchRequest{GroupId: group, SinceRecordId: 0, ReadEpoch: 1, Limit: 2})
+	if err != nil {
+		t.Fatalf("Fetch(limited under a ceiling): %v", err)
+	}
+	if len(limited.Records) != 2 || limited.Complete {
+		t.Fatalf("a page of 2 under a ceiling of 1, which admits 5 records, answered %d records with complete=%v",
+			len(limited.Records), limited.Complete)
+	}
+
+	// ── THE BEHIND-MEMBER CATCH-UP, END TO END ──────────────────────────────────────────
+	//
+	// A device that holds only epoch 0's read key, walking to the present. It reads its next
+	// epoch out of the COMMIT it was served, which is what a client does: nothing here is told
+	// the group's epoch and nothing here is told the answer.
+	reached, cursor, epoch := []uint64{}, uint64(0), uint64(0)
+	// counted at the CALL and not off the loop variable: the loop leaves by a break, whose
+	// post statement never runs, so an index would under-report the last fetch by one
+	fetches := 0
+	for range 16 {
+		page, err := store.Fetch(ctx, &FetchRequest{GroupId: group, SinceRecordId: cursor, ReadEpoch: epoch})
+		fetches++
+		if err != nil {
+			t.Fatalf("catch-up at epoch %d from %d: %v", epoch, cursor, err)
+		}
+		if !page.Complete {
+			t.Fatalf("catch-up at epoch %d answered complete=false with no limit set", epoch)
+		}
+		// the check sdk/urmessage runs on every complete page, and the one an absolute high
+		// water would fail here on every round
+		for _, record := range page.Records {
+			reached = append(reached, record.RecordId)
+		}
+		if top := page.HighWaterRecordId; len(reached) != 0 && reached[len(reached)-1] < top {
+			t.Fatalf("catch-up at epoch %d reached record %d and was told the high water is %d; sdk/urmessage raises ErrFetchOmitted on exactly this and would accuse this server on every page of an honest walk",
+				epoch, reached[len(reached)-1], top)
+		}
+		cursor = page.NextRecordId
+
+		// the next epoch comes out of the commit this page carried, the way a member learns
+		// it — and this is the linchpin: a commit sealed at E opens E+1 and is itself at E,
+		// so a ceiling of E serves the instruction to leave E
+		opened := uint64(0)
+		for _, record := range page.Records {
+			if record.IsCommit && record.Epoch == epoch && record.Attachment != nil && record.Attachment.Epoch != nil {
+				opened = record.Attachment.Epoch.Epoch
+			}
+		}
+		if opened == 0 {
+			break
+		}
+		if opened != epoch+1 {
+			t.Fatalf("the commit at epoch %d opens epoch %d; the ceiling walk advances one epoch per round trip and this one skips", epoch, opened)
+		}
+		epoch = opened
+	}
+	if epoch != current {
+		t.Fatalf("a member starting at epoch 0 walked to epoch %d in %d round trips and the group is at %d; a member that cannot walk forward under the ceiling is a member the ceiling has cut off, and ledger item 246 says F0 is wrong if so",
+			epoch, fetches, current)
+	}
+	if want := recordIdsOf(whole); !slices.Equal(reached, want) {
+		t.Fatalf("the catch-up walk arrived holding %v and the group holds %v; it must arrive with everything, in order, with no record served twice",
+			reached, want)
+	}
+	// ONE ROUND TRIP PER EPOCH and not one per record: four fetches for epochs 0, 1, 2 and 3,
+	// the last of which finds no commit to follow and stops. Ten records, four round trips —
+	// which is the shape ledger item 246 asks for, and the number that would go up if the
+	// commit at the top of a ceiling ever stopped being served under it
+	if fetches != int(current)+1 {
+		t.Fatalf("the walk from epoch 0 to epoch %d took %d round trips, want %d — one per epoch", current, fetches, int(current)+1)
 	}
 }
 
@@ -2012,6 +2206,9 @@ func contractConcurrentReader(t *testing.T, newStore func(Limits) Store, seen *r
 	const each = 40
 	ctx := context.Background()
 	store, group := openGroup(t, newStore(DefaultLimits()))
+	// read once, before the writers start, and safe to: every writer below submits at epoch 1
+	// and nothing here commits, so the group's epoch does not move under the loop
+	readerCeiling := everyEpochOf(t, store, group)
 
 	writing := sync.WaitGroup{}
 	done := make(chan struct{})
@@ -2048,7 +2245,7 @@ func contractConcurrentReader(t *testing.T, newStore func(Limits) Store, seen *r
 			reading = false
 		default:
 		}
-		page, err := store.Fetch(ctx, &FetchRequest{GroupId: group, SinceRecordId: 0})
+		page, err := store.Fetch(ctx, &FetchRequest{GroupId: group, SinceRecordId: 0, ReadEpoch: readerCeiling})
 		if err != nil {
 			torn = fmt.Sprintf("Fetch: %v", err)
 			break
@@ -2059,8 +2256,17 @@ func contractConcurrentReader(t *testing.T, newStore func(Limits) Store, seen *r
 			torn = "an unlimited fetch answered complete=false"
 		case !contiguousFromOne(page.Records):
 			torn = fmt.Sprintf("one fetch returned record ids %v, which has a hole in it", recordIdsOf(page.Records))
+		// AND ITS FAILURE MODE MOVED UNDER IT when the epoch ceiling of ledger item 246
+		// landed. The high water used to come off the group's `next_record_id` counter, so
+		// this line caught a reader seeing the counter advanced past a record row that was
+		// not visible yet. It now comes off a `max(record_id)` over the record rows in the
+		// same snapshot as the page, and that particular tear cannot happen any more —
+		// READ COMMITTED shows a submit whole or not at all, and both halves of the answer
+		// are now reading the same table. What is left is still a real property and still
+		// fails for a store that took its high water in a SECOND statement or under a
+		// second lock, which is the thing §4.3.4's one-snapshot rule is actually about.
 		case uint64(len(page.Records)) != page.HighWaterRecordId:
-			torn = fmt.Sprintf("one fetch answered %d records and a high water of %d; a reader caught a transaction half-applied — the group's row had already advanced past a record row that was not there yet — and §12.2 C-4 tells a client to treat that as the server withholding",
+			torn = fmt.Sprintf("one fetch answered %d records and a high water of %d; a reader caught a transaction half-applied — the two halves of the answer did not come out of one snapshot — and §12.2 C-4 tells a client to treat that as the server withholding",
 				len(page.Records), page.HighWaterRecordId)
 		}
 	}
@@ -2072,6 +2278,18 @@ func contractConcurrentReader(t *testing.T, newStore func(Limits) Store, seen *r
 		t.Fatalf("the reader got %d fetches in while %d writers wrote %d records each, so it observed nothing concurrent", reads, writers, each)
 	}
 	t.Logf("%d concurrent reads against %d writers", reads, writers)
+}
+
+// A run of ids with no gap in it, for the half of a ceiling's answer that is about what it
+// REMOVED. [contiguousFromOne] is the other direction and cannot say this: what a ceiling
+// withholds starts wherever the ceiling fell.
+func contiguous(ids []uint64) bool {
+	for index := 1; index < len(ids); index++ {
+		if ids[index] != ids[index-1]+1 {
+			return false
+		}
+	}
+	return true
 }
 
 func contiguousFromOne(records []*Record) bool {
@@ -2710,7 +2928,7 @@ func contractClassMask(t *testing.T, newStore func(Limits) Store, seen *recorder
 		if len(expected[class]) == 0 {
 			t.Fatalf("no record of class %#x reached the group, so filtering on it asserts nothing", class)
 		}
-		fetched, err := store.Fetch(ctx, &FetchRequest{GroupId: group, SinceRecordId: 0, ClassMask: uint32(1) << class})
+		fetched, err := store.Fetch(ctx, &FetchRequest{GroupId: group, SinceRecordId: 0, ClassMask: uint32(1) << class, ReadEpoch: everyEpochOf(t, store, group)})
 		if err != nil {
 			t.Fatalf("Fetch: %v", err)
 		}
@@ -2723,7 +2941,7 @@ func contractClassMask(t *testing.T, newStore func(Limits) Store, seen *recorder
 	// and the mask is a set: two bits are the union of the two classes, in record-id order
 	union := append(slices.Clone(expected[ClassDurable]), expected[ClassMedia]...)
 	slices.Sort(union)
-	both, err := store.Fetch(ctx, &FetchRequest{GroupId: group, SinceRecordId: 0, ClassMask: uint32(1)<<ClassDurable | uint32(1)<<ClassMedia})
+	both, err := store.Fetch(ctx, &FetchRequest{GroupId: group, SinceRecordId: 0, ClassMask: uint32(1)<<ClassDurable | uint32(1)<<ClassMedia, ReadEpoch: everyEpochOf(t, store, group)})
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
@@ -2893,7 +3111,7 @@ func contractDefensiveCopy(t *testing.T, newStore func(Limits) Store, seen *reco
 
 		// §4.3.4 uses heads_only for fast catch-up and for hole scans, over the same rows the
 		// next full read serves
-		heads, err := store.Fetch(ctx, &FetchRequest{GroupId: group, SinceRecordId: 0, HeadsOnly: true})
+		heads, err := store.Fetch(ctx, &FetchRequest{GroupId: group, SinceRecordId: 0, HeadsOnly: true, ReadEpoch: everyEpochOf(t, store, group)})
 		if err != nil {
 			t.Fatalf("Fetch: %v", err)
 		}
@@ -3903,6 +4121,24 @@ func nextRecordId(t *testing.T, store Store, groupId []byte) uint64 {
 	return stateOf(t, store, groupId).NextRecordId
 }
 
+// [FetchRequest.ReadEpoch] for a scenario whose subject is NOT the epoch ceiling: the group's own
+// current epoch.
+//
+// §6.1's epoch gate refuses a write at any epoch but the current one, so `current_epoch` is an
+// upper bound on every record the group holds and a ceiling set to it removes nothing. That is
+// deliberate: the assertions at these call sites were written before ledger item 246 and they
+// mean exactly what they meant then, rather than quietly becoming assertions about a filter.
+//
+// It is a function call and not the constant it always evaluates to, because a scenario that
+// later grows an epoch change would otherwise start truncating its own page and would say so as
+// a missing record rather than as a stale number.
+//
+// The scenario whose subject IS the ceiling names its epochs itself: contractEpochCeiling.
+func everyEpochOf(t *testing.T, store Store, groupId []byte) uint64 {
+	t.Helper()
+	return stateOf(t, store, groupId).CurrentEpoch
+}
+
 func readNextRecordId(store Store, groupId []byte) (uint64, bool) {
 	state, err := store.GroupState(context.Background(), groupId)
 	if err != nil {
@@ -3914,7 +4150,7 @@ func readNextRecordId(store Store, groupId []byte) (uint64, bool) {
 // Every record the group holds, read back through the from-the-beginning cursor of §4.3.4.
 func allRecords(t *testing.T, store Store, groupId []byte) []*Record {
 	t.Helper()
-	fetched, err := store.Fetch(context.Background(), &FetchRequest{GroupId: groupId, SinceRecordId: 0})
+	fetched, err := store.Fetch(context.Background(), &FetchRequest{GroupId: groupId, SinceRecordId: 0, ReadEpoch: everyEpochOf(t, store, groupId)})
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}

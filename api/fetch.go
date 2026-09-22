@@ -79,12 +79,21 @@ func (self *Handler) Fetch(ctx context.Context, conn *Connection, request *proto
 		}
 	}
 
+	// THE EPOCH CEILING of ledger item 246, and the whole of this layer's part in it.
+	// `read_epoch` now goes to the store as well as to check 6, and the store serves no row
+	// above it. It is read here AFTER the stages above rather than instead of them: check 6
+	// resolved a read key for exactly this epoch and check 7 verified a MAC under that key over
+	// bytes this number is inside (§4.3.8 puts `read_epoch` in `canonical_request_bytes`), so
+	// what is passed down is authenticated and not asserted. The rule, the I6 argument and what
+	// it does to `complete` and to the high water are on [store.FetchRequest.ReadEpoch] and
+	// [store.FetchResult].
 	result, err := self.store.Fetch(ctx, &store.FetchRequest{
 		GroupId:       request.GetGroupId(),
 		SinceRecordId: request.GetSinceRecordId(),
 		Limit:         self.fetchLimit(request.GetLimit()),
 		HeadsOnly:     request.GetHeadsOnly(),
 		ClassMask:     request.GetClassMask(),
+		ReadEpoch:     request.GetReadEpoch(),
 	})
 	if err != nil {
 		// the filter said the group exists and the read key resolved under it, so a store that
@@ -112,6 +121,24 @@ func (self *Handler) Fetch(ctx context.Context, conn *Connection, request *proto
 	// §4.3.4's FetchAttestation is absent, not empty: it is an Ed25519 signature by the fleet
 	// key over nine response fields, and this process holds no fleet key. [Handler.NotBuilt]
 	// carries the gap; `Capabilities.attestation_supported` is how a client is told.
+	//
+	// WHAT THE EPOCH CEILING DOES TO THE ATTESTATION, asked by ledger item 246 and answered
+	// here because this is where it would be built. THE NINE FIELDS DO NOT CHANGE and the
+	// preimage does not change: `read_epoch` does NOT join them. `high_water_record_id` is one
+	// of the nine and its VALUE is now ceiling-relative, which is the whole of the effect.
+	//
+	// That is not free, and the price is one sentence a client already obeys. Spec B §4.3.4:
+	// "Clients compare attestations only within an identical (class_mask, heads_only) filter",
+	// and the ceiling adds a third term to that tuple — two attestations for one group taken at
+	// different `read_epoch`s name different high waters, honestly, and an auditor that read
+	// them as a contradiction would be convicting a correct server. `read_epoch` is NOT added
+	// to the preimage to make that self-describing: the preimage is Spec B §4.3.4 RULED, the
+	// signature is unbuilt so there is nothing deployed to migrate, and a client has its own
+	// `read_epoch` in hand — it computed a MAC over it one round trip ago — so the term it
+	// would be adding is one it already knows. It is written down rather than done because the
+	// first implementation that signs this must know that the comparison is epoch-scoped; if
+	// that turns out to want wire support, it is a Spec B amendment and belongs with the fleet
+	// key, not smuggled in beside an unbuilt signature.
 	return protocol.Reason_REASON_OK, response, nil
 }
 

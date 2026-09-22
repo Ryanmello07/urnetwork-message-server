@@ -399,8 +399,88 @@ type FetchRequest struct {
 	Limit         uint32
 	HeadsOnly     bool
 	ClassMask     uint32 // bit per retention-class wire byte; 0 = all
+
+	// THE EPOCH CEILING (ledger item 246, ruled 2026-09-22). A row is served only when
+	// `record.Epoch <= ReadEpoch`, and that is the whole of the rule.
+	//
+	// It is the same `read_epoch` §4.3.8 puts inside `canonical_request_bytes` and therefore
+	// inside the `req_auth` MAC, and §5.1.1 check 6 has already resolved exactly one read key
+	// under it before a store ever sees this field. So the ceiling is a value the CLIENT
+	// authenticated and the SERVER verified, and the record's epoch is a §3.2 column this
+	// server wrote itself — I6 is clean, because neither side of the comparison is a claim
+	// the server is taking somebody's word for.
+	//
+	// WHY IT IS REQUIRED AND NOT OPTIONAL, and why 0 cannot mean "no ceiling" the way
+	// `ClassMask`'s 0 means "every class": epoch 0 is a real epoch — the founding commit sits
+	// at it — so there is no spare value left to spell "unbounded" with. That is the good
+	// outcome rather than a constraint worked around. Ledger item 244's refutation of fix F1
+	// is that it repairs a SERVE PATH, which a later `Subscribe`, `RecoveryFetch` or
+	// `WrapFetch` can forget; a required field on the request every serve path has to build
+	// cannot be forgotten, and a path with no authenticated epoch to put here has no business
+	// serving records.
+	//
+	// WHAT IT BUYS. MASTER §9.2 and Spec B §5.3 promise that a member removed at epoch n keeps
+	// metadata access "until epoch n's read key ages out, and no longer" — a window resting on
+	// a 90-day sweep that does not exist (`sweep/doc.go` holds no code). The ceiling delivers
+	// the strictly tighter "nothing above epoch n, ever", on the day it ships and with no
+	// sweep (ruling 30).
+	ReadEpoch uint64
 }
 
+// §4.3.4's answer, and the two fields of it the ceiling above turns from arithmetic into a
+// decision — which ledger item 246 names "the one real design question, and it must be answered
+// in the same change".
+//
+// # HighWaterRecordId IS CEILING-RELATIVE
+//
+// It is the largest `record_id` in the group whose own epoch is at or below the request's
+// `ReadEpoch`, and 0 when the group holds none. It was `next_record_id - 1`, the group's
+// absolute maximum, and leaving it there would have broken the client on its FIRST catch-up
+// page rather than in some corner: `sdk/urmessage`'s page walk raises `ErrFetchOmitted`
+// whenever a page it has been told is COMPLETE stops below the high water that same response
+// names. A member three epochs behind is served everything up to its ceiling — complete,
+// correct, nothing withheld — and an absolute high water would have had it accuse an honest
+// server on every page of the walk. This field is the reader's ONLY omission detector, so a
+// value it has to learn to ignore is worse than no value at all: it teaches the one check that
+// can catch a withholding server to be disbelieved.
+//
+// It is NOT narrowed by `ClassMask` or by `SinceRecordId`. Spec B §4.3.4 calls it "the group's
+// max at read time" and the ceiling is the only thing that moves it, because the ceiling is the
+// only one of the three that is about what this reader may see rather than about what this page
+// was asked to carry.
+//
+// # Complete IS FALSE FOR THE LIMIT AND NOT FOR THE CEILING
+//
+// A page the ceiling ends is COMPLETE. "Complete" means "this is all of what you asked for",
+// and what a reader asked for is bounded by the epoch it authenticated. It does not mean "this
+// is everything the group holds", which is the group's business and not this request's.
+//
+// The alternative — `complete = false` whenever rows above the ceiling exist — was considered
+// and is wrong, in a way that is measurable rather than aesthetic. That flag is how the same
+// page walk decides to ASK AGAIN from the cursor it already has. A reader that has ingested the
+// commit at its ceiling and not yet moved its epoch would re-ask, be served nothing (its cursor
+// is already past everything at or below the ceiling), and fail on `ErrFetchNoProgress` — a
+// hard error raised at a server that did exactly what it was asked. It would fire for every
+// OBSERVER that cannot follow a commit and for every client polling at an epoch it has
+// finished.
+//
+// # THE CEILING CANNOT HIDE THAT THERE IS MORE, WHICH IS WHY NEITHER FIELD HAS TO SAY SO
+//
+// A record above epoch n exists only because some commit opened n+1, and a commit is SEALED AT
+// the epoch it closes — its own `epoch` column is n, it is below the ceiling, and it is served.
+// Walking to the ceiling therefore hands the reader, in that same page, the commit that tells
+// it to move. §4.3.10's GroupStatus answers `current_epoch` and the group's absolute high water
+// under the same read key besides, so "am I behind?" has an authenticated answer on a second
+// arm.
+//
+// # THE COST, STATED
+//
+// A server may now claim a shorter ceiling than the truth and withhold the tail of the reader's
+// own epoch, where an absolute high water would have exposed it. Spec B §4.3.4 already concedes
+// that shape — "a server can withhold a contiguous tail, and §12.3's honest limit stands" — so
+// it is not a new class of undetectable. Nor is it permanent: the moment the reader advances to
+// n+1 those records are strictly BELOW the new ceiling, and a gapless `record_id` sequence
+// (decision B4) makes their absence a hole rather than an edge.
 type FetchResult struct {
 	Records           []*Record
 	NextRecordId      uint64
