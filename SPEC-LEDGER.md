@@ -9216,6 +9216,127 @@ fourteen are dispositioned below.
     X4 the Remove/Leave arms) and, last, succession. **Nothing in the role model is blocked on
     anything outside it.**
 
+    **R4 DONE 2026-09-22 — OBSERVER read-only, on both arms and on the screen.** `connect ca6e0472`,
+    `sdk 919e015`, `message-windows demo-ui 5f0431b`. R4 is the first piece of the role model on the
+    **application-record** path, which shares none of R1's plumbing: every one of `MembersAfter`,
+    `ContextExtensionsAfter`, `CommitterIdentity`, `HasLeafKeys`, `PendingEpoch` and `PendingExport`
+    rides `EngineProcessed`, i.e. the commit arm; the application arm has `OpenRecord`, which answers
+    two byte slices and an error.
+    - **connect** gained `RoleAt(epoch, leaf)` — the 34th seam method — routed through
+      `scheduleForOnLoop(epoch)` so it reads the **same handle the open at that epoch read and no
+      other**, with a per-epoch table that dies with its handle. It is a projection, not a
+      computation: `mls.membersLocked` already runs `GroupPolicyOf` and sets `Role`, and `MemberAt`
+      threw it away.
+    - **sdk** captures the role at the open, hides an observer's message rather than dropping it,
+      refuses all four sendable kinds on the send side, and projects `SenderRoleAtSend` plus three
+      counters through the cgo ABI.
+    - **The Windows alpha** disables the composer with Spec C §5.6's own sentence, renders the hidden
+      row with its `[Show]`, and — after the first cut reached only the box — dims the reply, react
+      and both retry affordances beside it, each naming the role.
+
+    **Rulings 16–26, taken 2026-09-22 by the project lead** (the shipped code cites these by number;
+    they are recorded here because a decision that lives only in a commit message is an omission):
+    16. **HIDE, NOT DROP.** An observer's message is opened, kept with its content and position
+        intact, and collapsed by the UI (Spec C §5.6). It is **not an eighth `GapReason`** — that set
+        is closed, and a gap is a record this build could not *show* while this is one it read
+        perfectly well and was asked to collapse. A dropped record is indistinguishable from one that
+        never arrived, and an observer's message is the **least droppable class in the build**: it
+        opened and it authenticated. Dropping would also read to a user as an enforcement claim —
+        R3's defect relocated from the string layer to the record layer.
+    17. **The role check lives behind the seam**, reading the session's own handle for that epoch.
+        Not for cost — the judge measured `LoadGroup` at **141 µs**, disproving its own probe's
+        3.5–5.4 ms — but because the past-epoch handle is key material with an erase owner, and
+        because a door reading the handle the open read cannot fail where the open succeeded.
+        **AND THE CONDITION ON THAT SENTENCE, MEASURED RATHER THAN ASSUMED:** it is exact only for
+        an ask with **no epoch install between it and the open**. `installEpochOnLoop` zeroizes every
+        past handle and is reachable *mid-walk* — `openPageLocked` ingests commits from the same loop
+        that opens application records — so a commit row can close the handle a record's open just
+        used, after which the ask is a fresh `LoadGroup` that can fail two ways (the window edge, where
+        a record that opened at exactly 32 behind is 33 behind and `MergePendingCommit` has already
+        deleted the blob; or any store error). That is what makes ruling 21's *capture at open*
+        load-bearing rather than merely cheaper.
+    18. **The cached role table does not outlive its handle.** It is not key material and owes no
+        erase, but a table keyed to a handle whose lifetime the erase discipline owns, outliving that
+        handle, is a new lifetime nobody audits — bought for ~150 µs per epoch per walk against a
+        walk that is a network fetch.
+    19. **Refuse all four sendable kinds** — TEXT, REPLY, REACTION_ADD/REMOVE, TOMBSTONE — in one
+        clause and one sentence. That is the entire *askable* set: `encodeCover` has zero call sites,
+        the whole TRANSIENT range (DELIVERED 0x40, **READ_THROUGH 0x41**, TYPING 0x42/0x43) needs an
+        EPH(0) channel that does not exist (item 234), and ATTACHMENT and EDIT have no bodies. The
+        decisive argument is not cryptographic: *"you can read but not send, except reactions"* states
+        in one sentence and immediately raises a question with no good answer for a user.
+    20. **An unnamed identity, or an epoch whose context carries no `0xF001`, reads as MEMBER** — the
+        same reading `mls.membersLocked` and the commit arm already take, or the two arms of one
+        predicate disagree about one group at one epoch.
+    21. **The role is the role at the epoch of send, CAPTURED AT OPEN.** Spec A already ruled the
+        first half; capture rather than derive-at-render because the role must survive a restart that
+        can no longer re-derive it. **The property the whole ruling set rests on, and it is a
+        property and not a count:** for every record in a re-walked log, `SenderRoleAtSend` is
+        non-empty **iff the record opened**. R4 therefore introduces no new disappearance — the set of
+        records whose role is underivable is a *subset* of those that do not open.
+    22. **The composer carries Spec C §5.6's sentence with no caveat; the settings observer row
+        carries the caveat.** The composer sentence is about *this app's own behaviour*, true
+        unqualified after R4 — which is what makes it different from R3's defect. The caveat is about
+        *other people's clients* and belongs where the group is configured, not above the box a person
+        types in.
+    23. **`CanSend` / `MessageSendability` is NOT built in R4, and that is a decision.** Spec C
+        requires only that the client never infer sendability from a send failing, and it does not —
+        it reads `urnet_message_group_my_role`. Building the surface now would mean two sources of
+        truth for one question and four vocabulary values naming states this build does not have.
+    24. **The identity behind a role check is read off the record's own epoch's tree, never off
+        `walk.leaves`.** `SenderHandle(group_handle_key, leaf)` is a function of the leaf index and a
+        group-lifetime key and nothing else, so a handle can **never** distinguish two identities that
+        occupied one leaf at different epochs (item 245). `walk.leaves` stays a pre-filter; the
+        authentication is R1 inside `OpenRecord`.
+    25. **An OBSERVER's REACTION is not applied** — the first cut shipped it as a stated limit
+        (*"hiding a reaction has no design"*), and the lead closed it. That is true of a *row*;
+        **not applying one needs no design at all**. The asymmetry with a message is statable, which
+        is why it is the rule: *a message is kept because dropping it would hide that something was
+        said — but a reaction that is not applied hides nothing, because the line it names is right
+        there, whole.* No position goes blank. A reaction landing is "read only" failing in the most
+        visible way the product has, on another member's message. Refused in `reapplyLocked`, so an
+        effect held waiting for its target is refused when it finally applies and not only on arrival,
+        and counted once per record rather than once per rebuild.
+    26. **An OBSERVER's TOMBSTONE is applied, deliberately.** A tombstone only ever removes the
+        observer's own content. **The role model exists to stop an observer ADDING to a group, not to
+        trap its own words there**, and refusing it would keep visible something its author asked to
+        retract.
+
+    **Three findings from R4's verifiers worth keeping, each a pattern this corpus has already
+    filed once:**
+    - **A gate that prints a claim it does not check.** `--diagnose`'s `run mode send` printed
+      *"live+observer denies the SESSION: no"* while passing a literal `false` and never calling
+      `OpenConversationMaySend`, the production site that turns a role into that bool — so inverting
+      that site changed nothing on the line while the app would have shown an observer the *sending*
+      note. The gate now walks all five role spellings **through** the production predicate and prints
+      the complement. A printed claim a gate does not hold is worse than no claim.
+    - **A surviving mutant is first a claim about the QUERY.** Twice: a Windows mutant "the name is
+      chosen by the session, not the role" survived a search for *"no live session"* — under that
+      mutant an observer gets the *may-send* name, so the needle could never appear; re-asked as
+      "every affordance row in the observer state names the role", it died with four offenders. And in
+      sdk, "refuse the reaction at arrival" has two spellings and the ruling's own test list killed
+      only one, until a fourth case below the walk closed it.
+    - **The finding named one control; there were two.** A second `[ Try again ]` for the same failed
+      row lived in another file, gated on the session alone, carrying its own inline near-duplicate of
+      the wording **in no table and under no gate**, so a paraphrase of either was free. Both are now
+      in one name table and both are gated.
+
+    **Also landed:** the cgo gap-reason gate now **derives** the produced set from `urmessage`'s own
+    source and prints the 63 constants its filter removed (an untyped constant inside the block is
+    *refused*, not skipped, because a type filter alone would narrow it away silently) — it had been
+    a hand-written three-entry map whose own comment admitted a fourth constant would pass. And **sdk
+    is pinned to LF** (`*.go text eol=lf`), the way `connect` and `msgrepo` have been since the owner
+    ruled it on 2026-09-05: `cgo/loopback_test_world.go` was already CRLF in the worktree and only
+    `core.autocrlf` happening to be set on this box stopped it committing as a whole-file rewrite. The
+    renormalise moved **136 working-tree files and zero git blobs**, and made visible **8 files that
+    are genuinely unformatted in blobs committed before this session** — filed, not fixed, because a
+    commit claiming "no blob changed" is the wrong place to change eight.
+
+    **What is left of item 242:** R5, the DM joint retention policy — it needs an `IsDirect` flag,
+    a pending-request table and a 7-day clock, i.e. state outside MLS. Then the removal track (X0
+    rulings and red team → X1 `pq_secret` → X2 item 244 → X3 item 245 → X4 the Remove/Leave arms)
+    and, last, succession.
+
 243. **RULED 2026-09-18 BY THE PROJECT LEAD, WITH A CONDITION ATTACHED — `pq_secret` IS A
     GROUP-LIFETIME VALUE, AND ROTATING IT IS A PREREQUISITE OF REMOVAL RATHER THAN OF GROUP CHATS.**
     The group-chat survey named this the cheapest item on its list and the one blocking the
