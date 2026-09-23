@@ -9799,6 +9799,49 @@ repo and therefore the critical path — not this repository:
     the code they describe. Both were caught by an adversary who ran them. **Ruling 31 generalises:
     a design nobody has attacked is a draft, and the cheap place to attack it is the vectors.**
 
+249. **STEP 3 DONE 2026-09-22 — the epoch keys are on the request messages, the preimage carries its
+    group, `read_epoch` is in the attestation, and the gate that guards all three needed repair in
+    THREE consecutive commits for one reason.** `connect 241b9000` (from `6bbb77cd` → `4df44cc7` →
+    `69bf704c` → this). Rulings 32, 33 and 34 are discharged in `connect`; `protocol.Record` gained
+    nothing, its projection contract is untouched, and the `.pb.go` diff was comment-only under protoc
+    35.1 with the version stamp unchanged.
+
+    **THE LESSON, and it upgrades a standing rule rather than repeating it.** The ruling-33 gate — *no
+    server→client message transitively carries an epoch key* — was defeated three times, each time by
+    a narrowing nobody asserted:
+    1. it keyed on one type NAME, so the same fields under another type name walked through;
+    2. it excused any type whose name ended in `Entry`, so a `KeyBagEntry` nested two levels inside
+       `FetchResponse` carried `write_key` and `read_key` through every check green;
+    3. the repair for (2) replaced the top-level requirement with a **`t.Logf` printing the same
+       list**, on the reasoning that the walk now covered it. It does — **for a nested type whose
+       fields are NAMED like keys.** `message FetchResponse { message NextEpochBag { bytes wk = 1;
+       bytes rk = 2; } … }` — item 244's own shape, on the served fetch answer — went green, and had
+       been red under the guard that was removed. **Every mutant in that commit's table used key
+       names, so the mutation set could not see the mechanism it had dropped.**
+
+    **PRINTING IS NECESSARY AND IS NOT SUFFICIENT.** The complement WAS printed at step (3); what was
+    missing is that nothing read it. A printed complement tells a reader what was narrowed away; only
+    an assertion tells the NEXT COMMIT that it may not narrow further. The narrowing is now held
+    against a written-down disposition map — `nestedServedTypes`, **empty**, with a member lacking an
+    entry a refusal and an entry nothing needs a refusal — which is how every other narrowing in that
+    file is held. Verified by the distinguishing mutant: green before, all four gates red by name
+    after, `message.proto` restored and sha256-identical.
+
+    **This is the second time in two steps that a builder's own repair re-created the defect it was
+    repairing, and both times an adversary who RAN the new sentence caught it.** Step 1's was prose
+    ("the rollout is one map"); this one was a test. The standing rule now reads: **a gate's narrowing
+    must be asserted, not merely printed — and a mutant that varies the same attribute as every other
+    mutant in the table cannot see a change of mechanism.**
+
+    **Still open, reported and not fixed** (each belongs to another owner): `connect`'s hand-off note
+    claiming the sdk's keyless `read_epoch` comparison "catches ruling 32's measurement" is **false**
+    and is corrected in `69bf704c`'s own message — what that comparison catches is a server
+    *truthfully* naming a ceiling below the one the request authenticated under, a
+    configuration/misrouting class, free and still worth building, but **not** item 244's read-side
+    withholding, which needs the signature. Kind `0x0005` is in no spec yet while Spec B §5.1 check 3
+    still requires the two 32-byte keys, and item 248's `GroupRecords` sentence is unamended. Those
+    three are the spec pass this repository owes before step 4.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
