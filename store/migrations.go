@@ -397,6 +397,48 @@ ALTER TABLE message_record
     ADD CONSTRAINT message_record_eph_window_class
         CHECK (eph_window = 0 OR (17 <= retention_class AND retention_class <= 21));
 `),
+
+	// ── 011  the epoch ceiling's index (ledger item 246) ─────────────────────────────
+	//
+	// Q11 grew a third filter and this is the index for it. [PgxStore.Fetch]'s `ceiling` CTE is
+	// `max(record_id) WHERE group_id = $1 AND epoch <= $5`, and before this index there was no
+	// index carrying `epoch` that it could use: `message_record_wrap` above is (group_id, epoch,
+	// wrap_target_handle) but PARTIAL on `wrap_target_handle IS NOT NULL`, so the planner takes
+	// PRIMARY KEY (group_id, record_id) backwards and evaluates `epoch <= $5` row by row.
+	//
+	// MEASURED, on 10 rows at epoch 1 and 20,000 at epoch 2 in one group, after ANALYZE, with
+	// EXPLAIN (ANALYZE, BUFFERS, COSTS OFF):
+	//
+	//	ceiling 2 (caught up)  Index Scan Backward … _pkey   shared hit=4    0.025 ms
+	//	ceiling 1 (behind)     Index Scan Backward … _pkey   shared hit=905  1.415 ms
+	//	                       Rows Removed by Filter: 20000
+	//
+	// The work is proportional to the rows ABOVE the ceiling — the ones this reader will never
+	// be served — and it is repaid on every fetch including the zero-row polls of a reader whose
+	// cursor is already caught up to its own epoch. A reader that has stopped following is the
+	// cheapest party to make a server do that, and it is exactly the party the ceiling exists to
+	// bound: a member removed at epoch n, still holding `read_key[n]`.
+	//
+	// The index is (group_id, epoch, record_id) and not (group_id, epoch): carrying `record_id`
+	// is what makes the aggregate INDEX ONLY, so the scan never visits a heap page it is going
+	// to discard. It is not a covering index for the page CTE, which needs every column of §3.2,
+	// and it is not meant to be — the page is already bounded by `max_records_per_fetch`.
+	//
+	// THE APPEND-ONLY RULE AND THE LOCK, STATED RATHER THAN ELIDED. [newSqlMigration] says
+	// "every index here is created with the table it is on, in the same transaction, on a
+	// relation that holds no rows", and THIS ONE IS NOT: it is the first index in the list added
+	// to a table that already exists in a deployment, which is the case §10.3 reserves
+	// `newCodeMigration` and `CREATE INDEX CONCURRENTLY` for. It is taken as a plain SQL
+	// migration anyway, knowingly: `CREATE INDEX` on a partitioned parent takes ACCESS EXCLUSIVE
+	// on the parent and on each of the 64 partitions, and the only deployment this build has is
+	// the alpha, whose whole record corpus is three groups. That is a statement about TODAY's
+	// corpus and it expires: the next index on `message_record`, or a rerun of this one against
+	// a real corpus, is where `newCodeMigration` stops being owed and starts being required.
+	newSqlMigration("011 message_record epoch ceiling", `
+CREATE INDEX message_record_epoch
+    ON message_record (group_id, epoch, record_id)
+    WITH (fillfactor = 100);
+`),
 }
 
 // §10.3: migrations are executed by a dedicated init job or `messagectl migrate`, NEVER by N

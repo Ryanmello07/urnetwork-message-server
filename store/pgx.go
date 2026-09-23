@@ -462,9 +462,38 @@ func (self *PgxStore) EpochKeys(ctx context.Context, groupId []byte, epoch uint6
 // The high water comes out of its own aggregate over the same snapshot rather than off the
 // group's `next_record_id`, because under a ceiling those are two different numbers: the second
 // is what the group has allocated and the first is what THIS reader is allowed to have seen.
-// It costs a backward scan of PRIMARY KEY (group_id, record_id) that stops at the first row at
-// or below the ceiling — one row for a caught-up reader, and at worst the rows above the ceiling
-// for one far behind, which is bounded by what that reader is about to fetch anyway.
+//
+// WHAT IT COSTS, MEASURED — AND THE BOUND 810f80b WROTE HERE WAS FALSE. That comment said the
+// cost was "at worst the rows above the ceiling for one far behind, which is bounded by what
+// that reader is about to fetch anyway". It is not bounded by that, and the two quantities are
+// unrelated: a reader far behind is about to fetch at most `max_records_per_fetch` rows AT OR
+// BELOW its ceiling, while the scan was reading every row ABOVE it — traffic that reader will
+// never be served — on every fetch including its zero-row polls.
+//
+// EXPLAIN (ANALYZE, BUFFERS, COSTS OFF) on this aggregate, over 10 rows at epoch 1 and 20,000 at
+// epoch 2 in one group, after ANALYZE:
+//
+//	before migration 011  ceiling 2 (caught up)  Index Scan Backward … _pkey   hit=4    0.025 ms
+//	before migration 011  ceiling 1 (behind)     Index Scan Backward … _pkey   hit=905  1.415 ms
+//	                                             Rows Removed by Filter: 20000
+//	after  migration 011  ceiling 1 (behind)     Index Only Scan … _epoch      hit=4    0.074 ms
+//
+// Migration 011's (group_id, epoch, record_id) is what closes it, and the PROPERTY rather than
+// the numbers is [TestTheEpochCeilingDoesNotPayForTrafficAboveIt]: growing the above-ceiling set
+// by 10× leaves the behind reader's buffer count unchanged. The party best placed to repeat the
+// old shape cheaply is a removed member still holding `read_key[n]` — exactly the party the
+// ceiling exists to bound — which is why this is a correction and not a tuning note.
+//
+// THE RESIDUAL, because "fixed" would be the same kind of claim as the one being corrected.
+// PostgreSQL picks between two plans by selectivity: the pkey backward scan costs the rows
+// ABOVE the ceiling and the new index-only scan costs the rows AT OR BELOW it, so the work is
+// about min(above, below) and not a constant. Measured with BOTH sides at 200,000 rows the
+// planner takes the pkey path and pays all of it — hit=9024, 21.9 ms. An equality-restructured
+// ceiling (`epoch = (SELECT max(epoch) … WHERE epoch <= $5)`) is two one-row index-only lookups
+// on that same scenario — hit=8, 0.042 ms — but its correctness rests on `record_id` being
+// monotone in `epoch`, which §6.1's epoch gate gives and which no constraint in §3.2 enforces.
+// That is a decision about the omission detector, not a correction, so it is FILED (ledger item
+// 249) rather than taken here.
 func (self *PgxStore) Fetch(ctx context.Context, request *FetchRequest) (*FetchResult, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err

@@ -414,16 +414,27 @@ type FetchRequest struct {
 	// `ClassMask`'s 0 means "every class": epoch 0 is a real epoch — the founding commit sits
 	// at it — so there is no spare value left to spell "unbounded" with. That is the good
 	// outcome rather than a constraint worked around. Ledger item 244's refutation of fix F1
-	// is that it repairs a SERVE PATH, which a later `Subscribe`, `RecoveryFetch` or
-	// `WrapFetch` can forget; a required field on the request every serve path has to build
-	// cannot be forgotten, and a path with no authenticated epoch to put here has no business
-	// serving records.
+	// is that it repairs a SERVE PATH, which a later arm can forget; a required field on this
+	// request cannot be forgotten by anything that builds it.
 	//
-	// WHAT IT BUYS. MASTER §9.2 and Spec B §5.3 promise that a member removed at epoch n keeps
-	// metadata access "until epoch n's read key ages out, and no longer" — a window resting on
-	// a 90-day sweep that does not exist (`sweep/doc.go` holds no code). The ceiling delivers
-	// the strictly tighter "nothing above epoch n, ever", on the day it ships and with no
-	// sweep (ruling 30).
+	// WHICH ARMS THAT IS, CORRECTED. 810f80b's version of this paragraph named `Subscribe`,
+	// `RecoveryFetch` and `WrapFetch` as the paths that must not forget the ceiling. TWO OF
+	// THE THREE MUST NOT TAKE IT AT ALL, and Spec B §5.1.1 now says so by name:
+	//
+	//   - `Subscribe` inherits it. A subscription is a streaming Fetch (§4.3.5).
+	//   - `WrapFetch` MUST NOT take it. §4.3.9's request carries its own `epoch`, "independent
+	//     of `read_epoch`… which names the wrap wanted", and the ordinary case is a member at
+	//     epoch n fetching the wrap that gets it to n+1 — a record ABOVE its own ceiling by
+	//     construction. `wrap_target_handle` is what bounds that arm.
+	//   - `RecoveryFetch` has no `read_epoch` to take. §4.3.7 authorizes it by an Ed25519
+	//     recovery proof and a seed-only restorer holds no read key at all.
+	//
+	// WHAT IT BUYS. MASTER §9.2 and Spec B §5.3 used to promise that a member removed at epoch
+	// n keeps metadata access "until epoch n's read key ages out, and no longer" — a window
+	// resting on a 90-day sweep that does not exist (`sweep/doc.go` holds no code). The ceiling
+	// delivers the strictly tighter "nothing above epoch n, ever", on the day it ships and with
+	// no sweep. Ruling 30 is LANDED as of 2026-09-22: both documents now publish the ceiling and
+	// keep the 90 days as the storage rule it always was.
 	ReadEpoch uint64
 }
 
@@ -444,10 +455,11 @@ type FetchRequest struct {
 // value it has to learn to ignore is worse than no value at all: it teaches the one check that
 // can catch a withholding server to be disbelieved.
 //
-// It is NOT narrowed by `ClassMask` or by `SinceRecordId`. Spec B §4.3.4 calls it "the group's
-// max at read time" and the ceiling is the only thing that moves it, because the ceiling is the
-// only one of the three that is about what this reader may see rather than about what this page
-// was asked to carry.
+// It is NOT narrowed by `ClassMask` or by `SinceRecordId`. The ceiling is the only thing that
+// moves it, because the ceiling is the only one of the three that is about what this reader may
+// see rather than about what this page was asked to carry. Spec B §4.3.4 used to call it "the
+// group's max at read time", which this made false; the specification now says "the group's max
+// AT OR BELOW read_epoch" and §5.1.1 carries the rule normatively.
 //
 // # Complete IS FALSE FOR THE LIMIT AND NOT FOR THE CEILING
 //
@@ -476,20 +488,38 @@ type FetchRequest struct {
 // SERVE IT. Measured and not assumed, because an argument resting on it would be resting on
 // nothing:
 //
-//	grep -rn 'GroupStatusRequest\|GroupStatusResponse\|FetchRequest' --include=*.go api/ peer/ cmd/ | grep -v _test
+//	grep -rhno 'GroupStatusRequest\|GroupStatusResponse\|FetchRequest' --include=*.go .
 //
-// answers seven lines, every one of them `FetchRequest` — the positive control carried in the
-// same query — and not one of them GroupStatus. The day that arm lands it becomes a second,
-// independent way for a reader to learn it is behind. It is not one today.
+// answers 101 `FetchRequest` — the positive control carried in the same query — against ONE
+// `GroupStatusRequest` and ONE `GroupStatusResponse`, and both of those are the two words of
+// this comment. The day that arm lands it becomes a second, independent way for a reader to
+// learn it is behind. It is not one today, and Spec B §4.3.10 now carries ledger item 248 for
+// what that arm owes the ceiling when it does.
 //
-// # THE COST, STATED
+// # THE COST, STATED — AND IT IS NOT WHAT THIS COMMENT FIRST SAID
 //
-// A server may now claim a shorter ceiling than the truth and withhold the tail of the reader's
-// own epoch, where an absolute high water would have exposed it. Spec B §4.3.4 already concedes
-// that shape — "a server can withhold a contiguous tail, and §12.3's honest limit stands" — so
-// it is not a new class of undetectable. Nor is it permanent: the moment the reader advances to
-// n+1 those records are strictly BELOW the new ceiling, and a gapless `record_id` sequence
-// (decision B4) makes their absence a hole rather than an edge.
+// A server may claim a shorter ceiling than the request named and withhold everything above it.
+// Two things this paragraph got wrong on 810f80b, both measured:
+//
+// FIRST, THE SIZE. It said "the tail of the reader's OWN EPOCH". It is the whole tail above
+// whatever ceiling the server claims — every record at every epoch above it. Measured through
+// §5.1.1's read path: a server clamping every reader to epoch 1, asked at `read_epoch = 3` with
+// a valid `req_auth` under `read_key[3]`, answered a `FetchResponse` that `proto.Equal`s the
+// honest `read_epoch = 1` answer. Seven of twelve records — TWO ENTIRE EPOCHS — withheld, with
+// no error and no hole, and the receiver's omission predicate (`reached < high_water`) answering
+// "nothing omitted", where the absolute high water it replaced answered "omitted".
+//
+// SECOND, THE MITIGATION, which was circular. It said the withholding "becomes a hole the moment
+// the reader advances to n+1". It cannot: the commit that would advance that reader is sealed at
+// an epoch ABOVE the claimed ceiling, so it is inside the tail being withheld. A reader the
+// withholding is holding below the ceiling never advances, by construction.
+//
+// What is actually true: Spec B §4.3.4 already concedes the SHAPE — "a server can withhold a
+// contiguous tail, and §12.3's honest limit stands" — so this is not a new class of
+// undetectable. What makes the ceiling's instance of it attributable is §4.3.4's
+// `FetchAttestation`, and `read_epoch` is INSIDE ITS PREIMAGE as of 2026-09-22 for exactly this
+// reason: without it, the honest short answer and the withholding one are the same bytes under
+// the same signature. The signature itself is unbuilt ([api.Handler.NotBuilt]).
 type FetchResult struct {
 	Records           []*Record
 	NextRecordId      uint64

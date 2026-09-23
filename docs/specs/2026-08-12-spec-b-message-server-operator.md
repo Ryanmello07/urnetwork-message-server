@@ -1588,9 +1588,13 @@ message FetchRequest {
 message FetchResponse {
     repeated Record records       = 1;
     uint64 next_record_id         = 2;
-    uint64 high_water_record_id   = 3;   // the group's max at read time
+    uint64 high_water_record_id   = 3;   // the group's max AT OR BELOW read_epoch — the epoch
+                                         // ceiling of §5.1.1, not the group's absolute max
     bool   complete               = 4;   // false when truncated by limit OR by
-                                         // max_response_bytes; both are NORMAL
+                                         // max_response_bytes; both are NORMAL. NOT false for
+                                         // the ceiling: a page the ceiling ends is complete,
+                                         // because what was asked for is bounded by the epoch
+                                         // the request authenticated
     FetchAttestation attestation  = 5;
 }
 message FetchAttestation {
@@ -1603,6 +1607,9 @@ message FetchAttestation {
     bytes  server_id            = 7;
     uint32 class_mask           = 8;
     bool   heads_only           = 9;
+    uint64 read_epoch           = 11;   // the epoch ceiling this answer was served under.
+                                        // Field 11 and not 10: `sig` landed at 10 and a
+                                        // landed field number is never renumbered
     bytes  sig                  = 10;   // Ed25519 over the preimage below
 }
 ```
@@ -1610,14 +1617,20 @@ message FetchAttestation {
 ```
 "URmessage/v1/attest" ‖ LP(server_id) ‖ LP(group_id)
   ‖ u64(since_record_id) ‖ u64(until_record_id) ‖ u64(high_water_record_id)
-  ‖ u32(class_mask) ‖ u8(heads_only)
+  ‖ u32(class_mask) ‖ u8(heads_only) ‖ u64(read_epoch)
   ‖ u32(count) ‖ u64(record_id[0]) ‖ … ‖ u64(record_id[count-1])
   ‖ u64(server_time_ms)
 ```
 
-Clients compare attestations only within an identical `(class_mask, heads_only)` filter. `class_mask` and `heads_only` are inside the preimage so that a filtered fetch is not byte-indistinguishable from a withholding one; refusing to attest a filtered fetch was rejected, because the class-filtered fetch is the restore path and is exactly where an attestation is most wanted.
+Clients compare attestations only within an identical `(class_mask, heads_only, read_epoch)` filter. All three are inside the preimage so that a filtered fetch is not byte-indistinguishable from a withholding one; refusing to attest a filtered fetch was rejected, because the class-filtered fetch is the restore path and is exactly where an attestation is most wanted.
+
+**`read_epoch` joined that tuple and that preimage on 2026-09-22, when the epoch ceiling of §5.1.1 landed, and it is there for the reason the other two are.** The ceiling makes `high_water_record_id` relative to the reader's own epoch, so a server that applies a shorter ceiling than the one the request named produces an answer **byte-identical** to the honest answer at that shorter ceiling. Measured, through this specification's own read path: a server clamping every reader to epoch 1, asked at `read_epoch = 3` with a valid `req_auth` under `read_key[3]`, answered a `FetchResponse` that `proto.Equal`s the honest `read_epoch = 1` answer — 5 records, `high_water` 5, `complete` true, against an honest `read_epoch = 3` answer of 12 records and `high_water` 12. **Seven records, two entire epochs, withheld with no error and no hole**: the receiver's omission predicate (`reached < high_water_record_id`) answers *nothing omitted* against it, where under the absolute high water it replaced the same predicate answers *omitted*. Unsigned, the attestation attests to the answer at **some** ceiling and never says which, so a filtered fetch is again indistinguishable from a withholding one — through the third filter rather than the first two.
+
+That a client already holds its own `read_epoch` is not an argument against signing it, and it is worth saying because it was made: `class_mask` and `heads_only` are values the client holds too. **A term the client knows is exactly the term that is cheap to sign and worthless to omit** — what the signature buys is not the value, it is the server's attributable commitment to having used it.
 
 `high_water_record_id` is inside the signature deliberately: it is what makes "the server told me nothing newer existed" an attributable statement rather than an absence. Because `record_id` is per-group and gapless (decision B4), a client can detect a withheld record as a **hole in the id sequence** without any digest machinery — which is a real v1 improvement over the master spec's §12.3 admission that withholding is undetectable, though it does not close it (a server can withhold a contiguous tail, and §12.3's honest limit stands).
+
+**What the ceiling adds to that admitted limit, stated rather than left to the reader.** §12.3's contiguous tail is now reachable by a second route — a short ceiling — and the tail it hides is the whole of the group above that ceiling, not the tail of the reader's own epoch. `read_epoch` in the preimage is what makes the two tell apart: an honest short answer carries a signature naming the ceiling the client asked for, and a withholding one either names a ceiling the client did not ask for or is not signed at all.
 
 #### 4.3.5 Subscribe
 
@@ -1639,7 +1652,12 @@ message SubscribeResponse {
 message RecordPush {
     bytes  group_id = 1;
     repeated Record records = 2;        // always contiguous in record_id
-    uint64 high_water_record_id = 3;
+    uint64 high_water_record_id = 3;    // §5.1.1's epoch ceiling applies to this arm too: a
+                                        // subscription serves no record above the read_epoch
+                                        // its req_auth was computed under, and this field is
+                                        // relative to that ceiling exactly as §4.3.4's is.
+                                        // UNIMPLEMENTED — Subscribe is unbuilt, and this line
+                                        // is the decision it inherits rather than re-takes
 }
 message TransientPush {                 // EPH(0) — receipts, typing. Never touches disk.
     bytes  group_id = 1;
@@ -1831,6 +1849,15 @@ message GroupStatusResponse {
                                        // is past the window and is told so rather than being
                                        // refused without explanation (§5.3).
 }
+// OPEN, ledger item 248, filed 2026-09-22 and NOT ruled here: `current_epoch` and
+// `high_water_record_id` on THIS arm are the group's absolute values, so a party whose Fetch is
+// bounded by §5.1.1's epoch ceiling can still poll GroupStatus and watch both climb. That is the
+// metadata feed the ceiling and ruling 30's published promise exist to close, arriving through a
+// different op byte. It is not fixed by clamping them, because §5.3 argues this arm is how a
+// member offline across commits discovers where the group got to, and the server cannot tell that
+// member from a removed one (I5). UNIMPLEMENTED in this server — `GroupStatusRequest` and
+// `GroupStatusResponse` appear in no non-test Go file of it — so nothing serves it wrongly today;
+// it is a decision the first implementation of this arm must not take by default.
 message CapabilityChange { Capabilities capabilities = 1; uint64 capability_version = 2;
                            repeated ServerKey server_keys = 3; BlobEndpoint blob_endpoint = 4; }
 message Backpressure     { bytes group_id = 1; uint64 resume_from_record_id = 2; }
@@ -2005,8 +2032,10 @@ Adding it late is safe **here**, and the reason is narrower than it first looks.
 this paragraph claimed that a response field is never a MAC input and that response fields are
 therefore purely additive. **That is false, and the counterexample is in this document.**
 `FetchResponse.attestation` (§4.3.4) carries a `FetchAttestation` whose `sig` is an Ed25519 signature
-by the fleet key over nine response fields — `group_id`, `since_record_id`, `until_record_id`,
-`high_water_record_id`, `record_ids[]`, `class_mask`, `heads_only` and `server_time_ms`. MASTER §9.4
+by the fleet key over **ten** attested fields — `server_id`, `group_id`, `since_record_id`,
+`until_record_id`, `high_water_record_id`, `class_mask`, `heads_only`, `read_epoch`, `record_ids[]`
+and `server_time_ms`. It read *"nine"* against a list of eight until 2026-09-22: `server_id` was
+missing from the list, and `read_epoch` was added to the preimage that day (§4.3.4). MASTER §9.4
 requires client and server to agree on that preimage byte for byte, so a field added to
 `FetchResponse` and folded into the attestation would break exactly the agreement the attestation
 exists to provide. Generalising "responses are additive" would license precisely that change.
@@ -2105,6 +2134,24 @@ Steps 1–8 are lock-free and touch the database at most once, only for a group 
 
 `Fetch`, `Subscribe`, `GroupStatus`, `BlobGrant` and `WrapFetch` are authorized by `req_auth` (§4.3.8). Checks 1, 2, 4 and 5 apply unchanged; check 6 becomes a **read-key lookup keyed on `(group_id, read_epoch)`** — the epoch is named by the request and is inside the MAC, so the server selects exactly one key and never trials a set — and the `req_auth` MAC then replaces check 7. A lookup that finds no retained key for that epoch, whether because the epoch never existed or because its key aged out of the 90-day window, fails identically. **No transaction is opened and no row is allocated on the read path.** Failure returns the same non-specific `REASON_REJECTED` with the same padded latency floor as the submit path.
 
+**THE EPOCH CEILING (normative).** `read_epoch` is not only an authorization term. **On `Fetch`, a read serves only records whose own `epoch` is at or below the request's `read_epoch`.** Both sides of that comparison are values this server verified: the record's `epoch` is a §3.2 column it wrote itself, and `read_epoch` is inside the `req_auth` MAC it just checked, so **I6** is clean and the server is taking nobody's word for either. It is a **required** term of the store-level request and not an optional filter: `epoch = 0` is a real epoch — the founding commit sits at it — so there is no spare value to spell "unbounded" with, and a `Fetch` path with no authenticated epoch to supply has no business serving records.
+
+**Which arms it reaches, stated exactly, because two of the five authorized reads MUST NOT take it:**
+
+- **`Fetch`** — the rule above. Landed.
+- **`Subscribe`** — inherits it. A subscription is a streaming `Fetch` and its `read_epoch` means the same thing, so `RecordPush` serves no record above the ceiling and its `high_water_record_id` is ceiling-relative (§4.3.5). Unbuilt.
+- **`WrapFetch` — NOT bounded by it, and applying it there would break the arm.** §4.3.9's `WrapFetchRequest` carries `epoch`, *"independent of `read_epoch`… which names the wrap wanted"*, and the ordinary request is a member at epoch *n* fetching the wrap that lets it reach *n+1* — a record **above** its own ceiling by construction. What bounds this arm is `wrap_target_handle`: a caller is served its own wrap and nothing else. A member removed at *n* is excluded from the *n+1* fan-out and so has no wrap to fetch there, which answers `REASON_WRAP_TARGET_UNKNOWN`; that follows from the fan-out and is not a second use of the ceiling.
+- **`RecoveryFetch` — outside it entirely.** §4.3.7 authorizes it by the Ed25519 recovery proof and not by `req_auth`; a seed-only restorer holds no read key and names no epoch, so there is nothing to compare against. Its scope is the `recovery_handle`.
+- **`GroupStatus`** — serves no records, so the rule as written does not reach it. What its two absolute counters leak is **open, filed as ledger item 248**, and §4.3.10 carries it.
+
+Three consequences, all normative:
+
+1. **`high_water_record_id` is relative to the ceiling** — the group's maximum `record_id` at or below `read_epoch`, 0 when the group holds none. It is **not** narrowed by `class_mask` or by `since_record_id`, because those describe what this *page* was asked to carry and the ceiling describes what this *reader* may see. An absolute high water would make every reader behind by an epoch raise an omission error against an honest server on every page of its catch-up, and that field is the reader's only omission detector.
+2. **`complete` is false for the limit and never for the ceiling.** A page the ceiling ends is complete: what was asked for is bounded by the epoch the request authenticated. `complete = false` is how a client re-asks from the cursor it holds, so a reader that has ingested the record at its ceiling would re-ask, be served nothing, and raise a no-progress error against a server that did exactly what it was asked.
+3. **Nothing has to signal "there is more".** A record above epoch *n* exists only because some commit opened *n+1*, and a commit is sealed **at** the epoch it closes — so the commit that tells a reader to move is always at or below that reader's own ceiling and is always in the page. And because §6.1's epoch gate refuses a write at any epoch but the current one, epochs are non-decreasing in `record_id`, so what the ceiling removes is always a contiguous **tail** and never a hole in the gapless sequence of decision B4.
+
+The ceiling is what MASTER §9.2 and §5.3 now publish in place of the 90-day metadata promise: a member removed at epoch *n* is served nothing above epoch *n*, immediately, with no dependence on the read-key sweep. Its cost is in §4.3.4 — a server claiming a shorter ceiling than the request named is byte-indistinguishable from an honest one unless `read_epoch` is in the attestation preimage, which is why it is.
+
 Before this, `FetchRequest` and `SubscribeRequest` carried no authenticator at all and §5 specified verification for submit only: any client holding a valid `ByJwt` that learned a 32-byte `group_id` could read a group's complete ciphertext history, every wrap and every attestation. That is a better enumeration and disclosure oracle than the submit path, which §4.5 goes to real trouble to close, and it makes MASTER §9.5's description of what the server sees ("your account, your group list") false.
 
 `RecoveryFetch` is authorized by the Ed25519 recovery proof (§4.3.7) instead, because a seed-only restorer holds no `write_key`.
@@ -2166,7 +2213,7 @@ This is not symmetry for its own sake. `req_auth` under an epoch *write* key wou
 
 **What the window costs and what it buys, both stated.**
 
-- A member removed at epoch *n* keeps read authorization — the ability to fetch ciphertext it cannot decrypt, and the metadata around it — until epoch *n*'s read key ages out, and no longer. Under the previous design it kept that access **for the life of the group**, which is the defect the window closes.
+- **A member removed at epoch *n* is served nothing above epoch *n*. Immediately, and with no dependence on this window at all** — §5.1.1's epoch ceiling refuses it, because the `read_epoch` inside its own `req_auth` is the highest epoch whose read key it holds. What it keeps is read authorization over the group **as that group stood at epoch *n***: the ciphertext it cannot decrypt and the metadata around it, frozen at the commit that removed it, until epoch *n*'s read key ages out of this window and the refusal becomes total. This is the published promise, amended 2026-09-22 (ruling 30) from *"until epoch n's read key ages out, and no longer"* — which was the honest statement of the window but the **weaker** of the two bounds, and rested on a sweep that did not exist. The ceiling is strictly tighter and is true on the day it ships; the 90-day figure stays what it always was, a **storage** rule. Under the design before either, a removed member kept a live metadata feed **for the life of the group**, which is the defect these two close together.
 - A member away for more than ninety days holds only keys this server has discarded and cannot read until it is re-admitted, links from another of its devices, or restores from its seedphrase, which is authorized by the Ed25519 recovery proof of §4.3.7 and never by a read key.
 - `GroupStatusResponse.oldest_read_epoch` exists so the client can name that condition instead of showing a bare refusal.
 
@@ -3664,7 +3711,7 @@ Spec C never opens a socket to the message server. Everything below reaches C th
 | C-1 | `MaxBlobBytes` from A's `ServerInfo()` — C never speaks to B, so it never sees raw `Capabilities` | Show the cap and enforce it **before** the file picker, not after a 400 MB read |
 | C-2 | The three advertised limits — `max_blob_bytes`, `media_ttl_*`, `durable_ttl_*` with `durable_retention_min_seconds` and `group_durable_override` — and `REASON_RETENTION_CLAMPED`, surfaced through `RetentionApplied` | Render the one-time in-group notice when a policy is clamped **down** *or* floored **up** (§7.3), naming the **effective** value, never the requested one. Where `group_durable_override` is false, say so rather than offering a text-retention control that does nothing |
 | C-3 | Blob grant + resumable chunk upload | Progress UI that survives a disconnect and resumes; the mask makes this exact rather than approximate |
-| C-4 | `FetchAttestation` and gapless `record_id` | Pin attestations covering the high-water range; warn when a later-learned record falls inside a covering attestation that omitted it (master §9.4); treat an id gap as a fault. A `complete = false` response is **normal** and MUST NOT be treated as a hole; compare attestations only within an identical `(class_mask, heads_only)` filter |
+| C-4 | `FetchAttestation` and gapless `record_id` | Pin attestations covering the high-water range; warn when a later-learned record falls inside a covering attestation that omitted it (master §9.4); treat an id gap as a fault. A `complete = false` response is **normal** and MUST NOT be treated as a hole; compare attestations only within an identical `(class_mask, heads_only, read_epoch)` filter — two honest answers taken at different `read_epoch`s name different high waters, because the high water is ceiling-relative (§5.1.1), and reading that as a contradiction convicts a correct server |
 | C-5 | The `Reason` enum | Map to user-facing strings. `REASON_REJECTED` maps to a generic failure — C must not invent a more specific message, since the server deliberately did not distinguish (§4.5) |
 | C-6 | `Backpressure` push | Re-subscribe from the client's own high-water. **Never** treat a drop as "nothing new" |
 | C-7 | Reconnect semantics | Resubscribe with `since_record_id`; the server replays. There is no cross-connection subscription state |
@@ -3708,7 +3755,7 @@ Master spec §14 makes §9.7 an acceptance criterion for this slice. Concretely,
 26. **Epoch publication.** A commit followed by an incomplete wrap fan-out leaves `epoch_complete = false` and rejects an ordinary submit with `REASON_EPOCH_INCOMPLETE`; the `EpochComplete` marker clears it.
 27. **`expire_at` units and direction.** The shared interop vector file carries at least one record with a **non-zero** `expire_at`, so a seconds/milliseconds mismatch cannot pass by defaulting to 0. Separately: a `DURABLE` record with `expire_at` one hour out is pruned at one hour, not at the class deadline; a `MEDIA` record with `expire_at = 2999` is pruned at the class deadline, not at `expire_at`.
 28. **Encoding guard.** A blocking job fails the build on any occurrence, in `docs/**/*.md`, of the four byte runs that double-encoded UTF-8 produces — the sequences U+00E2 U+20AC, U+00C2 U+00A7, U+00C3 U+00A2 and U+00C3 U+201A — and asserts that `.gitattributes` contains the line `*.md text working-tree-encoding=UTF-8 eol=lf`. The check is expressed by codepoint, never as literal corrupted text, so it does not fail on its own source.
-29. **Catch-up after missed epochs.** A client that has missed 5 epochs reconnects, calls `GroupStatus`, `Fetch` and `WrapFetch` with a `req_auth` computed under the read key of the newest epoch it holds and a matching `read_epoch`, and succeeds on all three. Assert also that a commit whose `EpochAttachment` carries a **different** `read_key` from the previous epoch's is **accepted** and installs that key against the epoch it opens — the previous behaviour, refusing a changed read key, is now exactly backwards.
+29. **Catch-up after missed epochs.** A client that has missed 5 epochs reconnects, calls `GroupStatus`, `Fetch` and `WrapFetch` with a `req_auth` computed under the read key of the newest epoch it holds and a matching `read_epoch`, and succeeds on all three. **The `Fetch` returns everything at or below that `read_epoch` and nothing above it (§5.1.1's ceiling), `complete = true`, with a `high_water_record_id` equal to the top of what the ceiling admits — so the client walks forward ONE EPOCH PER ROUND TRIP, taking the next read key from the commit each page ends on. A run that returns the whole group on the first page is a server with no ceiling, and a run that raises an omission error is a server with an absolute high water.** Assert the walk completes in as many round trips as there are epochs missed, not in one. Assert also that a commit whose `EpochAttachment` carries a **different** `read_key` from the previous epoch's is **accepted** and installs that key against the epoch it opens — the previous behaviour, refusing a changed read key, is now exactly backwards.
 30. **Every authorized read is authorized, and only inside the window.** For each of the five op bytes 13, 14, 16, 17 and 19: the request with a correct `req_auth` and matching `read_epoch` succeeds; the same request with the MAC computed under another group's read key, under an epoch `write_key`, under a different epoch's read key, or with the wrong op byte, is refused with `REASON_REJECTED` and the same padded latency. Then advance a fake clock past `read_key_window_seconds`, run the tidy loop, and assert the same request is now refused identically, and that `GroupStatus` under a still-retained epoch reports `oldest_read_epoch` correctly.
 31. **Aggregate-only logging, with and without a diagnostic session.** The §11.1 workload assertion runs twice: with no session live, no generated identifier appears in any sink; with a session live for one client, per-request detail appears **only** in the diagnostic store, **only** for that `client_id`, and disappears from acceptance at the session's end time. Guards §11.5.
 32. **Expired ephemerals keep no sender.** After an `EPH` sweep, every expired row has a `sender_handle` of sixteen zero bytes, its `message_stream_claim` row is gone, `record_id` remains gapless, and a replay at that `stream_index` is still refused with `REASON_STREAM_INDEX_REGRESSED`. Guards §7.2 and decision B15.

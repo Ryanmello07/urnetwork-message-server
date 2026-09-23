@@ -496,7 +496,7 @@ var unbuiltCapabilities = []NotBuilt{
 	},
 	{
 		Section: "§4.3.4, §9.4",
-		What:    "FetchAttestation: an Ed25519 signature by the fleet key over nine response fields, and this process holds no fleet key",
+		What:    "FetchAttestation: an Ed25519 signature by the fleet key over ten attested fields — including read_epoch, which joined the preimage on 2026-09-22 with the epoch ceiling and which protocol.FetchAttestation has no field for yet — and this process holds no fleet key",
 		Owner:   "the key custody of §9.1, through kt",
 	},
 }

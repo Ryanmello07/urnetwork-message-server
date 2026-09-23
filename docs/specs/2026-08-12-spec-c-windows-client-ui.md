@@ -1117,7 +1117,7 @@ The security property is unchanged: a genuine fork still stops sending. What is 
 > **A message dated 3 March arrived late, and an earlier check from this server said it wasn't there.**
 > That can be a server fault. It can also mean the server held it back. URmessage records this so it can't happen quietly.
 
-Attestations are compared only within an identical `(class_mask, heads_only)` filter — a filtered fetch is not a withholding one, and comparing across filters manufactures false warnings.
+Attestations are compared only within an identical `(class_mask, heads_only, read_epoch)` filter — a filtered fetch is not a withholding one, and comparing across filters manufactures false warnings. `read_epoch` joined that tuple on 2026-09-22 with the epoch ceiling (Spec B §5.1.1): a client catching up across several epochs takes one attestation per round trip, each naming a **different** high water, all of them honest. Comparing two of those against each other is the false warning this rule exists to prevent, and it is the ordinary case for any member who has been away rather than a corner.
 
 **A verified server-key rotation writes one line into the Security log** (screen 29) marking the boundary, and every attestation signed under the outgoing key is **discarded**, not silently trusted. `IntegrityEvent.CoveredSinceRecordId`…`CoveredUntilRecordId` is the range that stops being verifiable, and it is what that log line names. There is no modal and no user decision: the rotation was verified against the key built into the app, and the only thing left to do is record what it cost.
 

@@ -2548,7 +2548,9 @@ Accept records whose `write_auth` verifies. **Authorize reads: `Fetch`, `Subscri
 (§9.2), and MUST be refused without both — an unauthenticated read is a full metadata dump and a
 group-existence oracle.** Retain each group's read keys for 90 days from installation and refuse a
 request naming an epoch whose key has aged out. Enforce monotonic
-`stream_index` per `(group_id, sender_handle)`. Enforce single-commit agreement (§9.3). Serve history.
+`stream_index` per `(group_id, sender_handle)`. Enforce single-commit agreement (§9.3). Serve history, **and only up to the epoch the request
+authenticated: a read serves no record whose own epoch is above its `read_epoch` (§9.2, Spec B
+§5.1.1)**.
 Prune by retention class **and `expire_at`, where `expire_at` may only shorten retention, never extend
 it**. Never decrypt.
 
@@ -2666,10 +2668,15 @@ days and accepts a read authenticated under any retained key.
 
 - A member that returns within 90 days authenticates under the newest read key it holds and
   catches up normally, however many commits it missed.
-- A member **removed** at epoch *n* keeps the ability to fetch ciphertext it cannot decrypt, and
-  the metadata around it — record ids, sizes, timings, `sender_handle`s — until epoch *n*'s key
-  ages out. After that the server refuses it. This is the property the window exists to create:
-  before it, a removed member kept a live metadata feed for the life of the group.
+- A member **removed** at epoch *n* is served **nothing above epoch *n***, immediately and with no
+  dependence on this window: the epoch named inside its own `req_auth` is the highest whose read
+  key it holds, and the server serves no record above it (Spec B §5.1.1's **epoch ceiling**). What
+  it keeps is the ability to fetch — ciphertext it cannot decrypt, and the metadata around it:
+  record ids, sizes, timings, `sender_handle`s — **over the group as it stood at epoch *n***, until
+  epoch *n*'s key ages out, after which the server refuses it outright. Amended 2026-09-22: this
+  paragraph used to promise only the second half, which was true but is the **weaker** bound and
+  rested on a key-expiry sweep that was not written. The ceiling is strictly tighter and needs no
+  sweep. Before either, a removed member kept a live metadata feed for the life of the group.
 - A member that is offline for **longer** than 90 days holds only keys the server has discarded and
   cannot read until it is re-admitted, links from another of its devices, or restores from its
   seedphrase — seed-only restore is authorized by the §5.2 recovery proof and never by a read key,
@@ -2677,7 +2684,8 @@ days and accepts a read authenticated under any retained key.
   generic failure (Spec C §9.8).
 
 Epoch rotation on `Remove` already denies a removed member every decryption key from that epoch
-forward; the window is what finally denies it the metadata as well.
+forward; the **ceiling** is what denies it every record above that epoch, and the window is what
+finally denies it the records at or below it too.
 
 `server_nonce` is 32 bytes, issued by the message server at session start in `HelloResponse`, scoped
 to **that connection**, valid for the life of that connection, and never rotated. It prevents
@@ -2732,6 +2740,7 @@ message FetchAttestation {
     bytes  server_id            = 7;
     uint32 class_mask           = 8;
     bool   heads_only           = 9;
+    uint64 read_epoch           = 11;   // the epoch ceiling this answer was served under
     bytes  sig                  = 10;   // Ed25519 over the preimage below
 }
 ```
@@ -2739,14 +2748,20 @@ message FetchAttestation {
 ```
 "URmessage/v1/attest" ‖ LP(server_id) ‖ LP(group_id)
   ‖ u64(since_record_id) ‖ u64(until_record_id) ‖ u64(high_water_record_id)
-  ‖ u32(class_mask) ‖ u8(heads_only)
+  ‖ u32(class_mask) ‖ u8(heads_only) ‖ u64(read_epoch)
   ‖ u32(count) ‖ u64(record_id[0]) ‖ … ‖ u64(record_id[count-1])
   ‖ u64(server_time_ms)
 ```
 
 Clients retain attestations covering their high-water range and warn when a later-learned record falls
 inside a covering attestation that omitted it. Clients compare attestations only within an identical
-`(class_mask, heads_only)` filter.
+`(class_mask, heads_only, read_epoch)` filter.
+
+**`read_epoch` joined the field list and the preimage on 2026-09-22**, when the epoch ceiling landed
+(§9.2): `high_water_record_id` is now relative to the reader's own epoch, so without it a server
+applying a shorter ceiling than the request named is byte-indistinguishable from the honest answer at
+that shorter ceiling — the very indistinguishability `class_mask` and `heads_only` are signed to
+remove. Spec B §4.3.4 carries the measurement and the argument.
 
 ### 9.5 What the server sees
 
@@ -3239,9 +3254,12 @@ re-added, and recovered.
 contact's key changes from one you have seen before, and never silently switched.
 
 **On metadata after removal.** A member you remove loses every decryption key from that epoch
-forward immediately, and loses the ability to read the group's metadata from the message server 90
-days later (§9.2). It is not instant, and 90 days is the price of letting a member who closed their
-laptop for a season come back and catch up.
+forward immediately, and **stops being served the group's messages from that moment on**: the
+server refuses it every record above the epoch it was removed at (§9.2, the epoch ceiling).
+What it keeps for up to 90 days is the group **frozen at the moment you removed it** — the
+ciphertext it cannot read and the metadata around it, up to that point and no further — and after
+90 days it loses that too. The 90 days is the price of letting a member who closed their laptop
+for a season come back and catch up.
 
 **On what is written down.** The message server records aggregate counters and error classes and
 nothing per identity (§9.7). It is not a claim that nothing is ever logged: it is a claim about what

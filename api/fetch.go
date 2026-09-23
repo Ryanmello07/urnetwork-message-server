@@ -119,26 +119,39 @@ func (self *Handler) Fetch(ctx context.Context, conn *Connection, request *proto
 		response.Records = append(response.Records, rebuilt)
 	}
 	// §4.3.4's FetchAttestation is absent, not empty: it is an Ed25519 signature by the fleet
-	// key over nine response fields, and this process holds no fleet key. [Handler.NotBuilt]
+	// key over TEN attested fields, and this process holds no fleet key. [Handler.NotBuilt]
 	// carries the gap; `Capabilities.attestation_supported` is how a client is told.
 	//
 	// WHAT THE EPOCH CEILING DOES TO THE ATTESTATION, asked by ledger item 246 and answered
-	// here because this is where it would be built. THE NINE FIELDS DO NOT CHANGE and the
-	// preimage does not change: `read_epoch` does NOT join them. `high_water_record_id` is one
-	// of the nine and its VALUE is now ceiling-relative, which is the whole of the effect.
+	// here because this is where it would be built. `high_water_record_id` stays attested and
+	// its VALUE is now ceiling-relative — and `read_epoch` JOINS the field list and the
+	// preimage as the tenth term. Spec B §4.3.4 and MASTER §9.4 were amended on 2026-09-22 and
+	// this comment follows them; it does not lead them.
 	//
-	// That is not free, and the price is one sentence a client already obeys. Spec B §4.3.4:
-	// "Clients compare attestations only within an identical (class_mask, heads_only) filter",
-	// and the ceiling adds a third term to that tuple — two attestations for one group taken at
-	// different `read_epoch`s name different high waters, honestly, and an auditor that read
-	// them as a contradiction would be convicting a correct server. `read_epoch` is NOT added
-	// to the preimage to make that self-describing: the preimage is Spec B §4.3.4 RULED, the
-	// signature is unbuilt so there is nothing deployed to migrate, and a client has its own
-	// `read_epoch` in hand — it computed a MAC over it one round trip ago — so the term it
-	// would be adding is one it already knows. It is written down rather than done because the
-	// first implementation that signs this must know that the comparison is epoch-scoped; if
-	// that turns out to want wire support, it is a Spec B amendment and belongs with the fleet
-	// key, not smuggled in beside an unbuilt signature.
+	// 810f80b declined that term here, on the grounds that the preimage is RULED and that "a
+	// client has its own `read_epoch` in hand". Both halves were wrong. The second is the
+	// argument that would strike `class_mask` and `heads_only` too — a client holds those as
+	// well, and they are signed anyway, which is the positive control sitting inside the same
+	// nine fields. What a signature buys is not the value; it is the server's attributable
+	// commitment to having USED that value. And the first mistakes a specification for a fact:
+	// §4.3.4 is amended when it stops being true, which is what §6's change process is for.
+	//
+	// WHY IT IS NOT OPTIONAL, MEASURED RATHER THAN ARGUED. With the high water ceiling-relative
+	// and no ceiling in the preimage, an honest answer and a WITHHOLDING one are the same bytes:
+	// a server clamping every reader to epoch 1, asked at `read_epoch = 3` under a valid
+	// `req_auth`, answers a `FetchResponse` that `proto.Equal`s the honest `read_epoch = 1`
+	// answer — seven of twelve records, two entire epochs, withheld, with the receiver's
+	// omission predicate answering "nothing omitted". That is precisely the property §4.3.4 puts
+	// `class_mask` and `heads_only` in the preimage to deny, arriving through the third filter.
+	//
+	// The one real price is still paid, and a client already obeys it: §4.3.4's comparison rule
+	// becomes `(class_mask, heads_only, read_epoch)`, because two attestations for one group
+	// taken at different `read_epoch`s name different high waters, honestly, and an auditor that
+	// read them as a contradiction would be convicting a correct server.
+	//
+	// Nothing deployed migrates: the signature is unbuilt here and `FetchAttestation` carries no
+	// `read_epoch` field yet in `connect/protocol` — that field is the connect writer's, filed,
+	// and it is the first thing the implementation that signs this has to have.
 	return protocol.Reason_REASON_OK, response, nil
 }
 

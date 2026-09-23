@@ -9593,6 +9593,57 @@ fourteen are dispositioned below.
     returns and the 60-second retirement goes back on the critical path. Cheap, and it is the first
     thing to re-run. *Owner:* this repository.
 
+248. **FILED 2026-09-22 — §4.3.10's `GroupStatus` SERVES THE GROUP'S ABSOLUTE `current_epoch` AND
+    `high_water_record_id`, WHICH IS THE METADATA FEED THE EPOCH CEILING AND RULING 30 EXIST TO
+    CLOSE, THROUGH A DIFFERENT OP BYTE.** F0 (item 246) bounds `Fetch` by the epoch inside the
+    request's own `req_auth`. `GroupStatusRequest` carries the same authenticated `read_epoch` and
+    its response carries neither bound: a party stuck at epoch *n* — which, after Remove ships, is
+    an ex-member — polls it and watches both numbers climb for as long as `read_key[n]` is retained.
+    Ruling 30's published promise is *"a removed member is served nothing above the epoch it was
+    removed at"*, and an absolute `current_epoch` is above it.
+
+    **It is not fixed by clamping the two fields, which is why this is filed rather than done.**
+    §5.3's whole argument for the ninety-day read-key window is that *every route out of a stale
+    epoch is itself a read* and names this arm first: *"it cannot call `GroupStatus` to discover the
+    current epoch"*. The server cannot tell a removed member from a member who was away (**I5**), so
+    a clamp that closes the leak also removes the recovery route it was built for. A middle option
+    exists and needs measuring rather than asserting — under F0 a behind member learns the current
+    epoch from the commits its own ceiling serves, one epoch per round trip, which
+    `TestAMemberSeveralEpochsBehindWalksForwardOneEpochPerRoundTrip` drives end to end — but §5.3's
+    text would then be false and this arm's purpose would narrow to `oldest_read_epoch` and
+    `closed`.
+
+    **Exposure today is zero and measured, not assumed:** `GroupStatusRequest` and
+    `GroupStatusResponse` appear in exactly one Go file in this repository and it is a comment,
+    against 101 occurrences of `FetchRequest` as the positive control in the same query
+    (`grep -rhno 'GroupStatusRequest\|GroupStatusResponse\|FetchRequest' --include=*.go .`). Spec B
+    §4.3.10 now carries this item beside the message so the first implementation of the arm cannot
+    take the decision by default. *Owner:* the lead for the ruling, then this repository. **Gates
+    nothing today; it gates the day `GroupStatus` is served, and Remove must not ship after that
+    without it.** `RecordPush` and `GroupRecords` inherit the ceiling rather than re-take it, and
+    §4.3.5 now says so.
+
+249. **FILED 2026-09-22 — THE EPOCH CEILING'S `max(record_id)` IS BOUNDED BY `min(rows above, rows
+    at or below)` AND NOT BY A CONSTANT; THE RESTRUCTURE THAT WOULD MAKE IT CONSTANT RESTS ON AN
+    INVARIANT NO CONSTRAINT ENFORCES.** Migration 011's `(group_id, epoch, record_id)` closed the
+    reported half — a far-behind reader paying for every row ABOVE its ceiling, traffic it will
+    never be served, on every fetch including its zero-row polls (measured: `hit=905`, 1.415 ms,
+    `Rows Removed by Filter: 20000`; after the index `hit=4`, and the count does not move when the
+    traffic above grows 10×, which `TestTheEpochCeilingDoesNotPayForTrafficAboveIt` holds). What it
+    does not close is both sides large: PostgreSQL chooses by selectivity, and with 200,000 rows on
+    each side of the ceiling it takes the primary key backwards and pays all 200,000 — `hit=9024`,
+    21.9 ms.
+
+    **The fix is measured and is two one-row index-only lookups — `hit=8`, 0.042 ms on that same
+    scenario:** `max(record_id) WHERE group_id = $1 AND epoch = (SELECT max(epoch) … WHERE epoch <=
+    $5)`, which gives the index equality on both columns instead of a range. **It is correct only
+    because `record_id` is monotone in `epoch`**, which §6.1's epoch gate produces and which no
+    CHECK, no index and no §3.2 constraint enforces — and the value it computes is the client's
+    ONLY omission detector, so a violation of that invariant would make the detector silently wrong
+    rather than slow. Trading a correctness coupling for latency on that particular field is a
+    decision, not a correction, so this pass took the index and filed the restructure. *Owner:* this
+    repository, with the lead on whether the coupling is acceptable. **Gates nothing.**
+
 **RULINGS 27–31, taken 2026-09-22 by the project lead** (the red team separated "owner" from "lead"
 decisions; the owner has delegated the project, so these are ruled here and recorded so any can be
 reversed by name):
@@ -9619,10 +9670,39 @@ reversed by name):
     enforces: **a removed member is served nothing above the epoch it was removed at.** That is
     strictly tighter than the text it replaces, and it is true on the day F0 ships rather than on the
     day a sweep is written. The 90-day retention text stays as the *storage* rule it always was.
+    **LANDED 2026-09-22.** MASTER §9.2's window bullet, its closing sentence and §13's user-facing
+    *"On metadata after removal"* paragraph; Spec B §5.3's matching bullet. MASTER §9.1's server
+    duty list gained the ceiling clause in the same pass, because a list that still said *"serve
+    history"* unqualified is the §6 regression class this process exists to catch.
 31. **F3′ IS RED-TEAMED BEFORE IMPLEMENTATION PASSES DAY 2.** It is the only recommendation in this
     package that no advocate wrote and no adversary attacked, and this corpus's own history is the
     argument: the first URmessage crypto design pass returned 28 of 30 findings at CRITICAL or HIGH.
     The interop vectors are the cheap place for it to fail.
+32. **RULED AND LANDED 2026-09-22 — `read_epoch` JOINS §4.3.4's `FetchAttestation` AND ITS SIGNING
+    PREIMAGE.** §4.3.4's preimage was RULED, and this reopens it narrowly for the reason ruling 27
+    reopened §5.4: **the amendment and the landed code cannot both be true.** F0 made
+    `high_water_record_id` ceiling-relative, and §4.3.4's own stated purpose for `class_mask` and
+    `heads_only` — *"so that a filtered fetch is not byte-indistinguishable from a withholding
+    one"* — is defeated by the third filter it does not name. Measured through §5.1.1's read path,
+    not argued: a server clamping every reader to epoch 1, asked at `read_epoch = 3` under a valid
+    `req_auth` computed with `read_key[3]`, answers a `FetchResponse` that `proto.Equal`s the
+    honest `read_epoch = 1` answer — **7 of 12 records, two entire epochs, withheld, with the
+    receiver's omission predicate answering "nothing omitted"** where the absolute high water it
+    replaced answered "omitted".
+
+    **The argument F0 declined it on is refuted by F0's own text.** `api/fetch.go` declined the
+    term because *"a client has its own `read_epoch` in hand"*. `class_mask` and `heads_only` are
+    also values the client holds, and they are signed — the positive control sitting inside the
+    same nine fields. What a signature buys is not the value; it is the server's attributable
+    commitment to having used it.
+
+    **It costs nothing deployed.** The signature is unbuilt in this repository
+    (`Handler.NotBuilt`), `attestation_supported` is false, and no fleet key exists — which is the
+    argument FOR taking it now rather than against. Landed: Spec B §4.3.4 (field 11, the preimage
+    term, the comparison tuple, §4.5's attested-field list corrected from a *"nine"* that listed
+    eight and omitted `server_id`, and C-4), MASTER §9.4, Spec A §12.1 S7, Spec C §9.6.
+    **Unlanded and filed to the `connect` writer: `protocol.FetchAttestation` has no `read_epoch`
+    field**, and `connect/protocol/message.proto` is another repository. Reversible by name.
 
 **THE REMOVAL TRACK, RE-ORDERED** (this replaces X0–X5 in item 242's R1 entry). sdk is the contended
 repo and therefore the critical path — not this repository:
@@ -19274,3 +19354,127 @@ the other.
   into the group-scoped one. It was wrong, and the ruling rests on the refutation rather than on the
   pass that produced it.
 - **Item 232 is not answered here**, only named. Nothing in this entry should be read as fixing it.
+
+---
+
+### 2026-09-22 — F0's three review findings closed: the ceiling joins the attestation, the index the comment promised, and a normative line the code had made false
+
+**Change:** one commit in this repository, following `810f80b`/`e92d3b5`/`41d8207`. Four specification
+documents amended (MASTER, A, B, C), two ledger items filed (248, 249), one ruling recorded (32) and
+one marked landed (30), one migration, one new test, three code comments corrected.
+
+**Why:** a review of F0 (item 246) returned three majors, and all three reproduced under measurement
+before anything was changed. Each is recorded below with the measurement, because two of the three
+were **claims F0's own commits made in prose and the code did not support** — the class `41d8207`
+had already found once in the same work.
+
+#### 1. A ceiling-filtered fetch was byte-indistinguishable from a withholding one
+
+**Reproduced.** A server clamping every reader to epoch 1, asked at `read_epoch = 3` with a valid
+`req_auth` under `read_key[3]`, answered a `FetchResponse` that `proto.Equal`s the honest
+`read_epoch = 1` answer: 5 records, `high_water` 5, `complete` true, where the honest `read_epoch = 3`
+answer is 12 and 12. **Seven records — two entire epochs — withheld with no error and no hole**, and
+the receiver's omission predicate (`reached < high_water_record_id`) answered *nothing omitted*
+against it; under the absolute high water F0 replaced, the same predicate answered *omitted*. The
+printed complement: `FetchAttestation` names `[group_id since_record_id until_record_id record_ids
+high_water_record_id server_time_ms server_id class_mask heads_only sig]` — nothing about a ceiling,
+while `class_mask` and `heads_only`, which the client also holds, **are** signed. That is the positive
+control, carried in the same query.
+
+**Fixed as ruling 32:** `read_epoch` joins `FetchAttestation` (field 11) and the signing preimage, in
+Spec B §4.3.4, MASTER §9.4, Spec A §12.1 S7 and Spec C §9.6, with the comparison tuple becoming
+`(class_mask, heads_only, read_epoch)` in all four. F0's stated reason for declining it — *"a client
+has its own `read_epoch` in hand"* — is refuted by the two terms already in the preimage that the
+client also holds. Nothing deployed migrates: the signature is unbuilt and `attestation_supported`
+is false, **which is the argument for doing it now.**
+
+**`protocol.FetchAttestation` has no such field and `connect` is another repository.** Filed to the
+`connect` writer, not edited here.
+
+#### 2. The `ceiling` CTE's stated cost was false, and the index is now real
+
+**Reproduced.** `EXPLAIN (ANALYZE, BUFFERS, COSTS OFF)` over 10 rows at epoch 1 and 20,000 at epoch 2,
+after `ANALYZE`: a caught-up reader pays `shared hit=4` / 0.025 ms; a reader one epoch behind pays
+`shared hit=905` / 1.415 ms with **`Rows Removed by Filter: 20000`** — every row above its ceiling,
+traffic it will never be served, on every fetch including its zero-row polls. `store/pgx.go` claimed
+that work was *"bounded by what that reader is about to fetch anyway"*; that reader is about to fetch
+at most `max_records_per_fetch` rows **at or below** the ceiling, which here is ten. No index carried
+`epoch` — `message_record_wrap` is `(group_id, epoch, wrap_target_handle)` but **partial**, which is
+why the planner could not use it.
+
+**Fixed:** migration **011**, `message_record (group_id, epoch, record_id)`. The behind reader's
+ceiling drops to `shared hit=4` / 0.074 ms, and the **property** rather than the number is held by
+`TestTheEpochCeilingDoesNotPayForTrafficAboveIt`: 10× the traffic above the ceiling, the same buffer
+count. Mutated by deleting the index from 011 — the test goes red naming both numbers, 905 → 9022,
+and the file is byte-identical after the revert (sha256 `495f6906…`).
+
+**What the index does NOT fix, measured rather than assumed:** the planner chooses by selectivity, so
+the bill is about `min(rows above, rows at or below)`. With 200,000 rows on both sides it takes the
+primary key backwards and pays all of it — `hit=9024`, 21.9 ms. The equality restructure that makes it
+two one-row lookups (`hit=8`, 0.042 ms) rests on `record_id` being monotone in `epoch`, which §6.1
+produces and no constraint enforces, on the field that is the client's only omission detector.
+**Filed as item 249 rather than taken.** Migration 011 is also the first index in the list added to a
+table that exists in a deployment, which `newSqlMigration`'s own comment reserves for a
+`newCodeMigration` that is still unwritten; the migration says so in full rather than eliding it.
+
+#### 3. A landed change had made a normative line of this repository's own Spec B false
+
+Spec B §4.3.4 line 1591 still read `high_water_record_id = 3; // the group's max at read time`, which
+F0 made false in the same tree — measured at 5, not 12, for a reader at epoch 1 in a 12-record group
+at epoch 3. **Amended**, and the sweep §6 asks for found more than the one line:
+
+- §5.1.1 **stated the ceiling nowhere at all.** It described `read_epoch` as an authorization term
+  only, while three source files cite "§5.1.1" as the ceiling's home. The rule, its **I6** argument
+  and its three consequences (`high_water` ceiling-relative; `complete` false for the limit and never
+  for the ceiling; nothing needs to signal "there is more") are now normative there.
+- §4.3.4's `complete` comment gained the half the ceiling added.
+- §4.3.5's `RecordPush.high_water_record_id` now says it **inherits** the ceiling rather than
+  re-taking it when `Subscribe` lands.
+- §4.5's attested-field list said *"nine"* and listed **eight** — `server_id` was missing. Corrected
+  to ten with `read_epoch`.
+- §4.3.10's `GroupStatusResponse` serves the group's absolute `current_epoch` and high water under
+  the same authenticated `read_epoch`, which is the feed the ceiling closes arriving through another
+  op byte. **Filed as item 248 and not decided**, because §5.3's argument for the read-key window
+  names this arm as the route out of a stale epoch and a clamp would remove it.
+- §13 item 29's catch-up acceptance test asked for a client five epochs behind to *"succeed"* on
+  `Fetch` and said nothing about what it gets. It now names the one-epoch-per-round-trip walk and
+  the two ways a failing server passes the old wording.
+- Ruling 30 landed: MASTER §9.2, §9.1's duty list, §13's user-facing paragraph, Spec B §5.3.
+
+#### A third F0 claim that did not survive its own review — found by the §6 diff review, of my own edit
+
+`store/store.go`'s `ReadEpoch` doc named the three arms that must not forget the ceiling:
+`Subscribe`, **`RecoveryFetch`** and **`WrapFetch`**. I copied that list into §5.1.1's new normative
+paragraph, and reading it back against §4.3.7 and §4.3.9 it is **wrong on two of the three**:
+
+- **`WrapFetch` MUST NOT take the ceiling.** §4.3.9's own comment says its `epoch` field is
+  *"independent of `read_epoch`… which names the wrap wanted"*, and the arm's ordinary request is a
+  member at epoch *n* asking for the wrap that gets it to *n+1* — a record **above** its ceiling by
+  construction. A ceiling there refuses precisely the request the arm exists to serve.
+  `wrap_target_handle` is what bounds it.
+- **`RecoveryFetch` has no `read_epoch` at all.** §4.3.7 authorizes it by an Ed25519 recovery proof;
+  a seed-only restorer holds no read key, and §5.1.1 already said so three paragraphs down from
+  where the wrong list would have gone.
+
+Both §5.1.1 and `store/store.go` now enumerate all five authorized reads with which takes the
+ceiling and why. **This is the third claim in F0's prose that measurement did not support** — after
+the GroupStatus citation `41d8207` corrected, and the two in the cost paragraph above.
+
+**Process note, recorded because §6 names it:** §6 step 2 asks for a **subagent** diff review, and
+this pass had no facility to spawn one. The review above was done by the same agent that made the
+edit, one pass later and against the sources rather than against memory, which is how the
+`WrapFetch` defect was caught — but it is not the independent review §6 asks for, and it is owed.
+
+#### What this entry does not claim
+
+- **`read_epoch` is not on the wire.** The spec says it is attested; `connect/protocol` has no field
+  and nothing here signs anything. Item 249's restructure is filed, not taken. Item 248 is filed, not
+  ruled.
+- **Migration 011 closes one shape of the ceiling's bill and not the general case**, and the residual
+  is written on `PgxStore.Fetch` with the measurement that shows it.
+- **`docs/specs/2026-08-12-spec-b-message-server-operator.md` was CRLF in the working tree** although
+  `.gitattributes` pins `*.md text eol=lf` — the exact shape that made 84 source anchors on this
+  project pass vacuously. Normalised to LF in this commit with the blob hash unchanged
+  (`0feb10a0…` before and after the normalisation, `git diff` empty). The two spec-reading gates
+  strip `\r\n` themselves, so nothing was passing vacuously; it would have been the next one that did
+  not.
