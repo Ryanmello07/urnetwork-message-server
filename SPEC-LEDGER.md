@@ -19917,9 +19917,20 @@ opaque code is a gate whose clauses can be deleted one at a time with every test
 which is the shape item 249 records being defeated three times in `connect`.
 
 The length clause runs FIRST, because every clause after it indexes. Ten shapes are driven in
-`TestEveryAlignmentViolationIsRefusedByNameAndNotByAPanic`, **two of them the shapes §4.3.3 admits
-and asserted to answer nil**, and the test calls the function with no `recover()` — a panic fails
-it with its stack, which is what *"and not an index panic"* has to be measured as.
+`TestEveryAlignmentViolationIsRefusedByNameAndNotByAPanic` — **seven refusals and THREE shapes
+§4.3.3 admits, each asserted to answer nil**, counted out of the table by
+`grep -c 'want:\s*nil'` rather than from memory — and the test calls the function with no
+`recover()`, so a panic fails it with its stack, which is what *"and not an index panic"* has to
+be measured as.
+
+**Two numbers in this entry were wrong when it was first committed, and both are corrected above
+rather than quietly replaced.** It read *"`ok` in all 7 packages with tests"* (the run answers
+`ok` for **six**: the module root, `api`, `cmd/message-server`, `harness`, `peer` and `store`)
+and *"two of them the shapes §4.3.3 admits"* (the table holds **three**). Neither changes a
+claim about the code and both were caught by counting the thing instead of recalling it, which
+is the check that should have produced them in the first place. **The commit message of the
+commit this entry describes carries the first of the two uncorrected**, because a pushed commit
+message is not rewritten here; this paragraph is the correction of record.
 
 #### 6. The mutants, and the one that found a test of mine that could not fail
 
@@ -19954,7 +19965,7 @@ narrowing nobody asserted, and a TEST can be satisfied by a defence nobody named
 | command | result |
 |---|---|
 | `go test ./api/ ./store/ -run Test -timeout 900s -count=1` | `ok` api 0.545s, `ok` store 0.162s |
-| `go test ./... -run Test -timeout 900s -count=1` | `ok` in all 7 packages with tests |
+| `go test ./... -run Test -timeout 900s -count=1` | `ok` in all **6** packages with tests, 6 with none, 0 failures — counted by `grep -c '^ok'`, `grep -c 'no test files'` and `grep -c '^FAIL\|^---'` over the run's own output |
 | `URMESSAGE_TEST_DSN=… go test ./store/ -run Test -timeout 1800s -count=1` | **`ok` 253.075s** — the pgx contract RAN, migration 012 applied |
 | `go test -race ./api/ ./store/ -run Test -timeout 900s -count=1` | `ok` api 2.136s, `ok` store 2.277s |
 | `go test . -run 'TestEveryDependencyOfThisModuleIsOneSpecB22Allows\|…' -v -timeout 600s` | 9 gates, all `--- PASS`, `ok` 6.853s |
