@@ -624,6 +624,53 @@ its anchors stale by its own edit.)*
 
 ---
 
+**Revision 22 — 2026-09-22, third pass of that date — A BACKFILL, and the first entry this log
+did not write itself: the two it was owed, `21f22c7` and `5210f09`, and the gate that takes the
+next one.** Nothing in this document is amended by this entry — no section, no check, no reason
+code and no wire field moves in it. What it repairs is the log: both commits changed this spec
+and appended nothing here, so a reader of this section's own *"one entry per commit that changes
+this spec"* was reading a log that ended at Revision 21 while the document moved twice underneath
+it.
+
+**(1) `21f22c7` — rulings 30 and 32, the epoch ceiling's read path.** §4.3.4 gained `read_epoch`
+as `FetchAttestation` field 11 and in the signing preimage, and the comparison tuple clients hold
+became `(class_mask, heads_only, read_epoch)`. The measurement that forced it: a server clamping
+every reader to epoch 1 answered a `read_epoch=3` fetch with a response `proto.Equal` to the
+honest epoch-1 one — seven of twelve records, two whole epochs, withheld with no error and no
+hole. §4.3.4's *"the group's max at read time"* was false for a clamped reader and was amended;
+§5.1.1 stated the ceiling for the first time and enumerated which of the five authorized reads
+take it — `Subscribe`'s `RecordPush` does, `WrapFetch` and `RecoveryFetch` do not; §4.5's
+attested-field list said *"nine"* and listed eight; §4.3.10, §5.3, §12.2 and §13 item 29
+followed.
+
+**(2) `5210f09` — ruling 27's sixth attachment kind, and the window it opens.** §5.4 gained kind
+`0x0005` `EpochDigest` — the six public `EpochAttachment` fields plus `LP(H(epoch_keys))` — with
+its body, its `epoch_keys` preimage, and, in §5.4's own voice, ruling 27's reopening and the
+reason for it: §5.4 and §5.3 could not both be true. §5.1 check 3's clause became a **disjunction
+over the two kinds**, because written on `0x0001` alone *"`EpochAttachment` iff `is_commit`"*
+admits a `0x0005` attachment on a **non-commit** record — `false != false` passes. §4.3.2's
+`CreateGroupRequest` and §4.3.3's `SubmitRequest` gained the `epoch_keys` delivery under ruling
+33 and nothing else did; §3.2's attachment column states what it holds **by kind**; and §6.1 step
+(6) reads the delivery once and wraps it under the KEK. §5.4's acceptance window is dated and
+normative: both kinds from **2026-09-22**, a conforming client MUST emit `0x0005` from
+**2026-10-06**, and this server refuses `0x0001` on a commit from **2026-11-03** or on the day the
+Remove arm first ships, whichever is earlier.
+
+**Why this is a backfill and not a reminder.** This log was skipped twice in a row and Spec A's
+§0.6 six times, and this project's own rule for a gate bypassed twice is that the gate is not
+tracking the property. So the rule is mechanical from this commit: `editlog_test.go` holds every
+commit that changes this document to appending a line **inside this section**, measured off the
+file as of that commit, and a commit that appended none fails the suite unless it is named in
+that file's disposition table under a kind that carries its own assertion. `21f22c7` and
+`5210f09` are named `backfilledInTheLog`, which is asserted **against this entry** — the test
+fails unless both hashes appear in this region. `3bc0603`, which created this document, is named
+`createdTheDocument`, asserted by this log beginning at Revision 2. The same check runs against
+the working tree as well as the history, so it goes red while the edit is still uncommitted
+rather than after the push, which is the half that would have caught both commits above on the
+day.
+
+---
+
 ## 1. Scope
 
 **In scope.** The message server process: storage, ordering, single-commit agreement, `write_auth` verification, history serving, blob lifecycle, retention and pruning, capability advertisement, its own URnetwork account and transport wiring, deployment, configuration, migrations, backup, observability. Plus the operator-side surface the message server and clients depend on: the discovery directory and the key-transparency log.

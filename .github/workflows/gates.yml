@@ -47,7 +47,15 @@ jobs:
           --health-retries 20
 
     steps:
+      # fetch-depth: 0 because editlog_test.go reads the HISTORY. The default checkout is
+      # depth 1, and against a shallow clone every question that gate asks -- which commits
+      # touched this document, did that commit append to its log -- is answered off a
+      # truncated log, and each answer looks like a clean repository rather than an absent
+      # one. The gate refuses to run on a shallow clone by name rather than skipping, so
+      # this line is what keeps that refusal from firing on every run of this job.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-go@v5
         with:

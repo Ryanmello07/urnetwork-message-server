@@ -20005,3 +20005,178 @@ the answer and the positive control that the query finds a match when one exists
 - **No independent subagent diff review.** §6 step 2 asks for one and this session still has no
   facility to spawn it, exactly as `5210f09` and `21f22c7` recorded. The mutation table is what
   stands in its place for the code, and it is not the same thing.
+
+---
+
+### 2026-09-22 (fourth pass of that date) — the edit-log entries `5210f09` and `21f22c7` owed, the five before them, and the gate that takes the next one instead of asking for it
+
+**Change:** one commit in this repository. Spec B gains **Revision 22**, Spec A gains row **A-28**,
+Spec C gains row **Rev 7** — three backfills, paying twelve commits between them — plus
+`editlog_test.go`, which holds the rule mechanically from here, and one line in
+`.github/workflows/gates.yml` that gives it the history to read. **No normative line of any
+document is amended by this commit**: what changes is each document's log, and the fact that the
+log is now checked.
+
+#### 1. The finding, reproduced before it was fixed
+
+Spec B's own log states the rule: *"Append-only. Newest last. One entry per commit that changes
+this spec. Follow the ledger §6 change process: edit, subagent diff review, fix, commit with the
+ledger entry, append here."* Spec A §0.6 and Spec C §0.6 say it in their own words.
+
+The query, over the last fifteen commits touching Spec B, counting `**Revision n` lines added by
+each:
+
+```
+for c in $(git log --format=%h -15 -- docs/specs/2026-08-12-spec-b-message-server-operator.md); do
+  git show $c -- docs/specs/2026-08-12-spec-b-message-server-operator.md | grep -cE '^\+\*\*Revision [0-9]+'
+done
+```
+
+Thirteen of the fifteen added exactly one. The two that added **zero** are `21f22c7` and
+`5210f09` — the two most recent spec commits on this project, which between them carried ruling
+27. The positive control is in the same output and not in a sentence: `d2e7a51`, `81f47cc`,
+`76e0601`, `be7154d`, `bed5b84`, `cea05b8` and `7fb0dd9` each added exactly one, so the query
+does find entries when they are there. Spec A's `| date | A-n |` form answers the same way: its
+last **six** commits — `5210f09`, `21f22c7`, `a401b9b`, `368ef8d`, `4eddba1`, `28c04b2` — added
+no row, and the table ended at `| 2026-09-15 | A-27 |`.
+
+**The finding named A and B. Spec C is in the same state and nobody had looked:** `d2e7a51`,
+`368ef8d` and `21f22c7` each changed it — §8.1's disappearing-string note, `GapReason`'s
+`unsupported`, and §9.6's comparison tuple — and its log ended at Rev 6 of 2026-08-12.
+
+Over the whole history, with the detector this commit ships: **36** commits touch Spec A and
+**8** appended nothing; **23** touch Spec B and **3** appended nothing; **9** touch Spec C and
+**4** appended nothing. One of each eight, three and four is `3bc0603`, the commit that created
+the documents.
+
+#### 2. Why the check is per commit, and not "the log's newest date is not older than the newest commit"
+
+That was the suggested repair and it is weaker in three ways, each measured on this corpus rather
+than argued:
+
+1. **It cannot be written for Spec C.** Its log is `| Rev | Change |` — the entries carry a
+   revision number and **no date field**. Written the obvious way, over any date found in an
+   entry, it reads **2026-08-12 out of a filename** quoted in row 2
+   (`docs/reviews/2026-08-12-r4-findings-full.json`) and reports the log stale forever, whatever
+   is appended. That is measured, not predicted: it is what M6 did when it was run.
+2. **It is blind at day resolution, which is the resolution this project commits at.** `21f22c7`
+   and `5210f09` are both dated 2026-09-22 and this ledger already holds four passes of that
+   date. With Revision 22 dated 2026-09-22 in place, the date rule reports Spec B as current for
+   **every further commit of that day**, whatever it appends.
+3. **It says nothing about which commit an entry belongs to**, so it cannot tell a log that is
+   current from one that took a single entry and skipped five — which is exactly Spec A's state
+   before this commit.
+
+The rejected design was **run, not reasoned about** — see mutant M6 below. Applied to this tree
+after the backfill it answers **CURRENT** for Spec A and Spec B, which between them hold **eleven**
+of the fifteen commits that appended nothing, and it answers "older" for Spec C for a reason that
+has nothing to do with Spec C's log. Green where it should be red, red where the log is fine.
+
+#### 3. The mechanism: an added line counts only inside the log region
+
+`editLogEntriesAdded` takes the document as of that commit, locates the log section by its
+heading and the next heading of the same level or higher, and counts added lines whose **new-file
+line number** falls inside it. That is the mechanism and not a detail: `3bc0603` adds **32** lines
+matching Spec C's entry shape `| n | …` and **not one of them is an edit-log row** — they are
+§14.2's per-datum table and four others like it. Unscoped, the commit that created Spec C with an
+empty log reads as the best-documented commit in the history; scoped, it reads 0, which is what
+the document says about itself by beginning at Rev 2.
+
+`TestTheEditLogGateStillDetectsWhatPaidAndWhatDidNot` asserts that difference — scoped 0, unscoped
+at least 20 — so the scoping cannot be removed and leave a green suite behind. The same test pins
+the detector against eight commits whose answer is known by hand, four of them paying and four
+not, because every "this commit appended nothing" in this file is an **absence** and an absence
+is worth exactly what the query behind it is worth.
+
+#### 4. Both directions, held against a written-down disposition table
+
+Fifteen commits appended nothing and every one of them is named in `editLogDispositions` under a
+kind that carries **its own assertion**, so the narrowing is asserted and not printed:
+
+- **`backfilledInTheLog`** (twelve rows) — the document's log region must **cite that commit's
+  short hash today**. The test fails unless `5210f09` and `21f22c7` literally appear in Spec B's
+  Revision 22, the seven Spec A hashes in A-28, and the three Spec C hashes in Rev 7. An entry
+  that pays a debt names what it pays or the claim cannot be audited from the document.
+- **`createdTheDocument`** (three rows, all `3bc0603`) — the commit must be the **first** commit
+  that touched the path, and the log's first entry must be numbered **2**. That is what makes the
+  creating commit revision 1 rather than a skipped one, and it is read off the document.
+- **`debtRecordedNotPaid`** — the commit must be an **ancestor of the baseline** `41d8207`. A
+  commit that lands after the gate can never be filed as a debt the gate inherited.
+
+And the reverse: a row for a commit that appended an entry, or that never touched that document,
+fails the gate. Both forms were run as mutants (M3a, M3b) rather than asserted in a comment.
+
+#### 5. The ledger's own arm, and the debt it records and does not pay
+
+§7 states the same rule one level up — *"one entry per commit that changes a spec or plan"* — so
+the gate checks it: every commit that touched Spec A, B, C or `docs/plans/*.md` must add a
+`### <date>` entry inside §7. **52 of 73** such commits did. The **21** that did not are listed
+by hash in `editLogLedgerDebt`, every one of them before the baseline, and four of them
+(`10f0a39`, `368ef8d`, `a401b9b`, `d89e528`) are recent commits that wrote ledger prose into §5's
+open items rather than a §7 entry.
+
+It is a **list of hashes and not a count**, because a count of twenty-one is satisfied by any
+twenty-one commits. A delinquent commit that is not in the list fails the gate; a hash in the list
+that paid, or that did not change a spec at all, fails it too. **This debt is recorded and not
+paid** — reconstructing twenty-one entries from their diffs is a different job from this one, and
+pretending otherwise by writing twenty-one vague rows would make the log longer and less true.
+
+#### 6. The mutants
+
+Seven, each judged by the test that names its mechanism, each reverted, and every revert verified
+by sha256 against the file it was applied to — `editlog_test.go` at
+`1ccd3fe746f1b82832c1d80f5dc6d1cc7f88399d0028ca0aff6e965a95270c17` and the three specs at the
+hashes they carry in this commit. **The committed `editlog_test.go` is not that hash**: M6
+measured that a claim in that file's own header comment was wrong and the comment was corrected
+after the table was run, which is the one edit between the file the mutants saw and the file here.
+
+| # | what was mutated | result |
+|---|---|---|
+| M1 | **the mechanism**: the region scoping dropped — an added line counts anywhere in the diff | `TestTheEditLogGateStillDetectsWhatPaidAndWhatDidNot` red (*"3bc0603 … the scoped detector reads 32 entries"*) **and** `TestTheEditLogGateHoldsEveryCommitToTheDocumentsOwnLog` red (`3bc0603` now reads as having paid Spec C while dispositioned) |
+| M2 | the disposition table: `specB/5210f09` deleted | landed arm red: *"commit 5210f09 changed the document and appended NO entry to its log"* |
+| M3a | the disposition table: a row for `d2e7a51`, a commit that PAID | landed arm red: *"APPENDED an entry and is dispositioned … anyway"* |
+| M3b | the disposition table: a row for `956057b`, which never touched Spec B | landed arm red: *"was never needed: that commit does not appear in the history of that document"* |
+| M4 | **the artefact**: `5210f09`'s hash removed from Spec B's Revision 22 | landed arm red on the backfill's own assertion: *"is dispositioned backfilledInTheLog … and the log region does not CITE it"* |
+| M5 | **the defect itself**: a normative line of Spec C edited and its Rev 7 row removed — the shape of `21f22c7`, uncommitted | `TestTheEditLogGateHoldsAPendingEditToItsEntry` red **before any commit exists**, naming Spec C |
+| M6 | **the rejected design**: the landed arm's mechanism replaced by "the log's newest date is not older than the newest commit touching it" | Spec A **CURRENT** (newest entry 2026-09-22, newest commit 2026-09-22) and Spec B **CURRENT** on the same numbers, over a history in which the per-commit rule finds eight and three commits that appended nothing; Spec C *"older"* off a date read out of a filename. The measurement behind §2 above, and it corrected §2 point 1 as written |
+| M7 | the anchor: `editLogGateBaseline` moved to `3bc0603` | ledger arm red for every debt: *"commit 24df8be is dispositioned debtRecordedNotPaid, which only the history BEFORE the baseline 3bc0603 may take"* |
+
+M1 is the one that matters: a mutation table that varies only the pattern, the hash or the
+threshold cannot see a change of **mechanism**, and this gate's mechanism is the region.
+
+**One clause is asserted and not exercised, and says so here rather than being counted as
+covered:** `debtRecordedNotPaid`'s ancestry check has no live member, because no post-baseline
+commit is delinquent — which is the point of it. M7 exercises it by moving the baseline to
+`3bc0603`, which makes all twenty-one recorded debts descendants of it and turns the arm red by
+name; the baseline was restored and the file's sha256 with it.
+
+#### 7. Commands, with their result
+
+| command | result |
+|---|---|
+| `go test ./ -run TestTheEditLogGate -timeout 900s -count=1 -v` | `ok` — six tests, all `--- PASS` |
+| `go test ./... -run Test -timeout 900s -count=1` | `ok` ×6, no-test ×6, **0 failures** |
+| `go test ./ -run TestThePlanLinter -timeout 900s -count=1` | `ok` |
+| `go build ./...` / `go vet ./...` / `gofmt -l .` | clean / clean / empty |
+| `git ls-files \| wc -l` | 137 → 138, never dropping |
+
+The store's pgx contract was **not** re-run for this commit and no claim is made about it: this
+commit adds one test file that reads `docs/` and `git`, and changes no package this module builds.
+`95eee27` holds the last race-and-pgx run, over the code that is still there.
+
+#### 8. What this does not do
+
+- **No independent subagent diff review**, exactly as `21f22c7`, `5210f09` and `956057b` each
+  recorded. §6 step 2 still asks for one and this session still has no facility to spawn it. The
+  mutation table stands in its place and is not the same thing.
+- **The gate cannot tell a truthful entry from a lie.** An entry reading *"typo fix"* over a
+  commit that rewrote §5 satisfies it completely. It checks that the log took an entry for every
+  commit, not that the entry is true — that half stays the author's and the diff review's.
+- **It needs the whole history.** A shallow clone answers every question above off a truncated log
+  and each answer looks like a clean repository, so the gate refuses to run on one by name rather
+  than skipping, and `gates.yml` now checks out with `fetch-depth: 0`. That line is part of this
+  commit and not a follow-up.
+- **The twenty-one §7 entries are still owed** (§5 above), and so are the five Spec A rows this
+  commit pays in **one** row rather than five — `10f0a39`, `28c04b2`, `4eddba1`, `368ef8d` and
+  `a401b9b` each deserved their own row on the day, and a backfill cannot make commits that are
+  already in the history.
