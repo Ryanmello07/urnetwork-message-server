@@ -469,9 +469,18 @@ type FetchRequest struct {
 // A record above epoch n exists only because some commit opened n+1, and a commit is SEALED AT
 // the epoch it closes — its own `epoch` column is n, it is below the ceiling, and it is served.
 // Walking to the ceiling therefore hands the reader, in that same page, the commit that tells
-// it to move. §4.3.10's GroupStatus answers `current_epoch` and the group's absolute high water
-// under the same read key besides, so "am I behind?" has an authenticated answer on a second
-// arm.
+// it to move. That is the whole argument, and it leans on nothing else.
+//
+// IT DELIBERATELY DOES NOT LEAN ON §4.3.10's GroupStatus — which would answer `current_epoch`
+// and the group's absolute high water under this same read key — BECAUSE THIS SERVER DOES NOT
+// SERVE IT. Measured and not assumed, because an argument resting on it would be resting on
+// nothing:
+//
+//	grep -rn 'GroupStatusRequest\|GroupStatusResponse\|FetchRequest' --include=*.go api/ peer/ cmd/ | grep -v _test
+//
+// answers seven lines, every one of them `FetchRequest` — the positive control carried in the
+// same query — and not one of them GroupStatus. The day that arm lands it becomes a second,
+// independent way for a reader to learn it is behind. It is not one today.
 //
 // # THE COST, STATED
 //
