@@ -10096,6 +10096,43 @@ repo and therefore the critical path — not this repository:
     dispatches only Fetch, Submit and CreateGroup — so any plan routing wrap retrieval through it is
     planning against something that does not answer.
 
+252. **ITEM 244 IS CLOSED ON THE DEPLOYED ALPHA, 2026-09-23, and the before/after is a query against
+    the server's own table.** The alpha runs `msgrepo 047843d` and `liveprobe` built from `sdk`
+    HEAD answered **11 STEPS, 1,419 ASSERTIONS, ALL HELD** — 0 FAIL lines, 0 credential leaks, three
+    real accounts over `beta-test.net`, counters `FAILED=0` on all three parties.
+
+    **The decisive measurement is not that the probe passed — the server accepts BOTH kinds during
+    §5.4's window, so passing proves nothing on its own. It is which kind the commits carried:**
+
+    | group | commits with the epoch-keys digest | created |
+    |---|---|---|
+    | the probe's new group | **5 of 5** | 2026-09-23 22:59 |
+    | four older groups | **0 of 5, 0 of 5, 0 of 3, 0 of 2** | 2026-09-21 / 22 |
+
+    Every commit sealed by a client built from `sdk` HEAD carries kind `0x0005` and **no epoch key**;
+    every commit sealed before it carries kind `0x0001` and the keys in the clear. The historical
+    groups are the control and they sit in the same table, so the zero on the new side means
+    something. All 5 digests are exactly 32 octets. **The acceptance window is doing exactly what it
+    was designed for: old groups stay readable and untouched, new commits hand out nothing.**
+
+    **Item 250's four outstanding things: one is now discharged.** *Nothing is deployed from these
+    commits* is no longer true. Still standing: §5.4's window is open by design until it closes
+    (dated: clients MUST emit `0x0005` from 2026-10-06, the server refuses `0x0001` from 2026-11-03
+    **or the day Remove ships, whichever is earlier**); the 90-day sweep is unbuilt, with ruling 30
+    having already amended the published promise down to what F0 enforces; and §4.3.4's attestation is
+    unsigned, so ruling 32's `read_epoch` term binds nothing yet — that is the read-side *withholding*
+    half, a different defect from this one.
+
+    **An operational defect the deploy exposed, and it had been there since the alpha was stood up.**
+    The box rebooted mid-deploy. PostgreSQL came back; **the message server did not, because no
+    systemd unit existed** — every start since 2026-09-14 had been a hand-run `nohup`, which no reboot
+    would have survived. The reboot also cleared `/tmp`, taking the staged binaries with it. Now:
+    `/etc/systemd/system/urmessage.service`, **enabled**, `Requires=postgresql.service` (the server
+    opens its pool at startup and must not race Postgres on a cold boot), `Restart=on-failure`, logs
+    to journald. Verified by restarting *from the unit* rather than by hand. Binaries stage in
+    `/opt/urmessage/staging/`, never `/tmp`. **The lesson is the one this corpus keeps relearning in
+    another dress: a thing that has only ever been done by hand has never been tested.**
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
