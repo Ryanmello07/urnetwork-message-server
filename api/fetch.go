@@ -300,7 +300,13 @@ func rebuildRecord(groupId []byte, record *store.Record, headsOnly bool) (*proto
 	if err != nil {
 		return nil, err
 	}
-	attachment, err := message.ParseServerAttachment(rebuilt.Header.ServerAttachment)
+	// the SAME two doors check 3 parses through, and this line is item 244's read half. A
+	// stored kind `0x0005` commit is served back by this function, so a `ParseServerAttachment`
+	// alone here would refuse every `0x0005` record this server itself accepted — REASON_INTERNAL
+	// on a fetch, for a row the submit path wrote. What it must NOT do, and does not, is learn a
+	// key: the digest attachment has none, and the projection below reads only `Wrap` and
+	// `Recovery`
+	attachment, err := parseServerAttachment(rebuilt.Header.ServerAttachment)
 	if err != nil {
 		return nil, err
 	}

@@ -439,6 +439,44 @@ CREATE INDEX message_record_epoch
     ON message_record (group_id, epoch, record_id)
     WITH (fillfactor = 100);
 `),
+
+	// ── 012  the epoch digest projection (ledger item 244, ruling 27) ────────────────
+	//
+	// Spec A §5.11 kind 0x0005 carries one field 005c's projection has no column for:
+	// `epoch_keys_digest`, 32 octets of SHA-256 over the two keys the attachment no longer
+	// carries. Every other field of the sixth kind is a field of the fifth and already has a
+	// column — `attachment_epoch`, `attachment_alg_id`, the two retention columns,
+	// `attachment_group_context_hash` and `attachment_expected_wrap_count` — which is what
+	// ruling 27 means by "the six PUBLIC fields of an EpochAttachment", read as a schema.
+	//
+	// NOTHING SENSITIVE LANDS IN ANY COLUMN OF THIS TABLE UNDER 0x0005, AND THAT IS THE POINT
+	// OF THE AMENDMENT. Under 0x0001 the raw `server_attachment` column holds write_key[n+1]
+	// and read_key[n+1] IN THE CLEAR, beside the `message_epoch` row that wraps the very same
+	// two values under the vault KEK (§5.5) — one copy wrapped and one copy not. Under 0x0005
+	// the raw column holds six public fields and this digest, the keys arrive on the REQUEST
+	// (ruling 33), and [PgxStore.openEpoch] wraps them straight into `message_epoch`. So the
+	// keys exist in this database in exactly one place, wrapped, which is what §5.3's "a stolen
+	// database dump alone must not yield write keys" has always asked for.
+	//
+	// The CHECK is the one 005c gives its two other fixed-width attachment columns, for the
+	// reason 005c gives: a digest that is not 32 octets is not a truncation to compare a prefix
+	// of, it is a row no conforming submitter produced. NULL is legal and is every record that
+	// is not a kind 0x0005 commit.
+	//
+	// ADD COLUMN … NULL with no default is a catalogue-only change in PostgreSQL 11 and later:
+	// no table rewrite, no per-partition heap scan, and the ACCESS EXCLUSIVE lock is held for
+	// the length of a catalogue update rather than of a scan. That is why this one is a plain
+	// SQL migration and 011's expiring note does not apply to it — 011 is an index build and
+	// this is not.
+	newSqlMigration("012 message_record epoch digest", `
+ALTER TABLE message_record
+    ADD COLUMN attachment_epoch_keys_digest bytea NULL;
+
+ALTER TABLE message_record
+    ADD CONSTRAINT message_record_attachment_keys_digest
+        CHECK (attachment_epoch_keys_digest IS NULL
+               OR octet_length(attachment_epoch_keys_digest) = 32);
+`),
 }
 
 // §10.3: migrations are executed by a dedicated init job or `messagectl migrate`, NEVER by N

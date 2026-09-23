@@ -643,6 +643,7 @@ func recordColumns(headsOnly bool) string {
                    r.attachment_media_ttl_seconds, r.attachment_durable_ttl_seconds,
                    r.attachment_group_context_hash, r.attachment_expected_wrap_count,
                    r.attachment_leaf_index, r.attachment_verify_pub, r.attachment_wrap_count,
+                   r.attachment_epoch_keys_digest,
                    e.write_key_wrapped, e.read_key_wrapped`
 }
 
@@ -684,6 +685,7 @@ type storedRecord struct {
 	leafIndex         *int64
 	verifyPub         []byte
 	wrapCount         *int64
+	epochKeysDigest   []byte
 
 	writeWrapped []byte
 	readWrapped  []byte
@@ -702,6 +704,7 @@ func (self *storedRecord) targets() []any {
 		&self.mediaTtl, &self.durableTtl,
 		&self.groupContextHash, &self.expectedWrapCount,
 		&self.leafIndex, &self.verifyPub, &self.wrapCount,
+		&self.epochKeysDigest,
 		&self.writeWrapped, &self.readWrapped,
 	}
 }
@@ -804,6 +807,33 @@ func (self *PgxStore) attachmentOf(groupId []byte, row *storedRecord) (*Attachme
 			marker.WrapCount = uint32(*row.wrapCount)
 		}
 		return &Attachment{Kind: kind, EpochComplete: marker}, nil
+	case AttachmentEpochDigest:
+		// ruling 27's sixth kind, out of 005c's columns and migration 012's. THERE IS NO
+		// UNWRAP HERE AND THERE MUST NOT BE ONE: the epoch attachment case above reads
+		// `message_epoch`'s two wrapped columns because kind 0x0001's attachment carried the
+		// keys, and this kind's did not. Reaching for them here would put the next epoch's
+		// keys back into a value [Store.Fetch] hands out, which is ledger item 244 re-opened
+		// one layer below where ruling 27 closed it.
+		digest := &EpochDigestAttachment{
+			GroupContextHash: row.groupContextHash,
+			EpochKeysDigest:  row.epochKeysDigest,
+		}
+		if row.attachmentEpoch != nil {
+			digest.Epoch = uint64(*row.attachmentEpoch)
+		}
+		if row.algId != nil {
+			digest.AlgId = uint32(*row.algId)
+		}
+		if row.mediaTtl != nil {
+			digest.MediaTtlSeconds = uint32(*row.mediaTtl)
+		}
+		if row.durableTtl != nil {
+			digest.DurableTtlSeconds = uint32(*row.durableTtl)
+		}
+		if row.expectedWrapCount != nil {
+			digest.ExpectedWrapCount = uint32(*row.expectedWrapCount)
+		}
+		return &Attachment{Kind: kind, EpochDigest: digest}, nil
 	default:
 		// AttachmentNone: a record that carried no attachment at all. It is a nil pointer and
 		// not an empty one, because a nil is what its submitter handed over
@@ -874,12 +904,14 @@ func (self *PgxStore) CreateGroup(ctx context.Context, request *CreateGroupReque
 		return nil, err
 	}
 	if !request.InitialCommit.IsCommit || request.InitialCommit.Epoch != 0 ||
-		!wellFormedEpochAttachment(request.InitialCommit, 1) {
+		!wellFormedEpochAttachment(request.InitialCommit, 1, request.EpochKeys) {
 		return &CreateGroupResult{Reason: protocol.Reason_REASON_REJECTED}, nil
 	}
 
-	attachment := request.InitialCommit.Attachment.Epoch
-	media, durable, applied := self.limits.apply(attachment)
+	// the one read of the opening on this path, and it cannot fail: wellFormedEpochAttachment
+	// above ran openingOf over the same two arguments and refused everything this would
+	opening, _ := openingOf(request.InitialCommit, request.EpochKeys)
+	media, durable, applied := self.limits.apply(opening)
 	// §7.1 computes prune_after in Go, from the class and the policy this commit just set. The
 	// founding commit is PERMANENT in every client this specification describes, and that is
 	// the one class the arithmetic answers nil for — but it is computed rather than assumed,
@@ -904,7 +936,7 @@ func (self *PgxStore) CreateGroup(ctx context.Context, request *CreateGroupReque
         ON CONFLICT (group_id) DO NOTHING
           RETURNING true`,
 		request.GroupId, now, int64(firstRecordId)+1, int32(media), durableColumn(durable),
-		attachment.GroupContextHash).Scan(&created)
+		opening.GroupContextHash).Scan(&created)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return &CreateGroupResult{Reason: protocol.Reason_REASON_REJECTED}, nil
 	}
@@ -929,11 +961,11 @@ func (self *PgxStore) CreateGroup(ctx context.Context, request *CreateGroupReque
 		return nil, err
 	}
 
-	writeKey, err := self.keys.wrap(attachment.WriteKey, wrapWriteKey, request.GroupId, 1)
+	writeKey, err := self.keys.wrap(opening.WriteKey, wrapWriteKey, request.GroupId, 1)
 	if err != nil {
 		return nil, err
 	}
-	readKey, err := self.keys.wrap(attachment.ReadKey, wrapReadKey, request.GroupId, 1)
+	readKey, err := self.keys.wrap(opening.ReadKey, wrapReadKey, request.GroupId, 1)
 	if err != nil {
 		return nil, err
 	}
@@ -945,8 +977,8 @@ func (self *PgxStore) CreateGroup(ctx context.Context, request *CreateGroupReque
                                    read_key_install, alg_id, opened_by_record, accept_time,
                                    retire_time, expected_wrap_count)
              VALUES ($1, 1, $2, $3, $4, $5, $6, $4, NULL, $7)`,
-		request.GroupId, writeKey, readKey, now, int32(attachment.AlgId),
-		int64(record.RecordId), int64(attachment.ExpectedWrapCount)); err != nil {
+		request.GroupId, writeKey, readKey, now, int32(opening.AlgId),
+		int64(record.RecordId), int64(opening.ExpectedWrapCount)); err != nil {
 		return nil, err
 	}
 
@@ -1082,7 +1114,7 @@ func (self *PgxStore) Submit(ctx context.Context, request *SubmitRequest) (*Subm
 		}
 		return &SubmitResponse{Results: resultsOf(batch)}, nil
 	}
-	return self.transact(ctx, request.GroupId, batch)
+	return self.transact(ctx, request.GroupId, request.EpochKeys, batch)
 }
 
 // Steps (1) through (7), under one transaction and one row lock.
@@ -1092,7 +1124,7 @@ func (self *PgxStore) Submit(ctx context.Context, request *SubmitRequest) (*Subm
 // is a pool deadlock at exactly the concurrency §6.1 is about, and the refusal paths — which are
 // the ones that want to read a winning commit or a current epoch — are precisely where the
 // second acquire would be reached for.
-func (self *PgxStore) transact(ctx context.Context, groupId []byte, batch []*pending) (*SubmitResponse, error) {
+func (self *PgxStore) transact(ctx context.Context, groupId []byte, keys *EpochKeyDelivery, batch []*pending) (*SubmitResponse, error) {
 	transaction, err := self.pool.Begin(ctx)
 	if err != nil {
 		return nil, err
@@ -1155,7 +1187,7 @@ func (self *PgxStore) transact(ctx context.Context, groupId []byte, batch []*pen
 		if current.settled {
 			continue
 		}
-		refusal, err := gate(ctx, transaction, groupId, state, current.record, highWater, pinned)
+		refusal, err := gate(ctx, transaction, groupId, state, current.record, keys, highWater, pinned)
 		if err != nil {
 			return nil, err
 		}
@@ -1168,7 +1200,7 @@ func (self *PgxStore) transact(ctx context.Context, groupId []byte, batch []*pen
 		highWater[string(current.record.SenderHandle)] = current.record.StreamIndex
 	}
 
-	return self.write(ctx, transaction, groupId, state, batch)
+	return self.write(ctx, transaction, groupId, state, keys, batch)
 }
 
 // Step (0), against `message_stream_claim` and never against `message_record`: §7.2 zeroes an
@@ -1286,7 +1318,7 @@ func pinnedRecoveryKeys(ctx context.Context, q queryer, groupId []byte, batch []
 
 // Steps (2), (2b) and (3) for one record. REASON_OK means every gate passed.
 func gate(ctx context.Context, q queryer, groupId []byte, state *GroupState, record *Record,
-	highWater map[string]uint64, pinned map[string][]byte) (protocol.Reason, error) {
+	keys *EpochKeyDelivery, highWater map[string]uint64, pinned map[string][]byte) (protocol.Reason, error) {
 
 	// (2) EPOCH GATE, commit-aware. The message_commit check comes FIRST and stays first: the
 	// row lock serialises committers, so a loser acquires the lock only after the winner
@@ -1321,10 +1353,10 @@ func gate(ctx context.Context, q queryer, groupId []byte, state *GroupState, rec
 	// built, and `epoch == current_epoch + 1` now false — so an attachment check in front of the
 	// CAS check would answer REASON_REJECTED to every loser and §6.2's protocol would never see
 	// the winner it is required to apply
-	if record.IsCommit != (attachmentKindOf(record) == AttachmentEpoch) {
+	if record.IsCommit != isEpochAttachmentKind(attachmentKindOf(record)) {
 		return protocol.Reason_REASON_REJECTED, nil
 	}
-	if record.IsCommit && !wellFormedEpochAttachment(record, state.CurrentEpoch+1) {
+	if record.IsCommit && !wellFormedEpochAttachment(record, state.CurrentEpoch+1, keys) {
 		return protocol.Reason_REASON_REJECTED, nil
 	}
 
@@ -1349,7 +1381,7 @@ func gate(ctx context.Context, q queryer, groupId []byte, state *GroupState, rec
 // Steps (4) through (7), applied together. Everything above this point read; nothing above it
 // wrote.
 func (self *PgxStore) write(ctx context.Context, transaction pgx.Tx, groupId []byte,
-	state *GroupState, batch []*pending) (*SubmitResponse, error) {
+	state *GroupState, keys *EpochKeyDelivery, batch []*pending) (*SubmitResponse, error) {
 
 	now := time.Now().UTC()
 	accepted := []*pending{}
@@ -1400,7 +1432,7 @@ func (self *PgxStore) write(ctx context.Context, transaction pgx.Tx, groupId []b
 			}
 
 			// (6) On a won commit, and only then: open the next epoch, retire the old key
-			opened, applied, err := self.openEpoch(ctx, transaction, groupId, state, record, now)
+			opened, applied, err := self.openEpoch(ctx, transaction, groupId, state, record, keys, now)
 			if err != nil {
 				return nil, err
 			}
@@ -1505,19 +1537,28 @@ type openedEpoch struct {
 // §6.1 step (6): the next epoch's keys installed, the superseded one stamped for the tidy loop,
 // everything strictly older emptied, and the group row moved.
 func (self *PgxStore) openEpoch(ctx context.Context, transaction pgx.Tx, groupId []byte,
-	state *GroupState, record *Record, now time.Time) (openedEpoch, *RetentionApplied, error) {
+	state *GroupState, record *Record, keys *EpochKeyDelivery, now time.Time) (openedEpoch, *RetentionApplied, error) {
 
-	attachment := record.Attachment.Epoch
+	// The two keys come from [openingOf] and from nowhere else, which is where the kind 0x0001
+	// / kind 0x0005 split lives: under 0x0005 the attachment HAS no keys and these are the
+	// request's delivery. `gate` ran the same call through wellFormedEpochAttachment and
+	// refused anything openingOf would not answer, so this one cannot fail — and if it ever
+	// did, the wrap below would seal a nil and §5.5's 61-byte CHECK would refuse the row
+	// rather than install an epoch nobody can write to.
+	opening, ok := openingOf(record, keys)
+	if !ok {
+		return openedEpoch{}, nil, ErrIdentifierShape
+	}
 	opens := state.CurrentEpoch + 1
-	media, durable, applied := self.limits.apply(attachment)
+	media, durable, applied := self.limits.apply(opening)
 
-	writeKey, err := self.keys.wrap(attachment.WriteKey, wrapWriteKey, groupId, opens)
+	writeKey, err := self.keys.wrap(opening.WriteKey, wrapWriteKey, groupId, opens)
 	if err != nil {
 		return openedEpoch{}, nil, err
 	}
 	// the read key of the epoch this commit OPENS. Different every epoch, retained for the
 	// ninety-day window, and never taken by the sixty-second write-key tidy (§5.3)
-	readKey, err := self.keys.wrap(attachment.ReadKey, wrapReadKey, groupId, opens)
+	readKey, err := self.keys.wrap(opening.ReadKey, wrapReadKey, groupId, opens)
 	if err != nil {
 		return openedEpoch{}, nil, err
 	}
@@ -1526,8 +1567,8 @@ func (self *PgxStore) openEpoch(ctx context.Context, transaction pgx.Tx, groupId
                                    read_key_install, alg_id, opened_by_record, accept_time,
                                    retire_time, expected_wrap_count)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $5, NULL, $8)`,
-		groupId, int64(opens), writeKey, readKey, now, int32(attachment.AlgId),
-		int64(record.RecordId), int64(attachment.ExpectedWrapCount)); err != nil {
+		groupId, int64(opens), writeKey, readKey, now, int32(opening.AlgId),
+		int64(record.RecordId), int64(opening.ExpectedWrapCount)); err != nil {
 		return openedEpoch{}, nil, err
 	}
 	if _, err := transaction.Exec(ctx, `
@@ -1551,7 +1592,7 @@ func (self *PgxStore) openEpoch(ctx context.Context, transaction pgx.Tx, groupId
                policy_version = policy_version + 1
          WHERE group_id = $1`,
 		groupId, int64(opens), int32(media), durableColumn(durable),
-		attachment.GroupContextHash); err != nil {
+		opening.GroupContextHash); err != nil {
 		return openedEpoch{}, nil, err
 	}
 	return openedEpoch{media: media, durable: durable}, applied, nil
@@ -1733,9 +1774,9 @@ func insertRecord(ctx context.Context, transaction pgx.Tx, groupId []byte, recor
                                     attachment_media_ttl_seconds, attachment_durable_ttl_seconds,
                                     attachment_group_context_hash, attachment_expected_wrap_count,
                                     attachment_leaf_index, attachment_verify_pub,
-                                    attachment_wrap_count)
+                                    attachment_wrap_count, attachment_epoch_keys_digest)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, false, $12, $13, $14, $15, $16,
-                     $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30)
+                     $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31)
         ON CONFLICT (group_id, record_id) DO NOTHING`,
 		groupId, int64(record.RecordId), record.SenderHandle, int64(record.Epoch),
 		int64(record.StreamIndex), record.IsCommit, int16(record.RetentionClass),
@@ -1749,7 +1790,8 @@ func insertRecord(ctx context.Context, transaction pgx.Tx, groupId []byte, recor
 		attachment.kind, attachment.epoch, attachment.algId,
 		attachment.mediaTtl, attachment.durableTtl,
 		attachment.groupContextHash, attachment.expectedWrapCount,
-		attachment.leafIndex, attachment.verifyPub, attachment.wrapCount)
+		attachment.leafIndex, attachment.verifyPub, attachment.wrapCount,
+		attachment.epochKeysDigest)
 	return err
 }
 
@@ -1777,6 +1819,9 @@ type attachmentColumns struct {
 	wrapCount         *int64
 	recoveryHandle    []byte
 	wrapTarget        []byte
+	// migration 012, and the only column the sixth kind adds. It is a DIGEST and never a key:
+	// see 012's own comment for what each kind leaves in `server_attachment` beside it.
+	epochKeysDigest []byte
 }
 
 func projectAttachment(record *Record) attachmentColumns {
@@ -1809,6 +1854,21 @@ func projectAttachment(record *Record) attachmentColumns {
 		if marker := record.Attachment.EpochComplete; marker != nil {
 			columns.epoch = ptr(int64(marker.Epoch))
 			columns.wrapCount = ptr(int64(marker.WrapCount))
+		}
+	case AttachmentEpochDigest:
+		// ruling 27's sixth kind. Six of its seven fields are the epoch attachment's own and
+		// reuse 005c's columns; the seventh is migration 012's. NO KEY IS WRITTEN HERE AND
+		// THERE IS NONE TO WRITE — the digest attachment has no key fields at all, and the two
+		// keys reached this package on the REQUEST and go straight to `message_epoch` wrapped
+		// (ruling 33, [PgxStore.openEpoch]).
+		if digest := record.Attachment.EpochDigest; digest != nil {
+			columns.epoch = ptr(int64(digest.Epoch))
+			columns.algId = ptr(int64(digest.AlgId))
+			columns.mediaTtl = ptr(int64(digest.MediaTtlSeconds))
+			columns.durableTtl = ptr(int64(digest.DurableTtlSeconds))
+			columns.groupContextHash = digest.GroupContextHash
+			columns.expectedWrapCount = ptr(int64(digest.ExpectedWrapCount))
+			columns.epochKeysDigest = digest.EpochKeysDigest
 		}
 	}
 	return columns

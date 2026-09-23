@@ -34,6 +34,27 @@ type submitPass struct {
 	groupId []byte
 	records []*recordPass
 
+	// §4.3.3's `epoch_keys` exactly as the request carried it, and the ONE delivery §4.3.3
+	// admits, resolved out of it by [epochKeyAlignment] at check 3.
+	//
+	// `keys` is nil for every submission but a kind `0x0005` commit, which is every submission
+	// this server has ever seen up to the day §5.4's acceptance window opens. It is carried on
+	// the pass rather than re-derived at the transaction because the alignment refusals are
+	// check 3's, and check 3 is in front of the key lookup, the MAC and the transaction — an
+	// alignment fault must not be able to cost a database read.
+	deliveries []*protocol.EpochKeyDelivery
+	keys       *protocol.EpochKeyDelivery
+
+	// Which named clause of check 3's `0x0005` arm refused this submission, when one did.
+	//
+	// It never reaches the wire — §4.5 merges every client-caused refusal into
+	// `REASON_REJECTED` and a distinguishable refusal here would be an oracle over a value the
+	// MAC covers — and it is not a log line either, because nothing in this build logs yet. It
+	// is here so that the six clauses of [epochKeyAlignment] and the digest comparison are
+	// SEPARABLE by this server's own tests: a gate whose clauses all answer one opaque code is
+	// a gate whose clauses can be deleted one at a time with every test still green.
+	alignment error
+
 	// Set by the last stage, which is the only one that opens a transaction.
 	response *protocol.SubmitResponse
 }
@@ -104,7 +125,7 @@ func (self *Handler) Submit(ctx context.Context, conn *Connection, request *prot
 		return reason, nil, nil
 	}
 
-	pass := &submitPass{conn: conn, groupId: request.GetGroupId()}
+	pass := &submitPass{conn: conn, groupId: request.GetGroupId(), deliveries: request.GetEpochKeys()}
 	for _, record := range request.GetRecords() {
 		pass.records = append(pass.records, &recordPass{projection: record})
 	}
@@ -176,8 +197,33 @@ func (self *Handler) CreateGroup(ctx context.Context, conn *Connection, request 
 	if !pass.parsed.Header.IsCommit || pass.parsed.Header.Epoch != 0 {
 		return reject()
 	}
-	if pass.attachment.Kind != message.AttachmentEpoch || pass.attachment.Epoch.Epoch != 1 {
+	// the founding attachment, under EITHER kind. It read `!= message.AttachmentEpoch` until
+	// ruling 27, which is the founding-commit copy of the same defect the steady-state clause
+	// has: an iff written on one of two epoch kinds. `opensEpochOf` answers the epoch the
+	// attachment opens from whichever kind carries it, and false for every other kind, so the
+	// two questions this line asks are one call
+	opens, isEpochAttachment := opensEpochOf(pass.attachment)
+	if !isEpochAttachment || opens != 1 {
 		return reject()
+	}
+	// §4.3.2's `epoch_keys`, through the SAME alignment rule `Submit` runs — one record, one
+	// singular delivery — so the kind-keyed presence rule of §5.4's acceptance window is stated
+	// in one place and cannot come to differ between the two submit call sites. §4.3.2's one
+	// record is always a commit, so the "no commit" arm of that rule is unreachable here and is
+	// not restated
+	deliveries := []*protocol.EpochKeyDelivery{request.GetEpochKeys()}
+	keys, _, alignmentErr := epochKeyAlignment([]*recordPass{pass}, deliveries)
+	if alignmentErr != nil {
+		return reject()
+	}
+	if keys != nil {
+		// check 3's digest clause. It runs here exactly as it runs on `Submit`, and under
+		// §5.1's carve-out it is a comparison against a value `bootstrap_write_key` will
+		// authenticate at check 7 by way of LP(H(server_attachment)) — so it inherits this
+		// arm's self-certification and adds no new trust
+		if err := checkEpochKeysDigest(groupId, pass.attachment, keys); err != nil {
+			return reject()
+		}
 	}
 
 	// check 7, against the key the request supplied. Checks 5 and 6 are the carve-out.
@@ -201,6 +247,9 @@ func (self *Handler) CreateGroup(ctx context.Context, conn *Connection, request 
 		GroupId:           groupId,
 		InitialCommit:     columns,
 		BootstrapWriteKey: request.GetBootstrapWriteKey(),
+		// ruling 33, and the second of the two submit call sites. Under kind `0x0005` the
+		// founding commit's attachment has no keys and these are what epoch 1 opens with
+		EpochKeys: deliveryOf(keys),
 	})
 	if err != nil {
 		return protocol.Reason_REASON_INTERNAL, nil, err
@@ -267,6 +316,39 @@ func (self *Handler) checkStaticShape(ctx context.Context, pass *submitPass) ref
 	if commits != 0 && len(pass.records) != 1 {
 		return refuse(protocol.Reason_REASON_REJECTED, wholeSubmission)
 	}
+	return self.checkEpochKeys(pass)
+}
+
+// Check 3's `0x0005` clauses over the whole submission: §4.3.3's alignment rule, then the
+// digest the attachment carries against the keys the request carried beside it.
+//
+// IT RUNS INSIDE CHECK 3 AND NOT LATER, and §5.1's ordering argument is why. Everything here is
+// CPU over values the request already carries — a length, a boolean check 3 has already
+// verified against the parse, two widths and one SHA-256 — so it costs no database read, and
+// §5.1 is explicit that nothing costing a read happens before something costing a hash. Putting
+// the digest comparison at the transaction instead would let a party holding no `write_key`
+// force a row lock with a commit whose keys do not match.
+//
+// THE REFUSAL IS §4.5's MERGED `REASON_REJECTED` AND THE CAUSE IS NOT ON THE WIRE. Which of the
+// six clauses fired is a named error for this server's own tests and log; a client that could
+// tell "your keys are missing" from "your keys do not match the digest" would hold an oracle
+// over a value the MAC covers.
+func (self *Handler) checkEpochKeys(pass *submitPass) refusal {
+	keys, index, err := epochKeyAlignment(pass.records, pass.deliveries)
+	if err != nil {
+		pass.alignment = err
+		return refuse(protocol.Reason_REASON_REJECTED, index)
+	}
+	pass.keys = keys
+	if keys == nil {
+		// no commit, or a kind `0x0001` commit whose keys are in its own attachment. There is
+		// no digest to compare and §5.4's acceptance window says so
+		return passed
+	}
+	if err := checkEpochKeysDigest(pass.groupId, pass.records[index].attachment, keys); err != nil {
+		pass.alignment = err
+		return refuse(protocol.Reason_REASON_REJECTED, index)
+	}
 	return passed
 }
 
@@ -326,19 +408,26 @@ func (self *Handler) staticShape(groupId []byte, pass *recordPass) protocol.Reas
 	// `server_attachment` parses and is well-formed for its record kind. The widths, the alg_ids
 	// and `expected_wrap_count > 0` are message.ParseServerAttachment's, which is the one place
 	// they are written; what belongs to the server is the relation to the record beside it.
-	attachment, err := message.ParseServerAttachment(header.ServerAttachment)
+	attachment, err := parseServerAttachment(header.ServerAttachment)
 	if err != nil {
 		return protocol.Reason_REASON_REJECTED
 	}
 	pass.attachment = attachment
 
-	// EpochAttachment iff is_commit. The other half of check 3's attachment rule —
+	// An epoch attachment of EITHER kind iff is_commit. The other half of check 3's rule —
 	// `epoch == current_epoch + 1`, and an EpochComplete marker's `wrap_count` against the
 	// epoch's `expected_wrap_count` — is a relation to state this layer has not read and could
 	// not hold still if it had: both are re-read by §6.1 under the group row lock, which is the
 	// only place the value is stable, and reading them here would put a database read in front
 	// of the hash of check 7 for exactly the attacker §5.1's order is written against.
-	if (attachment.Kind == message.AttachmentEpoch) != header.IsCommit {
+	//
+	// THE DISJUNCTION IS LOAD-BEARING AND WAS NOT ALWAYS HERE. Written as
+	// `(attachment.Kind == message.AttachmentEpoch) != header.IsCommit` this clause looks like
+	// an iff and stops being one the moment a second epoch kind exists: a kind `0x0005`
+	// attachment on a NON-commit record gives `false != false`, which passes. Spec B §5.1
+	// check 3 now states the disjunction for the same reason, and [isEpochAttachmentKind] is
+	// the one place this build answers the question.
+	if isEpochAttachmentKind(attachment.Kind) != header.IsCommit {
 		return protocol.Reason_REASON_REJECTED
 	}
 
@@ -584,7 +673,15 @@ func (self *Handler) runTransaction(ctx context.Context, pass *submitPass) refus
 		}
 		records = append(records, columns)
 	}
-	response, err := self.store.Submit(ctx, &store.SubmitRequest{GroupId: pass.groupId, Records: records})
+	response, err := self.store.Submit(ctx, &store.SubmitRequest{
+		GroupId: pass.groupId,
+		Records: records,
+		// ruling 33: the keys the store installs come from HERE, the request, and never from
+		// `records` — under kind `0x0005` no record in that slice has a key field at all.
+		// [epochKeyAlignment] reduced §4.3.3's aligned list to this one delivery under named
+		// refusals, so the store cannot be handed a misaligned one
+		EpochKeys: deliveryOf(pass.keys),
+	})
 	if err != nil {
 		// every refusal a client can cause is a Reason on a result; an error out of the store is
 		// something this layer handed it that no client could have produced
@@ -692,6 +789,22 @@ func attachmentOf(attachment *message.ServerAttachment) *store.Attachment {
 			EpochComplete: &store.EpochCompleteTag{
 				Epoch:     attachment.Complete.Epoch,
 				WrapCount: attachment.Complete.WrapCount,
+			},
+		}
+	case message.AttachmentEpochDigest:
+		// ruling 27's sixth kind. Six public fields and a digest, and NO KEY — there is none in
+		// this structure to copy. The store's own [store.openingOf] is where the two keys come
+		// from, and under this kind they come from the request
+		return &store.Attachment{
+			Kind: store.AttachmentEpochDigest,
+			EpochDigest: &store.EpochDigestAttachment{
+				Epoch:             attachment.EpochDigest.Epoch,
+				AlgId:             uint32(attachment.EpochDigest.AlgId),
+				MediaTtlSeconds:   attachment.EpochDigest.MediaTtlSeconds,
+				DurableTtlSeconds: attachment.EpochDigest.DurableTtlSeconds,
+				GroupContextHash:  bytes.Clone(attachment.EpochDigest.GroupContextHash),
+				ExpectedWrapCount: attachment.EpochDigest.ExpectedWrapCount,
+				EpochKeysDigest:   bytes.Clone(attachment.EpochDigest.EpochKeysDigest),
 			},
 		}
 	}

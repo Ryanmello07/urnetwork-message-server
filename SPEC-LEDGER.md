@@ -9890,6 +9890,40 @@ repo and therefore the critical path — not this repository:
     the database in exactly one place, wrapped, which is what §5.3's *"a stolen database dump alone
     must not yield write keys"* has always asked for and what `0x0001` never delivered.
 
+250. **STEP 4, THE SERVER HALF, DONE 2026-09-22 — kind `0x0005` is ACCEPTED, its epoch opens with
+    the REQUEST's keys, and the `iff is_commit` clause is a disjunction in all three of its
+    copies.** `msgrepo 5210f09` (the spec pass items 248 and 249 owed) and the commit after it
+    (the code). §7's entry of the same date carries the measurements; the four facts that belong
+    in this section are these.
+
+    **§5.4's acceptance window step 1 is now a BEHAVIOUR and not only a specification.** A commit
+    carrying a `0x0005` attachment whose request-borne keys match its digest is accepted, `0x0001`
+    is accepted exactly as before, and `connect/message`'s `serverAttachmentKindServed` was NOT
+    widened — `connect` is read-only for this pass, the interlock it describes is untouched, and
+    what this server does is open the sixth kind's own door in ONE function that both check 3 and
+    the serve path call.
+
+    **Item 244's property now holds on this server, measured with an asserted control.** A fetch
+    of a `0x0005` commit serves no epoch key material in any byte; the identical scenario under
+    `0x0001` serves both keys, and the test `t.Fatal`s if that control does not fire. The keys
+    exist in the database in exactly one place, wrapped on `message_epoch`, which is what §5.3's
+    *"a stolen database dump alone must not yield write keys"* has always asked for.
+
+    **THE LESSON, and it is the companion to step 3's.** Step 3's was *a gate's narrowing must be
+    asserted, not merely printed*. This step's mutation table found the other half: **a TEST can
+    be satisfied by a defence nobody named.** `TestAKind0x0005AttachmentOnAnOrdinaryRecordIsRefused`
+    names the api layer's `iff` clause and asserted it end to end through the handler — and it was
+    **`ok`** with that clause reverted to the pre-amendment shape, because the clause exists in
+    THREE copies and the STORE's copy refused what the api layer let through. The copies defend
+    each other in production, which is worth having; what it costs is that an end-to-end assertion
+    cannot hold any ONE of them. The standing rule gains a clause: **when a check has N copies,
+    a test that names one of them must call that one, or it is measuring the other N-1.**
+
+    **Still owed, and none of it is this repository's:** the committer half in `sdk` (step 4's
+    other leg), and `connect/protocol`'s copy of the alignment rule, which is written kind-free
+    and is therefore true only from the day §5.4's window closes. Reported to the `connect`
+    writer and named in Spec B §4.3.2 and §4.3.3 rather than fixed here.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
@@ -19796,3 +19830,166 @@ owed.
 - **Item 248 itself is still FILED and UNRULED.** What closed here is one wrong sentence inside it;
   the `GroupStatus` decision it exists for is untouched, and it still gates the day that arm is
   served.
+
+---
+
+### 2026-09-22 (third pass of that date) — STEP 4, the server half of F3′: kind `0x0005` is accepted, its epoch opens with the REQUEST's keys, and the clause that would have admitted it on an ordinary record is a disjunction in all three of its copies
+
+**Change:** one commit in this repository, following `5210f09`. `store` (the opening, the sixth
+kind, migration 012), `api` (check 3's `0x0005` arm, the alignment rule, the digest comparison,
+both submit call sites, the serve path's second door), and the tests for all of it. No spec
+change: `5210f09` wrote the specification and this makes it the behaviour.
+
+**What §5.4's window step 1 now IS.** `5210f09`'s entry said *"the server still refuses kind
+`0x0005` at check 3 … step 1 of §5.4's window is a specification as of this commit and a
+behaviour as of the next one."* This is that commit. A commit carrying a `0x0005` attachment
+whose request-borne keys match its digest is **accepted**, and `0x0001` is accepted exactly as
+before.
+
+#### 1. The two doors, and why opening the second one is one decision in one place
+
+`connect/message`'s `serverAttachmentKindServed` still does **not** carry `0x0005`, and this
+repository did not touch it — `connect` is read-only for this pass. `ParseServerAttachment`
+therefore still refuses the sixth kind by name, and that refusal is the interlock ruling 27
+bought: a server built from a library that has not been widened cannot be talked into installing
+an epoch whose keys it was never handed. What this commit does is open the sixth kind's OWN door,
+`message.ParseEpochDigestAttachment`, in **one function** — `api.parseServerAttachment` — which
+both check 3 and the serve path call. The fall-through is on `ErrServerAttachmentKindNotServed`
+and never on "the first door said no": the first door also refuses a malformed attachment, an
+undefined kind and an encoded `0x0000`, and a fall-through on any error would hand those octets
+to the second door and report whatever it said about them.
+
+#### 2. The clause that would have shipped item 244 back in, in all three of its copies
+
+`is_commit != (kind == AttachmentEpoch)` looks like an iff and **admits a `0x0005` attachment on
+a NON-commit record**: `0x0005` is not `AttachmentEpoch`, so `false != false` passes. It is now a
+disjunction over both epoch kinds, in `api.isEpochAttachmentKind` and in
+`store.isEpochAttachmentKind` (which the memory gate and the pgx gate both call), written as a
+`switch` over named constants so a seventh kind is given an answer rather than inheriting one.
+
+#### 3. Where the keys come from, and the one place that decides
+
+`store.openingOf(record, keys)` is the only function in this repository that answers *"which two
+keys does this commit open its epoch with"*. Under `0x0001` they are the attachment's; under
+`0x0005` they are the request's delivery and there is **no fallback** — the digest attachment has
+no key fields, so a fallback could only ever produce a nil, and a nil write key installed against
+the epoch a commit opens is a group that can never be written to again. It refuses **both**
+directions of §5.4's window: a `0x0005` commit with no delivery, and a `0x0001` commit with one.
+Every caller — the memory gate, the memory commit, the pgx gate, `PgxStore.openEpoch`, and both
+implementations of `CreateGroup` — reads through it, so the kind split exists once.
+
+`Limits.apply` was retargeted from `*EpochAttachment` to that opening in the same move, because
+the retention policy is the attachment's under **both** kinds and a second read of it would have
+been a second place to get the new kind wrong.
+
+#### 4. What `0x0005` does to §3.2's `server_attachment` column, measured
+
+**Under `0x0001` the served bytes carry both of the next epoch's keys.** Measured, and the
+measurement is the positive control of `TestAFetchServesNoEpochKeyMaterialForAKind0x0005Commit`:
+the whole served `protocol.Record` is marshaled and searched for `write_key[2]` and
+`read_key[2]`, and under `0x0001` it **finds them** — `t.Fatal` if it does not, so the control is
+asserted and not printed. Under `0x0005` the same search over the same scenario finds nothing.
+That is ledger item 244's property, at the layer that puts the bytes on the wire, with a search
+that is demonstrably one that could have failed.
+
+The store half of the same property is `contractEpochDigest`'s
+`NoServedValueOfAKind0x0005CommitCarriesEitherKey`, which searches every field of a served
+`store.Record` a key could be in and names which one it found, with the `0x0001` control required
+to match **in the attachment specifically** — because a fixture whose `ct_body` happened to
+contain the key would satisfy "the search found something" while proving nothing about the serve
+path.
+
+Migration **012** adds `attachment_epoch_keys_digest bytea` with 005c's own 32-octet CHECK. It is
+the ONE column the sixth kind adds: every other field of `0x0005` is a field of `0x0001` and
+already has a column, which is what ruling 27's *"the six PUBLIC fields of an EpochAttachment"*
+means read as a schema. `ADD COLUMN … NULL` with no default is catalogue-only in PostgreSQL 11+,
+so 011's expiring note about `CREATE INDEX` on a partitioned parent does not apply to it.
+
+#### 5. The alignment rule, refused by name and never by an index panic
+
+`api.epochKeyAlignment` runs §4.3.3's rule inside check 3 — CPU only, so §5.1's ordering holds and
+an alignment fault cannot force a database read — and answers six **named** sentinels:
+`ErrEpochKeysLength`, `ErrEpochKeysOnNonCommit`, `ErrEpochKeysMissing`, `ErrEpochKeysUnwanted`,
+`ErrEpochKeysEmptyEntry`, `ErrEpochKeyWidth`. They never reach the wire — §4.5 merges every
+client-caused refusal into `REASON_REJECTED` and a distinguishable refusal here would be an
+oracle over a value the MAC covers — and they exist because **a gate whose clauses all answer one
+opaque code is a gate whose clauses can be deleted one at a time with every test still green**,
+which is the shape item 249 records being defeated three times in `connect`.
+
+The length clause runs FIRST, because every clause after it indexes. Ten shapes are driven in
+`TestEveryAlignmentViolationIsRefusedByNameAndNotByAPanic`, **two of them the shapes §4.3.3 admits
+and asserted to answer nil**, and the test calls the function with no `recover()` — a panic fails
+it with its stack, which is what *"and not an index panic"* has to be measured as.
+
+#### 6. The mutants, and the one that found a test of mine that could not fail
+
+Seven, each applied by a table that writes the original and the mutant ONCE so an apply and its
+revert cannot disagree, each reverted with the file's sha256 checked back to its pre-mutation
+value.
+
+| # | mutation | what went red, by name |
+|---|---|---|
+| 1 | the digest check removed | `TestACommitWhoseDigestMatchesTheRequestKeys…` — *"answered REASON_OK, want REASON_REJECTED"* |
+| 2 | the digest compared at the record header's epoch instead of the attachment's | the same test, and `TestTheDigestClauseRefusesUnderItsOwnSentinel/TheMatchingPair` |
+| 3 | the keys installed FROM THE RECORD (32 octets of the digest field) instead of from the request | store: `AKind0x0005CommitOpensItsEpochWithTheRequestsKeysAndNotTheRecords`, naming both keys; api: *"a record at the opened epoch, MAC'd under the DELIVERED write key, was answered REASON_REJECTED"* |
+| 4 | the `is_commit = 0` alignment clause dropped | `…/AnEntryOppositeAnOrdinaryRecord` — *"answered `<nil>`, want … sits opposite a record with is_commit = 0"* |
+| 5 | **the mechanism**: the api's iff back to `kind == AttachmentEpoch` | `TestACommitWhoseDigestMatchesTheRequestKeys…` |
+| 6 | **the mechanism**: the store's iff back to `kind == AttachmentEpoch` | three store subtests, including `AKind0x0005AttachmentOnANonCommitRecordIsRefused` |
+| 7 | **the mechanism**: the serve path back to one door | `TestTheLoserOfAKind0x0005CommitIsHandedTheWinnersRecord` and `TestAFetchServesNoEpochKeyMaterial…` |
+
+**Mutant 5 found a test of mine that could not fail, and this is the finding worth recording.**
+`TestAKind0x0005AttachmentOnAnOrdinaryRecordIsRefused` names the api layer's iff and asserted it
+end to end through the handler — and under mutant 5 that test was **`ok`**. Measured:
+`go test ./api/ -run TestAKind0x0005AttachmentOnAnOrdinaryRecordIsRefused` passed with the api's
+clause reverted. The reason is the clause's own strength: it exists in THREE copies, and the
+STORE's copy refused the submission the api layer had just let through. **The copies defend each
+other in production, which is worth having; what it costs is that an end-to-end assertion cannot
+hold any ONE of them.** The test now calls `staticShape` directly — the api layer's own clause,
+with nothing below it involved — and goes red under mutant 5 naming that call. *This is the
+generalisation `connect`'s step-3 lesson was missing a case of: a gate can be defeated by a
+narrowing nobody asserted, and a TEST can be satisfied by a defence nobody named.*
+
+#### 7. Runs, with their PASS/FAIL lines
+
+| command | result |
+|---|---|
+| `go test ./api/ ./store/ -run Test -timeout 900s -count=1` | `ok` api 0.545s, `ok` store 0.162s |
+| `go test ./... -run Test -timeout 900s -count=1` | `ok` in all 7 packages with tests |
+| `URMESSAGE_TEST_DSN=… go test ./store/ -run Test -timeout 1800s -count=1` | **`ok` 253.075s** — the pgx contract RAN, migration 012 applied |
+| `go test -race ./api/ ./store/ -run Test -timeout 900s -count=1` | `ok` api 2.136s, `ok` store 2.277s |
+| `go test . -run 'TestEveryDependencyOfThisModuleIsOneSpecB22Allows\|…' -v -timeout 600s` | 9 gates, all `--- PASS`, `ok` 6.853s |
+| `go build ./...` / `go vet ./...` / `gofmt -l .` | clean / clean / empty |
+
+**§2.2's own property, printed rather than asserted from memory:**
+`go list -deps ./... | grep '^github.com/urnetwork/connect/mls'` answers exactly one line,
+`github.com/urnetwork/connect/mls/syntax` — the presentation-language codec §13 item 8's own
+resolution permits — and **`connect/mls` itself is not in the closure**. The single line is both
+the answer and the positive control that the query finds a match when one exists.
+
+#### What this entry does not claim
+
+- **The client half is not here and is not this repository's.** `connect/message`'s
+  `serverAttachmentKindServed` still excludes `0x0005`, so `EncodeServerAttachment` will not emit
+  one; the committer reaches `EncodeEpochDigestAttachment` directly, as this repository's own
+  fixtures do. Step 4's other leg is `sdk`'s.
+- **`Subscribe`, `WrapFetch` and `RecoveryFetch` are unbuilt**, so `RecordPush`,
+  `WrapFetchResponse` and `GroupRecords` were not driven. `FetchResponse.records` and
+  `SubmitResult.winning_commit` are the two serve paths that exist and both are driven, through
+  the one `rebuildRecord` the others will also use.
+- **Nothing was migrated on `beta-test.net`.** Migration 012 adds a nullable column; no existing
+  row changes and no existing record is re-encoded.
+- **`connect/protocol`'s copy of the alignment rule is kind-free and diverges from this server's
+  while §5.4's window is open.** `message.proto` says *"a commit with no entry"* is
+  `REASON_REJECTED` and *"an absent `epoch_keys` is `REASON_REJECTED`"*; both become true on the
+  day the window closes, and until then a `0x0001` commit legitimately carries no delivery.
+  Spec B §4.3.2 and §4.3.3 name the divergence; **`connect` is read-only for this pass and this is
+  REPORTED, not fixed.**
+- **`store.wellFormedEpochAttachment` still accepts a nil `group_context_hash`**
+  (`opening.GroupContextHash != nil && len(…) != 32`), which `ParseServerAttachment` and
+  `ParseEpochDigestAttachment` both make unreachable from the api path but which leaves the store
+  contract more permissive than §5.1 check 3 now states. Carried over from `5210f09`'s review and
+  still not fixed, because tightening it changes what a direct store caller may hand over and that
+  is a contract change rather than a correction.
+- **No independent subagent diff review.** §6 step 2 asks for one and this session still has no
+  facility to spawn it, exactly as `5210f09` and `21f22c7` recorded. The mutation table is what
+  stands in its place for the code, and it is not the same thing.

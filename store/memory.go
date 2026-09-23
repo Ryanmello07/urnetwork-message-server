@@ -331,9 +331,12 @@ func (self *MemoryStore) CreateGroup(ctx context.Context, request *CreateGroupRe
 	// commit with a malformed attachment bricks the group and this is the only commit no
 	// later commit can rescue.
 	if !request.InitialCommit.IsCommit || request.InitialCommit.Epoch != 0 ||
-		!wellFormedEpochAttachment(request.InitialCommit, 1) {
+		!wellFormedEpochAttachment(request.InitialCommit, 1, request.EpochKeys) {
 		return &CreateGroupResult{Reason: protocol.Reason_REASON_REJECTED}, nil
 	}
+	// the one read of the opening on this path, and it cannot fail: wellFormedEpochAttachment
+	// above ran openingOf over the same two arguments and refused everything this would
+	opening, _ := openingOf(request.InitialCommit, request.EpochKeys)
 
 	now := self.clock()()
 	self.mutex.Lock()
@@ -344,8 +347,7 @@ func (self *MemoryStore) CreateGroup(ctx context.Context, request *CreateGroupRe
 		return &CreateGroupResult{Reason: protocol.Reason_REASON_REJECTED}, nil
 	}
 
-	attachment := request.InitialCommit.Attachment.Epoch
-	media, durable, applied := self.limits.apply(attachment)
+	media, durable, applied := self.limits.apply(opening)
 	record := cloneRecord(request.InitialCommit)
 	record.RecordId = firstRecordId
 	record.PruneAfter = nil
@@ -359,7 +361,7 @@ func (self *MemoryStore) CreateGroup(ctx context.Context, request *CreateGroupRe
 		durableTtlSeconds: durable,
 		policyVersion:     1,
 		epochComplete:     false,
-		groupContextHash:  bytes.Clone(attachment.GroupContextHash),
+		groupContextHash:  bytes.Clone(opening.GroupContextHash),
 		claims:            map[claimKey]*claimRow{},
 		commits:           map[uint64]*commitRow{},
 		senders:           map[string]*senderRow{},
@@ -378,11 +380,11 @@ func (self *MemoryStore) CreateGroup(ctx context.Context, request *CreateGroupRe
 	}
 	group.epochs[1] = &epochRow{
 		epoch:             1,
-		writeKey:          bytes.Clone(attachment.WriteKey),
-		readKey:           bytes.Clone(attachment.ReadKey),
+		writeKey:          bytes.Clone(opening.WriteKey),
+		readKey:           bytes.Clone(opening.ReadKey),
 		readKeyInstall:    now,
-		algId:             attachment.AlgId,
-		expectedWrapCount: attachment.ExpectedWrapCount,
+		algId:             opening.AlgId,
+		expectedWrapCount: opening.ExpectedWrapCount,
 		openedByRecord:    record.RecordId,
 		acceptTime:        now,
 	}
@@ -531,7 +533,7 @@ func (self *MemoryStore) Submit(ctx context.Context, request *SubmitRequest) (*S
 		if current.settled {
 			continue
 		}
-		if refusal := self.gate(group, state, current.record, highWater, pinned); refusal != protocol.Reason_REASON_OK {
+		if refusal := self.gate(group, state, current.record, request.EpochKeys, highWater, pinned); refusal != protocol.Reason_REASON_OK {
 			return self.refuseBatch(group, batch, current, refusal), nil
 		}
 		highWater[string(current.record.SenderHandle)] = current.record.StreamIndex
@@ -542,7 +544,7 @@ func (self *MemoryStore) Submit(ctx context.Context, request *SubmitRequest) (*S
 		}
 	}
 
-	return self.commit(group, state, batch), nil
+	return self.commit(group, state, request.EpochKeys, batch), nil
 }
 
 // Step (0), against `message_stream_claim` and never against `message_record`: §7.2 zeroes an
@@ -580,7 +582,7 @@ func (self *MemoryStore) probe(group *memoryGroup, batch []*pending) {
 // have not yet been given: step (7) writes the sender's index and step (6c) writes the recovery
 // pin, and both of those happen after every record of the batch has been through here.
 func (self *MemoryStore) gate(group *memoryGroup, state *GroupState, record *Record,
-	highWater map[string]uint64, pinned map[string][]byte) protocol.Reason {
+	keys *EpochKeyDelivery, highWater map[string]uint64, pinned map[string][]byte) protocol.Reason {
 	group.data.RLock()
 	defer group.data.RUnlock()
 
@@ -609,10 +611,10 @@ func (self *MemoryStore) gate(group *memoryGroup, state *GroupState, record *Rec
 	// when it was built, and `epoch == current_epoch + 1` now false — so an attachment check
 	// in front of the CAS check would answer REASON_REJECTED to every loser and §6.2's loser
 	// protocol would never see the winner it is required to apply.
-	if record.IsCommit != (attachmentKindOf(record) == AttachmentEpoch) {
+	if record.IsCommit != isEpochAttachmentKind(attachmentKindOf(record)) {
 		return protocol.Reason_REASON_REJECTED
 	}
-	if record.IsCommit && !wellFormedEpochAttachment(record, state.CurrentEpoch+1) {
+	if record.IsCommit && !wellFormedEpochAttachment(record, state.CurrentEpoch+1, keys) {
 		return protocol.Reason_REASON_REJECTED
 	}
 
@@ -658,7 +660,7 @@ func (self *MemoryStore) gate(group *memoryGroup, state *GroupState, record *Rec
 // Steps (4) through (7), applied together. Everything above this point read; nothing above it
 // wrote, which is what makes "a refused submit allocates nothing" a property of the shape of
 // this function rather than a claim about it.
-func (self *MemoryStore) commit(group *memoryGroup, state *GroupState, batch []*pending) *SubmitResponse {
+func (self *MemoryStore) commit(group *memoryGroup, state *GroupState, keys *EpochKeyDelivery, batch []*pending) *SubmitResponse {
 	now := self.clock()()
 
 	group.data.Lock()
@@ -696,15 +698,20 @@ func (self *MemoryStore) commit(group *memoryGroup, state *GroupState, batch []*
 		mediaTtl, durableTtl := group.mediaTtlSeconds, group.durableTtlSeconds
 		if record.IsCommit {
 			// (6) On a won commit, and only then: open the next epoch, retire the old key.
-			attachment := record.Attachment.Epoch
-			media, durable, applied := self.limits.apply(attachment)
+			//
+			// The two keys come from [openingOf] and from nowhere else, which is where the
+			// kind 0x0001 / kind 0x0005 split lives: under 0x0005 the attachment HAS no keys
+			// and these are the request's delivery. `gate` ran the same call and refused
+			// anything openingOf would not answer, so this one cannot fail.
+			opening, _ := openingOf(record, keys)
+			media, durable, applied := self.limits.apply(opening)
 			group.epochs[state.CurrentEpoch+1] = &epochRow{
 				epoch:             state.CurrentEpoch + 1,
-				writeKey:          bytes.Clone(attachment.WriteKey),
-				readKey:           bytes.Clone(attachment.ReadKey),
+				writeKey:          bytes.Clone(opening.WriteKey),
+				readKey:           bytes.Clone(opening.ReadKey),
 				readKeyInstall:    now,
-				algId:             attachment.AlgId,
-				expectedWrapCount: attachment.ExpectedWrapCount,
+				algId:             opening.AlgId,
+				expectedWrapCount: opening.ExpectedWrapCount,
 				openedByRecord:    record.RecordId,
 				acceptTime:        now,
 			}
@@ -722,7 +729,7 @@ func (self *MemoryStore) commit(group *memoryGroup, state *GroupState, batch []*
 			group.epochComplete = false
 			group.mediaTtlSeconds = media
 			group.durableTtlSeconds = durable
-			group.groupContextHash = bytes.Clone(attachment.GroupContextHash)
+			group.groupContextHash = bytes.Clone(opening.GroupContextHash)
 			group.policyVersion++
 			mediaTtl, durableTtl = media, durable
 			current.result.Applied = applied
@@ -966,24 +973,45 @@ func exemptFromEpochComplete(record *Record) bool {
 // would open. Everything here is a shape or an arithmetic relation; `alg_id` is deliberately
 // not on the list, because the set of known algorithms is message.ParseServerAttachment's and
 // a second copy of it here would be a second copy to drift.
-func wellFormedEpochAttachment(record *Record, opens uint64) bool {
-	if attachmentKindOf(record) != AttachmentEpoch || record.Attachment.Epoch == nil {
+func wellFormedEpochAttachment(record *Record, opens uint64, keys *EpochKeyDelivery) bool {
+	opening, ok := openingOf(record, keys)
+	if !ok {
 		return false
 	}
-	attachment := record.Attachment.Epoch
 	switch {
-	case attachment.Epoch != opens:
+	case opening.Epoch != opens:
 		return false
-	case len(attachment.WriteKey) != EpochKeyBytes:
+	case len(opening.WriteKey) != EpochKeyBytes:
 		return false
-	case len(attachment.ReadKey) != EpochKeyBytes:
+	case len(opening.ReadKey) != EpochKeyBytes:
 		return false
-	case attachment.ExpectedWrapCount == 0:
+	case opening.ExpectedWrapCount == 0:
 		return false
-	case attachment.GroupContextHash != nil && len(attachment.GroupContextHash) != GroupContextHashBytes:
+	case opening.GroupContextHash != nil && len(opening.GroupContextHash) != GroupContextHashBytes:
 		return false
 	}
 	return true
+}
+
+// Which attachment kinds are an EPOCH attachment for the purposes of §5.1 check 3's
+// `iff is_commit`, which is the sixth kind's whole footprint in the two gates below.
+//
+// IT IS A DISJUNCTION AND IT HAS TO BE. `is_commit != (kind == AttachmentEpoch)` looks like an
+// iff and stops being one the moment a second epoch kind exists: a kind `0x0005` attachment on
+// a NON-commit record gives `false != false`, which passes — so the clause that exists to keep
+// an epoch attachment off an ordinary record admits the newer of the two epoch attachments on
+// every ordinary record. Spec B §5.1 check 3 now states the disjunction for the same reason.
+//
+// A `switch` over the named constants rather than a range or a `!= AttachmentNone`: a seventh
+// kind is given an answer here instead of inheriting one from whichever side of a bound it
+// falls on, which is the rule `connect/message`'s own kind tables are written to.
+func isEpochAttachmentKind(kind AttachmentKind) bool {
+	switch kind {
+	case AttachmentEpoch, AttachmentEpochDigest:
+		return true
+	default:
+		return false
+	}
 }
 
 // §3.1's exact lengths and §3.2's CHECKs, which the memory implementation has no constraints
@@ -1119,6 +1147,12 @@ func cloneAttachment(attachment *Attachment) *Attachment {
 		return nil
 	}
 	copied := &Attachment{Kind: attachment.Kind}
+	if attachment.EpochDigest != nil {
+		digest := *attachment.EpochDigest
+		digest.GroupContextHash = bytes.Clone(attachment.EpochDigest.GroupContextHash)
+		digest.EpochKeysDigest = bytes.Clone(attachment.EpochDigest.EpochKeysDigest)
+		copied.EpochDigest = &digest
+	}
 	if attachment.Epoch != nil {
 		epoch := *attachment.Epoch
 		epoch.WriteKey = bytes.Clone(attachment.Epoch.WriteKey)

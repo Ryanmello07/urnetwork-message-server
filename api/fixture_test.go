@@ -207,6 +207,75 @@ func (self *fixture) epochAttachment(opens uint64, wraps uint32) *message.Server
 	}
 }
 
+// The kind 0x0005 EpochDigest a commit carries under ruling 27: [fixture.epochAttachment]'s six
+// PUBLIC fields, with the two keys replaced by one digest over them.
+//
+// It is built through `message.NewEpochDigestAttachment` and never field by field, because that
+// constructor is what makes an attachment whose `epoch` and whose digest's `opens_epoch` disagree
+// UNREPRESENTABLE: it reads the epoch once, out of the body it is building, and is given no
+// second one to disagree with. A fixture that filled `EpochKeysDigest` itself would be a fixture
+// able to build the very body the constructor exists to prevent, and every test downstream of it
+// would be testing a record no conforming committer can produce.
+//
+// The six public fields are taken FROM [fixture.epochAttachment] rather than typed again, so the
+// two kinds cannot drift into disagreeing about anything but the keys.
+func (self *fixture) digestAttachment(t *testing.T, opens uint64, wraps uint32) *message.ServerAttachment {
+	t.Helper()
+	return self.digestAttachmentFor(t, self.groupId, opens, wraps, self.writeKey(opens), self.readKey(opens))
+}
+
+// The same, for a group and a key pair the caller names — which is what a test needs in order to
+// build a digest over the WRONG epoch, the WRONG group or the WRONG keys and watch check 3 refuse
+// it.
+func (self *fixture) digestAttachmentFor(t *testing.T, group []byte, opens uint64, wraps uint32,
+	writeKey []byte, readKey []byte) *message.ServerAttachment {
+
+	t.Helper()
+	public := self.epochAttachment(opens, wraps).Epoch
+	body, err := message.NewEpochDigestAttachment(
+		[store.GroupIdBytes]byte(group),
+		message.EpochDigestAttachment{
+			Epoch:             public.Epoch,
+			AlgId:             public.AlgId,
+			MediaTtlSeconds:   public.MediaTtlSeconds,
+			DurableTtlSeconds: public.DurableTtlSeconds,
+			GroupContextHash:  public.GroupContextHash,
+			ExpectedWrapCount: public.ExpectedWrapCount,
+		},
+		writeKey, readKey)
+	if err != nil {
+		t.Fatalf("NewEpochDigestAttachment: %v", err)
+	}
+	return &message.ServerAttachment{Kind: message.AttachmentEpochDigest, EpochDigest: body}
+}
+
+// The delivery a kind 0x0005 commit's epoch opens with, as the request carries it.
+func (self *fixture) epochKeys(opens uint64) *protocol.EpochKeyDelivery {
+	return &protocol.EpochKeyDelivery{WriteKey: self.writeKey(opens), ReadKey: self.readKey(opens)}
+}
+
+// An attachment encoded at the door that serves its kind, which is the encode-side half of
+// `api.parseServerAttachment`.
+//
+// `message.EncodeServerAttachment` REFUSES kind 0x0005 by name — the two doors are how
+// `connect/message` keeps "which kinds does this build serve" one question per door — so a
+// fixture that called it alone could not build a 0x0005 record at all.
+func encodeAtItsDoor(t *testing.T, attachment *message.ServerAttachment) []byte {
+	t.Helper()
+	if attachment != nil && attachment.Kind == message.AttachmentEpochDigest {
+		bs, err := message.EncodeEpochDigestAttachment(attachment.EpochDigest)
+		if err != nil {
+			t.Fatalf("EncodeEpochDigestAttachment: %v", err)
+		}
+		return bs
+	}
+	bs, err := message.EncodeServerAttachment(attachment)
+	if err != nil {
+		t.Fatalf("EncodeServerAttachment: %v", err)
+	}
+	return bs
+}
+
 func wrapAttachment(epoch uint64, target [store.WrapTargetHandleBytes]byte) *message.ServerAttachment {
 	return &message.ServerAttachment{
 		Kind: message.AttachmentWrap,
@@ -269,10 +338,7 @@ func (self *fixture) seal(t *testing.T, spec sealed) *protocol.Record {
 	if group == nil {
 		group = self.groupId
 	}
-	attachmentBytes, err := message.EncodeServerAttachment(spec.attachment)
-	if err != nil {
-		t.Fatalf("EncodeServerAttachment: %v", err)
-	}
+	attachmentBytes := encodeAtItsDoor(t, spec.attachment)
 	var body []byte
 	if spec.bucket != message.SizeBucketBlob {
 		// the blob rung has no inline body at all, so there is no rung to pad to
@@ -378,6 +444,31 @@ func (self *fixture) submit(t *testing.T, records ...*protocol.Record) []*protoc
 	reason, response, err := self.handler.Submit(context.Background(), self.conn, &protocol.SubmitRequest{
 		GroupId: self.groupId,
 		Records: records,
+	})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if reason != protocol.Reason_REASON_OK {
+		t.Fatalf("the submit envelope answered %v, want REASON_OK with a body", reason)
+	}
+	if len(response.GetResults()) != len(records) {
+		t.Fatalf("the submit answered %d results for %d records; §4.3.3 aligns them positionally",
+			len(response.GetResults()), len(records))
+	}
+	return response.GetResults()
+}
+
+// A submission carrying §4.3.3's `epoch_keys` beside the records.
+//
+// It is a separate entry point rather than a variadic on [fixture.submit] so that every existing
+// caller keeps sending NO deliveries, which is what makes "a kind 0x0001 commit is still accepted
+// with nothing beside it" a property the whole existing suite holds rather than one test asserts.
+func (self *fixture) submitWithKeys(t *testing.T, keys []*protocol.EpochKeyDelivery, records ...*protocol.Record) []*protocol.SubmitResult {
+	t.Helper()
+	reason, response, err := self.handler.Submit(context.Background(), self.conn, &protocol.SubmitRequest{
+		GroupId:   self.groupId,
+		Records:   records,
+		EpochKeys: keys,
 	})
 	if err != nil {
 		t.Fatalf("Submit: %v", err)

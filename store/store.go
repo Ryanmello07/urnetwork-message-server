@@ -190,6 +190,12 @@ const (
 	AttachmentWrap
 	AttachmentRecovery
 	AttachmentEpochComplete
+	// Ruling 27's sixth kind, spec A §5.11's `0x0005`. APPENDED and never inserted: these
+	// values are `message_record.attachment_kind` on disk, so a renumbering is every stored
+	// row reinterpreted as another kind. The value here is this package's own and is not the
+	// wire code — §5.11's `0x0005` is `connect/message`'s — which is why the two are five and
+	// five by coincidence and not by construction.
+	AttachmentEpochDigest
 )
 
 // The parsed `server_attachment` of §5.4, as the API layer read it.
@@ -199,6 +205,7 @@ type Attachment struct {
 	Wrap          *WrapTag
 	Recovery      *RecoveryTag
 	EpochComplete *EpochCompleteTag
+	EpochDigest   *EpochDigestAttachment
 }
 
 // A commit's `EpochAttachment`: the keys and the policy for the epoch this commit opens.
@@ -216,6 +223,144 @@ type EpochAttachment struct {
 	DurableTtlSeconds uint32
 	GroupContextHash  []byte
 	ExpectedWrapCount uint32
+}
+
+// A commit's `EpochDigest` (Spec A §5.11 kind `0x0005`, ruling 27): everything the
+// `EpochAttachment` above says about the epoch this commit opens, with the two keys replaced by
+// one digest over both of them.
+//
+// The six public fields are declared here rather than by embedding [EpochAttachment], for the
+// reason `connect/message` gives of its own copy: embedding would put `WriteKey` and `ReadKey`
+// one selector away from a structure whose whole purpose is not to have them. The cost of the
+// duplication is that a field added to one must be added to the other, and [openingOf] is where
+// a reader finds out — it reads both into one shape and will not compile with a field it has
+// not been taught.
+//
+// THIS PACKAGE NEVER CHECKS THE DIGEST AND MUST NOT. Spec B §5.1 check 3 makes the comparison,
+// through `message.CheckEpochKeysDigest`, in the api layer — the layer that holds the request
+// the keys arrived on and the `group_id` it verified. What this package does with the field is
+// carry it: it is §3.2's `attachment_epoch_keys_digest` projection, written so that a stored
+// `0x0005` commit reads back as the attachment its submitter handed over rather than as one
+// with a field silently dropped.
+type EpochDigestAttachment struct {
+	Epoch             uint64
+	AlgId             uint32
+	MediaTtlSeconds   uint32
+	DurableTtlSeconds uint32
+	GroupContextHash  []byte
+	ExpectedWrapCount uint32
+	// H(epoch_keys), exactly 32 bytes. Spec A §5.11 owns the preimage and
+	// `message.EpochKeysDigest` is the one function that computes it.
+	EpochKeysDigest []byte
+}
+
+// The two keys a commit's next epoch opens with, handed to this package BESIDE the record
+// rather than inside it (ruling 33).
+//
+// It is a field of [SubmitRequest] and [CreateGroupRequest] and **never** of [Record], and that
+// is the whole of what ruling 33 buys read into this package's own types. [Record] is what
+// [Store.Fetch] answers with and what `api.rebuildRecord` re-encodes onto the wire, so a key
+// pair on it would be one more serve path that has to remember to clear it — ledger item 244
+// re-opened inside this repository, one layer below where `connect/protocol` closed it.
+//
+// SINGULAR, where the wire's `SubmitRequest.epoch_keys` is a repeated field positionally
+// aligned with `records`. That is not a simplification, it is the set the wire actually admits:
+// Spec B §4.3.3 makes a batch containing a commit exactly one record, so the aligned list is
+// either EMPTY or ONE ENTRY and there is no third value. The api layer resolves the alignment,
+// refuses every shape §4.3.3 forbids by name, and hands this package the one delivery — so
+// misalignment is not a thing this package can be handed, rather than a thing it re-checks and
+// can come to disagree about.
+type EpochKeyDelivery struct {
+	WriteKey []byte
+	ReadKey  []byte
+}
+
+// The epoch a commit opens, read out of whichever attachment kind carries it and out of the
+// request beside it, as ONE shape.
+//
+// IT EXISTS SO THAT "WHERE DO THE KEYS COME FROM" IS ANSWERED IN EXACTLY ONE PLACE. Both store
+// implementations open an epoch, both check the attachment's well-formedness before the CAS,
+// and both had the answer written into them separately for kind `0x0001`. A second copy of the
+// kind-`0x0005` answer is a second copy to get wrong, and the way it goes wrong is silent: the
+// digest attachment HAS no keys, so a store that reached for `record.Attachment.Epoch` under
+// kind `0x0005` would install a nil write key and brick the group at the next submit rather
+// than fail here.
+//
+// `Ok` is false for anything that is not a well-formed opening, and the caller turns that into
+// `REASON_REJECTED` before the CAS, which is where §6.1 puts it.
+type epochOpening struct {
+	Epoch             uint64
+	AlgId             uint32
+	MediaTtlSeconds   uint32
+	DurableTtlSeconds uint32
+	GroupContextHash  []byte
+	ExpectedWrapCount uint32
+
+	// The two keys to install against [epochOpening.Epoch]. Under kind `0x0001` they are the
+	// attachment's own; under kind `0x0005` they are the request's delivery, and the attachment
+	// carries only the digest the api layer has already held them against.
+	WriteKey []byte
+	ReadKey  []byte
+}
+
+// The opening a commit record announces, given the delivery that arrived beside it, or false.
+//
+// The `keys` argument is the SUBMISSION's and is the same value for every record in the batch.
+// That is sound for exactly the reason the singular field above is sound — §4.3.3 admits at
+// most one commit per batch — and it is why this function refuses a delivery it has no use for
+// rather than ignoring one: a delivery beside a `0x0001` commit is a value nothing reads, which
+// is how a caller comes to believe it was installed.
+func openingOf(record *Record, keys *EpochKeyDelivery) (*epochOpening, bool) {
+	if record == nil || record.Attachment == nil {
+		return nil, false
+	}
+	switch record.Attachment.Kind {
+	case AttachmentEpoch:
+		attachment := record.Attachment.Epoch
+		if attachment == nil {
+			return nil, false
+		}
+		if keys != nil {
+			// §5.4's acceptance window: under kind 0x0001 the keys are IN the attachment, so a
+			// delivery beside it is a field this package would not read and that can disagree
+			// with the one the write_auth mac covers
+			return nil, false
+		}
+		return &epochOpening{
+			Epoch:             attachment.Epoch,
+			AlgId:             attachment.AlgId,
+			MediaTtlSeconds:   attachment.MediaTtlSeconds,
+			DurableTtlSeconds: attachment.DurableTtlSeconds,
+			GroupContextHash:  attachment.GroupContextHash,
+			ExpectedWrapCount: attachment.ExpectedWrapCount,
+			WriteKey:          attachment.WriteKey,
+			ReadKey:           attachment.ReadKey,
+		}, true
+	case AttachmentEpochDigest:
+		attachment := record.Attachment.EpochDigest
+		if attachment == nil {
+			return nil, false
+		}
+		// the keys come from the REQUEST and from nowhere else. There is no fallback to the
+		// attachment here and there must not be one: the digest attachment has no key fields at
+		// all, so a fallback could only ever produce a nil key, and a nil key installed against
+		// the epoch this commit opens is a group that can never be written to again
+		if keys == nil {
+			return nil, false
+		}
+		return &epochOpening{
+			Epoch:             attachment.Epoch,
+			AlgId:             attachment.AlgId,
+			MediaTtlSeconds:   attachment.MediaTtlSeconds,
+			DurableTtlSeconds: attachment.DurableTtlSeconds,
+			GroupContextHash:  attachment.GroupContextHash,
+			ExpectedWrapCount: attachment.ExpectedWrapCount,
+			WriteKey:          keys.WriteKey,
+			ReadKey:           keys.ReadKey,
+		}, true
+	default:
+		return nil, false
+	}
 }
 
 // A device wrap or, at [SnapshotLeafIndex], the ratchet-tree snapshot (§6.1, epoch publication).
@@ -361,6 +506,16 @@ type CreateGroupRequest struct {
 	// against epoch 0. §5.1's carve-out: this is self-certification, protected by the 20/day
 	// per-client_id rate limit and by nothing else, and that is stated rather than implied.
 	BootstrapWriteKey []byte
+
+	// §4.3.2's `epoch_keys`, ruling 33: write_key[1] and read_key[1], the pair the initial
+	// commit's kind `0x0005` attachment is the DIGEST of.
+	//
+	// REQUIRED when InitialCommit carries an [AttachmentEpochDigest], and MUST BE NIL when it
+	// carries an [AttachmentEpoch] — [openingOf] refuses both directions. That is §5.4's
+	// acceptance window read into a type: while both kinds are accepted, "is there a delivery"
+	// and "which kind is the attachment" are two facts that have to agree, and a delivery this
+	// package would not read is a value a caller can believe was installed.
+	EpochKeys *EpochKeyDelivery
 }
 
 type CreateGroupResult struct {
@@ -374,6 +529,20 @@ type CreateGroupResult struct {
 type SubmitRequest struct {
 	GroupId []byte
 	Records []*Record
+
+	// §4.3.3's `epoch_keys`, ruling 33: the two keys the commit in this batch opens its next
+	// epoch with, carried beside the records rather than inside one.
+	//
+	// SINGULAR where the wire's field is repeated and positionally aligned, and [EpochKeyDelivery]
+	// says why: §4.3.3 admits at most one commit per batch, so the aligned list is either empty
+	// or one entry, and the api layer resolves that alignment — refusing every shape §4.3.3
+	// forbids, by name — before this package is handed anything. Misalignment is therefore not
+	// representable here rather than re-checked here.
+	//
+	// REQUIRED when the batch's one commit carries an [AttachmentEpochDigest]; MUST BE NIL
+	// otherwise, including for a batch with no commit in it at all. [openingOf] refuses both
+	// directions and it is the only place that decides.
+	EpochKeys *EpochKeyDelivery
 }
 
 type SubmitResponse struct {
@@ -587,16 +756,16 @@ type Store interface {
 // would otherwise stop a group committing at all. The policy the group put in its
 // transcript-covered attachment is never rewritten, so a group that ever moves to a server
 // with different limits gets its original policy back with no migration.
-func (self Limits) apply(attachment *EpochAttachment) (uint32, *uint32, *RetentionApplied) {
+func (self Limits) apply(opening *epochOpening) (uint32, *uint32, *RetentionApplied) {
 	applied := &RetentionApplied{
-		RequestedMediaTtlSeconds:   attachment.MediaTtlSeconds,
-		RequestedDurableTtlSeconds: attachment.DurableTtlSeconds,
+		RequestedMediaTtlSeconds:   opening.MediaTtlSeconds,
+		RequestedDurableTtlSeconds: opening.DurableTtlSeconds,
 	}
 
 	// media. §6.1's LEAST(attachment.media_ttl_seconds, $server_media_cap) has no branch for a
 	// zero request, and a zero would land in a column §3.2 CHECKs as 0 < media_ttl_seconds. It
 	// is read as the same "the group set nothing" §7.3 gives media a default for.
-	media := attachment.MediaTtlSeconds
+	media := opening.MediaTtlSeconds
 	if media == 0 {
 		media = self.MediaTtlDefaultSeconds
 	}
@@ -610,7 +779,7 @@ func (self Limits) apply(attachment *EpochAttachment) (uint32, *uint32, *Retenti
 	// text, bounded on both sides, and the two sentinels resolved here rather than refused at
 	// §5.1 check 3, where both are legal values.
 	var durable *uint32
-	switch attachment.DurableTtlSeconds {
+	switch opening.DurableTtlSeconds {
 	case DurableUnset:
 		applied.DurableDefaulted = true
 		switch {
@@ -633,7 +802,7 @@ func (self Limits) apply(attachment *EpochAttachment) (uint32, *uint32, *Retenti
 			applied.DurableClampedDown = true
 		}
 	default:
-		value := attachment.DurableTtlSeconds
+		value := opening.DurableTtlSeconds
 		if value < self.DurableRetentionMinSeconds {
 			value = self.DurableRetentionMinSeconds
 			applied.DurableFlooredUp = true

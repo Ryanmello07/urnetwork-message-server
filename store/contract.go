@@ -75,6 +75,7 @@ func RunContract(t *testing.T, newStore func(Limits) Store) {
 	t.Run("ARejectionRollsTheWholeBatchBack", func(t *testing.T) { contractBatch(t, newStore, seen) })
 	t.Run("RetentionIsResolvedAtStep6", func(t *testing.T) { contractRetention(t, newStore, seen) })
 	t.Run("AWonCommitMovesEpochKeyCustody", func(t *testing.T) { contractEpochKeys(t, newStore, seen) })
+	t.Run("AKind0x0005CommitInstallsTheRequestsKeys", func(t *testing.T) { contractEpochDigest(t, newStore, seen) })
 	t.Run("ARecoveryHandleIsTrustedOnFirstUse", func(t *testing.T) { contractRecovery(t, newStore, seen) })
 	t.Run("TheMarkerIsTheOnlyThingThatOpensAnEpoch", func(t *testing.T) { contractEpochComplete(t, newStore, seen) })
 	t.Run("TheReadPathAllocatesNothing", func(t *testing.T) { contractFetch(t, newStore, seen) })
@@ -2950,6 +2951,7 @@ func contractEpochComplete(t *testing.T, newStore func(Limits) Store, seen *reco
 		// AttachmentKind the package declares and a kind added tomorrow fails here by name.
 		exemption := map[string]struct {
 			exempt bool
+			keys   *EpochKeyDelivery
 			record func(sender []byte, epoch uint64, index uint64) *Record
 		}{
 			"AttachmentNone": {record: func(sender []byte, epoch uint64, index uint64) *Record {
@@ -2966,6 +2968,14 @@ func contractEpochComplete(t *testing.T, newStore func(Limits) Store, seen *reco
 			}},
 			"AttachmentEpochComplete": {exempt: true, record: func(sender []byte, epoch uint64, index uint64) *Record {
 				return markerRecord(sender, epoch, index, 1)
+			}},
+			// ruling 27's sixth kind. NOT exempt, exactly as AttachmentEpoch is not: it is the
+			// same commit with its two keys replaced by a digest, and §6.1 step (2)'s
+			// exemption is about wraps and the marker that closes them. The scenario carries
+			// its delivery, because a 0x0005 commit with none is refused before the fan-out
+			// gate is ever reached and this table would then be asserting the wrong refusal
+			"AttachmentEpochDigest": {keys: digestKeys(0x41), record: func(sender []byte, epoch uint64, index uint64) *Record {
+				return digestCommitRecord(sender, epoch, index, epoch+1, 0x41)
 			}},
 		}
 		declared := attachmentKindsDeclared(t)
@@ -2987,7 +2997,7 @@ func contractEpochComplete(t *testing.T, newStore func(Limits) Store, seen *reco
 				t.Parallel()
 				store := newStore(DefaultLimits())
 				group := createGroup(t, store, testGroupId(0x11), testHandle(0x20))
-				results := submit(t, store, seen, group, current.record(testHandle(0x22), 1, 3))
+				results := submitWithKeys(t, store, seen, group, current.keys, current.record(testHandle(0x22), 1, 3))
 				if current.exempt {
 					wantReason(t, results[0], protocol.Reason_REASON_OK)
 					return
@@ -4113,10 +4123,28 @@ var (
 // carrying a notice, with a record id and an opened epoch behind it.
 func submit(t *testing.T, store Store, seen *recorder, groupId []byte, records ...*Record) []*SubmitResult {
 	t.Helper()
+	return submitWithKeys(t, store, seen, groupId, nil, records...)
+}
+
+// [submit], with §4.3.3's `epoch_keys` delivery beside the batch.
+//
+// It is a separate entry point rather than a variadic on [submit] so that EVERY existing caller
+// keeps passing nil, which is what makes "a kind 0x0001 commit installs from its attachment and
+// is refused if a delivery arrives beside it" a property the whole existing contract holds
+// rather than one scenario asserts.
+//
+// The delivery is NOT derived from the record here, and that is deliberate: a helper that built
+// the delivery out of `record.Attachment` would make "the store installed the request's keys"
+// and "the store installed the record's keys" indistinguishable, which is the mutant this whole
+// arm exists to kill.
+func submitWithKeys(t *testing.T, store Store, seen *recorder, groupId []byte,
+	keys *EpochKeyDelivery, records ...*Record) []*SubmitResult {
+
+	t.Helper()
 	ctx := context.Background()
 
 	before, known := readNextRecordId(store, groupId)
-	response, err := store.Submit(ctx, &SubmitRequest{GroupId: groupId, Records: records})
+	response, err := store.Submit(ctx, &SubmitRequest{GroupId: groupId, Records: records, EpochKeys: keys})
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
@@ -4399,6 +4427,69 @@ func commitRecord(sender []byte, epoch uint64, index uint64, opens uint64, seed 
 		},
 	}
 	return record
+}
+
+// A commit carrying ruling 27's kind `0x0005` attachment: [commitRecord]'s six PUBLIC fields,
+// with the two keys struck and a digest in their place.
+//
+// IT IS BUILT FROM [commitRecord] AND NOT BESIDE IT, field by field, so that the two fixtures
+// cannot drift into disagreeing about anything but the keys. That matters for one scenario in
+// particular: "the store installed the retention policy from the attachment under BOTH kinds"
+// is only a property if the two fixtures carry the same policy.
+//
+// The digest is NOT the real H(epoch_keys) over [digestKeys]. This package neither computes nor
+// checks it — Spec B §5.1 check 3 makes that comparison in the api layer, through
+// `message.CheckEpochKeysDigest`, which is the layer that holds the request and the verified
+// group_id. A fixture that computed a real digest here would be this package growing an opinion
+// about a preimage it is forbidden to have one about.
+func digestCommitRecord(sender []byte, epoch uint64, index uint64, opens uint64, seed byte) *Record {
+	record := commitRecord(sender, epoch, index, opens, seed)
+	attachment := record.Attachment.Epoch
+	record.Attachment = &Attachment{
+		Kind: AttachmentEpochDigest,
+		EpochDigest: &EpochDigestAttachment{
+			Epoch:             attachment.Epoch,
+			AlgId:             attachment.AlgId,
+			MediaTtlSeconds:   attachment.MediaTtlSeconds,
+			DurableTtlSeconds: attachment.DurableTtlSeconds,
+			GroupContextHash:  attachment.GroupContextHash,
+			ExpectedWrapCount: attachment.ExpectedWrapCount,
+			EpochKeysDigest:   testBytes(32, seed+3),
+		},
+	}
+	return record
+}
+
+// The delivery that rides beside a [digestCommitRecord] of the same seed.
+//
+// ITS TWO KEYS ARE DELIBERATELY NOT [commitRecord]'s. `commitRecord(seed)` puts
+// `testBytes(32, seed)` in `WriteKey` and `testBytes(32, seed+1)` in `ReadKey`; these are
+// `seed+4` and `seed+5`. So a store that installed "the record's keys" under kind `0x0005`
+// would install a nil — the digest attachment has no key fields — and a store that somehow
+// reached the 0x0001 fixture's values would install the WRONG bytes, and both are visible as a
+// mismatch rather than as an equality that happened to hold.
+func digestKeys(seed byte) *EpochKeyDelivery {
+	return &EpochKeyDelivery{
+		WriteKey: deliveredKeyBytes(seed, 0x11),
+		ReadKey:  deliveredKeyBytes(seed, 0x22),
+	}
+}
+
+// A delivered key's bytes, which are deliberately NOT a [testBytes] ramp.
+//
+// THE RAMP IS A TRAP AND IT CAUGHT THIS FILE'S OWN FIXTURE FIRST. `testBytes(n, s)` is
+// s, s+1, s+2 …, so `testBytes(32, s+4)` is a literal SUBSTRING of `testBytes(64, s)` and of
+// `testBytes(272, s)` — the `server_attachment` and the `ct_body` of every fixture that shares
+// the seed. The property "no served byte of a kind 0x0005 commit contains either delivered key"
+// went red against a record that never carried one, because the search found the ramp inside
+// another ramp. A key that can be found only where it really is needs bytes no ramp contains,
+// and consecutive octets here differ by 37 rather than by 1.
+func deliveredKeyBytes(seed byte, label byte) []byte {
+	value := make([]byte, EpochKeyBytes)
+	for index := range value {
+		value[index] = seed ^ label ^ byte(index*37+13)
+	}
+	return value
 }
 
 func wrapRecord(sender []byte, epoch uint64, index uint64, target []byte) *Record {
