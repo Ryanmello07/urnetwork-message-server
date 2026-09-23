@@ -20044,10 +20044,13 @@ no row, and the table ended at `| 2026-09-15 | A-27 |`.
 `368ef8d` and `21f22c7` each changed it — §8.1's disappearing-string note, `GapReason`'s
 `unsupported`, and §9.6's comparison tuple — and its log ended at Rev 6 of 2026-08-12.
 
-Over the whole history, with the detector this commit ships: **36** commits touch Spec A and
-**8** appended nothing; **23** touch Spec B and **3** appended nothing; **9** touch Spec C and
-**4** appended nothing. One of each eight, three and four is `3bc0603`, the commit that created
-the documents.
+Over the whole history **as of this commit's parent `95eee27`**, with the detector this commit
+ships: **36** commits touch Spec A and **8** appended nothing; **23** touch Spec B and **3**
+appended nothing; **9** touch Spec C and **4** appended nothing. One of each eight, three and
+four is `3bc0603`, the commit that created the documents. The parent is named because this
+commit appends to all three logs and the totals move with it — run against `44a9f11` the same
+gate reads **37**, **24** and **10**, with the three delinquent counts unchanged, and that is the
+run recorded under §7 below.
 
 #### 2. Why the check is per commit, and not "the log's newest date is not older than the newest commit"
 
@@ -20154,7 +20157,8 @@ name; the baseline was restored and the file's sha256 with it.
 
 | command | result |
 |---|---|
-| `go test ./ -run TestTheEditLogGate -timeout 900s -count=1 -v` | `ok` — six tests, all `--- PASS` |
+| `go test ./ -run TestTheEditLogGate -timeout 900s -count=1 -v` | `ok` 8.632s — six tests, all `--- PASS` |
+| the same command **re-run against `44a9f11`**, this commit | `ok` 8.939s — six `--- PASS`; the landed arm now reads 37, 24 and 10 commits and holds this commit to its own three entries, and the ledger arm reads 53 of 74 |
 | `go test ./... -run Test -timeout 900s -count=1` | `ok` ×6, no-test ×6, **0 failures** |
 | `go test ./ -run TestThePlanLinter -timeout 900s -count=1` | `ok` |
 | `go build ./...` / `go vet ./...` / `gofmt -l .` | clean / clean / empty |
