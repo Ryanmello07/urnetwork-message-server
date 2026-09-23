@@ -19968,6 +19968,7 @@ narrowing nobody asserted, and a TEST can be satisfied by a defence nobody named
 | `go test ./... -run Test -timeout 900s -count=1` | `ok` in all **6** packages with tests, 6 with none, 0 failures — counted by `grep -c '^ok'`, `grep -c 'no test files'` and `grep -c '^FAIL\|^---'` over the run's own output |
 | `URMESSAGE_TEST_DSN=… go test ./store/ -run Test -timeout 1800s -count=1` | **`ok` 253.075s** — the pgx contract RAN, migration 012 applied |
 | `go test -race ./api/ ./store/ -run Test -timeout 900s -count=1` | `ok` api 2.136s, `ok` store 2.277s |
+| `URMESSAGE_TEST_DSN=… go test -race ./store/ -run Test -timeout 2400s -count=1` | **`ok` 541.557s** — the race detector over the pgx contract, which is the strongest of these four and is listed because a table that stopped at the weaker three would be a table that omitted the run that was made |
 | `go test . -run 'TestEveryDependencyOfThisModuleIsOneSpecB22Allows\|…' -v -timeout 600s` | 9 gates, all `--- PASS`, `ok` 6.853s |
 | `go build ./...` / `go vet ./...` / `gofmt -l .` | clean / clean / empty |
 
