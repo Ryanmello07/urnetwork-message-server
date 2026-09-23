@@ -9710,8 +9710,10 @@ repo and therefore the critical path — not this repository:
      interop vectors. The joint every other repo waits on, and the cheap place F3′ proves out.
   2. **In parallel, this repository: F0** (item 246) and the pgx re-run (item 247). Different repo,
      no file in common, no dependency.
-  3. `connect/protocol`: the two `Record` fields — **use 15 and 16; field 14 is reserved** and Spec B
-     §4.3.3 believes it is `eph_window`.
+  3. `connect/protocol`: **the two REQUEST carriers (ruling 33), never `Record`** — a repeated
+     `EpochKeyDelivery` on `SubmitRequest` aligned with `records`, one on `CreateGroupRequest`;
+     plus `read_epoch` on `FetchAttestation` (ruling 32). **A landed field number is never
+     renumbered, and field 14 of `Record` is reserved** — Spec B §4.3.3 believes it is `eph_window`.
   4. Fan out: this repository's F3′ server half ‖ `sdk`'s F3′ committer half.
   5. **`sdk`, serialised** (one writer): item 243's `pq_secret` rotation, then item 245's state fix —
      the reserver seed, the `peerHeads` prune by `RemovedLeaves`, per-record-epoch `leavesLocked`,
@@ -9721,6 +9723,81 @@ repo and therefore the critical path — not this repository:
   7. After: the 90-day sweep and the 60-second retirement, as hygiene.
 *Sized honestly at 5–7 weeks end to end*, of which about 16 days is the part this pass measured; item
 243 and X4 are unsized here and are the halves that historically blow up.
+
+248. **STEP 1 DONE 2026-09-22, AND THE ADVERSARIAL PASS RULING 31 DEMANDED REVERSED PART OF RULING 27
+    BEFORE IT COULD SPREAD.** `connect 2f36c30d` (kind `0x0005` + its constructor and verifier),
+    `msgrepo 21f22c7` (F0, the pgx re-run, and three spec amendments). **This is ruling 31 earning its
+    place at day 2 rather than day 9**, exactly as it was written to.
+
+    **THE BLOCKER, and it reverses this ledger's own words.** Item 244's entry says of F3′: *"under F3′
+    there is nothing to forget, because the response type has no key fields at all"*, and the removal
+    track's step 3 says *"connect/protocol: the two `Record` fields — use 15 and 16"*. **Both are
+    false.** `protocol.Record` is the **server→client** type in **six** places — `FetchResponse.records`,
+    `SubmitResult.winning_commit`, `RecordPush.records`, `TransientPush.records`,
+    `WrapFetchResponse.records`, `GroupRecords.records` — against two client→server carriers
+    (`SubmitRequest.records`, `CreateGroupRequest.initial_commit`). Keys on `Record` would therefore
+    create **more** serve paths to remember than F1's three, each one re-opening item 244 exactly; and
+    `msgrepo/api/fetch.go` builds the served `Record` from the **same `projectionOf` constructor** the
+    submit path verifies against, by design. A second, independent break: submit clears exactly
+    `RecordBytes` and `RecordId` and then requires `proto.Equal(projectionOf(parsed, attachment), sent)`,
+    so **any** `Record` field the parse cannot imply makes that equality false — and the keys are by
+    construction not implied by a projection of `record_bytes`, *which is the entire point of F3′*.
+    Reproduced: setting field 15 on two otherwise identical `Record`s makes `proto.Equal` false, with
+    the unset pair as the inline control. Step 3 as ruled would have answered `REASON_REJECTED` to
+    **every commit**.
+
+    **RULING 33 — the epoch keys travel on the REQUEST messages and never on `Record`.** A repeated
+    `EpochKeyDelivery` on `SubmitRequest`, positionally aligned with `records` (the pattern
+    `SubmitResponse.results` already uses), plus one on `CreateGroupRequest` beside
+    `bootstrap_write_key`. The economy that put them on `Record` — one field pair covering both submit
+    call sites — is what created the blocker. **Paying for the second field pair makes the served type
+    structurally unable to carry a key, which is what ruling 27 claimed to be buying and did not.**
+    `Record`'s projection contract is untouched and needs no third class of field.
+
+    **RULING 34 — `epoch_keys` gains a group term.** The preimage as built commits to a number and two
+    keys but not to an epoch **of a group**, unlike this corpus's sibling preimages. `LP(group_id)`
+    joins it before anything else consumes the digest. Cheap now; a wire break later.
+
+    **RULING 32, taken by the implementer on ruling 27's own logic and ADOPTED here: `read_epoch`
+    joins `FetchAttestation` and its preimage** (field 11 — `sig` stays at 10, because a landed field
+    number is never renumbered). Spec B §4.3.4 says `class_mask` and `heads_only` are in the preimage
+    *"so that a filtered fetch is not byte-indistinguishable from a withholding one"*, and the ceiling
+    is a third filter. Measured before the fix: a server clamping a `read_epoch=3` request to epoch 1
+    produced a response that `proto.Equal`s the honest ceiling-1 answer — **7 of 12 records, two whole
+    epochs, withheld with no error** — and the sdk's omission predicate answered false against it,
+    while under the pre-F0 absolute high water the same withholding answered true. The signature is
+    unbuilt and nothing deployed migrates, which is the argument **for** doing it now. **Owed in
+    `connect`: `protocol.FetchAttestation` has no `read_epoch` field yet.**
+
+    **RULING 35 — a device that cannot advance its epoch names that state itself; it is not the
+    server's to announce.** F0's honest cost, found by the adversary and not by its author: a reader
+    permanently stuck below its own epoch is now answered `records=0, complete=true`, byte-identical to
+    a genuinely caught-up reader, where the pre-F0 absolute high water kept an omission error firing —
+    noisy, but visible. **The device already holds every fact needed**: it abandoned a commit into its
+    own unopened set and its own epoch is not advancing. So it raises the state locally rather than
+    waiting to be told, and F0's doc says plainly that under a ceiling `complete` no longer
+    distinguishes *"at the group's head"* from *"at your ceiling's head"*. This lands with the sdk work
+    in step 5. §4.3.10's `GroupStatus` is the natural companion and this server does not serve it.
+
+    **Also landed in step 1, each found by the adversaries rather than the builders:** the digest's
+    epoch had **no home and no verifier** — the codec would round-trip an attachment whose two halves
+    disagreed about which epoch the keys open — now closed by a constructor that reads the epoch once
+    and a `CheckEpochKeysDigest` that takes it from the body rather than as a parameter, with a
+    **failing-direction vector** (the pinned vector with its epoch advanced by one, differing in
+    exactly one octet) checked in so a second implementation meets one input where the door's yes is
+    not the whole answer. The pgx re-run of item 247 **held**, and found a direction nothing in that
+    module could see. F0's `ceiling` CTE forced a backward index scan over every row **above** the
+    reader's ceiling on every poll — 905 buffers against 4, and the party best placed to repeat it
+    cheaply is *the removed member F0 exists to bound* — closed by an index on
+    `(group_id, epoch, record_id)`. And Spec B's own `high_water_record_id` line had been made false by
+    the code and disclosed rather than amended; it now reads *"the group's max at or below
+    `read_epoch`"*, with ruling 30's §9.2/§5.3 amendment landed in the same pass.
+
+    **The pattern, for the third time in this project: the builders' prose overclaimed and their code
+    did not.** *"The rollout is one map"* and *"the CTE's cost is bounded by what that reader is about
+    to fetch anyway"* were both sentences no measurement supported, written by the agents that wrote
+    the code they describe. Both were caught by an adversary who ran them. **Ruling 31 generalises:
+    a design nobody has attacked is a draft, and the cheap place to attack it is the vectors.**
 
 ## 6. Change process
 
