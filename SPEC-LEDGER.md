@@ -9924,6 +9924,82 @@ repo and therefore the critical path — not this repository:
     and is therefore true only from the day §5.4's window closes. Reported to the `connect`
     writer and named in Spec B §4.3.2 and §4.3.3 rather than fixed here.
 
+250. **ITEM 244 IS CLOSED IN THE CODE, 2026-09-23.** `connect 96e6b461`, `sdk 63c97f7`,
+    `msgrepo 143e5f0`. The answer to *"is it fixed?"* is one test over a real publish — real sealer,
+    real `connect.Client`, real `api.Handler`, real store — `cp3b/item244_test.go`,
+    `TestItem244TheServedCommitHandsOutNoEpochKey`:
+
+    | clause | measured |
+    |---|---|
+    | the keys are on the REQUEST | 4 distinct keys, all found in 13,932 octets of request — **this is the inline positive control** |
+    | and are served NOWHERE | **0 hits** across 20 served records in 8 `FetchResponse`s, and across every column of 10 stored rows |
+    | the digest is the server's | `CheckEpochKeysDigest` with the server's own inputs, on both commits; failing direction on all four preimage terms |
+    | the alignment rule holds | all 9 submissions, both directions |
+    | and the check is load-bearing | the same commit with `epoch_keys` cleared **in flight** → `REASON_REJECTED`, twice, including after a fresh Hello and re-MAC |
+
+    **The mutant that mattered** kept the kind, the request and the digest all correct and served
+    `write_key` inside `group_context_hash` — **item 244 in a disguise the kind byte cannot see** — and
+    went red in both reaches. The obvious mutant (both sites back to `0x0001`) dies at clause 1 and so
+    never shows the search is load-bearing; that is the difference between mutating a parameter and
+    mutating the mechanism.
+
+    **AND A CONTROL CAUGHT THE TEST ITSELF BEING WRONG.** Clause 5 began as a replay with `epoch_keys`
+    stripped: refused, `REASON_INTERNAL`. The same request replayed **unmodified** was refused
+    identically — it was the front's replay check, not §5.4, and the clause would have passed against a
+    server that never reads `epoch_keys` at all. Both measurements are written into the tap.
+
+    **THE STEP ALSO FOUND THAT ONE OF THIS PROJECT'S CORE SECURITY ASSERTIONS HAD GONE VACUOUS.** F0's
+    epoch ceiling (item 246) made `ReadEpoch` required, and six `cp3b` helpers read the server's rows
+    with `&store.FetchRequest{GroupId: groupId}` — so `ReadEpoch` was **0**, a real ceiling, and each
+    was served the founding commit and nothing else. **Four of those were absence assertions**,
+    including `assertServerCannotRead` — the clause that makes *"the server cannot read your
+    messages"* a measurement — **searching a row set that contained no message.** Its own control never
+    fired, because the founding commit is itself at epoch 0. Attributed rather than assumed: the
+    kind-`0x0001` mutant reproduces all three failures identically.
+    `TestEveryReadOfTheServersRowsNamesItsEpochCeiling` is the mechanical guard, asserted both ways.
+    **This is [[feedback-absence-needs-a-control]] in its purest form** — a search returning 0 proved
+    nothing, and the positive control that should have caught it was satisfied by the one record the
+    ceiling did serve.
+
+    **The seal door.** Steps 1 and 3 built the sixth kind's codec and its own door and never wired it
+    into the seal path: `SealRecord` encodes through `EncodeServerAttachment`, whose served map
+    excluded `0x0005`. The step-1 author kept it out on a stated safety ground — *a server accepting
+    `0x0005` would install an epoch whose keys it was never handed* — **and ruling 33 discharged
+    exactly that**, by putting the keys on the request. The map moved, and step 1's
+    *stale-server-refuses-by-name* assertion was **re-expressed rather than deleted**: the mechanism
+    (a door refuses a kind it does not serve, by name, rather than parsing it) is now held over a kind
+    that genuinely is not served, so the rollout moved without the gate weakening. That is the
+    discipline the three previous repairs in this line failed.
+
+    **Two gates got a witness instead of an empty complement.** The served-map check no longer reads a
+    complement, it **makes** one: for each written-down `(door, kind)` it deletes the entry for one
+    closure, requires that door to refuse by sentinel naming both kind and door while another kind at
+    that door and the same kind at every other door stay served **in the same run**, then restores and
+    requires both halves to serve it again. And the served closure's **opaque fields** are now
+    dispositioned one by one — 35 of them, plus 139 more as a class, both directions — because the
+    ruling-33 gate had been name-independent and shape-dependent twice over.
+    **The stated limit, and it is stated rather than papered over:** `repeated uint64 wk = 20;` on a
+    served message carries 32 octets past the gate. Integer fields are outside it. What that costs an
+    attacker is code on both ends rather than a field in a proto, and the class disposition says so.
+
+    **WHAT IS LEFT BEFORE ITEM 244 IS CLOSED ON THE DEPLOYED ALPHA — four things, none of them a
+    regression, all of them zero-exposure today because nothing can be removed yet:**
+    1. **§5.4's acceptance window is open.** Dated and normative, but until it shuts the server still
+       takes kind `0x0001`, so any client built before `sdk 63c97f7` still hands out the keys. The fix
+       is **available, not enforced**.
+    2. **Nothing is deployed from these commits** — the alpha runs neither this client nor a server
+       pinned to it. *Owner: the lead, and the order is not optional — the server must accept `0x0005`
+       before any client emits it.*
+    3. **The 90-day sweep is unbuilt.** Ruling 30 already amended the published promise down to what
+       F0 enforces, so this is not a regression, but the retention half rests on it.
+    4. **§4.3.4's attestation is unsigned** (no fleet key), so ruling 32's `read_epoch` term binds
+       nothing yet. That is the read-side **withholding** half — a different defect from this one, and
+       the sdk's keyless comparison catches only a *truthful* clamp.
+
+    **The removal track's remaining order is unchanged:** item 243's `pq_secret` rotation and item
+    245's state fix, serialised in `sdk` because they contend for one writer, then **X4, the Remove and
+    Leave arms**, which is the step that actually ships removal and which no pass has yet sized.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
