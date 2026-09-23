@@ -9340,7 +9340,7 @@ fourteen are dispositioned below.
 243. **RULED 2026-09-18 BY THE PROJECT LEAD, WITH A CONDITION ATTACHED — `pq_secret` IS A
     GROUP-LIFETIME VALUE, AND ROTATING IT IS A PREREQUISITE OF REMOVAL RATHER THAN OF GROUP CHATS.**
     The group-chat survey named this the cheapest item on its list and the one blocking the
-    second-epoch publisher: `pq_secret` is drawn once (`sdk/urmessage/group.go:604`) and its only
+    second-epoch publisher: `pq_secret` is drawn once (`sdk/urmessage/group.go:604` when this was ruled; **`:842` today — see item 251**) and its only
     carrier is `Invite.PqSecret`, which reaches a **joiner** and no existing member —
     `alphaWrapBody` explicitly carries no key material. Measured by the survey: an epoch change
     reusing the same `pq_secret` round-trips cleanly, and a disagreement fails at the AEAD tag.
@@ -9999,6 +9999,102 @@ repo and therefore the critical path — not this repository:
     **The removal track's remaining order is unchanged:** item 243's `pq_secret` rotation and item
     245's state fix, serialised in `sdk` because they contend for one writer, then **X4, the Remove and
     Leave arms**, which is the step that actually ships removal and which no pass has yet sized.
+
+251. **ITEM 243 SCOPED AND RULED 2026-09-23 — the gate is real, it is ONE ADVERSARY WIDE, and the
+    carrier the corpus designated for it is CIRCULAR against a change that landed last week.**
+    Measured at `connect 96e6b461` / `sdk 63c97f7` / `msgrepo 92eb5dc`.
+
+    **THE QUESTION NOBODY HAD ASKED, answered: no, MLS's own hybrid does not already give us this.**
+    HPKE in `connect/mls` is **hard-wired to X25519 DH** — `hpkeEncap` calls
+    `X25519GenerateKey`/`X25519DH` (`hpke.go:214-247`), `hpkeDecap` the same (`:271-286`), and `KemId`
+    (`suite.go:112,131`) is a registry **label the implementation never dispatches on**. So the MLS
+    exporter carries **no** post-quantum contribution and cannot be made to without a new KEM
+    abstraction, every KeyPackage, every interop vector and a flag day, against a code point RFC 9420
+    does not have. **`pq_secret` is the only post-quantum material in the system.** Remove it and every
+    `storage_root` collapses to an X25519-derived exporter, and harvest-now-decrypt-later reads every
+    record ever written. That one sentence kills every cheap rotation shape at once: deriving the next
+    secret from a second exporter label, ratcheting it from the last one, or wrapping it group-wide
+    under `env_key` all rest on the same X25519 exporter a quantum adversary is assumed to have.
+    Ratcheting is worth naming twice — the ex-member **holds `pq_secret[n]` by construction**, so a QC
+    supplying `exporter[n+1]` completes it; it closes only the classical gate, which MLS's own
+    post-compromise security already closed, so it buys **literally nothing**.
+
+    **HOW WIDE THE GATE ACTUALLY IS, measured rather than asserted.** A four-member cohort, leaf 2
+    removed by leaf 3, with three controls firing for their own reasons: before the removal the
+    victim's storage root **is** a survivor's; after it the two survivors agree at *n+1* and that root
+    is not *n*'s; and the removed member's own best retained root is epoch *n*'s. **The counterfactual
+    is the finding:** `mls_secret[n+1]` plus the **retained** `pq_secret` reproduces the survivors'
+    root exactly. So the ledger's claim is literally true — the ex-member keeps its half forever — but
+    **MLS post-compromise security already denies it the other half** (`CommitPathRequired` is RFC 9420
+    §12.4 verbatim, so a Remove forces an UpdatePath, and §12.1.3 blanking is held by a passing test),
+    item 244 took away the chained read/write keys, and item 246's ceiling denies it this server's rows
+    above *n* entirely.
+    **The residual exposure, stated precisely: an ex-member who (a) holds an INDEPENDENT archive of the
+    group's ciphertext — the operator, a network observer, or a colluding member — and (b) later
+    acquires a quantum computer, reads every future epoch forever, with no further work, the instant
+    X25519 falls. Against every classical adversary the retained value is inert.** That is the whole of
+    the gate, and it is exactly the threat the post-quantum material exists for, so it is a reason to
+    build it properly and not a reason to skip it. *Caveat the judge stated rather than papered over:
+    the measurement used an honest client, whose group self-closes; the property is the blanking plus
+    path-required, not the close, and a retained adversarial client was not driven end to end.*
+
+    **THE CIRCULARITY, which is new and which invalidates m1 Task 14 as written.** The epoch fan-out is
+    published **after** `AdvanceEpoch`, so wrap rows carry record epoch *n+1* — while item 246's F0
+    ceiling, landed at `92eb5dc`, serves a reader at epoch *n* only rows with `epoch <= n`. Under
+    rotation: **`read_key[n+1]` needs `pq_secret[n+1]` needs the wrap needs `read_key[n+1]`.**
+    Measured: wrap rows by epoch {1:2, 2:3}; `ReadEpoch=1` served 5 rows and **0** epoch-2 wraps, with
+    the control firing for its own reason — one epoch-1 commit **was** served, because the commit that
+    *opens* epoch 2 is *sealed* at epoch 1; `ReadEpoch=2` served 9 rows and all 3 epoch-2 wraps.
+    **Task 14 was written before F0 landed and nothing re-checked it.** The `REASON_EPOCH_INCOMPLETE`
+    fence does not save it: the fence orders records *within what is served*, and the ceiling decides
+    what is served *at all*.
+
+    **RULINGS 36–40, taken 2026-09-23 by the project lead:**
+    36. **`pq_secret` stays, and the shape is A′ — Task 14's X-Wing device wrap, unchanged in
+        content.** It is the only carrier that delivers fresh entropy under ML-KEM-768. The cheap
+        shapes are refused for the reason above, and the refusal is one sentence: *a post-quantum gate
+        cannot be discharged by a carrier whose confidentiality rests on the MLS exporter.*
+    37. **The wraps are submitted at epoch *n*, staged and pre-merge, not at *n+1*.** Still sealed
+        under `env_key[n+1]` exactly as Task 14 says — computable before the merge through
+        `PendingExport` (item 244's R2 built it) and after `ApplyCommit` on the receiver, **and the two
+        agree**, which is already held by a passing test. The receiver then gets the commit **and its
+        wrap in one page** at `ReadEpoch=n`, applies, derives `env_key[n+1]`, opens its wrap, and walks
+        on. One round trip, **no server change, item 246 untouched.** The fallback — exempting wrap
+        rows from the ceiling — would re-open ruled item 246 and is not taken.
+    38. **Item 132 ships WITH item 243, not after it.** Today a botched fan-out costs nothing because
+        the wrap carries nothing. The day it carries key material, **a member that never opens a
+        readable wrap goes dark in BOTH directions, permanently**, with an undiagnosable
+        `REASON_REJECTED` — because `read_key[n+1]` *and* `write_key[n+1]` both hang off
+        `storage_root[n+1]`, and the server verifies `req_auth` before any AEAD is reached. Under A′
+        nothing ties the epoch-*n* wrap rows to the epoch *n+1* marker at all, and the only detector is
+        two client-declared numbers compared against each other. The orphan-wrap case (a lost CAS race
+        leaves wraps addressed to an epoch that never opened) **must be a typed refusal separable from
+        this one**, or the two are indistinguishable in the field.
+    39. **S2-26 is item 243's FIRST step, and it is in `connect`+`sdk`, not `sdk` alone.** The device
+        X-Wing keypair is generated and **its private half is dropped** — `device.go:357-363` encodes
+        only `.Public()` — so **no device can open a wrap addressed to its own leaf**, and
+        `XwingEncapsulate`/`XwingDecapsulate` have **zero** production callers outside `xwing.go`
+        (control in the same query: `SealRecord(` has one site in `seal.go` and seven in `group.go`).
+        MASTER §7's *"`pq_secret` arrived under X-Wing"* is therefore **false of this build**; it
+        arrives out of band in `Invite.PqSecret`. The removal track's step 5 is corrected: the majority
+        of this work is **connect's** — `wrap.go`, the `env_key`-rooted door, an Ed25519 sign/verify
+        surface absent from `messagegroup`, and a per-epoch table on `GroupSession` and `pastEpoch`.
+    40. **`Group.pqSecret` becomes a map keyed by epoch, bounded by `PastEpochWindow` (32).**
+        `pastepoch.go:457` re-derives a *past* epoch's storage root from the session's single scalar;
+        that line is the one item 243 must change, and the durable store's `GroupRecord.PqSecret`
+        scalar goes with it.
+
+    **Citations corrected in this pass.** Item 243's own `sdk/urmessage/group.go:604` **has drifted**:
+    it was right on the day the item was ruled and the draw is now at **`:842`** — the only production
+    call of `NewPqSecret` in either repo. **The trap worth recording: `:614` is `pqSecret []byte`, the
+    struct field**, so a pass that greps near the old line lands on the field and can conclude the draw
+    moved or vanished. Task 14's costing premise — *"no published API reaches a past epoch's
+    exporter"* — is **refuted**: `LoadGroup(groupId, k)` then `handle.Export` is exactly that API and
+    is live, which cuts its "missed the window ⇒ that epoch's root is unrecoverable" cost down to the
+    32-epoch bound. `AdvanceEpoch`'s own doc line still says *"with a fresh pq_secret"* while both
+    production callers pass the lifetime value. And **`WrapFetch` is an unserved arm** — `msgrepo/api`
+    dispatches only Fetch, Submit and CreateGroup — so any plan routing wrap retrieval through it is
+    planning against something that does not answer.
 
 ## 6. Change process
 
