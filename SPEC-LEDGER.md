@@ -9620,8 +9620,37 @@ fourteen are dispositioned below.
     §4.3.10 now carries this item beside the message so the first implementation of the arm cannot
     take the decision by default. *Owner:* the lead for the ruling, then this repository. **Gates
     nothing today; it gates the day `GroupStatus` is served, and Remove must not ship after that
-    without it.** `RecordPush` and `GroupRecords` inherit the ceiling rather than re-take it, and
-    §4.3.5 now says so.
+    without it.** ~~`RecordPush` and `GroupRecords` inherit the ceiling rather than re-take it, and
+    §4.3.5 now says so.~~
+
+    **AMENDED 2026-09-22 — that last sentence was wrong twice, and both halves were wrong about
+    the same message.** `RecordPush` does inherit the ceiling and §4.3.5 does say so; the
+    sentence's error is that it put `GroupRecords` beside it. **`GroupRecords` is not declared in
+    §4.3.5** — it is in §4.3.10, one subsection past `RecordPush` — so "§4.3.5 now says so" was
+    never going to be true of it. And **it does not inherit the ceiling at all.** Measured, with
+    the positive control inside the same query — every field whose TYPE is either of the two,
+    asked of both documents at once:
+
+    ```
+    grep -nE '^\s*(repeated )?(GroupRecords|Record) [a-z_]+ *=' \
+      docs/specs/2026-08-12-spec-b-message-server-operator.md \
+      ../connect/protocol/message.proto
+    ```
+
+    **`GroupRecords` has exactly ONE carrier field in each — `RecoveryFetchResponse.groups`, at
+    Spec B §4.3.7 and at `message.proto:684` — against 9 carrier fields of `Record` in Spec B and
+    8 in `message.proto`**, which is the control that the query finds carriers when they exist.
+    `RecoveryFetch` is **the one
+    authorized read §5.1.1 puts "outside it entirely"**: §4.3.7 authorizes it by the Ed25519
+    recovery proof and not by `req_auth`, so a seed-only restorer holds no read key and **names no
+    epoch**, and there is nothing for a ceiling to compare against. Its scope is the
+    `recovery_handle`. So the original sentence claimed a ceiling for the single carrier that
+    cannot have one — the same class of error the F0 review caught when it copied `WrapFetch` and
+    `RecoveryFetch` into a list of arms that take the ceiling. `connect/protocol` had already
+    corrected its own copy in step 3 and this repository's had not; §4.3.10's `GroupRecords`
+    declaration now carries the correction, with `high_water_record_id` and `complete` stated as
+    **absolute** and scoped to the handle. **Which high water a served field is depends on how its
+    arm is AUTHORIZED, and the three in this corpus do not agree.**
 
 249. **FILED 2026-09-22 — THE EPOCH CEILING'S `max(record_id)` IS BOUNDED BY `min(rows above, rows
     at or below)` AND NOT BY A CONSTANT; THE RESTRUCTURE THAT WOULD MAKE IT CONSTANT RESTS ON AN
@@ -9841,6 +9870,25 @@ repo and therefore the critical path — not this repository:
     withholding, which needs the signature. Kind `0x0005` is in no spec yet while Spec B §5.1 check 3
     still requires the two 32-byte keys, and item 248's `GroupRecords` sentence is unamended. Those
     three are the spec pass this repository owes before step 4.
+
+    **THE SPEC PASS IS DONE, 2026-09-22, and all three are closed.** Kind `0x0005` is landed in Spec
+    A §5.11 (the encoding's owner), MASTER §8.3 and Spec B §5.4, with the `EpochDigest` body and the
+    `epoch_keys` preimage written out; §5.1 check 3 is amended per kind and its *"`EpochAttachment`
+    iff `is_commit`"* clause is restated as a **disjunction over both kinds**, because as it stood it
+    **admitted a `0x0005` attachment on a non-commit record** — `0x0005` is not `AttachmentEpoch`, so
+    `false != false` passes; §5.4 carries ruling 27's re-opening in its own voice with the reason;
+    item 248's sentence is amended above with its measurement; and the rollout is written as a
+    **dated, normative acceptance window ending in a refusal** rather than as a narrative. The four
+    sentences the amendment made false were swept and amended with it rather than disclosed: the
+    *"delivered … inside the commit record's `server_attachment`"* block that is byte-identical in
+    MASTER §9.2, Spec A §12.1 and Spec B §5.3; §5.3's read-key arrival sentence; §6.1 step (6)'s
+    `INSERT`, whose keys now come from `epoch_keys`; and §3.2's `server_attachment` column comment,
+    which now says what each kind leaves in that column. **What `0x0005` does to that column is the
+    part worth naming:** under `0x0001` the raw column holds both keys in the clear, beside the
+    `message_epoch` row that wraps the very same two values under the vault KEK — one copy wrapped
+    and one not — and under `0x0005` it holds six public fields and a digest, so the keys exist in
+    the database in exactly one place, wrapped, which is what §5.3's *"a stolen database dump alone
+    must not yield write keys"* has always asked for and what `0x0001` never delivered.
 
 ## 6. Change process
 
@@ -19598,3 +19646,153 @@ edit, one pass later and against the sources rather than against memory, which i
   (`0feb10a0…` before and after the normalisation, `git diff` empty). The two spec-reading gates
   strip `\r\n` themselves, so nothing was passing vacuously; it would have been the next one that did
   not.
+
+---
+
+### 2026-09-22 (second pass of that date) — the spec pass kind `0x0005` owed: the sixth kind lands in three documents, §5.1 check 3's iff stops admitting it on a non-commit, and the rollout becomes a dated refusal
+
+**Change:** one commit in this repository, following `2aab1c8`. Three specification documents
+amended (MASTER §8.3/§9.2; Spec A §5.11/§12.1; Spec B §3.2, §4.3.2, §4.3.3, §4.3.10, §5.1, §5.3,
+§5.4, §6.1, §12.1), two ledger items closed (248's sentence, 249's owed spec pass), no code, no
+schema, no migration.
+
+**Why:** item 249's *"Still open, reported and not fixed"* paragraph named three things this
+repository owed before step 4 could start, each reported by an adversary and none fixed. They are
+the three sections below. The fourth section is what the §6 diff review of my own edit found.
+
+#### 1. Kind `0x0005` was in NO spec, while §5.1 check 3 still REQUIRED the two 32-byte keys
+
+As written, the server this repository specifies would have refused every record the new encoding
+produces — check 3's attachment clause asks for `write_key` and `read_key` at exactly 32 bytes each,
+and a `0x0005` attachment carries neither. Landed:
+
+- **Spec A §5.11** (the encoding's owner), **MASTER §8.3** and **Spec B §5.4** each gain the
+  `kind 0x0005 EpochDigest` table line, the `EpochDigest {}` body and the `epoch_keys` preimage.
+- **Spec B §5.1 check 3** is amended per kind, and §5.4 carries ruling 27's re-opening **in its own
+  voice with the reason**: §5.4 and §5.3 could not both be true — one puts the next epoch's keys in
+  a structure this server serves back verbatim, the other promises a member removed at *n* loses
+  access when *n*'s own read key ages out — and the pass that found it measured which one the code
+  implements. A specification that contradicts itself is amended, not chosen between.
+- **The clause that would have shipped the defect back in** is check 3's *"`EpochAttachment` iff
+  `is_commit`"*. Written on kind `0x0001` alone it **ADMITS a `0x0005` attachment on a NON-commit
+  record** — `0x0005` is not `AttachmentEpoch`, so `false != false` passes and the iff silently
+  becomes a one-way implication the day a sixth kind exists. It is now stated as a **disjunction
+  over both kinds**, in check 3 and in §12.1's reason for publishing the discriminator's constants,
+  and it is what commit 2's three copies of the clause are written against.
+- **What `0x0005` does to §3.2's `server_attachment` column** is written on the column itself,
+  because that column is where item 244 lives. Under `0x0001` the raw column holds both keys **in
+  the clear**, beside the `message_epoch` row that wraps the very same two values under the vault
+  KEK — one copy wrapped and one copy not. Under `0x0005` it holds six public fields and a digest
+  and **nothing in it is sensitive**, so the keys exist in that database in exactly one place,
+  wrapped, which is what §5.3's *"a stolen database dump alone must not yield write keys"* has
+  always asked for and what `0x0001` never delivered.
+- **The two request carriers are declared**, because check 3's `0x0005` arm is unstatable without
+  them: `SubmitRequest.epoch_keys` (repeated, aligned with `records`) and
+  `CreateGroupRequest.epoch_keys` (singular), with `EpochKeyDelivery` beside them in §4.3.3 — the
+  one `connect/message`-adjacent message this document declares, because it is a **request** field
+  and not part of the attachment encoding at all.
+
+#### 2. Item 248's `GroupRecords` sentence was wrong twice, and the second half is the one that matters
+
+The sentence read *"`RecordPush` and `GroupRecords` inherit the ceiling rather than re-take it, and
+§4.3.5 now says so."* `RecordPush` does. `GroupRecords` is **declared in §4.3.10, not §4.3.5**, so
+the second clause was never going to be true of it — and it **does not inherit the ceiling at all**.
+Measured with the positive control inside the same query, over both documents at once:
+
+```
+grep -nE '^\s*(repeated )?(GroupRecords|Record) [a-z_]+ *=' \
+  docs/specs/2026-08-12-spec-b-message-server-operator.md \
+  ../connect/protocol/message.proto
+```
+
+**`GroupRecords` has exactly ONE carrier field in each — `RecoveryFetchResponse.groups` — against
+9 carrier fields of `Record` in Spec B and 8 in `message.proto`**, which is the control that the
+query finds carriers when they exist. `RecoveryFetch` is the one authorized read §5.1.1 puts
+*"outside it entirely"*: §4.3.7 authorizes it by the Ed25519 recovery proof and not by `req_auth`,
+so a seed-only restorer holds no read key and **names no epoch**, and there is nothing for a ceiling
+to compare against. The sentence claimed a ceiling for the single carrier that cannot have one —
+the same class of error the F0 review caught when it copied `WrapFetch` and `RecoveryFetch` into a
+list of arms that take the ceiling. `connect/protocol` had already corrected its own copy in step 3
+and this repository had not. §4.3.10's declaration now states `high_water_record_id` and `complete`
+as **absolute** and scoped to the `recovery_handle`, and item 248's sentence carries the amendment.
+
+#### 3. The rollout is now normative and dated, and it ends in a refusal
+
+§5.4 states the acceptance window as three numbered steps with dates and the refusal that closes it:
+**from 2026-09-22 this server accepts `0x0001` AND `0x0005`; from 2026-10-06 a conforming client
+MUST emit `0x0005`; from 2026-11-03 this server REFUSES `0x0001` on a commit with
+`REASON_REJECTED`.** Reading `0x0001` on stored records never stops — the kind is frozen, not
+withdrawn — and what ends is its acceptance on a NEW commit. **The window closes at that date OR on
+the day the Remove arm first ships, whichever is EARLIER**, and that is the binding constraint
+rather than the date: a member removed under a `0x0001` commit holds the chained keys forever and
+nothing can claw them back, so the last `0x0001` commit accepted must be accepted strictly before
+the first Remove. Item 244 states the same ordering from the other side. §5.4 also says, in one
+paragraph, why *"the rollout is one map"* is still false — `connect/message`'s
+`serverAttachmentKindServed` governs **both** roles in one build, so step 2 is a statement about
+deployed binaries and not something a library flag can express.
+
+#### 4. What the §6 diff review found — five things, and three of them were my own sentences
+
+- **The alignment rule cannot be stated kind-free while the window is open, and I had copied
+  `connect/protocol`'s kind-free form.** `message.proto` says *"a commit with no entry"* is
+  `REASON_REJECTED` and *"an absent `epoch_keys` is `REASON_REJECTED`"*. Both become true only when
+  the window CLOSES: during it a `0x0001` commit legitimately carries no delivery, so that rule as
+  written would refuse every `0x0001` commit from the day the field exists. Both carriers now key
+  the rule on the **attachment kind**, and the divergence from `connect/protocol`'s copy is named
+  in this document rather than left to be found. A decision taken in the same place and named as
+  one: a `0x0001` commit WITH a delivery is also `REASON_REJECTED`, because a delivery the server
+  would not read is a field that can disagree with the one the MAC covers.
+- **A count I wrote that this ledger contradicts.** I had *"the five designs that were considered"*;
+  item 244 calls F3′ *"a fourth option"*, so three were proposed (F1, F2, F3) and two more were
+  adversary repairs. Replaced in all three documents by the enumeration rather than a count.
+- **A property asserted without naming what holds it.** The stale-peer split — a `0x0005` record
+  encodes and `ParseRecord`s back intact while `ParseServerAttachment` refuses the same octets by
+  name — is the whole argument for the window, and I had written it as prose. It is held by
+  `connect/message/attachment_test.go`'s `TestARecordCarriesAKindTheServersDoorRefusesByName`,
+  which was read before the sentence was kept; the test is now named in Spec A and Spec B together
+  with its positive control (every kind §5.11's door DOES serve, through the identical record round
+  trip, accepted).
+- **Four sentences the amendment makes false, found by sweeping for them rather than by recalling
+  them.** The `write_key` custody block that is byte-identical in MASTER §9.2, Spec A §12.1 and
+  Spec B §5.3; §5.3's read-key arrival sentence; §6.1 step (6)'s `INSERT`, whose key columns now
+  read from `epoch_keys`; and the epoch-publication step *"installs `write_key[n+1]` from the
+  attachment"* in all three documents. Each is amended rather than disclosed, which is the
+  correction `41d8207` had to make once already in this same work. The custody block's THREE
+  NUMBERED CONSEQUENCES are untouched, so Spec A §12.1's claim that they are reproduced
+  byte-identically in the other two stays true — only the paragraph above them moved.
+- **A clause the parser enforces and check 3 did not name.** `group_context_hash` at exactly 32
+  bytes is `checkEpochAttachment`'s and `checkEpochDigestAttachment`'s, and check 3's written clause
+  list omitted it; it is now listed as common to both kinds. **Reported and NOT fixed, because it
+  belongs to the code pass and not to this one:** `store.wellFormedEpochAttachment` accepts a
+  **nil** `GroupContextHash` (`attachment.GroupContextHash != nil && len(...) != GroupContextHashBytes`),
+  which `ParseServerAttachment` makes unreachable from the api path but which leaves the store
+  contract more permissive than check 3 now states.
+
+**The §5.11 byte-identity measurement re-run, and the new block held to the same standard.** The
+three documents' `EpochAttachment` blocks are still **ten lines and byte-identical** under §5.11's
+own published query. The new `EpochDigest {}` block is **byte-identical in all three including its
+comments**. The `epoch_keys` derivation differs in **exactly one line** across the three — the
+cross-reference naming each document's own attestation section, MASTER §9.4 against Spec B §4.3.4 —
+which is the `read_key` precedent §5.11 already sanctions, and it was made **deliberate** rather
+than accidental: Spec A's copy was changed to cite *"Spec B §4.3.4"*, because Spec A has no §4.3.4
+of its own and cited that number nowhere else in the document. The kind-table line likewise differs
+in one line and in the same way — *"in Spec B §5.4"* in MASTER and Spec A, *"below"* in Spec B.
+
+**Process note, recorded because §6 names it and because the last pass recorded the same gap.** §6
+step 2 asks for a **subagent** diff review. This session has no facility to spawn one, so the review
+above was done by the same agent that made the edit, one pass later and against the sources rather
+than against memory — which is how the first three findings were caught, each being a sentence of
+my own that a source refuted. It is still not the independent review §6 asks for, and it is still
+owed.
+
+#### What this entry does not claim
+
+- **No code changed in this commit.** The server still refuses kind `0x0005` at check 3 —
+  `serverAttachmentKindServed` does not carry it and this repository's three copies of the
+  `iff is_commit` clause still name `AttachmentEpoch` alone. Step 1 of §5.4's window is a
+  specification as of this commit and a behaviour as of the next one.
+- **The dates in §5.4 are an outer bound and not a schedule anyone has committed to.** What is
+  normative is the ORDER and the refusal it ends in, plus the whichever-is-earlier tie to Remove.
+- **Item 248 itself is still FILED and UNRULED.** What closed here is one wrong sentence inside it;
+  the `GroupStatus` decision it exists for is untouched, and it still gates the day that arm is
+  served.

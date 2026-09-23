@@ -2173,6 +2173,16 @@ server_attachment := u16(kind) ‖ LP(body)
   kind 0x0002  RecoveryTag     carried by RECOVERY_PUB records and by recovery wrap records
   kind 0x0003  WrapTag         carried by per-device epoch wrap records and by the epoch snapshot
   kind 0x0004  EpochComplete   carried by the wrap-set-complete marker record
+  kind 0x0005  EpochDigest     RULED 2026-09-22 (ruling 27). What 0x0001 becomes: the six
+                               PUBLIC fields of an EpochAttachment, with write_key and
+                               read_key replaced by ONE 32-byte digest over both of them.
+                               Carried by, and only by, a record with is_commit = 1, exactly
+                               as 0x0001 is. The two keys travel BESIDE the record, on the
+                               request that carries it (ruling 33), and never inside anything
+                               the server serves back. 0x0001 is FROZEN and stays readable:
+                               nothing in this amendment changes one octet of it, and the
+                               acceptance window in which a server takes both is dated and
+                               normative in Spec B §5.4.
 
 EpochAttachment {
     u64  epoch                  // the epoch this attachment OPENS. MUST equal current_epoch + 1
@@ -2216,13 +2226,102 @@ EpochComplete {
     u32  wrap_count             // MUST equal that epoch's EpochAttachment.expected_wrap_count
 }
 
+EpochDigest {
+    u64  epoch                  // the epoch this attachment OPENS. MUST equal current_epoch + 1
+    u16  alg_id                 // 0x0031 (HKDF-SHA-256) in v1 -- the algorithm that derived the
+                                //   two keys this digest is over. Hashing them rather than
+                                //   carrying them does not change what derived them.
+    u32  media_ttl_seconds      // EpochAttachment's field, unchanged
+    u32  durable_ttl_seconds    // EpochAttachment's field, unchanged, both sentinels included
+    LP   group_context_hash     // exactly 32 bytes
+    u32  expected_wrap_count    // EpochAttachment's field, unchanged: 2 x device_leaves + 1
+    LP   epoch_keys_digest      // exactly 32 bytes: H(epoch_keys), below. The server does NOT
+                                //   learn the two keys from this. It is handed them beside the
+                                //   record, on the request, and recomputes this value -- which
+                                //   the write_auth MAC already covers by way of
+                                //   LP(H(server_attachment)). The digest is a BINDING and never
+                                //   a delivery, and altering either key fails the comparison.
+}
+
 wrap_target_handle = HKDF-Expand(group_handle_key, "wt/v1" ‖ u64(epoch) ‖ u32(leaf_index), 16)
                      // every member can compute it for every leaf; the server cannot invert it.
                      // The epoch snapshot record uses leaf_index = 0xFFFFFFFF.
+
+epoch_keys         = "URmessage/v1/epochkeys" ‖ LP(group_id) ‖ u64(opens_epoch)
+                       ‖ LP(write_key) ‖ LP(read_key)
+                     // H is SHA-256. The label is raw ascii and is NOT length-prefixed, exactly
+                     // as the write_auth, req_auth, AAD_head and AAD_body labels are.
+                     // LP(group_id) is ruling 34 and sits ahead of every number, where those
+                     // four and Spec B §4.3.4's attestation each put the group they are about:
+                     // without it the preimage commits to an epoch INDEX and two keys, and
+                     // epoch 1 of every group in the world is the same index -- the same digest would
+                     // verify the same pair under any group_id a request cared to name.
+                     // opens_epoch is the EpochDigest's OWN epoch field and never the record
+                     // header's, which is one lower. Both keys are LP-framed, so no choice of
+                     // one key's octets can move a boundary into the other's.
 ```
 
+**RULED 2026-09-22 — the sixth kind, and why an already-RULED block was re-opened to add it.**
+Ruling 27 re-opened Spec B §5.4's `EpochAttachment` block **narrowly**, and the reason is not a
+preference between two readings. §5.4 puts `read_key[n+1]` and `write_key[n+1]` **in the clear**
+inside a structure the server serves back verbatim; §5.3 and MASTER §9.2 promise that a member
+removed at epoch *n* keeps access *"until epoch n's read key ages out, and no longer"*. The commit
+that removes the member is sealed **at** *n*, is fetchable under `read_key[n]`, and carries the keys
+of *n+1* — so the removed member ladders every future epoch forever. **The two sentences are not a
+preference between readings; they are a contradiction**, and the pass that found it measured which
+one the code implements: a fetch under a learned read key answered `REASON_OK`, and a forged write
+under a learned write key answered `REASON_OK`. A specification that contradicts itself is amended,
+not chosen between. Ledger item **244** carries the reproduction, the three designs that were
+proposed (F1, F2, F3), the two adversary repairs beside them, and why F3′ — this one, which no
+advocate proposed — dominates.
+
+**The binding is free, and that is what makes the amendment cheap.** The attachment's octets are
+hashed into `AAD_head` and into the `write_auth` preimage, so the MAC covers the attachment, the
+attachment covers `LP(H(epoch_keys))`, and the digest covers the keys. A server recomputes
+`H(epoch_keys)` over the two keys it was handed on the request and compares against a value the MAC
+has **already** authenticated. **`RecordHeader`, the `write_auth` preimage, `message_id`,
+`format_version` and `AAD_head` are all untouched**: no new preimage term, no new MAC call site, no
+format-version bump, no flag day.
+
+**The keys ride on the REQUEST and never on `Record` (ruling 33).** `protocol.Record` is the
+server→client type in **six** places — `FetchResponse.records`, `SubmitResult.winning_commit`,
+`RecordPush.records`, `TransientPush.records`, `WrapFetchResponse.records` and
+`GroupRecords.records` — against two client→server carriers, so a key pair on `Record` would be six
+serve paths that each have to remember to clear it, which is item 244 re-opened once per path. It
+would also be unencodable: submit requires
+`proto.Equal(projectionOf(ParseRecord(record_bytes)), sent)`, and a key is by construction **not**
+implied by a projection of `record_bytes` — which is the entire point of taking the keys out of
+them — so a key field on `Record` would answer `REASON_REJECTED` to every commit rather than
+protecting one. `SubmitRequest.epoch_keys` and `CreateGroupRequest.epoch_keys` are the two carriers;
+Spec B §4.3.2 and §4.3.3 declare them.
+
+**The stale-peer split is the property that buys the rollout, and it is measured rather than
+argued.** A record carrying a kind `0x0005` attachment **encodes, `ParseRecord`s back with
+`is_commit = 1`, and the attachment slot survives intact**, while `ParseServerAttachment` refuses
+the same octets **by name** — *"server attachment kind is not one spec A §5.11 defines: 0x0005"* —
+with the real kind `0x0001` attachment as the positive control in the same test
+(`connect/message/attachment_test.go`, `TestARecordCarriesAKindTheServersDoorRefusesByName`). So a
+**stale server** refuses loudly at Spec B §5.1 check 3 instead of installing an epoch whose keys it was
+never handed, while a **stale receiver** follows the commit correctly, because no receive path in
+`connect` or `sdk` reads a single field of an `EpochAttachment`: it hashes the octets and nothing
+more.
+
+**`connect/message` has two doors, and which kinds each serves is one map per door.**
+`EncodeServerAttachment` / `ParseServerAttachment` are §5.1 check 3's door and serve the five kinds
+above; `EncodeEpochDigestAttachment` / `ParseEpochDigestAttachment` are the sixth kind's door and
+serve only it. The codec, the body table and the well-formedness check are **one** set of code
+behind both, so the two doors cannot come to disagree about what an attachment is.
+`NewEpochDigestAttachment` is how a committer builds one: it reads the epoch **once**, from the body
+it is building, so an attachment whose `epoch` field and whose digest's `opens_epoch` disagree is
+**unrepresentable** rather than merely wrong — the codec is never handed the keys and so could never
+have related the two. `CheckEpochKeysDigest` is the server's half and takes the epoch from the
+attachment's own body for the same reason: three epochs are live at that call site — the record
+header's, the attachment's, and the server's own `current_epoch + 1` — and a wrong choice among them
+type checks.
+
 **Epoch publication sequence.** A commit is submitted at `epoch == current_epoch = n`, MAC'd under
-`write_key[n]`, and carries an `EpochAttachment` for epoch `n+1`.
+`write_key[n]`, and carries an `EpochAttachment` — or, under ruling 27, an `EpochDigest` — for epoch
+`n+1`.
 
 **RULED 2026-09-13 — the recovery wraps land AFTER the marker, and the reason is the shipped server.**
 The pre-ruling sequence published one recovery wrap per member *before* the marker, and **no conforming
@@ -2242,7 +2341,8 @@ is open*, and this ruling does not change that answer. What changes is that a co
 longer submits one at that moment.
 
 1. The server accepts at most one commit per `(group_id, epoch)`. On acceptance it sets
-   `current_epoch := n+1` and installs `write_key[n+1]` from the attachment, in the same transaction.
+   `current_epoch := n+1` and installs `write_key[n+1]` and `read_key[n+1]` — from the attachment under
+   kind `0x0001`, and from the request beside it under kind `0x0005` (ruling 27) — in the same transaction.
 2. The committer then submits, **as ordinary records at epoch `n+1`, MAC'd under `write_key[n+1]`**:
    **two** device-wrap records per active device leaf — see *The device wrap is two records* below —
    each carrying a `WrapTag` and each indexed by that leaf's `wrap_target_handle`; and the ratchet-tree
@@ -5876,7 +5976,7 @@ amendment that publishes it lands with the change that made it reachable.
 
 | # | Requirement | Source |
 |---|---|---|
-| S1 | Accept a record only if `VerifyWriteAuth` passes under `write_key[n]`, installed from the commit's `EpochAttachment.write_key` and held wrapped under a vault KEK | MASTER §9.2 |
+| S1 | Accept a record only if `VerifyWriteAuth` passes under `write_key[n]`, installed from the commit that opens epoch *n* — its `EpochAttachment.write_key` under attachment kind `0x0001`, or the request's `epoch_keys` under kind `0x0005`, in which case the server MUST first recompute `H(epoch_keys)` through `message.CheckEpochKeysDigest` and find it equal to the attachment's (ruling 27, §5.11) — and held wrapped under a vault KEK | MASTER §9.2 |
 | S2 | Enforce **monotonic**, not contiguous, `stream_index` per `(group_id, sender_handle)` — **not** per class | MASTER §8; a refused write must not brick the stream |
 | S3 | Accept at most one `is_commit = 1` per `(group_id, epoch)`, first valid wins, never replaced; return the accepted commit to any later submitter | MASTER §9.3 |
 | S4 | Reject records whose `epoch` is not the current accepted epoch | MASTER §9.3 |
@@ -5898,9 +5998,14 @@ amendment that publishes it lands with the change that made it reachable.
 
 **What we give the server.**
 
-The server holds `write_key[n]` itself. It is delivered to the server by the committer inside the commit
-record's `server_attachment` (`EpochAttachment.write_key`), over the connect session's own hybrid-PQ
-encryption, and is stored wrapped under a vault KEK. Three consequences, all accepted:
+The server holds `write_key[n]` itself. It is delivered to the server by the committer over the connect
+session's own hybrid-PQ encryption, and is stored wrapped under a vault KEK. **Which road it travels was
+amended 2026-09-22 by ruling 27:** under attachment kind `0x0001` it rides inside the commit record's
+`server_attachment` (`EpochAttachment.write_key`); under kind `0x0005` the attachment carries
+`LP(H(epoch_keys))` in its place and the key rides on the REQUEST beside the record
+(`SubmitRequest.epoch_keys`, `CreateGroupRequest.epoch_keys`), bound by that digest. What the server
+HOLDS is unchanged and so are all three consequences below; what changed is that nothing the server
+serves back carries the key. Three consequences, all accepted:
 
 1. A server holding `write_key` **can forge `write_auth`**. This changes nothing: the server is the party
    enforcing `write_auth`, so it could equally accept an unauthenticated record, and any record it injects
