@@ -68,6 +68,7 @@ func RunContract(t *testing.T, newStore func(Limits) Store) {
 	t.Run("RecordIdsAreGaplessAndOneBased", func(t *testing.T) { contractAllocation(t, newStore, seen) })
 	t.Run("AStreamIndexIsMonotonicAndNotContiguous", func(t *testing.T) { contractStreamIndex(t, newStore, seen) })
 	t.Run("TheEpochGateIsCommitAware", func(t *testing.T) { contractEpochGate(t, newStore, seen) })
+	t.Run("AWriteAtAnyEpochButTheCurrentOneIsRefused", func(t *testing.T) { contractEpochStale(t, newStore, seen) })
 	t.Run("AnUnavailableGroupIsOneAnswer", func(t *testing.T) { contractGroupAvailability(t, newStore, seen) })
 	t.Run("TheFoundingCommitIsCheckedBeforeTheGroupExists", func(t *testing.T) { contractCreateGroup(t, newStore, seen) })
 	t.Run("ACommitAttachmentIsCheckedBeforeTheCas", func(t *testing.T) { contractAttachment(t, newStore, seen) })
@@ -2698,6 +2699,152 @@ func contractRecovery(t *testing.T, newStore func(Limits) Store, seen *recorder)
 	elsewhere := createGroup(t, store, testGroupId(0x12), testHandle(0x23))
 	wantReason(t, submit(t, store, seen, elsewhere, markerRecord(testHandle(0x23), 1, 1, 1))[0], protocol.Reason_REASON_OK)
 	wantReason(t, submit(t, store, seen, elsewhere, recoveryRecord(owner, 1, 0, handle, other))[0], protocol.Reason_REASON_OK)
+}
+
+// A WRITE AT ANY EPOCH BUT THE CURRENT ONE IS REFUSED — ledger item 247, and it is the property
+// ledger item 244's whole schedule now rests on.
+//
+// 244's red team measured that a member removed at epoch n CANNOT forge a write at n under the
+// `write_key[n]` it legitimately held, because the epoch advance already retired it. That one
+// measurement took the unbuilt 60-second write-key retirement off Remove's critical path, and it
+// was taken through `MemoryStore` in TWO CASES. Item 247: "Re-run the PROPERTY, not those two
+// cases, against `store/pgx.go`". This is the property, and because it is a [RunContract]
+// scenario every implementation of [Store] owes it — the memory one and the pgx one alike.
+//
+// WHAT THE PROPERTY IS, AND WHAT IT IS NOT. It is "no epoch but the current one is WRITABLE",
+// not "every refusal is REASON_EPOCH_STALE". The reason varies by design and §6.2 depends on it
+// varying: a commit at an epoch some other commit already won answers REASON_COMMIT_LOST first,
+// deliberately and with its own scenario above, because an epoch-first gate would answer
+// EPOCH_STALE to every loser and §6.2's loser protocol — which carries the hard MUST NOT on
+// pq_secret reuse — would never fire. So what is asserted is ACCEPTANCE, in [Accepted]'s own
+// terms, and the reason is logged rather than demanded.
+//
+// THE THREE WAYS A SUITE LIKE THIS IS GREEN HAVING MEASURED NOTHING, each closed by name:
+//
+//   - every probe is refused on its STREAM INDEX and never reaches the epoch gate at all. Each
+//     probe below uses a sender handle no other record in the group has used, so it has no
+//     stream-index history to regress against, and a probe that comes back with a stream-index
+//     refusal fails the run as a BROKEN PROBE rather than passing as a refused write.
+//   - the group never leaves epoch 1, so "below" and "above" are the same direction. This group
+//     is driven to epoch 3, so there are superseded epochs on one side and unreached ones on the
+//     other — and the unreached side had no scenario anywhere in this file before this one, while
+//     the superseded side has had AnOrdinaryRecordAtAnOldEpochIsStale all along.
+//   - nothing could have been accepted whatever the gate did. The control is the same
+//     construction at the current epoch, in the same group, in the same sub-test.
+func contractEpochStale(t *testing.T, newStore func(Limits) Store, seen *recorder) {
+	t.Parallel()
+
+	// the epochs probed around a group at epoch 3: three superseded, the current one, two not
+	// yet reached, and one absurd. The absurd one is u64 and not int64, because a record's epoch
+	// and §4.3.8's `read_epoch` are both u64 on the wire and a gate written with a signed
+	// comparison answers differently up here
+	probes := []uint64{0, 1, 2, 3, 4, 5, uint64(1) << 40}
+
+	t.Run("WithTheFanOutClosed", func(t *testing.T) {
+		t.Parallel()
+		store, group := openGroup(t, newStore(DefaultLimits()))
+		advanceEpoch(t, store, seen, group, testHandle(0x31), 0)
+		advanceEpoch(t, store, seen, group, testHandle(0x32), 0)
+		state := stateOf(t, store, group)
+		if state.CurrentEpoch != 3 || !state.EpochComplete {
+			t.Fatalf("this sub-test needs a group at epoch 3 with its fan-out closed and has one at epoch %d, complete=%v",
+				state.CurrentEpoch, state.EpochComplete)
+		}
+		assertOnlyTheCurrentEpochIsWritable(t, store, seen, group, 3, probes, "ordinary")
+	})
+
+	t.Run("DuringAnIncompleteFanOut", func(t *testing.T) {
+		t.Parallel()
+		// the window item 244's red team named, and the one where a stale write has its best
+		// chance: the group is READABLE BUT NOT WRITABLE, `exemptFromEpochComplete` lets a whole
+		// class of record past the fan-out gate, and the question is whether that exemption also
+		// carries a record past the EPOCH gate. It must not.
+		store, group := openGroup(t, newStore(DefaultLimits()))
+		advanceEpoch(t, store, seen, group, testHandle(0x31), 0)
+		wantReason(t, submit(t, store, seen, group, commitRecord(testHandle(0x32), 2, 0, 3, 0x40))[0], protocol.Reason_REASON_OK)
+		state := stateOf(t, store, group)
+		if state.CurrentEpoch != 3 || state.EpochComplete {
+			t.Fatalf("this sub-test needs a group at epoch 3 with an OPEN fan-out and has one at epoch %d, complete=%v",
+				state.CurrentEpoch, state.EpochComplete)
+		}
+		// the control here is a WRAP and not an ordinary record, because an ordinary record at
+		// the current epoch is refused REASON_EPOCH_INCOMPLETE in this window — refused at the
+		// CURRENT epoch, which is no counterexample to anything here, and which is asserted
+		// below rather than left as an unexplained reason the control changed shape
+		assertOnlyTheCurrentEpochIsWritable(t, store, seen, group, 3, probes, "wrap")
+
+		blocked := submit(t, store, seen, group, ordinaryRecord(testHandle(0x7F), 3, 0, 0x30))
+		wantReason(t, blocked[0], protocol.Reason_REASON_EPOCH_INCOMPLETE)
+	})
+}
+
+// The property of [contractEpochStale] over one group in one state: of every epoch in `probes`,
+// exactly the current one is writable, and it IS writable.
+//
+// `control` names the kind the current-epoch probe uses, because the fan-out gate makes that a
+// different kind in the two states, and that difference is the subject rather than an accident.
+func assertOnlyTheCurrentEpochIsWritable(t *testing.T, store Store, seen *recorder, group []byte,
+	current uint64, probes []uint64, control string) {
+	t.Helper()
+
+	handle := byte(0xC0)
+	answers := map[uint64]protocol.Reason{}
+	for _, epoch := range probes {
+		for _, kind := range []string{"ordinary", "wrap", "commit"} {
+			if epoch == current && kind != control {
+				// a commit at the current epoch would WIN and advance the group out from under
+				// the rest of this loop, and an ordinary record in an open fan-out is the
+				// REASON_EPOCH_INCOMPLETE case the caller asserts on its own
+				continue
+			}
+			// a fresh sender per probe: a probe sharing a handle with anything already in the
+			// group is refused at §6.1 step (3) whatever step (2) would have done
+			sender := testHandle(handle)
+			handle++
+			var record *Record
+			switch kind {
+			case "ordinary":
+				record = ordinaryRecord(sender, epoch, 0, 0x30)
+			case "wrap":
+				record = wrapRecord(sender, epoch, 0, testHandle(0x21))
+			case "commit":
+				record = commitRecord(sender, epoch, 0, epoch+1, 0x40)
+			}
+			result := submit(t, store, seen, group, record)[0]
+
+			// THE PROBE'S OWN VALIDITY, read before its answer is read as a measurement. A
+			// stream-index refusal means this probe never reached §6.1 step (2) at all
+			switch result.Reason {
+			case protocol.Reason_REASON_STREAM_INDEX_REGRESSED, protocol.Reason_REASON_STREAM_INDEX_REUSED:
+				t.Fatalf("the %s probe at epoch %d was refused %v, which is §6.1 step (3) and not the epoch gate; this probe measured nothing, and a suite built out of these is green with step (2) deleted",
+					kind, epoch, result.Reason)
+			}
+
+			if epoch == current {
+				if !Accepted(result.Reason) {
+					t.Fatalf("the %s control at the group's CURRENT epoch %d was answered %v; nothing else here is a measurement if nothing can be accepted at all",
+						kind, current, result.Reason)
+				}
+				answers[epoch] = result.Reason
+				continue
+			}
+			if Accepted(result.Reason) {
+				t.Fatalf("a %s record at epoch %d was ACCEPTED and the group is at epoch %d — ledger item 244's schedule rests on this being impossible, and with it the removal track's 60-second write-key retirement",
+					kind, epoch, current)
+			}
+			if _, named := answers[epoch]; !named {
+				answers[epoch] = result.Reason
+			}
+		}
+	}
+
+	// the complement, printed rather than inferred: which epoch answered what, so that a run in
+	// which the interesting epochs were never probed is visible in the log and not behind a
+	// green line
+	t.Logf("a group at epoch %d answered, by epoch: %v", current, answers)
+	if len(answers) != len(probes) {
+		t.Fatalf("%d epochs were probed and %d answered; every epoch in %v owes an answer", len(probes), len(answers), probes)
+	}
 }
 
 // ── §6.1 step (2) and step (6b), the epoch-complete marker ───────────────────────────────
