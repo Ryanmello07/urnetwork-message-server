@@ -10133,6 +10133,84 @@ repo and therefore the critical path — not this repository:
     `/opt/urmessage/staging/`, never `/tmp`. **The lesson is the one this corpus keeps relearning in
     another dress: a thing that has only ever been done by hand has never been tested.**
 
+253. **ITEM 243 STEP 2 DONE 2026-09-23 — the wrap door exists, and two adversarial rounds plus a fix
+    pass each found a CLASS rather than a bug.** `connect 4c93dff5 → 149e35ca → 77d37109 → 39931315`.
+    `env_key = MLS-Exporter("URmessage/v1/envelope")`, the X-Wing device wrap's seal and open, its
+    KAT, and the erase discipline the door turned out not to have. Step 1 (S2-26, `sdk 48ee76e`) had
+    already given the opening side a key; `XwingEncapsulate`/`XwingDecapsulate` had existed with
+    **zero production callers** since they were written.
+
+    **Round 1 — the AEAD was convicting the wrong thing.** The opener took an envelope but only the
+    AEAD ever checked it, so a *tampered* envelope was caught while a *wrong* one — a wrap genuinely
+    sealed for another target or another epoch — was not told apart from the right one. The opener now
+    has to say which wrap it is opening.
+
+    **Round 2 — that obligation had a ZERO VALUE.** The repair made the opener state its expectation
+    through a struct, and a caller could decline to state it by writing `WrapExpectation{}`: *"I
+    expect nothing"* and *"I expect `{0x00, 0x00, epoch 0}`"* were the same call. The probe that
+    proved it is the shape to copy — two rows showing `nil` for an under-specified expectation **and a
+    third showing the comparison genuinely refuses a mismatch**, without which the passing rows would
+    only have meant "this door opens everything." It is seven scalar parameters now, in MASTER §7's
+    own `info` order, which also stops the two adjacent `uint8`s being transposable. The sealer was
+    deliberately NOT changed to match, and the reason is a document rather than taste: m1 Task 14's
+    Property 9 makes the sealer's envelope *the wire record being written*, not *an authority being
+    stated*, so it has no unset reading to hide one — and that asymmetry is now asserted, so
+    scalarising the sealer fails the gate and has to move Property 9's seam with it.
+
+    **THE MAJOR — the door erased the shared secret and the producer that made it kept two copies.**
+    `wrap.go` erased seven sites, all mutation-verified; `xwing.go` contained **zero** `zeroize` calls
+    (inline controls in the same query: `wrap.go` 7, `keyschedule.go` 4). Six live-at-return secrets
+    the caller could not reach: the 96-octet `d ‖ z ‖ sk_X` expansion, the 32-octet private seed
+    straight from `random`, and both halves of the shared secret in **each** of encapsulate and
+    decapsulate. Erasing downstream of a producer that leaves its own copies live is erasing one copy
+    of something already lying around. Three residues are genuinely **not** erasable — the ephemeral
+    scalar inside `crypto/ecdh.PrivateKey` (whose `Bytes()` answers a copy), the SHA3-256 sponge, and
+    the `d|z` copies inside the parsed key structs — and they are named in the file header now rather
+    than implied.
+
+    **WHY NO GATE SAW IT, and this is the transferable part.** Two independent blindnesses, either
+    alone sufficient:
+    1. `connect/mls`'s `TestEveryPathThatDropsHeldKeyMaterialErasesItFirst` walks a **field class** —
+       it seeds on struct types and reports assignments that write over a field. **Every secret in
+       `xwing.go` is a function local**, so there is no field, therefore no drop site, therefore the
+       file could never appear in that reading at all.
+    2. `messagegroup`'s own wrap-erase gate read **one file by literal name** (`os.ReadFile("wrap.go")`)
+       and matched producers through a switch over `*ast.Ident` only — while every producer in
+       `xwing.go` is a `*ast.SelectorExpr`. It would have missed them even had it opened the file.
+    **A gate that names its subject by filename, and a gate whose class is a shape the defect does not
+    have, are the same failure twice.** Three mechanisms replaced it: every production source of the
+    package (25 producer positions, closed to a fixed point over move-outs); a **primitive-side** gate
+    asking the opposite question, because the first is structurally blind to a producer nobody has
+    *ever* erased — exactly how `xwing.go` stayed invisible (26 bindings, 10 dispositioned rows); and
+    an entropy-fill gate, because a draw is neither (`io.ReadFull` answers a count and the octets land
+    in a `make`-allocated buffer). **Thirteen mutants**, including three that change the mechanism
+    rather than a parameter and one — M10 — that plants an unerased `StorageRoot` in `session.go`,
+    *a file the old gate never opened*, to prove the widening is real.
+
+    **AND AN EXCUSE THAT WAS NOT MERELY UNMEASURED BUT FALSE.** The erase gate's written excuse for
+    `XwingPrivateKey` claimed *"the seed inside it is the caller's to keep or to drop"*. The type
+    **declares no erase and every field is unexported**, so no caller anywhere can drop it — `sdk`'s
+    own disposition had already said so in as many words. The excuse was rewritten to claim only what
+    is checked (the obligation is *unmeetable*, not unmet), with the residual named, and a test that
+    measures both facts — one which **goes red on an improvement by design**: adding a `Zeroize` turns
+    it red *and* turns mls's own type-erase gate red. No `Zeroize` was added, because no caller in
+    `connect` has a drop site for it and the only consumer is in `sdk`: an erase nothing calls would be
+    one more sentence with no measurement under it.
+
+    **The KAT could not see a transposition, and the cost was measured rather than asserted.** Both
+    `u8(target_type)` and `u8(payload_type)` were `01`, in a file whose own text says inputs are
+    ascending runs *"so that a transposition of any two inputs is visible rather than symmetric"*. A
+    transposed-writer reference reproduced **every primary row** — `INFO_SHA256`, `WRAP_KEY`,
+    `WRAP_NONCE`, `AEAD_CT_SHA256`, `WRAP_BODY_SHA256`. **The file was not blind, but everything it
+    calls an ANSWER was.** Now `01 02 03`, separated by the base row and all thirteen perturbation
+    rows; and every other same-width input pair is checked for collision, bucketed by width because a
+    transposition is only well-formed inside a bucket.
+
+    **Worth recording about the pass itself:** the builder corrected its own first draft twice, from
+    measurements rather than from review — a claim that section 4 also failed, and a negative control
+    in the new gate that turned out false. After six passes in this track where an adversary had to
+    catch the builder's prose, the builder catching its own is the change worth having.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
