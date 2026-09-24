@@ -10211,6 +10211,91 @@ repo and therefore the critical path — not this repository:
     in the new gate that turned out false. After six passes in this track where an adversary had to
     catch the builder's prose, the builder catching its own is the change worth having.
 
+254. **ITEM 243's ROTATION RULE, DECIDED 2026-09-24 AFTER THREE ADVERSARIAL ROUNDS ON ONE BLOCKER.
+    The property is intact. The PROMISE was false — and it was false inside the section headed
+    "Honest limits".** `connect 74abe029` / `sdk 8b59a96`.
+
+    Three rounds attacked the receiver-side rule *"no removal may be followed on a secret this group
+    already holds"*, and the third found the defect is in the rule's **subject**: it is checked against
+    **the receiver's own history**, and a member admitted later has a strictly smaller one. Measured:
+    after two honest rotations a founder holds 3 live rows and 3 witness rows and answers *held* for
+    `pq_secret[1]`; **a member admitted at epoch 3 holds one row of each and answers *not held* for the
+    same octets**, with the control firing for its own reason (the joiner does recognise its own row).
+    `Device.Join` files exactly one row. **A receiver cannot check a property about a history it does
+    not have.** Three rounds on one rule is this corpus's own signal that the gate does not track the
+    property, so the fourth pass was a design decision rather than a fourth fix.
+
+    **THE FINDING THAT DECIDES IT, and it dissolves the blocker rather than fixing it.** A hostile
+    committer **holds `storage_root[n+1]` by construction** — it must hold `read_key[n+1]` and
+    `write_key[n+1]` in its own process to build the epoch digest — so it can hand over the root
+    itself, not merely the secret, and **no receiver-side check on the VALUE can ever constrain it**.
+    Only an ADMIN or the OWNER may commit a removal at all (§11), so the one party no value-check can
+    bind is precisely the party the role model trusts most. **But that adversary was never item 243's.**
+    Item 251 states the scope in its own words: *an ex-member who holds an INDEPENDENT archive and
+    later acquires a quantum computer; against every classical adversary the retained value is inert.*
+    A hostile committer is a **strictly stronger** adversary that takes the keys directly and needs no
+    quantum computer — and it defeats MLS, Signal and every group protocol with a privileged committer
+    equally. Rotation restores the post-quantum half to the parity the classical half already has.
+
+    **RULING 41 — RECORDED HERE RETROACTIVELY, AND THE FAILURE IS MINE.** It was taken on 2026-09-23
+    in a dispatch brief and never written down: *an unrotated removal is an INVALID COMMIT, refused the
+    way an unauthorized one is — the receiver stays at epoch n and does not follow it; it does not go
+    dark. Going dark is for a VALID commit whose wrap did not arrive or did not open.* Measured at this
+    commit: **cited 49 times across `sdk` and `connect` (18 outside test files) and appearing in this
+    repository ZERO times.** This is the second occurrence of the same failure in this track — rulings
+    16–24 were also enforced in code before they were recorded — and it is exactly what ruling 23's own
+    reasoning forbids: *a decision that lives only in a commit message is an omission.*
+
+    **RULINGS 42–45, taken 2026-09-24:**
+    42. **The deliverable property is THREE CLAUSES WITH THREE DIFFERENT SUBJECTS**, and each is
+        checkable: (a) *against a committer that follows the protocol* — a removal at epoch *n* denies
+        the removed member `storage_root[n+1]`, including against a future adversary who breaks X25519
+        and holds an archive; already built, already held by a passing property test that **grants the
+        removed member the epoch-*n+1* exporter**, strictly more than MLS gives it, so the
+        post-quantum half is the only variable; (b) *against a buggy or outdated client* — a receiver
+        that itself held the reused secret refuses and halts; (c) *against a hostile ADMIN or OWNER* —
+        **nothing, structurally.** Clause (c) is stated plainly rather than implied.
+    43. **The held-secret rule is KEPT, re-scoped in its prose and unchanged in its code**, and the
+        argument is a property rather than a preference: **the two doors do not overlap in time.** The
+        no-digest refusal's entire class is *removals on the `0x0001` wire format*, which item 252's
+        acceptance window dates out on **2026-11-03 or the day Remove ships, whichever is earlier** —
+        so **on the day removal ships that door covers the empty set**, and the held-secret rule is the
+        only detector that exists from that day forward for a client whose rotation regresses. Its
+        false negative is a **theorem, not a bug**. Its documented claim changes from a group property
+        to what it delivers: *this receiver does not follow a removal onto a secret THIS RECEIVER has
+        held.* **And the sharpest shape, which must be written where the rule is:** if every survivor
+        joined after epoch *k* and the committer reuses `pq_secret[k]`, **nobody refuses** — the
+        committer never runs the receive path against its own commit. In a long-lived group with churn
+        that is reachable. The group-level effect is a **partition by join epoch**, which item 242 has
+        already priced as *a hostile committer can HALT a group; it cannot TAKE it*.
+    44. **The PROMISE changes, in three places, and this is the substance of the ruling.** The corpus
+        told a user three unconditional things and has **never** written the honesty caveat for
+        rotation although it has written the analogous one for roles (the control fired: *"a hostile
+        committer can halt a group and cannot take it"* appears for roles; *"provided the committer"*
+        and its siblings appear nowhere). Amended in this commit: MASTER §9.2, MASTER §13's *On
+        removal, and what it does not cover*, and Spec C §12.3's device-removal string — which promised
+        a property of the **device** (*"can no longer read or send"*) where the true property is about
+        **who can send it something readable**, and which stays true under a hostile admin as the old
+        wording does not.
+    45. **The witness is NOT shipped with the Welcome**, and it is priced so the ruling can be
+        overruled: adding it to `Invite` touches one struct, one encoder, one decoder and one check —
+        no server change, no new attachment kind — and a SHA-256 of a 32-octet high-entropy draw is a
+        question-answerer rather than key material, so item 241's *a joiner holds state from its
+        admission on* is not breached. But it **narrows rather than closes**: a late-joining inviter's
+        own witness is already truncated, so the union of survivors' witnesses covers the removed
+        member's history only when some survivor is at least as old as the removed member. A real wire
+        cost for a partial fix that changes no class of adversary. Recorded, not built.
+
+    **A GREP TRAP WORTH THE LINE, walked into during this pass.** This file's heading reads
+    **`RULINGS 36–40`** with an EN DASH. A query written with a hyphen returned **zero — including for
+    its own positive control**, which is the tell that the query and not the corpus was wrong. Absence
+    claims against this ledger must inline a control that fires, and the control's literal must be
+    **copied from the document rather than retyped from memory**.
+
+    **Owed from this pass:** the rule's own gate measures that the refusal is *called* inside the
+    guard, not that its result is *returned*, so an exit that computes the refusal and discards it
+    passes with the whole property gone.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:

@@ -1432,7 +1432,7 @@ Ana                 —          waiting
 
 | Outcome | Screen |
 |---|---|
-| Full | "Removed from 6 conversations. That device can no longer read or send." |
+| Full | "Removed from 6 conversations. Those groups' administrators can no longer send this device any message it can read." |
 | **Partial** | Names the groups where removal has **not** committed: *"This device has been removed from 4 groups. It is still a member of **Weekend** and **Ana** — removal there hasn't been accepted by the server yet."* `[ Try again ]` |
 | Failed | The §9.3 reason and `[ Try again ]` |
 

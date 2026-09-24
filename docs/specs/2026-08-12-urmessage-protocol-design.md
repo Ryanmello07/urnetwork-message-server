@@ -2746,9 +2746,13 @@ days and accepts a read authenticated under any retained key.
   so it always remains available. The client names this state rather than presenting it as a
   generic failure (Spec C §9.8).
 
-Epoch rotation on `Remove` already denies a removed member every decryption key from that epoch
-forward; the **ceiling** is what denies it every record above that epoch, and the window is what
-finally denies it the records at or below it too.
+Epoch rotation on `Remove` denies a removed member every decryption key from that epoch
+forward **provided the commit was made by a client that follows this protocol** — the guarantee is
+against the GROUP and against a future adversary holding an archive, and it is **not** a guarantee
+against the administrator who performed the removal, who holds that epoch's keys by construction in
+order to seal the commit (amended 2026-09-24, ruling 44; the sentence this replaces claimed it
+unconditionally). The **ceiling** is what denies a removed member every record above that epoch,
+and the window is what finally denies it the records at or below it too.
 
 `server_nonce` is 32 bytes, issued by the message server at session start in `HelloResponse`, scoped
 to **that connection**, valid for the life of that connection, and never rotated. It prevents
@@ -3316,9 +3320,17 @@ re-added, and recovered.
 **On verification.** Nobody is verified by default and there is no badge. You are warned loudly when a
 contact's key changes from one you have seen before, and never silently switched.
 
-**On metadata after removal.** A member you remove loses every decryption key from that epoch
-forward immediately, and **stops being served the group's messages from that moment on**: the
+**On removal, and what it does not cover.** A member you remove loses every decryption key from
+that epoch forward and **stops being served the group's messages from that moment on**: the
 server refuses it every record above the epoch it was removed at (§9.2, the epoch ceiling).
+**An ADMIN or the OWNER is the only party who can commit your removal (§11), and that party
+necessarily holds the next epoch's keys in order to write the commit — so removal protects you
+from the GROUP, not from the administrator who removed you.** No group messenger with a
+privileged committer offers more; this section exists to say so rather than to imply otherwise.
+Receivers additionally refuse and halt on a removal that reuses a secret **they** have held,
+which catches a broken or an outdated client and does not catch a hostile one (ruling 43).
+*Amended 2026-09-24 (ruling 44): the unconditional sentence this replaces had stood inside the
+section headed "Honest limits", which is the one place in this document it could not stand.*
 What it keeps for up to 90 days is the group **frozen at the moment you removed it** — the
 ciphertext it cannot read and the metadata around it, up to that point and no further — and after
 90 days it loses that too. The 90 days is the price of letting a member who closed their laptop
