@@ -10296,6 +10296,58 @@ repo and therefore the critical path — not this repository:
     guard, not that its result is *returned*, so an exit that computes the refusal and discards it
     passes with the whole property gone.
 
+255. **RULING 46, AND A PROCESS FAILURE OF THE LEAD'S THAT IS NOW THREE FOR THREE.**
+
+    **RULING 46, taken 2026-09-24: the removal guard's property is held by BEHAVIOUR over a driven
+    input table, not by an AST gate.** Six consecutive rounds built or repaired a static gate over
+    `refuseRemovalOnHeldSecret` and `refuseUnrotatedRemovalLocked`, and **every one was defeated one
+    level of indirection further out**: the VALUE was named (`held` vs `candidate.secret`); then the
+    CALL was named and its result was not; then the RESULT was named and the path was not; then the
+    POSITION was named and the binding was not; then the binding was deleted and the HELD TEST'S
+    ARGUMENT took the narrowing; then the CALLER'S list did. Round five asked the right question —
+    *the adversary is the indirection, not the editor* — and landed one notch out anyway.
+    **Enforcement is a semantic property.** A gate that must prove *"this refusal fires for every
+    input it should"* is deciding a runtime question from syntax, and each reading it adds is a fresh
+    surface to route around. What the gate stands in for is **a set of inputs that must be refused**,
+    so the instrument is a table that drives them through the production receive path. The AST gate
+    is kept only for clauses that survive the table, and its header must name what it cannot see.
+
+    **THE LEAD'S FAILURE, recorded because it is the third identical one in this track and the
+    pattern is now the finding.** Ruling 46 was taken in a dispatch brief and **never written here**
+    — measured at `sdk fe45de7`: rulings cited in production code and absent from this ledger are
+    **9, 11, 14, 27–35's gaps and 41 and 46**, while the ledger's own recorded set jumps 26 → 36 and
+    41 is cited 49 times across two repositories. The same failure produced item 242's rulings 16–24
+    (enforced in code before they were recorded) and item 254's ruling 41 (cited 49 times, present
+    zero times). **Ruling 23's own reasoning forbids exactly this: a decision that lives only in a
+    commit message is an omission.**
+
+    **THE PROCESS CHANGE, and it is the lead's own workflow rather than anyone else's.** A ruling is
+    written into this ledger **in the same turn it is taken, before the brief that depends on it is
+    dispatched** — not after the work lands. The dispatch is what tempts the omission: the brief
+    needs the ruling stated to be actionable, which makes it *feel* recorded. It is not. **The
+    mechanical form: if a brief contains the words "ruling N", `grep` this file for N before sending
+    it, with a control that fires.** Note the trap item 254 already recorded: this file's headings use
+    an EN DASH (`RULINGS 36–40`), so a hyphenated query answers zero **including for its own
+    control**, which is the tell that the query and not the corpus is wrong.
+
+    **WHAT THE BEHAVIOURAL INSTRUMENT CAUGHT THAT SIX GATES DID NOT**, at `sdk 9354535`: the exit
+    decides on **three** inputs and only one — arity — had ever been driven as an interval. A
+    narrowing at `heldAt < 3` passed every gate and the first table; the row that convicts it is three
+    honest rotations with a committer replaying `pq_secret[3]`, beside an honest three-rotation
+    removal that must be **followed**, so the refusal at the top of the axis is not a refusal of a
+    deep history. The pre-apply door's deciding arm was **one epoch wide**. And the AST gate's own
+    class was a shape the defect did not have: rewriting the guard as an `else if` or a `switch`
+    passed it silently, because it *skipped* those node types rather than refusing them by name.
+
+    **THE RESIDUALS, printed by the instrument rather than claimed closed:**
+    - **The axes are driven as a CROSS, not a PRODUCT.** Every refusing digest-door row with arity
+      ≥ 2 sits at `heldAt` 1, and every row with `heldAt` ≥ 2 sits at arity 1 — so **a narrowing keyed
+      on BOTH inputs at once passes the table.** The pre-apply door has the identical hole. This is a
+      real gap and the cost of closing it is combinatorial; it is named here rather than papered over.
+    - **For any constant *k*, the narrowing `< k+1` survives** on either axis. A row moves the edge
+      and the printed interval says where the edge now is. Closing that would need a reading of every
+      statement in the exit, which is the instrument ruling 46 took off this property.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
