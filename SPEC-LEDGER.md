@@ -10412,6 +10412,106 @@ repo and therefore the critical path — not this repository:
     reading — `git ls-files --eol`, and a byte count taken on a file rather than through a pipe, are
     the two readings that hold.
 
+257. **X4 SCOPED 2026-09-24 — IT IS THREE ARMS, NOT ONE; ONE OF THEM CANNOT BE BUILT AS RULED; AND
+    THE ALPHA IS ALREADY ONE ROUTINE COMMIT AWAY FROM BRICKING ITS OWN DEVICES.** Measured at
+    `connect 74abe029` / `sdk 826d62a` / `msgrepo b0f5080`.
+
+    **THE ALPHA FINDING IS LIVE AND IS NOT REMOVAL-GATED — it was found looking for something else.**
+    A state directory written before the X-Wing seed existed holds a **three-part** identity record,
+    answered with a nil error and an **empty** wrap seed; such a device can never open a wrap
+    addressed to its own leaf and answers `ErrNoDeviceWrapKey` for ever. Minting a replacement would
+    be *worse* than the absence, because the leaf in every ratchet tree carries the old public half.
+    **Every commit verb rotates** — the rotation draw is unconditional and both production publish
+    callers are `AddMemberAndPublish` and the role-commit path — so **the next `SetRole` or
+    `AddMember` on `beta-test.net` bricks any pre-seed receiver.** The scope pass could not check the
+    box; **the lead did: both local alpha device records are three-part** (the Windows app's and the
+    peer's, 1,339 octets each, part count read off the record's own header). Nothing in cgo or
+    liveprobe surfaces a missing seed. **RULING 53: recreate the alpha's state directories and
+    re-found its groups.** It is a three-account test deployment with no real users; a leaf-keys
+    replacement road is real engineering for no one's benefit, and disabling rotation would re-open
+    item 243. **Do it before the next role change on the alpha, not before the first removal.**
+
+    **THE SECOND ARM CANNOT BE BUILT AS RULED, and ruling 11's mechanism is re-opened on that
+    ground — not because its reasoning was wrong.** Ruling 11 has a MEMBER leave by *proposing* its
+    own removal for an admin to commit. Four independent blockers, each driven: the leaver **cannot
+    generate the proposal** (`ProposeRemove(own)` and a by-value self-Remove both answer
+    `ErrRemoveCommitter`, with two controls firing on another leaf); **there is no wire carrier for
+    an MLS proposal at all** (eight RFC proposal types and no SelfRemove; six attachment kinds and
+    none carries a proposal; no content kind carries one); ruling 13's pin forbids the
+    by-reference commit that would consume it; and **ruling 3 already attributes a by-reference
+    proposal to the committer, so the proposal buys no authority change — it is pure wire cost.**
+    `connect/mls` names this gap in its own words: *"This plan has no leave flow to hand such a
+    proposal to instead."*
+    **RULING 48: a LEAVE REQUEST is PRODUCT SURFACE, not an MLS proposal.** The app says so and
+    offers mute-and-hide locally; the MLS half of leaving is the **same admin-made Remove-and-policy
+    commit** as `RemoveMember`. **Ruling 11's substance is untouched and is enforced twice today** —
+    `mls.ErrRemoveCommitter` below and R6c's identity-continuity rule above, both verified — *no
+    identity's last leaf ever leaves in its own commit.* A durable, deliverable leave request is a
+    new content kind at 1–2 weeks touching the A6 freeze, and is **not** in X4. Two spec texts are
+    amended with this ruling: Spec A §7.3's `LeaveGroup`, and **Spec C §12's *"the leave completes
+    automatically once the transfer commits"*, which is not implementable** — ruling 11 voided
+    ruling 4's combined commit, so the ex-owner's leaf goes in a **second** commit from the new
+    owner's device that may never come, and in between the ex-owner is an ADMIN with full powers.
+    **Ruling 4 is SUPERSEDED and must not be cited.**
+
+    **THE THIRD ARM NOBODY HAD SCOPED.** Spec A §7.3's `RemoveDevice` is one Remove-and-Commit in
+    **every group the identity belongs to**, with per-group progress and explicit **partial
+    success**; Spec C carries a *"partially removed"* state; MASTER §11 promises it (*"otherwise
+    revoking a stolen laptop would block on an admin"*); and ruling 44 has already amended its
+    Spec C string. It is keyed on **leaves**, never on the committer's own leaf — a fan-out with a
+    failure state machine, not `RemoveMember` with different arguments. **RULING 50: it is NOT in
+    X4.** It is its own track, after Remove ships.
+
+    **RULINGS 49, 51, 52, 54 — the Remove arm itself:**
+    49. **Build to the SHIPPED shape**, `(*Group).RemoveMember(ctx, identityPub) error`, which
+        `SetRole` and `TransferOwnership` established and which cgo already projects through
+        `URNET_MESSAGE_COMMIT_OK/REFUSED/LOST/INVALID/FAILED`. Spec A §7.3's `MessageClient` verb with
+        its ticket and reason strings is **a product layer that has never been built** — its reason
+        strings return zero hits against a firing control, and `MessageClient` is the transport client
+        with no group verb. Building it turns X4 from days into weeks for no property. **One
+        identity-keyed call removes ALL of that identity's leaves in one commit.**
+    51. **One new seam method, `CommitRemoveWithExtensions(leaves, extensions)`, taking the handle
+        block from 34 to 35**, with Spec A §6 re-transcribed. A general `CommitProposals` is refused
+        outright by a **passing** gate that errors on any qualified type in either interface's
+        signatures. The `…WithPolicy` convenience does not belong on the seam — the sdk already
+        builds the full extension list itself. **The proposal order inside the arm is fixed
+        Remove-then-GCE**: both orders produce a byte-identical post-commit state but a *different*
+        confirmed transcript hash, so two clients building "the same" removal would otherwise produce
+        two different signed commits — the difference between a KAT that can exist and one that
+        cannot. **And `removing` is DERIVED, not passed**: the staged commit already exposes its
+        removed leaves and the seam can carry them as a **field on the existing `PendingEpoch`
+        struct**, costing zero seam methods. The reason recorded for passing it — *"there is nothing
+        to read it off"* — is no longer true.
+    52. **What a removed member sees needs a CARRIER, and it is a third state.** Today such a client
+        is **indistinguishable from caught-up-and-silent, for ever**: `ErrRemovedFromGroup` has zero
+        occurrences in the sdk against two firing controls, it is flattened into a generic ingest
+        error, the walk abandons the record after three attempts and resolves the cursor past it, and
+        F0's ceiling then makes the page read complete with a ceiling-relative high water so the
+        omission predicate says nothing was omitted. It is **not** an eighth `GapReason` (ruling 16
+        closed that set) and **not** `halted` (ruling 41) and **not** `wrapDark` — it is a **valid**
+        commit that closed the group. Spec C already names the screen state, so what is owed is the
+        carrier, not the copy.
+    54. **The acceptance window's refusal ships WITH X4.** Ruling 43 keeps the held-secret rule on the
+        argument that *"on the day removal ships that door covers the empty set"* — which requires the
+        server to refuse kind `0x0001` from that day. **The dates appear zero times in any server Go
+        file** against a firing control, and the submit path accepts both kinds unconditionally. Build
+        the switch, or ruling 43's argument is restated against a server that still takes `0x0001`.
+        **Recovery from a short fan-out stays "re-found the group"**: once the derivation of ruling 51
+        lands, the omission class an arm can cause by forgetting an argument is gone by construction,
+        and what remains is a bug in the arm.
+
+    **CITATIONS THAT FAILED, including this ledger's own brief.** *"`expected_wrap_count` and the
+    fan-out are computed post-merge so they exclude the removed leaf"* — **they are PRE-merge**, per
+    ruling 37, and the exclusion is an **argument a caller passes**, which is exactly why ruling 51
+    derives it instead. All three probes reported this independently. A production comment cites
+    `TestAMemberRemovedByACommitCannotDeriveTheEpochThatCommitOpens` as the property that would catch
+    an arm forgetting it — **that test does not exist**; one hit in the repository, the comment citing
+    it, with the real neighbouring test found by the same query. Two probes offered
+    `len(targets) == pending.MemberCount` as a one-line invariant — **false for every Add**, since the
+    added leaf is not in the live tree and gets no wrap. And the R0c phantom is what a receiver
+    answers for a removal of a **named** identity only; an unnamed one meets the rotation door first,
+    so **X4 trips both and must know which is which**.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
