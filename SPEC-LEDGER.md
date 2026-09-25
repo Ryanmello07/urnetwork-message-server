@@ -10512,6 +10512,57 @@ repo and therefore the critical path — not this repository:
     answers for a removal of a **named** identity only; an unnamed one meets the rotation door first,
     so **X4 trips both and must know which is which**.
 
+258. **X4 STEPS 1 AND 2 DONE 2026-09-25 — the removal arm exists and the exclusion is no longer
+    something an arm can forget.** `connect 98b72dfa` (the 35th seam method,
+    `CommitRemoveWithExtensions`, Remove-first order fixed, and `PendingEpoch.RemovedLeaves` fed by a
+    new staged-commit accessor) and `sdk ecd7693` (every publishing arm now derives the exclusion and
+    **cannot pass one**). **Ruling 54's clause — *"the omission class an arm can cause by forgetting
+    an argument is gone by construction"* — is now true rather than promised.**
+
+    **A CLAIM IN THE LEAD'S OWN BRIEF WAS FALSE AND WAS MEASURED RATHER THAN BELIEVED.** The brief
+    asked for *"the same removal built twice yields the same confirmed transcript hash"*. **Impossible:
+    RFC 9420 §12.4 forces an update path on any commit carrying a Remove, and the path draws fresh
+    secrets — so no two removal commits differ only by proposal order.** The pass asserted the
+    **non-determinism** instead, and pinned the order property where it *is* observable: the only
+    commit shape §12.4 leaves pathless is Adds-only, so one vector built twice gives one hash (the
+    control, firing for its own reason) and the swapped vector another. The order is invisible in the
+    applied state — §12.3 applies by type — so it had to be pinned on the **vector**.
+
+    **THE MUTANT THAT ONLY ONE CASE CATCHES.** A derivation taken as a **live-vs-staged diff** is
+    correct on a plain removal and wrong in general: a commit that removes leaf 2 and adds a newcomer
+    **refills leaf 2**, leaving both occupied-leaf sets *and* both member counts equal while a member
+    was removed. Reproduced in both repositories. It also survives the obvious removal test, because
+    that test removes the group's **highest** leaf — so *"the leaves that no longer fit"* happens to
+    name the right one. Only the refill case convicts it, and a first draft of that case called the
+    inner function directly and was blind to a third mutant until it was moved to the frame the
+    publish path actually calls. **A written excuse promoted to a held property, twice, and it earned
+    it both times.**
+
+    **THE FOUNDING FAN-OUT IS A SECOND DOOR, NAMED RATHER THAN HIDDEN.** `Open`'s founding fan-out has
+    **no staged commit** — the founding commit was merged before the group was publishable — so the
+    seam answers `ErrNoPendingCommit` there. Reading `PendingEpoch` inside the walk and swallowing
+    that error was refused: **an error-swallow turns any failure of the read into a full fan-out
+    including the removed leaf.** One walk, two named doors; the founding one has nothing to read and
+    says so.
+
+    **AND A CLASS THIS CORPUS HAS BEEN CARRYING UNCOUNTED: 6 OF 65 TEST CITATIONS IN PRODUCTION PROSE
+    DID NOT RESOLVE.** Four were **false names** and two were short forms — a case misnamed by two
+    words, a renamed case still cited by its old name (with the rename recorded in the test's own
+    header), a gate cited as *"AST-adjacent"* that is a behavioural case, and one cited by a prefix.
+    All six repaired **by reading the target**, never by name-matching. The precedent is item 257's
+    dead citation, which was one instance of this; the class is now measured. A gate holds it —
+    every `Test…` spelling in production prose resolves to exactly one declaration, both dispositions
+    held both ways, four mutants reporting. **Ruling 46 does not reach it and the gate says why: the
+    question is not whether a refusal fires for every input but whether an identifier names a
+    declaration, which is a fact about the text with nothing behavioural underneath and no
+    indirection prose can hide behind.** Its residual — a carve-out entry outliving a deletion in
+    `connect` — is stated rather than closed, because closing it would make this suite depend on a
+    sibling checkout.
+
+    **Owed:** `RemoveMember` itself (the product verb over the arm), the send-side intent-path
+    coverage item 242's R2 entry filed, and ruling 53's re-founding of the alpha — which is due
+    **before the next role change there**, not before the first removal.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
