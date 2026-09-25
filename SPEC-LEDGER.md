@@ -10348,6 +10348,70 @@ repo and therefore the critical path — not this repository:
       and the printed interval says where the edge now is. Closing that would need a reading of every
       statement in the exit, which is the instrument ruling 46 took off this property.
 
+256. **ITEM 245's STATE FIX LANDED AND THEN INTRODUCED A WORSE BRICK THAN THE ONE IT CURED; RULING 47
+    IS HOW IT WAS CURED.** `sdk fe45de7 → 6c22a69`. Item 245's subject is a newcomer refilling a
+    removed member's blank leaf, inheriting its 16-byte `sender_handle`, and being answered
+    `STREAM_INDEX_REUSED` for ever. The fix seeds the newcomer's reserver above the previous
+    occupant's claim.
+
+    **THE REGRESSION, reproduced with a control.** The first cut gated the seed on a clause that was
+    a fact about the **group** rather than about one walk: the record id of the first row given up on
+    before its header could be read. Neither the cursor nor the attempt count is persisted, so a
+    restarted device re-walks that row, re-spends its attempts and re-derives the veto — **one
+    unparseable record anywhere in a group's history became a permanent, unrecoverable Send refusal
+    for EVERY group after EVERY restart**, including groups on a leaf nobody else ever stood at. The
+    fixture that proved it is the right shape: three members all admitted in the **founding** commit,
+    nothing removed, §7.7 with no blank to refill, the three handles asserted **distinct** by the same
+    query the reuse fixture uses to assert the opposite — so the veto fired where its own subject
+    could not arise. The control fired for its own reason: *before* the restart the same group with
+    the same unreadable row **sends**. And the discarded comment had priced its refusal against *"a
+    sticky `ErrIdentityInUse`"* — which dies with the process, while this one came back every launch.
+
+    **RULING 47, taken 2026-09-24: an unparseable row's §4.3.3 PROJECTION is the floor's evidence, and
+    a row the server will not attribute is COUNTED, not refused.** `protocol.Record` carries
+    `record_bytes` **beside** the server-indexed projection of its header, and Spec B requires the
+    server to verify each projected field equals the parsed value — so a row this build cannot parse
+    still arrives carrying the two facts the floor needs, `sender_handle` and `stream_index`. Fold
+    them into the claim **only when the handle is this device's own**; a projection naming another
+    handle is not evidence; a projection missing or zeroed (a server breaking its own MUST) is
+    counted as `Stats.UnopenedUnattributed` and **not** made a refusal. The argument for not refusing
+    is that the same server can answer any submit `REASON_STREAM_INDEX_REUSED` directly, which latches
+    a refusal that **dies with the process** — so the veto protected nothing it could protect and cost
+    every honest device a permanent brick. **Every `ErrStreamFloorUnheld` is now cleared by the next
+    clean `Receive`, which is what the sentinel's own text had always promised.** The motivating case
+    now ends in a **send**: a previous occupant that wrote in a format this build cannot read raises
+    the floor to that row's claim, so the newcomer seals above it with a `message_id` of its own.
+
+    **A SECOND FALSE EXCUSE, of the class this track has now found four times.** The replacement
+    sentence — landed into the product contract and into a cp3b gate as *"by this package's own
+    assertions"* — was **a count of `Join` sites read off the files with a property hung on the
+    count**. Driven instead, keyed on the group INSTANCE (keying on group id conflates devices):
+    **14** join sites, **103** joins, **eight** sites above epoch one rather than four, at epochs 2 to
+    34, **46** of the joins — including **the site the sentence's own commit added and did not
+    count**. Of those 46, **37 never reach a write door at all**, 8 receive first, and exactly 1
+    writes unreceived — the gate's own case, which requires the refusal. So *"every one of those
+    joiners receives before its first send"* was **false at one site and vacuous at 37**. What is
+    written now is the property that holds.
+
+    **FILED, and it needs an owner: a server that strips the projection leaves the floor below the
+    claim.** With §4.3.3's projection absent from an unreadable row, this device's floor stops one
+    index low and the next seal collides. **No client-side check can close it.** It needs either the
+    server keeping its MUST, or a `SubmitResponse` that reports the server's `last_stream_index` so a
+    client can seed and retry instead of latching. Belongs beside items 205 and 245. The residual is
+    **pinned in the suite** rather than described.
+
+    **A MEASUREMENT CLAIM THAT WAS FALSE AND WAS CHECKED RATHER THAN BELIEVED.** The pass reported
+    that `.gitattributes`'s own statement is *"measurably false"* and that this repository's blobs —
+    `urmessage/group.go`, `go.mod`, `.gitattributes` itself — are stored CRLF despite the active
+    `*.go text eol=lf` pin, on the strength of `git cat-file -s` arithmetic it described as immune to
+    stdout translation. **Verified by the lead and it does not reproduce.** `git ls-files --eol`
+    answers `i/lf w/lf attr/text eol=lf`; the raw blob written to a file and counted in python is
+    **399,917 bytes, CR = 0, LF = 6,680**, matching `git cat-file -s` exactly; and **all 239 `.go`
+    blobs in the repository read `i/lf`**. The pin works. This is the **second** time in this corpus
+    that a method which sounds immune to the Windows line-ending trap has produced a false CRLF
+    reading — `git ls-files --eol`, and a byte count taken on a file rather than through a pipe, are
+    the two readings that hold.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
