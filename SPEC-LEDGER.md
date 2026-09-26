@@ -10563,6 +10563,67 @@ repo and therefore the critical path — not this repository:
     coverage item 242's R2 entry filed, and ruling 53's re-founding of the alpha — which is due
     **before the next role change there**, not before the first removal.
 
+259. **X4 STEPS 3 AND 4 DONE 2026-09-26 — `RemoveMember` exists, and a removed member is finally told
+    so.** `sdk ca89760` (the verb) and `sdk da331d9` (ruling 52's carrier).
+
+    **THE DEFECT THE VERB WOULD HAVE SHIPPED WITH, and it is a shape worth remembering.** Since item
+    245, the ingest arm has filed the departed leaves and pruned the ladders — **on the arm that
+    follows somebody else's commit.** The publishing arm filed nothing, because until step 1 no verb
+    could put a leaf in a staged commit's removed set, **and the admin who removes somebody is the one
+    device in the group that does not learn it from an ingest.** Its cursor is not persisted, so its
+    next restart re-walked the removed member's records and could not resolve their sender handle.
+    Found by driving a restart after a removal, not by reading. *A rule enforced on the receive path
+    is not enforced for the device that caused the event.*
+
+    **THE SEND-SIDE COVERAGE DEBT, MEASURED RATHER THAN REPEATED.** Item 242's R2 entry filed it as
+    *"no verb reaches the send-side derivation for removes"*. Measured per rule sentinel across both
+    modules: six rules had a verb-driven case, **ten did not**. This verb closes the two that matter —
+    **R2** (a member or observer may not remove) and **R3** (only the owner may remove an admin or the
+    owner). The other eight are **stated, not omitted**: R0a/R0b are unreachable from any verb because
+    every verb encodes through mls's validating encoder first; the server-id rule has no verb; and
+    **R6a cannot be driven from a removal at all — it judges ADDED leaves and a removal declares
+    none**, which is the one claim in the dispatch brief that does not hold. The caps' true reason is
+    structural too, not the cost the brief gave: **no removal can move either cap's input.** The
+    measuring window is a **floor, not a ceiling** — a sentinel thirty lines from its verb call is
+    missed.
+
+    **RULINGS 55 AND 56, taken by the implementer and adopted here:**
+    55. **Subject-level refusals come BEFORE the predicate** — the opposite of `SetRole`'s order, and
+        the difference is principled. `SetRole`'s caller check exists because the predicate *cannot*
+        decide its case (ruling 15); here the predicate decides every authority question and nothing
+        is taken from it, so what is answered first is the set of requests for which **no commit
+        exists at all, whoever asks**. Deliberate consequence: **a MEMBER asking to remove the OWNER
+        is answered "there is no removing the owner", not "you may not remove".**
+    56. **`ErrRemoveOwner` precedes `ErrRemoveSelf`.** MASTER §11 refuses a leave to an OWNER until the
+        group is handed over, so *"ask an admin to remove you"* is the wrong sentence for an owner —
+        and the mechanism forces it anyway, since dropping the owner's entry leaves a policy mls will
+        not encode.
+
+    **THREE CLAIMS IN THE LEAD'S BRIEF DID NOT HOLD AS WRITTEN, and the pass re-verified before
+    building rather than after.** *"`mls.ErrRemovedFromGroup` has zero occurrences in the sdk"* was
+    true at the scope commit and **false at the head it was handed** — the previous step had added
+    five test-file citations of it. *"Flattened into a generic ingest error"* reproduces but is
+    **narrower**: the sentinel survived to `errors.Is` on **walk one only**; by walk two the group was
+    closed and its secrets zeroized, so the error became *"the group is closed"* and the sentinel was
+    gone — the same shape ruling 41 met with a consumed ratchet generation. The rest reproduced
+    exactly: three attempts, a cursor bump, then **walks four, five and six answering nil with nothing
+    omitted, for ever, and identically again after a restart.**
+
+    **What a removed device does now:** a sentinel that says *this group removed you*, distinguishable
+    by `errors.Is` from halted and from dark, persisted across restart, answered by `Send`, `Receive`
+    and the commit path — and answered **first**, above the identity-in-use refusal, because a removed
+    device cannot seal at all and so cannot cause the collision that refusal exists to prevent.
+    **Precedence against the halt is decided by the commit's VALIDITY, not by field order:** a removal
+    this device judges invalid halts it and never reaches the removed state, because a commit it
+    refused removed it from nothing.
+
+    **Owed, all minor and all filed:** the prune half of the new publish step is unpinned (deleting it
+    alone leaves both modules green); a send-side row still builds a bare removal no verb builds any
+    more; **two godoc links point at `Group.RemoveDevice`, which ruling 50 put outside X4 and which
+    does not exist** — the same class the citation gate just closed for tests, one level over; and the
+    only repair the removed sentinel names, being added back, costs the re-added member three failed
+    receives and its pre-removal messages, which nothing drives.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
