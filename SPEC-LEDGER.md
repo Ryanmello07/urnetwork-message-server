@@ -10683,6 +10683,87 @@ repo and therefore the critical path — not this repository:
     `connect`; and a write-only field whose doc asserts the opposite. **A justification measured in
     the wrong shape is the class this track has found in five briefs of the lead's own**, and it is
     recorded here rather than quietly fixed.
+    ***All three were closed 2026-09-29 by `sdk 6a3dfff`; see item 261, where the re-driven
+    measurement came back NOT load-bearing and the clause was kept anyway, on the record.***
+
+261. **RULING 57 APPLIED AND X4's LAST THREE MINORS CLOSED — AND THE JUSTIFICATION MEASURED IN THE
+    WRONG SHAPE CAME BACK "NOT LOAD-BEARING", WITH THE CLAUSE KEPT ANYWAY AND THAT DECISION ON THE
+    RECORD.** `sdk 33fedd1 → 2ff9ad3 → 57f6ee6 → 6a3dfff`. Item 260's owed paragraph is corrected in
+    place. `connect` and `msgrepo` were read only; one module was written.
+
+    **RULING 57 IS APPLIED, and the measurement that matters is the one that shows the routing bought
+    nothing.** The hand-off arm is deleted, the six `Test…` spellings are in backticks, the switch goes
+    from **7 roads to 6**, and links in production prose from **1546 to 1540**. The SUM balances on
+    both sides (`500+908+18+110+0+6+4` then `500+908+18+110+0+4`), bracketed `Test…` names in
+    production prose go **6 → 0**, and the test-citation gate reads **76 / 68 / 7 / 1 before and
+    after** — *identical* — so backticking cost the property nothing, which is exactly what ruling 57
+    predicted and the reason the second rule was redundant rather than merely ugly. Three mutants
+    drove the rule rather than the exception: a planted `[Test…]` link now fails **through the plain
+    rule**, at the ordinary assertion and not a special case, where it passed before; a real exported
+    method passes; and an **unexported** package-level func passes — the rule is about the **package**,
+    not about export.
+    **The control fires for its own reason, and the first attempt at it was wrong in the instructive
+    way.** `go doc -all -u` on the package documents **zero** `Test…` declarations at column zero,
+    while the *identical* query finds **290 funcs and 42 types, 99 of the funcs unexported**. A
+    sloppier first query answered **18**, and printing those 18 lines showed they were **indented
+    doc-comment prose, not declarations**. That is why the measure is pinned at column zero — and it
+    is the fourth time in this corpus that printing the rows behind a number is what caught the query.
+
+    **THE OWED JUSTIFICATION WAS RE-DRIVEN AND THE BRIEF'S CLAIM REPRODUCES: the drain's epoch clause
+    is NOT load-bearing at its one call site.** Four rows, real server over a memory store, owner
+    removes the victim while a survivor is dead, three lines sealed at the opened epoch:
+
+    | reader's shape | clause | rounds | ceiling lines missing |
+    |---|---|---|---|
+    | **RESTARTED (the call site's shape)** | kept | `[{6 3} {3 3} {0 3}]` | 0 |
+    | **RESTARTED** | **dropped** | `[{6 3} {3 3} {0 3}]` | **0 — the mutant does NOT convict** |
+    | IN-PROCESS (the shape published) | kept | `[{0 3} {3 3} {0 3}]` | 0 |
+    | IN-PROCESS | **dropped** | `[{0 3}]` | **3 — it convicts** |
+
+    The call site returns through `device.Restore` and **the receive cursor is not persisted**, so its
+    crossing round re-walks its history and answers **6** entries rather than 0; `len(got) == 0` is
+    false there and the mutant survives. The control fires for its own reason: the same harness and
+    the same server with the survivor kept alive reproduces the published `[{0 3} {3 3} {0 3}]`
+    **exactly** *and* convicts the mutant there.
+
+    **THE CLAUSE WAS KEPT, against a brief that said to remove it if it was not load-bearing, and the
+    departure is RATIFIED.** Deleting a guard the control has just convicted a mutant for — purely
+    because today's single caller happens to restart — trades a real guard for a tidier file; it
+    convicts the day the receive cursor is persisted, or the day a second call site drains a party
+    that never died. **What was deleted is the CLAIM that a call-site mutant proved it.** Both
+    measurements are published side by side and the probe states plainly that its one call site does
+    not exercise the clause. **This is the honest form of an unexercised guard: KEPT, with its
+    non-exercise PRINTED** — and it is a **residual, not a closure**. The clause is unproven by this
+    probe, and a third caller or a persisted cursor is what would prove it.
+
+    **THE OTHER TWO MINORS.** `receiveRound.entries` was **write-only** under a header asserting both
+    its fields were asserted on; it is **deleted rather than used**, because there is no entry-count
+    assertion that holds *either way* item 246's ceiling is deployed — with the ceiling the crossing
+    round is short, without it round one is the whole answer — and passing in both is the drain's
+    entire purpose. The per-round line already prints the counts for a human. And the two
+    contradictory hardcoded counts of this module's links into `connect` (**94** at one site, **111**
+    at two others, against a gate measuring **110** for every replaced module together) are gone: the
+    number is now **derived**, printed in the complement as *"110 of those resolve into
+    github.com/urnetwork/connect"*, with its own per-module sum **asserted** against the replaced road
+    and a mutant that convicts a narrowing of it.
+
+    **A THIRD COUNT OF THE SAME CLASS, found while checking this pass rather than in it, and it is
+    the lead's own.** The pass reported the `messagegroup` erase gates as **25** by its widest name
+    query rather than the **26** a previous commit message claimed, and said it would rather report
+    the smaller number than pad. The lead's own widest query answers **35** — and printing those 35
+    names shows that several are **not erase gates at all**: they match on *"zero"* used as a function
+    name (`TestRecordKeyZeroTakesTheFourOctetReadingOfLP`), as an epoch number
+    (`TestAClosedSessionsEpochIsARefusalRatherThanEpochZero`), or as a struct's **zero value**
+    (`TestTheZeroValueOfAProvisionalEpochRefusesAndDestroysWithoutPanicking`) — three senses of the
+    word that have nothing to do with erasing key material. **How many is itself query-dependent and
+    is deliberately not written here**, which is the point: **25, 26 and 35 are three answers to three
+    queries and none of them is "the" number.** A bare count in a commit message is **a claim with its
+    query thrown away** — the *identical* defect this pass just closed for the link counts, one level
+    out, in the lead's prose rather than in the code. **Publish the query beside the number, or state
+    a property instead of a count.** The property here is the one that holds: *every erase helper in
+    `messagegroup` carries the `noinline` directive, and every key the package derives is erased in
+    the body that derived it* — both of which are gates with names, and neither of which needs a
+    total.
 
 ## 6. Change process
 
