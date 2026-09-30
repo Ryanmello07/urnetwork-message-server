@@ -10623,6 +10623,66 @@ repo and therefore the critical path — not this repository:
     does not exist** — the same class the citation gate just closed for tests, one level over; and the
     only repair the removed sentinel names, being added back, costs the re-added member three failed
     receives and its pre-removal messages, which nothing drives.
+    ***All five were closed 2026-09-29 by `sdk 487a5b5`; see item 260, which also records what closing
+    the godoc one uncovered.***
+
+260. **X4's MINORS CLOSED AND THE LIVE REMOVAL STEP WRITTEN, 2026-09-29 — and the gate written to
+    stop dangling citations shipped with three of its own.** `sdk 487a5b5 → 325665d → f0b1c2a →
+    71ba204 → 33fedd1`. Item 259's five owed minors are closed and that paragraph is corrected in
+    place.
+
+    **A MACHINE CRASH ORPHANED THE FIRST HALF, AND IT WAS AUDITED RATHER THAN TRUSTED.** Nine modified
+    files and a new test survived uncommitted. They built, vetted and passed the whole suite — which
+    proves the tests pass, **not** that the minors were closed — so the pass was sent to return
+    CLOSED / PARTIAL / NOT DONE per minor with evidence, and was told it was free to overrule a
+    stranger's choice. Two of its repairs were better than the brief asked for: the prune is pinned on
+    **both** arms that enter an epoch, not only the one that was broken, and the two dangling
+    `[Group.RemoveDevice]` links became a **gate over godoc links generally** rather than two patches.
+
+    **THEN THE GATE CONVICTED ITSELF, TWICE, AND THAT IS THE ENTRY.**
+    - **It was COUNTING a qualified link and not RESOLVING it**, so **three of its own links dangled on
+      the day it shipped**.
+    - **It read `_test.go` declarations into the tables it answered production prose with.** Measured:
+      **seven** distinct spellings resolved *only* because a test-file declaration was in the table —
+      six `Test…` names and `[rotWorld]`, whose sole declaration is a struct in a test file. The
+      control fires for its own reason: `go doc -all -u` on the package documents **zero** `rotWorld`
+      declarations and **zero** `Test…` functions, while a real unexported type resolves. A gate over
+      *production prose* that reads *test* declarations is the same defect one level up from the one
+      it was built to catch — **a gate whose class is not the shape of what it judges.**
+    - The repair moved the shared decision into **one** method both gates call, because **a second
+      copy of a decision is how this defect started**, and made the false sentence **true rather than
+      struck**, carrying its own history.
+
+    **RULING 57, taken 2026-09-29, on a question the pass escalated rather than settled.** After the
+    repair the gate enforced **two rules in one namespace**: *names a declaration in the documented
+    package* for most spellings, and *names a declaration somewhere* for six handed-off test names.
+    **A bracket in godoc is a RENDERING contract — `[X]` means "link to X" — so it must name a
+    declaration the documented package contains.** A test or test-helper name goes in **backticks**;
+    the hand-off arm is deleted. The reasons: the weaker property *this name names something that
+    exists* is **already held by the test-citation gate**, which reads unbracketed names perfectly
+    well, so routing buys nothing; a reader of a rendered doc meets a bracketed name that is **not a
+    link**, which is worse than backticks; and one namespace should carry one rule — two is the shape
+    this corpus keeps finding. The pass had already written the exit into the code, saying that when
+    the last such link goes the honest repair is to delete the arm rather than weaken the line.
+
+    **THE LIVE REMOVAL STEP EXISTS AND IS NOT YET RUN.** `liveprobe` step 11 removes a member by
+    identity on the real mesh and asserts every device leaf goes in one commit, the survivors
+    converge and agree on the roster, the removed client answers its sentinel **and still answers it
+    after a restart**, it cannot derive the epoch its own removal opened, an offline member catches
+    up, and a MEMBER's attempt is refused with nothing moving. Two defects were found and fixed
+    **before any run**: the step **could not go green either way item 246's ceiling is deployed** —
+    a returning survivor's page comes back `Complete` with the rows above its ceiling filtered out, so
+    one `Receive` crossed an epoch answering **nothing** — closed by a drain that loops until a round
+    both answers nothing *and* crosses nothing, capped and **failing by name** at the cap rather than
+    hanging; and **the credential scan never ran on the path most likely to need it**, proven on the
+    built binary by making it fail early, where the read-back's own line never appeared.
+
+    **Owed from this pass:** the drain's published justification — the mutant said to make its epoch
+    clause load-bearing — was driven **in a shape the one call site does not have**, and the README
+    states that measurement as taken; two contradictory hardcoded counts of this module's links into
+    `connect`; and a write-only field whose doc asserts the opposite. **A justification measured in
+    the wrong shape is the class this track has found in five briefs of the lead's own**, and it is
+    recorded here rather than quietly fixed.
 
 ## 6. Change process
 
