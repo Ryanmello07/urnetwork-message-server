@@ -10665,7 +10665,8 @@ repo and therefore the critical path — not this repository:
     this corpus keeps finding. The pass had already written the exit into the code, saying that when
     the last such link goes the honest repair is to delete the arm rather than weaken the line.
 
-    **THE LIVE REMOVAL STEP EXISTS AND IS NOT YET RUN.** `liveprobe` step 11 removes a member by
+    **THE LIVE REMOVAL STEP EXISTS AND IS NOT YET RUN** *(it ran 2026-09-29; see item 262,
+    which is what its first run found).* `liveprobe` step 11 removes a member by
     identity on the real mesh and asserts every device leaf goes in one commit, the survivors
     converge and agree on the roster, the removed client answers its sentinel **and still answers it
     after a restart**, it cannot derive the epoch its own removal opened, an offline member catches
@@ -10764,6 +10765,111 @@ repo and therefore the critical path — not this repository:
     `messagegroup` carries the `noinline` directive, and every key the package derives is erased in
     the body that derived it* — both of which are gates with names, and neither of which needs a
     total.
+
+262. **STEP 11's FIRST RUN ON THE DEPLOYED ALPHA FOUND A PRODUCT DEFECT THIS CORPUS'S OWN SUITE
+    STRUCTURALLY COULD NOT SEE — AND ITEM 243 IS WHERE IT CAME FROM.** `sdk 6a3dfff → f0f37f1`,
+    against `msgrepo 047843d` deployed (zero non-doc changes since, so the server binary is current)
+    and `connect 98b72dfa`. Three runs on `beta-test.net`: the red, an instrumented one, and the
+    verification.
+
+    **WHAT HELD, and all of it crossed an operator's mesh for the first time.** The seed check
+    separates its two arms by name. C was made a member again, C's **own second device** took a
+    fourth leaf, A was demoted. **A's `RemoveMember` as a MEMBER was refused on the SEND side** with
+    R2's own sentence — *"only an admin or the owner may remove another member"* — four removals
+    refused and the roster byte-identical at epoch 8 afterwards. Then **the OWNER took BOTH of C's
+    leaves `[2 3]` and its policy entry out in ONE call**, opening epoch 9. The removed device
+    answered the removal **by name on 4 walks and a send**, kept its own epoch-2 line, and was served
+    **1 record per walk both before and after** B sealed 3 lines above the ceiling — **item 246 held
+    on the server's own pages**. The offline survivor came back and converged in **three round
+    trips**, rosters compared row by row, and exchanged a line at the new epoch, which one shared
+    `storage_root` is the only way to do.
+
+    **AND THE SURVIVOR'S LIVE ROUNDS REPRODUCE ITEM 261's RE-DRIVEN MEASUREMENT, INDEPENDENTLY.**
+    `652 entries (epoch 8→9) → 3 (9→9) → 0 (9→9)`. The crossing round answers **652**, not zero, so
+    `len(got) == 0` is false at this call site and the drain's epoch clause is **not** what makes it
+    converge — exactly what item 261 measured in `cp3b` against a memory store, now answered the same
+    way by the deployed mesh. A justification measured in the wrong shape was corrected on Monday and
+    the mesh agreed with the correction on the same day.
+
+    **THE RED: `C removed, two leaves: 1204 record(s) from a member of this group did not open`** —
+    and **1204 is 602 × 2 exactly**, the 602 records sealed BELOW that device's admission failing on
+    each of two walks. The same 602 had been counted **`602 out_of_window gaps, opened 0, failed 0`**
+    earlier in the same run by the same device.
+
+    **THE CAUSE, READ OFF AN INSTRUMENTED RUN AND NOT OFF THE SOURCE — the lead's first reading was
+    wrong.** I read the walk and concluded `trackLocked`'s error was not routed through the
+    `pastEpochGap` predicate. **It is**; every road in the walk consults it. What the predicate did
+    not know is the **sentinel**:
+
+        tracking leaf 0 at head 0 for epoch 1: messagegroup: this session holds no pq_secret for
+        the epoch a derivation asked for: epoch 1; this session stands at epoch 8, holds 7
+        pq_secret(s) from epoch 2 up, and still holds the group-lifetime premise: false
+
+    **Two distinct strings behind all 1204** — leaf 0 and leaf 1, the only two pre-join senders — so
+    the whole count is one cause. At epoch 2 the same derivation missed in the **store** and answered
+    `ErrPastEpochUnobtainable` + `ErrStateNotFound`, which the predicate knows; at epoch 8 it missed
+    in the **per-epoch `pq_secret` table item 243 added** and answered `ErrPqSecretUnknownEpoch`,
+    which it did not. **Item 243 built a new road to an old fact and never told the predicate.** One
+    fact, two roads, one recognised. Reading the source would not have found it, because the source
+    reads correct: the bug is in a *set*, not in a branch.
+
+    **REPRODUCED IN-PROCESS, AND IT TOOK THREE VARIABLES PLUS A RESTART, EACH MEASURED RATHER THAN
+    GUESSED.** A first cut with 12 pre-join lines **passed**. A second with 600 — above
+    `api.DefaultMaxRecordsPerFetch` (512), which is why step 4 sends 600 — **passed**. The third added
+    **epoch depth** and reproduced at `FailedOpen=1200`, matching the live 1204. So:
+    - the removed device must be a **LATE JOINER**. `cp3b`'s existing
+      `TestARemovedDeviceIsToldSoByNameOnEveryWalkAndStillIsAfterARestart` removes a member of
+      `openPair` — **a FOUNDER** — so nothing in this corpus had ever removed a device with records
+      sealed below its own admission.
+    - the epoch must have **climbed**: at epoch 2 a record at epoch 1 is one rung down and the walk
+      gaps it correctly; at epoch 8 it is seven, and `pastEpochOpenableLocked` answers *openable*
+      because seven is inside `PastEpochWindow`.
+    - and the device must **restart**, because in-process the cursor already covers the pre-join
+      block and only a cursor nothing persists re-walks it from the bottom.
+    That existing test also asserts `FailedOpen` as a **delta** across the removal, never as an
+    absolute, so even in-process the absolute could have been non-zero unseen. The probe asserts
+    zero.
+
+    **THE FIX IS ONE ARM ON THE PREDICATE, AND ITS SECOND-ORDER EFFECT IS THE TELL.** Post-restart
+    `fetched` drops **1280 → 643**, equal to the pre-restart figure, because the cursor now advances
+    past the gaps instead of blocking at the bottom and re-walking the whole block every walk. The
+    live C's `fetched=1392` against A's **702** and B's **703** was that amplification, printed in
+    the run and read past on the first pass.
+
+    **THE BOUND IN THE FIX IS UNDRIVEN, IS KEPT, AND SAYS SO IN ITS OWN COMMENT.** Dropping
+    `header.Epoch < self.epoch` leaves **every test in `urmessage` and `cp3b` green** — measured, not
+    assumed. It is kept because this arm **silences** a record for ever (it notes a gap and resolves
+    the id, so the cursor passes it), and above the bound sits a shape that **repairs itself**: a
+    peer sending at epoch *n+1* puts a record above a reader still standing at *n*, and a fetch page
+    truncated between the commit and those records delivers exactly that. Resolved as history, such a
+    record is **lost a second before it would have opened**; left a failure, `walk.blocked` holds the
+    cursor and the next `Receive` gets it. **A silencing rule must be no wider than the fact that
+    justifies it.** **Owed:** the case that drives it needs a page boundary placed between a commit
+    and the records above it. It is owed, not claimed — and this is the same discipline item 261
+    applied to the drain, now applied to the lead's own fix on the day it was written.
+
+    **VERIFIED ON THE DEPLOYED ALPHA, NOT ONLY IN PROCESS — `13 STEPS, 1668 ASSERTIONS, ALL HELD`.**
+    The third run carries the fix and step 11 is green. The removed device's own line is the proof,
+    and the predicted number appears in the counter it belongs in:
+
+    | | the red run | the verification |
+    |---|---|---|
+    | `fetched` | **1392** | **699** (A's 702, B's 703) |
+    | `FAILED` | **1204** | **0** |
+    | `gaps` | **0/0** | **602/0** |
+
+    The 602 that were failures are gaps, the amplification is gone, and C still answers *"REMOVED at
+    epoch 8, and says so by name on every walk and every send"*. Two further live readings worth
+    keeping: **the restarted C was routed to after `1m13s`**, which is the operator's ~60s reconnect
+    window measured rather than cited, and C **came back from the restart already knowing before its
+    first fetch** — ruling 52's state read off part ten of the group record, on a real disk.
+
+    **WHAT THIS SAYS ABOUT THE INSTRUMENT, which is the part worth keeping.** `cp3b` holds the
+    removal end to end and was **green**. The live probe's contribution was **not a different
+    server** — it was a **different HISTORY**: a device that joined late, a page that truncates, an
+    epoch that climbed, and a disk that outlived the process. **Every one of those was available
+    in-process and not one of them was combined.** The gate's class was *the removal*; the defect's
+    shape was *the history underneath it*.
 
 ## 6. Change process
 
