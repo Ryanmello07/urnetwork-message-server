@@ -10991,6 +10991,77 @@ repo and therefore the critical path — not this repository:
     creation is not built** and is the next product gap. And the package carries the four
     commercial brand faces, which is a redistribution question rather than a technical one.
 
+265. **NOBODY NEEDS A COMMAND LINE ANY MORE: THE APP FOUNDS A GROUP AND BRINGS PEOPLE INTO IT.**
+    `sdk e803231 → cd67ae9 → dc31e33 → 153e107`, `message-windows@demo-ui f9ca050 → d257e40`.
+    Driven with two instances, two accounts and no CLI in the middle.
+
+    **THE C ABI COULD ONLY EVER BUILD A GROUP OF TWO, and nothing had noticed.**
+    `urnet_message_group_add_member` builds the FOUNDING commit and is refused once the group is
+    open — the header says so in its own words. The sdk has had the other half all along,
+    `Group.AddMemberAndPublish`, which `cp3b`'s groupchat tests use to add a third member, and the
+    ABI exposed none of it. Any client on that ABI could found a pair and never grow it.
+    `urnet_message_group_add_member_and_publish` is now exported. **Its failure channel is the
+    SENTENCE and not a commit kind**, unlike `set_role`, and the header says so rather than leaving
+    a caller to find out: the return value is spent on the invite handle a caller needs to encode
+    an invitation with.
+
+    **AND THE DECLARATION NEVER LANDED, WHICH IS THE ENTRY.** The patch that was meant to add it to
+    `urnetwork_message.h` built the explanatory comment and **never appended the declaration under
+    it**. Nine lines went in, every one of them comment, and `cd67ae9`'s message says the symbol was
+    declared — **false when written**. Everything in that module stayed green: the export was real,
+    the `.def` named it, both suites passed. What found it was a **compile in another repository**,
+    `C3861 identifier not found`, which is no kind of gate.
+    **The gate it was missing now exists** (`TestTheMessagingHeaderDeclaresEveryMessagingExport`):
+    the `.def` is one promise about the shipped library and the header is the other, a name missing
+    from the first is a LINK error and from the second a COMPILE error one step earlier, and
+    nothing here read the header at all. **It matches a DECLARATION and not the name anywhere in
+    the file**, which is the whole point — the name appeared **seven times** in that header, every
+    one inside a comment about it, so a `strings.Contains` gate would have passed the exact defect
+    it was written for. Three controls, and the one that matters says the matcher does **not** treat
+    comment prose as a declaration. Driven: declaration removed, seven mentions left standing, the
+    gate names the symbol and fails.
+
+    **IN THE APP: ONE DIALOG, TWO ROADS.** No group — a join code to send, a box for the invitation
+    coming back, and *Start a new group*. A group of your own — a box for THEIR join code, and the
+    invitation an add produces. **A founded group is not a usable one and the screen says so**: a
+    group of one stands at epoch 0, the server has never been told about it, and the commit that
+    OPENS it is the one adding the first other person. **Two different ABI calls sit behind one
+    button and the GROUP chooses**, by `is_open` rather than by a counter — a count of how many this
+    session has added is wrong after a restart, and wrong in the direction that refuses every later
+    add with a sentence about the wrong call. **The invitation is shown for one publication and then
+    goes**, because it works once and leaving it up invites sending the same one twice.
+
+    **A TRAP FOUND BY FALLING INTO IT, and the fall is the measurement.** `%URMESSAGE_APP_ROOT%`
+    isolated the STATE and not the IDENTITY. Two instances launched with two roots and no explicit
+    `%URMESSAGE_LIVE_JWT%` **both fell back to the default credential and the default handshake
+    directory** — one account, one `app.keypackage` path, each clobbering the other. The state
+    directories being genuinely separate is the only reason that was a clobbered file rather than
+    two devices at one MLS leaf. `HandshakeDir` follows the root now; the credential still has to be
+    named explicitly, which is right, because **a credential is the one thing that must never be
+    guessed from a directory layout.**
+
+    **AND THE SINGLE-INSTANCE KEY FOLLOWS THE ROOT, because two installs on one machine were
+    redirecting into each other** — silently, which is what that mechanism is for, and the symptom
+    is "the second window never opens". The **default is byte-identical** to
+    `urnw::ids::kSingleInstanceKey` and that is measured on every launch, because `Ids.h`'s whole
+    argument about never colliding with the VPN client's `"URnetwork.Desktop"` rests on it.
+
+    **A DOCUMENTED DECISION STOPPED A CHANGE THAT LOOKED RIGHT.** `sdk/.gitattributes` pins `*.go`
+    only, and the generator's `.c`/`.h`/`.def`/`.hpp` output is unpinned, so `git add` warns that
+    CRLF is coming. The widening was written — and the file had already weighed it: *"the .c, .h,
+    .sh and .md files are deliberately left to autocrlf … a widening is a rewrite of files nothing
+    here has a property about."* It is right: autocrlf cleans on the way IN, so a CRLF working tree
+    still commits LF and no false diff can land. **The patch asserted and did not apply, which is
+    the outcome that should have happened.**
+
+    **DRIVEN, END TO END, WITH NO CLI:** A pressed *Start a new group* (epoch 0, open: no), pasted
+    B's **2,044-character** join code, and the add answered *MEMBER ADDED by add_member + open,
+    epoch 1, open: yes*. B pasted the **4,588-character** invitation and answered *JOINED at epoch
+    1*, its dialog closing itself. Both rosters agree — owner and member, matching leaf handles. A
+    sent a line and **B had it in three seconds**: MINE on one screen, THEIRS on the other, one
+    record. `--diagnose`: **85 PASS, 0 FAIL**, and the packaged binary gives the same from a fresh
+    folder.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
