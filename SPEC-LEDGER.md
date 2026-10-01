@@ -10871,6 +10871,48 @@ repo and therefore the critical path — not this repository:
     in-process and not one of them was combined.** The gate's class was *the removal*; the defect's
     shape was *the history underneath it*.
 
+263. **RULING 53 IS DISCHARGED, AND THE WINDOWS APP IS A WORKING ALPHA ON THE REAL MESH.**
+    `message-windows@demo-ui a24d745`. Flagged to the owner five times and actioned 2026-09-30.
+
+    **THE RE-FOUNDING, measured on both sides.** Item 257 found both local alpha device records at
+    **1,339** octets — the three-part, pre-seed shape that can never open a wrap addressed to its
+    own leaf, and which the next commit verb would have bricked. The app's and the peer's state
+    directories were **set aside, not deleted** (17 and 42 files, recoverable), the stale handshake
+    files removed, and the group re-founded through `sdk/livepeer`. The app's device record is now
+    **1,375** octets, it joined at epoch 1, and it opened the peer's records including a reply and
+    two reactions. The size is the cheap reading; the opening is the proof.
+
+    **WHAT THE APP DOES ON THE DEPLOYED ALPHA**, read off one screenshot and the worker's log: it
+    connects (through a 62-second reconnect window, retried on a budget, which is the operator
+    behaviour item 257 recorded rather than a fault), restores its group from disk with no
+    handshake, fetches, and draws real text with real timestamps, the reply resolved to its parent,
+    both reactions on the line they were put on, and a roster of **unavailable · Owner / You ·
+    Member** at epoch 1. The chip reads **LIVE** and every honesty string is the live arm of its
+    pair — the latch in `ApplyLiveWorld` works, and *"names are unavailable, there being no identity
+    layer yet"* is on screen beside roles that are real.
+
+    **THE REMOVAL VERB REACHED THE SCREEN** on the same day it was proven on the mesh by step 11.
+    `RoleControlsFor` is MASTER §11's table already transcribed, so `Remove` needed **no clause of
+    its own**: the admin-on-admin early return that holds R3 for `MakeAdmin` holds it for this too,
+    and past that point an admin's target can only be a member or an observer, which is R2 exactly.
+    It is the one verb that asks for **no role**, and `RoleVerbTarget`'s default arm answers
+    `member` — so a fall-through would have read as a demotion *and* been spent on `set_role`. It
+    answers empty, the rail returns before the role host is read, and the gate asserts it **both
+    ways**: four non-empty distinct spellings and a fifth that is empty.
+
+    **A GATE CAUGHT THE CHANGE, AND IT CAUGHT IT FOR THE REASON ITEM 261 NAMES.** `roster live`
+    asserted the peer row's control **count == 3** and went red at 4. A count reddens when a verb is
+    ADDED — which is how it was found — and stays green when one verb is SWAPPED for another, which
+    is the change a count cannot see. It now asserts the **set**. `--diagnose`: **84 PASS, 0 FAIL**,
+    with `roster controls` 12/12, `roster names` 5/5 and a new `roster confirms` 2/2 over both
+    confirmation dialogs, which had no gate at all until a removal needed one.
+
+    **FILED, AND IT IS THE TOP GAP TO A SHIPPABLE ALPHA: `--live` ALONE DRAWS NOTHING.** The
+    conversation views are built by `BuildDemoViews`, which is `--demo`-gated, so a live launch
+    logs *"live world ... held, and no view is built to draw it"* and shows the fabricated world.
+    The app is usable live only as `--live --demo`. The data path is finished; the view-building
+    gate is not, and it is a product defect rather than a protocol one.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
