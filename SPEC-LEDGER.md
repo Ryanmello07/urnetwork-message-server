@@ -10913,6 +10913,84 @@ repo and therefore the critical path — not this repository:
     The app is usable live only as `--live --demo`. The data path is finished; the view-building
     gate is not, and it is a product defect rather than a protocol one.
 
+264. **THE ALPHA IS SOMETHING A PERSON CAN BE HANDED: A LIVE LAUNCH DRAWS, AND A STRANGER CAN GET
+    INTO A GROUP WITH TWO COPY-PASTES.** `message-windows@demo-ui a24d745 → cabd19e → f9ca050`,
+    `sdk f0f37f1 → e803231`. Driven end to end against the deployed alpha, not argued.
+
+    **`--live` DREW NOTHING, AND IT TOOK NINE STRUCTURAL GATES RATHER THAN ONE.** The app fetched
+    its own messages off the mesh and showed the person an empty shell: *"live world generation 2
+    (1 conversation(s)) held, and no view is built to draw it"*. The conversation views, the status
+    strip, the Network/Settings/Developer pages and the wide window were **all** keyed on
+    `options_.enabled`, which was right while `--demo` was the only thing that drew a conversation.
+    A live launch therefore got the 480x760 placeholder scaffold with no rail and no strip, and
+    `ApplyLiveWorld` refused to draw into it. One predicate now — **`ContentShell()` = `--demo` or
+    `--live`** — keys every structural surface, and `options_.enabled` keys only the fabricated
+    **flavour**: the autoplay, the ambient activity, the deep link and the chip. The split is
+    *would somebody reading their own messages want this surface*.
+
+    **AND A THIRD WORLD, WHICH IS THE HONESTY HALF OF THE SAME CHANGE.** `ActiveWorld()` fell back
+    to the fabricated world whenever no live one had arrived. On `--live --demo` that is useful. On
+    `--live` **alone** it would have put Design team, Bo Nakamura and Freya Nilsson in front of
+    somebody who opened the app to read their own messages — people who do not exist, under a chip
+    that cannot say LIVE yet. There is an **EmptyWorld** now, the conversation list's
+    `kSampleConversations` (a **second** fabrication, the one a plain launch has always drawn) is
+    skipped for the same reason, and **the chip is hidden until the latch**: neither wording is true
+    in that window, and an absent chip claims nothing.
+
+    **THE DEFECT THAT CHANGE CREATED, AND IT IS THE CLASS RunMode EXISTS FOR.** The composer's
+    caption is a PAIR, written when there were two worlds, and the file's own reasoning says a
+    `--live` launch whose mesh has not answered draws the FABRICATED world — true for exactly as
+    long as `--live` implied `--demo`. It stopped being true, and *"Demo model — nothing is sent,
+    and no message leaves this window"* sat under an **empty list**, inviting a reader to think a
+    real app was a mock-up. A **third arm** now answers *"No group yet — there is nothing to send
+    to"*, asserted in four directions **with the pair itself as the control**, because three would
+    pass a sentence that was simply one of the other two copied.
+
+    **GETTING IN USED TO REQUIRE A FILE HANDSHAKE ON ONE MACHINE.** The app wrote `app.keypackage`
+    beside its credential and waited for somebody to drop `app.invite` back. A person cannot run a
+    Go binary under a second account, and two people on two machines share no directory. **What
+    replaces it is text**, because text goes down every channel people already have: a **JOIN
+    CODE** (this device's key package, base64) and an **INVITE CODE** (the Welcome that answers it).
+    The app shows the first and takes the second in a dialog that appears exactly when it is needed
+    and closes itself on the beat the worker says there is a group. `livepeer` gained the matching
+    roads, `-joincode` and `-printinvite`, and the file roads are untouched.
+
+    **THE TWO CODES ARE NOT THE SAME KIND OF SECRET AND THE SCREEN SAYS WHICH IS WHICH.** A join
+    code is a public offer to be added. An invite carries the group's secrets, whoever reads it is
+    in the group, and it is used once. **Neither is ever logged** — a log line outlives the moment
+    and has a different audience from a screen — and the pasted road never writes the invite to
+    disk at all, which is the better of the two for that reason.
+
+    **AND THE WAIT LOST ITS DEADLINE, which is the behaviour change underneath.** The old loop gave
+    up after a few minutes and returned false, which **closed the session**: the app went dead until
+    somebody relaunched it. Defensible between two processes started seconds apart; wrong for a
+    person who pastes their code into an email and comes back after lunch. A refused invitation now
+    leaves the loop running with a sentence beside the box, so a typo costs a retry rather than a
+    relaunch.
+
+    **DRIVEN, WITH A THIRD IDENTITY, AGAINST `beta-test.net`:** the dialog came up carrying a real
+    2,044-character join code; `livepeer` took it on the new road and printed a 4,588-character
+    invite; UI Automation pasted it and pressed Join; the worker answered *"JOINED the group at
+    epoch 1"* and the dialog closed itself. `--diagnose`: **85 PASS, 0 FAIL**, including the new
+    third-arm gate. The packaged binary runs **standalone from a fresh folder** at the same 85/0.
+
+    **TWO VACUOUS PASSES WERE FOUND BY RUNNING THINGS, BOTH IN THIS PASS'S OWN WORK.**
+    - `livepeer` with `-printinvite` and no `-invite` printed *"the invite file is gone, so the app
+      has read it"* about a file **that was never written** — `awaitGone` answers true immediately
+      for an empty path. A pass with no subject. The code road has **no** confirmation available (a
+      member joining is invisible from the other side, because the Welcome is opened by the joiner
+      and the server is told nothing), so it now says which road the run took and what it did not
+      see.
+    - The tester README claimed **deleting your own message** works. Measured: the app renders a
+      tombstone it RECEIVES and calls no verb that sends one. Moved to the not-yet list before it
+      reached anybody.
+
+    **WHAT A HUMAN TEST STILL NEEDS, and none of it is protocol.** Five tester accounts are
+    provisioned (`urmessage-tester1..5`; a sixth hit the operator's per-address rate limit). The
+    group is still founded and invitations still issued by a person at a CLI — **in-app group
+    creation is not built** and is the next product gap. And the package carries the four
+    commercial brand faces, which is a redistribution question rather than a technical one.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
