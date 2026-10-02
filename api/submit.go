@@ -149,6 +149,9 @@ func (self *Handler) Submit(ctx context.Context, conn *Connection, request *prot
 	if !everyResultAccepted(pass.response) {
 		self.pad(started)
 	}
+	// §4.3.5: every subscriber of this group is owed a push for what was just stored. It marks and
+	// returns; nothing here waits on a connection
+	self.publishAccepted(pass)
 	return protocol.Reason_REASON_OK, pass.response, nil
 }
 

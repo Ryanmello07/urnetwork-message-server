@@ -197,6 +197,18 @@ func (self *Connections) Lookup(clientId connect.Id) (*Connection, bool) {
 	return current, true
 }
 
+// Peek is [Connections.Lookup] without the touch: the live, unexpired connection for a client_id,
+// read by a push, which must not keep an idle connection alive by itself.
+func (self *Connections) Peek(clientId connect.Id) (*Connection, bool) {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	current, found := self.live[clientId]
+	if !found || self.expired(current, self.now()) {
+		return nil, false
+	}
+	return current, true
+}
+
 // Whether this connection is still the live one for its client_id.
 //
 // A request in flight across a re-Hello is a request whose connection has been replaced, and it

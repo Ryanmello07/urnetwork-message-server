@@ -25,6 +25,10 @@
 // WHAT IT DOES NOT LOG. Nothing identifying: no remote address, no connection id. §11.1 forbids
 // identifiers in every sink, and a server reached through an exit would otherwise be keeping a
 // list of exit addresses. [Endpoint.Stats] is counters only.
+//
+// It imports nothing of this module: it carries frames and knows no request.
+//
+//urmsg:mayimport
 package endpoint
 
 import (

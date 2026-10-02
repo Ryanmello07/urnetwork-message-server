@@ -379,6 +379,10 @@ type Config struct {
 	// real clock and the real sleep.
 	Now   func() time.Time
 	Sleep func(time.Duration)
+
+	// §4.3.5's subscription registry (subscribe.go). Nil serves no Subscribe and pushes nothing,
+	// and [Handler.NotBuilt] says so.
+	Subscriptions *Subscriptions
 }
 
 // The request handlers of §4.3, with the check order of §5.1 in front of them.
@@ -394,6 +398,8 @@ type Handler struct {
 	rejectFloor time.Duration
 	now         func() time.Time
 	sleep       func(time.Duration)
+
+	subscriptions *Subscriptions
 }
 
 func New(config Config) (*Handler, error) {
@@ -416,6 +422,7 @@ func New(config Config) (*Handler, error) {
 		rejectFloor:         config.RejectFloor,
 		now:                 config.Now,
 		sleep:               config.Sleep,
+		subscriptions:       config.Subscriptions,
 	}
 	if handler.maxCtHeadBytes == 0 {
 		handler.maxCtHeadBytes = DefaultMaxCtHeadBytes
@@ -457,7 +464,25 @@ func (self *Handler) NotBuilt() []NotBuilt {
 	if self.rejectFloor == 0 {
 		notBuilt = append(notBuilt, unpaddedRejectPath)
 	}
+	if self.subscriptions == nil {
+		notBuilt = append(notBuilt, unservedSubscribe)
+	} else {
+		notBuilt = append(notBuilt, notificationOnlyPush)
+	}
 	return notBuilt
+}
+
+// What this build's §4.3.5 is short of, said where an operator reads the rest (subscribe.go).
+var notificationOnlyPush = NotBuilt{
+	Section: "§4.3.5, §4.4",
+	What:    "RecordPush names the group and its new high water and carries no records, so a subscriber answers it with a Fetch; §4.4's buffered backfill and record streaming, TransientPush, and Backpressure are not built, and a subscription is one group per request because one req_auth can authorize one (group_id, read_epoch)",
+	Owner:   "api",
+}
+
+var unservedSubscribe = NotBuilt{
+	Section: "§4.3.5",
+	What:    "no subscription registry is configured, so Subscribe is answered REASON_INTERNAL and nothing is pushed",
+	Owner:   "cmd/message-server",
 }
 
 // §4.5's timing envelope, when nobody configured a floor for it.

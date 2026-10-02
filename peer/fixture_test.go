@@ -450,6 +450,22 @@ func (self *recordingHandler) Fetch(ctx context.Context, conn *api.Connection, r
 	return protocol.Reason_REASON_OK, &protocol.FetchResponse{HighWaterRecordId: request.GetSinceRecordId()}, nil
 }
 
+func (self *recordingHandler) Subscribe(ctx context.Context, conn *api.Connection, request *protocol.SubscribeRequest) (protocol.Reason, *protocol.SubscribeResponse, error) {
+	if reason := self.frontChecks(ctx, conn, 14); reason != protocol.Reason_REASON_OK {
+		return reason, nil, nil
+	}
+	self.record("subscribe", conn, uint64(len(request.GetSubscriptions())))
+	return protocol.Reason_REASON_OK, &protocol.SubscribeResponse{}, nil
+}
+
+func (self *recordingHandler) Unsubscribe(ctx context.Context, conn *api.Connection, request *protocol.UnsubscribeRequest) (protocol.Reason, error) {
+	if reason := self.frontChecks(ctx, conn, 15); reason != protocol.Reason_REASON_OK {
+		return reason, nil
+	}
+	self.record("unsubscribe", conn, uint64(len(request.GetGroupIds())))
+	return protocol.Reason_REASON_OK, nil
+}
+
 func (self *recordingHandler) NotBuilt() []api.NotBuilt {
 	return self.notBuilt
 }

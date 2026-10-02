@@ -46,6 +46,9 @@ type server struct {
 
 	attachment *attachment
 
+	// §4.3.5's subscriptions, which the handler registers and the peer pushes to.
+	subscriptions *api.Subscriptions
+
 	// The server's own TLS endpoint, when message.yml configures one (ledger 268).
 	endpoint         *endpoint.Endpoint
 	endpointListener net.Listener
@@ -168,10 +171,14 @@ func newServer(ctx context.Context, deploy deployment, loaded configuration, log
 	// which reaches §10.1's endpoint through [server.notBuilt]. That entry is as much the point
 	// as the wiring is: the per-process map was on no NotBuilt list and in no ops document, and a
 	// list that claims to be complete and is not is worse than no list.
+	// §4.3.5's registry. The peer that can reach a connection does not exist yet, so it is
+	// attached as the pusher once it does, below
+	self.subscriptions = api.NewSubscriptions()
 	self.handler, err = api.New(api.Config{
-		Store:       self.records,
-		KnownGroups: api.NewStoreKnownGroups(self.records),
-		Front:       checks,
+		Store:         self.records,
+		KnownGroups:   api.NewStoreKnownGroups(self.records),
+		Front:         checks,
+		Subscriptions: self.subscriptions,
 	})
 	if err != nil {
 		pool.Close()
@@ -221,6 +228,7 @@ func newServer(ctx context.Context, deploy deployment, loaded configuration, log
 			pool.Close()
 			return nil, err
 		}
+		self.subscriptions.SetPusher(self.dispatch)
 		if self.endpoint != nil {
 			go self.serveEndpoint()
 		}
@@ -600,6 +608,9 @@ func (self *server) Close() {
 
 	if self.dispatch != nil {
 		self.dispatch.Close()
+	}
+	if self.subscriptions != nil {
+		self.subscriptions.Close()
 	}
 	// after the dispatch, for the reason the connect client is: a worker still sending a response
 	// needs the connection it is sending on

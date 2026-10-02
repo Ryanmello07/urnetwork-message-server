@@ -36,6 +36,8 @@ type Handler interface {
 	CreateGroup(ctx context.Context, conn *api.Connection, request *protocol.CreateGroupRequest) (protocol.Reason, *protocol.CreateGroupResponse, error)
 	Submit(ctx context.Context, conn *api.Connection, request *protocol.SubmitRequest) (protocol.Reason, *protocol.SubmitResponse, error)
 	Fetch(ctx context.Context, conn *api.Connection, request *protocol.FetchRequest) (protocol.Reason, *protocol.FetchResponse, error)
+	Subscribe(ctx context.Context, conn *api.Connection, request *protocol.SubscribeRequest) (protocol.Reason, *protocol.SubscribeResponse, error)
+	Unsubscribe(ctx context.Context, conn *api.Connection, request *protocol.UnsubscribeRequest) (protocol.Reason, error)
 	NotBuilt() []api.NotBuilt
 }
 
@@ -230,6 +232,8 @@ type stats struct {
 	responsesSent   atomic.Uint64
 	responsesFailed atomic.Uint64
 	refusalsDropped atomic.Uint64
+	pushesSent      atomic.Uint64
+	pushesRefused   atomic.Uint64
 }
 
 // The aggregate counters of §11.3's shape: no identifier, no label, nothing a client chose.
@@ -244,6 +248,11 @@ type Stats struct {
 	// [Peer.refuse] for why that is a drop rather than a wait: the wait would be on connect's
 	// receive loop, which is every other client's frames.
 	RefusalsDropped uint64
+
+	// §4.3.5 pushes handed to the transport, and those refused because the connection had gone or
+	// been replaced, which drops the subscription that asked for them.
+	PushesSent    uint64
+	PushesRefused uint64
 }
 
 func New(config Config) (*Peer, error) {
@@ -376,6 +385,8 @@ func (self *Peer) Stats() Stats {
 		ResponsesSent:   self.stats.responsesSent.Load(),
 		ResponsesFailed: self.stats.responsesFailed.Load(),
 		RefusalsDropped: self.stats.refusalsDropped.Load(),
+		PushesSent:      self.stats.pushesSent.Load(),
+		PushesRefused:   self.stats.pushesRefused.Load(),
 	}
 }
 
@@ -877,8 +888,70 @@ func (self *Peer) buildRoutes() map[protoreflect.FullName]route {
 				return reason, answered, err
 			},
 		},
+		nameOf(&protocol.SubscribeRequest{}): {
+			name:     "subscribe",
+			pipeline: true,
+			run: func(ctx context.Context, arrived *inbound, body proto.Message) (protocol.Reason, proto.Message, error) {
+				request, ok := body.(*protocol.SubscribeRequest)
+				if !ok {
+					return protocol.Reason_REASON_INTERNAL, nil, ErrWrongArm
+				}
+				reason, answered, err := self.handler.Subscribe(ctx, arrived.connection.ApiConnection(), request)
+				if answered == nil {
+					return reason, nil, err
+				}
+				return reason, answered, err
+			},
+		},
+		// §4.3.8 exempts it from req_auth, and there is no response arm 15: the envelope's reason
+		// is the whole answer
+		nameOf(&protocol.UnsubscribeRequest{}): {
+			name:     "unsubscribe",
+			pipeline: true,
+			run: func(ctx context.Context, arrived *inbound, body proto.Message) (protocol.Reason, proto.Message, error) {
+				request, ok := body.(*protocol.UnsubscribeRequest)
+				if !ok {
+					return protocol.Reason_REASON_INTERNAL, nil, ErrWrongArm
+				}
+				reason, err := self.handler.Unsubscribe(ctx, arrived.connection.ApiConnection(), request)
+				return reason, nil, err
+			},
+		},
 	}
 }
+
+// ── the push path ────────────────────────────────────────────────────────────────────────
+
+// Push is api.Pusher: one §4.3.5 push to one connection, refused when that connection is gone or
+// is no longer the one the subscription was made on. It reads the connection table without
+// touching it, so a stream of pushes cannot keep an idle connection alive by itself. A push is
+// one unfragmented frame: a notification is a group id and a number.
+func (self *Peer) Push(clientId []byte, serverNonce []byte, push *protocol.MessageServerPush) bool {
+	id, err := connect.IdFromBytes(clientId)
+	if err != nil {
+		self.stats.pushesRefused.Add(1)
+		return false
+	}
+	current, live := self.connections.Peek(id)
+	if !live || !current.Holds(serverNonce) {
+		self.stats.pushesRefused.Add(1)
+		return false
+	}
+	body, err := proto.Marshal(push)
+	if err != nil {
+		self.stats.pushesRefused.Add(1)
+		return false
+	}
+	frame := &protocol.Frame{MessageType: protocol.MessageType_MessageMessageServerPush, MessageBytes: body}
+	if !self.client.SendWithTimeout(frame, connect.DestinationId(id), nil, api.PushTimeout, connect.Ctx(self.ctx)) {
+		self.stats.pushesRefused.Add(1)
+		return false
+	}
+	self.stats.pushesSent.Add(1)
+	return true
+}
+
+var _ api.Pusher = (*Peer)(nil)
 
 // ── the send path ────────────────────────────────────────────────────────────────────────
 
