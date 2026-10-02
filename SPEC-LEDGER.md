@@ -11129,6 +11129,77 @@ repo and therefore the critical path — not this repository:
     rest. (5) Route through a provider if IP privacy from the platform is a goal, as spec B §4.1
     describes. (6) Fix the Windows over-limit handling.
 
+267. **THE OWNER CHALLENGED 266's TRANSPORT FINDING. RE-VERIFIED BY RUNNING IT, LIVE AND IN
+    PROCESS: IT STANDS, AND ONE OF 266's CITATIONS IS CORRECTED.** 2026-10-01. The challenge, verbatim:
+    *"URnetwork nodes are multi hop and when exited to URmessage (a seperate server and organization
+    with no connection to the main network) they should not be able to know or see the contents of
+    your requests. the final exit node can see your destination DNS but thats all."* That is the VPN
+    path, and it is the DESIGN: MASTER §4.1 gives a provider "ciphertext in transit only", and Spec A
+    §10.1 says message traffic gets "the same contract, relay and per-peer hybrid transit
+    encryption ... as everything else". It is not the build. Read at `connect 98b72dfa`, `sdk 8269d2d`,
+    `msgrepo 98024e3`, `server fc60737`; the deployed server is `msgrepo 047843d`.
+
+    **THE PATH, LIVE.** The owner's running app (pid 10736) held exactly two TCP connections, both to
+    `74.50.11.17:443`, which is `connect.` and `api.beta-test.net`. The message server (pid 1814 on
+    `74.50.11.53`) held two, both to the same address, and listens on nothing public: `127.0.0.1:9099`
+    health, localhost Postgres, ssh. **So nothing "exits to" the message server; no exit node could
+    reach it.** It is a connect client of the platform, and only the platform delivers to it.
+    `74.50.11.17` is the operator box itself, where Caddy ends TLS on 443 in front of
+    `server-connect`, so there is no CDN in the path, and the platform's forwarder
+    (`server/connect/resident.go:2766-2793`) holds each transfer frame in the clear.
+
+    **NO PROVIDER EVER CARRIES A URMESSAGE FRAME.** `sdk/message_transport.go:456` sends to
+    `connect.DestinationId(server)`: no intermediaries, no stream, no `ForceStream`; peer-to-peer
+    transports are built only for streams (`transfer_stream_manager.go`). Multi-hop is real in
+    connect (`MaxMultihopLength = 8`, `SendMultiHopWithTimeout`) and the VPN uses it, with each path
+    returned by the platform's own `FindProviders2` (`ip_remote_multi_client_api.go:287-301`), so the
+    platform knows every multi-hop path it hands out. Multi-hop hides an IP from nodes, never from the
+    platform.
+
+    **PER-PEER ENCRYPTION IS OFF AT BOTH ENDS.** `DefaultEncryptionSettings()` is `EncryptionModeOff`
+    (`transfer_encrypt.go:723-725`), and `sdk/message_client.go:181` and
+    `msgrepo/cmd/message-server/transport.go:129-130` (the same at `047843d`) pass
+    `DefaultClientSettings()` unchanged. The VPN client sets `EncryptionModeRequired`
+    (`ip_remote_multi_client.go:9199`); providers set `Opportunistic` (`sdk/device_local_provider.go:97`).
+
+    **WHAT THE PLATFORM READS, MEASURED** by `sdk/cp3b/platformview_test.go` (`8269d2d`): the real
+    transport and the real server pipeline, with a relay in the platform's position that forwards
+    every transfer frame and keeps a copy, decoded with public schemas and no key. The ground truth is
+    what the server's handler received, and the copy is searched for that.
+    - **OFF, as deployed** (the mode is read off a client built by `sdk.NewMessageClient` itself):
+      10 of 10 requests decoded, 8 of 8 handler requests equal field for field, 10 responses, and all
+      20 distinct fields the server received: group id, the bootstrap and epoch write and read keys,
+      sender handles, body hashes, sealed records, fetch authenticators. Per connection it names the
+      group and that connection's `sender_handle`. **0 of 2 message texts.**
+    - **REQUIRED:** 0 requests, 0 responses, 0 of 20 fields, 27 frames sealed, both sessions sealed
+      under `X25519MLKEM768`, and the exchange still delivered both texts.
+    - **OPPORTUNISTIC:** the two Hellos sent before the handshake leak; 0 of the 8 other requests;
+      0 of 20 fields. That is with a handshake that takes milliseconds in process, and on a real
+      network the window is wider. **The fix is REQUIRED, which fails closed, not OPPORTUNISTIC.**
+    - Mutated both ways: the REQUIRED half run at OFF fails five assertions, and the OFF half run at
+      REQUIRED fails three. Three consecutive runs gave the same counts, except the frame totals,
+      which vary by a few frames from run to run.
+
+    **WHAT REQUIRED DOES NOT FIX.** The platform still sees the IP, the account, that it talks to a
+    message server, when and how much, which is what MASTER §13 already says. And each side learns
+    the other's identity key FROM THE PLATFORM, through the contract's
+    `destination_client_public_key` or `/key/<client_id>`. connect's own comment at
+    `transfer_encrypt.go:624-633` calls a substituted key "a possible MITM attack", and today it only
+    logs it. **So REQUIRED defeats a platform that reads, not one that lies.** MLS content stays sealed
+    either way. Closing the active case needs the server's key pinned outside the platform: 266's
+    `keyVerified` gap.
+
+    **CORRECTION TO 266.** It said "spec B §4.1 also says the traffic reaches the server through
+    provider relays". §4.1 says that of the **bulk plane only** ("reached through a provider like any
+    internet host"), which is not built. For the control plane, §4.1 claims inherited per-peer
+    encryption, which is the claim the code breaks. The relay claims are MASTER §1 ("reuses
+    URnetwork's transport and provider relaying"), MASTER §4.1's role table and Spec A §10.1. Nothing
+    else in 266's transport paragraph moves.
+
+    **THE FIX, SHAPED BY THE MEASUREMENT.** Set `EncryptionModeRequired` at both ends. Because REQUIRED
+    against OFF carries nothing, roll it out server first at OPPORTUNISTIC, then the apps at REQUIRED,
+    then the server at REQUIRED. When it lands, this test turns from a measurement into a gate.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
