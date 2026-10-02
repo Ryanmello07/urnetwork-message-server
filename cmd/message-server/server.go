@@ -3,18 +3,21 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/urnetwork/connect/message"
 	"github.com/urnetwork/connect/protocol"
 	"github.com/urnetwork/message-server/api"
+	"github.com/urnetwork/message-server/endpoint"
 	"github.com/urnetwork/message-server/peer"
 	"github.com/urnetwork/message-server/store"
 )
@@ -42,6 +45,11 @@ type server struct {
 	checks      *peer.Checks
 
 	attachment *attachment
+
+	// The server's own TLS endpoint, when message.yml configures one (ledger 268).
+	endpoint         *endpoint.Endpoint
+	endpointListener net.Listener
+	endpointServing  atomic.Bool
 
 	// Where "is the transport carrying traffic right now" is read from.
 	//
@@ -170,17 +178,34 @@ func newServer(ctx context.Context, deploy deployment, loaded configuration, log
 		return nil, err
 	}
 
-	// The connect client, and the one place this process reaches the public internet. Absent
-	// unless every input an attachment needs is present, and absent means absent — see
-	// transport.go for why there is no client-with-no-transport fallback.
-	if canAttach(deploy, loaded) {
-		self.attachment, err = attachToPlatform(ctx, deploy, loaded)
+	// The server's own TLS endpoint (ledger 268), which apps reach through a URnetwork exit or
+	// directly. Opened before the platform client, so that a certificate that does not load is a
+	// startup failure rather than a replica serving only the apps that do not need it.
+	if loaded.endpointListenAddress != "" {
+		self.endpoint, self.endpointListener, err = openEndpoint(ctx, deploy, loaded)
 		if err != nil {
 			pool.Close()
 			return nil, err
 		}
+	}
+
+	// The connect client, and the one place this process reaches the operator. Absent unless
+	// every input an attachment needs is present, and absent means absent — see transport.go for
+	// why there is no client-with-no-transport fallback.
+	if canAttach(deploy, loaded) {
+		self.attachment, err = attachToPlatform(ctx, deploy, loaded)
+		if err != nil {
+			self.closeEndpoint()
+			pool.Close()
+			return nil, err
+		}
+	}
+
+	// One peer behind whichever carriers exist: frames from both are dispatched by the same
+	// pipeline, and a response goes back the way its request came (endpoint.Joined).
+	if carrier := self.carrier(); carrier != nil {
 		self.dispatch, err = peer.New(peer.Config{
-			Client:          self.attachment.client,
+			Client:          carrier,
 			Handler:         self.handler,
 			Connections:     connections,
 			Checks:          checks,
@@ -189,9 +214,15 @@ func newServer(ctx context.Context, deploy deployment, loaded configuration, log
 			ProtocolVersion: protocolVersion,
 		})
 		if err != nil {
-			self.attachment.Close()
+			if self.attachment != nil {
+				self.attachment.Close()
+			}
+			self.closeEndpoint()
 			pool.Close()
 			return nil, err
+		}
+		if self.endpoint != nil {
+			go self.serveEndpoint()
 		}
 	}
 
@@ -297,8 +328,26 @@ func ephBucketLadder() []uint32 {
 	return ladder
 }
 
-// §10.1's readiness set, in the order §10.1 states it, plus the two §9.1 adds.
+// §10.1's readiness set, in the order §10.1 states it, plus the two §9.1 adds, plus the endpoint's
+// when one is configured.
 func (self *server) preconditions() []precondition {
+	preconditions := self.specPreconditions()
+	if self.endpoint != nil {
+		preconditions = append(preconditions, precondition{
+			name: "endpoint_listening",
+			why:  "the server's own TLS endpoint is configured and is not accepting connections; check endpoint_listen_address and the certificate (ledger 268)",
+			met: func(ctx context.Context) error {
+				if !self.endpointServing.Load() {
+					return errEndpointNotServing
+				}
+				return nil
+			},
+		})
+	}
+	return preconditions
+}
+
+func (self *server) specPreconditions() []precondition {
 	return []precondition{
 		{
 			name:          "database_reachable",
@@ -430,6 +479,7 @@ func (self *server) preconditions() []precondition {
 var (
 	errNotAttached           = errors.New("the platform transport holds no connection")
 	errNoHostingJurisdiction = errors.New("hosting_jurisdiction is unset")
+	errEndpointNotServing    = errors.New("the endpoint is not accepting connections")
 )
 
 // Everything this build does not do, from every layer that knows it: the two configuration lists
@@ -551,6 +601,9 @@ func (self *server) Close() {
 	if self.dispatch != nil {
 		self.dispatch.Close()
 	}
+	// after the dispatch, for the reason the connect client is: a worker still sending a response
+	// needs the connection it is sending on
+	self.closeEndpoint()
 	if self.attachment != nil {
 		self.attachment.Close()
 	}
@@ -589,11 +642,17 @@ func (self *server) announce(ctx context.Context) {
 	for _, line := range self.config.lines() {
 		self.log.Info("configuration", "line", line)
 	}
-	if self.attachment == nil {
+	if self.endpoint != nil {
+		// the pin is public, and it is the one value an app needs to reach this server
+		self.log.Info("own TLS endpoint configured; apps pin its key",
+			"pin", "sha256/"+hex.EncodeToString(self.endpoint.Pin()),
+			"listening", "unknown here -- /readyz endpoint_listening is the authority")
+	}
+	if self.attachment == nil && self.endpoint == nil {
 		self.log.Warn("NO MESSAGE TRAFFIC WILL BE SERVED: this process has no URnetwork client. " +
 			"It receives frames only over connect, which dials the operator's platform and is not a socket it can bind (§9.1). " +
 			"Set message_server.yml's <ordinal>.by_jwt and message_fleet.yml's server_id, then restart.")
-	} else {
+	} else if self.attachment != nil {
 		// NOT "attached". Reaching here means a connect.Client was CONSTRUCTED and a
 		// platform transport started; the dial is asynchronous and its outcome is not
 		// known at announce time. Saying "attached" here contradicted /readyz, which

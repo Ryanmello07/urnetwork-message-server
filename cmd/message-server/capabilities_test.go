@@ -66,12 +66,17 @@ func TestEverySpecB102SettingSpecB431AdvertisesReachesTheAdvertisement(t *testin
 	// §4.3.1 has no field for these, and each is a gap this build declares rather than a value it
 	// forgot. `rendezvous_*` and `card_tombstone_seconds` are server-side limits §4.3.11 answers
 	// with reason codes rather than advertising; `diagnostic_session_max_minutes` is §11.5's own.
+	// The three `endpoint_*` are how an app REACHES this server, so they cannot be advertised over
+	// the session they open: the app is given the endpoint and its pin out of band (ledger 268).
 	unadvertised := []string{
 		"rendezvous_ttl_seconds",
 		"rendezvous_deposit_ttl_seconds",
 		"rendezvous_mailbox_depth",
 		"card_tombstone_seconds",
 		"diagnostic_session_max_minutes",
+		"endpoint_listen_address",
+		"endpoint_tls_certificate_file",
+		"endpoint_tls_private_key_file",
 	}
 
 	for _, item := range settings() {

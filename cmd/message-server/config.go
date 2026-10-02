@@ -26,6 +26,13 @@ type configuration struct {
 	rendezvousMailboxDepth      int64
 	cardTombstoneSeconds        int64
 	diagnosticSessionMaxMinutes int64
+
+	// The server's own TLS endpoint (msgrepo/endpoint), which apps reach through a URnetwork exit
+	// or directly. Not a §10.2 key: the endpoint postdates spec B, and ledger 268 records it.
+	// Empty listen address means no endpoint.
+	endpointListenAddress   string
+	endpointCertificateFile string
+	endpointPrivateKeyFile  string
 }
 
 // The defaults of spec B §10.2, verbatim.
@@ -59,6 +66,14 @@ type setting struct {
 	note  string
 	read  func(target *configuration, value string) error
 	print func(source *configuration) string
+	// shown in the startup log as set or unset and never as its value: the value is an address,
+	// and §11.1's MUST-NOT list says "any IP address" without qualifying whose
+	unlogged bool
+}
+
+func unlogged(item setting) setting {
+	item.unlogged = true
+	return item
 }
 
 // A §10.2 key whose value is a string.
@@ -134,6 +149,15 @@ func settings() []setting {
 		numberSetting("diagnostic_session_max_minutes",
 			"the one bounded exception to §11.1 (§11.5)",
 			func(c *configuration) *int64 { return &c.diagnosticSessionMaxMinutes }),
+		unlogged(textSetting("endpoint_listen_address",
+			"the server's own TLS endpoint, e.g. 0.0.0.0:443; empty serves none (ledger 268)",
+			func(c *configuration) *string { return &c.endpointListenAddress })),
+		textSetting("endpoint_tls_certificate_file",
+			"PEM certificate for the endpoint; apps pin its key, so self-signed is expected. Relative to the resource dir",
+			func(c *configuration) *string { return &c.endpointCertificateFile }),
+		textSetting("endpoint_tls_private_key_file",
+			"PEM private key for the endpoint, a secret: mode 600. Relative to the resource dir",
+			func(c *configuration) *string { return &c.endpointPrivateKeyFile }),
 	}
 }
 
@@ -184,6 +208,8 @@ func (self configuration) lines() []string {
 		value := item.print(&self)
 		if value == "" {
 			value = "(unset)"
+		} else if item.unlogged {
+			value = "(set)"
 		}
 		printed = append(printed, fmt.Sprintf("%-32s %-12s %s", item.name, value, item.note))
 	}

@@ -49,9 +49,34 @@ var _ Handler = (*api.Handler)(nil)
 // package can end — see [Config.SendTimeout].
 const DefaultSendTimeout = 30 * time.Second
 
+// What this binding needs of whatever carries its frames, and nothing more.
+//
+// A `*connect.Client` is one: the platform-attached path, where a frame's source is the client_id
+// the operator routed it from. The endpoint package is the other: a TLS stream the app reaches
+// through a URnetwork exit (or directly), where the source is an id minted for that one
+// connection. The dispatch below keys everything on `source.SourceId` and on nothing else the
+// carrier knows, which is what lets both stand behind it unchanged.
+//
+// The methods are spelled to connect's own signatures, so a parameter added to them upstream is a
+// compile error here rather than a silent widening.
+type FrameClient interface {
+	// the context this peer's own lifetime is derived from
+	Ctx() context.Context
+	AddReceiveCallback(receiveCallback connect.ReceiveFunction) func()
+	SendWithTimeout(
+		frame *protocol.Frame,
+		destination connect.TransferPath,
+		ackCallback connect.AckFunction,
+		timeout time.Duration,
+		opts ...any,
+	) bool
+}
+
+var _ FrameClient = (*connect.Client)(nil)
+
 // A peer's collaborators. Everything whose zero value would be a silent hole is refused by [New].
 type Config struct {
-	Client      *connect.Client
+	Client      FrameClient
 	Handler     Handler
 	Connections *Connections
 
@@ -134,7 +159,7 @@ type Config struct {
 // layer has most of are a client_id and a request_id; counters are what an aggregate view is
 // allowed to be made of, so counters are what [Peer.Stats] answers.
 type Peer struct {
-	client      *connect.Client
+	client      FrameClient
 	handler     Handler
 	connections *Connections
 
@@ -223,6 +248,11 @@ type Stats struct {
 
 func New(config Config) (*Peer, error) {
 	if config.Client == nil {
+		return nil, ErrNoClient
+	}
+	// a nil *connect.Client inside the interface is not a nil interface, and it is the shape a
+	// caller that forgot to attach produces
+	if client, ok := config.Client.(*connect.Client); ok && client == nil {
 		return nil, ErrNoClient
 	}
 	if config.Handler == nil {
