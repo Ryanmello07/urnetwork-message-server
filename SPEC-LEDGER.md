@@ -11062,6 +11062,73 @@ repo and therefore the critical path — not this repository:
     record. `--diagnose`: **85 PASS, 0 FAIL**, and the packaged binary gives the same from a fresh
     folder.
 
+266. **THREE QUESTIONS FROM THE OWNER, ANSWERED BY TWELVE AGENTS AND CHECKED BY HALF OF THEM: THE
+    CODE DOES NOT MEET THE DESIGN ON TRANSPORT PRIVACY, FORWARD SECRECY OR HEALING.** 2026-10-01.
+    Code read at `connect 98b72dfa`, `sdk d2f3e1b`, `msgrepo 3bb6ff5`, `message-windows demo-ui
+    da12df5`; the deployed alpha runs `msgrepo 047843d`. Six investigations (length, the crypto as
+    built, the network path, Signal, Matrix, Session), each followed by an adversarial verifier told
+    to default to *unsupported*. Of **184** verdicts the verifiers did not confirm **23** (wrong, overstated or outdated), counted
+    from the run's own journal rather than recalled.
+
+    **THE NETWORK PATH: NO RELAY, AND THE PLATFORM READS THE REQUESTS.** The app opens its own TLS
+    WebSocket to `wss://connect.beta-test.net`; the platform forwards frames to the message server by
+    `client_id`. **No provider nodes, no multi-hop, no onion routing.** The message server never sees
+    the client IP, only its `client_id`. But **connect's per-peer encryption is OFF on this path** and
+    the platform terminates both TLS connections, so the platform reads every `MessageServerRequest`
+    field except message content: `group_id`, `sender_handle`, epochs, sizes, fetch ranges,
+    `server_nonce`, and the **raw per-epoch `write_key` and `read_key`** carried as plaintext protobuf
+    fields in `EpochKeyDelivery` and `CreateGroupRequest`. On its own the platform can link an IP and an
+    account to a group list. **This contradicts spec A §10.1, spec B §4.1 and §9.2, and MASTER §4.2
+    and §13**, which promise the operator learns "a traffic pattern, not a social graph"; spec B §4.1
+    also says the traffic reaches the server through provider relays, and nothing does. Also found:
+    **nothing authenticates the message server to the app** (no key chain, no attestation checked,
+    `keyVerified` hard-coded false), so the platform could answer in the server's place or omit
+    records, though it cannot read or forge MLS content; DNS goes through the OS resolver; connect's
+    own error lines can write a peer `client_id` into the server log, against MASTER §9.7.
+
+    **FORWARD SECRECY IS PER EPOCH, NOT PER MESSAGE.** The record ladder erases used rungs, but every
+    rung is re-derivable from the epoch's class key, and the device keeps key state for **33 epochs**
+    together with the pq_secrets, the identity key and a plaintext copy of the user's own sent
+    messages, **on disk and not encrypted at rest**. The server deletes nothing.
+
+    **ORDINARY MEMBERS GET NO POST-COMPROMISE HEALING.** Nothing sends a self-update, add commits carry
+    no update path, and the per-device X-Wing key never rotates, so a copied device state keeps
+    decrypting until that device is removed. Receivers already accept a path-only self-heal (ruling
+    12); the gap is a missing sender-side call (S2-28).
+
+    **POST-QUANTUM COVERS THE STORAGE LAYER ONLY, AND IS WEAKEST AT THE JOIN.** Each commit to an open
+    group draws a fresh X-Wing-wrapped `pq_secret`, so an archive-only attacker with a future quantum
+    computer should not read stored records, assuming the unaudited code is right. But a joiner gets
+    the epoch's `pq_secret` inside the pasted invitation, and the Welcome's HPKE is X25519. Someone who
+    recorded **both** pasted codes could read the whole epoch that join opened; for a two-person chat
+    that never changes epoch, that is the whole chat. MLS and every Ed25519 signature are classical.
+
+    **ALSO:** the MLS library is in-house with no external audit and no interop testing; there are no
+    safety numbers, fingerprints, key-change warnings or key transparency; joining is unauthenticated
+    (MG-1).
+
+    **THE MESSAGE LIMIT IS 65,333 UTF-8 OCTETS** (65,301 for a reply), because the MLS frame sits inside
+    the size step: 65,536 minus a 4-octet length, a 198-octet MLS frame and the kind octet. The steps
+    hold 58 / 825 / 3,897 / 16,185 / 65,333 octets of text. MASTER and two ledger entries still say
+    65,334, which counts the kind octet. **The Windows app handles the limit badly:** Send clears the
+    box, a red row shows the library's raw sentence, *Try again* fails the same way, and the text
+    cannot be copied back out. Blob bodies and attachments are designed and not built.
+
+    **THE LEAD'S OWN ERROR, CAUGHT THE SAME WAY.** The explainer page published the same day drew the
+    padded body as `u32(6) ‖ 01 ‖ "hello" ‖ zeros`. It is `u32(199) ‖ MLS PrivateMessage ‖ zeros`:
+    `frameBodyOnLoop` runs the content through `ProtectBound` before the padder, so the body is
+    encrypted **twice**. A verifier reported it; the lead confirmed it in `mlsframe.go` before
+    rewriting the page, which now shows both layers, per-epoch forward secrecy, and the platform as a
+    separate observer that sees the IP.
+
+    **WHAT TO DO, IN ORDER.** (1) Turn connect's per-peer encryption on for the app-to-server stream,
+    so the platform relays bytes it cannot read; spec A already names `EncryptionModeOff` as a
+    supported setting and it is the wrong default here. (2) Seal the epoch keys to a server key
+    rather than carrying them as plaintext fields (option F2, deferred until a fleet PKI exists).
+    (3) Add the sender-side self-update so a compromise can heal. (4) Encrypt the device state at
+    rest. (5) Route through a provider if IP privacy from the platform is a goal, as spec B §4.1
+    describes. (6) Fix the Windows over-limit handling.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
