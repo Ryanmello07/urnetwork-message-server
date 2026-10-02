@@ -11200,6 +11200,83 @@ repo and therefore the critical path — not this repository:
     against OFF carries nothing, roll it out server first at OPPORTUNISTIC, then the apps at REQUIRED,
     then the server at REQUIRED. When it lands, this test turns from a measurement into a gate.
 
+268. **EVERY REQUEST CAN NOW TRAVEL URNETWORK ROUTES: THE SERVER IS ITS OWN HOST WITH ITS KEY
+    PINNED, AND THE APP CARRIES A MINIATURE VPN.** 2026-10-02. The owner's direction, verbatim:
+    *"ideally I want you to actually be sending all api requests to URmessage server through URnetwork
+    beta routes. So all traffic going through, with a setting fallback to disable it. ... a very
+    miniturized version of [the VPN] to only forward stuff on the URmessage app locally- so
+    admin/tunnel shouldn't be needed."* Built at `msgrepo d4be2c7`, `sdk 8e713c5`, `message-windows
+    demo-ui f0a3cdc`.
+
+    **THE SERVER.** `msgrepo/endpoint` is a TLS 1.3 WebSocket listener carrying the same frames the
+    platform path carries, one WebSocket message per `protocol.Frame`, with a connection id minted per
+    session. `peer.Config.Client` is now an interface (`FrameClient`), and `endpoint.Join` puts the
+    endpoint and the operator client in front of ONE peer: a response goes back the way its request
+    came, and a response to a just-closed endpoint connection is refused rather than handed to the
+    operator client, which would read the id as a client_id. Three `message.yml` keys
+    (`endpoint_listen_address`, `endpoint_tls_certificate_file`, `endpoint_tls_private_key_file`),
+    a `/readyz` precondition `endpoint_listening`, and the listen address shown only as set or unset,
+    because §11.1 says "any IP address". DEPLOYED on the alpha VPS at port 443 with a self-signed
+    P-256 key that never leaves the box; the app pins `sha256/868fd5ea59c78915b3e2feb6d4834fb8c74e3532591f6d5b605ef285f014787b`.
+    The platform path stays on for older builds.
+
+    **THE APP.** `sdk.MessageRouteClient` speaks those frames over a TLS session accepted only if the
+    certificate's SubjectPublicKeyInfo hashes to the pin, so no CA, domain or operator vouches for
+    the server, and **266's "nothing authenticates the message server to the app" is closed for this
+    path**. In URnetwork mode the TCP connection is dialled through `messageTunnel`: `SimClient`'s
+    composition (the provider generator, `RemoteUserNatMultiClient`, connect's gVisor `Tun`) with
+    `PostQuantumEncryption` on, so per-peer sessions to each exit are REQUIRED, and `AllowDirect`
+    off, so the exit never learns the device's address. No adapter, no service, no administrator.
+    Direct mode is the fallback. Three C exports (`urnet_message_route_client_new`, `_status`,
+    `_close`); the Windows app defaults to URnetwork, has the Settings switch "Route through
+    URnetwork" (`route_through_urnetwork`, applies on next launch) and `%URMESSAGE_ROUTE%`
+    (`urnetwork|direct|platform`), and shows the route and the exits' country as the message
+    server's host. `livepeer` and `liveprobe` gained `-route`, `-endpoint` and `-pin`.
+
+    **MEASURED.**
+    - cp3b: the whole exchange crosses the endpoint with the key pinned, and a client pinning a key
+      one bit different never completes a session and sends no frame. Mutated: the pin check off
+      makes it fail. msgrepo/endpoint: the join's routing rule, and with the retired-id memory off a
+      late response reaches the operator client and the test fails.
+    - From the owner's Windows machine: TLS 1.3, key exchange `X25519MLKEM768`, and the presented
+      key hashes to the pin.
+    - **`liveprobe -route urnetwork`, on the VPS, with the three alpha accounts: `13 STEPS, 1668
+      ASSERTIONS, ALL HELD`, in about 76 seconds**, against about five minutes on the platform path,
+      because a restarted party no longer waits out the operator's 60-second reconnect window. The
+      endpoint's sessions came from two exit addresses, neither the VPS nor the platform.
+    - The Windows app (user2, URnetwork) joined a group a `livepeer` (user3, URnetwork) founded,
+      showed its messages, reactions and reply, and restored the group after a restart in about 6
+      seconds. While both were connected, the server's sessions did NOT include the address of the
+      machine they ran on. **The control:** relaunched with `%URMESSAGE_ROUTE%=direct`, the same
+      check found it.
+
+    **WHAT EACH PARTY SEES ON THE URNETWORK ROUTE.** The platform: the device's address and account,
+    that it uses the mesh, which exit, sizes and timing, but not the destination or any content,
+    because the per-peer layer to the exit is sealed. The exit: the destination address and port
+    and TLS records with no server name, since the endpoint is an IP, and not the device's address.
+    The message server: an exit's address, never the device's. Direct mode: the server sees the
+    device's address, and the platform sees nothing of URmessage. **The pin also bounds 267's
+    "REQUIRED defeats a platform that reads, not one that lies"**: a platform that substituted the
+    exit's key would learn where the packets go, and inside them would find a TLS session to the
+    pinned key, which it can neither open nor impersonate.
+
+    **CORRECTIONS.** (1) 267 said "the VPN client sets `EncryptionModeRequired`". It does so only when
+    its post-quantum performance option is on (`PerformanceProfile.PostQuantumEncryption`,
+    `ip_remote_multi_client.go:9188`), which defaults to off, so by default the VPN's per-peer layer
+    is off. The tunnel here turns it on. 267's OFF-versus-REQUIRED measurement stands. (2) The
+    deployed platform (`server 3eaa31e7`) never fills `find-providers2`'s `intermediary_ids`, so **a
+    URnetwork route on beta today is one exit provider behind the operator's relay, not multi-hop**.
+    The protocol carries multi-hop (`MaxMultihopLength = 8`, streams) and nothing hands out a path.
+
+    **OPEN.** (a) Rate limits keyed on client_id see one id per endpoint session, so they reset on
+    reconnect; §5.1 check 4 does not run in this build anyway. (b) Port 443 is new internet-facing
+    surface: connection cap, read limit and handshake timeout only. (c) The server is still attached
+    to the platform; detaching it is the step that makes it "a separate server with no connection to
+    the main network", and an endpoint-only replica is not yet `/readyz`-ready
+    (`connect_client_attached`). (d) The app's "Server key" row stays a placeholder in live mode
+    although this route now pins the key, which is a G4 honesty-rule change for its own commit. (e)
+    The switch applies on next launch. (f) The alpha package predates all of this.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
