@@ -11277,6 +11277,73 @@ repo and therefore the critical path — not this repository:
     although this route now pins the key, which is a G4 honesty-rule change for its own commit. (e)
     The switch applies on next launch. (f) The alpha package predates all of this.
 
+269. **A MESSAGE ARRIVES WHEN IT IS SENT: §4.3.5'S PUSH IS SERVED AS A NOTIFICATION, AND A
+    RECONNECT NO LONGER STRANDS A READER.** 2026-10-02. Built at `msgrepo def3f63`, `sdk 2ea0da6`,
+    `message-windows demo-ui 6833623`; the server is deployed from `def3f63`.
+
+    **WHAT IS BUILT.** `api.Handler.Subscribe` verifies exactly as a Fetch does (checks 1, 2, 4 and
+    5, the read key at (group_id, read_epoch), req_auth at op 14) and registers the connection --
+    its client id AND its server nonce, so a re-Hello holds no subscription. A Submit owes every
+    subscriber of its group a `RecordPush` naming the new `high_water_record_id`, counting only
+    records at or below the epoch ceiling the subscription was authorized at, as §5.1.1 does for a
+    fetch. One delivery goroutine coalesces and never blocks a Submit, and a push the connection
+    cannot take drops the subscription. `Unsubscribe` runs the front checks and is exempt only from
+    req_auth. The transport reads the push in its one receive callback, the code-point gate names
+    it as the one code point read that carries no request_id and asserts its route, and
+    `urmessage` subscribes with the same req_auth a fetch carries (`Group.EnsureSubscribed`,
+    `Device.WaitPush`). The Windows app wakes its loop on a push and polls every 15 s, not 3 s,
+    once subscribed.
+
+    **DECIDED HERE, AGAINST THE SPEC'S LETTER.** (1) **A push carries no records.** It names the
+    group and the high water, and the client answers with the Fetch it would have polled for, so
+    fetch stays the only way a record is ingested, with ordering, contiguity and omission checks
+    unchanged; §4.4's buffered backfill, record streaming, `TransientPush` and `Backpressure` are
+    not built, and `Handler.NotBuilt` says so. (2) **One group per SubscribeRequest.** The message
+    carries `repeated Subscription` beside one `read_epoch` and one `req_auth`, and §4.3.8 selects
+    the key by (group_id, read_epoch), so one MAC authorizes one group. Two or more are
+    REASON_REJECTED. **Spec B §4.3.5 has to say which it means before first ship.**
+
+    **THE RECONNECT THIS ROUTE OPENED, CLOSED.** Through the endpoint a new WebSocket session is a
+    new connection at the server, with no Hello on it. A device that only read stayed on a dead
+    nonce until it next sent (S2-2 recovers sends only). Now the route client reports the new
+    session; the transport passes it on without starting a goroutine
+    (`TestTheMessageTransportStartsNoGoroutine`); the device's inbox marks the Hello as owed and
+    wakes `WaitPush`; the next Receive or EnsureSubscribed says it. The inbox holds none of the
+    device's keys, so registering with the transport hands it no reference to the wrap seed
+    (`TestEveryWrapSeedInThisPackageGoesWhereTheDispositionSaysItGoes` caught the first version,
+    which bound the callbacks to the Device itself).
+
+    **MEASURED.** In process (cp3b): a subscriber is pushed 6 ms after the send returns, while an
+    unsubscribed device is not; after every session is cut from the server's side, a reader that
+    sends nothing is woken, says Hello, resubscribes and is pushed. In msgrepo/api: a record above
+    the ceiling produces no push, a refused push drops the subscription, replace, unsubscribe and
+    the cap of 32 are per connection, and four records to one busy connection produce two pushes
+    ending at the latest. Mutated: no publish, no re-Hello, and no ceiling each fail their test.
+    **Live, through URnetwork on both sides, three messages reached the receiving app 0.23 to
+    0.30 s after the sender's send returned.** That gap is the receiver's fetch through its tunnel;
+    the push itself arrived as the record committed. About half a second end to end, against about
+    two seconds on average on the 3 s poll.
+
+    **THREE GATES WERE RED, AND TWO HAD BEEN RED FOR DAYS.** Running the whole of both modules
+    found them, and the lesson is that: each earlier commit had run a subset of packages.
+    - `TestNoProductionCommentClaimsADarkGroupRepairsItself` (sdk) has been red since `f0f37f1`
+      (2026-09-29), whose comment described a transient future-epoch state in that gate's forbidden
+      words. Reworded in `2ea0da6`; the meaning is unchanged.
+    - `TestNoPackageOfThisModuleImportsMoreOfItThanItSaysItMay` was red from `d4be2c7`, this lead's
+      own commit, which added the endpoint package without its `//urmsg:mayimport`. Fixed in
+      `def3f63`.
+    - **`TestTheEditLogGateHoldsEveryCommitToTheDocumentsOwnLog` and
+      `TestTheEditLogGateHoldsEverySpecCommitToALedgerEntry` are STILL RED, since `92a27e1`
+      (2026-09-24)**, which amended Spec C and MASTER and appended neither Spec C's §0.6 entry nor
+      §7's. A §7 entry cannot be appended to a commit already in the history, and the ledger arm has
+      no backfill route, only pre-baseline debt. Owed next, as its own commit with the §6 diff
+      review: Spec C's entry citing `92a27e1`, a §7 entry citing it, and a backfill disposition for
+      the ledger arm that is asserted against §7's text, mirroring the document arm's.
+
+    **DEPLOYED AND PACKAGED.** The server runs `def3f63`, with the previous binary in
+    `/var/backups/urmessage/`. `URmessage-alpha-2026-10-02b.zip` (route and push) is staged beside
+    `-02a` in `/opt/urmessage/dist/` and has not been distributed.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
