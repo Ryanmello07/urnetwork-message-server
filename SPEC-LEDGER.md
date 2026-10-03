@@ -11400,6 +11400,83 @@ repo and therefore the critical path — not this repository:
     - MASTER and two ledger entries still say 65,334, which counts the kind octet. That correction
       is a MASTER change and is still owed, with its diff review and §7 entry.
 
+
+271. **THE STAGED ALPHA COULD NOT REACH A GROUP, AND ITS LOG HELD MESSAGE TEXT: BOTH FIXED,
+    TOGETHER WITH NAMES.** 2026-10-02. Code: `message-windows demo-ui f572e01` (names) and `3c848cd`
+    (launch, log, credential). Package: `URmessage-alpha-2026-10-02c.zip` (sha256 `7fda96c3...`) is
+    staged in `/opt/urmessage/dist/` beside `-02b`, and neither has been distributed.
+
+    **HOW IT WAS FOUND.** Every earlier launch of the alpha carried `--live`, including the owner's
+    own. This time the package was run exactly as its README says ("run URmessage.exe"), with no
+    arguments, and that one launch surfaced four defects.
+
+    **(1) A PLAIN LAUNCH DREW AN EMPTY SHELL.** Live mode needed `--live` or `URMESSAGE_LIVE=1`, and a
+    tester double-clicks the exe. No worker started, and the "Join a group" box the README promises
+    never appeared, so as staged the package could not reach a group at all. Now a launch with **no
+    arguments** is live. A launch with any argument keeps the explicit rule, so CI's `--diagnose` and
+    every `--demo` capture are unchanged, and `URMESSAGE_LIVE=0` turns a plain launch off.
+
+    **(2) THE LOG HELD MESSAGE TEXT.** `LogMessages` wrote every body, and every reaction's emoji,
+    under an owner ruling whose own text scoped it to "the two development accounts" and "NOT a
+    pattern for a shipping build". The README tells testers the log "contains no message text ... it
+    is safe to send on", and once (1) made a tester's launch live, that sentence became false. The
+    ruling's scope is now kept by a switch rather than by the launch: text and emoji are written only
+    when `URMESSAGE_LOG_BODIES=1`. **The owner's own log holds 900 such lines from their own test
+    conversation.** It is on their machine, and whether to keep it is theirs to decide.
+
+    **(3) A MISSING CREDENTIAL CRASHED THE WINDOW, ONCE IT WAS SURFACED.** Publishing "no
+    credential" as an onboarding state, needed so a tester sees why nothing happens, landed within
+    milliseconds of launch. `ShowAsync` then ran inside the window's constructor with no
+    `XamlRoot`, and the whole window failed to construct. That was measured, then fixed: the state
+    waits for the content's `Loaded`. The dialog now reads "URmessage needs its credential" and
+    names the folder and the file name.
+
+    **(4) THE STATUS STRIP SAID "Connected" WHILE NOTHING WAS.** Before the mesh answers, the empty
+    world is `World{}`, and its `connectState` is the enum's first value. The strip now says
+    Connecting while dialling and Offline when there is no credential.
+
+    **NAMES, AND THE DECISION BEHIND THEM (this lead's, recorded here as it is taken).** Contact cards
+    are out of alpha scope (`sdk/urmessage/doc.go`), so every member read "unavailable", and in a
+    group of three, two people's lines were indistinguishable. The alpha ships **labels**: the
+    viewer's own name for an identity key or a group id, kept in `local_names.json` and **never
+    sent**.
+    - A label is not a display name. `MemberRef::displayName` stays the placeholder, and the rail
+      shows "Your name for them" beside it.
+    - It is bounded at the 64 UTF-8 octets Spec A gives a card's `display_name`, so a label never
+      has to be cut to sit beside a card.
+    - It is keyed by **`sender_identity`**, never the handle (item 245). A handle-keyed label would
+      follow a removed member's leaf onto the next occupant. For the same reason, a line's identicon
+      is now seeded from the signer's identity, so a bubble and its sender's roster row draw one
+      face. Before this they never matched.
+    - A live conversation of three or more is now a Group, so its lines carry a sender. It was
+      hard-coded Direct on two premises that are both gone: that the alpha's group has two parties,
+      and that no roster is carried.
+    - **Owed:** Spec C does not describe labels. If they outlive the alpha, a Spec C revision with
+      its diff review and §7 entry is owed. Labels do not replace cards; when cards arrive, a card's
+      self-asserted name and the viewer's label are two fields, as Signal's profile name and
+      nickname are.
+
+    **VERIFIED.**
+    - `--diagnose`: 93 PASS, 0 FAIL, with `I10` unchanged.
+    - The new "local names" gate covers: the rule over 12 cases; the file (round trip, damage
+      dropped, replace with no temp file); and the mapping and overlay over a group in which a
+      REMOVED member's line carries a current member's handle.
+    - Five mechanism mutants each fail that gate for their own reason: join by handle, face off the
+      handle, group from four, label written as display name, and isolates allowed.
+    - Live captures, under a test account and a test root, never the owner's: the label in the
+      list, header, subject and roster row; the dialog and the expanded detail via
+      `--demo-names=dialog`, a switch that has the app open a real member's surface itself
+      without a synthesised click.
+    - The extracted `-02c` zip, launched plain, goes live through URnetwork and draws the group in
+      about 3 seconds, with 0 log lines carrying the conversation's known texts.
+
+    **WHAT THIS DOES NOT DO.**
+    - It does not give anybody a name the group can see.
+    - The label dialog's Save and Remove were not exercised by a click; the store under them is
+      gated.
+    - Spec C's W10 asks for a field allowlist on the log. This build removes two content fields by
+      name, which is not an allowlist.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
