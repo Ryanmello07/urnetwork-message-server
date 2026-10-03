@@ -11327,6 +11327,14 @@ repo and therefore the critical path — not this repository:
 
     **THREE GATES WERE RED, AND TWO HAD BEEN RED FOR DAYS.** Running the whole of both modules
     found them, and the lesson is that: each earlier commit had run a subset of packages.
+    **CORRECTED 2026-10-03 (item 277); the two sentences above are kept as written.** That run did
+    not cover the whole of package sdk. `TestTheStoreSentinelClassIsTotalOverTheAdaptersMapping`
+    was red at `2ea0da6` too: the twelve values `message_route.go` declares since `8e713c59`
+    (ledger 268) were missing from its census. To reproduce: check sdk out at `2ea0da6` beside
+    connect `06f4c47e`, glog and goidenticons, then run
+    `go test . -run TestTheStoreSentinelClassIsTotalOverTheAdaptersMapping`. It fails naming
+    exactly those twelve. The list below does not name it. The same narrowing recurred three times
+    the next day, and section 7's entry "Item 277 done" records them.
     - `TestNoProductionCommentClaimsADarkGroupRepairsItself` (sdk) has been red since `f0f37f1`
       (2026-09-29), whose comment described a transient future-epoch state in that gate's forbidden
       words. Reworded in `2ea0da6`; the meaning is unchanged.
@@ -11605,6 +11613,37 @@ repo and therefore the critical path — not this repository:
     - The 2026-09-06 flow stands: commit to the fork, pull-request to upstream. This directive is
       what opens those pull requests. The divergence is measured in scratch clones before any live
       tree is touched.
+    - **Done on 2026-10-03.** Every working branch has upstream's `main` merged in and is its fork's
+      `main`. Each repository has a pull request open to `urnetwork/<repo>` from its own
+      `upstream/urmessage` branch: connect #216, message-server #1, sdk #155 and message-windows #1.
+      Upstream's own CI could not compile at all, because its go.mod replaces gvisor with a sibling
+      the workflow never cloned. connect #215 and sdk #154 fix that, independently of the rest.
+      Section 7's entry "Item 277 done" has the hashes, the runs, what the merge broke, and what it
+      uncovered.
+    - **The lead's rulings for those pull requests**, announced to the owner, who may override any of
+      them:
+      - **Merged with a merge commit: never squashed, never rebased.** This ledger cites commits by
+        hash. A squash or a rebase-merge would make those citations name commits only the forks hold.
+      - **No commit is re-authored.** Twelve commits carry an author identity GitHub cannot link: five
+        in this repository (2026-08-26) and seven in message-windows (2026-09-07 and 08). Rewriting
+        them would change every hash after them, so they stay as they are.
+      - **`MessageType` 1000-1003 stays.** Whether upstream would rather carry the traffic as a
+        transfer subprotocol is asked in connect #216, not decided here.
+      - **What is the fork's stays on the fork.** connect's branch drops the fork's provider-release
+        workflow. message-windows' drops its beta-build workflow and `docs/superpowers`. sdk's drops
+        the fork's modules workflow, `fork-modules.yml`.
+      - **A CI file that clones connect** clones the fork's on the fork and `urnetwork/connect` on the
+        upstream branch: this repository's `gates.yml`, and sdk's `test.yml`. Until connect #216
+        merges, those two upstream jobs cannot build, and their pull requests say so.
+      - **THE TRAP THIS SETS.** Once upstream merges one of these branches, the next merge of upstream
+        into the fork carries that branch's one commit onto the fork too: the deletions, connect's
+        mls-syntax trigger and its test's needle, and the clone targets. Undo them in that merge.
+      - **No other branch moves.** That includes `beta/custom-server`, `beta/algorithm-dpi`,
+        `beta/message-p3` and `beta/message-proto`, and connect's #213 and #214.
+      - **The alpha ships the pre-merge SDK until the URnetwork route regression is fixed** (section
+        7's entry, part 2). Package 02d's `URnetworkSdk.dll`, and the owner's own build, are built
+        from the fork branches `alpha/premerge`: sdk `d2fb60ac`, the last commit before the merge,
+        which already holds the leave, and connect `06f4c47e`.
 
 ## 6. Change process
 
@@ -22443,3 +22482,302 @@ rather than left implied, and the next diff review of this code should start fro
   device per person.
 - The founder path of M2 was not driven live: `sdk/livepeer` only founds, so the app can only
   join. The fix is by reading, and the joiner path is the one driven three times.
+
+### 2026-10-03 — Item 277 done: the forks' mains, the pull requests upstream, what the merge broke and what it uncovered
+
+**Change:** this ledger only: item 277's record, a correction to item 269, and this entry. No
+spec or plan changes.
+
+#### 1. Where everything is
+
+| repository | the fork's `main` (= the working branch) | pull request | head of `upstream/urmessage` |
+|---|---|---|---|
+| connect | `4c93318f` (`beta/message`) | urnetwork/connect#216 | `6242d252` |
+| message-server | this commit (`main`) | urnetwork/message-server#1 | this commit plus one: the clone change |
+| sdk | `fcf17300` (`beta/message`) | urnetwork/sdk#155 | `103ab166` |
+| message-windows | `0b08178` (`demo-ui`) | urnetwork/message-windows#1 | `83b1653` |
+
+Each upstream branch is its fork's `main` plus one commit, the head commit of its pull request:
+- **connect:** drops the fork's release workflow, and gates `mls/syntax` on `main`. The needle of
+  `TestSyntaxWorkflowGatesRatherThanReports` moves with it.
+- **This repository and sdk:** clone `urnetwork/connect` instead of the fork. sdk's also drops the
+  fork's modules workflow, `fork-modules.yml`.
+- **message-windows:** drops the fork's beta workflow and `docs/superpowers`.
+
+**The rebuild procedure:** reset the branch to the fork's `main`, cherry-pick the one commit, then
+force-push. Check that `git rev-list --count main..upstream/urmessage` is 1 BEFORE pushing. Once a
+cherry-pick stopped on a conflict and the push still ran, and sdk #155's head was the fork's own
+`main` for about 25 seconds before `103ab166` replaced it. In that window upstream's CI ran on it
+(run `37125471300`), cloned the fork's connect, and passed. That green run stays in upstream's
+history.
+
+connect #215 and sdk #154 add the gvisor checkout upstream's workflows lack.
+- With it, sdk's workflow passes on upstream's `main` (fork run `37113410324`).
+- connect's builds, then fails on upstream's own `main` (fork run `37113408769`): six tests fail,
+  and the root package stops at the 20-minute timeout. #215 names them all.
+
+#### 2. What the merge broke, what it uncovered, and what found each
+
+**Broken by the merge:**
+- **The URnetwork route regressed, and it is the one that matters.** Through a URnetwork exit, the
+  default route, the merged SDK connects slowly or not at all. Every run used the same account,
+  exit network and server:
+
+  | build | first connect |
+  |---|---|
+  | merged SDK, run 1 | 82 s: four connects, nine unanswered Hellos |
+  | merged SDK, run 2 | gave up after 206 s: seven connects, 21 unanswered Hellos |
+  | package 02c (pre-merge), three minutes after run 2 | 2.6 s: one connect, no unanswered Hello |
+  | today's app with a dll built from pre-merge sdk `d2fb60ac` | 1.9 s, then 2.1 s |
+
+  The runs were not interleaved. The merged SDK ran at 11:18 and 12:14 UTC, and the pre-merge
+  builds at 12:21, 12:23 and 12:28. Only the 12:23 run put the two side by side: its app, on the
+  pre-merge dll, connected in 1.9 s, and its peer, on the merged SDK, went two minutes without an
+  answered Hello before it was stopped. The run-2 peer, also merged, was slow: two unanswered
+  Hellos, then answered after 2m17s. The run-1 peer was routed in 78 ms. The direct route is
+  unaffected.
+
+  The cause is not found. Merged connect lowered `DefaultMtu` from 1,440 to 1,100 and added a
+  1,280-octet `DefaultTunnelMtu`, and `message_tunnel.go` takes connect's defaults. Exit providers
+  running older code than the merged client is the other candidate: the fork's provider release
+  has never built on `beta/message`. Its last success was on `beta/custom-server` on 2026-07-21,
+  and both its runs on `beta/message` (2026-08-25 and 2026-10-03) failed. Until the regression is
+  fixed, the alpha ships the pre-merge SDK (item 277's ruling). The default-route regression was
+  found only because the first review of this entry asked for that route to be driven.
+- **The wrong gvisor and sctp, under green builds**, in this repository. Upstream connect replaces
+  both in its own go.mod, and a dependency's replace is ignored, so this module built against the
+  proxy's gvisor and stock pion/sctp. Upstream also made `Client.Send` and `SendWithTimeout` take a
+  `connect.Id`. `9e14de6` repeats both replaces and ports `endpoint/`, `harness/` and `peer/`. sdk's
+  merge commit `990e84ff` carries the same port for its `message_*` files. sdk's modules already
+  carried both replaces.
+- **`cgo/loopback.go.mod`**, the second module file `make ctest` builds with, never got the
+  replaces or upstream's requirements, so `make ctest` stopped before compiling. Fixed in sdk
+  `dbe9bcd4`. Its C program then passes: 31 steps and 392 assertions. `make ctest` still ends FAILED
+  on this Windows host, and only because `go test -race . ./gen` fails `gen`'s currentness test
+  here. Its race pass of the C program cannot run on this host, says so, and fails nothing.
+- **Where the two codebases met in package sdk.** Fixed in sdk `25e32fdf`, `00d7dee0` and
+  `3e43ff09`.
+  - Upstream's receive-callback inventory broke on our two registrations. They are added, with the
+    nonblocking review written beside them.
+  - Three of our gates broke on upstream's code.
+    - The part-size gate rules on upstream's coincidental 2048s by name, as its REVIEW FINDING B
+      prescribes. One of the rulings sits in a linux-only half, because only linux gives
+      `unix.O_NONBLOCK` the value 0x800 = 2048.
+    - The forced-flush gate is re-keyed by file and declaration, with a ruling table in the
+      part-size gate's shape.
+    - The value census gains upstream's 112 values and 21 measured non-sentinel rulings. Its
+      enumeration kept whichever variant file came last, and upstream's
+      `extender_node_js.go`/`extender_node_native.go` pair made it pass or fail by map order:
+      green at `00d7dee0`, red at `6478edd7` (run `37119743194`, `test.yml`). Now the variant this
+      build compiles wins in any order. Reversing the file order with the rule disabled reproduces
+      that failure on demand.
+- **Modules nothing of ours ran until the second review asked.** Two of them, `cgo/buildcontract`
+  and `packaging`, are new with the merge.
+  - `cgo/buildcontract`'s fixture lacked `urnetwork_message.h`, which the Makefile has copied since
+    `b6321175`. Fixed in `626eff13`, which also gives the darwin target the header.
+  - `packaging`'s generated bindings were stale against the merged header. Regenerated in `a2c8b31d`.
+  - The gomobile `build` module, older than the merge, carried six unused `go.sum` lines from it.
+    Tidied in `58700cc7`.
+  - The `build` module's `mobileexports` check failed on URmessage's Go-only surface in package
+    sdk. Since `3448b542` every `message_*` file builds only without `sdk_mobile_bind`, so the
+    mobile SDK holds none of it.
+- **Our own fix broke our own gate.** `3448b542`'s tag broke the exclusion-partition gate in package
+  sdk, which read the tag as a GOOS. `test.yml` found it (run `37124225435`), and `fcf17300` fixed it.
+
+**Uncovered, and older than the merge:**
+- **Two sdk gates were red before it.**
+  - The value census lacked `message_route.go`'s twelve values (`8e713c59`). Six are errors, now
+    ruled and measured like upstream's 21. Item 269 says otherwise, and is corrected in place.
+  - The census-scope test took "here" from the host, so it failed on any linux host by
+    construction. It now names both builds.
+- **This repository's CI had never passed.** None of the 163 runs of `gates.yml` from 2026-08-26
+  to 2026-10-03 passed, because none of them cloned the siblings go.mod replaces to. `9e14de6` makes
+  them clone, and run `37112169198` on it is the first green.
+- **The app could not link from a clean checkout** since it began importing the SDK (`1dc2549`,
+  2026-09-17). Its import library was made by hand on one machine and committed nowhere.
+  message-windows `59092e2` makes it from the vendored `.def` at build time. ARM64, which had not
+  linked since `1dc2549`, links again.
+- **The app's README said "Nothing here sends or receives anything".** That sentence dates from the
+  scaffold (`4c2e6da`, 2026-08-13). It has been false since the app received over the real mesh at
+  `1dc2549` (2026-09-17) and sent at `4100d6a` (2026-09-18). Since a plain launch went live on
+  2026-10-02 (item 271), `verify-render.ps1` has also launched live on the default credential, which
+  under its own state root is a new device of that account. Both are fixed in message-windows
+  `0b08178`.
+
+**What found them, and how item 269's lesson recurred three times.**
+- The post-merge check was `go test . -run Message`, which runs 18 of the root package's 1,430
+  tests. Five red gates went unseen until the fork's CI ran upstream's workflow over the branch on
+  Linux (run `37113725010`).
+- The second review of this entry found that the new modules workflow claimed every module and ran
+  four.
+- After that, a local check of `3448b542`, filtered by name, missed the exclusion gate, and Linux
+  CI found it.
+
+That is item 269's lesson, recurring three times the next day. Item 249's rule is that printing what a
+narrowing removed is necessary and not sufficient, and a test filter is a narrowing.
+editlog_test.go's preamble says what a rule bypassed twice needs: "a mechanical check rather than a
+louder reminder".
+
+**The mechanical half is in place.** On every push to a fork's `main`:
+- **sdk:** `test.yml` runs the root module. `fork-modules.yml` runs the other eight: `cgo` with a
+  build of the loopback module file, `cp3b`, `packaging`, `build`, `js` under node, `livepeer` and
+  `liveprobe` vetted, and `cgo/build`, which holds no code. `make ctest` is Windows-only: its C
+  program includes windows.h.
+- **This repository:** its workflow runs every package of its module.
+- **connect:** its workflow runs every package of its root module, but stops at a 20-minute
+  timeout. Its `sctp` and `tools/flightgate-devices` modules, upstream's, run nowhere.
+
+**The other half is still a reminder.** No fork's `main` is protected, and the workflows run after
+a push, so reading a red run before the next push is a rule, not a mechanism. Making it one is open
+(section 4).
+
+#### 3. Verified
+
+- **Live, against the alpha server, on two test accounts.** Three runs joined a group that
+  `sdk/livepeer` founded and drew the peer's three texts, its reply and its two reactions. Each of
+  the three windows was captured and looked at. The 02c run and the first pre-merge-dll run measured
+  the connect only.
+  - On the merged SDK, direct route: connected and drew all six rows. The strip read "server
+    direct".
+  - On the merged SDK, default route: run 1 connected after 82 s and drew all six rows. The strip
+    read "URnetwork exit" and a country. Run 2 never connected (section 2).
+  - On a dll from pre-merge sdk `d2fb60ac`, default route, with a peer built from the same commit:
+    connected in 2.1 s, and the peer was routed in 230 ms (read from the peer's output, which was
+    not saved). All six rows were drawn 46 s after launch.
+  - In none of these runs did the app send anything of its own. Its key package and the invite
+    moved through the dev handshake files. What crossed each route was its Hello, its check that
+    the group is open, its fetches and its push subscription.
+- **sdk on Linux, at `fcf17300`:** `test.yml` passes (run `37124896786`). `fork-modules.yml` passes
+  every step (run `37124898675`), listed in section 2.
+- **sdk on Windows:** the whole root package, unfiltered, has the same 38 of upstream's own failures
+  as before. No test of ours fails.
+- **connect:**
+  - Fork run `37113471578`, on the fork's `main` `4c93318f`, passed `message`, `messagegroup`,
+    `mls/syntax` and `protocol`. `mls` failed only `TestPinnedToolchain` (section 4).
+  - Seven upstream tests failed: #215's six, and `TestUpstreamTcpSendBufferGrowsUnderLoad`, which
+    passed in #215's run.
+  - The root package stopped at its 20-minute timeout in three runs, inside three different tests:
+    a time budget running out, not one hang. All three tests sort before the pump-queue tests, which
+    cover the one fix #216 offers upstream outside the new packages. So no CI run has reached them
+    since the merge.
+  - Locally, on the merged tree, all five pump-queue tests pass. The command was
+    `go test . -run '^(TestCombine|TestCombineTrim|TestCombineQueueBoundsFragmentFanoutAndRetainedBytes|TestPump|TestPumpTrim)$'`.
+- **message-windows:** runs `37114352746` and `37114352722` on `0b08178`. `--diagnose` printed 96
+  PASS and 0 FAIL.
+- **Package 02d** is 02c with three files changed:
+  - `URmessage.exe`, the Release build of message-windows `59092e2` (the app's code is unchanged at
+    `0b08178`);
+  - `URnetworkSdk.dll`, built from sdk `d2fb60ac` against connect `06f4c47e`, SHA-256
+    `5ac6ee9d6e867d76…`. Its version string is empty, because at `d2fb60ac` `Version` is a constant
+    that `-X` cannot set. All 61 SDK functions the app imports are among its exports, with C
+    prototypes identical to the vendored headers, and `urnetwork_message.h` is byte-identical at
+    `d2fb60ac`;
+  - `READ-ME-FIRST.txt`, which gains a DELETING section in the app's words.
+
+  It was launched from a fresh extraction with no arguments, a fresh state root, and
+  `%URMESSAGE_LIVE_JWT%` naming a file that does not exist. It loaded the dll, logged "no usable
+  credential" before creating any client, drew the credential dialog and stayed Offline.
+
+  It is staged at `/opt/urmessage/dist/URmessage-alpha-2026-10-02d.zip`, SHA-256
+  `5787f95db95b24ba4c7eadfc7738a8835327551a8cb8da44dfa82f5e63fe3be1`, which matches on the server.
+  An earlier 02d with the merged SDK's dll (`aa1da53d…`) was staged the same day. It was never
+  distributed, and is replaced. The owner's own Release and Debug builds carry the same pre-merge
+  dll, from `alpha/premerge`. Package 02d has not been distributed.
+
+#### 4. Open
+
+- **The URnetwork route regression in the merged SDK** (section 2). This is the one that blocks.
+  - Until it is fixed, every fix that must ship has to land on the pre-merge line as well: the fork
+    branches `alpha/premerge`, sdk `d2fb60ac` and connect `06f4c47e`.
+  - sdk #155 states it as a known issue.
+- **connect's `TestPinnedToolchain` fails under upstream's `go-version: stable`** (Go 1.27.1).
+  MASTER §7.2 pins the toolchain, and the test matches the exact patch release. #216 asks upstream
+  to choose: the workflow takes `go.mod`'s toolchain, or the pin moves. Moving the pin holds only
+  until the next Go patch release.
+- **Spec B is wrong about two connect constants since the merge.**
+  - Lines 34, 71 and 2278 give `MinimumMessageLenLimit()` as 4 KiB and
+    `sendPackBatchMaxMessageByteCount` as 3 KiB. Lines 47, 1336 and 1994 call the control plane
+    "3 KiB-batched".
+  - Merged connect has 16 KiB, and `DefaultMtu`, which is 1,100 octets.
+  - The correction is owed, with its own diff review. The 2,048-octet part size should be checked
+    against a 1,100-octet batch.
+- **Reading the forks' CI is still a reminder.** The mechanical form is required status checks on
+  each fork's `main`, with the workflows running on the working branch first.
+- **connect's CI never reaches the end of its root package.** Its `sctp` and
+  `tools/flightgate-devices` modules run nowhere. Both are upstream's.
+- **The fork's Provider Beta Release on connect `beta/message`** failed at `go mod tidy` in both of
+  its runs on that branch (2026-08-25 and 2026-10-03). The miner it builds is sn
+  `beta/custom-server`'s. It belongs to the VPN line, and it is not touched here.
+- **On a Windows host:**
+  - sdk's root package fails 38 or 39 of upstream's own tests per run; a race test comes and goes.
+  - Five of `cgo/buildcontract`'s seven tests need make and a POSIX shell, and fail. The two
+    module-boundary tests pass.
+  - `packaging`'s `TestXCFrameworkVersionedLinks` and `build/cmd/mobileexports`'
+    `TestMobileDeviceBindingTagCoversAllTargets` fail on path separators and CRLF. These were seen
+    in this session's local runs, which were not saved. To see them again, run
+    `go -C packaging test ./... -run TestXCFrameworkVersionedLinks` and
+    `go -C build test ./cmd/mobileexports -run TestMobileDeviceBindingTagCoversAllTargets`.
+
+  All of them pass on Linux.
+- **`streamAdapterHeldTypes` has the map-keyed shape `3e43ff09` fixed in the census enumeration.**
+  No struct with build variants is reachable from the adapter today.
+- **The owner's two questions from the leave stand:**
+  - the request-and-approve protocol (item 273);
+  - a "they left" notice (this section's entry for A-31, part 5).
+
+#### 5. The diff review
+
+The same subagent reviewed this entry twice, against the four repositories, the six pull requests
+and the runs.
+
+**First round: approve with changes.** Four MAJOR, eleven MINOR and ten NITs. It checked the hashes,
+pull requests and one-commit differences, and found one count wrong ("38 or 39").
+- The four MAJOR were:
+  - the live verification had run on the direct route only;
+  - this repository's own breakage and CI history were missing;
+  - the census claim contradicted item 269;
+  - sdk's `cgo` module had had no Linux run.
+
+  Answering them found the route regression, the build-contract fixture and the census's map
+  order.
+
+**Second round: approve with changes.** Two new MAJOR:
+- the modules workflow claimed every module and ran four. It now runs eight, and running them found
+  three more merge regressions, in section 2;
+- "its key-package publish and its join did cross each route" was false. Section 3 now says what
+  crossed.
+
+Its seven MINOR and six NITs are taken. They cover:
+- the 82 s, which section 2's comparison now explains;
+- the wrong-dependency claim, now limited to this repository;
+- the timeout, which was three different tests;
+- Spec B's other lines;
+- the README's dating;
+- which half of the mechanism is a reminder;
+- the Windows build-contract failures;
+- `make ctest`'s real failure;
+- the direction of the receive-callback gate;
+- what found the census bug;
+- the reproduction commands;
+- the held-types shape.
+
+**Third round: approve with changes, no MAJOR.** It checked every new hash, run, A/B number and
+package fact against the logs. It also confirmed what this entry does not claim: the 61 prototypes
+match, and the dll's own build info shows the pre-merge dependencies. All four MINOR and all eight
+NITs are taken:
+- which runs drew rows;
+- the line's name;
+- the review round and the counts;
+- the provider release's history;
+- the incident's 25 seconds and the green run upstream;
+- the order of the runs;
+- the unsaved evidence;
+- the build-contract count;
+- what was new with the merge, and what was ours;
+- the peer's slow answer;
+- "fixed" for "found";
+- the prototypes.
+
+**One NIT is declined: section 7 is for commits that change a spec or plan, and this one changes
+neither.** The entry stays. It records a directive's completion, and the verification and
+regressions that came with it, and that is section 7's shape even when no spec moved.
