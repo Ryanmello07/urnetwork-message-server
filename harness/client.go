@@ -349,7 +349,7 @@ func (self *Client) send(request *protocol.MessageServerRequest, partBytes int) 
 		return err
 	}
 	for index, frame := range frames {
-		if !self.connect.Send(frame, connect.DestinationId(self.server), nil) {
+		if !self.connect.Send(frame, self.server, nil) {
 			returnFrames(frames[index:])
 			return fmt.Errorf("%w: frame %d of %d", ErrSendRefused, index+1, len(frames))
 		}

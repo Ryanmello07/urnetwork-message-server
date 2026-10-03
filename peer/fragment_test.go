@@ -1272,7 +1272,7 @@ func (self *fixture) anotherClient(t *testing.T) (*connect.Client, chan *protoco
 // t.Errorf rather than t.Fatalf on the three below, because they are called from the goroutines
 // of the interleaving test and only a test's own goroutine may end it.
 func sendFrom(t *testing.T, from *connect.Client, to *connect.Client, frame *protocol.Frame) {
-	if !from.Send(frame, connect.DestinationId(to.ClientId()), nil) {
+	if !from.Send(frame, to.ClientId(), nil) {
 		connect.MessagePoolReturn(frame.MessageBytes)
 		t.Errorf("a client's send did not take a frame of type %v", frame.GetMessageType())
 	}

@@ -25,10 +25,23 @@ replace github.com/urnetwork/connect => ../connect
 
 replace github.com/urnetwork/glog => ../glog
 
+// THE TWO REPLACES UPSTREAM CONNECT'S OWN go.mod CARRIES (urnetwork/connect 10c5bee3), repeated for
+// glog's reason above: a replace in a dependency's go.mod is ignored. Without them this module still
+// BUILDS, against the proxy's gvisor and stock pion/sctp instead of urnetwork's patched copies, which
+// is the wrong-dependency-with-a-green-build the 2026-10-03 survey measured (msgrepo ledger 277).
+replace github.com/pion/sctp => ../connect/sctp
+
+replace gvisor.dev/gvisor => ../gvisor
+
 require (
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/urnetwork/connect v0.0.0
 	google.golang.org/protobuf v1.36.11
+)
+
+require (
+	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1 // indirect
+	github.com/quic-go/qpack v0.6.0 // indirect
 )
 
 require (
@@ -65,6 +78,6 @@ require (
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.40.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
-	gvisor.dev/gvisor v0.0.0-20260805230438-8eba670122c5 // indirect
+	gvisor.dev/gvisor v0.0.0-20260909230408-9b1144b679cb // indirect
 	src.agwa.name/tlshacks v0.0.4 // indirect
 )

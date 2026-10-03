@@ -67,7 +67,7 @@ type FrameClient interface {
 	AddReceiveCallback(receiveCallback connect.ReceiveFunction) func()
 	SendWithTimeout(
 		frame *protocol.Frame,
-		destination connect.TransferPath,
+		destinationId connect.Id,
 		ackCallback connect.AckFunction,
 		timeout time.Duration,
 		opts ...any,
@@ -943,7 +943,7 @@ func (self *Peer) Push(clientId []byte, serverNonce []byte, push *protocol.Messa
 		return false
 	}
 	frame := &protocol.Frame{MessageType: protocol.MessageType_MessageMessageServerPush, MessageBytes: body}
-	if !self.client.SendWithTimeout(frame, connect.DestinationId(id), nil, api.PushTimeout, connect.Ctx(self.ctx)) {
+	if !self.client.SendWithTimeout(frame, id, nil, api.PushTimeout, connect.Ctx(self.ctx)) {
 		self.stats.pushesRefused.Add(1)
 		return false
 	}
@@ -972,7 +972,7 @@ func (self *Peer) send(clientId connect.Id, response *protocol.MessageServerResp
 		self.stats.responsesFailed.Add(1)
 		return
 	}
-	destination := connect.DestinationId(clientId)
+	destination := clientId
 	for index, frame := range frames {
 		// Bounded, and tied to this peer's own context. connect.Client.Send is
 		// SendWithTimeout(-1), which blocks until the *client's* context is done — a context

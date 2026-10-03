@@ -380,13 +380,13 @@ func (self *Endpoint) AddReceiveCallback(receiveCallback connect.ReceiveFunction
 // the wire, its bytes have gone back to the pool and the ack has fired.
 func (self *Endpoint) SendWithTimeout(
 	frame *protocol.Frame,
-	destination connect.TransferPath,
+	destinationId connect.Id,
 	ackCallback connect.AckFunction,
 	timeout time.Duration,
 	opts ...any,
 ) bool {
 	self.mutex.Lock()
-	c := self.conns[destination.DestinationId]
+	c := self.conns[destinationId]
 	self.mutex.Unlock()
 	if c == nil {
 		return false
@@ -469,7 +469,7 @@ type FrameClient interface {
 	AddReceiveCallback(receiveCallback connect.ReceiveFunction) func()
 	SendWithTimeout(
 		frame *protocol.Frame,
-		destination connect.TransferPath,
+		destinationId connect.Id,
 		ackCallback connect.AckFunction,
 		timeout time.Duration,
 		opts ...any,
@@ -518,16 +518,16 @@ func (self *Joined) AddReceiveCallback(receiveCallback connect.ReceiveFunction) 
 
 func (self *Joined) SendWithTimeout(
 	frame *protocol.Frame,
-	destination connect.TransferPath,
+	destinationId connect.Id,
 	ackCallback connect.AckFunction,
 	timeout time.Duration,
 	opts ...any,
 ) bool {
-	if self.endpoint != nil && self.endpoint.Owns(destination.DestinationId) {
-		return self.endpoint.SendWithTimeout(frame, destination, ackCallback, timeout, opts...)
+	if self.endpoint != nil && self.endpoint.Owns(destinationId) {
+		return self.endpoint.SendWithTimeout(frame, destinationId, ackCallback, timeout, opts...)
 	}
 	if self.platform != nil {
-		return self.platform.SendWithTimeout(frame, destination, ackCallback, timeout, opts...)
+		return self.platform.SendWithTimeout(frame, destinationId, ackCallback, timeout, opts...)
 	}
 	return false
 }

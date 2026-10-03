@@ -35,11 +35,11 @@ func (self *recordingPlatform) Ctx() context.Context { return self.ctx }
 
 func (self *recordingPlatform) AddReceiveCallback(connect.ReceiveFunction) func() { return func() {} }
 
-func (self *recordingPlatform) SendWithTimeout(frame *protocol.Frame, destination connect.TransferPath,
+func (self *recordingPlatform) SendWithTimeout(frame *protocol.Frame, destinationId connect.Id,
 	ack connect.AckFunction, timeout time.Duration, opts ...any) bool {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
-	self.sent = append(self.sent, destination.DestinationId)
+	self.sent = append(self.sent, destinationId)
 	return true
 }
 
@@ -92,7 +92,7 @@ func TestAResponseGoesBackTheWayItsRequestCameAndNeverToTheOperatorOnceItsConnec
 
 	// the response goes down the same connection, and the operator client is not asked
 	down := &protocol.Frame{MessageType: protocol.MessageType_MessageMessageServerResponse, MessageBytes: []byte("response")}
-	if !joined.SendWithTimeout(down, connect.DestinationId(source), nil, time.Second) {
+	if !joined.SendWithTimeout(down, source, nil, time.Second) {
 		t.Fatal("a response to an open endpoint connection was refused")
 	}
 	ws.SetReadDeadline(time.Now().Add(5 * time.Second))
@@ -115,7 +115,7 @@ func TestAResponseGoesBackTheWayItsRequestCameAndNeverToTheOperatorOnceItsConnec
 		time.Sleep(10 * time.Millisecond)
 	}
 	late := &protocol.Frame{MessageType: protocol.MessageType_MessageMessageServerResponse, MessageBytes: []byte("late")}
-	if joined.SendWithTimeout(late, connect.DestinationId(source), nil, time.Second) {
+	if joined.SendWithTimeout(late, source, nil, time.Second) {
 		t.Fatal("a response to a closed endpoint connection was reported sent")
 	}
 	if !served.Owns(source) {
@@ -124,7 +124,7 @@ func TestAResponseGoesBackTheWayItsRequestCameAndNeverToTheOperatorOnceItsConnec
 
 	// the control: an id the endpoint never minted IS the operator's
 	stranger := connect.NewId()
-	if !joined.SendWithTimeout(late, connect.DestinationId(stranger), nil, time.Second) {
+	if !joined.SendWithTimeout(late, stranger, nil, time.Second) {
 		t.Fatal("a send to an operator client_id was refused")
 	}
 	sends := platform.sends()

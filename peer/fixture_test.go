@@ -274,7 +274,7 @@ func (self *fixture) sendRequest(t *testing.T, request *protocol.MessageServerRe
 
 func (self *fixture) sendFrame(t *testing.T, frame *protocol.Frame) {
 	t.Helper()
-	if !self.clientClient.Send(frame, connect.DestinationId(self.serverClient.ClientId()), nil) {
+	if !self.clientClient.Send(frame, self.serverClient.ClientId(), nil) {
 		connect.MessagePoolReturn(frame.MessageBytes)
 		t.Fatalf("the client's send did not take a frame of type %v", frame.GetMessageType())
 	}
