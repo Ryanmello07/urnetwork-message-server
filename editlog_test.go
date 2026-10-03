@@ -280,16 +280,19 @@ func editLogDispositions() []editLogDisposition {
 		{specC, "d2e7a51", backfilledInTheLog, "paid by Rev 7"},
 		{specC, "368ef8d", backfilledInTheLog, "paid by Rev 7"},
 		{specC, "21f22c7", backfilledInTheLog, "paid by Rev 7"},
+		{specC, "92a27e1", backfilledInTheLog, "paid by Rev 8"},
 	}
 }
 
 // The ledger's own arm, which is the same rule one level up and has a longer debt.
 //
-// §7 says one entry per commit that changes a spec or a plan. Twenty-one commits of this
-// history changed one and appended no §7 entry — every one of them before the baseline, most of
-// them in the first three days of the repository, and four of them (10f0a39, 368ef8d, a401b9b
-// and d89e528) recent commits that DID write ledger prose, into §5's open items rather than into
-// §7's log. The set is closed and asserted exactly: a commit that is delinquent and not listed
+// §7 says one entry per commit that changes a spec or a plan. Twenty-two commits of this history
+// changed one and appended no §7 entry. Twenty-one of them are before the baseline and are THIS
+// list: most of them in the first three days of the repository, and four of them (10f0a39,
+// 368ef8d, a401b9b and d89e528) recent commits that DID write ledger prose, into §5's open items
+// rather than into §7's log. The twenty-second, 92a27e1, is after the baseline and was paid late:
+// it is in editLogLedgerBackfilled below, not here. This set is closed and asserted exactly: a
+// commit that is delinquent and not listed
 // here fails the gate, and a hash listed here that turns out to have paid, or to be a descendant
 // of the baseline, fails it too.
 //
@@ -299,6 +302,18 @@ func editLogLedgerDebt() []string {
 		"24df8be", "0e349ba", "e424ce0", "ad355c6", "2891f19", "e2e2e5a", "5ed3e02",
 		"636779d", "cfe47b8", "c76d7db", "43f6de0", "3d6c09b", "74f83d7", "9a03a12",
 		"7964c38", "d89e528", "f971f29", "10f0a39", "05b3288", "368ef8d", "a401b9b",
+	}
+}
+
+// The ledger arm's late payments: commits AFTER the baseline that changed a spec or a plan,
+// appended no §7 entry in themselves, and were paid by a later §7 entry that cites them by hash.
+// The document arm has had this route all along (backfilledInTheLog); without it the only way
+// to clear a post-baseline delinquent was to move the baseline, which forgives rather than pays.
+// Each is asserted: delinquent, a spec-or-plan commit, a descendant of the baseline, and CITED
+// in §7's region.
+func editLogLedgerBackfilled() []string {
+	return []string{
+		"92a27e1", // paid by the 2026-10-02 entry; ledger 269 records how it went unnoticed
 	}
 }
 
@@ -756,6 +771,18 @@ func requireAncestorOfBaseline(t *testing.T, subject string, commit string) {
 	}
 }
 
+// requireDescendantOfBaseline is the backfill route's half of the baseline rule: only a commit
+// AFTER the baseline is paid late. One before it is recorded debt, and filing it as backfilled
+// would let the debt list shrink without its entries being written.
+func requireDescendantOfBaseline(t *testing.T, subject string, commit string) {
+	t.Helper()
+	command := exec.Command(gitCommand(t), "merge-base", "--is-ancestor", editLogGateBaseline, commit)
+	if err := command.Run(); err != nil || commit == editLogGateBaseline {
+		t.Errorf("%s: commit %s is recorded as backfilled, which only a commit AFTER the baseline %s "+
+			"may take, and it is not a descendant of it (%v)", subject, commit, editLogGateBaseline, err)
+	}
+}
+
 // ── check 3: every commit that changed a spec appended to the ledger's own log ───────────
 
 func TestTheEditLogGateHoldsEverySpecCommitToALedgerEntry(t *testing.T) {
@@ -789,6 +816,20 @@ func TestTheEditLogGateHoldsEverySpecCommitToALedgerEntry(t *testing.T) {
 		debt[commit] = true
 	}
 
+	backfilled := map[string]bool{}
+	for _, commit := range editLogLedgerBackfilled() {
+		if resolved := shortHash(t, commit); resolved != commit {
+			t.Errorf("the ledger backfill names %s; this history abbreviates it as %s", commit, resolved)
+		}
+		if debt[commit] || backfilled[commit] {
+			t.Errorf("the ledger backfill names %s twice, or as debt too", commit)
+		}
+		backfilled[commit] = true
+	}
+	ledgerRegion := strings.Join(editLogEntriesRegionText(t, ledger, readDocument(t, ledger.path)), "\n")
+
+	late := 0
+	var lateSeen []string
 	paid := map[string]bool{}
 	commits := commitsTouching(t, triggers...)
 	editLogMustHaveRead(t, "commits that changed a spec or a plan", len(commits))
@@ -798,7 +839,20 @@ func TestTheEditLogGateHoldsEverySpecCommitToALedgerEntry(t *testing.T) {
 			if debt[commit] {
 				t.Errorf("%s: commit %s appended a §7 entry and is recorded as debt anyway", ledger.path, commit)
 			}
+			if backfilled[commit] {
+				t.Errorf("%s: commit %s appended its own §7 entry and is recorded as backfilled anyway", ledger.path, commit)
+			}
 			paid[commit] = true
+			continue
+		}
+		if backfilled[commit] {
+			requireDescendantOfBaseline(t, ledger.path, commit)
+			if !strings.Contains(ledgerRegion, commit) {
+				t.Errorf("%s: commit %s is recorded as backfilled and §7 does not CITE it: the entry "+
+					"that pays a debt names what it pays", ledger.path, commit)
+			}
+			late++
+			lateSeen = append(lateSeen, commit)
 			continue
 		}
 		delinquent++
@@ -809,15 +863,21 @@ func TestTheEditLogGateHoldsEverySpecCommitToALedgerEntry(t *testing.T) {
 		}
 		requireAncestorOfBaseline(t, ledger.path, commit)
 	}
+	for commit := range backfilled {
+		if !containsCommit(commits, commit) {
+			t.Errorf("the ledger backfill names %s, which did not change a spec or a plan at all", commit)
+		}
+	}
 	for commit := range debt {
 		if !paid[commit] && !containsCommit(commits, commit) {
 			t.Errorf("the recorded ledger debt names %s, which did not change a spec or a plan at "+
 				"all: a row nothing needs", commit)
 		}
 	}
-	editLogMustHaveRead(t, "spec-or-plan commits that appended no §7 entry", delinquent)
+	editLogMustHaveRead(t, "spec-or-plan commits that appended no §7 entry and are recorded debt", delinquent)
 	t.Logf("%s: %d of %d spec-or-plan commits appended an entry; %d are recorded debt, all before %s",
 		ledger.path, len(paid), len(commits), delinquent, editLogGateBaseline)
+	t.Logf("%s: %d post-baseline commits verified as paid late, each cited in §7: %v", ledger.path, late, lateSeen)
 }
 
 func containsCommit(commits []string, wanted string) bool {

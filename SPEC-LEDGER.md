@@ -11339,6 +11339,9 @@ repo and therefore the critical path — not this repository:
       no backfill route, only pre-baseline debt. Owed next, as its own commit with the §6 diff
       review: Spec C's entry citing `92a27e1`, a §7 entry citing it, and a backfill disposition for
       the ledger arm that is asserted against §7's text, mirroring the document arm's.
+      ***Closed 2026-10-02: Spec C Rev 8 and §7's entry of that date ("the edit-log entries
+      `92a27e1` owed") pay it through the ledger arm's new backfill route, and both gates are
+      green.***
 
     **DEPLOYED AND PACKAGED.** The server runs `def3f63`, with the previous binary in
     `/var/backups/urmessage/`. `URmessage-alpha-2026-10-02b.zip` (route and push) is staged beside
@@ -21604,3 +21607,98 @@ commit adds one test file that reads `docs/` and `git`, and changes no package t
   commit pays in **one** row rather than five — `10f0a39`, `28c04b2`, `4eddba1`, `368ef8d` and
   `a401b9b` each deserved their own row on the day, and a backfill cannot make commits that are
   already in the history.
+
+### 2026-10-02 — the edit-log entries `92a27e1` owed, and the ledger arm's backfill route
+
+**Change:** one commit in this repository. Spec C gains row **Rev 8**, a backfill. This entry is
+this commit's own §7 entry, and it is also the §7 entry **`92a27e1`** owed and never wrote.
+`editlog_test.go` gains the ledger arm's backfill route. Item 269 gets a one-line closing note.
+**No normative line of any document is amended by this commit.**
+
+#### 1. The finding
+
+Both edit-log gates had failed on `92a27e1` since 2026-09-24
+(`TestTheEditLogGateHoldsEveryCommitToTheDocumentsOwnLog` and
+`TestTheEditLogGateHoldsEverySpecCommitToALedgerEntry`). That commit amended Spec C §12.3 and
+MASTER §9.2 and §13 and appended neither Spec C's §0.6 row nor a §7 entry. It went unnoticed for
+the fifteen commits before `def3f63` (`git rev-list --count 92a27e1..d941afc`; the range to
+`0db9a32` is seventeen). Fourteen of the fifteen changed only this ledger (`git show --name-only`
+per commit), and the fifteenth is `d4be2c7`. Nothing records any of them running the root package,
+where these gates live. Item 269 records the red gates and the subset-of-packages cause.
+
+#### 2. What `92a27e1` changed, which is what this entry pays
+
+Item 254, which `92a27e1` added, recorded that a hostile committer holds `storage_root[n+1]` by
+construction, so no value check binds it. It also recorded that this committer was never item
+243's adversary, as item 251 scoped it. Ruling 41 (taken 2026-09-23, recorded there retroactively)
+and rulings 42 to 45 are in the same item. The property was intact and the PROMISE was false:
+MASTER §9.2, MASTER §13 (under "Honest limits") and Spec C §12.3 made the removal promise
+unconditionally. MASTER now says removal protects you from the group and not from the administrator
+who removed you. Spec C §12.3's string now states who can no longer send the device something
+readable (ruling 44).
+
+#### 3. The gate change
+
+The document arm already paid late debts this way: `backfilledInTheLog`, asserted against the
+document's own log region citing the hash. The ledger arm had only pre-baseline debt, so a commit
+after the baseline that skipped §7 could never be paid, only forgiven by moving the baseline. It
+now has `editLogLedgerBackfilled()`, a closed list of post-baseline commits whose §7 entry was
+written later. Each listed commit must meet four conditions:
+
+- It must be a **descendant of the baseline**. This is the check that matters most. Five of the
+  twenty-one pre-baseline debts (`24df8be`, `d89e528`, `10f0a39`, `368ef8d`, `a401b9b`) are already
+  mentioned in §7 as owed. Without this check, any of them could be moved to the backfill list and
+  pass the citation check on a mention alone.
+- It must be delinquent.
+- It must have changed a spec or a plan.
+- It must be **cited by hash in §7's region**, from `## 7. Edit log` to the end of the file. A
+  whole-file check would be vacuous, because item 269 in §5 already cites `92a27e1`.
+
+The gate also fails on a listed commit that appended its own entry, on one listed twice, and on one
+also listed as debt. `92a27e1` is the only entry. The comment beside the debt list counted
+twenty-one commits, "every one of them before the baseline". That count is now twenty-two, one of
+them after the baseline, and the comment is corrected here. The gate's log line now prints the
+backfills it VERIFIED, not the configured list.
+
+#### 4. Verification
+
+Each mutant below was run against this commit's tree, and each was reverted afterwards.
+
+| Command or mutant | Result |
+|---|---|
+| `go test ./ -run 'TestTheEditLogGate' -timeout 900s -count=1` | `ok` |
+| every `92a27e1` in this entry deleted | `FAIL`: §7 does not CITE it |
+| `92a27e1` removed from the backfill list | `FAIL`: changed a spec or a plan and appended NO entry to §7 |
+| `92a27e1` listed twice | `FAIL`: named twice |
+| pre-baseline `24df8be` moved from the debt list to the backfill list | `FAIL`: not a descendant of the baseline |
+| the same, with the descendant check removed | **`ok`**: that check is the only guard against it |
+| `d4be2c7` (changed no spec or plan) listed | `FAIL`: did not change a spec or a plan |
+
+#### 5. The diff review
+
+An independent subagent reviewed this commit's diff before it landed, as §6 step 2 asks. It is the
+first backfill entry in this run to have one: the previous backfill recorded that it had none. The
+review ran eleven mutants in a clone and found no loophole in the gate code. It found the prose
+wrong in four places, all corrected before this commit:
+
+- The hostile-committer finding was cited to item 251; it is in item 254. This was wrong in both
+  logs.
+- The before and after of the promise was misstated.
+- The "fifteen commits" account was overclaimed. The range to HEAD is seventeen, and nothing
+  recorded any of those commits running a subset of packages.
+- A comment beside the debt list was made false by the new list.
+
+It also asked for these, all done:
+
+- name the descendant check and exercise it;
+- annotate item 269 as closed;
+- make the log lines print what they verified;
+- three nits in Rev 8.
+
+#### 6. What this does not do
+
+- It does not make the late entry what the rule asked for. One entry per commit, in that commit,
+  is still the rule, and a backfill is the record that it was broken.
+- A mention is not a payment, and the gate cannot tell them apart. With every citation in this entry
+  removed, a single added §7 line reading "`92a27e1` is STILL OWED" passes it. The document arm has
+  always behaved the same way. This is why the descendant check carries real weight.
