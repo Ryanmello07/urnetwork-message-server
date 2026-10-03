@@ -64,14 +64,14 @@ jobs:
       # THE SIBLINGS go.mod REPLACES TO, cloned beside this checkout. Without them every run of this job
       # failed at the first `go` command: 100 of the last 100 by the 2026-10-03 survey (msgrepo ledger
       # 277), because the replaces name ../connect, ../glog and ../gvisor and nothing put them there.
-      # connect comes from the FORK'S main, which carries the URmessage packages (mls, message,
-      # messagegroup) upstream connect does not have yet; when the upstream pull request lands, this
-      # line changes to urnetwork/connect.
+      # connect is urnetwork/connect, which carries the URmessage packages (mls, message,
+      # messagegroup) from the pull request that brought them upstream. Until that pull request
+      # has merged, this job cannot build: those packages are not there to clone.
       - name: the sibling modules go.mod replaces to
         run: |
           set -eu
           cd ..
-          git clone --depth 1 https://github.com/Ryanmello07/connect.git connect
+          git clone --depth 1 https://github.com/urnetwork/connect.git connect
           git clone --depth 1 https://github.com/urnetwork/glog.git glog
           git clone --depth 1 --branch go https://github.com/urnetwork/gvisor.git gvisor
 
