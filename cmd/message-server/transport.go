@@ -15,7 +15,8 @@ import (
 //
 // # The answer, which is not "it listens"
 //
-// The message server binds no socket for message traffic and cannot. `connect` has no inbound
+// On the platform path the message server binds no socket for message traffic and cannot (its
+// own TLS endpoint, spec B §4.1, is the other carrier, and is one). `connect` has no inbound
 // listener for client frames: the only two ways a `connect.Client` ever receives one are an
 // in-process `connect.Route` — which is what `stack_test.go` wires between two clients in one
 // test binary — and a [connect.PlatformTransport], which DIALS OUT to the operator's platform at
@@ -59,9 +60,9 @@ import (
 // client and no loopback mode: a `connect.Client` with no transport receives nothing, forever,
 // while `peer` runs eight workers and a sweep loop behind it and every counter reads zero — which
 // is indistinguishable at a glance from a server nobody has messaged yet. So without a credential
-// this process constructs no client and no peer at all, `/readyz` refuses on
-// `ordinal_credential`, and the startup log says in one line that no message traffic will be
-// served.
+// this process constructs no client, `/readyz` refuses on `ordinal_credential` (on the platform
+// path; `platform_attachment: off` does not ask it), and the startup log says in one line what
+// will not be served.
 
 // The platform this replica attaches to, and the client it attaches with.
 type attachment struct {

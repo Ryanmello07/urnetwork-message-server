@@ -44,7 +44,7 @@ Verified against the checked-out trees at `C:\Users\ryanm\Downloads\claude_sandb
 | **B4** | `record_id` is a **per-group, gapless, monotonically allocated, 1-based bigint**, not a global `bigserial`. Allocation is `UPDATE message_group SET next_record_id = next_record_id + k RETURNING`, in the submit transaction, **after** every per-record check has passed (§6.1 step 4). `record_id = 0` is never assigned, so `since_record_id = 0` is the well-defined "from the beginning" cursor. | A global sequence allocates before commit, so a reader can observe id 10 before id 9 is visible and then never see 9. That silently breaks `fetch since record_id`, which is the single most-used query in the system. Per-group allocation also serialises the group's log, which is exactly what the Delivery Service role (§9.3) needs anyway, so the lock is not additional cost — it is the same lock. |
 | **B5** | The retention sweep is driven by a server-computed `prune_after` = `LEAST(class_deadline, expire_at)`. **`expire_at` may only shorten retention, never extend it.** | That preserves the whole of B5's original reasoning — a member declaring `expire_at = 2999` cannot pin `MEDIA` forever — while satisfying MASTER §9.1 and Spec A S10, which both require pruning by class **and** `expire_at`. `expire_at` is inside `AAD_head` and the `write_auth` preimage, so **I6** is fully satisfied and there is no verification objection either. Discarding it entirely, as revision 1 did, silently ignored an authenticated, client-declared deletion time on every record. |
 | **B6** | **No client-initiated server-side erase in v1.** Bodies are removed by class expiry and by the sweep only. `TOMBSTONE` remains a purely client-side, MLS-authenticated construct. | `write_key` is group-wide (§9.2), so an erase request cannot be attributed to a device or to the original sender — any member could erase any body, a history-destroying DoS. §9.2 already defers per-device capabilities to V2 for precisely this reason, and §12.3 already tells users delete-for-everyone does not claw anything back. Early erase is therefore gated on the V2 per-device capability work. |
-| **B7** | **Split transport: protobuf request/response over the connect frame path for the control plane; TLS/HTTP over the mesh for the bulk (blob) plane.** Argued in §4.1. | A 100 MB upload driven through a 3 KiB-batched, ack-windowed client sequence head-of-line-blocks every message in that sequence. Ranged and resumable semantics already exist in HTTP and in MinIO multipart. Meanwhile subscribe needs *server-initiated* push, which the frame path gives free and HTTP does not. |
+| **B7** | **Split transport: protobuf request/response over the connect frame path for the control plane; TLS/HTTP over the mesh for the bulk (blob) plane.** Argued in §4.1. | A 100 MB upload driven through a 3 KiB-batched, ack-windowed client sequence head-of-line-blocks every message in that sequence. Ranged and resumable semantics already exist in HTTP and in MinIO multipart. Meanwhile subscribe needs *server-initiated* push, which the frame path gives free and HTTP does not. **Revision 23:** the control plane also travels at the server's own endpoint (§4.1), and a server may hold no platform session at all (§9.1). |
 | **B8** | **Four `MessageType` enum values only** (`MessageMessageServerRequest`, `MessageMessageServerResponse`, `MessageMessageServerPush`, `MessageMessageServerFragment` — the doubled prefix is forced, see §4.2), reserved at **1000–1099**, with a `oneof` inside for every operation. Spec A owns `connect/protocol/message.proto`; Spec B owns the `oneof` arms and their semantics (§4.2). | `frame.proto` is shared with `beta/algorithm-dpi` and `beta/custom-server`. Adding one enum value per operation guarantees a merge conflict on every branch every time we add an operation. A reserved high block plus an internal `oneof` reduces the shared-file diff to four lines, permanently. Spec A's `MessageEnvelope` / `MessageOp` alternative is deleted (§4.2). |
 | **B9** | The server keeps the **current** epoch's `write_key` plus **one briefly-retired predecessor**, wrapped under a KEK loaded from the vault. Advancing an epoch sets `retire_time = now()` on the outgoing epoch instead of NULLing it; the 5-minute tidy loop (§7.4) NULLs `write_key_wrapped` where `retire_time < now() - interval '60 seconds'`. **This two-key window is why reads are not authenticated under an epoch *write* key**: `req_auth` uses the epoch's `read_key` instead (§5.3), which is retained for 90 days rather than 60 seconds, because a member offline across one commit would otherwise be locked out of every route back. | Destroying the superseded key immediately made `REASON_EPOCH_STALE` unreachable — check 6 would return the deliberately undiagnosable `REASON_REJECTED` for the single most common benign race in the system (a record submitted at epoch *n* while a commit to *n+1* lands), making `SubmitResult.current_epoch`'s "always set, so a stale client resynchronises in one round trip" a dead promise and §6.4's row for that race dead code. The blast-radius argument is unchanged at two keys. |
 | **B10** | The message server runs against a **separate Postgres cluster and separate credentials from the operator**, even though one organisation runs both. | Same operator, separate blast radius. An operator database compromise must not also yield message ciphertext and epoch write keys. Cheap; do it on day one, because retrofitting a database split after launch is not cheap. |
@@ -63,7 +63,7 @@ Verified against the checked-out trees at `C:\Users\ryanm\Downloads\claude_sandb
 | **Requires from spec A** | Byte-exact record encoding, including `blob_id` as a header field; the `write_auth` and `req_auth` preimages including the `server_attachment` amendment; `req_auth` keyed on the epoch's `read_key`, with the epoch named by the request's `read_epoch` field and therefore inside the MAC; the recovery proof; the size-bucket and eph-bucket ladders; the blob id derivation and padding ladder; a shared Go package `connect/message` the server links so it never reimplements the parser or the encoder; a shared interop vector file. | §12.1 |
 | **Provides to spec A** | The reject-reason contract, the losing-committer contract, the capability document, and the exact idempotency semantics of a retried submit. | §12.1 |
 | **Provides to spec C** | Everything C consumes goes through `sdk` — C never speaks to the message server directly. What C must surface in UI: blob cap before the file picker opens, retention notices, resumable-upload progress, attestation warnings, hole detection on the gapless `record_id`. | §12.2 |
-| **Requires from its operator** — the one named in `operator_host`, which is one of several and need not be the client's | A network + client ids for the server fleet; a discovery endpoint listing the fleet; that operator's KT log and its signed tree heads; a transport `FramerSettings.MaxMessageLen` measurement. | §9 |
+| **Requires from its operator** — the one named in `operator_host`, which is one of several and need not be the client's | A network + client ids for the server fleet while it attaches (§9.1, Revision 23); a discovery endpoint listing the fleet; that operator's KT log and its signed tree heads; a transport `FramerSettings.MaxMessageLen` measurement. | §9 |
 
 ### Open items
 
@@ -669,6 +669,34 @@ the working tree as well as the history, so it goes red while the edit is still 
 rather than after the push, which is the half that would have caught both commits above on the
 day.
 
+**Revision 23 — 2026-10-02 — the server's own endpoint, and running with no platform attachment.**
+Ledger item 268 built a control-plane endpoint on the message server itself (a TLS 1.3 WebSocket, one
+`protocol.Frame` per message, the key pinned by the client) and amended no line of this document. This
+revision writes that endpoint into §4.1, including what it costs against the frame path's four reasons.
+It writes the project owner's ruling of the same day, to detach the deployed server from the operator's
+platform, into §9.1: `platform_attachment: off` holds no platform session and needs no per-ordinal
+credential. It refuses to start without an endpoint, and it has **no operator-side revocation**:
+revoking its endpoint key takes a new client build.
+
+§10.1's readiness set follows the mode. §10.2 lists the four keys. §5.3's `write_key` sentence names
+the endpoint's TLS session, whose key exchange the server now pins to `X25519MLKEM768` rather than
+leaving it to the library's default. Rows that describe only an attaching server are qualified: B7, the
+planning ledger's operator requirements, §2.3, §9.1's Rotate and Revoke, and §10.1's table.
+
+MASTER (§2, §4.1, §4.5, §7, §9.2, §9.5, §13), Spec A (A-29) and Spec C (Rev 9) are amended in the same
+commit, and the SPEC-LEDGER §7 entry of 2026-10-02 carries all four. Built and tested in the same commit
+(`cmd/message-server`, `endpoint`):
+- the readiness set, held both ways against an attaching replica;
+- the startup refusal;
+- **off with a credential present constructing no attachment, held at `newServer` itself;**
+- the setting taking exactly `on` and `off`;
+- the key exchange refusing a classical-only client;
+- the endpoint's bind failure printing no address.
+
+Each was mutated, and each mutant failed the test written for it. A diff review before commit found the
+first draft's weakest points, among them the call-site test that was missing and five MASTER sentences
+this change made false.
+
 ---
 
 ## 1. Scope
@@ -735,12 +763,12 @@ The rule exists because the operator's model package *is* the account identity l
 
 | Property | Value |
 |---|---|
-| Instances | N replicas, N ≥ 2. Deployed as a **StatefulSet with stable ordinals**, because the per-instance transport credential is per-instance state — see §9.1 |
-| URnetwork identity | One network for the fleet; **each instance holds its own `client_id`** and its own long-lived credential in the vault |
-| Client affinity | A client resolves the fleet from discovery, picks one instance, and stays sticky for the session; on disconnect it re-picks |
+| Instances | N replicas, N ≥ 2. Deployed as a **StatefulSet with stable ordinals**, because the per-instance transport credential is per-instance state — see §9.1 (while instances attach; an endpoint-only replica holds no per-instance credential, Revision 23) |
+| URnetwork identity | One network for the fleet; **each instance holds its own `client_id`** and its own long-lived credential in the vault, while it attaches (§9.1, Revision 23) |
+| Client affinity | A client resolves the fleet from discovery, picks one instance, and stays sticky for the session; on disconnect it re-picks (on the platform path; an endpoint-only server is reached at an endpoint URL that §9.3's discovery entry does not carry yet, Revision 23) |
 | Cross-instance fan-out | Redis pub/sub (§2.4) |
 | Shared state | Postgres (authoritative), object store (blobs), Redis (soft) |
-| Graceful shutdown | Drain (below), then stop accepting new frames, drain in-flight transactions, unsubscribe from Redis, close the connect client, exit. No two-phase teardown — this is a normal user-mode service, unlike the VPN client's privileged service |
+| Graceful shutdown | Drain (below), then stop accepting new frames, drain in-flight transactions, unsubscribe from Redis, close the connect client (when attached) and the endpoint (when configured), exit. No two-phase teardown — this is a normal user-mode service, unlike the VPN client's privileged service |
 
 Per-instance `client_id` (rather than a shared one) is deliberate: the platform's resident routes a `client_id` to a single connection, so a shared id would pin the whole fleet to one replica.
 
@@ -1311,6 +1339,13 @@ The task invites an argument for REST-over-transport. The answer is a split, and
 4. Authorization does not leak into the bulk plane: a `BlobGrant` minted on the control plane is a bearer capability scoped to one `grant_ref`, one direction, one size, and a short expiry. **`write_auth` and `req_auth` are verified only on the control plane.** The blob endpoint knows nothing about groups.
 
 So: **request/response messages, not REST, for everything that touches group state; HTTP only for opaque bytes already authorized elsewhere.**
+
+**The control plane over the server's own endpoint (Revision 23, built at ledger 268).** The same request/response messages also travel over a **TLS 1.3 WebSocket on the message server's own endpoint**: one `protocol.Frame` per binary WebSocket message, byte for byte the frames the platform path carries, on one fixed upgrade path (`/urmessage/v1`). The server mints a connection id per WebSocket session, and a response or push goes back on the session its request came in on. The server **pins the TLS key exchange to `X25519MLKEM768`** and refuses a client that offers only a classical group. A client **pins the endpoint's key** by the SHA-256 of its SubjectPublicKeyInfo and refuses any other before writing a frame, so neither an exit provider nor any network between can stand in for the server. An IP endpoint sends no TLS server name. A client reaches the endpoint **through a URnetwork exit by default**, exactly as the bulk plane above, so the server sees the exit's address and never the client's. A user may switch that off, and the client then connects directly and the server sees its address. **Against the four reasons above:**
+
+- **Reason 1.** TLS 1.3 to a pinned key replaces the per-peer layer end to end, and the platform relays only the tunnel to the exit (ledger 267, 268). But the endpoint is **new transport code** (`msgrepo/endpoint`, the SDK's `MessageRouteClient`). It is **new internet-facing surface**: port 443, guarded by a connection cap, a read limit and a handshake timeout only (ledger 268, open (b)). And it holds **no per-(device, message server) contract**, so it gives up the contract accounting the frame path gave free.
+- **Reason 2** is met by the WebSocket, at the cost reason 2 names: its own reconnect (the client's backoff), its own idle handling (a ping every 25 s, with a deadline), and its own authentication (the key pin).
+- **Reason 3** holds: the same protobuf messages.
+- **Reason 4** holds in substance. There is no per-operation path, only the one fixed upgrade path, and every operation is a `oneof` inside an encrypted frame.
 
 ### 4.2 Frame binding
 
@@ -2364,12 +2399,13 @@ The second is trust structure. Every check the server *can* perform, the server 
 
 ### 5.3 Epoch key custody
 
-`write_key[n] = HKDF-Expand(storage_root[n], "write/v1", 32)` is delivered to the server by the committer over the connect session's own hybrid-PQ encryption — in the commit record's `server_attachment` under attachment kind `0x0001`, and beside it on the request under kind `0x0005` (ruling 27, §5.4).
+`write_key[n] = HKDF-Expand(storage_root[n], "write/v1", 32)` is delivered to the server by the committer over the connect session's own hybrid-PQ encryption, or, at a server's own endpoint, over its TLS 1.3 session, whose key exchange the server pins to `X25519MLKEM768` (§4.1) — in the commit record's `server_attachment` under attachment kind `0x0001`, and beside it on the request under kind `0x0005` (ruling 27, §5.4).
 
 MASTER §9.2 and Spec A §12.1 have both been amended to strike the `H(write_key)` language. The adopted text, identical in all three documents:
 
 > The server holds `write_key[n]` itself. It is delivered to the server by the committer over the connect
-> session's own hybrid-PQ encryption, and is stored wrapped under a vault KEK. **Which road it travels was
+> session's own hybrid-PQ encryption, or, at a server's own endpoint, over its TLS 1.3 session, whose key
+> exchange the server pins to `X25519MLKEM768` (Spec B §4.1), and is stored wrapped under a vault KEK. **Which road it travels was
 > amended 2026-09-22 by ruling 27:** under attachment kind `0x0001` it rides inside the commit record's
 > `server_attachment` (`EpochAttachment.write_key`); under kind `0x0005` the attachment carries
 > `LP(H(epoch_keys))` in its place and the key rides on the REQUEST beside the record
@@ -3442,12 +3478,17 @@ Master spec §4.4: the message server holds its own account, and that credential
 
 | Phase | Design |
 |---|---|
-| **Provision** | The message server holds its account on **one operator, named in configuration as `operator_host`** (`message.yml`, §10.2) and chosen by whoever administers this server from the operators it is compatible with — there is more than one, and two run today (MASTER §4.1). The account credential for that operator is the per-ordinal entry in `message_server.yml`. An admin **of that operator** creates the network once and one `network_client` per **ordinal**. The process reads `MESSAGE_SERVER_ORDINAL` from the environment and selects that keyed entry from `message_server.yml`. Deploy as a **StatefulSet with stable ordinals**, not a Deployment — a per-instance long-lived credential is per-instance state, so §2.3's and §10.1's "stateless replicas" was false and autoscaling was impossible as specified (scaling out requires an operator admin action plus a vault edit). `/readyz` fails if the ordinal has no credential. Bootstrapping order: operator admin action → vault write → deploy. |
-| **Rotate** | Issue a second credential for the ordinal, restart the instance, retire the first after the connect session drains. Cadence: 90 days. |
-| **Revoke** | The operator admin deletes the `network_client`; the instance's connect session drops; a new signed discovery entry omitting that `client_id` is published. Revocation takes effect only because discovery entries carry `not_after` (§9.3). |
+| **Provision** | The message server holds its account on **one operator, named in configuration as `operator_host`** (`message.yml`, §10.2) and chosen by whoever administers this server from the operators it is compatible with — there is more than one, and two run today (MASTER §4.1). The account credential for that operator is the per-ordinal entry in `message_server.yml`. An admin **of that operator** creates the network once and one `network_client` per **ordinal**. The process reads `MESSAGE_SERVER_ORDINAL` from the environment and selects that keyed entry from `message_server.yml`. Deploy as a **StatefulSet with stable ordinals**, not a Deployment — a per-instance long-lived credential is per-instance state, so §2.3's and §10.1's "stateless replicas" was false and autoscaling was impossible as specified (scaling out requires an operator admin action plus a vault edit). `/readyz` fails if the ordinal has no credential, unless `platform_attachment` is `off` (below, Revision 23). Bootstrapping order: operator admin action → vault write → deploy. |
+| **Rotate** | (The platform credential, so `platform_attachment: on`; an `off` server's endpoint key, below.) Issue a second credential for the ordinal, restart the instance, retire the first after the connect session drains. Cadence: 90 days. |
+| **Revoke** | (`on` only; an `off` server has no operator-side revocation, below.) The operator admin deletes the `network_client`; the instance's connect session drops; a new signed discovery entry omitting that `client_id` is published. Revocation takes effect only because discovery entries carry `not_after` (§9.3). |
 | **Replace** | As Provision, reusing the ordinal. |
 
 Each instance runs a `connect.Client` against the platform transport exactly as any client does: `AddReceiveCallback` dispatches `MessageServerRequest` frames and responses go back through `Send`. Contracts are long-lived per `(device, message server)`, provider-terminated (master §9.6). Clients resolve the fleet from their operator (§9.3), **verify the first `ServerKey.pub` they ever see against the fleet root public key compiled into the SDK** rather than trusting it on first use (§4.3.1), and pin `BlobEndpoint.tls_spki_sha256`.
+
+**Attachment is optional (Revision 23).** `message.yml`'s `platform_attachment` is `on` by default and the paragraph above describes it. **`off`** means this server holds **no session on the operator's platform at all** and is reached only at its own endpoint (§4.1). The endpoint must then be configured, or the process refuses to start, because it would receive nothing. The per-ordinal credential is not needed. `/readyz` then asks neither `ordinal_credential` nor `connect_client_attached`, and asks `endpoint_listening` instead (§10.1). The server still holds its account on `operator_host`: §4.3.1 advertises it, and the directory and key-transparency duties below are the operator's whether or not frames travel through it. **What `off` buys** is the property this deployment was asked for: the message server is a separate server with no connection to the operator's network. The operator carries no URmessage frame: it sees a client's tunnel to an exit, and whatever that client asks its directory and its log (§9.3, §9.4). **What `off` costs:**
+- The Rotate and Revoke rows above act on the platform credential and do nothing to an endpoint.
+- Clients reach an `off` server by an endpoint URL and a key pin the app compiles in (ledger 268), and §9.3's discovery entry has no field for either yet.
+- **So revoking a compromised endpoint key takes a new client build.**
 
 **The attestation signing key is fleet-wide, not per instance.** `server_id` is stable per fleet and any replica must be able to sign any `FetchAttestation`, so the public `server_keys` set and the sidecar endpoint that signs on their behalf are **fleet-wide** configuration, not the per-instance `message_server.yml` entry. Only `client_id` and the transport credential are per instance. If the key were per instance, a client would see a different `ServerKey` on the first reconnect that landed on a different replica — and §4.3.1 now **refuses** a key that chains to neither a trusted predecessor nor the fleet root, so per-instance keys would not be a warning to click through but an outage.
 
@@ -3651,13 +3692,13 @@ Container image built from a Dockerfile in the shape of the operator's. Ships:
 
 | Component | Notes |
 |---|---|
-| `message-server` | N ≥ 2 replicas as a **StatefulSet with stable ordinals** (§9.1), each with its own `client_id`. `terminationGracePeriodSeconds = 90`, matched to the 60 s drain window (§2.3) |
+| `message-server` | N ≥ 2 replicas as a **StatefulSet with stable ordinals** (§9.1), each with its own `client_id` when it attaches (§9.1, Revision 23). `terminationGracePeriodSeconds = 90`, matched to the 60 s drain window (§2.3) |
 | PostgreSQL | **Separate cluster from the operator** (decision B10). Primary + streaming replica. WAL archiving on |
 | Redis | Dedicated instance/database. No persistence. `MONITOR` disabled, slowlog off |
 | Object store | MinIO bucket with ILM lifecycle rules per TTL prefix (§8.3) |
 | Prometheus | Scrapes `/metrics` on a private port, never on the public interface |
 
-Health endpoints on a private port: `/healthz` (process alive) and `/readyz` (database reachable, KEK loaded, connect client attached, migrations at head, and every advertised value that has no honest default present — `operator_host` and `hosting_jurisdiction` both non-empty, §4.3.1). Neither returns any identifier.
+Health endpoints on a private port: `/healthz` (process alive) and `/readyz` (database reachable, KEK loaded, connect client attached, migrations at head, and every advertised value that has no honest default present — `operator_host` and `hosting_jurisdiction` both non-empty, §4.3.1). Neither returns any identifier. **Revision 23:** a replica with an endpoint configured is also asked `endpoint_listening`. A replica with `platform_attachment: off` is not asked for the per-ordinal credential or the attached connect client. It is asked `endpoint_listening` unconditionally, because the endpoint is its only carrier (§9.1). Startup already refuses an `off` replica with no endpoint configured, so this is defence in depth.
 
 ### 10.2 Configuration
 
@@ -3671,7 +3712,7 @@ Vault and config resources follow `server.Vault.RequireSimpleResource` / `server
 | `minio.yml` | vault | object store endpoint, credentials, prefix |
 | `message_server.yml` | vault | per-**ordinal** `client_id` + transport credential (§9.1) |
 | `message_fleet.yml` | vault | fleet-wide secrets: `write_key_kek`, `grant_kek`, `channel_key`, **the signing-sidecar endpoint and credential**, and the **fleet root public key** for verification. The signing private key is **not here and not anywhere on a replica** (§9.1) |
-| `message.yml` | config | `Capabilities` values, sweep tuning, rate limits, `group_reclaim_seconds`, `read_key_window_seconds` (default 7776000), `durable_ttl_default_seconds` (31536000), `durable_ttl_max_seconds` (0), `group_durable_override`, `operator_host`, `hosting_jurisdiction`, `rendezvous_ttl_seconds` (7776000), `rendezvous_deposit_ttl_seconds` (604800), `rendezvous_mailbox_depth` (16), `card_tombstone_seconds` (7776000), and `diagnostic_session_max_minutes` (60) |
+| `message.yml` | config | `Capabilities` values, sweep tuning, rate limits, `group_reclaim_seconds`, `read_key_window_seconds` (default 7776000), `durable_ttl_default_seconds` (31536000), `durable_ttl_max_seconds` (0), `group_durable_override`, `operator_host`, `hosting_jurisdiction`, `rendezvous_ttl_seconds` (7776000), `rendezvous_deposit_ttl_seconds` (604800), `rendezvous_mailbox_depth` (16), `card_tombstone_seconds` (7776000), `diagnostic_session_max_minutes` (60), and, since Revision 23, `endpoint_listen_address` (empty: no endpoint; never logged), `endpoint_tls_certificate_file`, `endpoint_tls_private_key_file` (mode 600), and `platform_attachment` (`on`; `off` holds no platform session, §9.1). The four are not advertised |
 
 **Every value in `Capabilities` is config, never a constant in code.** Changing the blob cap must not require a release, and `CapabilityChange` pushes the new values to connected clients.
 

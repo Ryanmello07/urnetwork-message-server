@@ -75,6 +75,7 @@ func TestEverySpecB102SettingSpecB431AdvertisesReachesTheAdvertisement(t *testin
 		"card_tombstone_seconds",
 		"diagnostic_session_max_minutes",
 		"endpoint_listen_address",
+		"platform_attachment",
 		"endpoint_tls_certificate_file",
 		"endpoint_tls_private_key_file",
 	}

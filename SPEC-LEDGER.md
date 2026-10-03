@@ -21832,3 +21832,121 @@ It also asked for these, all done:
 - A mention is not a payment, and the gate cannot tell them apart. With every citation in this entry
   removed, a single added §7 line reading "`92a27e1` is STILL OWED" passes it. The document arm has
   always behaved the same way. This is why the descendant check carries real weight.
+
+### 2026-10-02 — Spec B Revision 23, MASTER, Spec A A-29 and Spec C Rev 9: the server's own endpoint, and running detached from the platform
+
+**Change:** one commit in this repository.
+- **Specs:** Spec B Revision 23 (§4.1, §5.3, §9.1, §10.1, §10.2, and the rows that described only an
+  attaching server); MASTER §2, §4.1, §4.5, §7, §9.2, §9.5 and §13; Spec A A-29; Spec C Rev 9.
+- **`cmd/message-server`:** the `platform_attachment` setting and an endpoint-only readiness set.
+- **`endpoint`:** a TLS key exchange pinned to `X25519MLKEM768`.
+- **Tests** for each of these.
+
+**No server is deployed by this commit.** The deployment, and what it measured, is recorded in §5
+by the deployment's own commit.
+
+#### 1. Why
+
+- **The owner's ruling, verbatim: "do recommended".** It was given 2026-10-02, to the lead's
+  recommendation to turn off the platform path, which nothing distributed uses any more. This makes
+  item 268's open (c) closable; the deployment closes it.
+- **268 built the endpoint and amended no document.** Spec B still specified the control plane as
+  connect frames over the platform and nothing else. MASTER said a message server "forwards its
+  traffic through" its operator and that "a client reaches its message server through its own
+  operator". The app's direct-route switch (also 268, at the owner's request) has not made that
+  true since. This commit pays that debt in all four documents.
+
+#### 2. What is now normative
+
+- **Spec B §4.1:** the control plane also travels over a TLS 1.3 WebSocket on the server's own
+  endpoint.
+  - The framing is one `protocol.Frame` per binary message, on one fixed upgrade path. The server
+    pins the key exchange, and the client pins the key.
+  - A client reaches the endpoint through a URnetwork exit by default, or directly when its user
+    switches that off.
+  - Weighed against the four reasons for the frame path, it costs new transport code, new
+    internet-facing surface and the contract accounting.
+- **Spec B §9.1:** `platform_attachment: off` holds no platform session and needs no per-ordinal
+  credential, and the process refuses to start without an endpoint. **It has no operator-side
+  revocation:** the app compiles in the endpoint and its pin, so revoking that key takes a new
+  client build.
+- **Spec B §10.1:** `endpoint_listening` is asked whenever an endpoint is configured. When the
+  server does not attach, it is asked in place of `ordinal_credential` and
+  `connect_client_attached`.
+- **Spec B §10.2:** the four keys are listed.
+- **The `write_key` delivery sentence** (MASTER §9.2, Spec A, and Spec B §5.3, which says the three
+  are identical) names the endpoint's TLS session and its pinned hybrid key exchange.
+- **MASTER §2 and the Actors row:** a server forwards through its operator, serves its own
+  endpoint, or both.
+- **MASTER §4.5:** the direct route consumes no URnetwork allowance.
+- **MASTER §7:** transit names the endpoint.
+- **MASTER §9.5 and §13:** they say what the server and the operator see on each route.
+- **Spec A and Spec C:** `message_server_id` addresses the platform path, and Spec C §1.1's sentence
+  matches MASTER §2.
+
+#### 3. Verification
+
+| Command or mutant | Result |
+|---|---|
+| `go test ./cmd/message-server/ ./endpoint/ -run Test -timeout 600s -count=1` | `ok`, `ok` |
+| `go test ./ -run 'TestTheEditLogGate\|TestThePlanLinter' -timeout 900s -count=1` | `ok` |
+| `newServer` calls `canAttach` directly, the call site before this commit (the review's M6) | `FAIL`: `TestOffConstructsNoAttachmentAtNewServerItself` |
+| the endpoint-only filter removed, so every spec precondition is asked | `FAIL`: `TestAnEndpointOnlyReplicaIsAskedNothingAboutThePlatform` |
+| `endpoint_listening` asked only when an endpoint object exists | `FAIL`: the same test, on the hand-built fixture only; every server `newServer` builds holds the object, so on the real path this is defence in depth |
+| the startup refusal for off-without-an-endpoint removed | `FAIL`: `TestEndpointOnlyWithNoEndpointIsRefusedBeforeAnythingOpens` |
+| the attach decision ignores the setting | `FAIL`: `TestOffMeansNoSessionEvenWithEveryInputPresent` |
+| the choice set opened, so a spelling of off is read as on | `FAIL`: `TestEveryChoiceSettingTakesExactlyItsChoices`, `TestPlatformAttachmentTakesOnOrOffAndNothingElse` |
+| the key exchange left to the library's default | `FAIL`: `TestTheEndpointTakesOnlyTheHybridKeyExchange` |
+| the endpoint's bind error not scrubbed of its address | `FAIL`: `TestTheEndpointsBindFailureNamesNoAddress` |
+
+`TestOffConstructsNoAttachmentAtNewServerItself` prints both sets:
+- **on:** an attachment is constructed, and the set includes `connect_client_attached` and
+  `ordinal_credential`.
+- **off:** no attachment is constructed, and the set includes `endpoint_listening` and neither of
+  those two.
+
+The database-backed tests in `cmd/message-server` skipped for want of `URMESSAGE_TEST_DSN`.
+
+#### 4. The diff review
+
+An independent subagent reviewed the first draft's diff before commit (§6 step 2). It confirmed the
+code correct and safe to deploy, and reproduced all five of the first draft's mutants. It found
+twelve things. **Ten are handled in full in this commit, and F6 and F12 in part; what is left is
+listed in §5.** The same reviewer then re-checked the fixes and verified all six areas, and its
+four residuals (N1-N4) are fixed here too:
+
+- **F1.** The ruling's own property, that off attaches nothing, was held only at a helper. A mutant
+  restoring the old call site in `newServer` survived the suite. The review's test, which drives
+  `newServer` itself with no database, is kept as written.
+- **F2.** "Over the connect session's own hybrid-PQ encryption" was false for an endpoint-only
+  server in three documents. The sentence was amended in all three. The key exchange was hybrid
+  only by the library's default, and is now pinned and tested.
+- **F3.** The first §4.1 paragraph claimed three of the frame path's reasons held unchanged. It now
+  says what the endpoint costs.
+- **F4, F5, F6.** Five MASTER sentences, two Spec A/C schema comments, Spec C §1.1's twin of MASTER
+  §2, and Spec B's attach-only rows. The revocation gap among them is now stated, not implied.
+- **F7.** One endpoint bind-error path printed the configured address, a §11.1 violation that
+  predated this commit. It is scrubbed and tested.
+- **F8, F9, F11.** Three overclaims in this commit's own wording.
+- **F10, F12.** Stale comments, the oldest left from 268.
+- **N1-N4** (from the re-check):
+  - MASTER §13's direct-route sentence now names the directory and log lookups the operator still
+    sees.
+  - MASTER §4.5's allowance sentence is scoped to the control plane.
+  - Spec B §2.3's Instances and Client affinity rows are qualified.
+  - The schema comments' new clause follows the source it qualifies.
+
+#### 5. What this does not do
+
+- It does not deploy, and it does not remove the server's account on the operator.
+- §9.3's discovery entry gains no field for an endpoint or a pin. Until it does, an endpoint-only
+  server is reachable only by apps given both out of band. The current app compiles them in.
+- **Spec A has no settings field and no C ABI entry for the endpoint URL, the pin or the route
+  mode.** The SDK's `MessageRouteClient` takes them, and the app passes them to
+  `urnet_message_route_client_new`, but no spec names that surface. This is owed in Spec A.
+- F12's residuals are left as they are:
+  - A malformed credential still blocks startup in `off` mode.
+  - In the environment-override test, a two-choice setting's environment value equals the default.
+    The test still discriminates, because the file value differs.
+- On the direct route the server sees the client's address. That is the switch's stated cost, and
+  the app says so.

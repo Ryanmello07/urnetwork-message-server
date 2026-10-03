@@ -525,8 +525,12 @@ costs usability is rejected.
 operator**. Operators and message servers are different things: an operator is the URnetwork
 platform that authorizes transport, mints contracts and routes to providers; a message server
 stores ciphertext and orders records. Two operator servers run today. A message server holds an
-account on one compatible operator, chosen by whoever administers that server, and forwards its
-traffic through it. A client reaches its message server through its own operator. Multi-*server* is
+account on one compatible operator, chosen by whoever administers that server. It forwards its traffic
+through that operator, or serves its own TLS endpoint, or both; with `platform_attachment: off` it holds
+no session on the operator at all (Spec B §4.1 and §9.1, Revision 23). Unless its user switches the
+route off, a client reaches its message server through its own operator: over the platform path, or
+through that operator's providers to the server's endpoint like any internet host. Switched off, the
+client connects to the endpoint directly and the server sees its address. Multi-*server* is
 V2 — the wire format keeps `server_id` fields so it is not a format break, but no code implements
 it. **Nothing in v1 may hardcode a single operator**: every operator-facing value is
 configuration, and a build that compiles one operator's host into a constant is a defect.
@@ -579,7 +583,7 @@ exception.
 | Actor | Role |
 |---|---|
 | **Client** | Holds the seedphrase and all keys. The only place plaintext exists. |
-| **Message server** | Stores ciphertext, orders records, serves history, prunes. One in v1. Holds an account on **one** operator — chosen by its administrator from the operators it is compatible with — and forwards its traffic through it. |
+| **Message server** | Stores ciphertext, orders records, serves history, prunes. One in v1. Holds an account on **one** operator — chosen by its administrator from the operators it is compatible with — and forwards its traffic through it, or serves its own TLS endpoint, or both (Spec B §4.1 and §9.1, Revision 23). |
 | **Operator** | A URnetwork platform instance. **There is more than one; two run today.** Authorizes transport, mints contracts, routes to providers, sets data pricing, and runs its own discovery directory and key-transparency log. **Forwards traffic; never stores message records.** A client uses the operator its account is on; that need not be the one its message server uses. |
 | **Provider** | URnetwork relay. Sees ciphertext in transit only. |
 
@@ -637,13 +641,15 @@ both sides and are not required to be the same.
 **Operators set data pricing; nobody else does.** A message server does not price data and does not
 fund its members' traffic. Messaging consumes the **user's own URnetwork allowance** on the user's
 own operator, exactly as any other traffic on that account does — currently 40 GB per day free,
-which is ample for text, receipts and ordinary attachments.
+which is ample for text, receipts and ordinary attachments. On the direct route a user may choose
+(Spec B §4.1), which shows the message server their address, the control plane consumes no URnetwork
+allowance; the bulk plane is not built, and Spec B §4.1 routes it through a provider.
 
 Message servers operated for the beta are given free data credit by the operator that hosts them.
 That is an arrangement between an operator and a server administrator; it is not a protocol
 feature and no client behaviour depends on it.
 
-**When an account runs out of credit, messaging stops and the client says so.** The failure is
+**When an account runs out of credit, messaging on a URnetwork route stops and the client says so.** The failure is
 reported in the app with the reason named, and the user is directed to the URnetwork website, app
 or VPN client to add credit — URmessage does not sell data and contains no purchase flow. It does
 contain a redemption flow for **balance codes**: a code issued by an operator that grants credit
@@ -1077,7 +1083,8 @@ X-Wing values carry the same material, so the adopted list is nine. MASTER's pre
 had four. The five that are new are the ones the table marks so.
 
 Harvesting today's classical MLS handshake is insufficient, because `pq_secret` arrived under X-Wing.
-Transit is already hybrid — `connect/transfer_encrypt.go:378` leads with `X25519MLKEM768`.
+Transit is already hybrid — `connect/transfer_encrypt.go:378` leads with `X25519MLKEM768`, and a server's
+own endpoint pins its TLS 1.3 key exchange to it (Spec B §4.1, Revision 23).
 
 **Parameter note.** X-Wing is fixed at ML-KEM-768 (NIST Level 3), not the ML-KEM-1024 chosen earlier.
 This is a deliberate trade: the combiner was the risk, not the parameter, and a construction with a
@@ -2649,7 +2656,8 @@ a long offline stretch would re-MAC a record the server is now required to refus
 re-MACs without re-sealing is the falsifying implementation.
 
 The server holds `write_key[n]` itself. It is delivered to the server by the committer over the connect
-session's own hybrid-PQ encryption, and is stored wrapped under a vault KEK. **Which road it travels was
+session's own hybrid-PQ encryption, or, at a server's own endpoint, over its TLS 1.3 session, whose key
+exchange the server pins to `X25519MLKEM768` (Spec B §4.1), and is stored wrapped under a vault KEK. **Which road it travels was
 amended 2026-09-22 by ruling 27:** under attachment kind `0x0001` it rides inside the commit record's
 `server_attachment` (`EpochAttachment.write_key`); under kind `0x0005` the attachment carries
 `LP(H(epoch_keys))` in its place and the key rides on the REQUEST beside the record
@@ -2833,7 +2841,8 @@ remove. Spec B §4.3.4 carries the measurement and the argument.
 ### 9.5 What the server sees
 
 Your account, your group list, `sender_handle` per group, record sizes by bucket, timing, retention
-class. **Not** content, and not which member a handle belongs to.
+class. **Not** content, and not which member a handle belongs to. On the direct route, which a user may
+choose (Spec B §4.1), it also sees that device's IP address; on the default route it sees an exit's.
 
 Delivery receipts add one thing to that list: because a device emits an ephemeral record when it
 decrypts, the server sees **when a device of that group was online and processing**, at
@@ -3292,8 +3301,11 @@ V2 feature, so this line is parity, not an advantage.
 
 **Worse than Signal, and why.** The server knows group membership; Signal hides it with anonymous
 credentials. We keep messages by default — one year for text, one month for media — so your other
-devices can see history. Your operator can see that your device talks to a message server and how
-much. **A server that ignores its own deletion policy is not detectable in v1.** **The message
+devices can see history. On the platform path your operator can see that your device talks to a
+message server and how much; on the default URnetwork route it sees your device's tunnel to an exit
+and how much, not where the tunnel goes; on the direct route it carries none of your messages and the
+message server sees your address. On every route it sees whatever your device asks its directory and
+key-transparency log. **A server that ignores its own deletion policy is not detectable in v1.** **The message
 server holds each epoch's `write_key`, so it can forge the access-control tag on a record it
 injects** — such a record fails MLS verification at every client, so this is a denial-of-service and
 noise vector rather than an authenticity break, and it is written here so nobody discovers it and

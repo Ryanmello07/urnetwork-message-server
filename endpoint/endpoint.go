@@ -181,13 +181,16 @@ func New(ctx context.Context, config Config) (*Endpoint, error) {
 	self := &Endpoint{
 		config: config,
 		pin:    pin,
-		// TLS 1.3 only. Go's default key exchange leads with X25519MLKEM768, so a client that
-		// offers it gets a post-quantum hybrid session with nothing configured here. http/1.1
-		// only, because the upgrade below is an HTTP/1.1 upgrade.
+		// TLS 1.3 only, and the key exchange PINNED to X25519MLKEM768 rather than left to the
+		// library's default (spec B §4.1, Revision 23): the write keys a committer delivers travel
+		// inside this session, and MASTER §9.2 promises them a post-quantum hybrid transit. A client
+		// that offers only a classical group is refused at the handshake. http/1.1 only, because the
+		// upgrade below is an HTTP/1.1 upgrade.
 		tlsConfig: &tls.Config{
-			Certificates: []tls.Certificate{config.Certificate},
-			MinVersion:   tls.VersionTLS13,
-			NextProtos:   []string{"http/1.1"},
+			Certificates:     []tls.Certificate{config.Certificate},
+			MinVersion:       tls.VersionTLS13,
+			CurvePreferences: []tls.CurveID{tls.X25519MLKEM768},
+			NextProtos:       []string{"http/1.1"},
 		},
 		ctx:       cancelCtx,
 		cancel:    cancel,

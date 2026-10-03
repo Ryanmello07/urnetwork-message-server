@@ -26,8 +26,9 @@ import (
 //
 // Startup order is the whole of this file and it is not arbitrary: everything that can fail
 // without a database fails before the pool is opened, everything the pool needs is asserted
-// before the store is built on it, and the connect client — the one collaborator that reaches the
-// public internet — is attached last, after there is something behind it to serve with.
+// before the store is built on it, and the carriers come last: the endpoint opens, then the
+// connect client attaches when this server attaches at all, after there is something behind
+// them to serve with.
 type server struct {
 	config configuration
 	deploy deployment
@@ -40,7 +41,7 @@ type server struct {
 
 	// §4.2's connection table and §5.1's front checks, which [peer.New] is given and which the
 	// handler above was built against. Kept because they are this process's, and because a
-	// replica with no credential builds no peer — so these are the only handles to them.
+	// replica with no carrier builds no peer — so these are the only handles to them.
 	connections *peer.Connections
 	checks      *peer.Checks
 
@@ -108,6 +109,13 @@ var (
 // between the two is: this process cannot serve without a database, and it can run without
 // anything else for long enough to tell somebody why.
 func newServer(ctx context.Context, deploy deployment, loaded configuration, log *slog.Logger) (*server, error) {
+	// A SERVER CONFIGURED NOT TO ATTACH MUST HAVE AN ENDPOINT, or it receives nothing at all: the
+	// platform is the only other carrier there is. Refused at startup and before the pool opens,
+	// because no readiness answer can make that deployment right (spec B Revision 23).
+	if !loaded.attachesToPlatform() && loaded.endpointListenAddress == "" {
+		return nil, errNoCarrier
+	}
+
 	self := &server{
 		config: loaded,
 		deploy: deploy,
@@ -149,7 +157,7 @@ func newServer(ctx context.Context, deploy deployment, loaded configuration, log
 	}
 	// The process's own §4.2 collaborators, kept as fields rather than dropped as locals.
 	//
-	// peer.New takes both, and when there is no credential there is no peer.New call to take them
+	// peer.New takes both, and when there is no carrier there is no peer.New call to take them
 	// — so without these the connection table and the front checks THIS handler was built with
 	// would be unreachable from outside [newServer], and a test could only reach the wiring below
 	// by building a copy of it. A copy is exactly what the restart defect hid behind: everything
@@ -199,7 +207,7 @@ func newServer(ctx context.Context, deploy deployment, loaded configuration, log
 	// The connect client, and the one place this process reaches the operator. Absent unless
 	// every input an attachment needs is present, and absent means absent — see transport.go for
 	// why there is no client-with-no-transport fallback.
-	if canAttach(deploy, loaded) {
+	if wantsAttachment(deploy, loaded) {
 		self.attachment, err = attachToPlatform(ctx, deploy, loaded)
 		if err != nil {
 			self.closeEndpoint()
@@ -240,6 +248,14 @@ func newServer(ctx context.Context, deploy deployment, loaded configuration, log
 		notBuilt:      self.notBuilt(),
 	}
 	return self, nil
+}
+
+// Whether newServer dials the operator's platform: configured to (spec B Revision 23) AND every
+// input an attachment needs present. newServer is its one caller; it is a function so that the
+// decision has one name. TestOffMeansNoSessionEvenWithEveryInputPresent holds it, and
+// TestOffConstructsNoAttachmentAtNewServerItself holds this call site.
+func wantsAttachment(deploy deployment, loaded configuration) bool {
+	return loaded.attachesToPlatform() && canAttach(deploy, loaded)
 }
 
 // The three inputs an attachment needs, all of which /readyz refuses on individually.
@@ -339,8 +355,19 @@ func ephBucketLadder() []uint32 {
 // §10.1's readiness set, in the order §10.1 states it, plus the two §9.1 adds, plus the endpoint's
 // when one is configured.
 func (self *server) preconditions() []precondition {
-	preconditions := self.specPreconditions()
-	if self.endpoint != nil {
+	var preconditions []precondition
+	for _, item := range self.specPreconditions() {
+		// ENDPOINT-ONLY (spec B Revision 23): the two preconditions that exist only so that this
+		// server can attach to the operator's platform are not asked of a server configured not to.
+		// Everything else is, operator_host included: §4.3.1 still advertises it.
+		if !self.config.attachesToPlatform() && platformOnlyPreconditions[item.name] {
+			continue
+		}
+		preconditions = append(preconditions, item)
+	}
+	// The endpoint's own precondition, whenever one is configured AND whenever it is the only
+	// carrier: an endpoint-only replica whose endpoint is not serving reaches nobody.
+	if self.endpoint != nil || !self.config.attachesToPlatform() {
 		preconditions = append(preconditions, precondition{
 			name: "endpoint_listening",
 			why:  "the server's own TLS endpoint is configured and is not accepting connections; check endpoint_listen_address and the certificate (ledger 268)",
@@ -353,6 +380,15 @@ func (self *server) preconditions() []precondition {
 		})
 	}
 	return preconditions
+}
+
+// The preconditions that are about the operator's platform and nothing else, by name. Read only
+// to leave them out of an endpoint-only replica's set.
+// TestAnEndpointOnlyReplicaIsAskedNothingAboutThePlatform holds the set both ways, so a name that
+// drifts from its precondition fails.
+var platformOnlyPreconditions = map[string]bool{
+	"ordinal_credential":      true,
+	"connect_client_attached": true,
 }
 
 func (self *server) specPreconditions() []precondition {
@@ -452,7 +488,7 @@ func (self *server) specPreconditions() []precondition {
 		},
 		{
 			name: "connect_client_attached",
-			why:  "no connection to the operator's platform holds a route; this server receives frames only over connect and binds no socket of its own for them (§9.1)",
+			why:  "no connection to the operator's platform holds a route, so no client that reaches this server through the platform can (§9.1); a server that should not attach sets platform_attachment: off (Revision 23)",
 			met: func(ctx context.Context) error {
 				if self.attached == nil || !self.attached() {
 					return errNotAttached
@@ -462,7 +498,7 @@ func (self *server) specPreconditions() []precondition {
 		},
 		{
 			name: "operator_host",
-			why:  "message.yml's operator_host is unset, or is not a bare host name such as `ur.network`; §9.1 makes it the operator this server holds its account on and both service URLs are derived from it",
+			why:  "message.yml's operator_host is unset, or is not a bare host name such as `ur.network`; §9.1 makes it the operator this server holds its account on, §4.3.1 advertises it whether or not this server attaches, and an attaching server derives both service URLs from it",
 			met: func(ctx context.Context) error {
 				// the same derivation the attachment uses, rather than a non-empty test beside
 				// it: `https://ur.network` is non-empty and produces `wss://connect.https://ur.network`,
@@ -486,6 +522,7 @@ func (self *server) specPreconditions() []precondition {
 
 var (
 	errNotAttached           = errors.New("the platform transport holds no connection")
+	errNoCarrier             = errors.New("platform_attachment is off and endpoint_listen_address is empty: this server would receive nothing; configure the endpoint or attach to the platform (spec B Revision 23)")
 	errNoHostingJurisdiction = errors.New("hosting_jurisdiction is unset")
 	errEndpointNotServing    = errors.New("the endpoint is not accepting connections")
 )
@@ -659,10 +696,14 @@ func (self *server) announce(ctx context.Context) {
 			"pin", "sha256/"+hex.EncodeToString(self.endpoint.Pin()),
 			"listening", "unknown here -- /readyz endpoint_listening is the authority")
 	}
+	if !self.config.attachesToPlatform() {
+		self.log.Info("platform attachment is OFF (spec B Revision 23): this server holds no session " +
+			"on the operator's platform and is reached only at its own endpoint")
+	}
 	if self.attachment == nil && self.endpoint == nil {
 		self.log.Warn("NO MESSAGE TRAFFIC WILL BE SERVED: this process has no URnetwork client. " +
-			"It receives frames only over connect, which dials the operator's platform and is not a socket it can bind (§9.1). " +
-			"Set message_server.yml's <ordinal>.by_jwt and message_fleet.yml's server_id, then restart.")
+			"It has neither a platform session (§9.1) nor its own endpoint (§4.1). " +
+			"Set message_server.yml's <ordinal>.by_jwt and message_fleet.yml's server_id, or endpoint_listen_address, then restart.")
 	} else if self.attachment != nil {
 		// NOT "attached". Reaching here means a connect.Client was CONSTRUCTED and a
 		// platform transport started; the dial is asynchronous and its outcome is not

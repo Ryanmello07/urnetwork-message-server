@@ -39,8 +39,13 @@ func TestEverySettableFieldOfTheConfigurationIsWrittenByExactlyOneSetting(t *tes
 		var target configuration
 		// a value that is non-zero in either shape, so "did this field move" is the same
 		// question for a string field and for an int64 one
-		if err := item.read(&target, "1"); err != nil {
-			t.Fatalf("%s: read of the value 1: %v", item.name, err)
+		// ...and, for a choice setting, its first choice, which is non-zero and is a value it takes
+		sample := "1"
+		if 0 < len(item.choices) {
+			sample = item.choices[0]
+		}
+		if err := item.read(&target, sample); err != nil {
+			t.Fatalf("%s: read of the value %s: %v", item.name, sample, err)
 		}
 		var moved []int
 		mirror := reflect.ValueOf(&target).Elem()
@@ -81,7 +86,7 @@ func TestAValueInMessageYmlIsTheValueTheProcessRunsOn(t *testing.T) {
 	for _, item := range settings() {
 		t.Run(item.name, func(t *testing.T) {
 			base := defaultConfiguration()
-			written := distinctFrom(item.print(&base))
+			written := distinctFor(item, item.print(&base))
 
 			file := writeResource(t, messageResource, fmt.Sprintf("%s: %s\n", item.name, written))
 			loaded, err := loadConfiguration(file, noEnvironment)
@@ -116,8 +121,8 @@ func TestTheEnvironmentOverridesMessageYml(t *testing.T) {
 	for _, item := range settings() {
 		t.Run(item.name, func(t *testing.T) {
 			base := defaultConfiguration()
-			inFile := distinctFrom(item.print(&base))
-			inEnvironment := distinctFrom(inFile)
+			inFile := distinctFor(item, item.print(&base))
+			inEnvironment := distinctFor(item, inFile)
 
 			file := writeResource(t, messageResource, fmt.Sprintf("%s: %s\n", item.name, inFile))
 			variable := environmentNameOf(item.name)
@@ -167,8 +172,10 @@ func TestANumberSettingRefusesWhatIsNotANonNegativeNumber(t *testing.T) {
 	for _, item := range settings() {
 		base := defaultConfiguration()
 		// the text settings take any string by construction; the class here is the settings
-		// whose printed default is a number, derived rather than listed
-		if item.read(&base, "not a number") == nil {
+		// whose printed default is a number, derived rather than listed. A CHOICE setting refuses
+		// "not a number" too, for its own reason, and declares its set: it is held by
+		// TestEveryChoiceSettingTakesExactlyItsChoices instead, so the three kinds partition settings()
+		if 0 < len(item.choices) || item.read(&base, "not a number") == nil {
 			continue
 		}
 		t.Run(item.name, func(t *testing.T) {
@@ -183,6 +190,37 @@ func TestANumberSettingRefusesWhatIsNotANonNegativeNumber(t *testing.T) {
 				t.Fatalf("%s refused 0, which is §10.2's own value for durable_ttl_max_seconds: %v", item.name, err)
 			}
 		})
+	}
+}
+
+// Every choice setting takes each of its choices and refuses every other word, whatever the
+// setting is. The class is the settings that DECLARE a set, so a choice setting added tomorrow
+// is held here on the day it is added.
+func TestEveryChoiceSettingTakesExactlyItsChoices(t *testing.T) {
+	held := 0
+	for _, item := range settings() {
+		if len(item.choices) == 0 {
+			continue
+		}
+		held++
+		for _, choice := range item.choices {
+			var target configuration
+			if err := item.read(&target, choice); err != nil {
+				t.Fatalf("%s refused %q, one of its own choices: %v", item.name, choice, err)
+			}
+			if got := item.print(&target); got != choice {
+				t.Fatalf("%s read %q and prints %q", item.name, choice, got)
+			}
+		}
+		for _, other := range []string{"", "not a choice", strings.ToUpper(item.choices[0]), item.choices[0] + " "} {
+			var target configuration
+			if err := item.read(&target, other); !errors.Is(err, errNotAChoice) {
+				t.Fatalf("%s took %q, which is not one of %v (%v)", item.name, other, item.choices, err)
+			}
+		}
+	}
+	if held == 0 {
+		t.Fatal("no setting declares a set of choices; this test held nothing")
 	}
 }
 
@@ -246,6 +284,20 @@ func writeResource(t *testing.T, name string, contents string) *resource {
 		t.Fatalf("%s was written and readResource says it is not there", name)
 	}
 	return file
+}
+
+// A value the setting takes that differs from `value`: the next of a choice setting's choices,
+// round, and distinctFrom for every other kind.
+func distinctFor(item setting, value string) string {
+	if len(item.choices) == 0 {
+		return distinctFrom(value)
+	}
+	for index, choice := range item.choices {
+		if choice == value {
+			return item.choices[(index+1)%len(item.choices)]
+		}
+	}
+	return item.choices[0]
 }
 
 // A value that is not the one given, in whichever shape the one given is.

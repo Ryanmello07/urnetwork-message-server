@@ -51,10 +51,18 @@ func openEndpoint(ctx context.Context, deploy deployment, loaded configuration) 
 		if errors.As(err, &opErr) && opErr.Err != nil {
 			err = opErr.Err
 		}
+		// ...and an *net.AddrError's text IS the address ("address 203.0.113.5: missing port"), so
+		// a cause that still names it is replaced by a sentinel, exactly as the health port's
+		// bindFailure does (§11.1: no IP address in any log line, including the process's own)
+		if namesTheAddress(err.Error(), loaded.endpointListenAddress) {
+			return nil, nil, errEndpointBindNamesAddress
+		}
 		return nil, nil, fmt.Errorf("endpoint: endpoint_listen_address could not be bound: %w", err)
 	}
 	return served, listener, nil
 }
+
+var errEndpointBindNamesAddress = errors.New("endpoint: endpoint_listen_address could not be bound, and the reason names the address, which is not printed (§11.1); check its host and port")
 
 var errEndpointNoCertificate = errors.New("endpoint: endpoint_listen_address is set and endpoint_tls_certificate_file or endpoint_tls_private_key_file is not; apps pin the server by this key")
 

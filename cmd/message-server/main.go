@@ -2,11 +2,13 @@
 //
 // This build runs. It loads §10.2's `message.yml` and the vault resources beside it, opens the
 // message-server Postgres cluster of decision B10, asserts §3.1's clock and §10.3's migrations,
-// builds the store, the §5.1 pipeline and §4.2's frame dispatch on top of them, attaches a
-// URnetwork client to the operator's platform, serves §10.1's `/healthz` and `/readyz` on a
+// builds the store, the §5.1 pipeline and §4.2's frame dispatch on top of them, opens its own
+// endpoint and attaches a URnetwork client to the operator's platform (either or both, spec B
+// §9.1, Revision 23), serves §10.1's `/healthz` and `/readyz` on a
 // private port, and shuts down in §2.3's order.
 //
-// It binds exactly one socket, and that socket is the health port. **The message plane is not a
+// It binds the health port and, when `endpoint_listen_address` is set, its own TLS endpoint for the
+// message plane (spec B §4.1, Revision 23). **On the platform path the message plane is not a
 // listener and cannot be**: a client reaches this server over `connect`, which dials the
 // operator's platform at `wss://connect.<operator_host>` and receives frames the platform routes
 // to this replica's `client_id`. transport.go is where that is argued from `connect`'s own code,
@@ -14,8 +16,8 @@
 // `network_client` credential of §9.1, which an admin of that operator creates.
 //
 // Without that credential this process still starts, still serves both health endpoints, and
-// refuses readiness on `ordinal_credential` while saying in one log line that it will serve no
-// message traffic. It does not stand up a client that receives nothing: see transport.go.
+// refuses readiness on `ordinal_credential` (unless `platform_attachment` is `off`, when it asks
+// `endpoint_listening` instead) while saying in one log line what it will not serve. It does not stand up a client that receives nothing: see transport.go.
 //
 // Nothing here prints a secret and nothing it calls does. The three secrets — `pg.yml`'s DSN,
 // `message_fleet.yml`'s KEK and `message_server.yml`'s transport credential — are reported as

@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -28,11 +29,16 @@ type configuration struct {
 	diagnosticSessionMaxMinutes int64
 
 	// The server's own TLS endpoint (msgrepo/endpoint), which apps reach through a URnetwork exit
-	// or directly. Not a §10.2 key: the endpoint postdates spec B, and ledger 268 records it.
+	// or directly. Built at ledger 268; §10.2 lists these keys since spec B Revision 23.
 	// Empty listen address means no endpoint.
 	endpointListenAddress   string
 	endpointCertificateFile string
 	endpointPrivateKeyFile  string
+
+	// "on" or "off" (spec B Revision 23). Off, this server holds no session on the operator's
+	// platform at all and is reached only at its own endpoint, which must then be configured: it
+	// is the setting that makes the message server a separate server rather than a platform client.
+	platformAttachment string
 }
 
 // The defaults of spec B §10.2, verbatim.
@@ -48,6 +54,7 @@ func defaultConfiguration() configuration {
 		rendezvousMailboxDepth:      16,
 		cardTombstoneSeconds:        7776000,
 		diagnosticSessionMaxMinutes: 60,
+		platformAttachment:          "on",
 	}
 }
 
@@ -69,7 +76,38 @@ type setting struct {
 	// shown in the startup log as set or unset and never as its value: the value is an address,
 	// and §11.1's MUST-NOT list says "any IP address" without qualifying whose
 	unlogged bool
+	// The whole closed set a choice setting takes, and nil for every other kind. The generic
+	// config tests draw their sample and their "different value" from it, so a choice setting is
+	// held by every test that holds the others rather than exempted from them.
+	choices []string
 }
+
+// The platform attachment's two values. A third is refused rather than read as either: "false",
+// "no" and "0" are each somebody's spelling of off, and a server that quietly attached anyway
+// would be the one outcome the operator who typed them meant to rule out.
+var platformAttachmentValues = []string{"on", "off"}
+
+var errNotAChoice = errors.New("not one of the values this setting takes")
+
+// A §10.2 key whose value is one of a closed set of words.
+func choiceSetting(name string, note string, choices []string, field func(*configuration) *string) setting {
+	return setting{
+		name: name,
+		note: note,
+		read: func(target *configuration, value string) error {
+			if !slices.Contains(choices, value) {
+				return fmt.Errorf("%w: %s", errNotAChoice, strings.Join(choices, ", "))
+			}
+			*field(target) = value
+			return nil
+		},
+		print:   func(source *configuration) string { return *field(source) },
+		choices: choices,
+	}
+}
+
+// Whether this server dials the operator's platform at all (spec B Revision 23).
+func (self configuration) attachesToPlatform() bool { return self.platformAttachment != "off" }
 
 func unlogged(item setting) setting {
 	item.unlogged = true
@@ -158,6 +196,10 @@ func settings() []setting {
 		textSetting("endpoint_tls_private_key_file",
 			"PEM private key for the endpoint, a secret: mode 600. Relative to the resource dir",
 			func(c *configuration) *string { return &c.endpointPrivateKeyFile }),
+		choiceSetting("platform_attachment",
+			"on: hold a session on operator_host's platform (§9.1). off: hold none; the server is reached only at its own endpoint, which must be configured (Revision 23)",
+			platformAttachmentValues,
+			func(c *configuration) *string { return &c.platformAttachment }),
 	}
 }
 

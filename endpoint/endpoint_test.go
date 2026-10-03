@@ -178,3 +178,44 @@ func testCertificate(t *testing.T) tls.Certificate {
 	}
 	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}
 }
+
+// THE KEY EXCHANGE IS PINNED, not left to the library's default (spec B §4.1, Revision 23): a
+// default Go client negotiates X25519MLKEM768, and a client offering only classical X25519 is
+// refused at the handshake. The second half is the one a default would not show.
+func TestTheEndpointTakesOnlyTheHybridKeyExchange(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	served, err := New(ctx, Config{Certificate: testCertificate(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer served.Close()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	go served.Serve(listener)
+
+	dial := func(curves []tls.CurveID) (*tls.Conn, error) {
+		return tls.Dial("tcp", listener.Addr().String(), &tls.Config{
+			// the identity is not what this test is about; the pin test above holds it
+			InsecureSkipVerify: true,
+			MinVersion:         tls.VersionTLS13,
+			CurvePreferences:   curves,
+			NextProtos:         []string{"http/1.1"},
+		})
+	}
+	hybrid, err := dial(nil)
+	if err != nil {
+		t.Fatalf("a default client could not complete a handshake: %v", err)
+	}
+	state := hybrid.ConnectionState()
+	hybrid.Close()
+	if state.CurveID != tls.X25519MLKEM768 {
+		t.Fatalf("a default client negotiated %v; the endpoint must negotiate X25519MLKEM768", state.CurveID)
+	}
+	if classical, err := dial([]tls.CurveID{tls.X25519}); err == nil {
+		classical.Close()
+		t.Fatal("a client offering only X25519 completed a handshake: the hybrid key exchange is a default here, not a pin")
+	}
+}
