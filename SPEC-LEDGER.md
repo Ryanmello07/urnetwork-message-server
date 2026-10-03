@@ -11347,6 +11347,59 @@ repo and therefore the critical path — not this repository:
     `/var/backups/urmessage/`. `URmessage-alpha-2026-10-02b.zip` (route and push) is staged beside
     `-02a` in `/opt/urmessage/dist/` and has not been distributed.
 
+
+270. **266's (6) IS FIXED: AN OVER-LIMIT TEXT STAYS IN THE BOX, AND THE SEND IS REFUSED BEFORE THE
+    QUEUE.** 2026-10-02. `sdk ae13f53`, `message-windows demo-ui e681bff`.
+
+    **WHAT WAS WRONG** (266): Send cleared the box. A red row then showed the library's raw sentence,
+    *Try again* failed the same way, and the text could not be copied back out. The sealer's refusal
+    arrived after the box had emptied, so a long message was lost.
+
+    **THE FIX, FROM THE SEALER TO THE COMPOSER.**
+    - The SDK's hand-written C header now carries `URNET_MESSAGE_MAX_TEXT_OCTETS 65333` and
+      `URNET_MESSAGE_MAX_REPLY_TEXT_OCTETS 65301`. `cgo/gen`'s
+      `TestTheHeadersTextLimitsAreTheSealersOwn` holds both to `urmessage.MaxTextOctets` and
+      `MaxReplyTextOctets`, which `kind.go` refuses by.
+    - The app keeps its own copies and `static_assert`s them against the vendored header, so the
+      chain cannot drift without a test failing or the build breaking.
+    - `UpdateComposerSend` measures the box as UTF-8 octets on every change, counted from the UTF-16
+      it holds: a surrogate pair is 4 octets, and a lone surrogate is the 3 of the U+FFFD it
+      narrows to.
+    - Past the limit, Send is dark and its accessible name says why ("Send: the message is too long
+      to send"). The caption reads *"Too long to send — N of 65,333 bytes. Shorten it, or send it in
+      parts."* in the danger brush the failed-send line uses. Enter is refused too.
+    - `SendFromComposer` refuses before `QueueSend` and returns false, so nothing is queued, no
+      failed row is drawn, and the box keeps the text.
+
+    **VERIFIED.**
+    - The header test passes, and fails with the reply define set to 65333.
+    - The app's `--diagnose` shows 92 PASS and 0 FAIL, including the new "composer limit" gate.
+      With the spoken-reason branch removed, the gate fails for its own reason (91/1).
+    - `--demo-composer=overlimit` pre-fills 70,000 octets. A capture of that state shows the text in
+      a box capped in height, Send dark, and the caption red.
+
+    **A CAPTURE CAN BE CLIPPED WITHOUT LOOKING CLIPPED.** The first capture of that state had no
+    composer in it at all. The capture script read the window's rect from a DPI-unaware process, so
+    on this 125% display it saw 1560x900 of a 1950x1125 window. PrintWindow drew the real window into
+    the smaller bitmap, and the right pane, the composer and the status strip fell off the edge with
+    nothing to show they were missing. The Settings capture sent to the owner on 2026-10-01 was
+    clipped the same way, although everything it did show was accurate. The script now sets
+    per-monitor DPI awareness on its thread and prints both rects.
+
+    **266's LIST, AS IT NOW STANDS.**
+    - **(1) and (5)** are met for the URnetwork and direct routes by 268's endpoint: TLS 1.3 to the
+      server's own pinned key. The platform route, kept for older builds, still crosses the platform
+      readable (267).
+    - **(6)** is this item.
+    - **(2)** sealing the epoch keys to a server key, **(3)** the sender-side self-update, and
+      **(4)** encrypting the device state at rest are open.
+
+    **WHAT THIS DOES NOT DO.**
+    - It does not split a long text. The caption tells the person to.
+    - Blob bodies for long texts remain designed and not built.
+    - MASTER and two ledger entries still say 65,334, which counts the kind octet. That correction
+      is a MASTER change and is still owed, with its diff review and §7 entry.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
