@@ -3094,7 +3094,9 @@ leaves both live and is completed on the next run rather than being restarted. T
 until ownership has been transferred to a current member; the client offers the transfer in the
 same flow rather than reporting a bare failure. A group can therefore never reach the
 unadministrable state through an ordinary, deliberate departure. This does not replace succession,
-which covers the different case of an owner who simply stops using the app.
+which covers the different case of an owner who simply stops using the app. An owner alone, or one
+whose other device stays in the group, leaves nobody without an owner and is not refused (Spec A
+§7.3).
 
 **Owner succession.** The group-context extension may carry a successor nomination: the member
 nominated, the time of nomination, and whether succession is enabled at all. Promotion requires
@@ -3268,7 +3270,15 @@ expects, and §13 states it to users in those terms.
   parameter to tune quietly. Expired disappearing messages are the exception and are unaffected:
   their guarantee is key destruction, not row deletion, which is precisely why it survives backups.
 - A group whose members have all left is reclaimed 30 days after it is closed, which is when the
-  last of its stored ciphertext and its retained read keys are destroyed.
+  last of its stored ciphertext and its retained read keys are destroyed. A leave tells the server
+  nothing (below), so in v1 a group its members have all left is not closed by their leaving, and
+  is reclaimed only once something else closes it.
+- **Leaving tells nobody.** A member has no MLS proposal for its own leaf, so leaving erases this
+  device's copy of the conversation and commits nothing (ledger 257, ruling 48). The others keep
+  their copies. Deleting one's messages for everyone before leaving takes them off devices that
+  are online and honest, and not from anyone who already read them (the first bullet above). The
+  leaver's leaf stays until somebody removes it: an admin's only by the owner, an owner's by
+  nobody.
 
 ### 12.4 Required UI language
 

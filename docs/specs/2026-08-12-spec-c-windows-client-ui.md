@@ -107,6 +107,7 @@ Append-only. Newest last. One entry per commit that changes this spec. Every cha
 | 8 | **A SECOND BACKFILL: `92a27e1`, which changed this document and appended no row here. Rev 7 above calls itself "THE ONLY ROW HERE THAT IS NOT THE COMMIT IT DESCRIBES", and from this row on that is no longer true; this log is append-only, so Rev 7 stays as written and this row says so.** Nothing in this document is amended by this row. **`92a27e1`** amended §12.3's *Full* outcome of removing a device from *"That device can no longer read or send."* to *"Those groups' administrators can no longer send this device any message it can read."*, with MASTER §9.2 and §13 in the same commit. The old sentence made the removal promise unconditionally, and a hostile committer holds the next epoch's secrets by construction, so no group protocol with a privileged committer can keep that promise against the committer (ledger item 254, rulings 41 to 45; ruling 44 is the change of promise). **Why now:** `editlog_test.go` has failed on `92a27e1` since 2026-09-24, and nothing recorded it until ledger 269 (2026-10-02), which found it by running the whole module. The hash is dispositioned `backfilledInTheLog` there and asserted against this row. |
 | 9 | **The message server's own endpoint (Spec B Revision 23) reaches this document in two places.** The `message_server_id` schema comment says it addresses the platform path, and that an endpoint is addressed by URL and key pin instead. §1.1's sentence on how this client reaches its message server, a twin of the MASTER §2 sentence amended in the same commit, names the platform path, the endpoint through the operator's providers, and the direct route a user may choose. Same commit as Spec B Revision 23, Spec A A-29, MASTER, and the ledger §7 entry of 2026-10-02. |
 | 10 | **Delete for everyone has no time limit, by the owner's ruling of 2026-10-02, verbatim: "I think you should be able to delete your messages at any time".** §8.2's 24-hour availability, and the muted line shown outside it, are struck. The item is offered on messages this device sent, at any age, and is absent on everything else (per device: D7 is unruled). §16.3's lint 1 counts four live keys. `msg_delete_window_explainer` and the `delete_window_expired` mapping are retired. Screen 11's row, §10.1's toast-revocation note and the acceptance row follow. The app built the button the same day (`message-windows demo-ui 685b0a8`). MASTER §8.4.2, §12.1, §12.4 and §13, and Spec A A-30, are amended in the same commit. |
+| 11 | **Delete for me and leave, and delete all my messages, are specified** (ledger 273). §12's owner paragraph no longer says the leave "completes automatically": leaving commits nothing and tells nobody (Spec A A-31; ledger 257's ruling 48, unpaid until now), and the alpha's one button, its three confirmation variants and its copy are written out. §8.2 gains `[ Delete all my messages (N) ]`, scoped to messages this device sent. The leave copy says only what is true (the diff review's M4), and §12 records that the alpha confirms leaving and handing over without §6.6's Windows Hello gate. MASTER §11 and §12.3, and Spec A A-31, are amended in the same commit. |
 
 ---
 
@@ -909,6 +910,8 @@ Master §12.4 does not cover it, and the honest thing must be said:
 
 A deleted message leaves a placeholder in the timeline reading *"This message was deleted."* — the row never disappears, in any conversation, for anyone. An unbounded silent retraction would let someone rewrite a years-old shared conversation with nobody able to see that they had.
 
+**Delete all my messages.** `[ Delete all my messages (N) ]`, in the inspect rail under the conversation's subject, deletes for everyone, one tombstone each, the N messages **this device** sent (the per-device rule above). It is absent when there are none, when the session cannot send, and for an observer. Its confirmation opens with `msg_delete_for_everyone_explainer` word for word and adds *"Only the messages this computer sent are deleted: everybody else's stay where they are."* Close is the default.
+
 ### 8.3 Disappearing messages, on by choice
 
 Off by default (ledger T6). The sheet that turns them on shows `msg_disappearing_explainer` above the bucket picker, and a second line about attachments (§12.2 of the master spec: an attachment on an ephemeral parent inherits the parent's key class):
@@ -1357,12 +1360,25 @@ The owner's rule for the VPN app applies unchanged: Windows chrome, Mica, standa
 >
 > **"Remove this identity from this computer"** — destructive. Windows Hello gated (§6.6 action 6) with the typed-`REMOVE` fallback, and this copy: *"Your messages will be removed from this computer. You can get your history back only with your 24 words."* **Hard-blocked** when `PhraseConfirmedAtMs() == 0`, offering `[ Show my phrase first ]`. Calls `RemoveIdentity()`.
 
-**An owner cannot leave a group without handing it over.** `LeaveGroup` returns `GroupResult.Reason == "owner_must_transfer"` and commits nothing, so the client never shows a failure: it opens the transfer flow of screen 30 inline, in place, with the member picker already open —
+**An owner cannot leave a group without handing it over**, unless they are alone in it or another of their own devices stays in it. `LeaveGroup` returns `GroupResult.Reason == "owner_must_transfer"` and commits nothing, so the client never shows a failure: it opens the transfer flow of screen 30 inline, in place, with the member picker already open —
 
 > **You own this group. Choose who takes it over before you leave.**
 > `[ member picker ]` `[ Transfer and leave ]`
 
-— and the leave completes automatically once the transfer commits. Spec A §7.3 keeps the transfer and the leave as two calls precisely so this screen can offer the way out instead of reporting a dead end, and the two-call shape is worthless if the UI renders the refusal as an error.
+— and once the transfer commits, the leave runs. Leaving commits nothing (Spec A §7.3; ledger 257, ruling 48): it erases this computer's copy of the conversation and tells nobody, and this device stays on the others' member list until somebody removes it. Spec A §7.3 keeps the transfer and the leave as two calls precisely so this screen can offer the way out instead of reporting a dead end, and the two-call shape is worthless if the UI renders the refusal as an error.
+
+**The alpha builds this as one button** (ledger 273): `[ Delete for me and leave ]`, in the inspect rail under the conversation's subject and under `[ Delete all my messages ]` (§8.2), live only. What its confirmation offers is decided from the roster when the rail is drawn:
+- a member, or an owner alone or with another device of its own in the group, gets the plain confirmation below;
+- an owner with exactly one other person, while the session can commit, gets one that names them and hands the conversation over in the same press, `[ Hand over and leave ]`, its body prefixed *"You own this conversation, so {name} becomes its owner first."*;
+- an owner with more is told to make someone else the owner under Members first (*"Hand this group over first"*), because the inline member picker above is not built.
+
+> **Delete this conversation and leave?**
+> This deletes the conversation and its keys from this computer. The others are not told. They keep their copies, and you stay on their member list until they remove you. To take your messages off their devices too, delete them for everyone first: that reaches devices that are online and honest, not anyone who has already read them.
+> `[ Cancel ]` `[ Delete and leave ]`
+
+Cancel is the default in every variant; the third has only `[ OK ]`. The conversation's own label goes with it; the names given to people stay. A refused leave is drawn at the foot of the conversation in the library's words. A granted one returns the app to the join dialog, with the thread and the rail empty as they are at a first launch, and the composer's draft cleared. A leave whose erase did not finish has still left (Spec A §7.3): the join dialog says that the erase finishes at the next start.
+
+**The alpha departs from §6.6 here, and says so.** Leaving and handing over are action 4 of the Windows Hello gate (C-4). The alpha confirms both with a plain dialog, as its roster's `[ Make owner ]` already did. The gate is owed before this ships beyond the alpha.
 
 **Notifications — which carrier each control writes.** The per-conversation override is `SetGroupNotificationMode(groupId, mode)` with the closed set `default` / `name_and_message` / `name_only` / `nothing`, read back as `MessageGroup.NotificationMode`; mute is `SetGroupMuted(groupId, muted)`, read back as `MessageGroup.Muted`. Both are personal state and commit nothing to the group.
 

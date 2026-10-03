@@ -11532,6 +11532,9 @@ repo and therefore the critical path — not this repository:
     Spec C §8.2) follows in its own commit with its diff review. The app's Delete button is already
     built (`message-windows demo-ui 685b0a8`).
 
+    **2026-10-03: "delete for me and leave" is built and specified** (§7, 2026-10-03), with H2's
+    transfer-first rule and L1's store half. The request-and-approve protocol is still held.
+
 274. **REACTIONS CARRY H4's FLAW: A NEWCOMER ON A REFILLED LEAF CAN CANCEL THE PREVIOUS OCCUPANT'S
     REACTIONS.** Filed 2026-10-02 from the delete-for-everyone diff review (§7, same date). It
     reproduced it first with two records under one handle, then, on its re-check, end to end through
@@ -11567,6 +11570,41 @@ repo and therefore the critical path — not this repository:
 
     Spec C wins until amended. The next Spec C revision for item 273's other half (leaving) should
     carry both, or the app should be brought to Spec C.
+
+    **HALF RESOLVED 2026-10-03** (§7, same date). The app now reads Spec C's *"This message was
+    deleted."* with the line's original time under it, and Spec C §8.2 now specifies
+    `[ Delete all my messages (N) ]` scoped to messages this device sent, with the app's copy
+    following. **Still open:** §5.2a's sender name is not drawn on the placeholder, because a
+    system line carries no sender and the protocol carries no names.
+
+276. **EVERY JOIN CODE THE APP SHOWS LEAVES AN UNUSED KEY-PACKAGE PRIVATE HALF ON THE DISK.** Filed
+    2026-10-03 from the live leave run (§7, same date), and measured there: a test device that showed
+    4 join codes and joined twice held **6** entries in its `state/kp/`, where one outstanding key
+    package was expected.
+    - **The cause.** `urnet_message_device_key_package` is the buffer-out pattern: call once with no
+      buffer to learn the size, again to fill it. Each call runs `Device.KeyPackage()`, which MINTS
+      a key package and stores its private half. The app's `JoinFromPeer` makes both calls, so each
+      join code it shows mints two and publishes one. The sizing call's private half can never be
+      consumed by a Welcome. 4 codes x 2 mints, less the 2 a join consumed, is the 6 measured.
+    - **What it costs.** Not a confidentiality break: a private half that was never published is
+      never used. It is key material that accumulates, one per launch without a group and now one
+      per leave, and nothing erases it until the device's own state is erased.
+    - **The fix** is to mint once per pair of calls (keep the minted package between the sizing
+      call and the filling one), or to have the app pass a buffer large enough the first time. The
+      ABI's comment should stop recommending the two-call pattern for a call that mints.
+
+277. **THE OWNER'S DIRECTIVE OF 2026-10-03: OUT OF THE DEMO, AND UPSTREAM.** Verbatim: **"since we
+    are now working outside the demo- lets start PRing all of our work to upstream as well as
+    merging our beta/demo branches to main on our forks, additionally SDK have moved without us
+    most likely so we need to merge that with upstream- URmessage alone commits should not conflict
+    too harshly with SDK mainstream but you need to start getting all of this organized today"**.
+    - For each repository: merge upstream's main into the working branch, make that branch the
+      fork's main, and open a pull request from the fork to `urnetwork/<repo>`. The working branches
+      are `connect` and `sdk` `beta/message`, this repository's `main`, and `message-windows`
+      `demo-ui`.
+    - The 2026-09-06 flow stands: commit to the fork, pull-request to upstream. This directive is
+      what opens those pull requests. The divergence is measured in scratch clones before any live
+      tree is touched.
 
 ## 6. Change process
 
@@ -22179,3 +22217,229 @@ entry's list of the code it describes now names the identity check itself.
   `Group.Delete` seals a tombstone that T-b then ignores. Nothing else reaches it in this build: a
   device added back onto another leaf cannot read the lines its old leaf wrote. The send side
   should test T-b's own two operands, and that goes in the next `sdk` change with its review.
+
+### 2026-10-03 — Spec A A-31, Spec C Rev 11, MASTER §11 and §12.3: delete for me and leave, and the send side asks T-b's own predicate
+
+**Change:** one commit in this repository, specs and ledger.
+- MASTER §11: an owner who strands nobody is not refused. §12.3: leaving tells nobody.
+- Spec A §7.3: `LeaveGroup` is local and commits nothing, and the shape that ships. §7.4: both
+  sides of T-b ask one predicate. Log row A-31.
+- Spec C §12: the owner paragraph, and the alpha's one button with its three variants and its
+  copy. §8.2: `[ Delete all my messages (N) ]`, scoped to messages this device sent. Log row Rev 11.
+- Items 273 (a line saying the leave is built) and 275 (half resolved), and new items 276 and 277
+  (the owner's upstreaming directive, recorded the day it was given).
+
+The code it describes is in other repositories:
+- `sdk beta/message d2fb60a`:
+  - `urmessage/forget.go`: `Device.ForgetGroup`, with `ErrOwnerMustTransfer`, `ErrForgetUnfinished`
+    and `ErrGroupNotHeld`;
+  - the leave mark in `statestore_durable.go`, finished by `Restore`;
+  - `sameSender` in `urmessage/group.go`;
+  - the export `urnet_message_device_forget_group`, answering a `URNET_MESSAGE_FORGET_*` kind;
+  - their tests.
+- `message-windows demo-ui 9156e1f`:
+  - the rail button and the worker's leave, with the kinds and one receive first;
+  - the per-pass stamps on queued actions;
+  - the way back to the join dialog, for founders too;
+  - the placeholder in Spec C's words, and the per-device bulk-delete copy.
+
+#### 1. The ruling
+
+The owner, 2026-10-02: **"... or one party can just locally delete and leave"**. Item 273 decided
+how: "delete for me and leave", with H2's transfer-first rule, M3's device-level meaning and L1's
+store half. This commit is that. Ledger 257's ruling 48 is why it is local: a member has no MLS
+proposal for its own leaf, and no identity's last leaf leaves in its own commit. Its two unpaid
+amendments, Spec A §7.3 and Spec C §12, are paid here.
+
+#### 2. What is now normative
+
+- **Leaving is local and commits nothing.** It closes the group, then erases this device's copy:
+  every epoch state, every copy of a line it sent, the peer-head table and the group record. It
+  tells nobody. The leaf stays until somebody removes it (an admin's only by the owner, an owner's
+  by nobody), and until then this identity cannot be added back (R6a).
+- **It keeps** the stream-index reservations (not secret, and a reserver that never rewinds never
+  reuses a nonce if the device is added back), the local names, and the log.
+- **The owner refusal, exactly:** this device is its identity's last leaf and another identity
+  holds one. An owner alone, or one with another device of its own in the group, strands nobody
+  and may leave. The refusal and the close are one critical section, so an ingest cannot make the
+  device the owner between them. The refusal changes nothing.
+- **Both sides of T-b ask one predicate**, so `DeleteForEveryone` refuses every tombstone that rule
+  refuses for the line as this device holds it, including a line another device of the same person
+  sent. It used to ask `Message.Mine`, which is the identity alone and falls back to the handle when
+  the identity is undetermined (§7 of 2026-10-02, §5). A receiver that could not determine a line's
+  sender still ignores a tombstone for it.
+- **An erase that stops part way is finished, not lost.** A durable mark goes down inside the
+  close's critical section, and the erase removes it last. A marked group is never restored, and
+  the next `Restore`, or leaving again, finishes it. `ErrForgetUnfinished`, and the ABI's
+  `UNFINISHED`, mean the device HAS left and only the erase is owed. A group founded and never
+  opened has no record and is marked all the same, because its epoch states are key material.
+  A `Join` or a `CreateGroup` of a group id whose leave is unfinished finishes that erase first,
+  or refuses with `ErrForgetUnfinished`.
+- **The app** has one button, `[ Delete for me and leave ]`, whose confirmation is decided from the
+  roster: plain; a hand-over to the one other person; or "hand this group over first". It
+  receives once before leaving, when it can. A granted leave returns the app to the join dialog,
+  with the thread and the rail as at a first launch. Nothing queued for the group it left can run
+  against the next one.
+
+#### 3. Verification
+
+| Command | Result |
+|---|---|
+| `go test ./ -run 'TestTheEditLogGate\|TestThePlanLinter' -timeout 900s -count=1` | `ok` |
+| `sdk`: `go test ./urmessage/ -run Test -timeout 900s -count=1` | `ok` |
+| `sdk/cp3b`: `go test ./ -run Test -timeout 1800s -count=1` | `ok` |
+| `sdk`: `go test ./ -run Message`; `sdk/cgo`: `go test ./ ./gen/ -run Test` | `ok`; `ok`, `ok` |
+| `go vet` and `gofmt -l` on `urmessage`, `cp3b` and `cgo` | clean |
+| `message-windows`: `build-local.ps1 -Platform x64 -Configuration Debug`; `URmessage.exe --diagnose` | succeeded; every line PASS, including the new `leave words` |
+
+Each mutant ran in its own copy of the `sdk` tree, with both suites in full.
+
+| Mutant | Killed by |
+|---|---|
+| `ForgetGroup` does not erase the disk | `TestAMemberWhoLeavesLeavesNothingBehindAndCanBeAddedBack` |
+| the group is never closed | the same test |
+| the device keeps naming the group | the same test |
+| no owner refusal | `TestAnOwnerIsRefusedUntilOwnershipMovesAndTheRefusalChangesNothing` |
+| the close runs before the refusal is asked | the same test |
+| another device of the owner's own no longer exempts | `TestAnOwnerWithAnotherDeviceOfItsOwnMayLeaveFromThisOne` |
+| `sameSender` drops the handle half | `TestSameSenderIsTheSameLeafAndTheSameIdentityAndNothingEmptyMatches` and the per-device row |
+| `sameSender` lets two empty identities match | the same two |
+| `sameSender` lets two empty handles match | the truth table |
+| `Group.Delete` asks `Message.Mine` again | `TestThisDeviceCannotDeleteItsOtherDevicesLine` (the review's probe: a line another device of the same identity sent is `Mine` here) |
+| `ownHandleLocked` derives leaf 0's handle | `TestAJoinerDeletesItsOwnLine` (the review's probe; every other successful delete in the suites is the founder's, at leaf 0) |
+| a marked group is answered by `GroupRecords` | `TestAnEraseThatStopsAfterTheKeysIsFinishedAndNeverRestored` |
+| the erase removes the mark first | `TestALeaveStoppedByAHeldOpenFileIsFinishedOnceItIsReleased`, **on Windows only** |
+| `Restore` does not finish a marked group | `TestACrashMidLeaveIsFinishedByTheNextRestore` |
+| leaving again ignores the mark | `TestACrashMidLeaveIsFinishedByLeavingAgain` and the held-open test |
+| the close writes no mark | the held-open test, **on Windows only** |
+| a mark copied into another group's directory is obeyed | `TestAMarkNeedsNoRecordAndMustNameTheDirectoryItSitsIn` |
+| `Join` does not finish a standing mark (the re-check's R1) | `TestAGroupRejoinedOverAnUnfinishedLeaveSurvivesTheNextRestart`: "bob was in one group and 0 came back" |
+
+Every row ran after the review's fixes, each in its own copy of the tree, with both suites in full.
+Two rows die only in the Windows test, which stops the erase with a file another process holds open;
+a Linux run would not reach them. The review's own mutant that checks, unlocks and then closes
+survives both suites. The one critical section is correct by inspection, and no test drives the race.
+
+A first draft also exempted a device a valid commit had REMOVED. That mutant survived as well: an
+owner is never removed and a removed device's roster still reads, so the branch did nothing. It is
+deleted, and `TestARemovedDeviceMayLeave` holds the case without it.
+
+**Run live, on the deployed alpha.** The app ran under the third test account, in a scratch
+`URMESSAGE_APP_ROOT`, with `URMESSAGE_ROUTE=direct`. `sdk/livepeer` under the second account
+founded the group over the direct endpoint, and the app joined as a member.
+- The rail drew `[ Delete for me and leave ]` under the conversation's subject.
+- `URMESSAGE_DEV_LEAVE_AFTER_MS` queued a plain leave 90 s later. Within half a second the log
+  read `*** LEFT ***`, the empty world was drawn, a fresh join code was minted and the join
+  dialog was up.
+- The state directory then held no file of the group.
+- A third run, on the build with the review's fixes, left by the `URNET_MESSAGE_FORGET_OK` road
+  in 73 ms, after receiving once, and came back to the join dialog.
+- A relaunch restored no group and joined a new one. A second leave drew the thread and the rail
+  as a first launch does, and the status strip kept the route and the pinned key.
+- The first run drew a "Direct message" card in an empty rail, an empty server and an open
+  padlock, and logged `relayPath has 0 nodes`. All three are fixed in the app commit, and the
+  second run shows them fixed.
+
+That switch is the one thing in the app that destroys anything on a variable. It is honoured only
+under an overridden `URMESSAGE_APP_ROOT`, so it can never reach a person's own state, and a launch
+without one says so in the log. The run also measured item 276.
+
+#### 4. The diff review
+
+An independent subagent reviewed the diff across the three repositories, byte-identical to the live
+trees at its start and end, and reproduced the verification. **Verdict: approve with changes.**
+It confirmed the critical section, every write path's `closed` check, the receive arm's identity
+with the code before this change, the export, the app's re-indent and its three leave variants. It
+found one high, four medium, eight low and six nits. All are handled here, apart from what §5 lists:
+
+- **H1, reproduced by the review: a failed erase could never be finished.** A file another process
+  held open stopped the erase after the epoch states were gone. Every later `ForgetGroup` answered
+  `ErrGroupNotHeld`, every `Restore` failed, and this device's own line stayed on the disk. **Fixed by
+  the leave mark** (§2). The review's probe is kept as the held-open test, and the same stop by a
+  crash is tested on every platform. The app now distinguishes the kinds, so it no longer goes on
+  holding a closed group whose sends all fail.
+- **M1: an action queued during a leave could run against the next group.** Every queued action is
+  now stamped with the group pass it was made for, and stale ones are dropped. One leave runs at a
+  time, and nothing else is taken while it is in flight.
+- **M2: an owner who left never saw the join dialog again,** because a founder never reaches
+  `Joined`. The dialog's on-screen state is now tracked, and it is re-armed when the empty world
+  arrives.
+- **M3: the send side of T-b was untested where it matters,** and §3's claim that Delete-asks-Mine
+  could not be tested was false. Both of the review's probes are kept as tests, and §3 says what
+  they kill.
+- **M4: the leave copy claimed more than is true.** It said "everything in it", but the names
+  given to people stay. And "unless you delete those for everyone first" contradicted MASTER
+  §12.3's first bullet. The copy, Spec C §12 and MASTER §12.3 are reworded, and the conversation's
+  own label now goes with the leave.
+- **The lows, as follows:**
+  - MASTER §12.3's reclaim bullet now says a leave cannot close a group (L1).
+  - Spec C records the Windows Hello departure (L2).
+  - "until an admin removes you" becomes "until they remove you" (L3).
+  - The app receives once before leaving (L4).
+  - The missing Unsubscribe is in §5 (L5).
+  - Spec A §7.4 says what the one predicate does and does not guarantee (L6).
+  - `ForgetGroup`'s doc names its one-caller rule (L7).
+  - The bulk delete's identity-based selection is in §5 (L8).
+- **The nits:** the moved test comment, the "answers closed" wording, the two owner sentences
+  without their exceptions, the Blocked dialog's "OK", the cleared draft, a transcribed copy of
+  Spec C's body in `--diagnose`, and the developer switch, which now also refuses the real root
+  spelled out.
+
+**The same reviewer re-checked the fixes**, against byte-identical diffs, reran every suite and its
+own versions of three mark mutants, and found every finding above discharged. **Verdict: approve
+with changes.** The mark opened one new medium, which it reproduced:
+
+- **R1.** A re-join of the same group while the leave mark stood was erased at the next restore,
+  with no warning. Fixed: `Join` and `CreateGroup` finish a standing erase first, or refuse. The
+  cross-platform test in §3 kills the mutant that skips it.
+- **R2.** A mark can be on the disk although its write reported failure: the store renames, then
+  syncs the directory, and answers the sync's error. Unix only. The leave now goes on wherever the
+  mark stands, rather than refusing over an erase the next restore would perform.
+- **R3.** A recovered panic in the forget export answered `OK`, the zero value. Its result is now
+  named and preset to `FAILED`. The commit verbs' exports have the same shape, with `OK` also zero,
+  and are not changed here.
+- **R4.** The join dialog's flag was set before `ShowAsync`, which throws while another dialog is
+  open. It is now set after, and a throw retries a second later. The leave button hides while a leave
+  is in flight. A neutral onboarding state now goes out before the empty world, so a founder's old
+  invitation is never re-drawn.
+- **R5.** A pasted join code or invitation survived the leave, into the next group. Both are now
+  cleared when the pass ends.
+- **Nits, all taken:**
+  - the leave flag is taken first and given back on every refusal, and a dropped stale leave gives
+    it back too;
+  - the owner refusal's doc is restored to its own declaration;
+  - the unit test no longer claims a kill it does not make;
+  - one unreadable mark is reported without stopping the others being finished;
+  - the close error's handling is documented;
+  - the leftover "would ignore" and "an admin" sentences, here and in A-31, are corrected;
+  - `QueueLeave`'s comment names the in-flight refusal;
+  - `LeaveGroup`'s false case names the hand-over that may already have happened;
+  - the developer switch compares the root actually in use.
+
+**These last fixes were not reviewed a third time.** They were verified by building, by every
+suite, by the R1 mutant and by `--diagnose`. That is the lead's call, made because the owner's
+upstreaming directive (item 277) needed these trees committed the same day. It is recorded here
+rather than left implied, and the next diff review of this code should start from these fixes.
+
+#### 5. What this does not do
+
+- It tells nobody. There is no content kind for "left", and whether to add one is the owner's
+  open question. The request-and-approve protocol stays held (item 273).
+- It does not reach what a recovery-key restore could fetch, once that path is built (item 273,
+  H6): a restore could bring back history this device erased.
+- A transfer TO this device that it has not yet received when it leaves strands the group, and
+  MASTER §11's succession, the remedy, is not built.
+- An owner of a larger group is pointed at Members. The inline member picker Spec C §12 describes
+  is not built.
+- The placeholder's sender name (item 275) and the stranded key-package halves (item 276) are
+  open.
+- **There is no Unsubscribe** (report L1), so the server may go on announcing a left group to this
+  connection. The app's worker no longer reads those announcements.
+- **The bulk delete selects by `Message.Mine`, the identity,** where §8.2 says "this device".
+  The two are the same set while one person is one device, as in this build. A line another
+  device sent would be offered, and refused by name (`sameSender`).
+- **An owner who leaves from one of two devices leaves a leaf nobody can remove** (the review,
+  reproduced), and that case gets the plain copy. It is unreachable in the app, which runs one
+  device per person.
+- The founder path of M2 was not driven live: `sdk/livepeer` only founds, so the app can only
+  join. The fix is by reading, and the joiner path is the one driven three times.
