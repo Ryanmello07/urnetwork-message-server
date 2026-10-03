@@ -8131,7 +8131,8 @@ fourteen are dispositioned below.
     carries a server attachment and so takes the other arm. *Blocks:* every attachment above about
     65 KB, and the blob plane's client half.
 
-211. **FILED, NOT RULED. THE 24-HOUR DELETE-FOR-EVERYONE BOUND NAMES NO CLOCK, AND EVERY CLOCK INSIDE
+211. ***CLOSED 2026-10-02 BY THE OWNER'S RULING THAT THERE IS NO BOUND AT ALL; see item 273.***
+    **FILED, NOT RULED. THE 24-HOUR DELETE-FOR-EVERYONE BOUND NAMES NO CLOCK, AND EVERY CLOCK INSIDE
     A RECORD IS WITHIN THE ORIGINAL SENDER'S REACH.** MASTER §12.1:2564 and Spec A §7.4:4143 bound
     delete-for-everyone to *"24 hours from `SentAtMs`"*, and ignore a late tombstone on receipt
     because *"otherwise the bound would be a client-side courtesy that any modified client could
@@ -11476,6 +11477,60 @@ repo and therefore the critical path — not this repository:
       gated.
     - Spec C's W10 asks for a field allowlist on the log. This build removes two content fields by
       name, which is not an allowlist.
+
+272. **THE MESSAGE SERVER IS DETACHED FROM THE PLATFORM, AND IT WAS MEASURED BOTH WAYS.** 2026-10-02.
+    Deployed from `msgrepo 6530519` (Spec B Revision 23) with `platform_attachment: off`. The previous
+    binary and `message.yml` are in `/var/backups/urmessage/` (`*-before-6530519-*`). **This closes
+    item 268's open (c).**
+    - **What the server says.** `/readyz` answers `ready`. Its readiness set is `clock_skew clock_utc
+      database_reachable endpoint_listening hosting_jurisdiction kek_loaded migrations_at_head
+      operator_host server_id_set`, with neither `ordinal_credential` nor `connect_client_attached`.
+      The journal says "platform attachment is OFF" and has no "URnetwork client constructed" line.
+      The endpoint pin is unchanged (`sha256/868fd5ea...`).
+    - **Positive, through URnetwork.** `liveprobe -route urnetwork` with all three test accounts,
+      run on the VPS into a fresh directory, gave **`13 STEPS, 1668 ASSERTIONS, ALL HELD`** in about
+      85 s. No app was running under those accounts.
+    - **Negative, on the platform route.** The app was run under a test account and root with
+      `URMESSAGE_ROUTE=platform` for 100 s. Its Hellos went unanswered on every attempt, and there
+      were **0 "CONNECTED" lines**. Frames addressed to the server's platform client_id reach
+      nothing, because the server no longer holds that session.
+    - **What it costs** is stated in Spec B §9.1. An endpoint-only server has no operator-side
+      revocation, and revoking its key takes a new client build.
+
+273. **THE OWNER'S DELETION RULINGS, 2026-10-02, AND WHAT THE DESIGN REVIEW DID TO THE SECOND ONE.**
+    Three rulings, verbatim:
+    1. On the lead's question of which clock bounds delete-for-everyone: **"server time"**.
+    2. On being told the cost (no per-record server time reaches a client today, so a new
+       server-stamped field across four repositories) and asking why a deletion should be bounded at
+       all: **"Yeah I think you should be able to delete your messages at any time, including
+       deleting an entire DM (if both parties approve, or one party can just locally delete and
+       leave)"**. This **supersedes ruling 1**. There is no window, so **item 211 is closed**: there
+       is no clock left to choose.
+    3. Earlier the same day: **"do recommended"**, to detach the server. Done; item 272.
+
+    **The design for deleting a whole DM was reviewed before anything was built and came back
+    UNSOUND** (`docs/reports/2026-10-02-conversation-deletion.md`). It found two critical defects:
+    - **C1:** a consent bound to a requester-chosen id can be cashed by a later request reusing it.
+    - **C2:** an irreversible erase would be decided by an order rule the receive walk cannot
+      evaluate: holes, abandoned records, unnumbered own records, and an unauthenticated
+      `record_id`.
+
+    It also found six high ones. **H4 is pre-existing and affects per-message delete today:** T-b
+    compares the leaf handle, so a newcomer on a refilled leaf can delete the previous occupant's
+    messages (item 245's handle reuse). With no time bound, that reaches the whole history.
+
+    **The lead's decision, recorded as taken.** Build the parts every design needs, all sound
+    without a consent artifact:
+    - H4's identity check;
+    - per-message delete with no limit;
+    - "delete all my messages for everyone";
+    - "delete for me and leave", with H2's transfer-first rule and L1's existing store half.
+
+    Two people who both do the last two have deleted their DM for both of them. **The in-app
+    request-and-approve protocol is HELD** until the owner decides whether it is worth what C1, C2,
+    H1, H5 and M2 cost. The spec text for "no window" (MASTER §12.1, §12.4 and §13; Spec A §7.4;
+    Spec C §8.2) follows in its own commit with its diff review. The app's Delete button is already
+    built (`message-windows demo-ui 685b0a8`).
 
 ## 6. Change process
 
