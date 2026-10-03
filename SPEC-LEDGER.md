@@ -11532,6 +11532,42 @@ repo and therefore the critical path — not this repository:
     Spec C §8.2) follows in its own commit with its diff review. The app's Delete button is already
     built (`message-windows demo-ui 685b0a8`).
 
+274. **REACTIONS CARRY H4's FLAW: A NEWCOMER ON A REFILLED LEAF CAN CANCEL THE PREVIOUS OCCUPANT'S
+    REACTIONS.** Filed 2026-10-02 from the delete-for-everyone diff review (§7, same date). It
+    reproduced it first with two records under one handle, then, on its re-check, end to end through
+    real sessions after a removal and an Add onto the blank leaf: the newcomer's `REACTION_REMOVE`
+    cancelled the previous occupant's reaction, while another member's identical reaction under its
+    own handle stood. `RoleUndeterminable` was 0. The cause is the one item 273 names
+    for tombstones. `contentEffect.applyTo`'s REMOVE arm, and `reactionKey`, the rebuild's dedupe
+    key, compare the 16-octet `sender_handle` alone, and a refilled leaf keeps it (item 245).
+    - **It fails the other way too.** The newcomer's own ADD of an emoji the previous occupant left
+      standing is deduplicated against that reaction and never shown: one reaction where there are
+      two, measured on the same re-check.
+    - **Reachable** since `RemoveMember` (item 259): the next Add refills a removed member's leaf.
+      Not a confidentiality break. The H4 fix does not reach it, because T-b is the tombstone arm.
+    - **The fix is H4's shape:** the reactor is the handle AND the identity, in `reactionKey` and in
+      the REMOVE filter, so `Reaction` carries the identity. No spec states which reactor a REMOVE
+      cancels; a search of Spec A and MASTER for "cancel" finds only unrelated lines, and the rule
+      lives in the code's comment (Spec A §7.4's `Unreact` carries no rule). The fix should add it
+      to Spec A with its own diff review, and check Spec A §7.7's `MessageReaction.MemberIds` against
+      it; no `sdk` or `cgo` code declares that field yet.
+
+275. **THE APP AND SPEC C DISAGREE ON DELETION TEXT, IN TWO PLACES.** Filed 2026-10-02 from the same
+    review.
+    - **The placeholder.** Spec C §5.1, §5.2a and §8.2 say a deleted message reads *"This message was
+      deleted."*, and §5.2a adds the original sender's name and time. The app (`LiveWorld.cpp`) renders a
+      system line reading *"This message was deleted by its sender."*, and has since `1dc2549`.
+    - **"Delete all my messages (N)"**, added at `message-windows demo-ui 69720ac` as item 273
+      decided, has no Spec C row, string or acceptance line. **Its copy speaks for the whole
+      person** ("Delete all my messages", "Delete all N of your messages ... for everyone", "Only
+      your own messages are deleted"), while what it deletes is the lines THIS device sent, by the
+      per-device rule. That is the same set while one person is one device, as in this build, and
+      it overclaims the day somebody links a second device. Its Spec C text must be scoped to
+      messages this device sent (§8.2), and the app's copy should follow.
+
+    Spec C wins until amended. The next Spec C revision for item 273's other half (leaving) should
+    carry both, or the app should be brought to Spec C.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
@@ -22005,3 +22041,141 @@ four residuals (N1-N4) are fixed here too:
     The test still discriminates, because the file value differs.
 - On the direct route the server sees the client's address. That is the switch's stated cost, and
   the app says so.
+
+### 2026-10-02 — MASTER, Spec A A-30 and Spec C Rev 10: delete for everyone has no time limit, and the same-sender rule tests the identity too
+
+**Change:** one commit in this repository, specs only.
+- MASTER §8.4.2, §12.1, §12.4 and §13.
+- Spec A §7.4, its error-code table, its test table and `MessageProtocolLimits`, with log row A-30.
+- Spec C §8.2, §16.3's lint 1, and its string, error-mapping, screen and acceptance tables, with
+  log row Rev 10.
+
+The code it describes is in other repositories:
+- the app's Delete button (`message-windows demo-ui 685b0a8`);
+- the SDK's identity check (`urmessage/group.go`, T-b) and its tests (`sdk beta/message 1c6a2e0`).
+
+#### 1. The ruling
+
+The owner, 2026-10-02, verbatim: **"Yeah I think you should be able to delete your messages at any
+time, including deleting an entire DM (if both parties approve, or one party can just locally delete
+and leave)"**. This commit is the first half, the per-message one. Item 273 records the second half
+and why its consent protocol is held. Item 211 is closed, because there is no clock to choose.
+
+#### 2. What is now normative
+
+- **No time limit.** A tombstone from a line's own sender applies whatever the line's age. The
+  placeholder stays and is never removed, so a retraction is never silent. MASTER §12.1's old
+  argument was against an "unbounded **silent** retraction", and the permanent placeholder is what
+  answers it.
+- **Retired:**
+  - `msg_delete_window_explainer` and MASTER §12.4's copy of it;
+  - `delete_window_expired`, in Spec A's table and Spec C's mapping;
+  - `MessageProtocolLimits.DeleteForEveryoneWindowMs`;
+  - Spec C §8.2's muted line.
+- **Renamed in Spec A's test table:** `TestDeleteWindowIsEnforcedOnReceipt` becomes
+  `TestAnOldLineIsDeletedLikeANewOne`.
+- **The same-sender rule tightens, because the limit is gone.** A tombstone applies only when the
+  sealing leaf's handle AND the sender identity both equal the target's. A newcomer on a refilled
+  leaf inherits the handle (item 245). With no window, a handle-only test reached the previous
+  occupant's whole history (item 273, review H4).
+- **The rule stays per device.** D7, deleting from another device of the same person, is unruled,
+  so Spec C offers the item on messages THIS device sent and on nothing else.
+- **A record whose sender identity could not be determined neither retracts nor is retracted.**
+  That is the `RoleUndeterminable` residual, expected to be zero.
+
+#### 3. Verification
+
+| Command | Result |
+|---|---|
+| `go test ./ -run 'TestTheEditLogGate\|TestThePlanLinter' -timeout 900s -count=1` | `ok` |
+| `sdk`: `go test ./urmessage/ -run Test -timeout 900s -count=1` | `ok` |
+| `sdk/cp3b`, its own module: `go test ./ -run Test -timeout 1800s -count=1` | `ok` |
+| `sdk`: `go test ./ -run Message -timeout 900s -count=1`; `sdk/cgo`: `go test ./gen/ -run Test -timeout 600s -count=1` | `ok`; `ok` |
+| `go vet` on `urmessage` and `cp3b`; `gofmt -l` on both | clean |
+
+Each mutant ran in its own copy of the tree, against the committed tests with the review's probes
+removed. Both suites ran in full for every row.
+
+| Mutant | Killed by |
+|---|---|
+| T-b on the handle alone: the H4 hole | `TestANewcomerOnARefilledLeafCannotDeleteThePreviousOccupantsLines`, and the empty-identity row of `TestTheSameSenderRuleIsPerDeviceAndAnEmptyIdentityMatchesNothing` |
+| **The retired design itself:** a tombstone is ignored when its `SentAtMs` is more than 24 hours after the line's | `TestAnOldLineIsDeletedLikeANewOne`, and nothing else in `urmessage`; `TestAnOldOwnLineIsDeletedOnEveryRoadAndAcrossRestarts` in `cp3b` |
+| The same 24 hours on the receiver's clock | `TestAnOldLineIsDeletedLikeANewOne`, three tests whose lines carry `SentAtMs` 0, and the `cp3b` 400-day test |
+| A send-side 24-hour refusal in `Group.Delete` (M6) | `TestAnOldOwnLineIsDeletedOnEveryRoadAndAcrossRestarts` alone. Nothing in `urmessage` reaches the send side |
+| The own `Send` road passes no identity (M8) | the same `cp3b` test |
+| The own-copy road passes no identity (M9) | the same test, and `TestADeletionAcrossAnEpochChange` |
+| T-b on the identity alone, with the handle check removed (M3) | the per-device row of `TestTheSameSenderRuleIsPerDeviceAndAnEmptyIdentityMatchesNothing` |
+| An empty identity matches an empty one (M4) | the empty-identity row of the same test |
+| The effect drops the identity it copied at the open | nine tests in `urmessage` (eight before the per-device test gained its control row, §4) and four in `cp3b` |
+
+#### 4. The diff review
+
+An independent subagent reviewed the first draft's diff before commit (§6 step 2), in a scratch
+clone, and checked the patch byte-identical to both live trees at its start and at its end.
+**Verdict: approve with changes, and no critical or high finding.** It confirmed that every road a
+line reaches a reader by carries the identity T-b now reads: the `Send` road, the own-copy road,
+the own-gap road, and the peer road through `RoleAt` at the record's own epoch. It reproduced H4
+end to end through real MLS sessions: the newcomer's tombstone is ignored, the occupant's own
+applies, and both hold across a restart. It found eight things in the diff and three outside it.
+**All eight are handled in this commit; the three outside it are items 274 and 275.**
+
+- **Medium 1.** MASTER §8.4.2 still said `sent_at` is what the window is measured from. The clause
+  is struck. So is the same sentence's claim that a conversation is ordered by `sent_at`, which
+  already disagreed with Spec A ("Ordering is the server's").
+- **Medium 2.** Spec C §16.3's lint 1 still counted five §8.1 keys. It would have failed on the
+  retired key's empty extraction, or forced a dead key to be kept. It now counts the four live ones.
+- **Medium 3.** Spec C said "the user's own messages" where Spec A §7.4 says per device and
+  `Group.Delete` refuses unless `held.Mine`. Screen 11, §8.2, the acceptance row and Rev 10 now say
+  "messages this device sent", absent on the user's messages from another of their devices.
+- **Medium 4.** The first draft's tests let five mutants live: a send-side 24-hour refusal (M6),
+  the own `Send` road or own-copy road passing no identity (M8, M9), the handle check removed
+  (M3), and an empty identity matching an empty one (M4). The review's two `cp3b` probes are kept
+  as it wrote them, in `cp3b/deleteanytime_test.go`. One deletes a 400-day-old own line through
+  the real `Delete` and checks the deleter's own view, the peer's, and both after a restart. The
+  other deletes across an epoch change. `urmessage/deletewindow_test.go` gains the per-device row,
+  labelled "a D7 ruling flips this row", and the empty-identity row. §3 shows each mutant killed
+  by a committed test with the review's probes removed.
+- **Low 1.** §5 cited MASTER §12.3 for what only §12.4's explainer says, and misstated what an
+  older build does. Both are corrected below.
+- **Low 2.** Two `group.go` comments still described the handle-only rule and the wrong empty
+  case. Both are rewritten, and Spec A §7.4 gains the review's sentence: a record whose sender
+  identity could not be determined neither retracts nor is retracted.
+- **Low 3.** The first draft's window mutant was a fixed cutoff, which also failed three unrelated
+  tests and so showed nothing about this one. §3 now runs the retired design itself.
+- **Nit.** MASTER §13's comparison with Signal had no source. It is dropped, and the sentence
+  states our own property.
+- **Outside the diff.** Reactions carry H4's flaw (item 274). The app's placeholder wording, and
+  its "Delete all my messages" item, have no Spec C text (item 275).
+
+**The same reviewer then re-checked the fixes**, against a byte-identical diff and in scratch
+copies, and reproduced every row of §3 on fresh copies of the live tree. It approved once three
+LOW text fixes were made, and all three are in this commit:
+- **LOW-A.** MASTER §8.4.2 still said item 211's third clock candidate "becomes usable". Item 211
+  is closed, so the clause is now a note saying so.
+- **LOW-B.** Item 274 misstated how the review reproduced it, and cited an ABI field no code
+  declares. The re-check reproduced it end to end through real sessions, and the item now says so
+  and cites Spec A §7.7.
+- **LOW-C.** The "Delete all my messages" copy speaks for the person while the action deletes what
+  this device sent. Item 275 now carries that.
+
+Its nits are taken too: the per-device test gains a positive control after its first
+row, and its comment names both readings of "the same identity under another handle". This
+entry's list of the code it describes now names the identity check itself.
+
+#### 5. What this does not do
+
+- It does not build or specify deleting a whole conversation. Item 273 holds that.
+- It does not rule D7.
+- It does not make a retraction reach a device that is offline or dishonest. MASTER §12.4's
+  explainer tells the user so: "on every device that is online and honest".
+- **An older build.** No build ever enforced a window (`sdk ae13f53`: "THE 24-HOUR WINDOW IS NOT
+  IMPLEMENTED"), and the app has no age filter, so an older build already applies a genuine
+  retraction at any age. What it lacks is the identity check. It also applies a newcomer's forged
+  tombstone (H4), and since there was never a window, that reached the whole history before this
+  change too. Only a build carrying this `sdk` closes it, and only on that device.
+- It does not fix the same flaw in reactions. Item 274.
+- **The send side still decides by `Message.Mine`**, which is the identity, falling back to the
+  handle when the identity could not be determined. So in the `RoleUndeterminable` residual,
+  `Group.Delete` seals a tombstone that T-b then ignores. Nothing else reaches it in this build: a
+  device added back onto another leaf cannot read the lines its old leaf wrote. The send side
+  should test T-b's own two operands, and that goes in the next `sdk` change with its review.

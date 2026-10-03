@@ -2152,8 +2152,8 @@ between that and a silent outage.
 member derives, and under v1 **no field of the inner frame covered the head plaintext**. So a member
 could take another member's genuine body — frame, signature and all — and re-issue it at the **same
 position** under a head of its own writing: R1 passed, R2 passed, and the record opened to the true
-sender's plaintext under an attacker's head. The head is not decoration: it carries `sent_at`, which
-is what a conversation is ordered by and what §12.1's delete-for-everyone window is measured from.
+sender's plaintext under an attacker's head. The head is not decoration: it carries `sent_at`, the
+time a reader is shown for the line.
 And the substitute is *accepted*, so it spends the rung and the genuine record at that index then
 cannot open at all. That is ledger **MG-6** and ledger open item **204**, and `head_commit` closes
 both.
@@ -2188,8 +2188,9 @@ entry, the head plaintext, which was the only one with a live consumer.
 nobody checks.** `head_commit` covers the head plaintext and therefore covers `sent_at`. A `sent_at`
 a member other than the sender wrote now produces a record that refuses at R2, so ledger open item
 **204** — *"`sent_at` is the largest forgeable field in the system and it is the one the UI
-renders"* — is **CLOSED by this ruling**, and item **211**'s third clock candidate becomes usable for
-the first time.
+renders"* — is **CLOSED by this ruling**. *(This sentence went on to make item **211**'s third clock
+candidate usable; item 211 is closed, because since 2026-10-02 delete for everyone has no time limit
+and so needs no clock, §12.1.)*
 
 #### 8.4.3 The refusals an opener owes: two on values, one on ORDER, and none implies another
 
@@ -3142,11 +3143,12 @@ forward by default.
   sender.
 - **An expired disappearing message is undecryptable by everyone**, including a device provisioned
   tomorrow and a seedphrase holder (§8.1).
-- **Delete for everyone is bounded to 24 hours from sending**, and leaves a visible "message
-  deleted" placeholder in the thread. A retraction request outside that window is refused by the
-  sending client and ignored by receiving clients. An unbounded silent retraction would let someone
-  rewrite a years-old shared conversation undetectably, which is a worse property than the one it
-  buys.
+- **Delete for everyone has no time limit** (the owner's ruling of 2026-10-02, which replaced a
+  24-hour bound). It always leaves a visible "message deleted" placeholder in the thread, which is
+  never removed, so a retraction is never silent: every reader sees that a line was there and that
+  its sender withdrew it, however old the line was. Only a line's own sender can retract it: a
+  tombstone applies only when it was sealed from the same leaf AND by the same identity as its
+  line (Spec A §7.4; ledger items 245 and 273).
 
 ### 12.2 Retention classes
 
@@ -3281,8 +3283,6 @@ expects, and §13 states it to users in those terms.
   Anyone who already read it may have kept a copy, and we cannot detect that."*
 - Durable default: *"Messages are kept so your new devices can see your history. That means the server
   holds a copy until it's deleted or expires."*
-- Delete for everyone, outside the window: *"Messages can only be removed for everyone within 24
-  hours of sending."*
 - Expired disappearing message: *"The content disappears, the fact of the message does not."*
 
 Never say "gone forever" for the durable class.
@@ -3295,7 +3295,8 @@ for stored messages, not just the connection. History follows you to a new devic
 back past the day it was added.
 
 **Same as Signal.** The server holds ciphertext only and cannot read anything. "Delete for
-everyone" cannot claw back what someone already read, and it is bounded to 24 hours. **And in v1,
+everyone" cannot claw back what someone already read. Ours has no time limit, and the placeholder it
+leaves is permanent. **And in v1,
 one message server that knows your account, your groups, and your activity** — server choice is a
 V2 feature, so this line is parity, not an advantage.
 
