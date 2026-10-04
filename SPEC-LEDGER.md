@@ -11268,6 +11268,25 @@ repo and therefore the critical path — not this repository:
     deployed platform (`server 3eaa31e7`) never fills `find-providers2`'s `intermediary_ids`, so **a
     URnetwork route on beta today is one exit provider behind the operator's relay, not multi-hop**.
     The protocol carries multi-hop (`MaxMultihopLength = 8`, streams) and nothing hands out a path.
+    (3) **2026-10-04, item 278: in the build this item measured, and in the SDK the alpha ships, the
+    per-peer layer was never on.**
+    - **Why.** The pre-merge connect gave a window's clients the performance profile only through
+      `SetPerformanceProfile`. Its constructor calls that for a `ProvideMode_Network` client alone.
+      `messageTunnel` is `ProvideMode_Public` and never calls it. So `PostQuantumEncryption` never
+      reached `newMultiClientChannel`, and every client kept `EncryptionModeOff`.
+    - **Which builds.** `message_tunnel.go` is byte-identical at this item's `8e713c5` and at the
+      alpha's `d2fb60ac`.
+    - **Two sentences above are false for that build:** "per-peer sessions to each exit are
+      REQUIRED", and the platform sees "not the destination ... because the per-peer layer to the
+      exit is sealed".
+    - **Measured** with `livepeer` on `d2fb60ac`: no session was opened, and every transfer write
+      went out in plaintext. So the platform's relay could read each inner packet's destination
+      address and port, and its TCP and TLS headers.
+    - **What still held.** The content stayed inside the TLS session to the pinned key. The platform
+      sees sizes and timing either way, because the per-peer layer does not pad. "The exit never
+      learns the device's address" stands too: with no profile, `AllowDirect` was off.
+    - The merged SDK does apply the profile, and that is the URnetwork route regression. Section 7's
+      entry "Item 278" has the measurement.
 
     **OPEN.** (a) Rate limits keyed on client_id see one id per endpoint session, so they reset on
     reconnect; §5.1 check 4 does not run in this build anyway. (b) Port 443 is new internet-facing
@@ -11644,6 +11663,69 @@ repo and therefore the critical path — not this repository:
         7's entry, part 2). Package 02d's `URnetworkSdk.dll`, and the owner's own build, are built
         from the fork branches `alpha/premerge`: sdk `d2fb60ac`, the last commit before the merge,
         which already holds the leave, and connect `06f4c47e`.
+
+278. **THE OWNER'S DIRECTIVE OF 2026-10-04: REVIEW UPSTREAM, MAKE ITS CI PASS, AND SAY CLEARLY WHAT
+    CAN MERGE.** Verbatim: **"Continue work: notice, upstream has had a lot of commits since PRs.
+    Your main subtask is to review upstream and review work / PRs, and fix CI tests on upstream (they
+    are failing for everyone rn) afterwards give me a clear green mark for me to merge it asap so we
+    dont get conflicted"**. The same day: **"Also note, review ALL of my PRs that are around 1-2 days
+    old and going towards URnetwork even if you didnt work on them you can send a subagent"**.
+    - **Upstream had moved.**
+      - connect's `main` was 123 commits on, at `aab49d97`, and moved 2 more during the day, both in
+        durablevolume only.
+      - sdk's `main` was 25 commits on, at `c9e0befd`.
+      - message-server's and message-windows' had not moved.
+    - **Both are merged into the working branches again**, and the forks' mains follow: connect
+      `8cc3b556`, sdk `22629e9a`. Section 7's entry "Item 278" has what each merge needed.
+    - **Upstream's CI was red in three repositories, and the same missing checkout stopped every
+      build in all three.** Each go.mod replaces gvisor with `../gvisor`, and no workflow checked one
+      out.
+      - connect #215 and sdk #154 (item 277) add the checkout for those two.
+      - server #446, new today, adds it for the server. The server's build then stops at a pin skew
+        between sn and connect, which is the maintainer's to move.
+
+      Before the gvisor break, every run of connect's `main` since 2026-09-11 had failed, almost all
+      in its own tests. #215 now fixes those as well.
+    - **What can merge, as of 09:40 UTC.** Use merge commits, never squash: this ledger cites hashes.
+      1. connect #215: green upstream (run `37188788339`).
+      2. sdk #154: green on upstream's current `main` (run `37184852443`).
+      3. connect #216: green upstream in both workflows (runs `37190648973` and `37190648901`). It
+         contains #215's commits, so those two merge in either order.
+      4. sdk #155, after #216. Until #216 merges, its run cannot build (run `37190664881`). Re-run
+         it then.
+      5. message-server #1, after #216, because its `gates` clone `urnetwork/connect`.
+      6. message-windows #1, in any order.
+      7. server #446, any time. The server's CI stays red after it, on the sn/connect pin.
+
+      message-server #1 and message-windows #1 show no upstream checks. GitHub created none,
+      although both branches' workflows trigger on pull requests, and why is not known. The forks'
+      runs are their evidence.
+    - **The lead's ruling: connect's CI takes its Go from `go.mod`** (`go-version-file: go.mod`, in
+      `f4023888`). The owner may override it.
+      - go.mod's toolchain line is go1.26.5. MASTER §7.2 pins it, and `TestPinnedToolchain` holds
+        it.
+      - The fork's workflow already read `go.mod`. Item 277's merge (`d924630d`) took upstream's
+        `go-version: stable` instead, and under that the test failed in every run that reached
+        it. This restores the fork's setting.
+      - **How it holds:** setup-go installs go.mod's `go 1.26.3`, and the go command then switches
+        to the toolchain line under `GOTOOLCHAIN=auto`. Under `GOTOOLCHAIN=local` the pin would not
+        hold. `f4023888`'s message says the step "installs the version go.mod names", which is wrong
+        about how.
+      - #216 states the ruling, and offers upstream the other way: moving the pin to 1.27.
+    - **The URnetwork route regression's cause is found** (section 7's entry, part 4).
+      - The merged SDK requires a per-peer session with every exit, and almost no beta exit answers
+        one.
+      - The pre-merge SDK, the alpha's, never had the layer on. **So today's alpha is, in effect, the
+        "off" option.** Item 268's description of what the platform sees is corrected there.
+      - **The fix is the owner's to choose**, because each option trades privacy against a usable
+        default route. Until the owner chooses, the alpha still ships the pre-merge SDK (item 277's
+        ruling).
+    - **Two other pull requests.**
+      - **urnetwork/windows#4**, the owner's VPN-client pull request, is outside this ledger. A
+        subagent reviewed it. The verdict is that it must not merge as it stands, and the report
+        went to the owner.
+      - connect #213 and #214, which item 277 left alone, were closed unmerged from the owner's
+        account at 05:23 and 05:24 UTC.
 
 ## 6. Change process
 
@@ -22781,3 +22863,291 @@ NITs are taken:
 **One NIT is declined: section 7 is for commits that change a spec or plan, and this one changes
 neither.** The entry stays. It records a directive's completion, and the verification and
 regressions that came with it, and that is section 7's shape even when no spec moved.
+
+---
+
+### 2026-10-04 — Item 278: upstream's new commits merged, connect's and sdk's CI made to pass, and the route regression's cause
+
+**Change:** this ledger only: item 278, a correction to item 268, and this entry. No spec or plan
+changes.
+
+#### 1. Where everything is
+
+| repository | the fork's `main` (= the working branch) | pull request | head of `upstream/urmessage` |
+|---|---|---|---|
+| connect | `8cc3b556` (`beta/message`) | urnetwork/connect#216 | `b4b7e070` |
+| message-server | this commit (`main`) | urnetwork/message-server#1 | this commit plus one: the clone change |
+| sdk | `22629e9a` (`beta/message`) | urnetwork/sdk#155 | `a883edd6` |
+| message-windows | `0b08178` (`demo-ui`), unchanged | urnetwork/message-windows#1 | `83b1653`, unchanged |
+
+The CI pull requests are connect #215 at `19b0359e`, sdk #154 at `7ab0aeb9` and server #446 at
+`e62eb48e`. Each upstream branch is still its fork's `main` plus one commit. Each was rebuilt as
+item 277 describes, and the count was checked before each push.
+
+**What passes:**
+- On upstream's CI:
+  - #215 (run `37188788339`);
+  - #216, both workflows (runs `37190648973` and `37190648901`);
+  - #154 (run `37184852443`).
+- **#155 cannot build on upstream's CI until #216 merges.** Its run `37190664881` stops at "no
+  required module provides package github.com/urnetwork/connect/messagegroup", as its pull request
+  says.
+- **The forks' mains pass their workflows:**
+  - connect: runs `37190645293` and `37190644436`;
+  - sdk: runs `37190659119` and `37190659128`, against the new connect `main`.
+- **Which `main` each green run merged onto:**
+  - #215's run merged onto upstream's `main` at `aab49d97`.
+  - #216's two runs merged onto today's `main`, `492794ba`. That is two commits later, both in
+    durablevolume.
+  - #216 contains #215's commits, so those are green on today's `main` too.
+
+#### 2. The merges
+
+- **connect: 123 upstream commits, merged clean** (`25e9196d`).
+  - No file changed on both sides since the merge base `631bcb28`.
+  - Upstream's only protocol change is `transfer.proto`, with its regenerated `transfer.pb.go`.
+    Ours are `frame.proto` and `message.proto`.
+- **sdk: 25 upstream commits** (`22629e9a`): the Bittensor wallet and its WalletConnect session,
+  inline checkout bridge URLs, fenced location notifications, and device-remote fixes.
+  - All ten conflicts were in generated files. All ten were regenerated, not merged by hand.
+    - The cgo exports and headers came from `./gen` under a Linux package loader (`GOOS=linux
+      CGO_ENABLED=0`), as `990e84ff` did.
+    - The five language bindings came from `go -C packaging run . generate`.
+  - Against either parent, each regenerated file only adds lines (`git diff --numstat
+    --ignore-cr-at-eol`). The exception is `coverage_report.txt`'s two count lines. Against
+    upstream it adds only our exports, and against `beta/message` only upstream's.
+- **The merged sdk was run on Linux against the merged connect.** It used the fork's two workflows,
+  on a throwaway branch that points their connect checkout at the merged connect.
+  - The modules workflow passed (run `37185203622`).
+  - The root workflow failed once, in upstream's `TestDeviceLocalMemoryCeiling` (a read timeout in
+    round 5 of its load). It passed on the rerun (run `37185202173`, attempts 1 and 2).
+  - **That failure reads as a flake under the full suite's load, not a regression:**
+    - An A/B ran that test alone six times on each side: merged 6 of 6, and upstream alone 6 of 6
+      (run `37186583715`).
+    - Between 2026-09-15 and the gvisor break, upstream's sdk workflow passed 25 times. None of its
+      9 failures that reached the tests names this test.
+- **The merged connect**, in a 20-minute run, failed exactly what upstream's `main` failed in its own
+  20-minute run, plus `TestPinnedToolchain` (runs `37185097255` and `37184377175`).
+  - Both runs stopped at the timeout, so that compares only the first 20 minutes.
+  - The full-length evidence came later:
+    - with #215 and the Go ruling merged, the branch failed only the send-buffer flake below (run
+      `37188491258`);
+    - the fork's `main` passes (run `37190645293`).
+  - `message`, `messagegroup`, `mls` and `mls/syntax` pass in both of those.
+
+#### 3. connect's and sdk's CI, and what makes it pass
+
+- **The gvisor checkout, in three repositories.**
+  - **connect and sdk:** #215 and #154, from item 277. #154 is updated to upstream's current
+    `main`, and it passes there (upstream run `37184852443`).
+  - **server: #446.** server's go.mod has replaced gvisor since `4c770ed7`. By 08:25 UTC, 62 runs of
+    `test` on `main` had failed since then, all at Build, each with the missing-directory error in
+    its log, and 4 more were cancelled. The query: `gh run list -R urnetwork/server -w test -b
+    main -L 100`, from that commit's first run, then `gh run view <id> --log-failed` for each.
+  - **With the checkout, server's Build stops later, in `../sn`.**
+    - sn's default branch calls connect's preparation-cohort API, which arrived in connect
+      `1610f7a5`.
+    - server pins connect at `59864c2b`, which lacks it.
+    - sn pins `2ea8d82e`, which has it but lacks `59864c2b`.
+    - connect's `main` holds both.
+
+    Moving server's pin is the maintainer's call, and #446 says so.
+- **connect's own failures.** connect's `main` last passed on 2026-09-11 (run `34638655162`).
+  #215 now carries:
+  - **zsh.** The four `TestTestScriptPackageDiscovery*` tests run `test.sh`, a zsh script, and the
+    runner has no zsh.
+  - **An IPv6 address for the family probe.** Seven family tests need `probeFamilySupport` to find
+    IPv6. It counts only a global address on a non-loopback interface, and a runner has none.
+    IPV6.md D3 says these tests run "on dual-stack hosts, not GitHub CI".
+    - `TestFamilySupportedOnThisHost` failed outright.
+    - Six transport tests failed waiting for a v6 dial the probe would not allow. Five took 15 to
+      30 seconds each, and `TestFamilyPlatformTransportGroupStandby` failed in 0.42 s.
+    - **These six are what turned `main` red.** The first failing run after the last green one
+      (`34672012987`, 2026-09-12) failed exactly these six and nothing else. From 2026-09-15, the
+      20-minute timeout usually stopped the package before it reached them.
+    - The fix is a ULA address, `fd00:ca::1/64`, on a dummy interface. It is the one thing the
+      probe looks for, and it adds no route beyond its own /64. With it, all seven pass, still over
+      loopback (run `37188150894`).
+    - A skip by name was tried first (run `37186356787`). It was the first version of this fix, and
+      the address replaces it.
+  - **durablevolume's `TestPreparationAdmitsAllCapacityDimensionsBeforeTargetEffects`.** The
+    fixture's plan carries every path under TMPDIR, so its size depends on the host. Measured on
+    the alpha VPS:
+
+    | TMPDIR | plan size |
+    |---|---|
+    | `/tmp` | 4,030 bytes |
+    | `/home/runner/work/_temp` | 4,330 bytes |
+    | a 62-character directory | 4,994 bytes |
+
+    - **How it was measured:** a throwaway test built the fixture's plan with ample limits and
+      printed its size. It was run as `TMPDIR=<dir> go test -run TestZZPlanSizeProbe
+      ./durablevolume`. The test was not kept. Its source is in the session's scratch directory,
+      and the three runs' output was not saved.
+    - The test's plan case names the 4,096-byte floor and expects a refusal. Under `/tmp` the plan
+      fits and is admitted, so the test failed on every GitHub run that reached it.
+    - Padding the owner's inputs puts the plan over the floor on any host. With the plan check
+      disabled (`false &&`), the test fails.
+  - **The timeout.** The root package does not finish in 20 minutes on a runner. Across this day's
+    full-length runs it took between 1,750 s and 2,158 s, so the timeout is now 60 minutes. #215's
+    green run took 2,059 s.
+  - **`TestUpstreamTcpSendBufferGrowsUnderLoad` now reports without gating.**
+    - It ran 20 times on one tree on a runner and failed 5 (run `37188617755`). The kernel left the
+      send buffer at 2,626,560 or 3,677,184 bytes, short of 4,194,304.
+    - The Test step skips it by name. A step after it runs it alone with `continue-on-error`, as the
+      workflow already does for the extender.
+    - It failed again in that step in #216's green run.
+  - **Result: #215's own run passes, every step** (upstream run `37188788339`). It is the first
+    passing `Test — connect` on urnetwork/connect since 2026-09-11.
+- **The ruling on Go (item 278).** Our branch's workflow reads `go.mod` (`f4023888`).
+  - setup-go installs go.mod's `go 1.26.3`, and the go command then switches to the toolchain line.
+  - So the tests run on go1.26.5, and `TestPinnedToolchain` passes (upstream run `37190648973`).
+
+#### 4. The URnetwork route regression: the cause
+
+Measured on 2026-10-03 against the alpha server. Each run is `livepeer` alone on `-route
+urnetwork`, one build per run, with the glog `-v` noted. The logs stay in the session's scratch
+directory, because they name exit addresses. "First URmessage Hello" is livepeer's Hello to the
+message server. "ClientHello" is the per-peer TLS handshake to an exit.
+
+| build | first URmessage Hello answered | what the log shows |
+|---|---|---|
+| merged: the forks' mains on 2026-10-03, sdk `fcf17300` and connect `4c93318f`; 2 runs, `-v=1` | attempt 3, after 2m15s and 2m27s | 130 ClientHellos, all 1,497 bytes, to 71 distinct exits. 123 were cancelled, timed from the ClientHello: 69 at 4.9 to 5.1 s, 49 at 9.85 to 10.03 s, 3 at 8.6 to 8.8 s, and 2 at 3.7 to 3.8 s. 2 completed, both with the same exit. 5 were still open when the run ended. |
+| merged, `EncryptionModeOpportunistic`, post-quantum off; 2 runs, `-v=2` | attempt 1 | 12 sessions opened in each run, and none completed. No write was sealed. Every logged write went out in plaintext. |
+| merged, post-quantum off; 2 runs, `-v=1` | attempt 1 | No session opened. |
+| pre-merge: sdk `d2fb60ac`, connect `06f4c47e` (the alpha's); 2 runs, `-v=1` and `-v=4` | attempt 1 | No session opened. At `-v=4`: 493 transfer writes, all in plaintext, 477 to 8 exits and 16 to the platform. |
+
+Of the 71 exits:
+
+| exits | outcome |
+|---|---|
+| 65 | every attempt cancelled |
+| 3 | cancelled, then tried again by a session still open at the end |
+| 2 | tried only by sessions still open at the end, so their answer is unknown |
+| 1 | answered, in both runs |
+
+**The writes in the `OPPORTUNISTIC` runs:**
+
+| | run 1 | run 2 |
+|---|---|---|
+| all logged writes | 252 | 276 |
+| application writes to exits | 206 | 228 |
+| per-peer handshake frames | 28 | 29 |
+| writes to the platform | 18 | 19 |
+
+The queries, each over a run's stderr:
+
+| what | query |
+|---|---|
+| a ClientHello | `outbox batch 0: <n> bytes (record type 0x16)` |
+| cancelled | `handshake error = context canceled`, timed from the same session's ClientHello |
+| completed | `handshake complete` |
+| a session | `opened session for peer ... as client` (logged at V(1)) |
+| a plaintext write | `write plaintext ... session=` (V(2)), split by destination id. The zero id is the platform, and `forceUnwrapped=true` marks a handshake frame. |
+| a sealed write, the control | `write wrapped <n> -> <n> bytes` (V(2)): 0 in every `-v=2` and `-v=4` run |
+
+The write lines are V(2), so the `-v=1` runs cannot show them either way.
+
+**What this means:**
+- **The merged connect applies the profile's `PostQuantumEncryption` to every window client.** It
+  then requires a per-peer session with each exit, and fails closed without one. `message_tunnel.go`
+  sets that profile.
+- **On today's beta, 1 exit in 71 answered.** The client waits minutes for it.
+- **The pre-merge connect never applied the profile to its window clients.**
+  - Its windows got the profile only through `SetPerformanceProfile`, and the message tunnel never
+    calls it.
+  - So the profile reached `newMultiClientChannel` as nil, and the clients kept
+    `EncryptionModeOff`: no session, and plaintext. That, not a faster network, is why it was fast.
+  - **How the fork came to lack it:**
+    - Upstream had passed the profile into new windows since 2026-08-02 (`fe8dee32`,
+      `initialPerformanceProfile`).
+    - The merge of the owner's own upstream pull request #190 dropped it on 2026-08-04
+      (`9dc95311`), taking that pull request's side.
+    - `bf4832d3` restored it on 2026-08-11.
+    - The fork's base, `b4a2bc9b` (2026-08-10), fell in that gap. So the fork lacked the profile
+      until item 277's merge.
+  - **Today's alpha is, in effect, option 3 below.**
+- **`OPPORTUNISTIC` is as fast as pre-merge, and on today's beta it seals nothing.**
+- **In every mode, the content is TLS to the pinned endpoint.** A per-peer session also hides the
+  destination, the port, and the TCP and TLS headers from the platform. Frame sizes and timing stay
+  visible either way, because the per-peer layer does not pad.
+- **Item 277's other candidate, connect's lower MTU, is ruled out.** The post-quantum-off and
+  `OPPORTUNISTIC` runs use the merged MTUs and answer on attempt 1.
+
+**The owner's choice.**
+1. **`REQUIRED`, as merged.** Sealed, against a platform that reads. Connecting takes minutes, and
+   sometimes never happens, until exits answer per-peer TLS.
+2. **`OPPORTUNISTIC`.** As fast as today's alpha, and sealed with every exit that answers.
+   - **Its weakness:** with `AllowDirect` off, the per-peer handshake crosses the platform's relay
+     unsealed. So a relay that drops or stalls those frames gets plaintext, and the app cannot tell.
+   - It protects against a platform that reads but does not interfere, and only with exits that
+     support it: 1 of 71 today.
+   - `message_tunnel.go`'s comment, and what the app says about the route, must say all of this.
+3. **Off.** Fast, never sealed: what the alpha does today.
+
+**The lead recommends option 2.** It is no worse than what the alpha ships today, it makes the
+default route usable, and it improves as exits upgrade. The content is protected by the inner TLS
+in every mode. `REQUIRED` would make the default route unusable today.
+
+Why exits do not answer is not known. The fork's provider release has never built on
+`beta/message` (item 277), so beta's exits probably run older provider code.
+
+#### 5. Open
+
+- The owner's choice in part 4.
+- server's connect pin (#446), which is the maintainer's call.
+- **Four connect tests skip on a runner because it denies unprivileged ICMP sockets:**
+  - `TestIcmpFlowMemoryFootprint` and `TestIpEgressIcmp4Loopback` skip whole;
+  - `TestIcmpBufferFlowLimits` and `TestIcmpBufferIdleReap` skip their v4 and v6 subtests.
+
+  Allowing them (`net.ipv4.ping_group_range`) is a possible follow-up, and is not done here.
+
+  The other 33 top-level skips in a full run (run `37188136249`) are upstream's by design:
+  - 30 are opt-in measurements;
+  - 3 do not apply here: a candidate gate not yet defined, a path the receive side does not use,
+    and a mobile-only test.
+- **durablevolume's `TestInventoryConcurrentOwnerAttributeChangePoisonsSnapshot`** failed once in an
+  eight-run loop of the whole package on the 2-CPU VPS: "concurrent metadata mutation produced a
+  complete inventory". On runners it passed in all three verbose runs. It is upstream's own test,
+  and it is not touched.
+- **message-server #1 and message-windows #1 show no checks upstream.** GitHub created no check run
+  on either, although both branches' workflows trigger on pull requests to `main`, and why is not
+  known. Their evidence is the forks' runs:
+  - message-server: `gates` on the fork's `main`. On `upstream/urmessage` it cannot build until
+    connect #216 merges, because it needs `connect/message`.
+  - message-windows: both workflows on the fork's `main` at `0b08178`.
+- Item 277's other open items stand as it records them.
+- The owner's two questions that item 277 carries still stand: an in-app request-and-approve flow
+  for deleting a conversation, and a "they left" notice.
+
+**Reviewed by:** a subagent, against the logs and the runs. **First round: approve with changes.**
+- **Five MAJOR findings, all taken:**
+  - the pre-merge mechanism was wrong;
+  - "never run on a runner" was false;
+  - the size-and-timing claim overreached;
+  - option 2's downgrade risk was unstated;
+  - the merge status was missing.
+- **Eleven MINOR findings, all taken.** They covered:
+  - the server count and its query;
+  - "every run since";
+  - one test's 0.42 s;
+  - the four ICMP skips;
+  - the 20-minute comparison;
+  - the Go ruling's history and mechanism;
+  - #216's text;
+  - the two meanings of "Hello";
+  - the sealed-write control;
+  - the unsaved evidence;
+  - the missing duration.
+- **Most NITs were taken.** The long table rows stay unwrapped, because a Markdown table row cannot
+  wrap.
+
+**Second round: approve once five small errors were fixed.** All five were fixed:
+- the main that #216's runs merged onto;
+- the cancel split;
+- "restored", not "added", with the profile's history;
+- the unsaved plan-size runs;
+- the query's `-L 100`.
+
+Its four optional NITs were taken too: the 33 skips, "every run that reached it", the unexplained
+missing checks, and #213's minute.
