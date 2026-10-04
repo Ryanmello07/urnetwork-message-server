@@ -1,0 +1,2030 @@
+# URmessage — build progress
+
+Append-only. Newest section last. One entry per completed unit of work, with the evidence
+that it is actually done rather than reported done.
+
+Detail lives in the per-plan SDD ledgers (`connect/.superpowers/sdd/<plan>/progress.md`),
+which are not committed. This file is the durable summary.
+
+---
+
+## Tracks
+
+Three tracks run in parallel because they are **separate repositories**, which is what makes
+parallelism safe here — a single checkout cannot take concurrent agents without the git index
+colliding, and that has cost this project real work before.
+
+| Track | Repo | State |
+|---|---|---|
+| **A — protocol core** | `Ryanmello07/connect`, branch `beta/message` | **p1–p7 complete; m1 wave 0 and wave 1 landed, plus ruling A1.** At `33932e0`: 1,105 tracked files, 7,631 tests passing over `mls/`, `message/` and `messagegroup/`, nine-platform `CGO_ENABLED=0` build green. **Wave 2 is no longer stopped in front of ledger 152: it was RULED 2026-09-13.** *(This cell read "Wave 2 is stopped in front of ledger **152** — **and, since 2026-09-09, by nothing else**: the owner ruled `M1-1`'s remainder and `M1-7` together that day as composite `C3`, so Task 14's blocker list is item 152 alone." **The "by nothing else" clause was stale from 2026-09-12**, when the red team filed `M1-51`–`M1-55`; ledger item **184** files that and names all five sites that carried it.)* **What is true now:** Task 13 is unblocked, **Task 14 step 1 is unblocked FOR THE `PERMANENT` `pq_secret` WRAP AND NOT FOR ITS `EPH(5)` TWIN** — ledger 152's ruling lifts the `EPH` *seal* refusal its `eph_root` wrap waited on, and ledger open item **185** (filed 2026-09-13, second pass) then stops that record being *published*, because no document says what `eph_window` it carries while the server refuses an implausible one — **Task 14 step 3 is NOT unblocked: `M1-52` blocks signing and is filed, not ruled.** *(The "step 1 is unblocked" clause without the `EPH(5)` qualification was written on the first pass of 2026-09-13 and is corrected here on the second.)* Task 15 and Task 16 are unaffected. Task 17 is also unblocked, by the same sitting's second ruling (`M1-27`). **CORRECTED 2026-09-11 — that blocker is CLOSED, and had been since `j1` Task 5.** This row read *"CP3b itself is still blocked outright by `S2-4` — `JoinFromWelcome` is an unconditional refusal, so no exported path lets two clients share one group"*. At **`72ffdbd`** — 1,112 tracked files, **7,698** test and subtest invocations green over `mls/`, `message/` and `messagegroup/` (unfiltered `go test ./mls/... ./message/... ./messagegroup/... -v`; **2,234** top-level plus **5,464** subtests, 0 failures) — two independent engines share one real MLS group, and a `DURABLE` record sealed by the founder opens at the joiner: `TestTwoEnginesShareOneGroupAndTheirExportersAgree`, `TestADurableRecordSealedByTheFounderOpensAtTheJoiner` and `TestTheDeviceSurvivesItsOwnJoin` all pass. **What blocks CP3b now is the message-server leg, which is `s2`'s** — see the 2026-09-11 entry for the determination and its evidence. **UPDATED 2026-09-13, second pass of that date, and the numbers above are superseded rather than deleted.** `connect` has landed both halves of the 2026-09-13 sitting: the `eph_window` wire field at **`6248284`** and the key schedule plus the full seal lift at **`b0155d9`** — **1,125 tracked files, 8,252 tests passing** over `mls/`, `message/` and `messagegroup/`, unfiltered, against the 1,105 / 7,631 at `33932e0` above. Both passes were adversarially reviewed and both returned SOUND. **The implementation surfaced four things the documents owe, filed as ledger items 187–190 and NOT ruled here**, and the blocking answer is the part that matters: **none of 187, 188 or 189 blocks m1 Task 14 or the CP3b path**, and item **182**'s open half does not either, because `connect` shipped the safe half of it. **187** (the sender's window is unimplementable as MASTER §8.1 and Spec A §5.3 state it, because `sent_at` lives inside `ct_head` and `SealRecord` takes `headPlain` opaque) blocks a claim; **188** (`eph_root` has no declared route into a `GroupSession` — `InstallEphRoot` and three siblings ship and no document names one) blocks *writing* Task 14's receive leg from the documents, not executing it — and it had broken `s2`'s published `TrackSender`, four parameters against a five-parameter function, **corrected in place in this commit**; **189** (whether `ParseRecord` refuses a non-zero `eph_window` off the classes the presence rule makes zero) blocks a conformance claim. **What DOES block the message-server leg is new and is item 190**: `eph_window` is ruled, landed in `connect`, and carried in no Go file of this repository, so `go test ./...` is red here — see row C. **UPDATED 2026-09-13, third pass of that date: item 190 is CLOSED, the server carries the field end to end, and row C is GREEN.** The pin here is also behind — `connect` is at **`7ce25a2`** now, still 1,125 tracked files; the 8,252 figure above is the last one anyone RAN, at `b0155d9`, and is not re-derived, because another agent holds that tree |
+| **B — Windows client** | `Ryanmello07/urmessage-windows` (private) | CP1 shipped — builds, launches, renders |
+| **C — message server** | `Ryanmello07/urnetwork-message-server` | **THE PROCESS RUNS, 2026-09-14.** It loads §10.2's configuration, opens the message-server Postgres cluster, asserts §3.1's clock and §10.3's migrations on `/readyz`, builds the store, the §5.1 pipeline and §4.2's dispatch on them, serves §10.1's `/healthz` and `/readyz` on a private port, and shuts down in §2.3's order; `messagectl migrate` and `status` are built. **It binds exactly one socket and that socket is the health port** — `connect` has no inbound listener, so the message plane is a dial-out to the operator's platform and needs a `network_client` credential §9.1 has an operator admin create, which nothing here can mint. A first start against an EMPTY database is a tested path (`TestAFirstStartAgainstAnEmptyDatabaseServesHealthAndNamesWhatIsMissing`), and the state it ends in is the state a bare VPS ends in: healthy, migrated, refusing readiness on `ordinal_credential` and `connect_client_attached`. Three items filed (**195**, **196**, **197**), none ruled. `-race` was run for the first time in this repository's history and is clean. *(The previous state of this row is kept below, not deleted.)* **Was: shipped, under test, and GREEN — `eph_window` now travels end to end, and the one test that was red is green because the field TRAVELS rather than because it stopped asking.** 58 Go files, 26,972 lines; `go test ./... -timeout 900s` ok in every package; `go vet ./...` clean; **the pgx contract RAN against a real PostgreSQL 17.6** rather than skipping (460 s, `URMESSAGE_TEST_DSN` set). Ledger item **190** closed; four new items filed and none ruled (**191**–**194**). *(The RED state below is kept, not deleted; it is what this row said at `d2e7a51` and at `a21a6ee`.)* **Was: RED at `d2e7a51` — one test, for a ruled wire field this repository carried nowhere.** 57 Go files, 26,402 lines; `store/`, `api/`, `peer/`, `blobd/`, `sweep/`, `cmd/`; `go build ./...` clean and `go test ./ -run TestThePlanLinter` ok. CP3a and CP3c ran through it. ***(This cell read* "`go build ./...` and `go test ./...` green" *until 2026-09-13, second pass of that date, and the second half stopped being true without this repository changing a byte.* `go test ./... -timeout 600s` *now fails* `api.TestARecordTravelsEndToEnd` *with* "1 header field(s) were zero in every record this test round-tripped … [EphWindow]", *reproduced three times; every other package is* `ok`. **`eph_window` was ruled 2026-09-13 (item 183), landed in `connect` at `6248284`, and is carried in NO Go file here** — `grep -rn 'eph_window\|EphWindow' --include=*.go .` returns **0** — not in the harness, the store contract, the §3.2 migration, the rebuild or §5.1 check 3. The `replace ../connect` in `go.mod` makes the sibling's working tree this module's dependency, which is the intended wiring and this is the intended consequence: the gate that fired is `assertEveryHeaderFieldTravelled`, whose own header says *"a field added to the header tomorrow arrives uncovered and says so rather than being quietly compared at zero"*. **It did.** Ledger item **190** carries the five edits owed, none of which is a ruling. This is the same class as the two rows corrected 2026-09-07 below — a state row nobody re-derived after work landed — except that here the work landed in a different repository.)*** |
+
+*(**Rows A and C corrected 2026-09-07.** A read *"p1 complete and green in CI; p2 started"* and C read
+*"greenfield; specs written, no code yet"* — the second over a repository that already contained the
+server CP3a and CP3c travelled through. Both are the same class as the ledger's §1
+*"Nothing is implemented yet"*, repaired in the same pass, and both are a state row nobody re-derived
+after the work landed.)*
+
+Brand source for track B is `Ryanmello07/urnetwork-windows` at branch `beta/algorithm-dpi`, read-only.
+
+## Checkpoints
+
+The owner's goal is a testable build at each step, ending at "able to send messages".
+
+- **CP1 — the app you can look at.** WinUI 3 client with the VPN app's brand, theme and shell.
+  Real and safe to run: it is a UI shell, not a messenger yet.
+- **CP2 — the protocol core.** MLS (RFC 9420) in pure Go: p2–p7.
+- **CP3 — first message end to end.** Two clients, one group, one message through the server.
+- **CP4 — the feature set** from Spec C.
+
+**Deliberate sequencing note:** CP3 comes *after* the real MLS core, not before it. A quicker
+vertical slice with placeholder crypto would reach "a message appeared on the other screen"
+sooner, and was rejected: in a privacy product a build that sends unprotected traffic is a
+hazard the moment it exists, because it looks exactly like the real thing to anyone testing it.
+The early visible checkpoint is CP1, which is honest — it is a shell and cannot be mistaken for
+a working messenger.
+
+**Amended 2026-08-25**, after the owner reprioritised: *"Get everything mostly ready enough to
+communicate with basic tests. A full working messager/group chats can be worked on along side.
+I want to make sure messages work first."*
+
+That reads at first like the vertical slice the note above rejects. It is not, and the difference
+is worth stating precisely so nobody has to re-litigate it later.
+
+The message path splits into two halves, and only one of them needs MLS:
+
+- **Everything up to the AEAD** — the record wire format, `write_auth`, `req_auth`, the protobuf
+  control plane, the server's accept-and-fan-out pipeline, the client transport. None of it takes a
+  group secret as input. All of it is real code that ships unchanged, and it is what "messages
+  travel" actually means.
+- **The AEAD keys themselves** — `storage_root`, the class keys, the record-key ratchet. These come
+  from the MLS key schedule, which is p4.
+
+So the reprioritisation is satisfied by building the first half **now and for real**, and it does
+not require faking the second. The rule that keeps this honest: **the key schedule is absent, not
+placeholder.** A test-only key source exists for the end-to-end test, it is named so nobody can
+mistake it for anything else, and a gate asserts it is unreachable from any non-test build. A
+missing key schedule fails closed and looks like what it is; a placeholder one fails open and looks
+like a working messenger, which is exactly the hazard the original note names.
+
+CP3 therefore splits:
+
+- **CP3a — a message travels.** Record → submit → accept → fan out → fetch → parse, authenticated
+  end to end by real `write_auth`/`req_auth`, with the AEAD under a test-only key source. Runs
+  in-process; needs no VPS. This is the owner's "make sure messages work first".
+- **CP3b — a message is private.** The same path with the real MLS key schedule underneath. This is
+  the original CP3, and it is the bar for anything a human is invited to send a real message through.
+
+**RULED 2026-09-10 — what CP3b's *"no test-only key source anywhere on the path"* means, and what it
+costs.** The owner reads *"key SOURCE"* literally: it is not *"no test-only CODE"*. An **in-memory
+`mls.StateStore` satisfies CP3b**, because every key on the path still comes from the real MLS key
+schedule and the real crypto provider — which `connect/messagegroup/keysource_test.go` already proves
+byte for byte and independently of any store, rebuilding the whole sealed record from the real group's
+exporter plus two injected values that are not keys. **A production `mls.StateStore` (`S2-14`) is
+therefore OFF the CP3b prefix and is durability work.** Filed and ruled as **J1-9** in
+`docs/plans/2026-09-09-slice1-j1-the-join.md`.
+
+***And the cost the owner accepted, which every report of this milestone must carry rather than
+gloss: the first end-to-end run WILL NOT SURVIVE A RESTART. CP3b proves the protocol, not the
+product. It means "the protocol works end to end"; it does not mean "a person may use this."*** The
+bullet above is unchanged as the BAR — every key is still real MLS — and this paragraph is what the
+bar does not buy. **`S2-14` still has no owner; that is `J1-10` and is still open.**
+
+Nothing is invited to CP3a but us.
+
+---
+
+## 2026-08-13 — Plan p1 complete: the TLS presentation-language codec
+
+`connect/mls/syntax`, 19 planned tasks plus one follow-up, **23 commits, 135 tests**, pushed to
+`beta/message` at `6b7e440`. Every task: fresh implementer, adversarial review, fixes, ledger entry.
+
+Shipped: RFC 9420 §2.1.2 varints (canonical, reserved and non-minimal forms rejected), `opaque<V>`,
+`LP(x)` for record framing, capacity-clipped sub-readers, `optional<T>` with a strict presence
+octet, byte-counted vectors, `Marshal`/`Unmarshal` with full-consumption enforcement,
+`CheckRoundTrip`, a hand-derived golden table, allocation bounds, a structured generator, three
+fuzz targets and a CI gate.
+
+**Nine consecutive tasks found a test in the plan that could not fail.** The one that mattered
+most: all three of the plan's `CheckRoundTrip` tests passed against a version that did all the
+work, evaluated the comparison, discarded the result and returned `nil` — and since all nine of
+p8's fuzz targets call it, that would have made every one of them vacuous while reporting green.
+The habit that caught these was mutation testing every claim: patch the version you rejected in
+an isolated copy, and confirm the test actually fails on it.
+
+**Four API gaps closed that the plan did not have**, each with a silent failure mode:
+`CheckRoundTripLimit` (without it a ratchet tree returns `nil` unchecked and cannot be fuzzed at
+all), `ReadNested` and `WriteNested` (nesting silently accepted trailing bytes in one direction
+and silently capped a nested field at the wrong limit in the other). All four are in the interface
+registry, so p5–p8 inherit them rather than rediscovering them.
+
+**Measured, and it changed p8's design:** uniform random bytes reach the round-trip property
+**14 times in 4096 — 0.34%** — against the *simplest possible* type, while the structured
+generator reaches it 4096/4096. So p8's seed corpus is load-bearing rather than an optimisation,
+and every fuzz target must now count what it actually decoded and fail at zero reachability.
+
+## 2026-08-13 — connect CI restored, and a silently disabled safety net repaired
+
+`connect` had run **no CI at all since 2026-08-04**, on `main` included: merge `35ceb0f0`
+resolved to the parent that had no `.github` directory. Verified it was a coherent merge
+resolution rather than index corruption — exactly six files, all from one work stream.
+
+- `test.yml` restored and now on **both** `main` (`7167f3d`) and `beta/message`. Two changes from
+  the restored file: the trigger covers `main` and `beta/**` (the original fired on
+  `beta/custom-server` alone, which is *why* its loss went unnoticed for nine days), and the
+  toolchain is read from `go.mod` rather than `stable`.
+- `provider-release.yml` restored retargeted, tag renamed `beta-message-latest` — leaving the old
+  name would have force-pushed over the existing provider beta release the first time it ran.
+
+**The find underneath it.** Nine root-package tests were failing. A nine-agent diagnosis (one per
+test, each required to rule out the alternatives with cited evidence) returned **zero real
+regressions** — two environmental causes, both Windows-only:
+
+- Six anchor tests: `core.autocrlf=true` at *system* scope. `functionBody` delimits a function
+  with a bare `"\n}\n"`, which occurs **zero** times in a CRLF checkout against 286 of the CRLF
+  form, so it fell through to returning the whole rest of the file.
+- Three queue tests: Windows advances `time.Now()` only every **~500µs** (measured), so thousands
+  of `pumpQueue` adds share a timestamp and a strict `Before` leaves ties unordered.
+
+The important part was not the nine failures. Because `functionBody` widened silently instead of
+erroring, the failure was **asymmetric**: 6 anchors written as `strings.Count` failed loudly,
+while **84 written as `strings.Contains` passed vacuously**, matching text from elsewhere in the
+file. These anchors exist precisely because seam wiring turned out to be deletable with zero
+behavioural test failures — so on Windows the net was not protecting anything. Fixed in `42c9035`
+(and cherry-picked to `main`); 17 anchor tests pass afterwards, so nothing was hiding behind the
+vacuous passes.
+
+Second time `core.autocrlf` has bitten this project — it also smudged the 16 vendored IETF vector
+files during p1, which would have invalidated the entire "our codec passes the IETF vectors"
+argument.
+
+## 2026-08-13 — CHECKPOINT 1: the Windows client builds, launches and renders
+
+`Ryanmello07/urmessage-windows`, **private**, 61 files, 3 commits. WinUI 3 / C++/WinRT, x64 Release
+clean in 41s with 0 errors. Opens at 480×760 DIPs; a second launch redirects under its own key
+`URmessage.Desktop` rather than into the VPN client's window.
+
+Brand, palette and pane model lifted from the VPN app: `#101010` page, `#151515` header strips, PP
+NeueBit wordmark, ABC Gravity for page titles, and the conversation list built from the VPN's own
+`kit::MakePaneTwoLineRowButton` + `MakePaneSearchRow` — no rounded islands, hairline separation,
+uniform row heights. The pane model rather than the card model, per the owner's "less random sized
+modules and more fit in".
+
+**The repo is private because it carries the four commercial font binaries** (ABC Gravity from
+Dinamo; PP Neue Montreal and PP NeueBit from Pangram Pangram), whose licence says they ship inside
+the app and must not be redistributed on their own. Whether that licence covers a second product is
+an open owner question. **Related and pre-existing: `Ryanmello07/urnetwork-windows` is public and
+contains the same four files.**
+
+Two corrections the scaffolder found in the brief, both worth keeping:
+
+- **The identity list was incomplete.** Beyond the five constants in `Ids.h`, three more `URnetwork`
+  values are hard-coded in files the survey called copy-clean — including
+  `HKCU\Software\URnetwork\Window`, whose placement blob carries a magic and version, so URmessage
+  would have *accepted the VPN app's saved window geometry*. Also the storage root and the log
+  filename. All now route through `Ids.h`.
+- **The font check cannot be done by eye, and the agent's first read of it was wrong.** It judged the
+  wordmark a fallback because it did not look pixelated, then measured: rendered ink 111×19 at a 30px
+  em, against PP NeueBit 114×19, Montreal 164×27, ABC Gravity 219×28, Segoe UI 160×28. A wrong font
+  family name produces **no error**, only silent fallback, so measurement is the only check that
+  works. Method recorded in the repo's `Assets/README.md`.
+
+Honest gaps: **ARM64 does not build here** (`MSB8020` — this box's VS18 Build Tools has x64 cross
+tools only; environment gap, unverified rather than known-good). Data is stubbed — ten sample rows,
+search filters nothing, rows have no click handler, no tray icon, placement is never saved. The app
+icon is still the VPN's globe.
+
+## 2026-08-13 — connect CI is green, and the data path picked up two real fixes
+
+All workflows pass on `beta/message` at `18e6bd7` and on `main` at `7167f3d`. `main` has had working
+CI for the first time since 2026-08-04.
+
+The `Test — connect` run passing on Linux with the same code that fails nine tests on this Windows
+box **demonstrates** the environmental diagnosis that was previously only argued.
+
+Four commits, two of them beyond what was briefed, each isolated so either can be dropped:
+
+- **My diagnosis of the extender failure was wrong**, and acting on it would have turned CI red. I
+  attributed it to the 1s listener race; the implementer pulled logs from four CI runs and found the
+  failure lands 0.15–0.27s *after* the sleep expired, with `listen tcp 1442` already up. The real
+  cause is the content server binding `:443` **inside** `ListenAndServeTLS` on a goroutine, which
+  discards the bind error. Fixed with a checked ephemeral port; the destination travels in the
+  extender header, so no production code changed. Now demonstrated by CI passing with extender
+  folded into the gate and `continue-on-error` removed.
+- **The `pumpQueue` tiebreak cannot fix two of the three trim tests**, because `combineQueue` has no
+  `pumpItem` and no `seq`, and `RemoveOlder` never reads `seq`. Their cause is the strict `Before`
+  cutoff: both queues stamp `updateTime` from the same coarse clock the caller samples the cutoff
+  from, so an item stamped just before the cutoff is never *older* than it. Measured: of 4096 adds,
+  1433 carried the cutoff's own timestamp and exactly 1433 were left behind. Fixed by making the
+  boundary inclusive. Each fix verified independently load-bearing by reverting only that change.
+
+## Deployment targets available — owner, 2026-08-14
+
+The owner has: a **VPS** to host a Message Server, a **test Operator server** to assist, and this
+box for the **Windows client**. Their instruction: raise it when the time is right, not before.
+
+So the trigger needs to be stated rather than felt. There are two distinct "ready" moments and it
+is worth not confusing them.
+
+**Ready A — server infrastructure, honest and much closer.** Stand the message server on the VPS
+and have a harness exchange **opaque records** with it: authentication, the `write_auth` preimage,
+group rows, fan-out, retention clamping, capabilities advertisement. This is infrastructure
+testing, not a messenger — no real conversation exists, so nothing can be mistaken for a working
+private messenger. It de-risks the VPS, the operator integration and the record layer early, which
+is exactly what should not be discovered late.
+
+Needs: `connect/message` (the record layer, currently a doc stub) and the Spec B server skeleton.
+**Does not need the MLS core finished.**
+
+**Ready B — the real end-to-end test.** Windows client ↔ server ↔ Windows client, real MLS, a
+message typed on one and read on the other. Needs p2 through p7 complete.
+
+The sequencing rule from the checkpoint section still holds: **CP3 comes after the real MLS core**,
+and Ready A does not violate it precisely because it carries no message content. A build that
+looks like a messenger but is not protected is the thing being avoided; a server exchanging opaque
+bytes with a test harness is not that.
+
+**Current distance to Ready A:** p1 complete; p2 at 5 of 23; p3 at 2 of 14; `connect/message` is a
+doc stub; the server repo is greenfield. The record layer is the near-term unlock and does not
+depend on p2-p7 finishing.
+
+**Updated 2026-08-25.** Ready A is the same thing this document now calls **CP3a**; the two names
+describe one milestone and CP3a is the one to use. Distance now: p1 complete, p2 at 16 of 23, p3 at
+13 of 14, the record layer and the wire protocol both in flight.
+
+**One architectural fact that changes what "host it on the VPS" means.** Spec B §4.1 puts the
+control plane *inside connect frames*, not on HTTP: requests reach the message server addressed to
+its `client_id` via `Send`/`SendWithTimeout`, and server-initiated pushes go back the same way
+reversed. Only the bulk plane — blobs — is TLS/HTTP, and it is deliberately ignorant of groups.
+
+So the message server is **a connect client that happens to be a server**, and standing it up needs
+a URnetwork client identity registered with the test Operator, not an open port and a DNS name. Two
+consequences worth having in advance rather than discovering on the VPS:
+
+1. **CP3a needs no VPS at all.** Two connect clients in one process exercise the entire path. The
+   VPS becomes a test of deployment and the Operator integration, which is a separate and later
+   thing from a test of whether messages work.
+2. The provider/Operator wiring is a real dependency with its own failure modes, and it is now on
+   the critical path for the VPS step rather than for the messaging step. Better to find that out
+   here than at the point of asking the owner for the VPS.
+
+## 2026-08-14 — p2 through Task 6, p3 through Task 3, every task reviewed
+
+Both protocol tracks run in their own worktree of `connect`, so their git indexes cannot collide:
+p2 on `beta/message`, p3 on `beta/message-p3`. Each task now runs implement → adversarial review →
+fix, at the owner's instruction.
+
+**p2 crypto primitives — Tasks 1-6 done.** `b0142dd`, 55 tests. Package skeleton, the
+forbidden-primitive gate, the two-entry ciphersuite registry, the single X25519 call site, HPKE
+suite ids and the labelled KDF, and DHKEM X25519 derive/encap/decap.
+
+**p3 tree math — Tasks 1-3 done.** `27b070b`, 25 tests, every function in `tree_math.go` at 100%
+coverage. Vector loader and corpus tripwire, index types and node level, full-tree sizing,
+extension and truncation.
+
+### What the review pass keeps finding
+
+Every task in both plans has turned up a test that could not fail. The count is now well past the
+nine p1 produced. The sharpest of this batch:
+
+- **p2 Task 6: the plan's four tests could not fail on nine of the ten implementations they exist
+  to reject** — transposed `kem_context` on both sides, ephemeral key in the static slot, labels
+  respelled, `shared_secret` dropped, the raw DH returned **unhashed**. Only one asymmetric
+  transposition failed, and only because the round trip stopped round-tripping. That is the general
+  lesson for a KEM: *a round-trip test proves your encap agrees with your decap, not that either
+  matches the RFC.* Two implementations wrong in the same way agree perfectly.
+  `TestHpkeEncapDeterministicMatchesEncap` never called `hpkeEncap` at all.
+- **p2 Task 5: a test named `…Kat` asserted only a length**, over an ikm appearing nowhere in
+  RFC 9180, and its ceiling constant was asserted only against itself — so a value 255× too tight
+  passed the whole package.
+- **p3 Task 2: the plan's table stopped short of the range**, so three clamped implementations
+  passed. It also stopped short of the *middle*: levels 10-30 of `Level()` were asserted nowhere in
+  the entire plan.
+- **p3 Task 3: the plan's own test contradicted the plan's own implementation** on
+  `TreeDepth(MaxLeafCount+1)`. The implementation won, because 31 is only producible by clamping and
+  32 makes every downstream `1 << TreeDepth(n)` fail closed.
+
+### Vector provenance, checked rather than assumed
+
+A known-answer test derived from our own implementation is self-consistent and proves nothing. The
+HPKE vectors now arrive by three independent routes that agree: Task 5 hand-transcribed them from
+the RFC text, Task 6 read them from `GOROOT/src/crypto/hpke/testdata/rfc9180.json` (Go's own
+vendored CFRG corpus), and the controller grepped them straight out of RFC 9180. `skEm` is absent
+from Go's corpus, so it reaches the table only via Task 5's transcription — genuinely a third route.
+
+Separately, **all 16 vendored IETF vector files were re-vendored** (`aecb087`): they had been stored
+CRLF-smudged, with the manifest computed over the damage, so it verified 16/16 against bytes
+upstream never published. Content was always correct; only the provenance claim was broken.
+
+### One hazard converted into a compile error, one class closed by measurement
+
+`HpkeKdfHkdfSha256` and `HpkeAeadAes128Gcm` are both `0x0001` from different IANA registries, so a
+transposed registry declaration used to compile and pass every value assertion. Distinct named types
+made it a compile error for twelve lines and zero test changes. It closes the *declaration* hole,
+not the *encoder* hole — `AppendUint16` still needs an explicit conversion — and that limit is
+recorded rather than papered over.
+
+The related length-field hazard shows what the three-stage pattern is worth. Seven `SuiteParams`
+length fields are 32 in both registered suites, so every interchange among them is invisible. The
+implementer flagged one instance and called it unfixable, on the premise that a separating suite
+would have to be registered. The reviewer disproved the premise — no KEM function consults the
+registry, so a test can pass a bare literal — and put the class at eight. The fixer built the
+exhaustive catalogue and measured the class at **forty**, then closed all of it. Survivors: 40 at
+the implementer's commit, 18 under the reviewer's proposed fix, **0** as shipped.
+
+## 2026-08-25 — the branch is current, and the message path is under construction
+
+Three things the owner asked about, answered with measurements rather than impressions, plus the
+start of the work that makes a message travel.
+
+### The staleness question, and the fork question
+
+The owner noticed `beta/message` was stale against a `connect` that the VPN project develops daily,
+and asked whether the URmessage systems should split to a fork.
+
+Measured before answering. `beta/message` was 16 commits behind `origin/main` on a base 19 days old.
+The two change sets barely intersect: ours is 66 files under `mls/` plus one under `message/`;
+`main`'s is entirely the root data path. **Overlap: three files**, and `main` had touched neither
+`mls/` nor `message/` at all. The merge took one conflict — `test.yml`, add/add, resolved to ours
+because ours was strictly newer — and `beta/message` is now **zero commits behind `origin/main`**,
+verified green in CI at 9m39s rather than only locally.
+
+That measurement also answers the fork question, recorded as **decision 59: do not fork.** The gap
+to true upstream is larger — `origin/main` is **110 commits behind `upstream/main`**, 282 files,
++109,453/−26,209 — and it is *entirely* the VPN data path. Zero of those 282 files are under `mls/`
+or `message/`. The workstreams are already disjoint in the file system, so a fork would buy
+isolation the directory layout provides for free and charge a permanent merge burden for it. The
+revisit trigger is mechanical rather than a feeling: **the first merge that conflicts in a file
+neither side considers theirs.**
+
+Two things fell out of that comparison that belong to the VPN side rather than to us:
+
+- **Upstream independently made the same extender CI fix we did** — bind an ephemeral port up front
+  with the error checked, instead of `ListenAndServeTLS` on a goroutine discarding a privileged
+  `:443` bind — and went further with a new `extender_seam_test.go`. Our fix is therefore not a
+  unique contribution, and forward-porting it to `main` would only create a conflict at the next
+  sync. Not doing it.
+- `origin/main`'s restored `test.yml` still runs extender in a `continue-on-error` step. Its last
+  green run carries a swallowed `exit code 1` annotation from exactly that step: a step that cannot
+  fail the job is a note, not a gate.
+
+### A red release run that is not ours
+
+`Provider Beta Release` went red on `beta/message` for the first time. It is not caused by messenger
+work, and the workflow's own restoration comment predicted it: it fires only on a `go.mod`/`go.sum`
+change, and the merge changed both. Every one of those changes is a **version bump that arrived from
+`origin/main`** — pion, quic-go, x/crypto, x/net, x/sys, gvisor, tlshacks. `connect` on
+`beta/message` still adds **zero** new module dependencies, which is what Spec A §2.1 requires.
+
+It failed because `sn`'s `beta/custom-server` needs `go mod tidy` against the newer pins. That is
+pre-existing `sn` ↔ `connect` drift the merge surfaced rather than created, and the fix belongs in
+`sn`. Recorded as decision 63.
+
+### The protobuf toolchain, verified rather than assumed
+
+`protoc` was not on this box, which blocked the wire protocol. It now lives at
+`toolchain/protoc35/bin` alongside a `protoc-gen-go` built from the module's own
+`google.golang.org/protobuf v1.36.11`.
+
+Version 35.1 specifically, and the reason is worth recording: regenerating all six committed protos
+with it reproduces their `.pb.go` files **byte for byte, version stamp included**. protoc 29.3
+produces identical code but stamps a different version, which would show up as a spurious one-line
+diff in every regenerated file forever. Because 35.1 round-trips exactly, a diff in a regenerated
+file from here on means *someone changed something* — never that the toolchain drifted. That is the
+difference between a generated file you can review and one you have to trust.
+
+### What is being built now
+
+Two tracks, in separate worktrees so their git indexes cannot collide, each task gated by an
+adversarial reviewer whose primary output is a list of mutations that survived:
+
+- **The record layer**, `connect/message` — types and ladders, the wire codec, the AAD preimages,
+  `write_auth` and `req_auth`. Four tasks. This is the half of the message path that does not need
+  MLS.
+- **The wire protocol**, `connect/protocol/message.proto` — Spec B §4.3 transcribed, generated, and
+  gated.
+
+The second one carries a hazard sharp enough to name here. Spec A §5.7 defines `req_auth` as a MAC
+over `u8(op)`, where **`op` is the protobuf field number of the selected `oneof` arm**. So the field
+numbers are not an implementation detail; they are protocol constants inside a MAC. Transpose two and
+nothing fails to compile, nothing fails to parse, and nothing looks wrong — one operation returns
+the deliberately non-specific `REASON_REJECTED`, against one implementation, forever. The gate for it
+is a `protoreflect` walk of the compiled descriptor rather than a hand-typed table, and it asserts
+that the arm set **equals** the set with a declared auth status, so an arm added later without that
+decision fails the test instead of shipping.
+
+## 2026-08-25 — CP3a's first half: a record can be built, framed, authenticated and parsed
+
+`connect/message` went from a doc stub to the whole pre-AEAD half of the message path, and
+`connect/protocol/message.proto` from nothing to the full control plane. Both are merged into
+`beta/message` at `197af90` and pushed: **2,521 assertions across the two packages, 0 failing**,
+`go vet` clean, index 440/440.
+
+| Landed | What |
+|---|---|
+| `message/record.go` | the types, the retention wire byte, the two ladders, and the one place class and bucket may be joined |
+| `message/codec.go` | `EncodeRecord` / `ParseRecord` / `ParseRecordHeader` over p1's `LP(x)` framing |
+| `message/aad.go` | `AAD_head` and `AAD_body`, with G4 enforced by a signature rather than by discipline |
+| `message/writeauth.go` | `write_auth` and `req_auth`, both key derivations, all three verifiers |
+| `protocol/message.proto` | Spec B §4.2–§4.6, 603 lines, generated and gated |
+
+p3 also closed at 14 of 14, so **tree math is done**: 5,981 assertions.
+
+### What the review gate actually cost, and what it bought
+
+Five reviewers returned **REJECT, REJECT, ACCEPT_WITH_FIXES, REJECT, ACCEPT** and **22 surviving
+mutants** between them. Three of the five rejected work that was green — which is the point: every
+one of those 22 is a change to production code that the implementer's own tests could not see.
+
+The single worst was in the authenticators. Deleting two `if err != nil` blocks so
+`tag, _ := authTag(...)` discards its error is a **total authentication bypass**: a wrong-length key
+makes `authTag` return the zero tag, and Spec A §2.4 makes an all-zero `write_auth` the *normal*
+state of every record on the read path. So every fetched record would have verified. **2,428 tests
+passed with that in place.**
+
+The most instructive was subtler. A variable-time fast path written as
+`bytes.HasPrefix(...) && subtle.ConstantTimeCompare(...)` is behaviourally identical, so no
+behavioural test can ever see it — and it passed the constant-time gate too, because that gate banned
+**six enumerated names** and `HasPrefix` was not one of them. The gate is now a walk of the package's
+imports that **derives** the comparator class: it finds **18**, `bytes.HasPrefix` and `hmac.Equal` and
+`fmt.Sscanf` among them. That is the eleventh and twelfth time on this project that a hand-written
+list understated the class it was standing in for.
+
+The same defect had a twin in `record.go`'s join gate, which exempted the one file allowed to join the
+class and the bucket **by base name** — so `connect/mls/record.go` could contain `class<<4 | bucket`
+and the gate waved it through — and whose matcher covered no table-indexed join
+(`table[class] + bucket`) and no split shape at all. Both closed; the gate now covers three roots and
+prints what it measured: *184 files under the gate, map[.:11 ../../sdk:132 ../mls:41]*.
+
+### Verified rather than reported
+
+The workflow's own reports are not evidence, so **13 of the 22 survivors were re-run by hand** against
+the shipped code — the two self-consistent table permutations, the size-bucket constants pointing at
+each other's rungs, the wiped file walk, both gate evasions, the discarded writer error, the truncated
+attachment hash, the masked size bucket, and five against the verifiers including truncating the tag
+comparison to one byte. All 13 now fail as they should, and the tree was clean afterwards.
+
+One survivor had had **no fix pass at all**, because its reviewer returned ACCEPT: `LeafIndex.NodeIndex`
+could be replaced with a `0xFFFFFFFF` sentinel and the whole `mls` package — 5,725 tests — still passed,
+even though the method's own doc comment is careful to say it wraps and that a zero from it is *not* an
+error signal. Closed in `c6ff660`, with the check multiplying in 64 bits and reducing afterwards rather
+than recomputing `2*uint32(self)`, which is the implementation's own expression and would pass for any
+mutation that kept the line.
+
+**A trap worth recording, because it inverts this project's main instrument.** One of those 13 first
+came back as *still surviving*. It had not survived: the mutation was applied with an exact-string
+replace whose search text was LF, against a file that is CRLF on this box, so nothing was edited at
+all. **A mutation that fails to apply is indistinguishable from a mutation that survived**, and both
+look like information. `sed -i` applied the same change and the test failed immediately. Confirming
+the edit landed — `git diff --numstat` on the mutated file — is now part of the loop.
+
+### Open, and small
+
+- `ClassIsPrunable` is exported and the server prunes, so it belongs in Spec A §12.1's published
+  surface and is not there yet.
+- The absent-attachment ruling — an ordinary record contributes `LP(SHA-256(""))`, 36 bytes, not four
+  zero octets — is pinned by a KAT and is **the first number to compare against the server team**. If
+  they implement the other reading, every ordinary record fails AEAD and no test on either side fails.
+- `AADBody` takes a `BodyBinding` rather than a `*RecordHeader`, which is what makes G4 structural
+  instead of advisory, but it is exported surface that appears in no spec.
+
+## 2026-08-26 — CP3a reached: a record travels end to end
+
+`TestARecordTravelsEndToEnd` passes. A group is created from a founding commit, the commit is
+allocated `record_id` 1, a second sender's wrap lands at 2, an `EpochComplete` marker closes the
+fan-out, and an ordinary record — which `REASON_EPOCH_INCOMPLETE` would have refused a moment
+earlier — lands at 4. All four fetch back and are asserted **byte-identical**: both ciphertexts
+compared octet for octet, the whole header compared after a real `ParseRecord`, `write_auth`
+confirmed zero on read per §2.4, and the projections compared field by field.
+
+The message server is a Go module for the first time: `github.com/urnetwork/message-server`,
+**155 assertions, 0 failing**, `go vet` clean, index 69/69. `connect` is at **5,135**.
+
+| Landed | What |
+|---|---|
+| `connect/message/attachment.go` | the `server_attachment` codec §5.1 check 3 calls on every submit |
+| `msgrepo/deps_test.go` | §2.2's dependency rule, as a test rather than a shell line |
+| `msgrepo/store/` | the interface, a memory implementation, and a contract suite |
+| `msgrepo/api/` | §5.1's check order, §6.1's submit, and the record that travels |
+
+**What is honestly not here.** Nothing is encrypted. `ct_head` and `ct_body` are opaque bytes to
+every layer built so far, the server cannot open them and never will, and the MLS key schedule that
+produces real content keys is p4 and remains **absent rather than stubbed**. This is an
+authenticated, addressed, durable transport for opaque bytes. That is exactly what CP3a claims and
+no more, and the brief for it forbade adding a placeholder cipher to make the milestone test look
+more like a messenger.
+
+### The dependency rule was a sentence; it is a check now
+
+Spec B §2.2 gave its rule as a shell grep. Three things were wrong with it and the implementation
+found all three. It is a substring match, so it also matches `urnetwork/server/modelling`. It only
+**bans**, never checking that what you *do* depend on was ever written down. And it measures **one
+build configuration** — whatever `GOOS` the developer's shell carries — so an import behind
+`//go:build linux` for the deployment platform is invisible on a Windows box. That last one was
+demonstrated, not argued: a forbidden import behind a linux constraint left the host closure clean.
+
+The gate now runs the closure per platform from `release-platforms.txt`, checks the **subset**
+direction so an unlisted dependency fails until somebody writes it down, and fails rather than skips
+when `go list` cannot run.
+
+It also found a contradiction the specs could not both satisfy. §2.2 **allows** `connect/message`;
+`connect/message` frames every record with `connect/mls/syntax`; and §13 item 8 asserted
+`grep connect/mls` finds nothing — a prefix that matches the codec. **The first build that satisfied
+§5.1 check 7 made §13 item 8 fail.** Spec B revisions 10 and 11 narrow the assertion from the prefix
+to the exact package, with the argument for why a length-prefix reader is not an MLS implementation.
+
+### Four spec amendments, and one deliberate non-amendment
+
+Building the attachment codec found four things in Spec A §5.11 and §12.1 — recorded as A-10 and
+Spec B revision 12, none of them changing a wire byte:
+
+- §12.1 lists the sentinels the server may reach and had none of the six `ParseServerAttachment`
+  can return.
+- §12.1 omitted `ServerAttachmentKind` and its five constants, so a server held to the published
+  surface could discriminate an `EpochAttachment` from a `RecoveryTag` only by testing four body
+  pointers for nil — while check 3 requires exactly that discrimination on every submit.
+- §5.11 declared `ServerAttachment`'s Go field types and **none of the four bodies'**. A second
+  implementation could reasonably read the wire table's "exactly 32 bytes" as `[32]byte`, at which
+  point check 3's "`write_key` exactly 32 bytes" is a question it can neither ask nor fail.
+- **Kind `0x0000` on parse is now ruled: refuse it.** The table forbade *emitting* one and said
+  nothing about *receiving* one. Accepting it gives one logical attachment two encodings with two
+  different `H(server_attachment)` — which is inside `AAD_head` and the `write_auth` preimage — so
+  two peers choosing differently disagree on the AEAD of every ordinary record and neither side's
+  tests fail.
+
+One flagged gap was **not** fixed, and the ledger says why: §5.4 was reported as dropping two
+sentences about `durable_ttl` clamping, and both are already stated in its own prose. A report is a
+claim, not a finding.
+
+### Verified rather than reported, again
+
+Five reviewers, **44 surviving mutants** between them. The sharpest were re-run by hand against the
+shipped code: check 3's `group_id` binding, the memory store's write lock, a second MAC
+implementation dropped into a *sibling* package (the no-reimplementation gate had hand-written its
+scope as one directory), the attachment multi-body refusal, `VerifyWriteAuth` on the submit path,
+projection equality, and the `ct_body` length rule. All now fail as they should.
+
+**One survivor was found by the controller rather than by any reviewer.** Replacing check 7's call
+in `CreateGroup` with `if false` left every test in the package passing — so a group could be created
+whose founding commit does not verify under the key installed as epoch 0's, born inconsistent and
+discovered only by whoever fetched it. The test that should have caught it is named
+`TestEveryRuleOfTheCreateGroupCarveOutRefusesBeforeTheTransaction`; its table was five rules of six,
+hand-written, and the one it omitted was the MAC. That is the thirteenth time on this project that a
+class typed out rather than derived has understated itself.
+
+## CP3b — the frame transport, and the connection that had to be invented
+
+`peer` is the message server's connect client: §4.2's frame binding, §4.3's request oneof dispatched
+into api, §4.3.1's Hello, §4.6's fragmentation in both directions, and §5.1's check 1. A record now
+travels from one connect client through the dispatch, through §5.1's nine checks and §6.1's
+transaction, and comes back on a fetch — all of it in one process, with no Postgres, no Redis and no
+network space.
+
+### The design question, and what the platform turned out not to have
+
+Spec A §5.7 requires the `server_nonce` to be "scoped to that connection, valid for the life of that
+connection, and never rotated". **`connect` has no connection to scope it to.** The receive callback
+is handed a `SourceMask` whose `StreamId` is always zero for a client-addressed frame, a
+`connect.Peer` built from the contract rather than the session, and no sequence id at all; the
+per-peer encryption sessions have an event stream with no session identifier, no closed event, and a
+supported mode in which they do not exist. Every one of those was read out of `transfer.go` and
+`transfer_encrypt.go` rather than assumed.
+
+So a connection here is **one `Hello` epoch of a `client_id`**, and a Hello destroys the previous
+nonce outright. The property that buys is the one the task demanded and it is asserted with
+`connect/message`'s own `VerifyWriteAuth`: a record sealed on connection one is refused on connection
+two, and the same record re-MAC'd against the new nonce is accepted — the third step being the
+control, without which "refused" is equally consistent with a peer that simply broke.
+
+The half that is **not** true is written into the code and into the ledger: a client that reconnects
+without saying Hello keeps its nonce, and nothing `connect` exposes changes across a reconnect. That
+is a property of the platform, not of this package, and it is bounded by a configurable idle sweep
+whose absence the build declares out loud.
+
+### Checks 1 and 2, and the one that is still missing
+
+Check 1 is one function with two callers, because the reassembler needs it as a memory bound §4.6
+requires freed immediately and the pipeline needs it as the refusal that carries a `request_id` back
+to the client. It answers `REASON_INTERNAL` — never `REASON_OK` — when the request carries no
+measurement, because "not called" and "called and passed" are the same green test and a check that
+cannot see its input must not report a pass.
+
+Check 2 splits. The nonce half runs here; the `ByJwt` half is decision B1's named dependency and
+cannot run in this process, so check 2 stays **declared** with its text rewritten to say which half
+is which. **Check 4 is untouched**: still answered by the type api named for what it does not do,
+still on the list §10.1's readiness endpoint reads.
+
+### Verified rather than reported
+
+Ten mutations, each confirmed applied with `git diff --numstat` before its result was believed, each
+reverted after. Dropping `request_id`, one handler for every arm, a nonce read out of the request, a
+nonce reused across two connections, a panic on an unknown arm, two arms swapped in the dispatch
+table, check 1 always passing, check 2 always passing, the unserved arms undeclared, and a `Close`
+that does not cancel. All ten failed the suite.
+
+3.4 million fuzz executions over the inbound frame surface — request frames, raw frames and fragment
+frames — found no panic, and every request that decodes is answered under its own `request_id`.
+
+Two of the ten found a defect rather than confirming a test. The nonce-from-the-request mutation made
+the replay test *panic* on an empty result slice instead of failing on the reason, because a
+front-check refusal carries no body at all; a test that panics reports its own bug instead of the one
+it found. And reviewing the send path found that `connect.Client.Send` is `SendWithTimeout(-1)`,
+which blocks until the **client's** context is done — a context this package does not own — so
+`Close` could hang until somebody closed the client.
+
+## CP3b review — the bounds that were arguments, and the queue that was only a delay
+
+A review of the above found one denial of service and four §4.6 bounds that could be moved, doubled
+or deleted with the whole suite green. Every one of them is now held by a test that fails when the
+bound moves, and each of those tests was confirmed by applying the mutation, watching it fail, and
+reverting — `git diff --numstat` before every result was believed.
+
+**The refusal path could hold `connect`'s receive loop for 240 bytes.** `Peer.refuse` blocked on a
+bounded channel, and it runs on the receive callback, which `connect` invokes inline on the single
+loop that reads *every* peer's frames. `refuseLoop` is one consumer by design — the ordering argument
+for it is real, and it is what keeps §4.6's specific `REASON_OVERSIZE` from being overtaken by the
+generic refusals behind it — so it drains at one refusal per `SendTimeout` against a client that reads
+nothing. A queue in front of one such consumer is a delay of `QueueDepth` frames and not a bound:
+measured, 200 fragment frames at the default depth held the receive path for exactly 100 send
+timeouts, and 21 of 120 *single-frame* batches held it for a timeout apiece. At the default
+`SendTimeout` those 240 bytes are ten and a half minutes of the whole server's receive loop.
+
+A refusal that cannot be queued is now dropped and counted (`Stats.RefusalsDropped`) rather than
+waited for. What that costs is the courtesy of §4.5's refusal to a client whose own refusals are
+already backed up, and the newest is what goes — so the specific refusal, decided first, is the one
+that survives. The test named for this DoS had sized its queue at four times its batch, which is the
+one arrangement in which the queue cannot fill; it now sends thirty-two times the queue and asserts
+that the queue did fill, so it cannot go back to passing vacuously.
+
+**The enforcement of §4.6's own bound cost the attacker's own work.** `expire` scanned the whole
+in-flight map on every arriving fragment, under the mutex every client's fragments queue behind: 9 ns
+per open reassembly per fragment, linear per fragment and therefore quadratic in an attacker's total
+work. At fifty thousand open, every fragment frame from anybody cost 455 µs of held mutex. Reassembly
+state expires on when it *began* and no fragment refreshes it, so the reassemblies expire in the order
+they were opened — they are now kept in that order and the walk stops at the first one inside the
+bound. Asserted by counting what the expiry looked at rather than by timing it: one buffer read
+against a hundred open, and one against ten thousand.
+
+**Three more bounds, and the two spec gaps they exposed.** There was no bound above §4.6's per-client
+cap and the `client_id` it is per is not this server's to count, so ten thousand strangers held ten
+thousand reassemblies with no refusal — `Config.MaxReassemblies` now bounds it, and because §4.6 gives
+no such number, `NotBuilt` declares it. `Peer.sweepLoop`'s period could be made a hundred times §4.6's
+bound with everything green, because the test that waited for the sweep polled for "eventually";
+`Config.NewTicker` makes the ticker a seam, so the period is read back out of it and the relation to
+the bound is asserted, and the tick is delivered by the test with the clock moved past the bound
+rather than waited for. And §5.1 check 1's comparison could be moved in either direction — a request
+of exactly the number `Capabilities` advertises refused, or one past it served — because every
+behavioural test was far from the boundary; it is now asserted at the number, on both call sites.
+
+**The abort conditions are a table the enforcement reads.** The test named for "every way §4.6 aborts
+a reassembly" listed four of five, and the one it left out — a `count` that changes mid-reassembly —
+could be deleted with every test in the repository green. That is the fourteenth time on this project
+that a class typed out rather than derived has understated itself. The rules are now values that
+`reassembly.accept` asks in order, the test iterates them, and each case proves it belongs to its own
+rule by rebuilding the reassembler with exactly that rule removed and watching the refusal disappear —
+because half of these conditions are caught by a neighbour if the fragment is chosen carelessly.
+
+**What is still open, and written into the code rather than left as an argument.** A worker's response
+send is bounded only by `Config.SendTimeout`, so a client that sends real requests and reads nothing
+can park every worker in a send and the receive loop then waits on the job queue. It is the same shape
+as the refusal path and eight times milder — eight workers rather than one consumer — and closing it
+means dropping responses a client is not reading, which is a decision about §4.3 rather than about a
+queue. `-race` is still unavailable on this box: the toolchain has no cgo and the box has no C
+compiler, so the concurrency claims are held by `-count=2` and by the fuzz rather than by the detector.
+## CP3c — over the wire, and the assertion that it was
+
+A record now travels from a client to the message server and back over **two real
+`connect.Client`s** in one process: `harness` speaks §4.3's four operations over one of them, `peer`
+dispatches §4.2's frames on the other, `api` runs §5.1's checks and §6.1's transaction, and the
+memory store holds the rows. No Postgres, no Redis, no network space, no operator and no `ByJwt` —
+`NewNoContractClientOob` plus `AddNoContractPeer` is what removes the contract requirement, which is
+why `connect`'s own data-path tests run offline and why these do.
+
+### The assertion the milestone actually turns on
+
+A record that never left the process comes back with **exactly the same bytes** as one that crossed
+two connect clients. So "it came back" distinguishes this milestone from the previous one not at
+all, and every assertion about headers, ciphertexts and `write_auth` would pass on a test that
+called `api` directly. What distinguishes them is that one of them put frames on a route.
+
+So every journey is measured at both ends: the frames the client handed to `connect`, against
+`peer.Stats`'s own `frames_received`; the response frames that arrived, against the server's
+`responses_sent`; the requests made, against the dispatcher's `requests_served`. The equality is
+what makes it unfakeable from either side alone. It was confirmed by building a *successful* bypass
+— a second `api.Handler` over the same store, submitting the same record, with the fetch still over
+the transport — where every record-level assertion in the test passed and the only thing that failed
+was the witness: "2 requests were made and the server's dispatcher served 1".
+
+Two things fell out of writing that bypass. The api layer **cannot** be called successfully from
+outside the frame path in this wiring: check 1 reads the frame's byte measurement out of a context
+only `peer`'s dispatcher populates, and answers `REASON_INTERNAL` rather than `REASON_OK` when it is
+missing — so a careless bypass is refused rather than quietly served. And check 1's copy *inside*
+the api pipeline is reachable only from a request that arrives whole: any client that fragments has
+its bound enforced by the reassembler one stage earlier, so the test that is named for api running
+peer's front checks now sends its oversize request unfragmented on purpose.
+
+### The client is a harness, and that is a gate
+
+The two tests already in `cmd/message-server` were building §4.2 frames by hand, which is a client
+and a server that drift apart one file at a time. `harness` is now a package: Hello, CreateGroup,
+Submit, Fetch, §4.6's fragmentation in both directions, §4.3.8's `req_auth`, spec A §5.2's sealing
+order, and `request_id` correlation. It is **not** the sdk's `MessageClient` — no MLS, no key
+schedule, no cipher, no keys of its own, and no import of `testing`, so it cannot end a test from a
+goroutine the concurrency test owns. Its own reassembler is deliberately not `peer`'s: a client that
+reassembled with the server's code would be one implementation checking itself, and a mistake in the
+cutting would be undone by the same mistake in the joining.
+
+That it is test-only is a gate rather than a sentence in its document.
+`TestTheHarnessIsReachedOnlyFromTests` reads the module's own import graph under all three measured
+build configurations and fails on any importer that is not a test binary, with the importer count
+asserted so it cannot pass by reading nothing.
+
+### What only a real transport could show
+
+**Fragmentation, both ways.** A record whose head is a quarter of the budget `Capabilities`
+advertised — derived from the server's own number, not a constant — reaches the server in at least
+sixteen §4.6 fragments and comes back in at least sixteen more.
+
+**A wrong nonce, refused, twice, with a control.** Once against a nonce the server never issued, and
+once against the *previous connection's* nonce after a second Hello proved the two connections were
+issued different ones. Then the same record, re-MAC'd against the current nonce, accepted — without
+which "refused" is equally consistent with a server that simply broke.
+
+**Thirty-two concurrent submits, correlated twice over.** That a response carrying the right
+`request_id` arrived is the harness's own bookkeeping; what makes it *this request's* answer is that
+the record stored under the id it reported is the record this goroutine sealed. A dispatcher that
+swapped two in-flight responses passes the first check and fails the second. Each sender is its own
+`sender_handle`, because §6.1 step (3) is monotonic per `(group_id, sender_handle)` and one sender
+submitting concurrently would have the losers refused for the ordering rather than for anything the
+test is about.
+
+**A forged `write_auth` that allocates nothing.** Not observable from the refusal — a server that
+took an id and rolled the row back answers a client identically and answers a fetch identically. §3.2's
+`next_record_id` is what tells them apart, and the gapless record after the forgery is the second
+half of the same statement.
+
+### Verified rather than reported
+
+Seven mutations, each confirmed applied with `git diff --numstat` before its result was believed and
+reverted after. A nonce that is the same on every connection; a client that truncates instead of
+fragmenting; a client that never fragments at all, so that only the frame count can notice; a
+dispatcher that answers under its neighbour's `request_id` when another job is queued behind it; the
+concurrent pairing itself, broken on purpose; check 7 that passes whatever the MAC says; an id
+allocated with no row behind it; and the successful api bypass above. Every one failed, and each
+named the assertion it was aimed at.
+
+`-race` is still unavailable on this box — no cgo, no C compiler — so the concurrency claims are
+held by `-count=2` (558 passes, exactly double the 279 at `-count=1`, so nothing is order- or
+state-dependent) rather than by the detector.
+
+## 2026-08-26 — p4 through Task 9, and the plan's own tests audited
+
+The key schedule is 10 of 30 tasks in: `GroupContext` and its codec both directions, the nine epoch
+secrets, both constructors, the joiner path, `MLS-Exporter`, and the external key pair. `connect` is
+at **5,152 assertions, 0 failing**, index 484/484, cross-platform gate green on all nine platforms.
+
+### The plan's tests were audited before they were trusted, and most of them could not run
+
+p1 found nine consecutive tasks whose plan-supplied test could not fail, so every p4 brief asked the
+implementer to mutation-test the plan's own tests and report which ones were vacuous. The answer is
+worse than "some":
+
+**Every one of Task 8's six tests could not compile.** So could none of Task 6's five, and neither of
+Task 7's two. They call `MustHex`, `ksTestCrypto` and half a dozen `ksVector*` constants that exist
+nowhere in the tree — `MustHex` is a **p8** symbol, and `key_schedule_deps_test.go` already lists it
+among the cross-plan names that have not landed. The plan's Step 2 for those tasks says *"Expected:
+PASS immediately"*, and it could never have been run as written.
+
+That is a finding about the plan, not about any task, and it is why Task 1's pending-pin gate earns
+its place: it names every cross-plan symbol that has not landed, so the day p8 arrives the gate fails
+and asks for the pins rather than leaving a stale reference to be discovered by the next reader.
+
+### The joiner-path test was a tautology, and that was measured rather than argued
+
+Task 7's plan test compares the committer's epoch against the joiner's. But `NewKeySchedule` **is**
+`DeriveJoinerSecret` followed by `NewKeyScheduleFromJoiner`, so feeding the joiner path the
+committer's own `joiner_secret` runs one deterministic function twice on one argument. The equality is
+`x == x`.
+
+The implementer did not assert this. They transposed the plan's test onto the helpers Task 6 landed
+and ran it against **seven separate breaking mutations** of `NewKeyScheduleFromJoiner` — a different
+parent secret, the PSK contribution dropped, the `Extract` arguments transposed, eight of the nine
+secrets replaced with garbage, the committer half transposed — and **it reported PASS against every
+one of them**.
+
+The replacement hands the joiner a `joiner_secret` produced by a hand-written RFC 9420 §8 derivation
+using `crypto/hmac` alone, anchored first against all **110 published mlswg answers**, and then
+compares committer-vs-joiner, joiner-vs-reference and committer-vs-reference over 48 generated
+epochs. **It failed on all seven.**
+
+This is the clearest instance yet of the defect this project keeps finding — a test that names a
+property and observes something weaker — and it is the first time the vacuity was established by
+measurement against a numbered mutation set rather than by reading.
+
+### Guardrail G6 escaped twice, in two different shapes
+
+`epoch_secret` must never be returned by any exported symbol. Both escapes passed everything:
+
+- a free exported function, `func EpochSecretOf(schedule *KeySchedule) []byte` — **5,132 tests
+  green**;
+- an **argument-conditioned** breach inside `Export`: `if label == "recovery" { return
+  epochSecret }`, which hands the secret to any caller who names the label — **560 tests green**.
+
+The second is the harder one, because no signature-level check sees it: the method's type is
+unchanged and only one path through it leaks. The gate is now two derived tests —
+`TestNoExportedFunctionOfThisPackageHandsOutTheEpochSecret` and
+`TestNoExportedMethodOfThisPackageCanReachTheEpochSecret` — and the second walks reachability rather
+than signatures. Both were re-run by hand against the original mutations after the fix.
+
+### Also closed
+
+A second erase helper declared outside `secret_zeroize.go` with no `//go:noinline`, carrying the
+one-line exemption a contributor would copy verbatim from the existing helper's own row. `KDF.Nh`
+hardcoded to 32, which is correct for both registered suites and therefore invisible. `Secrets()`
+handing back a copy rather than the schedule's own storage. `PastEpochWindow` silently reduced from
+32 to 8. And `Export` dropping the `zeroizeSecret` of its own derived secret — the exact behaviour
+that method's doc comment asserts does not happen.
+
+## 2026-08-26 — p4 through Task 12: the tags, and three gates that were not gates
+
+13 of 30 tasks. **5,173 assertions, 0 failing**, index 484/484, cross-platform green on all nine
+platforms.
+
+### A total authentication bypass, and the shape it took
+
+Task 10's two tag verifiers came back with a mutation that rewrites the tag to the correct MAC when
+the *data* carries a chosen suffix, and then calls the sanctioned `MacVerify` — so every check the
+package makes about routing is satisfied, and the verifier accepts anything an attacker who knows the
+suffix presents. **5,162 tests stayed green.** It is the third total-authentication bypass this
+project has produced and the first that goes *through* the correct comparison rather than around it.
+
+Beside it, a variable-time byte-by-byte comparison placed **ahead** of the sanctioned call:
+behaviourally identical, leaks the index of the first differing octet, and invisible to a router gate
+that only asks whether every return is `false` or the sanctioned call — because every return is.
+
+### The gate that could not detect being broken
+
+The third survivor is the one worth remembering. Killing half the rule inside the comparator gate
+itself — `offending = append(...)` replaced with `_ = result` — left **the gate's own positive
+control still matching, and the gate passing.** A control fixture that a half-disabled gate still
+satisfies is a control that checks the gate compiles, not that it discriminates. It now discriminates,
+and that was verified by re-running the same sabotage.
+
+### What the plan's tag tests were measured to be
+
+All three failed to compile. Ported onto the helpers that do exist and run against seven mutations:
+
+- `TestVerifyConfirmationTagAcceptsAndRejects` — the plan's only test whose whole subject is the
+  verifier — **passes against a verifier that compares one byte of a 32-byte tag and ignores the
+  other 31.** It samples bit 0 of byte 0, so a comparison that reads byte zero and stops satisfies it
+  exactly.
+- `TestConfirmationTagKAT` is not a known-answer test: its `want` is computed by the package under
+  test from a constant the plan never defines.
+- `TestMembershipTagUsesTheMembershipKey` carries no length case at all and passed the truncated-tag
+  mutation.
+
+The replacements derive every refusal over the **length** of what they alter — all `8×len` bits of
+the tag, all `8×len` bits of the data, every truncation from empty upwards — and take their answers
+from mlswg's published `confirmation_tag` inside `transcript-hashes.json` and the `membership_tag`
+inside `message-protection.json`, rather than from anything this package computed.
+
+### Task 11 found the same coincidence twice
+
+`TestWelcomeKeyNonceShape` asserts `len(key) != 32` and `len(nonce) != 12`. Both **pass with `Nn` and
+`Nk` hardcoded**, because those literals *are* the registry's values — the same invisibility that let
+`KDF.Nh = 32` survive Task 6. Worse in the other direction: `len(key) != 32` would **fail a correct
+implementation on suite 0x0001**, whose `Nk` is 16. The test is only writable against the one suite
+where `Nk == KDF.Nh == 32`, which is the coincidence the task exists to guard.
+
+The replacement hands the derivation a synthetic suite at `Nk=20, Nn=7, Nh=48`, with a table asserting
+that none of those coincides with any registry value.
+
+And `TestWelcomeKeyNonceDiffersFromEachOther` cannot fail for the defect its own comment names: it
+passed the same-label mutation, the one-byte-overlap mutation, and both hardcodes. `ExpandWithLabel`
+binds the requested **length** into the KDFLabel preimage, so two collapsed labels still answer values
+that are not each other's prefix, and two independent 12-byte values collide at 2⁻⁹⁶.
+
+### G6 had two more shapes
+
+Task 12 was **rejected**: `copy()` into package-level storage, and a callback through a package-level
+`func` variable, both escaped all three existing gates — including the reachability one. The gate now
+derives the escape class rather than enumerating shapes of it, and a single test catches both. Verified
+by hand afterwards, along with the tag bypass and the gate sabotage.
+
+## 2026-08-27 — p4 complete: the key schedule and the secret tree
+
+**30 of 30 tasks.** `connect/mls` is 17 production files and 29 test files carrying **3,220
+assertions**, with a 315-file seed corpus checked in for p8. The whole tree — `mls`, `mls/syntax`,
+`message`, `protocol` — is green, `go vet` clean, index 790/790, and the nine-platform cross-compile
+gate passes.
+
+CP3b is now reachable: the AEAD keys a message needs exist. What is left before a message can be
+*private* is p5 (TreeKEM), p6 (framing) and p7 (group lifecycle).
+
+### The gap the controller found, and the trade that did not happen
+
+Batch F's reviewer found that keeping an un-zeroized copy of every destroyed node secret in a
+**struct field** escaped the forward-secrecy test; that was fixed by scoping the gate to the type.
+The controller then tried the same escape from **package scope** — a two-line archive beside the
+`zeroize`, declared as a package-level `var` — and **it survived all 750 tests of the package.**
+
+It was deliberately not fixed at speed. The enabling refactor landed alone (`13ffff4`), the gap was
+recorded as ledger open item 12a with its fix direction, and the reason for stopping was written into
+the commit: the analysis treats *any* foreign callee as an escape, which is right for `KeySchedule`
+(which calls nothing it does not declare) and wrong for `SecretTree` (which holds a `sync.Mutex`), so
+the gate as written reported eight false positives on correct code. Refining it meant changing the
+analysis that G6's control fixture validates, and **a security gate written quickly enough to weaken
+the one that currently works is worse than a documented gap.**
+
+Batch G closed it properly. The refinement went in, and the check that mattered was run afterwards:
+G6's two batch-C escapes — `copy()` into package storage, and a callback through a package-level
+`func` variable — were re-applied to `epochSecret` and **both still fail**. The tree gained a gate
+without the schedule losing one. Both were verified by hand rather than accepted from a report.
+
+### The plan's round-trip tests, run verbatim against a broken codec
+
+Task 26's two plan tests were not argued to be vacuous; they were **executed**. The plan's
+`TestGroupContextRoundTripIsByteExact` was run unmodified against a `GroupContext` codec with
+`epoch` deleted from both halves: **PASS**. Two independent reasons — it generates its seeds
+in-memory with the same `syntax.Marshal` it then checks, so `encode(decode(encode(v))) == encode(v)`
+holds for any field the encoder omits; and its only value comparison is decoded-against-decoded,
+never decoded-against-original, over 2 of 7 fields.
+
+Its `PreSharedKeyId` sibling is worse: it makes **no value comparison at all**, only encoded against
+re-encoded, over seeds it generated from the encoder under test.
+
+The replacements split one claim into three that can each fail on their own, and run the truncation
+sweep over the **287 committed seeds** — 62,063 prefixes and 287 extensions refused — rather than
+over five values generated in memory.
+
+### What the fourth vector runner taught that the first three had not
+
+The plan's `TestVectorSecretTree` counts `ran++` after a call to a verifier that returns nothing —
+**the identical defect Task 17 shipped one task after Task 16 shipped it.** By now the shared
+machinery answers it, and the runner asserts 1,324 comparisons against **668 distinct** published
+answers over exactly 82 leaves.
+
+Two survivors were accepted with their reason stated rather than closed, and the reason is worth
+keeping: **a tree that keeps every parent secret forever answers every published question
+identically.** No known-answer test can see a missing deletion, because the corpus records what the
+values *are* and never what is no longer reachable. Those two are covered by the behavioural gates
+in `secret_tree_test.go` instead, and the vector runner's own limitation is written into its header.
+
+## 2026-08-28 — p5 through Task 18: two entropy substitutions that passed 963 tests
+
+18 of 29. The two worst defects this project has produced landed in the same task, and neither is a
+logic error — both are **entropy substitutions**, which no correctness test can see.
+
+### Every committer in every group would have installed the same key
+
+`connect/mls/treekem.go` draws two things from entropy: the sender's leaf HPKE key pair, and the seed
+of the path-secret ladder. Replacing either `crypto.Random(crypto.HashSize())` with
+`make([]byte, crypto.HashSize())` left **963 tests passing**.
+
+The reviewer did not argue it — they verified it behaviourally: two independent commits over two
+independent trees both installed the identical leaf key
+`70a736978971281065765948fb66006c898c25acd789169223ca7336cf62146f`. Under the second mutation
+`path_secret[0]` is thirty-two zero bytes, so the commit secret and every node key on the direct path
+are the same in every group on earth.
+
+**This is the third entropy defect on this project**, after a SHA-256 counter substituted for
+`crypto/rand` (113 tests green) and `NewCryptoProviderWithRandom` having no gate over it (2,284
+green). The pattern is now unmistakable and worth stating as a rule: **deterministic keys still
+encrypt, still decrypt, still round-trip, and still match every published vector that does not depend
+on the randomness.** Correctness testing cannot reach this class at all; only a gate that asks where
+a published octet string came from can.
+
+The gate that now covers it —
+`TestTheUpdatePathDrawsEveryOctetStringItPublishesFromFreshEntropy` — derives its class
+from what the function publishes rather than naming the two sites, so a third draw added later is
+inside it by existing. Both mutations were re-run by hand after the fix; both fail.
+
+### A guardrail route-around through a helper function
+
+G8 says every comparison goes through `subtle.ConstantTimeCompare`. The mutation replaced one with a
+locally-declared `bytesEqualProbe` — not `bytes.Equal`, so a name-based ban list would not see it.
+It is caught, by two gates, one of which is derived over *every key question the ratchet tree
+answers* rather than over a list of comparator names.
+
+### Four plan tests that could not fail, each measured rather than argued
+
+- `TestAddLeafFillsTheLeftmostBlankAndMarksUnmerged` blanks exactly **one** leaf on a four-leaf tree,
+  so leftmost, rightmost and any-blank are the same node. Taking the rightmost blank passes it.
+- `TestRemoveLeafBlanksAndTruncates` runs on a tree whose parents are **all blank**, so a Remove that
+  touches only the leaf leaves an identical tree; its direct path is also outside the truncated array
+  afterwards, where `IsBlank` answers yes for an index that is merely absent. A `RemoveLeaf` that
+  never calls `BlankDirectPath` passes it.
+- `TestRemoveLeafDropsItFromUnmergedLeaves` puts its one stale entry at node 1 — the **first** odd
+  index the sweep visits — so a sweep bounded at `x < 2` passes it.
+- `TestUpdateLeafBlanksTheDirectPath` uses a four-leaf tree whose direct path is `[1, 3]`: two
+  assertions about the two **ends** of a loop, saying nothing about anything between them.
+
+### On wall clock, measured because the owner asked
+
+`mls` is 774 tests at ~57 s with **zero `t.Parallel()` on a 24-core box**; compile and link are 1.8 s
+of that. **Parallelising is not the fix and was tried**: Go holds parallel tests until the serial ones
+finish, so parallelising the 54 tree-math tests moved 57.2 s to 57.7 s. The fix is that a targeted
+`-run` costs **1.8 s** against the full suite's **56.6 s**, so briefs now mandate two-phase mutation
+testing — targeted first, full suite only for survivor candidates. Twenty mutations: ~3 minutes
+instead of ~20. Ledger item 12b carries the numbers.
+
+## 2026-09-02 — p5 and p6 closed, p7 to Task 10, the store on real PostgreSQL, and a roadmap correction
+
+Five days, and the summary below is the durable part. Two things changed shape rather than degree:
+the store gained a second implementation, and the road to CP3b turned out to be longer than the
+plans implied.
+
+### What landed
+
+- **p5 complete** (29 of 29), **p6 at 19 of 20** — Task 20 is the plan's only wave-4 task and both
+  its construction-bypass seams take a `*Group`, which p7 declares. The agent sent at it committed
+  nothing and said so, which was correct.
+- **p5 Task 7A** — `NewKeyPackage`, `Ref`, `Validate`, the KeyPackageTBS signing half. It had been
+  outstanding behind a documented stand-in, and **p7 Task 1's fixtures could not compile without
+  it**; nothing in a task count showed that.
+- **p7 Tasks 1-10 and Task 14.** Task 14 (`GroupInfo.Sign`/`Verify`) was pulled forward out of
+  order because four rounds of provenance work turned out to be standing in for it.
+- **p2 Tasks 19-20 — X-Wing.** The hinge: no encapsulation means no `pq_secret`, no `storage_root`,
+  no class keys, no AEAD, which is exactly the CP3a/CP3b delta.
+- **The pgx store passes the contract against real PostgreSQL** — 241 passing, both implementations
+  reporting "ran the contract". PostgreSQL 17.6 runs portable and service-free at `127.0.0.1:55432`.
+
+### Hardening the contract before writing the second implementation was the decisive call
+
+Against its only implementation the store contract could not see: epoch keys installed as 32 zero
+bytes or the read key written into both columns; `EpochKeys` answering a neighbouring epoch; four of
+the six rows the founding transaction writes; three of four retention arms; and a duplicate
+`CreateGroup` answering `REASON_REJECTED` **while disclosing that the group exists and how many
+records it holds** — §4.5's most-cited paragraph. Every one of those would have been inherited by
+the pgx store for free.
+
+The second implementation then earned its keep immediately by **disagreeing** with the first about
+§4.3.7's recovery-handle rebinding. The spec settled it and the reference model was the permissive
+one — the second time that has been true.
+
+### The road to CP3b is longer than the plans implied
+
+Traced and verified against the tree, not the documents:
+
+    p2 T19-20 -> p7 T7-13, 15, 16, 18, 19, 22 -> m1 (no plan exists) -> s1 -> 2-4 sdk plans -> CP3b
+
+`grep -r 'func StorageRoot'` returns **0**, and `connect/message` has seven non-test files with no
+key schedule, no AEAD, no ratchet and no wraps — its own CP3a header says "It does not encrypt." So
+**a `connect/message` crypto plan is a fourth unplanned workstream and it sits in front of two of the
+three already known.** Separately, `message.proto` contains **zero** occurrences of `Welcome`:
+`CommitResult.RatchetTree` is annotated "for out-of-band Welcome delivery" and no document names the
+band.
+
+The good news in the same trace: **about 85% of Spec A §7 is off the CP3b path** — roughly 21
+functions and a dozen types, none of §7.3a/§7.3b/§7.4a/§7.5/§7.6/§7.9, and no cgo ABI.
+
+### CP3b remains the bar, and an interim build was proposed and withdrawn
+
+The owner was asked whether they wanted an internal-only build carrying real messages before p7/p8
+finished, and said yes — **to a question put without checking this file first.** The checkpoint
+section had already ruled against exactly that, with the reason: *"a build that sends unprotected
+traffic is a hazard the moment it exists, because it looks exactly like the real thing to anyone
+testing it."* Shown the conflict, the owner reversed. Nothing had been built on it. The rule worth
+keeping: **a ruling here outranks a fresh answer to a question framed without it.**
+
+### The defect class that dominated this stretch
+
+Almost every finding was one shape: **a rule decided off a field nobody joined, or a gate deriving
+its class and then writing down its scope.** Selected, all measured:
+
+- A member could **crash every other member** with one valid proposal — `RefHash` wraps a whole
+  serialized structure in one `opaque<V>`, and the premise that "a panic here is unreachable" was
+  true field-by-field and false for a composition. Five call sites; nothing recovers.
+- An **Update proposal's leaf was installed unvalidated** — `LeafNodeSourceUpdate` appeared nowhere
+  as a caller's expectation, while two comments described the door as existing.
+- `tree_sync.go` passed **the leaf's own source** as the expected source, so that rule could never
+  fire.
+- `ValidateCommit` decided §12.4's path rule off `List` while the RFC states it over
+  `commit.proposals`, and **accepted a commit that removes its own committer** because the typed
+  buckets were never joined to the commit order.
+
+Three fix commits introduced a fresh instance of the class they were sent to close. That produced
+**rule 11** (run the class against your own diff) and then **rule 11a** (search it package-wide, not
+just in the diff) — 11a exists because a commit that ran 11 and said so still left two false comments
+in a neighbouring file.
+
+Where a check kept failing, the answer was to make the bad state unrepresentable instead: the
+`VerifiedGroupContext` type ended a five-round arms race that no AST walk could win, and the same
+move is now aimed at the proposal buckets.
+
+## 2026-09-07 — p7 closed, m1 wave 1 sealed and opened its first record, and the fixture size that made a whole class of defect invisible
+
+Five days, and the shape of them is one sentence: **the group lifecycle and the record layer both
+finished, and in each of them the most valuable finding was about the fixture rather than about the
+code.** `connect/mls` had **27** test call sites running on a group of two. m1's own plan had
+**nine** statements the code it produced now refutes, and three of them were named in the brief that
+ordered this record while six were not.
+
+**Both of those numbers are corrected from the version of this entry that landed at `29f9778`, and
+they were wrong the same way** — published without the query that produced them, in the entry whose
+own closing rule is *"publish the query beside the number"*. The first read **thirty-two**, which is
+a count of grep **lines**: `git grep -n testTwoMemberGroup dd140bd -- mls/`, at `dd140bd` — the
+commit before `mls/four_member_group_test.go` was added — returns **32 lines**, of which two are
+`func` declarations and three are comments, leaving **27 invocations**: 26 in test bodies and one the
+two-argument fixture's own delegation to `testTwoMemberGroupNamed`. `connect/mls`'s own file header
+carries the same 32 and is `connect`'s to correct, not this file's. The second read
+**eight/three/five** while the m1 plan and the commit message of the very commit that published it
+read **nine/three/six**; the plan enumerates nine members and the ledger entry said *"eight"* and
+then listed six unnamed beside three named, which is nine. **Nine** is the number the enumeration
+supports, and the disagreement was inside one commit.
+
+### p7 is complete, and the CP3b path through `connect/mls` is closed
+
+Legs 1 and 2 of m1's Definition of done — p2 Tasks 19–20 and p7 Tasks 7–13, 15, 16, 18, 19 and 22 —
+are landed. Five defects are worth naming, and three of the five are already in the 2026-09-02 entry
+below because they were found while it was being written; they are named again only where the two
+that are new are unreadable without them.
+
+**New here: a member could apply another group's commit.** `(*Group).ApplyCommit` read the `Kind`,
+the nil, the closed flag and `RemovesSelf` and **nothing about provenance**. Measured: group B, handed
+a `Processed` that group A had staged, answered nil, moved from **epoch 1 to epoch 2**, and then
+derived byte-identical epoch authenticators — so both groups agreed they were in the same epoch.
+(**Corrected from "epoch 3", which was introduced here.** `commit_provenance_test.go`'s header
+deliberately carries no number — *"moved B out of epoch 1 into the epoch A's commit opened"* — so the
+3 came from a paraphrase and not from the source. Measured through a `go test -overlay` that adds a
+case and edits nothing: the fixture leaves both receivers at **epoch 1**, and applying A's own staged
+commit in A moves `receiverA` **1 → 2**. One commit opens one epoch.) The
+shape is the expected caller shape and not an abuse: `Processed` and its `Commit` field are exported
+and `connect/message` holds them across a policy decision, which is exactly what §6's `EngineProcessed`
+exists to carry. A `StagedCommit` now carries the group id **and** the epoch it was staged against —
+both halves, since every group runs an epoch 7.
+
+**New here: a restored member drew generation 0 again.** `groupStateBlob` carried the TreeKEM ladder
+and no consumed-generation state, and `LoadGroup` rebuilt the epoch with `NewSecretTree` — every
+ratchet at zero. A member restored into an epoch it had already spoken in sent messages every peer
+dropped until it burned past that peer's head, and sealed **two different plaintexts under one
+`(key, base nonce)` pair** for that leaf and generation. Only the 32-bit `reuse_guard` stood between
+that and an AEAD nonce collision. The repair is two halves and either alone is useless — the blob
+carries the position, and the seal persists **before the ciphertext leaves**, because `persist` used
+to run only at an epoch boundary where the sender position is always zero.
+
+**And the discovery that reframes the other four.** `mls/four_member_group_test.go` and
+`TestFourIsTheSmallestGroupWhoseMembersEnterTheLadderAboveTheirOwnLeaf` exist because **27 call
+sites of this package's corpus ran on `testTwoMemberGroup` and nothing larger existed** (the query is
+above; `connect/mls`'s own file header says thirty-two, which is that grep's line count and
+`connect`'s to correct). In a group of two the only
+node of a sender's filtered direct path that covers the receiver is the root, and the receiver's own
+leaf is the whole of that node's copath resolution — so every path secret any commit ever seals to
+this member is sealed to the member's own leaf key, and the own-leaf arm of
+`(*TreeKEMPrivate).NodePrivateKey` answers every question the receive path asks. **Anything that
+loses, mispairs or never stored the rungs above the leaf is invisible.** The reasoning that opened
+that work predicted three members would separate nothing, and it was wrong: at three, two of six
+ordered sender/receiver pairs enter above their own leaf. **Four** is the smallest size at which
+*every* member has a sender whose commit it must open above its own leaf. The property is the
+member's **position**, not the group's size — at five, leaf 4 stands alone under the right subtree
+exactly as leaf 2 does at three — so *"a group of four or more"* is a false way to state it, and it
+had been written that way twice in `group.go`. What the fixture still does not reach is written down
+rather than repaired: it holds zero unmerged leaves at every size, so no group fixture in the package
+puts a member in a resolution reached through one.
+
+### The store on real PostgreSQL was already recorded, and is not re-narrated here
+
+The brief that ordered this entry lists it as a fourth closed workstream absent from this file. It is
+in the entry below: that entry's own heading names it, and its **What landed** list carries *"The pgx
+store passes the contract against real PostgreSQL — 241 passing, both implementations reporting 'ran
+the contract'."* `git log -- store/` returns nothing after 2026-08-30. Recorded here only because a
+second narration of a closed workstream is how a file like this stops being trustworthy about which
+things are new.
+
+### The specification passes: MASTER caught up, and a count that could not be checked replaced
+
+**MASTER was brought into agreement with the three wrap rulings** — the resequenced fan-out, the
+exporter envelope and the two-record device wrap — four weeks after Spec A carried them, and the
+location list of what needed amending was short for the **third** time.
+
+**Red-team finding M-15 was adopted**: the wrap KDF now derives a real AEAD nonce and binds `alg_id`,
+in place of a 32-octet key sealing at a fixed nonce. Then **a second instance of M-15's own class was
+found in `K_snapshot`** — `HKDF-Expand(storage_root[n], "snap/v1", 32)`, a 32-octet AEAD key with no
+nonce, no `alg_id` and no AAD anywhere — by the sweep that closed the first, and only because the
+sweep was re-run as a property rather than as a search for the instance already named. Two more
+members of the class are filed and unruled, and one of them the producer-side query **cannot reach at
+all**, because the blob object's AEAD key is not derived anywhere to be found.
+
+**And r3's fourteen undispositioned majors were dispositioned, one per ledger item.** The measurement
+that forced it is the durable part: `M-1` through `M-14` were named **nowhere in this repository
+outside the review that raised them** — zero files each — while all twelve of r3's **blockers** had a
+disposition. **The cause is plain and it is not diligence.** The blockers were re-grepped by id; the
+majors were **counted** — *"8 majors and 22 minors remaining"* — and **a count cannot be checked
+against a document.** Nobody could have noticed, because there was nothing to notice with. The same
+pass then found the gate proposed to prevent a repeat is satisfied by the sentence that records the
+failure, and that publishing a measurement inflates the very ids it measures.
+
+### m1 wave 1: `connect/messagegroup` seals and opens a record under the real key schedule
+
+**Seven** commits on `beta/message` — `git rev-list --count b9a31e2^..34fc072` = 7 — in three
+adversarially reviewed batches and a closing commit. **The first version of this table named four of
+the seven and named the wrong one in two rows**: it gave each batch the commit that *closed* the
+review rather than the commit that *landed the tasks*, so a reader looking for the record-key ladder
+in `7a50f80` finds a gate rewrite, and one looking for seal/open in `69464ae` finds a mutation-run
+repair. Both columns are now named, and the test figure in each row is measured at the last commit
+that row names, which is where it was always attributed:
+
+| batch | tasks | landed | reviewed through | tests |
+|---|---|---|---|---|
+| A | 1–4 — the record AEAD, zeroization, the storage root and class keys, the three handles | `b9a31e2` | — | 7,523 |
+| B | 5–8 — the four record-key derivations, the stream index, the two ratchets | `da0b999` | `7a50f80` | 7,560 |
+| C | 9, 9a, 10, 11, 12 — the engine, the `connect/mls` adapter, the session, seal and open | `095fdd1` | `fe2a151`, `69464ae` | 7,607 |
+| close | the survivors of all three reviews | `34fc072` | — | **7,620** |
+
+Tree clean, `git ls-files` = `git ls-tree -r HEAD` = 1,104, the nine-platform `CGO_ENABLED=0`
+cross-build gate green.
+
+**The verification that closed it is worth more than the number, and it is a method this project
+should reuse.** The final reviewer derived the class as *"every octet used as an AEAD key, an AEAD
+nonce or a MAC key by `SealRecord` or `OpenRecord`"* and tested it by **exact byte-for-byte
+reproduction**: from `mls.Group.Export("URmessage/v1/storage", nil, 32)` plus the injected `pq_secret`
+and `server_nonce` **alone**, using `chacha20poly1305` directly rather than this package's sealer, it
+rebuilt `ct_body` (272 octets), `ct_head` (34 octets), `write_auth` and `sender_handle` exactly. Any
+second key source, any constant and any entropy draw anywhere on the seal path breaks that
+reproduction — which is the thing a coverage argument over the same path cannot say, because a path
+can be fully covered by a test that agrees with the implementation about a wrong value. And there is
+no stub for it to have been green over: exactly one `GroupHandle` implementation exists anywhere in
+the package, the real `connect/mls` adapter.
+
+**Through `34fc072` that reproduction was a REVIEW ARTEFACT and nothing in the tree performed it**,
+which the first version of this entry did not say and should have: it read as a thing the suite does,
+while the suite did the `chacha20poly1305` reconstruction of the AEAD (`recordaead_test.go`) and the
+KAT sets and not the whole-record rebuild. A property that lives in a finished session goes red on
+no commit, and the commit that adds a second key source is the only event it exists to catch.
+**It became a standing test on 2026-09-07, at `connect` `10cc20c`**, `messagegroup/keysource_test.go`:
+`TestEveryKeyedOctetOfARecordIsReproducibleFromTheExporterAndTheTwoInjectedValuesAlone` rebuilds three
+whole records — `sender_handle`, `ct_body`, `body_hash`, `ct_head` and `write_auth` — from the three
+values and none of the package's own derivations, and requires each to open back through the session;
+`TestFlippingAnyBitOfTheExporterOutputChangesEveryKeyedOctetOfARecord` is its negative control over
+all 256 bits; and `TestTheReproductionCallsNothingThisPackageShips` derives the independence claim off
+the syntax tree rather than leaving it a paragraph nothing could fail on. 14 mutations, no survivors,
+and two of them — a constant and an entropy draw into the session's write key — are caught by these
+tests alone. The tree is 7,623 tests at `10cc20c`, up 3 from the 7,620 in the table above.
+
+Three rulings were recorded against it in `SPEC-LEDGER.md` and the m1 plan: **M1-8** (`LP(leaf_index)`
+is the four-octet reading — a confirmation of what landed, and it no longer blocks the A6 freeze),
+**M1-16** (`StorageRoot` delegates to `mls.CryptoProvider.Extract`, so Gate A needed no allow-list
+widening at all), and the **epoch-zero handle key** — ruled by the fix pass, not the owner, because it
+changes what a client must persist for the life of a group. Spec A §5.3 said nothing about
+persistence and left a reader holding `storage_root[0]`, which is epoch zero's whole key schedule,
+kept forever to recover a public routing identifier every member can already compute. §5.3 is
+amended. The **inverse** mistake is undefended and is filed: both values are 32 octets, so a caller
+who follows §5.3 as it stood is accepted in silence and routes on a handle no peer computes.
+
+### What wave 1 does NOT reach, stated here because this file is where a leg gets lost
+
+This is a record layer inside one process, and every one of the following is a fact about the tree
+rather than a caveat:
+
+- **It cannot join a group.** `JoinFromWelcome` refuses, and the refusal names what is missing rather
+  than describing it: `connect/mls` keeps a minted key package's signature private half private.
+  *(**NO LONGER TRUE, and it stopped being true at `j1` Task 5.** Recorded here rather than rewritten,
+  because this bullet is a dated fact about wave 1 and the file is append-only. At `connect`
+  `72ffdbd` the join is a working exported path: `TestTheDeviceSurvivesItsOwnJoin`,
+  `TestTwoEnginesShareOneGroupAndTheirExportersAgree` and
+  `TestADurableRecordSealedByTheFounderOpensAtTheJoiner` pass — two engines, two stores, two signers,
+  epoch 1, exporters byte-equal. The tracks table above carried the same sentence in the **present**
+  tense and that copy is corrected rather than annotated, because a state row is a claim about now.)*
+- **It seals one retention class.** `DURABLE` only; `PERMANENT`, `MEDIA` and `EPH` are refused with a
+  typed error naming **M1-6**. *(**M1-6 was ruled later the same day** — `ct_head` is always sealed
+  under the DURABLE class — which lifts the refusal for `PERMANENT` and `MEDIA` **in the plan**, and
+  not in this tree: no code changed, and `SealRecord` at `10cc20c` still refuses all three. `EPH`
+  stays refused on purpose; ledger item **152** is why. See today's ledger entry.)* *(**And the second
+  half of the lift was ruled the same day too** — ledger **143** and **169**, shape **A1**: the
+  `stream_index` counter is class-blind, so a non-`DURABLE` record's head has a stated ladder position.
+  That one **did** change code, in `connect` at `33932e0`, but not this refusal: `SealRecord` at
+  `33932e0` still refuses all three non-`DURABLE` classes and its comment still names M1-6 rather than
+  152. Widening it is wave 2's commit.)*
+- **It has no durable store.** The `StreamIndexReserver` is an interface and a test fake; a test
+  asserts that no production declaration of the package implements it. *(**Still true at `33932e0`,
+  and ruling A1 made it load-bearing.** A1 changed the interface's key — `StreamKey` lost its
+  retention byte — and the key is the row identity a store would use, so a store already holding rows
+  under the old key would answer `HighWater` 0 for the new one and restart a ladder at index 1 under
+  an unmoved class key. That nothing durable exists yet is what makes the transition rule free to
+  write; ledger item **170** carries it, to be ruled with **M1-5**.)*
+- **It never touches a message server.** Every wave-1 path stops at a `*message.Record` in memory.
+  The submit leg and the durable reserver are both `s2`'s, and `s2` has not been written.
+- **There is no sender authentication in the record layer.** Any group member can write a record
+  attributed to any other member's leaf and it opens cleanly. That is now pinned by a test that
+  asserts a **forged record OPENS** — `TestAnyMemberCanWriteARecordAttributedToAnotherLeaf` — whose
+  failing direction is the day sender authentication arrives.
+
+### The defect class this stretch added to the one below
+
+The entry below named it as *"a rule decided off a field nobody joined, or a gate deriving its class
+and then writing down its scope."* This stretch adds a narrower and more expensive sibling:
+**a claim measured over a corpus that cannot contain a counterexample.** 27 `connect/mls`
+call sites over a group of two; r3's majors reduced to a count; a plan linter whose documented
+invocation selected one of its six tests; a gate satisfied by the sentence recording that it caught
+nothing. In every case the number was honest and the corpus was the defect. The rule that follows,
+and it is the one worth carrying into `s2`: **publish the query beside the number**, so the next
+reader can ask what the query could not have seen.
+
+---
+
+## 2026-09-07 — ledger items 143 and 169 ruled as shape A1, and the state rows that said no code existed
+
+**No Go file in this repository changed and `connect` was read and never written.** This is the
+documentation half of a ruling whose implementation landed in `connect` on `beta/message` at
+`33932e0`, three commits on `7a9ad2a`.
+
+**THE RULING.** The `stream_index` counter is **one per `(group_id, sender_handle)` and class-blind**,
+and `i = stream_index` in every ladder — head, body, ordinary record and device wrap. `StreamKey` loses
+`RetentionWire` and keeps `SenderHandle`. Ledger items **143** and **169**, ruled together because one
+choice answers both.
+
+**Why it is the shape that owes nothing.** It is the counter the rest of the system already declared,
+and the client was the only half that disagreed — `message_sender` is `PRIMARY KEY (group_id,
+sender_handle)`, Spec B's Q7 selects on the same pair, and this repository's own server gates stream
+monotonicity on `record.SenderHandle` alone (`store/memory.go:600-610`). So the retention byte the
+client carried was a **client/server split already in the tree**, not an open question: the server
+would have refused the second retention class's first record with `REASON_STREAM_INDEX_REGRESSED`.
+Verified here rather than assumed, which is why **nothing in this repository changed for the ruling**.
+
+**What moved, derived rather than taken from the brief.** Spec A revision **A-21**: §5.6's interface
+block and §8.2's `MessageStore` become the landed shape — and that is a change of **direction**, an
+allocation returning an index rather than an assertion taking one, because under one shared counter a
+ladder that chooses its own number wedges (ledger 168's measurement, with a cause one level under its
+diagnosis). §5.3's *"A builder MUST NOT seal a non-`DURABLE` record before 169 is ruled"* is lifted for
+`PERMANENT` and `MEDIA`; `EPH` stays refused under ledger **152**. §5.5 gains the window's measured
+consequence, §5.10 and §5.11 (5) are annotated with the ruling that answers them, MASTER §8.1's pointer
+carries it under a dated amendment that changes **no MASTER rule**, and m1's Task 6, Task 11(a), its
+wave table, its schedule diagram, its external-leg list and M1-5, M1-12 and M1-25 are brought to the
+ruling.
+
+**The costs are this pass's own measurements, not the options paper's.** One rung **390.7 ns**; the
+epoch-change sender rebuild **130.1 ms** at k=3, P=100,000 against **41.8 ms** per-class; the wall
+**1.32 s**. **The paper's formula is wrong**: it priced the rebuild at `(k+1) × P` and the measured
+ratio is **3.11** against a k of 3, so it is `k × P`. Its arithmetic landed within a fifth of the truth
+by accident, because it also quoted a rung 6% low — the more dangerous of the two errors, because it
+survives a spot-check. A class's usable out-of-order window is **341** of 1,024, which is `1024/k`.
+
+**Five findings against the implementation are filed as ledger 170–174 rather than carried as prose,**
+and each was reproduced here before it was written down: the store-row transition hazard the ruling's
+own wording denies (**170**), a wedge recovery path that cannot be walked and is unsafe for one cause
+(**171**), a receive-side cost larger than the measured send-side one (**172**), two pieces of evidence
+that do not observe the property they name (**173**), and two claims in the implementation's own header
+that A1 made stale (**174**).
+
+**And the state rows that said there was no code.** The ledger's §1 read *"Nothing is implemented yet.
+No code exists"* over a 1,105-file `connect` tree, 7,631 passing tests and a 57-file server in this
+repository; this file's tracks table called track C *"greenfield; specs written, no code yet"* and
+track A *"p1 complete; p2 started"*. All three are repaired with measurements. **The class was derived
+rather than taken from the brief**, which is what found the tracks table, PROGRESS's own wave-1
+bullets, the plan's §8.2 anchor row, M1-12's memory-only arithmetic and the A-20 revision row's now
+lifted MUST NOT — none of which the brief named.
+
+**The rule this stretch adds to the one below.** *"Publish the query beside the number"* has a sibling:
+**publish the formula beside the arithmetic.** The options paper's `(k+1) × P` shipped a wrong model
+under a right-looking number for a week, and only the ratio of two measurements — 3.11, not 4 — could
+tell them apart. A number that agrees by accident is worse than one that disagrees, because nothing
+downstream ever questions it.
+
+
+---
+
+## 2026-09-11 — CP3b: NOT REACHED. The determination, its evidence, and the milestone that WAS reached
+
+**No Go file in this repository changed and `connect` was read and never written** — that tree is
+`beta/message` at `72ffdbd`, 1,112 tracked files, clean, and every query below was run against it
+read-only. This entry is the documentation half of an owner ruling recorded the same day in
+`SPEC-LEDGER.md` and in MASTER §8 / §8.1.
+
+**An implementer reached the two-client join, deliberately declined to declare CP3b, and handed the
+question here. The abstention was correct and the determination is NOT REACHED.**
+
+### Why, measured in the file that owns the definition
+
+This file defines the two halves above, and the definitions are the whole argument. **CP3a** is
+*"Record → submit → accept → fan out → fetch → parse"* — the **server** path. **CP3b** is
+*"the same path with the real MLS key schedule underneath."* So CP3b is not *"the real key schedule
+works"*; it is *"a real-keyed record crosses the server."*
+
+**No real-keyed record has ever crossed the server. Two zero-counts, each with the query beside it,
+run in this repository at `2f403c8`:**
+
+```
+grep -rn "connect/messagegroup" --include="*.go" .      ->  0     (production AND test)
+grep -rn "SealRecord\|OpenRecord" --include="*.go" .    ->  0     (production AND test)
+```
+
+Not *"few"* and not *"only in tests"* — **zero**. No file in this repository imports the package that
+holds the key schedule, and the two functions a CP3b record must pass through are named in no Go file
+here at all. They occur only in prose: `PROGRESS.md`, `SPEC-LEDGER.md`, the `m1`, `s2` and `k1` plans,
+and Spec A. The server and the key schedule have never been in one process.
+
+**The complement, printed because an empty one would be the tell.** The narrowing *"production files
+only"* removes **nothing**: the test-inclusive count is the same zero. That is what makes this a
+determination rather than a status — there is no half-built leg to argue about.
+
+### What IS true, and it is a real milestone that deserves its own name rather than a CP3b it is not
+
+At `connect` `72ffdbd`: **two independent clients, one real MLS group, a `DURABLE` record sealed by
+one and opened by the other, every key on it derived through production functions.** Verified by
+running, unfiltered:
+
+- `TestTwoEnginesShareOneGroupAndTheirExportersAgree` — two engines, two stores, two signers,
+  epoch 1, exporters byte-equal
+- `TestADurableRecordSealedByTheFounderOpensAtTheJoiner`
+- `TestTheDeviceSurvivesItsOwnJoin`
+
+All three pass (`messagegroup/enginejoin_test.go`). **And the numbers, with which number each is:**
+`go test ./messagegroup/ -v` with **no `-run` filter** reports **208** top-level tests and **211**
+counting subtests, 0 failures; `go test ./mls/... ./message/... ./messagegroup/... -v`, also
+unfiltered, reports **7,698** `=== RUN` invocations — **2,234** top-level plus **5,464** subtests —
+with **0** failures and **0** skips. A `-run 'Test'` filter would have selected subtests and reported
+a smaller, differently-shaped number; none of the above is filtered.
+
+### The three named hand-offs, which is where the bar is met and where it is carried
+
+CP3b's bar, as the owner read it on 2026-09-10, is *"no test-only key **source**"* — not *"no
+test-only code"*. The package states its own inventory and it reproduces verbatim at
+`connect/messagegroup/doc.go:70-77`:
+
+> *"WHAT IS GENUINELY HAND-CARRIED, three values and each named with what would replace it.
+> `pq_secret` … its delivery channel is m1 task 14, gated on ledger item 152. `group_handle_key`,
+> which a PRODUCTION function computes at epoch zero and which no channel carries to a joiner: open
+> item M1-2. And the Welcome itself, handed over as a VALUE IN ONE PROCESS, which is ledger 44a's
+> named, gated, test-only hand-off. **Three hand-offs and no test-only key SOURCE: nothing on this
+> path mints a key some way the product would not.**"*
+
+Each of the three is a **hand-off and not a substitute**: the value handed over is the value the
+product will deliver, by a route not yet built. `pq_secret` is the only one of the three that is a key
+on the seal path, and it is drawn by `NewPqSecret` — a production sampler — and injected, not faked.
+
+**What that inventory does NOT cover, named because the same header names it two paragraphs down and a
+reader who stops at "three hand-offs" will miss it.** The Welcome **anchors nothing**: anybody holding
+a key package this device published can found a group, add this device and have it join, with group
+id, epoch, member count and exporter all agreeing — because the group is real and the attacker
+founded it. That is open item **MG-1** in `connect`'s own `OPENITEMS.md`, it is a design ruling rather
+than a package defect, and it is not on the CP3b key-source axis at all. It is on the *"who is this
+group"* axis, which no milestone in this file has ever claimed.
+
+### What CP3b still requires
+
+**The record crossing the message server.** That is `s2`'s legs: Tasks 1–12 are the CP3b prefix, and
+`s2`'s own first paragraph states it does not reach CP3b alone. Of the four `connect` blockers `s2`
+filed outside both legs, **S2-4** is closed (this entry's first half is what closed it), **S2-1** and
+**S2-2** are designed in `k1` and not yet built, and **S2-3** is `pq_secret`'s delivery, gated on
+ledger item **152**.
+
+### One finding against `connect` that this pass could not fix, because this pass is documents only
+
+`connect/messagegroup/doc.go:97-98` still reads *"open item M1-6 has not ruled"* as the reason the
+package seals only `DURABLE`. **M1-6 was ruled on 2026-09-07** — the refusal is correct and its
+**reason** is stale: `PERMANENT` and `MEDIA` are refused today because wave 2 has not landed, and
+`EPH` is refused under ledger item **152**. `seal.go`'s own comment carries the same stale name; this
+file's 2026-09-07 entry already recorded that for `seal.go` and did not reach `doc.go`. Filed here for
+whoever next holds that tree.
+
+---
+
+## 2026-09-11 — the carve-out's remaining sites: a conformance row that was false on both clauses, the premise left standing six lines above the line that corrected it, and a proximity claim the ruling was argued on
+
+This is the second commit of 2026-09-11 and it is documents only. It closes what the first one left,
+and two of the four things it closes are **about the first one**, which is the part worth keeping.
+
+### What was closed
+
+**Spec A §7 requirement `S10`** required a server to *"retain `ct_head` and `body_hash` when `ct_body`
+is erased"*, unqualified, citing *"MASTER §8, §9.1, §12.2"*. It is **false for `EPH(1..5)` on both
+clauses** — Spec B §7.2 sets `ct_head = NULL` and zeroes `body_hash` — and after the morning's MASTER
+amendment it **disagreed with the sections it cites as its own authority**: MASTER §8 now excludes
+`EPH` in its own voice, MASTER §12.2 enumerates what an expired ephemeral record leaves behind and
+names neither field, and MASTER §9.1 says nothing about retaining either. §7's table is the list a
+second server implementation is built from, so of everywhere the premise survived, this was the voice
+that mattered most. Spec A revision **A-24**.
+
+**MASTER §8's `body_hash` line** carried the identical premise, **six lines above** the `ct_head` line
+the morning's amendment corrected, **inside the same fenced field listing**. Corrected under an eighth
+dated amendment note.
+
+**Two more sites nothing had looked at**: Spec A §5.1's `RecordHeader.BodyHash` and `Record.CtHead` Go
+struct comments. `Record.CtHead` read *"AEAD, always retained"* — **MASTER's pre-amendment wording,
+verbatim, in the document that carries the carve-out**, in the comment a builder transcribes into
+`message/record.go`. And **Spec B §3.2's DDL comment** on `body_hash`, which its own §7.2 has
+contradicted since revision 2 (Spec B revision **19**).
+
+**The A-20 allocation sentence** — *"MASTER §8.1 stands as written and Spec A §5.3 is the document
+that changes"* — still read unchanged in two live documents, including at the exact line the revision
+row declaring it inverted cites as its location. Both now carry the annotation **at the sentence**.
+
+**And a correction to the reasoning the ruling was argued on.** *"Spec A §5.3 states the rule and
+excludes `EPH` in the same paragraph"* is **false**. §5.3 states the rule at `:1248-1257` and carries
+the exclusion at `:1290-1299` — **47 to 70 lines below**, five paragraphs apart. The ruling stands and
+is arguably strengthened, because a §5.3 reader who stops at the rule does not reach the carve-out
+either. Corrected in all three places it was written.
+
+*(**ANNOTATED 2026-09-11, third pass of that date. The two paragraphs above stand as written, because
+this is a dated stretch entry; two of their counts are wrong and both were settled by counting.**
+*"Corrected in all three places it was written"* — the claim was written in **four** places and
+**two** were corrected. The two that were not are both in `SPEC-LEDGER.md`: item **152**'s own dated
+2026-09-11 note, which the enumeration never named, and that ledger's 2026-09-11 edit-log entry,
+which it did name and did not touch. Both carry an annotation now. And *"two live documents"* for the
+A-20 allocation sentence is **three**: the `m1` plan's **Task 11** decision (a) says the allocation
+in different words — *"the ruling keeps MASTER and amends §5.3"* — which is why a search for the
+sentence did not return it. **The `47 to 70` is measured to `§5.3:1297`**, the first line of the
+exclusion **sentence**, not to the `:1290` printed beside it; from `:1290` it is 40 to 63. Every
+finding above reproduces and nothing above is withdrawn.)*
+
+### The defect class this stretch adds to the one below
+
+**A published complement does not make a query's blind spot visible.** The 2026-09-11 morning pass did
+everything the discipline asks: it derived a class from two queries, printed the 27-member complement,
+and named `MASTER:950` as the one its own first-draft regex would have missed. It still left **six**
+members of the same class standing, one of them six lines from the line it was correcting. The reason
+is mechanical: a complement is the set the *query* rejected, so it can only ever show you what your
+query saw and dismissed — never what it never matched. **The class here was derived by reading eight
+sections end to end and the query was written afterwards, to check the reading.** `Record.CtHead` is
+the proof it had to be that way round: `CtHead` is not `ct_head`, so no widening of the previous
+query short of dropping the identifier would have reached it.
+
+**Corollary, and it is the shape to carry forward:** a restatement of a rule is caught by a query
+tuned to the rule's words; a **contradiction between two statements** is caught by neither, because
+each half is unremarkable on its own. Reading §3.2 against §7.2 is what found ledger item **181** —
+Spec B declares `ct_head bytea NOT NULL` and then requires the sweep to set `ct_head = NULL`, so the
+`UPDATE` one section specifies is one the other forbids. Nothing catches it today because `sweep/`
+holds no code; the first ephemeral record to expire on a real server is what would.
+
+### What is still not ruled
+
+**Ledger item 152** — what class an `EPH` head is keyed under — and **M1-27**. They go in **one
+sitting**, and the reason is unchanged and is a fact about the tree: `K_eph[n][b][t]` has **no
+computable key today** whatever class it is assigned, because `t` has no unit, no origin and no clock
+in any document, and `message.EphBucketSeconds(0)` returns `-1`, the same `noLadderValue` sentinel as
+the off-ladder bucket 6. **Ledger item 181** is new, filed, and not ruled: one of its two candidate
+repairs is wire-visible.
+
+### Two findings against `connect` that this pass could not fix, because this pass is documents only
+
+1. **`connect/message/record.go:88-89`** — *"H(ct_body), retained after ct_body is erased, which is
+   what lets a pruned record still say what it carried."* Same class as everything above, on the
+   `BodyHash` field itself, in the shipped tree.
+2. **`connect/messagegroup/keyschedule.go:262-273`** — quotes MASTER §8.1's **pre-amendment** sentence
+   and says *"WHICH rung each half takes is open item M1-6 and is not answered here."* **M1-6 was
+   ruled 2026-09-07**, and the sentence it quotes no longer exists in MASTER in that form. Same shape
+   as the `doc.go:97-98` staleness the entry above filed and could not fix; all three are for whoever
+   next holds that tree.
+
+### Verification
+
+`go build ./...` clean and `go test ./... -count=1` green before and after.
+`go test ./ -run TestThePlanLinter -count=1` ok on both sides with **every reporting count identical**
+— 1b 7, 1c 1, 1d 189, 2a 18, 3a 4, 3c 3, 4b 5 — and the four fatal checks clean on both. The one
+measured delta is the linter's ledger-reference class, **177 → 178**, which is the single new
+`ledger 152` citation this commit adds to the `m1` plan. `connect` was `beta/message` at `72ffdbd`,
+1,112 tracked files, clean before and after, and was read with `grep` and `sed` only.
+`git ls-files` equals `git ls-tree -r HEAD` at **105**.
+
+
+---
+
+## 2026-09-13 — the owner's two rulings: `ct_head` takes the record's own class key, and the eph window goes on the wire
+
+**Documents only. No Go file in this repository changed, and `connect` and `sdk` were read and never
+written.** The code changes both rulings imply are a later dispatch and are named rather than made.
+
+### Ruling 1 — ledger 152 and 128, and it is a REVERSAL
+
+`ct_head` is keyed under the **record's own class key**, not always under `K_durable`. Head and body
+therefore take **one** ladder at **one** position, separated by their HKDF labels (`"rec/v1/head"`
+against `"rec/v1/body"`), which is what **I7** has always meant. `PERMANENT`, `DURABLE` and `MEDIA`
+are unchanged in effect — `K_perm`, `K_durable` and `K_media` all descend from `storage_root[n]` and
+none is ever destroyed. **`EPH(1..5)` metadata — the MLS `PrivateMessage` header, `type` and
+`sent_at` — now dies with `K_eph[n][b][t]`** instead of living under a key every member, every future
+device and every seedphrase holder holds forever.
+
+**This reverses the ruling of 2026-09-07**, which was *"`ct_head` is always sealed under the DURABLE
+class ratchet, whatever the record's own retention class"* (ledger item **128**, Spec A **A-20**). Its
+reason — *"the head is always retained"* — **is false for exactly one class and it is the class the
+question was about**: Spec B §7.2 sets `ct_head = NULL` for `EPH(1..5)` at `prune_after`. And it was
+ruled on 128's own narrower bookkeeping terms **without ledger item 152 beside it, although 152 had
+asked in those very terms that it be**. Item **128 closes with the reversal** and its text is kept
+whole, with the reversal annotated at the ruling sentence a reader lands on. Item **152 closes ruled**.
+
+**The consequence that is the point.** Before today the only thing stopping an `EPH` head outliving
+its timer was **a cooperating server** — Spec B §7.2's `ct_head = NULL` sweep, an *operational*
+erasure, against the adversary MASTER §8.1 names as *"retained server ciphertext"*: a backup, a
+replica that missed the sweep, a legal hold, a seized snapshot. **The guarantee is now
+cryptographic.** It is the same conversion ruling 3 of 2026-09-13 made for `eph_root[n]`; the head was
+the half that ruling left behind.
+
+**AND THE PRIZE IS NARROWER THAN THIS SECTION CLAIMED WHEN IT WAS FIRST WRITTEN — corrected the same
+day, second pass.** It said three published sentences were *"false under the replaced rule and now
+true as written and unedited"*, naming MASTER §8.1's *"After the timer, retained server ciphertext, **a
+seized device**, a newly provisioned device, and a seedphrase holder all fail to decrypt"*, §12.4's
+required UI string, and §13's *"including against a device set up tomorrow and against a seedphrase
+holder."* **§13 is true. §8.1's sentence is true for three of its four adversaries and was NOT
+established for the seized device, and §12.4's string states a requirement that nothing discharges.**
+`K_eph[n][b][t] = HKDF-Expand(eph_root[n], "eph/v1" ‖ u8(b) ‖ u64(t), 32)` takes **one** per-epoch
+`eph_root[n]` with `t` as an HKDF `info` term, so a device holding that epoch's state recomputes every
+window's key for every bucket — and ruling 2 prints `t` in the clear on the record. No document
+schedules the destruction of `eph_root[n]` or of `K_eph[n][b][t]`; the only deletion named anywhere is
+epoch-scoped (`DeleteGroupStateBefore`, 32 epochs, advanced by commits and not by clocks). **The
+conversion from behavioural to cryptographic is real against retained server ciphertext, a newly
+provisioned device and a seedphrase holder** — none of which ever holds `eph_root` — and it is **not
+yet established against a seized member device**. §8.1's sentence is narrowed to those three with the
+old text kept beside it; §12.4's string is **not** changed, because it states the requirement
+correctly and what is missing is the mechanism. **Ledger open item 186**, filed and not ruled.
+
+### Ruling 2 — `M1-27`, and it reopens a frozen wire format
+
+The window `t` is a **new plaintext `u64` field, `eph_window`**, in `record_bytes`:
+`floor(sent_at_ms / (eph_bucket_seconds[b] × 1000))`, Unix origin, **sender's** clock, always present
+and zero off `EPH(1..5)`, in `AAD_head`, `AAD_body` and the `write_auth` preimage immediately after
+`u8(retention_class)`. An opener takes the wire value and **never recomputes it**; it refuses a window
+more than one **ahead** of its own clock and **never** one behind. The server refuses **±1** against
+arrival — new Spec A conformance row **S19**, Spec B §5.1 check 3 and §7.1. `EPH(0)` carries `t = 0`
+by definition. Second half: **`EphBucketSeconds` must answer `0` for bucket 0 and a negative for
+6..255**, because *"the transient rung, never persisted"* and *"not a bucket"* are two answers and the
+shipped table gives them one.
+
+**And this reopens a section MASTER §14 froze before slice 2, which has shipped.** Written as an
+explicit revision in all three documents rather than absorbed: `format_version` → `0x02`, nothing
+migrated because nothing encoded is retained, and ledger item **182** carries the one clause of it
+that is still the owner's.
+
+### The thing worth returning first: wave 2 is NOT fully unblocked
+
+The brief for this pass stated that ledger 152 was m1 wave 2's and Task 14's **only** remaining
+blocker. **It is not, and has not been since 2026-09-12.** `M1-52` — *"the signature preimage is 1,320
+or 1,356 octets and no document says which, so nothing in Task 14 can sign"* — is **filed, not ruled**,
+and its own *Blocks* line is *"signing, and therefore all of Task 14 step 3."* `M1-53` blocks Property
+11's third refusal beside it. **Task 14 step 1 is genuinely unblocked; step 3 is not.** Tasks 13, 15
+and 16 are unaffected, and **Task 17 is unblocked** by ruling 2. Ledger item **184** files the
+staleness and named **five** sites that carried *"152 and nothing else"* — this file's tracks row,
+`SPEC-LEDGER.md` §1's implementation-plan row, and the m1 plan's Task 14 heading, wave table and
+schedule diagram — all five corrected in place with the old wording kept beside the new.
+
+**THAT COUNT WAS WRONG AND IT WAS PUBLISHED WITHOUT A QUERY, WHICH IS THE FAILURE ITEM 184 ITSELF
+NAMES.** Corrected the same day, second pass. The count of **five** came from reading the m1 plan
+against PROGRESS and the ledger, and that reading never left those three files. The query is
+`grep -rnE 'item 152|ledger 152' --include=*.md docs/plans docs/specs PROGRESS.md`, and it reaches
+**seven more live sites in two plan documents inside its own `docs/plans` glob** — three in the
+strong *"and nothing else"* form, four in the weaker *"blocked on 152"* form; *numbers measured at
+`81f47cc`, with the post-correction number beside each*: the `s2` plan at
+`:490` → `:490` (*"blocked on ledger item 152 alone, since 2026-09-09"*, in its Interfaces table),
+`:3209` → `:3214` and `:3386` → `:3391`, and the `k1` plan at `:23` → `:23`, `:309` → `:309`,
+`:1366` → `:1366` and `:1473` → `:1476` — the last of which is
+*"**To the owner:** ledger item 152 is the only remaining ruling on the CP3b path"*, the strongest form
+of the claim in the corpus, addressed to the owner, and falsified twice over. **All seven are corrected
+in place**, with the old wording kept beside the new. Ten further carriers are **named and deliberately
+not changed**: this file's own verbatim quotation of `connect/messagegroup/doc.go:70-77`, which is a
+quotation of read-only source and would stop being verbatim if edited, and **nine matching lines in
+`connect` itself, in five files** — by `grep -rn 'item 152\|ledger 152' --include=*.go`, and **that is
+a LINE count and not a claim count**, which is the distinction several numbers on this project have
+got wrong: `messagegroup/doc.go:74`, `enginejoin_test.go:1643` and `:1681`, `m1w1repairs_test.go:678`,
+`ratchetrepairs_test.go:415`, `:430` and `:841`, `streamindex.go:90` and `:152`. All nine state 152 as
+unruled or future (*"on the day item 152 rules them"*, *"gated on ledger item 152"*). They are a
+**later dispatch** against a tree this pass may not write, and they are listed so that the count of
+what remains is right rather than comfortable. `sdk` has **zero** by the same query.
+
+**The measurement, with its query beside it: TWENTY-TWO carriers reached — five corrected on the first
+pass, seven corrected on this one, ten named and left.** Item 184 published *"four"* (five counting
+this file's tracks row) with **no query at all**, which is the failure item 184 is itself about.
+
+**And Task 14 step 1 is unblocked for ONE of the two records it builds.** The `PERMANENT` `pq_secret`
+wrap is through. Its twin, the **`EPH(5)` `eph_root` wrap**, is not: §8's presence rule makes its
+`eph_window` non-zero, S19 and Spec B check 3 refuse an implausible one with no wrap carve-out, and
+the field's formula divides a `sent_at` that a wrap head does not have (Spec A §5.11 (5)). **Ledger
+open item 185**, filed on this pass and not ruled; a builder MUST NOT publish that record until it is.
+Property 1's *"exactly two"* is therefore not buildable yet. **So: wave 2 is not unblocked, Task 14
+step 3 is blocked by M1-52, Task 14 step 1 is unblocked for the `PERMANENT` half only, and Task 17 is
+unblocked in full.**
+
+### Verification
+
+`go build ./...` clean, `go test ./... -timeout 600s` green and
+`go test ./ -run TestThePlanLinter -timeout 300s` ok, **before and after**. `connect` was
+`beta/message` at `71d2482` and `sdk` at `54785de`; both were read only and both were verified clean
+after. `message.EphBucketSeconds` was measured **by running it** against `71d2482` through a scratch
+module with a `replace` — `0 → -1, 1 → 3600, 2 → 28800, 3 → 86400, 4 → 604800, 5 → 2419200, 6 → -1,
+7 → -1, 8 → -1` — which reproduces the brief's table exactly. `git ls-files` equals
+`git ls-tree -r HEAD` at **105**.
+
+---
+
+## 2026-09-13 — the implementation's four spec gaps filed and none ruled, and the suite in this repository found RED for a field ruled in another
+
+Third commit of 2026-09-13, **documents only**. `connect` implemented the sitting's two rulings —
+`6248284` for the `eph_window` wire field, `b0155d9` for the key schedule and the full seal lift, both
+adversarially reviewed and both SOUND, **1,125 tracked files and 8,252 tests passing** — and the
+implementation surfaced four things the corpus owes. They are ledger items **187–190** and **none of
+them is ruled here**.
+
+### Which of them block m1 Task 14 or CP3b — the answer first, because the corpus has been wrong about this before
+
+**None of the four blocks m1 Task 14 or the CP3b path, and Task 14's blocker list is unchanged.**
+`M1-52` still blocks step 3 and item **185** still blocks step 1's `EPH(5)` half; nothing filed today
+is added to that list.
+
+- **187** — the sender's window is unimplementable as MASTER §8.1 and Spec A §5.3 state it. **Blocks a
+  claim, not a task.** Not Task 14: neither record that task builds calls `EphKey` at all, and a wrap
+  has no `sent_at` to divide — that is item 185. Not CP3b: the record on that path is `DURABLE`, whose
+  `eph_window` is `0` by the presence rule, so no window is computed.
+- **188** — `eph_root` has no declared route into a `GroupSession`. **Blocks writing Task 14's receive
+  leg from the documents, not executing it.** It also broke `s2` Task 12's published `TrackSender` —
+  four parameters against a five-parameter function — which is **corrected in place in this commit**,
+  so a dispatcher no longer transcribes a call that will not compile. The code ships and the owner has
+  confirmed it is kept; the declaration is what is still owed.
+- **189** — the `ParseRecord` refusal question. **Blocks a conformance claim.** The field travels, both
+  AADs cover it, and check 3 and **S19** stand whichever way it is ruled.
+- **182's open half** — refuse `0x01` outright, or tolerate it on the read path for one release.
+  **Blocks nothing**, because `connect` shipped the **safe** half, which a later ruling can widen
+  without invalidating anything already written. That position is now recorded in item 182 so the owner
+  rules knowing what ships.
+
+**What DOES block the message-server leg — which this file's own tracks row names as what blocks
+CP3b — is new item 190**, and it is measured rather than argued. *(**AMENDED 2026-09-13, third pass of
+that date.** Old wording kept. Item **190** is now CLOSED — the server carries the field end to end
+and the suite is green. And the sentence was in the SINGULAR over a question with four other live
+answers: `s2`'s **S2-1**, **S2-2**, **S2-3** and **S2-4** each carry a *Blocks* line naming CP3b. The
+defensible form was *"item 190 is a new, measured blocker inside this repository"*. See the third-pass
+entry at the end of this file.)*
+
+### `go test ./...` is RED here, and was red before this commit touched anything
+
+The brief for this pass stated the suite was clean before and after. **It is not, and was not.**
+Measured first, before any edit, and reproduced three times:
+
+```
+go test ./... -timeout 600s -count=1
+  --- FAIL: TestARecordTravelsEndToEnd
+      roundtrip_test.go:239: 1 header field(s) were zero in every record this test
+      round-tripped, so nothing here would notice the server dropping them: [EphWindow]
+```
+
+Exactly one test; every other package `ok`; `go build ./...` and the plan linter clean, so two of the
+three claims hold. **This repository did not change — the sibling did.** `EphWindow` entered
+`message.RecordHeader` at `connect` `6248284`, and `d2e7a51`'s own verification block records `connect`
+at `71d2482`, where it does not exist:
+
+```
+(connect) for c in 71d2482 6248284 b0155d9; do git show $c:message/record.go | grep -c EphWindow; done
+   ->  0, 1, 1
+```
+
+The `replace ../connect` in `go.mod` makes the sibling's working tree this module's dependency, which
+is the intended wiring and this is the intended consequence. **The gate that fired is the right one**:
+`assertEveryHeaderFieldTravelled` walks `message.RecordHeader`'s own field set by reflection, and its
+header says *"a field added to the header tomorrow arrives uncovered and says so rather than being
+quietly compared at zero."* It did exactly that, on the first run, naming the field.
+
+**`eph_window` is carried in no Go file here** — `grep -rn 'eph_window\|EphWindow' --include=*.go .`
+returns **0** — so the harness cannot seal a record with one, `store.Record` cannot hold one,
+`store/migrations.go` has neither the column nor the `CHECK` Spec B §3.2 already publishes,
+`rebuildRecord` cannot carry one, and **Spec A requirement `S19` exists in no code at all**. Item
+**190** lists the five edits owed; **none of them is a ruling**, because item 183 ruled the field, S19
+and check 3 ruled the refusal, and §3.2 already publishes the column.
+
+**This commit does not repair it and does not paper over it.** That repair is implementation work
+across five files and is not a documents-only pass's. **Red before, red after, identically, for a cause
+this commit does not touch.**
+
+### One claim in the brief that does not reproduce, so it is not written down
+
+Item 189 was to be filed with the correction that Spec B's *"wire byte is 17..21"* phrasing *"leaves
+`EPH(0)` on the wrong side of the line"*. **Inverted.** `EPH(0)`'s wire byte is `0x10` = **16**, which
+is **outside** 17..21, so that phrasing puts it in the must-be-zero half — exactly where MASTER §8's
+presence rule puts it. **The two landed statements are correct as written**; it is the *class*-phrased
+reading, *"a non-`EPH` class"*, that is wrong by one class, because `EPH(0)` **is** an `EPH` class and
+must carry zero. Item 189 is filed in that direction with the arithmetic printed beside it, and the
+inverted sentence is written nowhere in the corpus.
+
+### The sweep, and the complement
+
+```
+git archive d2e7a51 | tar -x -C <tmp> && cd <tmp>        # pinned: this commit adds matching lines
+grep -rn 'func (self \*GroupSession)' --include=*.md .   ->  26 lines in 4 files, naming 10 + do
+(connect @ b0155d9) grep -rn 'func (self \*GroupSession) [A-Z]' --include=*.go messagegroup/ \
+  | grep -v _test                                        ->  11 exported methods
+```
+
+**Complement, one member: `InstallEphRoot` is named by no line of the corpus.** The sweep also found what a count would have hidden — **`s2` `:408-409` is not
+silent about `TrackSender`, it is wrong**, four parameters where the shipped signature takes five.
+**What the query cannot find:** a paraphrase naming no symbol; a declaration in prose rather than in a
+fenced block (`k1` `:168` was found by reading, not by the query); and anything in the two read-only
+trees, which were read and never written.
+
+### Verification
+
+`go build ./...` clean **before and after**; `go test ./ -run TestThePlanLinter -timeout 300s` ok
+**before and after**; `go test ./... -timeout 600s` **red before and red after, identically**, one
+test, for item 190's cause. `connect` (`beta/message`, `b0155d9`) and `sdk` (`beta/message`,
+`54785de`) were **read-only to this pass** — every command against either was `git show`,
+`git status`, `git rev-parse`, `grep` or `sed -n`. `sdk` is clean. **`connect` is not, and that is
+recorded rather than rounded off**: it began clean and ends dirty under `messagegroup/` at an
+unchanged HEAD. **The count is deliberately not written down — it moved between two readings minutes
+apart**, and that movement is the finding rather than the number: **another agent is writing that tree
+concurrently**.
+None of them is this pass's, and no measurement above depends on `connect`'s working tree — every
+`connect` number was taken with `git show <commit>:<path>` against committed objects. `git ls-files`
+equals `git ls-tree -r HEAD` at **105** here, checked before the first edit and after the commit.
+
+
+---
+
+## 2026-09-13 (third pass) — the server carries `eph_window`, the suite is green because the field travels, and the review's eight findings are closed
+
+### The answer, first
+
+**The suite is GREEN, and it is green because the server now carries `eph_window` end to end — not
+because a test stopped asking.**
+
+`api/roundtrip_test.go`'s `assertEveryHeaderFieldTravelled` is **unchanged**. No field is excused; the
+`unbuildable` map still holds `BlobId` alone, behind the live tripwire that fails the test the day
+blob binding is no longer declared unbuilt; the reflective walk over `message.RecordHeader`'s own
+fields is untouched. The only edit in that file is that the `EPH(1)` record it already sealed now
+carries a window — which is the only class Spec B §3.2's `CHECK` lets carry one. Mutate the server and
+it goes straight back to red:
+
+```
+rebuildRecord: EphWindow: record.EphWindow -> 0   -> FAIL "the header came back different:
+                                                     sealed EphWindow:490896 / returned 0"
+columnsOf:     drop the EphWindow column          -> FAIL, same assertion
+```
+
+### What landed
+
+Ledger item **190**'s five edits, all of them, plus the two store sentinels §3.2's two `CHECK`s owe:
+
+| | |
+|---|---|
+| `harness/seal.go` | `Sealed.EphWindow`, written into the header; `EphWindowAt`, MASTER §8's sender formula |
+| `store/store.go` | `Record.EphWindow`; `EphWindowMax`; `ErrEphWindowClass`, `ErrEphWindowRange` |
+| `store/memory.go` | §3.2's two `CHECK`s, in the shared `validateRecord` both implementations call |
+| `store/pgx.go` | the column in the INSERT, in the SELECT list, in the scan targets and in `recordOf` |
+| `store/migrations.go` | migration **`010 message_record eph_window`** — a NEW migration, per §10.3 |
+| `store/contract.go` | three damage scenarios and a **fourth** round-trip fixture |
+| `api/submit.go` | §5.1 check 3's clause, §7.1 / `S19`'s ±1 refusal, and the column in `columnsOf` |
+| `api/fetch.go` | `rebuildRecord` carries it |
+| `api/ephwindow_test.go` | new: the presence rule, the ±1 bound at every bucket, and the MAC coverage |
+| `store/pgx_test.go` | the two `CHECK`s proved to be IN THE DATABASE, by a writer that bypasses Go |
+
+### The one record the two readings disagree on, and where it is now caught
+
+MASTER §8 gives the wire byte as `0x10 | bucket`, so **`EPH(0)` is `0x10` = 16, OUTSIDE 17..21**. Spec
+B §5.1 check 3 and §3.2's `CHECK` are phrased on the wire byte and therefore put `EPH(0)` in the
+must-be-zero half, exactly where MASTER §8's presence rule puts it. The class-phrased reading — *"a
+non-`EPH` class"* — is the one wrong by a class. **That is now a property with a refusal behind it in
+two places, and both were mutated toward the wrong reading and both died:**
+
+```
+api/submit.go   seconds <= 0 -> seconds < 0     -> integer divide by zero: EPH(0)'s window is 0 BY
+                                                   DEFINITION, which is exactly the failure
+                                                   connect/message's own EphBucketSeconds comment
+                                                   predicts for a caller that conflates its zero
+                                                   answer with its negative one
+migration 010   17 <= retention_class -> 16 <=  -> FAIL "eph bucket 0 with a window was accepted
+                                                   by the schema"
+```
+
+The server asks `message.EphBucketSeconds(bucket) > 0` rather than writing 17 and 21 down: that
+function answers a POSITIVE for buckets 1..5, ZERO for bucket 0 and a NEGATIVE off the ladder, so
+`0 < seconds` **is** the wire range, arithmetically, with no second copy of the table.
+
+### The gap the store contract could not close, named rather than left
+
+Widening the memory store's predicate to admit `EPH(0)` **survives** the store contract, because §7.6
+refuses an `EPH(0)` a row before the window constraint is reached. It is killed twice elsewhere: at
+the API layer, where check 3 answers `REASON_REJECTED` and check 9's `REASON_INTERNAL` for an
+unbuilt record kind is distinguishable from it; and **at the DDL**, by a raw INSERT that never calls
+this package — which is what §3.2's own *"so a second writer cannot put a nonzero window on a DURABLE
+row and have §7.1 read it"* sentence asks for, and which nothing in this repository asserted before.
+
+### The pgx half was RUN, not skipped
+
+`go test ./...` is green **without ever touching PostgreSQL** — the pgx contract reads
+`URMESSAGE_TEST_DSN` and skips when it is unset, and `store/coverage_test.go` exists to print that in
+the same breath as the verdict. So it was set, against the portable PostgreSQL 17.6 on
+`127.0.0.1:55432`, and the unfiltered contract ran: **460 s, `ok`.** Migration 010 applied, both
+`CHECK`s are real, the INSERT's parameter renumbering ($1..$30) is right and the scan arity is right.
+Dropping migration 010's constraints makes the new DDL test fail naming three rows.
+
+### The sweep, and the complement
+
+The question a source anchor asks — *does it still land on what it was written against* — cannot be
+answered by a grep; it needs two trees. Procedure and full result are ledger item **191**.
+
+```
+BASE = a21a6ee   HEAD = this commit
+for every path:line in every *.md AS IT STOOD AT BASE whose path names a .go file
+changed between BASE and HEAD:
+    DRIFTED iff (git show BASE:<go>)[line].strip() != (git show HEAD:<go>)[line].strip()
+
+  106 pre-existing anchors in scope
+   81 of 106 DRIFTED  as this work was first written
+   28 of 106 DRIFTED  at the landed commit, after two `import "math"` lines were replaced
+                      by a store.EphWindowMax constant
+```
+
+**Reading the `*.md` from BASE is load-bearing, and the first form of this procedure did not.** It
+read them from the working tree, so this commit's own new anchors -- written to describe the NEW tree,
+including item 191's deliberately pinned `store/contract.go:145 @ d2e7a51` example -- were counted as
+drift against the old one. That form said *"29 of 107"*, and then **41 of 120** once the edit-log
+entry was appended: the number moved with the size of the prose, which is the tell. The published
+figure is the BASE-to-HEAD one, reproducible from two commit ids alone.
+
+**Fifty-three of the eighty-one were two import lines.** **What was changed:** those two imports.
+**What was considered and LEFT, with the reason:** the remaining 28, because an anchor here belongs to
+a dated measurement and the items that do this well pin it to a tree-ish; renumbering would restate a
+dated measurement as though it had been taken today. They are listed by file in the ledger entry.
+**What the procedure cannot find:** anchors into files this commit did not change; anchors written as
+prose rather than as `path:line`; anchors into `connect` or `sdk`; anchors whose file was renamed; and
+an anchor that still lands on identical text at a different logical place.
+
+**Every `store/migrations.go` anchor survived** — `:149`, `:159`, `:160`, `:179`, `:180`, `:222-226`,
+`:351-362`, each checked individually — because migration 010 is **appended**. §10.3's append-only
+rule buys anchor stability as a side effect, which is worth knowing the next time a migration is
+tempting to edit.
+
+### What was filed and not ruled
+
+**191** the line-number anchor scheme; **192** `connect/protocol`'s `Record` has no
+`uint64 eph_window = 14`, so Spec B §4.3.3's projection field cannot be populated here and a `connect`
+change is owed; **193** MASTER §8's sender formula exists three times this module can reach, because
+§2.2 does not let it link `connect/messagegroup`; **194** §5.1 check 3 says to compute the window from
+`create_time_ms` and runs six checks before the transaction that assigns `create_time`.
+
+**185, 186, 187 and `MG-2` are untouched.** 187 received two framing lines — a *Risk* for candidate
+(a) and a *Buys* for (b) and (c) — and no candidate is chosen.
+
+### The review's findings
+
+F1 through F9 are each closed in place, in the ledger entry for this commit. The two that mattered:
+**F1**, item 188's *Blocks* line stale at the commit that wrote it, repaired in item 182's shape with
+the old wording kept; and **F2**, S2-1's premise — *"seven methods … and none returns `storage_root`,
+`read_key`, `write_key` or `group_handle_key`"* — **false on both clauses**, re-derived independently
+at `connect` `7ce25a2`:
+
+```
+git grep -n 'func (self \*GroupSession) [A-Z]' 7ce25a2 -- 'messagegroup/*.go' | grep -v _test
+  -> ELEVEN: AdvanceEpoch Close Epoch EpochKeys InstallEphRoot OpenRecord ReauthRecord
+             RebindServerNonce SealRecord SenderHandle TrackSender
+messagegroup/session.go:387  EpochKeys() -> newEpochKeys(self.epoch, self.readKey, self.writeKey)
+messagegroup/epochkeys.go:88,96,104   Epoch()  ReadKey()  WriteKey()
+messagegroup/session.go:499  RebindServerNonce(serverNonce []byte) error
+```
+
+**Neither item closes, and this pass says which residue survives rather than declaring victory:**
+`ProvisionalEpoch` exports `StorageRoot() WriteKey() EphRoot() PqSecret() Wraps()` and **no
+`ReadKey()`**, so epoch *n+1*'s read key — which every `EpochAttachment` carries — is still
+unreachable; `group_handle_key` has no accessor on either type; and S2-2's *when do you rebind, with a
+record in flight* question outlives its mechanism clause.
+
+### Verification
+
+`git ls-files` == `git ls-tree -r HEAD --name-only` == **105** before the first edit; **106** after
+this commit, the one addition being `api/ephwindow_test.go`.
+`go build ./...` and `go vet ./...` clean **before and after**.
+`go test ./ -run TestThePlanLinter -timeout 300s` **ok before and ok after**.
+`go test ./... -timeout 900s -count=1` — **RED before**, one test, exactly as `a21a6ee` recorded it;
+**GREEN after, every package**. Counted from that run: **135 top-level `--- PASS` plus 340 subtest `--- PASS`, 475 invocations, 0 `--- FAIL`** (`go test ./... -v | grep -cE '^--- PASS'` and `'^\s+--- PASS'`; the two greps are disjoint by their anchors and neither matches this file). The store contract's own banner printed **`FULL RUN: 2 of 2 implementations of Store were held to RunContract`**, which is the line that distinguishes a green run from a green run in which the second implementation never executed a statement.
+`URMESSAGE_TEST_DSN=... go test ./store/ -timeout 900s -count=1` — **ok, 460 s**; the pgx contract
+RAN.
+**`-race` was NOT run and no concurrency property is claimed anywhere above**: `CGO_ENABLED=0`, no C
+compiler.
+`connect` (`7ce25a2`) and `sdk` (`54785de`) were **read-only** — every command against either was
+`git show`, `git grep <tree-ish>`, `git ls-tree`, `git status` or `sed -n`. `connect`'s working tree is
+dirty under `messagegroup/ephkey_test.go` at an unchanged HEAD; **another agent is writing that tree**,
+and no number above depends on it.
+
+---
+
+## 2026-09-14 — the server process runs, and the thing that stops an alpha is a credential
+
+**What landed.** `cmd/message-server` stops being a skeleton. The process loads spec B §10.2's
+`message.yml` and the vault resources beside it, opens the message-server Postgres cluster, asserts
+§3.1's clock, builds the store, the §5.1 pipeline and §4.2's frame dispatch on it, attaches a
+URnetwork client to its operator's platform, serves §10.1's `/healthz` and `/readyz` on a private
+port, and shuts down in §2.3's order. `cmd/messagectl migrate` and `messagectl status` are built,
+which is where §10.3 puts migrations — *"a dedicated init job or `messagectl migrate`, **never** N
+replicas racing at startup"*.
+
+**The answer to "can an operator start this on a bare Ubuntu box with an empty PostgreSQL and have
+it serve?" is NO, and the exact thing that stops it is not in this repository.**
+
+The message server binds no socket for message traffic and cannot. `connect` has no inbound listener
+for client frames: a `connect.Client` receives one over an in-process `connect.Route` or over a
+`connect.PlatformTransport` that **dials out** to `wss://connect.<operator_host>`, and there is no
+third way. §9.1's sentence is literal. So a running message server needs a `network_client`
+credential on that operator, created by an admin **of that operator** — and neither this module nor
+`connect` can mint one, because `BringYourApi.AuthNetworkClient` authenticates with a user
+credential §9.2 has the operator issue.
+
+Everything that does not depend on that credential is built and tested. A first start against an
+empty database, `messagectl migrate`, and `/readyz` naming exactly what a bare box is missing is
+**a test that runs against a real PostgreSQL**, not a claim.
+
+**Evidence.**
+
+- `go build ./...`, `go vet ./...`, `gofmt -l .` — clean.
+- `GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build ./cmd/message-server` and the `arm64` twin —
+  both succeed, which is `release-platforms.txt`'s whole list.
+- `TestAFirstStartAgainstAnEmptyDatabaseServesHealthAndNamesWhatIsMissing` — against a fresh schema
+  on PostgreSQL 17.6: `/healthz` 200, `/readyz` 503 naming `migrations_at_head`,
+  `store.Migrate`, then `/readyz` 503 with **exactly that one** precondition removed and the
+  remaining set being `ordinal_credential` and `connect_client_attached` and nothing else.
+- Twenty-six mutations applied one at a time, each reverted.
+- Postgres was running; the pgx store contract executed rather than skipping.
