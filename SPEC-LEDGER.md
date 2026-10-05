@@ -11727,6 +11727,119 @@ repo and therefore the critical path — not this repository:
       - connect #213 and #214, which item 277 left alone, were closed unmerged from the owner's
         account at 05:23 and 05:24 UTC.
 
+279. **THE URNETWORK ROUTE ON 2026-10-04: THE SILENT FLEET MEASURED, TWO OWNER RULINGS, AND THE
+    CLIENT HALF COMMITTED.** At 17:46 UTC the owner asked, verbatim: **"What’s the issue then? Is
+    it that the providers are running old code? Ik the vpn works. Maybe host your own node, note
+    the client id and connect to it manually?"**
+    - **The mechanism, reproduced on exits of our own** (section 7's entry "Item 279", part 2). We
+      ran three providers on our VPS and pinned the merged client to each.
+      - **sn's provider** (urfoundation/sn `9356e1d4`, on the forks' connect `8cc3b556` and sdk
+        `22629e9a`) completes the per-peer handshake. The first URmessage Hello is answered on
+        attempt 1, in 1.39 s and 1.46 s.
+      - **Our build of the operator's connect-era provider CLI** (its untracked `provider/main.go`,
+        at its connect checkout `647bdae0`) answers no ClientHello. All 14 went unanswered: the 13
+        that reached the client's 5 s evaluation were cancelled at 5.00 s, and the 14th was still
+        open when the run ended. The URmessage Hello is never answered.
+      - **The same build with one setting added**, `EncryptionModeOpportunistic`, is answered on
+        attempt 1, in 1.44 s.
+      - **Why:** connect's default per-peer mode is Off, and in that mode `DeliverEncryptedControl`
+        drops every ClientHello. sdk's provider path has turned sessions on since `8a91a91c`
+        (2026-07-22, as `Encrypt = true`), and has set Opportunistic since `e7680ba6` (2026-08-09).
+        No `provider/main.go` in connect's history turns sessions on.
+      - The handshake's messages did not change between those two connects: the third provider
+        completes the handshake with the merged client.
+    - **The fleet, measured** (section 7's entry, part 3, with its queries). At 20:46 UTC the
+      operator had 246 connected public providers.
+      - 245 name one program in their client descriptions, which end `[v3.23.0-fix.28.0]`, all in
+        one network.
+      - 1 runs a connect-era CLI.
+      - Item 278's four runs sent ClientHellos to 73 exits. 72 name that program, and none of them
+        answered. The one that answered is that connect-era CLI.
+      - **So the silent fleet is, by its client descriptions, one third-party provider program,
+        not the connect-era CLI.** Its source is in no repository we have: connect, sdk, sn,
+        server and the operator's source tree were searched. Why it drops the ClientHello is
+        inferred, not seen: connect's Off default fits.
+      - This supersedes item 278's guess, "beta's exits probably run older provider code". Which
+        connect the program is built on is not known.
+      - At 20:44 UTC the owner said, verbatim: **"Btw, most providers are hosted by my friend so if
+        you need them to update give instructions to me to relay"**. At 20:52 UTC the lead gave the
+        owner relay instructions: set `EncryptionSettings.Mode = EncryptionModeOpportunistic`
+        (connect `d2553e06` or later), or, if the program is sdk-based, update the sdk to `e7680ba6`
+        or later.
+      - **"Ik the vpn works":** by default the VPN does not ask for a session, so a silent exit
+        carries its traffic unsealed, as it carries the alpha's.
+    - **Ruling 1: "Opportunistic + provider fix (Recommended)".** At 12:20 UTC the owner had
+      answered the lead's question on the mode, verbatim: **"Need more info and risks notice on
+      this, explain to me"**. At 18:38 UTC the lead put three options (section 7's entry, part 4),
+      and at 19:58 UTC the owner chose this one. It read: "Client goes Opportunistic now, so the
+      merged SDK works on today's fleet, never worse than the current alpha, and seals with every
+      updated exit. You ship the one-line fix to the beta's provider CLI so sealing coverage grows;
+      REQUIRED can be reconsidered once most exits answer."
+      - At 20:52 UTC the lead told the owner that "seals with every updated exit" was too strong,
+        because of the pre-session window below. The ruling stood.
+      - **The client half is committed, not yet shipped.** No build anyone runs carries it: the
+        alpha ships `alpha/premerge`, and upstream's `main` carries REQUIRED until #156 merges.
+        - sdk's fork `main` is `c71bb73b`. It sits on `f1f28d2e`, an `-s ours` absorb of
+          upstream's `2e131adb`, which leaves the tree unchanged.
+        - Upstream, it is urnetwork/sdk#156: branch `upstream/route-opportunistic` at
+          `98e444e1`, which is upstream's `main` plus one commit. Its `go test` passed upstream
+          (run `37234810669`).
+      - **Measured** (section 7's entry, part 4):
+        - Unpinned, on the fleet: the first URmessage Hello was answered on attempt 1, after
+          2.007 s and 2.463 s. Nothing was sealed.
+        - Pinned to our exits: attempt 1, after 1.21 to 1.29 s. Each run was sealed, and the
+          exit's identity was verified.
+        - The live probe, `liveprobe -route urnetwork`, reported "13 STEPS, 1668 ASSERTIONS, ALL
+          HELD", twice.
+      - **What Opportunistic gives up.** It defeats a relay that reads, not one that interferes,
+        and the app cannot tell which it met.
+        - **With an exit that never answers**, such as each of the 72 exits of that program we
+          reached, the relay reads every packet's headers. The alpha's Off shows every relay the
+          same today.
+        - **With an exit that answers**, the relay reads every packet sent before the session is
+          usable. Measured: 3 to 6 application writes per window, in the 0.55 to 0.62 s before the
+          cipher was usable. They were the TCP open to the endpoint, and in 4 windows of 5 its TLS
+          ClientHello too.
+        - **What only REQUIRED gives**, as `c71bb73b`'s comment names it:
+          - the entry hold in `SendSequence.Pack`;
+          - the signed key-history hold (`keyHistoryRequiredWithLock`), narrow in this tunnel even
+            under REQUIRED: it sets no `PeerClientKeyPinStore` and no `TrustedClientKeySigners`,
+            so an operator could downgrade it by withholding the history;
+          - `ReceiveSequence.receiveHead`'s gate against plaintext from a sealed exit;
+          - refusing the downgrade that a forged nack forces through `handleUnknownWrapNack`.
+        - Content stays TLS to the pinned endpoint, and MLS, in every mode.
+      - **Item 278's text obligation.** `c71bb73b`'s comment in `message_tunnel.go` meets it. The
+        app's text does not yet, so it stays open.
+      - **The provider half** is a patch to the connect-era CLI, handed to the owner (section 7's
+        entry, part 5). The fleet does not run that CLI, so the fleet's fix is the third party's
+        update.
+    - **Ruling 2: the 1 s establish hold.** At 21:07 UTC the lead asked, verbatim: **"Should I close
+      Opportunistic's pre-session gap with a 1 s 'establish hold' in connect?"** At 04:17 UTC on
+      2026-10-05 the owner chose **"Build the 1 s hold (Recommended)"**. That option read: "A small
+      opt-in connect setting: an Opportunistic window holds its writes up to 1 s for the exit's
+      session (measured setup: 0.55-0.62 s). Exits that answer seal from the first byte, so the TCP
+      open and TLS ClientHello are never readable. Exits that don't answer fall back after 1 s, so
+      today's fleet pays about 1 s more on the first Hello. Needs a connect PR plus a one-line sdk
+      follow-up. It still can't stop a relay that deliberately drops the handshake."
+      - **In progress:** `EncryptionSettings.OpportunisticEstablishHold`, zero by default.
+    - **The test exits.** At 20:44 UTC the owner said, verbatim: **"However for our test period go
+      ahead and make your own providers on a vps"**. Two public systemd units now run on the VPS
+      (section 7's entry, part 5).
+      - `urn-exit-a` runs sn's provider.
+      - `urn-exit-b` runs the patched connect-era CLI.
+      - **`urn-exit-a` also runs sn's extender role on the message-server box.** sn `9356e1d4` has
+        no flag to disable it. The role's TCP 443 bind fails and leaves the message server's
+        listener alone, and it binds UDP 443 and 4053. **The lead's ruling:** it stays for the test
+        period, and is revisited if it adds load or if the message server ever listens on UDP 443.
+    - **Upstream merged seven of our pull requests** (section 7's entry, part 6). All seven were
+      merged by Ryanmello07, with merge commits.
+      - Item 277's trap is armed. message-windows and sdk have absorbed their merges. connect's
+        absorb and this repository's follow this commit.
+      - From 20:04 UTC, upstream sdk's `main` carries the REQUIRED route, until #156 merges.
+    - **This resolves item 278's "The fix is the owner's to choose".**
+      - Item 277's ruling stands: the alpha ships `alpha/premerge` until it is moved.
+      - The route work judged that move feasible. It is open.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
@@ -23151,3 +23264,383 @@ Why exits do not answer is not known. The fork's provider release has never buil
 
 Its four optional NITs were taken too: the 33 skips, "every run that reached it", the unexplained
 missing checks, and #213's minute.
+
+---
+
+### 2026-10-04 — Item 279: the URnetwork route, the silent fleet measured, two owner rulings, the client half committed, and upstream's merges
+
+**Change:** this ledger and one new report. It adds item 279, this entry, and
+`docs/reports/2026-10-04-provider-ab.md`. No spec or plan changes. Times are UTC.
+
+#### 1. The question
+
+Item 278 found the cause of the URnetwork route regression: "The merged SDK requires a per-peer
+session with every exit, and almost no beta exit answers one." It left open why.
+- At 12:20 the owner asked for more information, and a notice of the risks, before choosing a mode.
+- At 17:46 the owner asked whether the providers run old code. The owner proposed the test: run a
+  node of our own, note its client id, and connect to it directly.
+
+#### 2. The experiment: three providers of our own
+
+**The setup, the same in every run:**
+- **The client** was `livepeer`, built from the forks' sdk `22629e9a` and connect `8cc3b556`, plus
+  an 18-line experiment patch.
+  - 15 lines are the pin: `URMESSAGE_EXIT_CLIENT_ID` becomes `ProviderSpec{ClientId}`, which skips
+    find-providers2.
+  - The other 3 print the Hello's timing.
+  - The `PostQuantumEncryption` profile, which requires a session, was unchanged.
+- It ran as user2, with route `urnetwork` and endpoint `wss://74.50.11.53/urmessage/v1` with its
+  pin, from a fresh state directory each time.
+- **The providers** ran on our VPS, under a new seedphrase account, `urmessage-exit-probe`. Its
+  secrets stay on the VPS, mode 600.
+- No `URmessage.exe` and no other livepeer was running at the start of any run. The run script
+  refuses to start otherwise.
+
+| run | provider | per-peer handshake | first URmessage Hello | traffic to the exit |
+|---|---|---|---|---|
+| A, twice | urfoundation/sn `9356e1d4` (`./cli/miner`) on connect `8cc3b556` and sdk `22629e9a`, with an env-gated glog `-v` | completes: 1 ClientHello, 1 complete, identity verified | attempt 1, in 1.456 s and 1.388 s | 15 sealed writes each, 0 plaintext application writes |
+| B | our build of the operator's untracked `provider/main.go` at its connect `647bdae0`, with `golang.org/x/term v0.45.0` added to go.mod (part 7) and an env-gated glog `-v` | never: 14 ClientHellos, 0 answered, 13 cancelled at exactly 5.00 s, 1 still open at exit | never: 3 attempts of 60 s each, then `FAIL` after 190 s | 0 application writes, sealed or plaintext; 28 plaintext handshake frames |
+| B′ | B, plus one setting: `EncryptionModeOpportunistic` | completes | attempt 1, in 1.444 s | 15 sealed, 0 plaintext application |
+
+**Why B's result can be trusted:**
+- **The hellos were delivered and ignored, not lost.** B logged a receipt for all 14 of the
+  client's window ids: `[r]head 1 (TransferEncryptedControl)`.
+  - The VPS's clock ran 4.71 to 5.19 s ahead of the client's.
+  - We know because A and B′ logged each ClientHello after the client sent it, and answered before
+    the client finished.
+  - Corrected for that offset, every hello reached B within 0.55 s of leaving the client. That is
+    well inside the client's 5 s.
+- **B logged no `[tls]` line and never wrote `.provider.cert`.**
+  - Its server TLS configuration is built only when the mode is not Off.
+  - The same extraction kept 58 `[tls]` lines for A and 27 for B′.
+  - B's receipts are themselves logged at V(1), so the absence is not a logging level.
+- **The 5.00 s is the client's, not the exit's.**
+  - Each of B's 13 cancels came at the instant the window's evaluation failed with "encryption
+    required: session not established with peer".
+  - Any exit that does not answer produces it, whatever it runs.
+  - Item 278's cancels were not all at 5 s either: 69 of 123 were.
+- **The counting script reproduces item 278's published figures.**
+  - On 278's two merged runs it gives 130 ClientHellos, 2 complete and 123 cancelled: 69 at 4.9 to
+    5.1 s, 49 at 9.85 to 10.03 s, 3 at 8.6 to 8.8 s, and 2 at 3.7 to 3.8 s. 5 were still open.
+  - On the two `OPPORTUNISTIC` runs it reproduces 278's write table: 252, 206, 28 and 18, and 276,
+    228, 29 and 19.
+
+**The mechanism:**
+- connect's `DefaultEncryptionSettings().Mode` is `EncryptionModeOff` at both `647bdae0` and
+  `8cc3b556`. In that mode `DeliverEncryptedControl` returns at once, unanswered (`647bdae0`
+  `transfer_encrypt.go:3610-3612`).
+- sdk's provider path has turned sessions on since `8a91a91c` (2026-07-22), as `Encrypt = true`:
+  "the provider always enables the e2e encryption sessions". `e7680ba6` (2026-08-09) made it
+  `Mode = EncryptionModeOpportunistic`, at `device_local_provider.go:207` in `22629e9a`.
+- **The connect-era CLI never turns sessions on.** That holds for the operator's copy and for the
+  last committed one.
+  - The last committed one is `ecd2b90f` (2026-07-04). Upstream deleted the CLI the same day, in
+    `3b6b151e`, which is why the operator's copy is untracked.
+  - At `ecd2b90f` the switch was `EncryptionSettings.Encrypt`, default false. `Mode` first appears
+    in connect `d2553e06` (2026-08-09).
+  - `git log --all -G` over `provider/main.go` finds no version that sets either one. The same
+    search over sdk's provider path finds `8a91a91c` (`Encrypt = true`), then `e7680ba6`.
+- **The handshake's messages did not change** between `647bdae0` and `8cc3b556`. B′ completes the
+  handshake with the merged client.
+  - The wire did change in between, but only by addition: two Ack fields and a `report_id` in
+    `transfer.proto`, the URmessage MessageTypes in `frame.proto`, `extender.proto`, and the new
+    `message.proto`.
+
+**Each provider's public window**, by the VPS's clock:
+- A: 18:19:24 to 18:21:06;
+- B: 18:24:31 to 18:28:39;
+- B′: 18:30:22 to 18:31:32.
+
+No other sender's traffic reached any of them in those windows. Every sender was one of our own
+windows, or the platform.
+
+#### 3. The fleet, measured
+
+These are read-only queries on the operator's database. q8 ran at 20:46.
+
+**`provinv/q8.sql`: connected public providers, by program.**
+
+```sql
+with p as (
+  select distinct nc.client_id, coalesce(nc.description,'') as d, nc.network_id
+  from provide_key pk
+  join network_client nc on nc.client_id = pk.client_id
+  join network_client_connection ncc on ncc.client_id = nc.client_id and ncc.connected
+  where pk.provide_mode = 3
+)
+select case when d ~ '\[[^]]+\]$' then substring(d from '\[([^]]+)\]$')
+            when d like 'provider %' then 'connect-era CLI'
+            when d = '' then '(empty)' else '(other)' end as program_version,
+       count(*) as connected_public_providers, count(distinct network_id) as networks
+from p group by 1 order by 2 desc;
+```
+
+- **245** report `v3.23.0-fix.28.0`. Their descriptions read `<host> [v3.23.0-fix.28.0]`, and all
+  245 are in one network.
+- **1** is a connect-era CLI. Its description reads `provider linux`, and its client was created on
+  2026-09-07.
+
+**`provinv/q7.sql`: item 278's exits, by program.**
+- It takes the 73 exits that item 278's four runs sent a ClientHello to. The runs are merged-1,
+  merged-pqeon-2, merged-opp-1 and merged-opp-long. The exits come from their `[tls]` lines that
+  read `client c=… <id> outbox batch 0: <n> bytes (record type 0x16)`, item 278's ClientHello
+  query, and `… <id> handshake complete`. Their `opened session for peer <id> as client` lines
+  give the same 73.
+- It looks each one up the same way. The ids are not printed here, because they are a third party's
+  clients.
+- **72 report `v3.23.0-fix.28.0`, and none of them answered.** The one that answered, in both
+  merged runs, is the connect-era CLI.
+- The two merged runs alone reach 71 of the 73, which is item 278's count.
+
+**What this settles, and what it does not:**
+- **By its client descriptions, the silent fleet is one program, under one network.** It is not
+  the connect-era CLI.
+- **Its source is in no repository we have.** connect, sdk, sn, server and the operator's source
+  tree were searched.
+- **Why it drops the ClientHello is inferred, not seen.** connect's Off default fits. The relay
+  instructions in item 279 cover both ways the program could be built.
+- **The fleet's one connect-era CLI answers**, although no CLI source we hold turns sessions on. So
+  it runs a build we do not hold.
+- **The REQUIRED criterion can now be measured.** "Once most exits answer" means q8 by program
+  version, plus a pinned run to an exit of each version.
+
+#### 4. The rulings, and the client half
+
+**Ruling 1.** At 18:38 the lead asked "Which per-peer encryption mode should URmessage's URnetwork
+route use?", with three options. At 19:58 the owner chose the first, which item 279 quotes.
+- "Opportunistic + provider fix (Recommended)": chosen.
+- "Keep REQUIRED, fix providers first": "Strongest privacy, but URmessage on the merged SDK stays
+  broken (about 2+ min or failed Hellos) until most beta exits run the fixed provider. The alpha
+  stays on the pre-merge SDK, which is effectively 'off', until then."
+- "Opportunistic only": "Client change only; leave the provider CLI as is. Works now, but almost
+  nothing gets sealed until exits update some other way."
+
+At 20:52 the lead told the owner that "seals with every updated exit" was too strong, because of
+the pre-session window measured below. The ruling stood.
+
+**The client half: sdk `c71bb73b` on the fork's `main`, and urnetwork/sdk#156.**
+- **What it changes:**
+  - `messageTunnelClientSettings` sets the mode to `EncryptionModeOpportunistic`, with the key api
+    wired as before.
+  - `messageTunnelMultiClientSettings` turns `PostQuantumEncryption` from true to false, because
+    connect reads it as REQUIRED. It keeps `AllowDirect` false.
+  - The comments in `message_tunnel.go` and `message_route.go` say what the relay can read.
+- **The tests.** `message_tunnel_test.go` runs the tunnel itself to an exit in the same process.
+  Five mutants each fail at least one case.
+- **Where it sits.**
+  - `c71bb73b` sits on `f1f28d2e`, an `-s ours` absorb of upstream's `2e131adb`. The absorb leaves
+    the tree as `22629e9a` had it.
+  - #156 is branch `upstream/route-opportunistic` at `98e444e1`, which is upstream's `main` plus
+    one commit. Its `go test` passed upstream (run `37234810669`).
+
+**Measured on the beta on 2026-10-04, in `route-opp/runs`:**
+
+| runs | exit | first URmessage Hello | per-peer sessions | plaintext application writes before the cipher was usable | sealed writes |
+|---|---|---|---|---|---|
+| opp-a1, opp-a2 | unpinned: the fleet | attempt 1, after 2.007 s and 2.463 s | 12 ClientHellos each, none answered | all of them: 136 and 211 | 0 |
+| opp-b1 | exit A (sn's provider) | attempt 1, after 1.234 s | 1, identity verified | 6 | 8 |
+| pinA-opp-1, pinA-opp-2 | `urn-exit-a` | attempt 1, after 1.212 s and 1.212 s | 1 each, identity verified | 6 and 6 | 9 and 8 |
+| pinB-opp-1, pinB-opp-2 | `urn-exit-b` | attempt 1, after 1.209 s and 1.293 s | 1 each, identity verified | 6 and 3 | 9 and 12 |
+
+- **The pre-session window** runs from the ClientHello until the cipher is usable. It lasted 0.549
+  to 0.621 s.
+  - By size, the writes in it were the TCP open to the endpoint: 3 or 4 writes of 95 to 178 bytes.
+  - In 4 windows of 5 they also carried its TLS ClientHello, in writes of 1,200 and 574 bytes.
+  - REQUIRED holds these writes: under REQUIRED, A's and B′'s runs sent 0 of them.
+- **The queries.**
+  - `count_run.sh` counts what item 278's table counts.
+  - `per_window.sh` counts per window client. An application write is a `write plaintext` line
+    with `forceUnwrapped=false` to a non-zero destination. It counts those before that window's
+    `cipher is now usable`.
+- **The live probe.** On the VPS, `liveprobe -route urnetwork` reported "13 STEPS, 1668 ASSERTIONS,
+  ALL HELD" in 2 runs. `c71bb73b`'s message records it.
+- **Item 278's text obligation.** `c71bb73b`'s comment in `message_tunnel.go` meets it.
+  - It says what the relay reads in three cases, with these numbers: after the session completes
+    (sizes and timing only), before it completes, and with a silent exit.
+  - It names what REQUIRED adds: the entry hold in `SendSequence.Pack`, the signed key-history hold
+    (`keyHistoryRequiredWithLock`), and `ReceiveSequence.receiveHead`'s gate.
+  - It names the downgrade a forged nack forces through `handleUnknownWrapNack`, and says: "This
+    app cannot tell."
+  - The app's text does not say this yet (part 9).
+
+**Ruling 2.** At 21:07 the lead asked the question item 279 quotes, with two options. At 04:17 on
+2026-10-05 the owner chose "Build the 1 s hold (Recommended)".
+- The other option was "Ship Opportunistic as is": "Keep today's behaviour: each new exit
+  connection sends its first 3-6 writes unsealed (the TCP open and TLS ClientHello to the message
+  server's address) before the session seals."
+- **In progress:** connect's `EncryptionSettings.OpportunisticEstablishHold`, zero by default. A
+  connect pull request comes first, then a one-line sdk follow-up.
+
+#### 5. The provider half, and our test exits
+
+**The patch to the connect-era CLI.**
+- It makes the same change as B′, without the env gate.
+- It applies to the operator's `provider/main.go` (sha256 `7b4bd794…`).
+- **It compiles for linux/amd64 against `647bdae0` only with `golang.org/x/term v0.45.0` added to
+  go.mod and go.sum.** Those lines go with the patch.
+  - The operator's `main.go` imports x/term.
+  - `647bdae0`'s go.mod no longer requires it (part 7).
+- **Its reach is the connect-era CLI only.** The fleet's one CLI exit already answers.
+  - So the patch serves our `urn-exit-b`, and any CLI exit someone starts.
+  - The fleet's fix is the third party's update, relayed by the owner.
+
+**The test exits** run on the VPS, with the owner's leave (item 279). They are two systemd units
+under the probe account. Both are public, and each is capped at `MemoryMax=700M` and
+`CPUQuota=60%`.
+- `urn-exit-a` runs sn's provider, client `01a10822-…`. It adopts exit A's credential, so its id is
+  stable across restarts.
+- `urn-exit-b` runs the patched connect-era CLI. It mints a new client id on each start.
+- A third unit, `urn-exit-a2`, ran sn with a fresh auth-client credential. sn's custody check
+  rejected it (`.provider.jwt.rejected`), and the unit was removed.
+- While they run, other beta users can egress through the VPS.
+- `urn-exit-a` runs sn's extender role on this box (part 7, finding 5), and sn `9356e1d4` has no
+  flag to disable it. **The lead's ruling:** it stays for the test period, and is revisited if it
+  adds load or if the message server ever listens on UDP 443.
+
+#### 6. Upstream: seven merges, and item 277's trap
+
+All seven were merged by Ryanmello07, with merge commits.
+
+| repository | pull request | merge commit | merged |
+|---|---|---|---|
+| connect | #215 | `9baa9421` | 11:33 |
+| sdk | #154 | `d0227b40` | 11:33 |
+| server | #446 | `f3b94d0d` | 11:42 |
+| message-windows | #1 | `e9ba0be2` | 11:43 |
+| connect | #216 | `94453d74` | 20:02 |
+| sdk | #155 | `2e131adb` | 20:04 |
+| message-server | #1 | `6c3153fd` | 20:08 |
+
+- **Item 277's "THE TRAP THIS SETS" is armed** in all four of our repositories.
+  - message-windows has absorbed its merge: `7e962e3d` (12:14) keeps the fork's files.
+  - sdk has absorbed its merge: `f1f28d2e` is an `-s ours` merge, and its tree is unchanged.
+  - connect's absorb (of `94453d74`) and this repository's (of `6c3153fd`) follow this commit.
+- From 20:04, upstream sdk's `main` carries the REQUIRED route (`message_tunnel.go:92`,
+  `PostQuantumEncryption: true`), until #156 merges.
+
+#### 7. On the operator: a report, not a fix
+
+This is the owner's rule, applied as `docs/reports/2026-09-15-operator-and-connect-findings.md`
+applies it.
+
+1. **The provider source on the operator is not in git.**
+   - `provider/main.go` is untracked in the operator's connect checkout.
+   - The operator's connect `647bdae0`, and its parent `8f07a862`, are on neither the fork nor
+     upstream.
+   - The fork's `beta/merge-main-2026-07-25` is at `3648dd7b`, an ancestor of both. So the operator
+     is two unpushed merge commits (2026-09-15) ahead of the fork.
+2. **That source does not build at its own checkout.**
+   - It imports `golang.org/x/term`, which `647bdae0`'s go.mod does not require. x/term left
+     connect's go.mod in `2ce0a49a` (2026-07-15), eleven days after upstream deleted the CLI in
+     `3b6b151e`.
+   - So whatever binary the operator deployed was not built from this tree as it stands.
+3. **Today's sn provider cannot create a client on this operator.**
+   - It speaks only `POST /network/register-client-v1`, which server `3eaa31e7` does not have.
+   - Adopting the account's original credential works: exit A did, and `urn-exit-a` does.
+   - sn's own custody check refuses a fresh auth-client credential (`urn-exit-a2`).
+   - So a fresh install of today's provider cannot join this beta.
+4. **Seedphrase accounts are rate-limited per address.**
+   - Item 264 recorded a sixth account refused: "a sixth hit the operator's per-address rate limit".
+   - This run's account was created at the first attempt.
+5. **Today's provider also starts an extender role.**
+   - On the VPS it bound UDP 443 and 4053.
+   - Its TCP 443 and UDP 53 binds failed. TCP 443 is the message server's own listener, so the
+     message server was untouched.
+   - `urn-exit-a` now runs that provider there, and sn `9356e1d4` has no flag to disable the role.
+     The lead's ruling is in part 5.
+
+#### 8. Where the evidence is
+
+- **The report** is `docs/reports/2026-10-04-provider-ab.md`, committed here.
+- **The working files are in session f35258a1's scratch directory**, under `provinv/` and
+  `route-opp/`. They are not durable. They are:
+  - the run logs, and the address-stripped provider extracts;
+  - the scripts `count_run.sh` and `per_window.sh`;
+  - the queries `q1.sql` to `q9.sql`;
+  - the diffs, and the patch.
+- **Two of them stay out of this repository:**
+  - the client logs, because they carry network addresses;
+  - `q7.sql`, because it lists 73 of a third party's client ids.
+
+  The other files carry neither. The queries behind the counts are printed in this entry, in item
+  278's query table, or in the report. The CLI exit's description and creation date come from
+  `q4.sql` and `q5.sql`, which print only buckets.
+- **The raw provider logs** held addresses. They were shredded on the VPS once the extracts were
+  taken. A stale log watcher from an earlier session was killed there too.
+- **The message server was undisturbed:**
+  - `urmessage.service` and PostgreSQL were active at every check;
+  - `/readyz` reported ready;
+  - the extender's failed TCP 443 bind left the server's listener alone.
+
+#### 9. Open
+
+- **The 1 s establish hold** (ruling 2): a connect pull request, then the one-line sdk follow-up.
+- **The app's text about the route**, under the G4 honesty rule and item 278's obligation. The
+  route work found that it must say:
+  - the operator can read where the traffic goes (the server's address and port) and the TCP and
+    TLS headers, unless the exit seals a session;
+  - nearly no beta exit does today;
+  - even then, the first moments of each new exit connection go unsealed;
+  - an interfering operator can always force the unsealed form, and the app cannot tell;
+  - sizes and timing are always visible;
+  - the messages are always encrypted to the pinned key, with MLS above that.
+
+  If the app ever shows "sealed", it must come from `PeerEncryptionStates().Sealed`, never from
+  the setting.
+- **Moving the alpha off `alpha/premerge`** (item 277's ruling). The route work judged it feasible:
+  the message code has barely moved, and the C ABI is compatible.
+- **The third party's update**, relayed by the owner. When one of its exits is updated, pin a test
+  client to it.
+- **The REQUIRED criterion.** It can now be measured with q8 and a pinned run (part 3).
+- **The absorbs** of connect (`94453d74`) and of this repository (`6c3153fd`).
+- **urnetwork/sdk#156**, to merge upstream.
+- **`urn-exit-a`'s extender role** on the message-server box stays for the test period (part 5).
+  Revisit it if it adds load, or if the message server ever listens on UDP 443.
+
+Ruling 1 closes item 278's open "The owner's choice in part 4".
+
+**Reviewed by:** a subagent, against the logs, the runs, the source and GitHub. **First round:
+approve with changes.**
+- **Five MAJOR findings, all taken:**
+  - the headline claimed more than the experiment showed;
+  - the fleet could be counted, and now it is;
+  - what Opportunistic gives up was understated, and it is now measured;
+  - the hand-over patch needs x/term, and B is relabelled;
+  - #155 had merged, and the merges are now recorded.
+- **Nine MINOR findings, all taken:**
+  - 14 against 13 cancelled;
+  - a misquote of item 278;
+  - checking against 278's published figures;
+  - the sixth account;
+  - "the wire";
+  - the two clocks;
+  - the report's hygiene;
+  - "70 silent";
+  - the missing Open and Reviewed parts.
+- **The NITs were taken**, except committing the scripts. What they count is printed here and in
+  item 278's query table instead.
+
+**Second round: approve with changes.** It re-derived the run tables with `count_run.sh` and
+`per_window.sh`, the hashes and the seven merges against git and GitHub, and every quote against
+the session's log. The splice leaves every byte of `81bb1a4` in place. The printed q8 differs from
+`provinv/q8.sql` only by that file's first line, `\pset footer off`, a psql display setting, so it
+is the same query.
+- **Two MAJOR findings, both taken:**
+  - "the client half shipped": no build anyone runs carries it, and the report never said that the
+    alpha still ships `alpha/premerge`;
+  - the lead's ruling on `urn-exit-a`'s extender role was missing, and part 9 still listed it as
+    open.
+- **Eight MINOR findings, all taken:**
+  - the owner's "What’s", now verbatim, with its curly apostrophe;
+  - q8 ran at 20:46, not at about 21:45;
+  - the change turns `PostQuantumEncryption` off; it did not keep it off;
+  - sdk's provider path has turned sessions on since `8a91a91c` (2026-07-22), not since `e7680ba6`;
+  - x/term left connect's go.mod in `2ce0a49a`, not when the CLI was deleted;
+  - the fleet claims now say what the client descriptions name, and 72 exits are not every exit;
+  - q7's extraction, and the queries behind the CLI exit's description and date;
+  - the app-text list, now in part 9 rather than in the lead's notes.
+- **Five of its NITs were taken:** run A's glog `-v`, the key-history hold's narrow reach in this
+  tunnel, the clock bound of 4.71 s, "by default" for the VPN, and "attempt 1" for the alpha
+  comparison. Three were left: the four-item attribution to `c71bb73b`'s comment, a pointer in
+  item 278, which would break the splice's byte-identity, and the friend quote, which is the
+  owner's call.
