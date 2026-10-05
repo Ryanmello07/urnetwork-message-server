@@ -11840,6 +11840,120 @@ repo and therefore the critical path — not this repository:
       - Item 277's ruling stands: the alpha ships `alpha/premerge` until it is moved.
       - The route work judged that move feasible. It is open.
 
+280. **THE OWNER'S DIRECTIVE OF 2026-10-05: HARDEN THE CRYPTOGRAPHY IN THE LEAD'S ORDER, WITH
+    SIMULATION TESTS, AND THE EXTERNAL AUDIT COMES AFTER THE ALPHA.** Times are UTC, on 2026-10-05.
+    At 04:17 the owner pasted two external AI reviews of URmessage's cryptography, with these words,
+    verbatim: **"Notice: revie of encryption and methodology by 2 AI agents. Review with caution to
+    see if we can make improvements."** The pasted text opens, verbatim: **"Online research with 2
+    models about your encryption and methodology, review with reason and see if we can improve the
+    protocol based on this or we need to accept the downsides."**
+    - **The reviews were checked against the code, then against their sources** (section 7's entry
+      "Item 280", parts 2 and 3, and `docs/reports/2026-10-05-crypto-review.md`). The reviewers had
+      seen a short summary of the stack, not the specs. One subagent grounded each claim in the code
+      and the specs, and a second fact-checked the external claims against primary sources.
+      - **One review read our PQ layer as bootstrap and transport only, and the other asked whether
+        X-Wing is re-run per epoch or applied once to static keys. It is per commit, though to
+        static keys.** Every commit the sdk publishes draws a fresh `pq_secret` and X-Wing-seals it
+        to each remaining device's static key.
+      - **The join epoch is the weak point.** The joiner's `pq_secret` travels in plaintext in the
+        pasted invite, beside an X25519 Welcome (item 266).
+      - **Nothing heals after a device compromise.** The device X-Wing key never rotates, nothing
+        sends a self-update, and keys are not encrypted at rest (items 229 and 266).
+      - **KT, TOFU and safety numbers are specified, and none is built.** Joins are unauthenticated.
+      - **The OpenMLS oracle and interop never existed.** The interop peers' image digests in
+        connect's `mls/interop/PINS.md` are placeholders.
+      - **The `req_auth` protobuf preimage has no KAT.** connect pins the framing and the tag. The
+        deterministic protobuf bytes inside them, which the sdk and the server each marshal, are
+        pinned nowhere.
+      - **The X-Wing pin docs disagree with the code.** The code pins draft-10's vectors. Spec A
+        says -06, and its combiner table puts the label first, where the code puts it last.
+      - **draft-mahy-mls-xwing is dead, and 0x004D is non-standard.**
+      - **X-Wing's HPKE id 0x647a is assigned, but its DeriveKeyPair is split** between X-Wing -11
+        and hpke-pq-05 (reproduced, part 3), and OpenMLS 0.9.0 and main take opposite sides (read
+        from source; that they fail to interoperate is inferred).
+    - **The lead's recommendation**, put to the owner at 04:53: adopt 1 to 5, defer a PQ MLS
+      ciphersuite (C6), and accept no deniability (item 232) and classical authentication.
+      1. **Seal the join secret** to the joiner's X-Wing key, which its KeyPackage already carries.
+         A recorder of both pasted codes, with a future quantum computer, can read the epoch a
+         join opens (item 266). For a two-person chat that never commits again, that is the whole
+         chat.
+      2. **Safety numbers and TOFU.** Whoever controls the paste channel can substitute keys, and
+         nothing shows it. The lead judged this the largest practical gap, larger than PQ.
+      3. **A self-update cadence, X-Wing key rotation, and keys at rest.** A copied device state
+         keeps decrypting until that device is removed (item 266).
+      4. **Testing:** the vector families, an OpenMLS-main interop and state-machine cross-check,
+         and a `req_auth` KAT. Today the vectors check the cryptography, not the state machine.
+      5. **Quick fixes:** the X-Wing pin docs, MASTER §13's PQ overclaim, an honest PQ statement,
+         govulncheck and Dependabot.
+
+      **Why the suite waits:** no PQ MLS suite has an assigned codepoint, the draft's list has been
+      reshuffled three times, one KEM id carries two key derivations, and OpenMLS measures its
+      X-Wing messages at about eight times the bytes. After 1 and 3, what a PQ suite would add is
+      narrow: PQ healing after a device compromise. S3's red team settles that, because S3's own
+      key rotation re-keys with X-Wing (section 7's entry, part 4).
+    - **The directive.** At 04:58 the owner answered "Which of the crypto improvements should I
+      start on (red-team first for protocol changes)?", verbatim: **"All of the above in best
+      recommended order. Focus on improving security, update me with tests on each major success
+      and finalize with me when all tasks are completed, use ledger system, ultracode and use
+      simulation tests. Use VPSs to your advantage, let me know if you need to install major
+      changes on them or need access or administrative help. Create new task list and update
+      ledger as well"**
+    - **The audit ruling.** The same answer took the lead's second question, "Our own plan requires
+      a decision on a funded external audit before any non-beta user, and it is now due. What should
+      I do?" The owner's answer, verbatim: **"Audit comes after the alpha is out. It’s planned in
+      our wider scope so don’t worry and move forward, we plan to use some of the best
+      auditors"**.
+      - **It settles OD #25, "decision deferred to slice 5", and the timing of C7's audit.** An
+        external audit is planned, and it comes after the alpha is out.
+      - **C7 itself is unchanged.** It asks for "a funded external audit before any non-beta user".
+        The ruling names the alpha, so the two do not conflict.
+      - **Nor is the gate MASTER §15 item 7 describes.** Spec A's audit gate blocks general
+        availability if an audit is commissioned. The ruling says one is planned.
+      - **MASTER still reads the audit as a decision taken at slice 5**, in §14 and in §15 item 7.
+        This commit edits no spec, so those sentences and OD #25's row stand as written until a
+        spec pass carries the ruling.
+    - **What stays as it was.**
+      - **C6: a PQ MLS ciphersuite is still deferred.** C6 keeps v1's MLS suite classical, and
+        MASTER §7 (:1098) adopts a PQ suite once draft-ietf-mls-pq-ciphersuites is an RFC. The
+        fact-check found that draft at -06, in working-group last call, with no codepoints.
+      - **No deniability:** the owner's ruling (item 232), and MASTER's permanent non-goal (:554).
+      - **Classical authentication:** Ed25519, under C6's classical suite.
+    - **The task list** is `docs/plans/2026-10-05-hardening-program.md`, in the lead's order. Each
+      track gets its own plan, reviewed before any code.
+      - **S0, foundations.**
+        - S0.1 records the rulings: this item.
+        - S0.2 is an in-process adversary simulation harness. It runs red on today's gaps first.
+        - S0.3 is the quick fixes, with the `req_auth` KAT.
+        - S0.4 is the MLS state-machine vectors.
+      - **S1** seals the join secret.
+      - **S2** builds safety numbers and TOFU.
+      - **S3** heals: a self-update cadence, X-Wing key rotation in leaf extension 0xF002, and keys
+        at rest (item 229).
+      - **S4** runs OpenMLS main interop and differential state-machine fuzzing, never against
+        0.9.0.
+      - **S5** ships to the alpha as a new package, then finalizes with the owner.
+    - **The gates, on every track:**
+      - a red team before the spec, for a protocol change;
+      - a diff review and a ledger entry for every spec or plan change;
+      - one writer per repository;
+      - simulation tests red before the change and green after it;
+      - a test-backed report to the owner at each major success.
+    - **Two further test VPSs.** At 05:20 the owner supplied two more VPSs for heavy work. The lead
+      had asked for one. The lead installed the pinned Go toolchain, go1.26.5, on both, and Rust on
+      one, for the OpenMLS oracle. Their addresses are not recorded here.
+    - **Item 279's owed absorbs are done** (section 7's entry, part 7).
+      - This repository's: the fork's `main` is `81cf1f4`, a `git merge -s ours` of upstream's
+        `6c3153fd`, and its tree is unchanged.
+      - connect's: `1f97ebb2` is `git merge -s ours` of `b4b7e070`, #216's one commit, with the
+        tree unchanged, and it is on the fork's `beta/message` and `main`.
+      - **It is not of `94453d74`, which item 279 named.** That merge also carries upstream's
+        durablevolume fix (`c6186b79`, `492794ba`), and an ours-merge of it would mark the fix
+        merged without its content.
+    - **The design work is running.** An ultracode workflow, read-only, gives each track a designer,
+      a red team and a revision that answers every finding. Each protocol track has three red-team
+      lenses, and the testing track one. Its output becomes the per-track plans, each reviewed
+      before execution under §6's change process.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
@@ -23644,3 +23758,357 @@ is the same query.
   comparison. Three were left: the four-item attribution to `c71bb73b`'s comment, a pointer in
   item 278, which would break the splice's byte-identity, and the friend quote, which is the
   owner's call.
+
+---
+
+### 2026-10-05 — Item 280: two AI crypto reviews checked, a hardening program, the audit ruling
+
+**Change:** this ledger, one new plan, one new report and a pointer in `docs/plans/README.md`. It
+adds item 280, this entry, `docs/plans/2026-10-05-hardening-program.md` and
+`docs/reports/2026-10-05-crypto-review.md`, and the README's paragraph naming the plan. No spec
+changes. Times are UTC, on 2026-10-05.
+
+#### 1. What happened, in order
+
+| time | what |
+|---|---|
+| 04:17 | The owner pasted two external AI reviews of our encryption and methodology. Item 280 quotes the words. |
+| 04:31 | In the route work, connect's absorb was committed as `1f97ebb2`: `git merge -s ours` of `b4b7e070`, #216's one commit (part 7). |
+| 04:51 | The grounding came back: each review claim, checked against the code and the specs. |
+| 04:52 | The fact-check came back: each external claim, checked against primary sources. |
+| 04:53 | The lead put the verdict and the recommendation to the owner, and asked two questions: which improvements to start on, and what to do about the audit. |
+| 04:58 | The owner answered both: the directive and the audit ruling. Item 280 quotes both. |
+| 05:03 | The design workflow started, and the lead sent the owner the task list. |
+| 05:20 | The owner supplied two further test VPSs. |
+| 05:21 | go1.26.5 was installed on both, and Rust on one. |
+| 05:24 | This repository's absorb of upstream's `6c3153fd` was committed, as `81cf1f4`. |
+| 05:53 | The route work reported that it had absorbed `b4b7e070`, not `94453d74`, so as not to drop upstream's durablevolume fix (part 7). At 05:54 the fork's `beta/message` and `main` were pushed to `e449f7d8`, which carries the absorb. |
+
+#### 2. The reviews, against what we build
+
+The report, `docs/reports/2026-10-05-crypto-review.md`, has the table, with a citation per row.
+- **Pinned at:**
+  - connect `8cc3b556`. Its `mls`, `messagegroup`, `message` and `protocol` trees are unchanged at
+    today's `e449f7d8`.
+  - sdk `c71bb73b`. Its `urmessage` tree is unchanged at today's `d20d82c1`.
+  - this repository's `81cf1f4`, and message-windows `0b08178`.
+- **PQ, as built, is a storage layer above a classical MLS.**
+  - One suite, 0x0003. 0x0001 is implemented and refused (connect `mls/group.go:396-401`).
+  - MLS's HPKE is X25519 only (`mls/hpke.go:214`, `:271`; item 251).
+  - Each commit draws a fresh `pq_secret` and seals it with X-Wing to each remaining device's
+    static key, as a PERMANENT record (sdk `urmessage/group.go:2037-2079`,
+    `urmessage/pqepoch.go:1556`). The alpha's sdk, `d2fb60ac`, does this too.
+  - `storage_root` = HKDF-Extract(salt = the MLS exporter, ikm = `pq_secret`) (connect
+    `messagegroup/keyschedule.go:104`, `:131`).
+- **The join.** The `Invite` carries `PqSecret` in the clear (sdk `urmessage/invite.go:45-51`,
+  `:88`; `urmessage/pqepoch.go:1383`).
+- **No healing.** `ProposeUpdate` re-encodes the leaf's existing X-Wing key (connect
+  `mls/group.go:1800-1803`). Every key is on disk in the clear (sdk
+  `urmessage/statestore_durable.go:29-50`; item 229).
+- **Verification is specified, not built.**
+  - This repository's `kt/doc.go:5` reads "This package holds no code yet".
+  - MASTER §10.2, Spec A §7.6 and Spec C's screens 16 to 18 specify TOFU and safety numbers. The
+    sdk has no safety-number API, and the Windows app shows a key-change record only in its demo
+    data (message-windows `app/src/App/Demo/DemoWorld.cpp:376`).
+- **Tests.**
+  - Seven of the sixteen vector families have no runner in connect's registry
+    (`mls/vectors_test.go:110`: 2, 8, 9, 13, 14, 15 and 16). Two of them are partly covered
+    outside it: 16's runner exists in `mls/syntax` and is not installed, and
+    `mls/crypto_labels_test.go` checks 2's constructions.
+  - ValSem240 to 246 appear nowhere in connect. They are six codes, since there is no 243, and
+    Spec A (:884-889) expects `ErrProfileExternalCommit` for each. Each needs a new_member_commit
+    sender, which connect refuses earlier, with `errProcessSenderType`
+    (`mls/commit_process_test.go:871-877`).
+  - The interop peers' image digests are placeholders (`mls/interop/PINS.md:21-23`).
+- **`req_auth`.** The sdk and the server each marshal the request with `Deterministic: true` (sdk
+  `urmessage/record.go:246`, `:269`; this repository's `api/fetch.go:250`). connect pins the
+  framing and the tag over raw request octets (`message/writeauth_test.go:457`, `:509`). No test
+  pins a marshal's bytes.
+- **The transport to the message server,** on the direct and URnetwork routes (item 268), is TLS
+  1.3 only, with X25519MLKEM768 only (`endpoint/endpoint.go:184-194`). The client pins the server's
+  key (sdk `message_route.go:332-349`). Authentication is classical.
+- **No dependency monitoring.** connect, sdk, this repository and message-windows carry no
+  Dependabot or Renovate configuration that applies, and no file names govulncheck. connect's
+  `sctp/renovate.json` is a vendored copy of pion's, which Renovate does not read from a
+  subdirectory.
+
+**The queries behind the three absences:**
+
+| what | query | result |
+|---|---|---|
+| ValSem240 to 246 | `git -C connect grep -E 'ValSem24[0-6]' 8cc3b556` | 0 lines. Control, in the same tree: `func TestValSem` finds 29 tests, and `ValSem2[0-9]{2}` finds ValSem200 to 209. The query finds names, not behaviour: no test names ValSem400 either, yet `TestPastEpochWindowDropsOlderState` tests its bound. |
+| dependency monitoring | `git ls-tree -r --name-only <commit> -- .github`, for a dependabot or renovate file; `git grep -i govulncheck <commit> -- .github`; then both again without `-- .github` | Under `.github`, 0 in each repository. Repository-wide, the file search finds 2 paths, both in connect's vendored `sctp/`: `sctp/renovate.json` and `sctp/.github/workflows/renovate-go-sum-fix.yaml`, pion's, which neither Renovate nor GitHub Actions reads from a subdirectory. No file anywhere names govulncheck. Control: the same grep finds `actions/setup-go` in 3, 2 and 1 workflow files of connect, sdk and this repository (message-windows has no Go workflow). |
+| a `req_auth` marshal KAT | the test files naming `ComputeRequestAuth`, `ReqAuth`, `req_auth` or `Deterministic: true`; then, in them, any quoted hex string of 16 or more digits, any `[]byte{0x…}` literal and any `hex.` call | 7 files in each repository. connect: 2 hold such a literal. `message/writeauth_test.go` pins the framing and the tag over raw request octets, and `protocol/message_test.go`'s one literal is a fill pattern. sdk: 2, both fill patterns. This repository: 3, all fill patterns. None pins a request's marshal. Control: the same probe finds 35 hex strings in `message/writeauth_test.go`. |
+
+#### 3. The fact-check, and the derivation split reproduced
+
+**The split neither review saw: one codepoint, two key derivations.**
+- X-Wing draft-11 §5.6 defines `DeriveKeyPair(ikm)` as `GenerateKeyPairDerand(SHAKE256(ikm, 32))`.
+- draft-ietf-hpke-pq-05 uses `SHAKE256.LabeledDerive(ikm, "DeriveKeyPair", "", 32)`, with
+  `suite_id` = "KEM" || I2OSP(0x647a, 2). It asks IANA to "replace the entry for the value 0x647a".
+- IANA's HPKE registry lists 0x647A as X-Wing, citing draft -06.
+
+**How it was reproduced.** `derive_check.py` recomputes only the X25519 half of each public key,
+because no ML-KEM is needed to tell the two derivations apart.
+- From a seed it takes SHAKE256(seed, 96), bytes 64 to 96, as the X25519 scalar, multiplies the
+  base point, and compares the result with the last 32 bytes of the published public key.
+- **The control** is X-Wing -11's own Appendix C vectors, seed to public key, under the same code.
+- **The two candidate seeds** are A, SHAKE256(ikm, 32), and B, LabeledDerive, over the `ikmR` of
+  hpke-pq-05's two MLKEM768-X25519 vectors.
+
+It was re-run for this entry:
+
+```
+CONTROL X-Wing -11 Appendix C: 3 vectors match, 0 mismatch
+A.5.  MLKEM768-X25519, HKDF-SHA256, ChaCha20Poly1305: len(ikmR)=32 len(pkRm)=1216
+   A  plain SHAKE256(ikm,32)  [X-Wing -11 s5.6] matches pkRm: False
+   B  LabeledDerive            [hpke-pq-05 s4]   matches pkRm: True
+A.12.  MLKEM768-X25519, SHAKE256, ChaCha20Poly1305: len(ikmR)=32 len(pkRm)=1216
+   A  plain SHAKE256(ikm,32)  [X-Wing -11 s5.6] matches pkRm: False
+   B  LabeledDerive            [hpke-pq-05 s4]   matches pkRm: True
+```
+
+Its inputs are the plain-text drafts, by sha256: `xwing-11.txt` `1353f61f…`, `hpke-pq-05.txt`
+`c3afa398…`. The script is `ccf30adb…`. All three are in the scratch directory part 9 names.
+
+**Which side OpenMLS takes** was read from source, not run.
+- crates.io hpke-rs 0.7.0 derives an X-Wing key pair from `shake256::<32>(ikm)` (its
+  `src/kem.rs`). That is the unlabeled form.
+- OpenMLS's `Cargo.lock` takes hpke-rs from crates.io until `ff94cdc2b036` (#2170, 2026-09-10), and
+  from a git revision of the libcrux repository after it:
+
+  | OpenMLS commit | date | `hpke-rs` in `Cargo.lock` |
+  |---|---|---|
+  | `06605afb0def` (#2145, the 0.9.0 release prep) | 2026-08-03 | crates.io 0.7.0 |
+  | `e725f587b107` (#2187, 0.9.0 merged back) | 2026-08-25 | crates.io 0.7.0 |
+  | `27ddc74e9ebf` (#2185) | 2026-08-28 | crates.io 0.7.0 |
+  | `1b02263b19b9` (#2172) | 2026-09-09 | crates.io 0.7.0 |
+  | `ff94cdc2b036` (#2170) | 2026-09-10 | git, libcrux `2b0b67c9` |
+  | `774c6a7fb3f2` (#2215) | 2026-09-28 | git, libcrux `39c4f2f2` |
+  | `055a2b4b06b5` (#2249) | 2026-10-02 | git, libcrux `2456eda0` |
+
+- At all three libcrux revisions, `crates/protocols/hpke/src/kem.rs` derives through
+  `pq_derive_keypair_seed`. That is LabeledDerive, unless that crate's
+  `draft-connolly-cfrg-hpke-mlkem` feature is on.
+- OpenMLS's root `Cargo.toml` at `ff94cdc2b036` says why: "The next hpke-rs release (with the
+  draft-ietf-hpke-pq derivation) is not out yet; use the git version until it is. See
+  openmls/openmls#2170." Its `libcrux_crypto/Cargo.toml` enables
+  `hpke-rs-libcrux/draft-ietf-hpke-pq` under the PQ feature.
+- **The queries** are in the table below. The crates.io crate's `src/kem.rs` was read from the
+  downloaded `hpke-rs-0.7.0.crate`.
+- Go's `crypto/hpke` (Go 1.26 and later) uses LabeledDerive too (the fact-check, read from source).
+- **0.9.0's side holds while hpke-rs 0.7.0 is the newest 0.7.x.** OpenMLS asks for hpke-rs `0.7`,
+  in `openmls_rust_crypto/Cargo.toml` and `libcrux_crypto/Cargo.toml`, at `e725f587b107` and at
+  `ff94cdc2b036`. A 0.7.x release with the labeled form would change what a fresh resolve of 0.9.0
+  gets. crates.io's newest hpke-rs is 0.7.0, read on 2026-10-05.
+- **The consequence is inferred, not run:** OpenMLS 0.9.0 and main should not interoperate on any
+  X-Wing suite. So any cross-check that runs X-Wing inside HPKE uses main at or after
+  `ff94cdc2b0`, never 0.9.0. S4's interop and fuzzing run 0x0003, whose HPKE is X25519 only, so
+  0.9.0 would serve there too. S4 uses main so that one pinned oracle serves both (the plan's S4).
+
+| what | query |
+|---|---|
+| the commits that touched OpenMLS's lockfile | `gh api 'repos/openmls/openmls/commits?path=Cargo.lock&since=2026-08-01T00:00:00Z&until=2026-10-05T00:00:00Z'` |
+| the `hpke-rs` entry at each | `gh api -H "Accept: application/vnd.github.raw" "repos/openmls/openmls/contents/Cargo.lock?ref=<sha>"`, then the `source` line after `name = "hpke-rs"` |
+| the derivation at each pinned revision | `gh api -H "Accept: application/vnd.github.raw" "repos/celabshq/libcrux/contents/crates/protocols/hpke/src/kem.rs?ref=<rev>"` |
+| the pin's stated reason | the same, for `Cargo.toml` and `libcrux_crypto/Cargo.toml` in `openmls/openmls` at `ff94cdc2b036` |
+| OpenMLS's hpke-rs requirement | the same, for `openmls_rust_crypto/Cargo.toml` and `libcrux_crypto/Cargo.toml` at `e725f587b107` and `ff94cdc2b036`; and `https://crates.io/api/v1/crates/hpke-rs`, for the newest version |
+
+**The rest of the fact-check** is in the report's section 4. The corrections that matter here:
+- X-Wing's HPKE id is assigned, not "IANA-pending".
+- draft-mahy-mls-xwing stopped at -00 and expired on 2024-09-05.
+- 0x004D is OpenMLS's own number. IANA's MLS registry holds only RFC 9420's 0x0001 to 0x0007.
+- draft-ietf-mls-pq-ciphersuites-06 lists TBD1 to TBD11, and none is an X-Wing suite with
+  ChaCha20-Poly1305, SHA-256 and Ed25519, the PQ twin of our 0x0003.
+- XMTP wraps Welcomes with X-Wing, not KeyPackages.
+- Signal's SPQR is 1:1 only. Its groups have no PQ ratchet.
+
+#### 4. The recommendation put to the owner at 04:53, condensed
+
+| | action | why | cost |
+|---|---|---|---|
+| 1 | Seal the joiner's `pq_secret` to the X-Wing key its KeyPackage already carries, instead of pasting it in the clear. XMTP seals Welcomes this way. | Today a two-person chat that never commits again is protected only classically for its whole life. This makes every epoch harvest-proof. | small |
+| 2 | Safety numbers and TOFU key-change warnings, as already specified | Joins are unauthenticated: whoever controls the paste channel can substitute keys. The largest practical gap, larger than PQ. | medium |
+| 3 | Self-updates on a cadence, rotating the device X-Wing key in each, and keys encrypted at rest | Today a copied device state keeps decrypting. This gives real post-compromise security, with PQ re-keying to fresh keys. | medium |
+| 4 | Wire the unused vector families, build the specified OpenMLS interop and state-machine cross-check against OpenMLS main, and add a `req_auth` KAT | The reviewers' strongest methodology point: the vectors check the cryptography, not the state machine. | medium |
+| 5 | Correct the X-Wing pin in the docs, fix MASTER §13's PQ overclaim, publish an honest PQ statement, add govulncheck and Dependabot | Cheap honesty and hygiene. gorilla/websocket parses unauthenticated input on our public :443. | small |
+| defer | A PQ MLS ciphersuite inside TreeKEM | C6: wait for the RFC and its codepoints. After 1 and 3, what remains is narrow: PQ healing after a device compromise. Go's `crypto/hpke` has the hybrid KEM, as a test oracle for that day. | large, and in flux |
+| accept | No deniability, and classical (Ed25519) authentication | No deniability: the owner's ruling (item 232) and MASTER's permanent non-goal (:554). Classical authentication: C6's classical suite. Deniability is absent MLS-wide, and Signal's groups sign too. | none |
+
+**Where this record departs from the message:**
+- Row 3 said "a stolen device key reads all future epochs". It reads them until that device is
+  removed (item 266).
+- The defer row said "as your locked decision C6 already says". C6 keeps v1's MLS suite classical.
+  The wait for the RFC is MASTER §7's (:1098), and C4's for ML-KEM-1024.
+- The defer row's "what remains is narrow" is the lead's judgment, and it pulls against row 3:
+  S3's key rotation re-keys with X-Wing, which would itself heal the storage layer post-quantum.
+  S3's red team settles what a PQ suite would still add (the plan's S3, "The honest limits").
+- The accept row said "Already your recorded ruling". That ruling, item 232, is about deniability
+  alone.
+
+Items 1 and 3 change the protocol, so by the project's rule each gets an adversarial red team before
+any spec edit. Item 2 is specified already, and its red team tests the specified design.
+
+#### 5. What the two rulings settle, and what they leave
+
+- **The directive adopts all five, in the lead's order.** It also asks for:
+  - ultracode;
+  - simulation tests;
+  - the ledger, and a new task list, which is the plan this entry adds;
+  - a report with tests at each major success;
+  - a final sign-off with the owner when every task is done;
+  - use of the VPSs, telling the owner before a major change to them, or when access or
+    administrative help is needed.
+- **The audit ruling settles OD #25 and the timing of C7's audit.**
+  - OD #25 (`docs/reviews/2026-08-12-owner-decisions-1-45.md:64`) deferred the decision to slice 5.
+    It is taken: an audit is planned, and it comes after the alpha.
+  - C7's own clause, "a funded external audit before any non-beta user", is unchanged. An alpha
+    tester is not a non-beta user, so the ruling and C7 agree.
+  - MASTER §15 item 7 (:3468-3474) says Spec A's audit gate "blocks general availability **if** an
+    audit is commissioned". The ruling says one is planned, and moves nothing in that gate.
+  - MASTER §14 (:3417-3420) still reads "The external cryptographic audit is a decision taken at
+    slice 5", §15 item 7 is headed "RULED, decided at slice 5", and OD #25's row is unedited. A
+    spec pass owes them the ruling (part 10).
+- **What neither ruling changes:**
+  - C6: v1's MLS suite stays classical, and a PQ suite waits until draft-ietf-mls-pq-ciphersuites
+    is an RFC (MASTER §7, :1098).
+  - Item 232: no deniability.
+  - Classical authentication, under C6's suite.
+
+#### 6. The task list and its gates
+
+`docs/plans/2026-10-05-hardening-program.md` holds the tracks, their order, the gates each passes,
+and a status table. The table is a snapshot as of this commit. Each track's progress lands as a
+ledger entry, and the table moves in that commit.
+- **The status as of this commit:**
+  - S0.1: this commit.
+  - S0.2, S0.3, S0.4 and S4: their design is in review.
+  - S1, S2 and S3: their design and red team are running.
+  - S5: not started.
+- **Each track gets its own implementation plan in `docs/plans/`, reviewed before code.** The plan
+  warns about one trap for their file names. The plan linter reads `-((?:p|s|m)[0-9]+)-` out of a
+  plan's file name as its token (`planlint_test.go:158`), and `s1` and `s2` are taken. A per-track
+  plan named `…-s1-…` would collide with them.
+
+#### 7. The two further VPSs, the absorbs, and the design work
+
+- **The two further test VPSs** run Ubuntu 24.04, and the owner gave root access to both.
+  - go1.26.5, the Go that connect's, sdk's and this repository's go.mod pin, is installed on both.
+    Rust stable is installed on one, for the OpenMLS oracle.
+  - Their addresses are not recorded here.
+  - The lead plans to move the two test exits, `urn-exit-a` and `urn-exit-b` (item 279), off the
+    message-server box onto one of them, once the 1 s hold's live runs have finished with them.
+- **The absorbs.**
+  - This repository's: `81cf1f4` is `git merge -s ours` of upstream's `6c3153fd`. Its tree,
+    `f5ef812d`, is its first parent `68bcb3f`'s, so item 277's trap is disarmed here without a
+    file moving.
+  - connect's: `1f97ebb2`, committed at 04:31 in the route work, is `git merge -s ours` of
+    `b4b7e070`, #216's one commit. Its tree, `78341c2e`, is its first parent `8cc3b556`'s, and it
+    is on the fork's `beta/message` and `main`.
+  - **It is not of `94453d74`, which item 279 named** (its parts 6 and 9). That merge also carries
+    upstream's durablevolume fix (`c6186b79`, `492794ba`), and an ours-merge of it would mark the
+    fix merged without its content, so no later sync would bring it. The route work saw this, and
+    reported it at 05:53.
+
+  | what | query, in connect | result |
+  |---|---|---|
+  | the absorb's parents and tree | `git log -1 --format=%P 1f97ebb2`; `git rev-parse 1f97ebb2^{tree} 8cc3b556^{tree}` | `8cc3b556` and `b4b7e070`; both trees are `78341c2e` |
+  | where it is | `git branch -r --contains 1f97ebb2`, after a fetch (`origin` is the fork) | `origin/beta/message` and `origin/main` |
+  | what `94453d74` would add | `git merge-base --is-ancestor 94453d74 origin/beta/message`; `git log origin/beta/message..94453d74`; `git diff --stat origin/beta/message...94453d74` | not an ancestor; `94453d74`, `9baa9421`, `492794ba` and `c6186b79`; 4 durablevolume files |
+
+- **The design workflow** started at 05:03. It is read-only, and it has four tracks:
+  - the join seal;
+  - safety numbers and TOFU;
+  - healing;
+  - testing, with the quick fixes and the simulation harness.
+
+  Each track has a designer, a red team and a revision that answers every finding. The three
+  protocol tracks each get three red-team lenses:
+  - the join seal: a cryptographic attacker, the MLS state machine, and compatibility;
+  - safety numbers: a protocol-binding attacker, usable security, and implementation;
+  - healing: a post-compromise adversary, state and concurrency, and platform key storage.
+
+  The testing track gets one lens, a test-methodology skeptic. The output becomes the per-track
+  plans.
+
+#### 8. What this pass corrected in its own inputs
+
+- **"S2-24" for keys at rest does not resolve.** The brief this entry was written from, the
+  grounding, and sdk's `urmessage/statestore_durable.go:49` call the at-rest gap S2-24. Item 229
+  says that id is a different item, and that item 229 is "the real filing; cite it and not S2-24".
+  Item 280, this entry and the plan cite item 229. Inside `docs/plans/` the plan linter would
+  resolve S2-24 silently, to the `s2` plan's own S2-24, which is about where the next append lands.
+- **"The `req_auth` preimage has no KAT" is narrower than it reads.**
+  - connect's `TestRequestAuthPreimageIsPinnedToItsExactBytes` and
+    `TestRequestAuthTagIsPinnedToItsExactBytes` pin the framing and the tag, over raw request
+    octets.
+  - connect's `protocol/message_test.go` checks that the deterministic marshal is stable within one
+    process.
+  - What nothing pins is a known request's marshal to known bytes. A second implementation, in
+    another language, needs exactly that, and protobuf does not promise it. S0.3's KAT is that.
+- **The red team is not three lenses on every track.** The testing track has one (part 7).
+- **The OpenMLS switch is confirmed, not carried.**
+  - The fact-check dated it to #2170. That pull request's description says its only lockfile change
+    was a new crate.
+  - The merged commit changed `Cargo.toml`, `Cargo.lock` and `libcrux_crypto/Cargo.toml`, and the
+    root `Cargo.toml` names #2170 as the reason for the git pin (part 3). So the date holds.
+- **The brief said connect's absorb of `94453d74` was in progress.** It had been committed at
+  04:31, of `b4b7e070`, and the route work reported that at 05:53, after the brief was written
+  (part 7). The first draft of this entry carried the brief's sentence, and the review caught it.
+
+#### 9. Where the evidence is
+
+- **The report** is `docs/reports/2026-10-05-crypto-review.md`, committed here.
+- **The working files are in session f35258a1's scratch directory.** They are not durable.
+  - Under `crypto-review/`: `REVIEWS.md`, the two reviews, condensed from the paste, with the
+    greeting that named a person removed; `GROUNDING.md`, the grounding, with a citation per
+    claim; and `factcheck/`, the fact-check's `REPORT.md`, the primary texts it read, and
+    `derive_check.py`.
+  - Under `item280/`: libcrux's `kem.rs` at the three revisions OpenMLS pinned, fetched for this
+    entry.
+  - Under `item280/r2/`: OpenMLS's `Cargo.toml`, `openmls_rust_crypto/Cargo.toml` and
+    `libcrux_crypto/Cargo.toml` at `e725f587b107` and `ff94cdc2b036`, fetched while answering the
+    review.
+- **The reviews themselves stay out of this repository.** The report summarizes them.
+
+#### 10. Open
+
+- **The per-track plans.** S0.2's harness comes first. S0.3 and S0.4 follow, then S1 to S3 once
+  their red teams return, then S4.
+- **MASTER §14's and §15 item 7's audit sentences, and OD #25's row,** still read as a decision
+  taken at slice 5. S0.3 edits MASTER anyway, and can carry the ruling.
+- **Found while writing, for S0.3:** MASTER §7 (:874-877) cites draft-ietf-mls-pq-ciphersuites-01
+  and draft-ietf-mls-combiner-02. The fact-check found the first at -06, and the second expired.
+- **S5 meets item 279's open item:** the alpha ships `alpha/premerge`. Either the alpha moves to the
+  forks' mains first, or the hardening also lands on that branch. S5's plan decides, and the owner
+  rules if it is a choice between the two.
+- **The test exits' move** to a further test VPS (part 7).
+- **Item 279's open "The absorbs" is closed** by part 7, with `b4b7e070` in place of `94453d74`.
+  Its other open items stand as it records them.
+
+**Reviewed by:** a subagent diff review, against the session's log, the code at the pins, the
+specs, GitHub and the fact-check's sources. **First round: approve with changes.** It confirmed
+every quote byte for byte, the audit ruling's two U+2019s included, and every time in part 1. It
+found the splice byte-exact, no CR and no prose line over 100 columns, the hygiene clean, about 45
+citations resolving, the absences holding against their controls, the external facts matching
+their sources, and the gates passing.
+- **One MAJOR finding, taken:** connect's absorb was recorded as in progress, of `94453d74`. It was
+  done, of `b4b7e070`, and an ours-merge of `94453d74` would have dropped upstream's durablevolume
+  fix. Item 280 and parts 1, 7, 8 and 10 now say so.
+- **Ten MINOR findings, all taken:**
+  - recommendation 1's recorder needs a future quantum computer, in item 280 and the report;
+  - "PQ at bootstrap only" was the lead's paraphrase: one review read the layer as bootstrap and
+    transport only, and the other asked;
+  - "Reproduced" now covers the split alone, and which side each OpenMLS takes is marked as read;
+  - the RFC condition is MASTER §7's, not C6's, and item 232 rules on deniability, not on
+    authentication;
+  - part 4 is titled a condensation, and its departures from the message are listed under it;
+  - the report no longer says the owner adopted the table's order;
+  - the vector and ValSem absences now say what the queries measured, and S0.4 takes the sentinel
+    question;
+  - what a PQ suite adds after S1 and S3 is left to S3's red team;
+  - "never 0.9.0" is scoped: needed for X-Wing inside HPKE, a choice for S4's 0x0003 runs;
+  - this paragraph was missing.
+- **All five NITs were taken:** Windows' directory ACL for keys at rest, the transport's P-256 key,
+  connect's vendored Renovate file with the repository-wide query, "S0.3 will" for planned work,
+  and a pointer to the plan in `docs/plans/README.md`.
