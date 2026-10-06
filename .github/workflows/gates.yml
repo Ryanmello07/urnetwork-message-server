@@ -64,14 +64,28 @@ jobs:
       # THE SIBLINGS go.mod REPLACES TO, cloned beside this checkout. Without them every run of this job
       # failed at the first `go` command: 100 of the last 100 by the 2026-10-03 survey (msgrepo ledger
       # 277), because the replaces name ../connect, ../glog and ../gvisor and nothing put them there.
-      # connect comes from the FORK'S main, which carries the URmessage packages (mls, message,
-      # messagegroup) upstream connect does not have yet; when the upstream pull request lands, this
-      # line changes to urnetwork/connect.
+      #
+      # connect is urnetwork/connect at ONE COMMIT, 92a657fa: upstream's main when connect #217
+      # merged, which carries what this module imports from connect beyond its core: the message
+      # and mls/syntax packages, and the messaging schema in protocol. Pinned rather than cloned
+      # from a branch, because the split removes those packages from connect's main (ledger 283),
+      # and an unpinned clone would turn this job red the day that removal merges, with nothing in
+      # this repository changed. The pin moves when this module's imports switch to
+      # github.com/urnetwork/message, and moving it is the change to review. It replaces the clone
+      # of the owner's fork, so this file reads the same on the fork and upstream.
+      #
+      # Fetched by SHA, and the checkout asserted: `git clone --depth 1` takes whatever a branch
+      # holds that day, and nothing here would notice the difference.
       - name: the sibling modules go.mod replaces to
+        env:
+          CONNECT_PIN: 92a657fadab90293b86703dd0c333b95595cffe9
         run: |
           set -eu
           cd ..
-          git clone --depth 1 https://github.com/Ryanmello07/connect.git connect
+          git init -q connect
+          git -C connect fetch -q --depth 1 https://github.com/urnetwork/connect.git "$CONNECT_PIN"
+          git -C connect checkout -q --detach FETCH_HEAD
+          test "$(git -C connect rev-parse HEAD)" = "$CONNECT_PIN"
           git clone --depth 1 https://github.com/urnetwork/glog.git glog
           git clone --depth 1 --branch go https://github.com/urnetwork/gvisor.git gvisor
 
