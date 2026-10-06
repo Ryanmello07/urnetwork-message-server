@@ -65,27 +65,49 @@ jobs:
       # failed at the first `go` command: 100 of the last 100 by the 2026-10-03 survey (msgrepo ledger
       # 277), because the replaces name ../connect, ../glog and ../gvisor and nothing put them there.
       #
-      # connect is urnetwork/connect at ONE COMMIT, 92a657fa: upstream's main when connect #217
-      # merged, which carries what this module imports from connect beyond its core: the message
-      # and mls/syntax packages, and the messaging schema in protocol. Pinned rather than cloned
-      # from a branch, because the split removes those packages from connect's main (ledger 283),
-      # and an unpinned clone would turn this job red the day that removal merges, with nothing in
-      # this repository changed. The pin moves when this module's imports switch to
-      # github.com/urnetwork/message, and moving it is the change to review. It replaces the clone
-      # of the owner's fork, so this file reads the same on the fork and upstream.
+      # message and connect are each ONE COMMIT, fetched by SHA and the checkout asserted: `git clone
+      # --depth 1` takes whatever a branch holds that day, and nothing here would notice the
+      # difference.
       #
-      # Fetched by SHA, and the checkout asserted: `git clone --depth 1` takes whatever a branch
-      # holds that day, and nothing here would notice the difference.
+      # message is urnetwork/message, where this module's record layer, its codec and its schema have
+      # lived since ledger 284. connect is urnetwork/connect WITHOUT the messaging schema: a connect
+      # that still carries protocol/message.proto registers it beside message/protocol's copy, and
+      # every test binary that links both panics at init. The step refuses such a pin by name
+      # rather than leave it to that panic.
+      #
+      # The two pins are the heads of the message pull request and of connect's removal, the set
+      # this module's switch was built and tested with (ledger 283 and 284). Until those pull
+      # requests exist they are placeholders, and the step refuses a placeholder by name rather
+      # than failing on a fetch. Each moves in a commit of its own, and moving it is the change to
+      # review. The URLs are urnetwork's on the fork and upstream alike: GitHub serves a pull
+      # request's head by SHA from the upstream repository once the pull request is open. Until
+      # ledger 284 the connect pin was 92a657fa, upstream's main when connect #217 merged, which
+      # still carried the messaging packages this module imported then.
       - name: the sibling modules go.mod replaces to
         env:
-          CONNECT_PIN: 92a657fadab90293b86703dd0c333b95595cffe9
+          MESSAGE_PIN: FILL_IN_THE_MESSAGE_PR_HEAD_SHA
+          CONNECT_PIN: FILL_IN_THE_CONNECT_REMOVAL_PR_HEAD_SHA
         run: |
           set -eu
+          for pin in "MESSAGE_PIN=$MESSAGE_PIN" "CONNECT_PIN=$CONNECT_PIN"; do
+            if ! printf '%s\n' "${pin#*=}" | grep -Eqx '[0-9a-f]{40}'; then
+              echo "${pin%%=*} is '${pin#*=}', not a full commit SHA; fill it in before this job can build"
+              exit 1
+            fi
+          done
           cd ..
+          git init -q message
+          git -C message fetch -q --depth 1 https://github.com/urnetwork/message.git "$MESSAGE_PIN"
+          git -C message checkout -q --detach FETCH_HEAD
+          test "$(git -C message rev-parse HEAD)" = "$MESSAGE_PIN"
           git init -q connect
           git -C connect fetch -q --depth 1 https://github.com/urnetwork/connect.git "$CONNECT_PIN"
           git -C connect checkout -q --detach FETCH_HEAD
           test "$(git -C connect rev-parse HEAD)" = "$CONNECT_PIN"
+          if [ -e connect/protocol/message.proto ]; then
+            echo "connect at $CONNECT_PIN still carries protocol/message.proto; pin a connect after its messaging removal"
+            exit 1
+          fi
           git clone --depth 1 https://github.com/urnetwork/glog.git glog
           git clone --depth 1 --branch go https://github.com/urnetwork/gvisor.git gvisor
 
