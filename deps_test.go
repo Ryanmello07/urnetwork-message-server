@@ -1505,15 +1505,22 @@ func TestTheConnectClosureIsAllowedOnlyThroughConnectsOwnClosure(t *testing.T) {
 	// whether or not a package §2.2 allows reached a line of their code, and a later import of
 	// one from this module would have inherited an answer given to somebody else. Both sets come
 	// from the go command, so neither is a name here that goes stale.
-	unlinked := []string{}
+	unlinked, answeredByTheList := []string{}, []string{}
 	for _, module := range modulesRequiredBy(t, connectModulePath) {
+		if viaConnect[module] {
+			continue
+		}
 		// a module the allow list names a path in is answered by the list and never by the
-		// derivation, linked or not, so it is not a probe of what the derivation answers
-		if viaConnect[module] || allowListNamesAPathIn(module) {
+		// derivation, linked or not, so it is not a probe of what the derivation answers; what
+		// this leaves out is printed, and the decision's own half is held above, planted
+		if allowListNamesAPathIn(module) {
+			answeredByTheList = append(answeredByTheList, module)
 			continue
 		}
 		unlinked = append(unlinked, module)
 	}
+	t.Logf("%d modules %s requires are outside the derived set because the allow list names a path in them, and are not probed here: %v",
+		len(answeredByTheList), connectModulePath, answeredByTheList)
 	if len(unlinked) == 0 {
 		t.Fatal("connect requires exactly the modules its allowed packages link, so nothing here can tell a derivation over what is linked from one over what is required")
 	}
