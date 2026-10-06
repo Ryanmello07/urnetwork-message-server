@@ -12439,6 +12439,73 @@ repo and therefore the critical path — not this repository:
       builds against connect's `main`, cloned unpinned. Between the two merges the sdk's `main`
       would not build.
 
+284. **THE MESSAGE SERVER IMPORTS `github.com/urnetwork/message`: THE RECORD LAYER, ITS CODEC AND THE
+    SCHEMA COME FROM THE NEW MODULE, SPEC B §2.2 ALLOWS EXACTLY THOSE THREE PACKAGES OF IT, AND IT
+    FORBIDS THE REST.** Item 283's first follow-up, written on 2026-10-06 beside the three pull
+    requests and tested with them. It is the branch `split/use-message-repo`, off the fork's `main`
+    at `3b0c9cd`, and it is local until the lead pushes. Spec B is at Revision 24.
+    - **One change, where the plan had two.** The plan's MS-1 took the record layer and the codec
+      once its stage 2a had merged, and its MS-2 took the schema after connect's removal. Under item
+      283 the message pull request carries all of it, and connect's pull request deletes
+      `message.proto` in the same set, so the schema cannot wait: against a connect without
+      `message.proto`, there is no other copy of the schema to import. The lead's wave-2 ruling of
+      2026-10-06 replaces the plan's schema freeze with an append-only rule, and keeps the message
+      repository's check that its schema emits, byte for byte, what connect's did at `92a657fa`.
+      That ruling is to be written as an item of its own, after this one (the review file's part E).
+    - **What changes.**
+      - `go.mod` requires `github.com/urnetwork/message`, replaced by `../message`. Connect stays
+        required, for the client and for `connect/protocol`'s `Frame` and `MessageType` values,
+        which carry every request.
+      - 48 Go files change their imports and nothing else:
+        - 27 import `message/message` in place of `connect/message`, and one fixture imports
+          `message/syntax` in place of `connect/mls/syntax`;
+        - of the 49 that imported `connect/protocol`, 37 used only the messaging schema, and import
+          `message/protocol` instead. 9 use the schema and connect's `Frame` both, and import both,
+          as `connectprotocol` and `messageprotocol`, the names the message repository's own sdk
+          uses. The other 3 use only connect's types and do not change:
+          `cmd/message-server/transport.go`, `endpoint/endpoint.go` and `endpoint/endpoint_test.go`;
+        - each selector went to the package that declares it, read from both packages' own sources.
+          `connect/protocol` declares 210 exported names and `message/protocol` 115, and no name is
+          in both.
+      - **The deps gate, under O9** (item 281):
+        - `message/message`, `message/syntax` and `message/protocol` are allowed exactly, and the
+          module itself never;
+        - `message/mls`, `message/messagegroup` and `message/sdk` are banned as subtrees, in the same
+          commit;
+        - `connect/message` and `connect/mls/syntax` are no longer allowed, and `connect/mls` is a
+          subtree ban;
+        - `substitutions()` passes a replace only when the directory declares the module the go
+          command names;
+        - connect's derived closure answers for no module the allow list names a path in, so a
+          connect that linked the message module could not open the subtree O9 refuses.
+      - **Spec B Revision 24:** §2.2's two blocks, its CI grep and two new paragraphs; §5.3's
+        normative paragraph; §13 item 8.
+    - **What does not change:** no wire field, no reason code, no check and no column. The three
+      packages are connect's own code at a new path. Every production file of `message/message`
+      and `message/syntax` is byte-identical to the same file of `connect/message` and
+      `connect/mls/syntax` at `92a657fa`, once the old paths in it are read as the new ones, and
+      `message.proto` differs only in its `go_package` line.
+    - **The merge order** is item 283's, with this one last: the sdk's removal, connect's,
+      `urnetwork/message`, then this. Against a connect that still carries `message.proto`, every
+      binary here would link the schema twice and panic at init, so this cannot merge before
+      connect's removal, and it imports `urnetwork/message`, so it cannot merge before that either.
+      It is based on `3b0c9cd`, the head of message-server #2, so #2 merges first.
+    - **The pins.** `gates.yml` fetches `urnetwork/message` and `urnetwork/connect` by commit, and
+      both are placeholders that the step refuses until the two pull requests exist: the message
+      pull request's head, and the head of connect's removal. The switch was tested against
+      `split/import-all` at `f3f8f2bd` and `upstream/remove-message` at `5c281069`, both local.
+    - **Open.**
+      - The red-team review of the change, Revision 24 with it. The ledger's §6 puts the diff
+        review before the commit; the lead ordered it after, in the split's red-team phase.
+      - The pins, filled with the two heads once their pull requests are open.
+      - Spec B's other sections still name `connect/message`, `connect/mls/syntax` or
+        `connect/protocol` for messaging, on 24 lines outside the ones Revision 24 rewrote, and one
+        of those, §4.2's `frame.proto`, is still right. §2.2 now says they mean the new packages;
+        rewriting each line is a later pass.
+      - `testdata/eph-window-kat.txt` still names its partner as
+        `connect/messagegroup/testdata/eph-window-kat.txt`. Both repositories pin the whole file by
+        its digest, so its prose changes in both at once, after both pull requests land.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
@@ -24901,3 +24968,101 @@ nine copies beside it, the hygiene and the form, and the gates passing, 13 of 13
 - **All four NITs were taken:** "on chain" is quoted as the owner wrote it, the counting rule no
   longer quotes a heading, stage 4's resend rule keeps its condition, and the "~35" is explained
   by how it was counted.
+
+### 2026-10-06 — Item 284: the message server imports `github.com/urnetwork/message`, and Spec B Revision 24
+
+**Change:** Spec B Revision 24 (§2.2, §5.3's normative paragraph, §13 item 8, and its own edit-log
+entry), item 284 and this entry; and in the same commit the switch they describe: `go.mod`, the
+imports of 48 Go files, and `deps_test.go`. The pull request's later commits pin CI's two siblings,
+add the tests that hold the switch, and bring the prose to the new paths; none of them changes a
+spec or a plan. Times are UTC, on 2026-10-06.
+
+#### 1. What it was built against
+
+| sibling | commit | what it is |
+|---|---|---|
+| `message` | `f3f8f2bd` | `split/import-all`, the message pull request's branch, local |
+| `connect` | `5c281069` | `upstream/remove-message`, connect's removal, local |
+| `glog` | `80a11b43` | `urnetwork/glog`'s default branch |
+| `gvisor` | `c0783dba` | `urnetwork/gvisor`'s `go` branch |
+
+The baseline is this repository at `3b0c9cd`, against connect `92a657fa`, `gates.yml`'s pin there,
+with the same `glog` and `gvisor`.
+
+#### 2. The switch, measured
+
+- **The closure.** `go list -deps -test ./...` for linux/amd64, linux/arm64 and windows/amd64, each
+  with cgo off. Before, it names `connect`, `connect/message`, `connect/mls/syntax`,
+  `connect/protocol` and `glog`; after, `connect`, `connect/protocol`, `message/message`,
+  `message/syntax`, `message/protocol` and `glog`. Piped through item 8's two greps, the
+  after-closure names no `message/mls` and no `connect/mls`, while the before-closure names
+  `connect/mls/syntax`, the one hit item 8's old wording explained.
+- **The code is the same code.** Every production file of `message/message` and `message/syntax`
+  at `f3f8f2bd` is byte-identical to its namesake in `connect/message` and `connect/mls/syntax` at
+  `92a657fa`, once the old paths in it are read as the new ones: 7 files and 9. `message.proto`
+  differs only in line 4, its `go_package`.
+- **The imports**, by a tool that parses each file and splices the import spec and each qualifier at
+  its byte offset: 48 files, as item 284 lists them. `gofmt` then re-sorted the import blocks of 28
+  of them, because `message` sorts after `connect`. `go mod tidy` changes nothing beyond the require
+  and the replace, and `go.sum` gains no line: everything the message module requires was already
+  there.
+
+#### 3. Verification
+
+- **Windows,** Go 1.26.5, with PostgreSQL 17.6 on 127.0.0.1 and both `URMESSAGE_TEST_DSN` and
+  `URMESSAGE_REQUIRE_CONTRACT_COVERAGE=1` set. `go test -json -count=1 -run . -timeout 30m ./...`
+  exits 0. 706 results passed, 230 tests and 476 subtests, none failed and none skipped, and the
+  store printed `FULL RUN: 2 of 2 implementations of Store were held to RunContract`. The baseline
+  passed the same 706. Compared both ways by package and name, no result is in one run and not the
+  other, and none changed. `go build`, `go vet`, `gofmt -l`, `go mod tidy -diff` and
+  `go mod verify` are clean.
+- **Linux,** on the test host alt-2 (Go 1.26.5, gcc 13.3): `gates.yml`'s steps after the sibling
+  step, with no database there. The suite exits 0: 547 passed (215 tests and 332 subtests) and 15
+  skipped, the half of the store contract that needs PostgreSQL, which the store reports as
+  `PARTIAL RUN: 1 of 2`. The baseline on the same host gave the same 562 results, compared both
+  ways. Both released platforms built; tidy, verify, gofmt and vet are clean; and
+  `CGO_ENABLED=1 go test -race ./...` passed. `glog` there was `3c6c9fd9`, its default branch's
+  head an hour after `80a11b43`; the two differ by one deleted workflow file.
+
+#### 4. Controls
+
+Each ran in a scratch copy of this tree, beside the post-removal siblings or beside connect
+`92a657fa`, and each had to fail its named test with that test's own message. 21 of 21 did.
+
+| control | what was planted | what failed, for its own reason |
+|---|---|---|
+| K1 | `substitutions()` back to `isAllowed(origin) \|\| viaConnect[origin]` | the substitution test, on its three rows that tell the rules apart; and the real gate, which refused `message/message`, `message/syntax` and `message/protocol` as substituted under every configuration (the plan's R2-F3): without the fix this commit cannot be green |
+| K2 | a subtree allow of `github.com/urnetwork/message` | `TestNoAllowedDependencyIsAlsoForbidden`, since it covers `message/mls`, and the matcher's planted control |
+| K3, K4 | `message/syntax`, then `message/protocol`, allowed as subtrees | the matcher, on `syntax/inner` and `protocol/inner` |
+| K5 to K8 | each ban deleted in turn: `message/mls`, `message/messagegroup`, `message/sdk`, `connect/mls` | `TestEverythingSpecB22ForbidsIsOnTheForbiddenList`: §2.2's block names the first three, and §13 item 8's grep names `connect/mls`; and the matcher, where a hand-written row names the ban |
+| K9 | the `message/mls` ban made exact | the matcher: `message/mls/state` is no longer forbidden |
+| K10 | the decision's new term removed from `permitted()` | the closure test: `message/messagex` and `connect/nat` permitted, with their modules planted in the derived set |
+| K11 | the derivation's exclusion narrowed to connect's own module | the closure test: `glog` and protobuf in the derived set, though the list names them |
+| K12 | the exclusion removed | the closure test: the derivation no longer sees connect's own module |
+| K13 | the second-implementation fixture back on `connect/mls/syntax` | the fixture control: it trips fewer than three members of the class, because the codec in the class is `message/syntax` now |
+| E1 | a package importing `message/mls` | the gate: forbidden, `message/mls` |
+| E2 | a package importing `message/messagegroup` | the gate: forbidden, `messagegroup` and the `mls` it imports |
+| E3 | the same import, in a test file only | the gate, from the closure with tests |
+| E4 | a fourth package of the module, planted in the sibling and imported | the gate: unlisted, `message/messagex` |
+| E5 | `message/syntax/inner`, planted and imported | the gate: unlisted, the child of an exact entry |
+| E6 | `message/sdk` imported | the gate, before its rule: `go list` cannot resolve a nested module this one does not require, and the ban stands behind that |
+| E7 | beside connect `92a657fa`, a package importing `connect/message` | the gate: `connect/message` unlisted, and `connect/mls/syntax` forbidden |
+| E8 | this tree beside connect `92a657fa` | the test binaries of `peer`, `harness` and `cmd/message-server` panic at init, `file "message.proto" is already registered`, previously from `message/protocol`; `cmd/messagectl`'s passes, linking one copy |
+
+E8 is why CI's connect pin must be a connect after the removal, and why this pull request merges
+after connect's removal does.
+
+#### 5. What this does not do
+
+- It does not fill CI's pins. The message pull request's head and connect's removal head are not
+  on GitHub yet, so `gates.yml` carries placeholders and refuses them (item 284).
+- It does not rewrite Spec B's other 24 lines that name the old paths. §2.2 says what they mean
+  (item 284).
+- It does not touch `testdata/eph-window-kat.txt`, whose prose still names connect. Its bytes are
+  pinned by digest in both repositories (item 284).
+- It records neither of the lead's two wave-2 rulings. They are to be items of their own, after
+  this one (item 284).
+
+**Reviewed by:** pending. By the lead's order this entry's diff review is the split's red-team
+phase, after this commit rather than before it as §6 sets out. Its findings are recorded under this
+line in the commit that takes them.

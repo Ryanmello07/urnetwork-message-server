@@ -4,10 +4,10 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/urnetwork/connect/message"
-	"github.com/urnetwork/connect/protocol"
 	"github.com/urnetwork/message-server/blobd"
 	"github.com/urnetwork/message-server/store"
+	"github.com/urnetwork/message/message"
+	"github.com/urnetwork/message/protocol"
 )
 
 // What a sender can get wrong about a record before there is a server to refuse it.

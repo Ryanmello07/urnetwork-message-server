@@ -15,20 +15,22 @@
 // developer pushes, so the first thing it can say is that the branch is already red. And the
 // shell line is a grep over a hand-typed alternation:
 //
-//	go list -deps ./... | grep -E 'urnetwork/server/(model|session|task|controller|api)|urnetwork/sdk' && exit 1
+//	go list -deps ./... | grep -E 'urnetwork/server/(model|session|task|controller|api)|urnetwork/sdk|urnetwork/message/(mls|messagegroup|sdk)' && exit 1
 //
 // which is the shape this project has been walked past a dozen times. A typed list of what is
 // banned understates the real class every time, and it does it silently — most recently a
-// constant-time gate that banned six comparator names and missed bytes.HasPrefix. It also
-// mismatches in the other direction: as a substring match it trips on
-// urnetwork/server/modelling, and §13 item 8's companion line, go list -deps ./... | grep
-// connect/mls, trips on github.com/urnetwork/connect/mls/syntax — the presentation-language
-// codec that connect/message, a package §2.2 explicitly ALLOWS, is built on, and which is not
-// an MLS implementation at all.
+// constant-time gate that banned six comparator names and missed bytes.HasPrefix. The line above
+// is itself the example: the day the record layer moved to github.com/urnetwork/message, its last
+// alternative had to be typed in by hand, and urnetwork/sdk, a substring, does not match
+// urnetwork/message/sdk. It also mismatches in the other direction: as a substring match it trips
+// on urnetwork/server/modelling, and §13 item 8's companion line, go list -deps ./... | grep
+// connect/mls, tripped on github.com/urnetwork/connect/mls/syntax until ledger 284 moved that
+// codec out from under mls — the presentation-language codec the record layer, a package §2.2
+// explicitly ALLOWS, is built on, and which is not an MLS implementation at all.
 //
-// So the direction is turned around, the way connect's own import gate does it (see
-// TestTheCryptoIsBuiltFromExactlyThesePackages in connect/mls/crypto_test.go, whose comment
-// argues it at length). What is written down here is the whole of what §2.2 permits, and
+// So the direction is turned around, the way the MLS package's own import gate does it (see
+// TestTheCryptoIsBuiltFromExactlyThesePackages in the message module's mls/crypto_test.go, whose
+// comment argues it at length). What is written down here is the whole of what §2.2 permits, and
 // everything else fails until somebody writes it down. That is the direction the shell line
 // does not check at all: a dependency nobody thought to ban passes the grep every time.
 //
@@ -90,33 +92,50 @@ func (self rule) covers(path string) bool {
 // library and this module's own packages are not on the list because they are derived from
 // what the go command reports rather than typed out here — see violations.
 //
-// Two of these are narrower than a module: §2.2 allows github.com/urnetwork/server at its root
-// package only, and names three packages of connect rather than connect as a whole. The four
-// third-party modules are as §2.2 writes them, and are listed even though nothing in this
-// module imports one yet: this list is the policy, not the go.mod. Their own transitive
-// modules are deliberately absent — the day pgx lands, its dependencies fail this gate until
-// somebody looks at them and writes them down, which is the entire point.
+// Three of these are narrower than a module: §2.2 allows github.com/urnetwork/server at its root
+// package only, names two packages of connect rather than connect as a whole, and names three
+// packages of github.com/urnetwork/message rather than that module. The four third-party modules
+// are as §2.2 writes them, and are listed even though nothing in this module imports one yet:
+// this list is the policy, not the go.mod. Their own transitive modules are deliberately absent —
+// the day pgx lands, its dependencies fail this gate until somebody looks at them and writes them
+// down, which is the entire point.
 //
-// github.com/urnetwork/connect/mls/syntax is here as of spec B revision 10, and the paragraph
-// this replaces predicted the day it would have to be. connect/message imports it — aad.go,
-// attachment.go, codec.go and writeauth.go all do — so the first package of this module that
-// parses a record pulled it into the closure, and api did that on 2026-08-26. The failure was
-// correct and was never a defect in this file: §2.2 allows connect/message, while §5.3 and §13
-// item 8 said the binary must not link connect/mls and asserted it with a grep that also matches
-// connect/mls/syntax, and the two could not both hold as written. The resolution went where the
-// prediction said it belonged — §13 item 8 now asserts the package rather than the prefix, and
-// says why a TLS presentation-language codec carrying no MLS type, no key schedule and no
-// validation semantic is not an MLS implementation — and only then here. It is exact and not a
-// subtree: a second child of connect/mls entering this closure is a different question, and it
-// should fail this gate and be looked at rather than inherit an answer given to the codec.
+// The three message-module entries are spec B revision 24 (ledger 284), and each is EXACT. They
+// are where URmessage's record layer, its presentation-language codec and its schema went when
+// they left connect: message/message was connect/message, message/syntax was connect/mls/syntax,
+// and message/protocol holds what connect/protocol's message.proto held. MESSAGEREVIEW.md, the
+// maintainer's design for the move, calls those three the server-safe packages, and says to
+// "allow the server-safe package paths explicitly, rather than allowing the entire
+// `github.com/urnetwork/message` subtree". So there is no subtree entry for the module and there
+// must never be one: the module also holds mls, messagegroup and sdk — a client's MLS
+// implementation, its group engine and its messaging SDK — and allowing the module allows them.
+// A fourth package of the module entering this closure is a question for §2.2, and it fails this
+// gate as unlisted until somebody writes it down. No closure derived from the message module
+// widens this list either, the way connect's does below: what the three packages link outside the
+// standard library is each other and google.golang.org/protobuf, and protobuf is written down.
+//
+// message/syntax is the codec spec B revision 10 put on this list as connect/mls/syntax, and the
+// paragraph revision 10 replaced had predicted the day it would have to be. The record layer
+// imports it — aad.go, attachment.go, codec.go and writeauth.go all did in connect/message and
+// still do in message/message — so the first package of this module that parsed a record pulled
+// it into the closure, and api did that on 2026-08-26. The failure was correct and was never a
+// defect in this file: §2.2 allowed connect/message, while §5.3 and §13 item 8 said the binary
+// must not link connect/mls and asserted it with a grep that also matched connect/mls/syntax, and
+// the two could not both hold as written. Revision 10 had §13 item 8 assert the package rather
+// than the prefix, and say why a TLS presentation-language codec carrying no MLS type, no key
+// schedule and no validation semantic is not an MLS implementation — and only then put the codec
+// here, exact. The move promoted the codec out from under mls, to a peer of it, so the prefix and
+// the package coincide again: §13 item 8 is a prefix grep once more, and message/mls is a subtree
+// ban below rather than an exact one.
+//
 // google.golang.org/protobuf is the one entry here §2.2 does not print, and it is written down
-// rather than left to be discovered. §2.2 allows connect/protocol; connect/protocol is
-// protoc-gen-go output and does not compile without the runtime it was generated against, so
-// allowing the one and refusing the other allows a package that cannot be built. It is a
-// subtree because the generated code reaches protobuf's internal packages by design — twenty-six
-// of them for one enum — and a list of those would be a list of somebody else's implementation
-// detail. It arrived with store naming the Reason codes of §4.5, which is the first import of
-// connect this module has.
+// rather than left to be discovered. §2.2 allows message/protocol and connect/protocol; both are
+// protoc-gen-go output and neither compiles without the runtime it was generated against, so
+// allowing them and refusing the runtime allows a package that cannot be built. It is a subtree
+// because the generated code reaches protobuf's internal packages by design — twenty-six of them
+// for one enum — and a list of those would be a list of somebody else's implementation detail. It
+// arrived with store naming the Reason codes of §4.5, which was the first import of connect this
+// module had, and the codes now live in message/protocol.
 //
 // The last four are the day the paragraph above predicted. pgx landed on 2026-08-30 with the
 // store's §3.2 schema and §4.3.2 transaction, and it does not link alone: `pgx/v5/pgconn` imports
@@ -142,8 +161,9 @@ var allowedDependencies = []rule{
 	{path: "github.com/urnetwork/server"},
 	{path: "github.com/urnetwork/connect"},
 	{path: "github.com/urnetwork/connect/protocol", subtree: true},
-	{path: "github.com/urnetwork/connect/message", subtree: true},
-	{path: "github.com/urnetwork/connect/mls/syntax"},
+	{path: "github.com/urnetwork/message/message"},
+	{path: "github.com/urnetwork/message/syntax"},
+	{path: "github.com/urnetwork/message/protocol"},
 	{path: "github.com/urnetwork/glog", subtree: true},
 	{path: "github.com/jackc/pgx/v5", subtree: true},
 	{path: "github.com/redis/go-redis/v9", subtree: true},
@@ -160,10 +180,18 @@ var allowedDependencies = []rule{
 // list on purpose: these produce a failure message that names the reason instead of the
 // generic one, and they are the class the positive control is held against.
 //
-// The five operator packages are subtrees, because a package under server/model is the same
-// account identity layer one directory down. connect/mls is exact, because its only child
-// today is the presentation-language codec described above; any other child of it is caught by
-// the allow list, which is the direction that cannot understate.
+// Every entry is a subtree. The five operator packages are, because a package under server/model
+// is the same account identity layer one directory down. The three message-module packages are,
+// for the two reasons §2.2 gives with them since revision 24: message/mls is an MLS
+// implementation, which §5.3 keeps out of this process, and message/messagegroup is the client
+// group engine built on it; message/sdk is a client, which this server never links for the same
+// reason it never links github.com/urnetwork/sdk. They are banned in the same change that allows
+// the module's three server-safe packages, so the allowance never existed without them (O9).
+//
+// connect/mls is §5.3's own entry, kept after its packages left connect: a connect old enough to
+// still carry them would bring an MLS implementation in under the transport's name. It was exact
+// until ledger 284, because its only child was the presentation-language codec the allow list
+// carried; nothing beneath it is allowed now, so it is a subtree like the rest.
 //
 // None of this is policy retyped and then left to rot. TestEverythingSpecB22ForbidsIsOnThe-
 // ForbiddenList parses §2.2's FORBIDDEN block out of the spec document and fails when an entry
@@ -175,7 +203,10 @@ var forbiddenDependencies = []rule{
 	{path: "github.com/urnetwork/server/controller", subtree: true},
 	{path: "github.com/urnetwork/server/api", subtree: true},
 	{path: "github.com/urnetwork/sdk", subtree: true},
-	{path: "github.com/urnetwork/connect/mls"},
+	{path: "github.com/urnetwork/message/mls", subtree: true},
+	{path: "github.com/urnetwork/message/messagegroup", subtree: true},
+	{path: "github.com/urnetwork/message/sdk", subtree: true},
+	{path: "github.com/urnetwork/connect/mls", subtree: true},
 }
 
 func isAllowed(path string) bool {
@@ -496,6 +527,10 @@ func parseBool(field string) (bool, error) {
 
 const connectModulePath = "github.com/urnetwork/connect"
 
+// The module URmessage's server-safe packages live in since ledger 284. Named here for the
+// controls and the derivation's probes; what this module may import of it is the allow list's.
+const messageModulePath = "github.com/urnetwork/message"
+
 // Whether §2.2 permits this dependency: the allow list, or the closure the connect packages
 // §2.2 allows cannot be linked without.
 //
@@ -513,18 +548,18 @@ const connectModulePath = "github.com/urnetwork/connect"
 // character, and it would go on permitting gvisor for years after connect stopped reaching it.
 // This one stops the day connect does.
 //
-// Two things it does not do. It does not answer for connect's own packages — see
-// [modulesLinkedByConnect] — because §2.2 names those one at a time, and a derivation covering
-// the module turns every exact rule under it into a subtree allowance. And it does not reach
-// under a named ban: [underABan] rather than [isForbidden], because a derived allowance answers
-// a whole module's worth of paths at once and a child of a banned path is a question nobody has
-// answered. TestTheConnectClosureIsAllowedOnlyThroughConnectsOwnClosure holds all three
-// directions.
+// Two things it does not do. It does not answer for a module §2.2 names packages of one at a
+// time — connect's own, the message module's, the operator's — see [modulesLinkedByConnect],
+// because a derivation covering such a module turns every exact rule under it into a subtree
+// allowance. And it does not reach under a named ban: [underABan] rather than [isForbidden],
+// because a derived allowance answers a whole module's worth of paths at once and a child of a
+// banned path is a question nobody has answered.
+// TestTheConnectClosureIsAllowedOnlyThroughConnectsOwnClosure holds all three directions.
 func permitted(dep dependency, viaConnect map[string]bool) bool {
 	if isAllowed(dep.path) {
 		return true
 	}
-	return viaConnect[dep.module] && !underABan(dep.path)
+	return viaConnect[dep.module] && !allowListNamesAPathIn(dep.module) && !underABan(dep.path)
 }
 
 // Whether a named ban stands over this path: the path a rule names, or anything beneath it.
@@ -535,15 +570,27 @@ func permitted(dep dependency, viaConnect map[string]bool) bool {
 // *derived* allowance has to ask: the derivation permits a whole module's worth of paths in one
 // step, and a child of a banned path is by construction a question nobody has answered.
 //
-// connect/mls is the entry this exists for. It is exact rather than a subtree because §13 item 8
-// asserts the package and not the prefix — connect/mls/syntax is a TLS presentation-language
-// codec carrying no MLS type, no key schedule and no validation semantic — and the paragraph
-// beside allowedDependencies says a second child of connect/mls "should fail this gate and be
-// looked at rather than inherit an answer given to the codec". The allow list is still what lets
-// a child through, one deliberate entry at a time, and [isAllowed] is asked first.
+// connect/mls was the entry this was written for, while it was exact: §13 item 8 asserted the
+// package and not the prefix, because connect/mls/syntax, a TLS presentation-language codec
+// carrying no MLS type, no key schedule and no validation semantic, was allowed beneath it, and a
+// second child of connect/mls was to "fail this gate and be looked at rather than inherit an
+// answer given to the codec". Since ledger 284 the codec is message/syntax, a peer of mls, and
+// every ban is a subtree, so today this answers what isForbidden answers. It stays wider on
+// purpose: an exact ban written later must not reopen the hole this closed. The allow list is
+// still what lets a child through, one deliberate entry at a time, and [isAllowed] is asked first.
 func underABan(path string) bool {
 	return slices.ContainsFunc(forbiddenDependencies, func(banned rule) bool {
 		return rule{path: banned.path, subtree: true}.covers(path)
+	})
+}
+
+// Whether the allow list names a path in this module: the module's own path, or a package beneath
+// it, at the segment boundary. Such a module's packages are §2.2's business entry by entry, or
+// wholesale where an entry is a subtree over the module, and never the derivation's — see
+// [modulesLinkedByConnect].
+func allowListNamesAPathIn(module string) bool {
+	return slices.ContainsFunc(allowedDependencies, func(allowed rule) bool {
+		return allowed.path == module || strings.HasPrefix(allowed.path, module+"/")
 	})
 }
 
@@ -558,13 +605,24 @@ func underABan(path string) bool {
 // answer given to pion. What is derived here is what a linker would actually pull in.
 //
 // connect's own module is excluded, and that is the other half. §2.2 allows connect at its root
-// package and names three more packages of it one at a time. Putting connect's own module in the
-// derived set made every exact rule underneath it — the §5.3 ban on connect/mls included — into
-// a subtree allowance, so connect/mls/state and connect/nat both passed this gate. A package of
-// connect that §2.2 does not name is a question for §2.2, and it has to arrive here as an
-// unlisted dependency somebody writes down.
+// package and names one more package of it, connect/protocol. Putting connect's own module in the
+// derived set made every exact rule underneath it — the §5.3 ban on connect/mls, exact at the
+// time, included — into a subtree allowance, so connect/mls/state and connect/nat both passed this
+// gate. A package of connect that §2.2 does not name is a question for §2.2, and it has to arrive
+// here as an unlisted dependency somebody writes down.
 //
-// The seeds come from the allow list rather than being typed, so the day §2.2 names a fourth
+// The rule is wider than connect, because the reason is: no module the allow list names a path in
+// is derived. That is connect, the operator's root module, and since ledger 284 the message
+// module, whose three server-safe packages are allowed exactly and whose mls, messagegroup and sdk
+// are banned. connect is not to link the message module at all — its own boundary gate says so —
+// but if it ever did, a derived entry for the module would be the subtree allowance of
+// github.com/urnetwork/message that MESSAGEREVIEW.md and O9 refuse, arriving by another route:
+// message/anything-not-banned would pass with nobody having written it down. For a module the
+// list allows whole, glog or protobuf, excluding it changes nothing, since the list answers first.
+// What the exclusion removed is printed by the gate, so an empty complement is visible rather than
+// assumed.
+//
+// The seeds come from the allow list rather than being typed, so the day §2.2 names another
 // package of connect, what this derives grows with it and in no other way.
 func modulesLinkedByConnect(t *testing.T) map[string]bool {
 	t.Helper()
@@ -573,11 +631,20 @@ func modulesLinkedByConnect(t *testing.T) map[string]bool {
 		t.Fatalf("the allow list names no package of %s at all, so this gate would derive its allowance from nothing", connectModulePath)
 	}
 	linked := map[string]bool{}
+	excluded := map[string]bool{}
 	for _, dep := range dependenciesOf(t, hostConfiguration(t), patterns...) {
-		if dep.standard || dep.main || dep.module == "" || dep.module == connectModulePath {
+		if dep.standard || dep.main || dep.module == "" {
+			continue
+		}
+		if allowListNamesAPathIn(dep.module) {
+			excluded[dep.module] = true
 			continue
 		}
 		linked[dep.module] = true
+	}
+	t.Logf("the derivation leaves out %d linked modules the allow list names a path in, and answers for none of their packages: %v", len(excluded), sortedKeys(excluded))
+	if !excluded[connectModulePath] {
+		t.Fatalf("%v was read as linking no package of %s itself, which its root package's closure does; the exclusion above has stopped seeing the module it was written for", patterns, connectModulePath)
 	}
 	if len(linked) == 0 {
 		t.Fatalf("%v was read as linking no module outside itself at all, which is not the closure this module reaches a QUIC stack, a WebRTC stack and a netstack through", patterns)
@@ -667,14 +734,24 @@ func violations(deps []dependency, viaConnect map[string]bool) (forbidden []stri
 	return slices.Compact(forbidden), slices.Compact(unlisted)
 }
 
-// The dependencies whose path the allow list permits and whose code came from somewhere the
-// allow list does not.
+// The dependencies whose path the allow list permits and whose code came from a module other than
+// the one the go command says it is.
 //
-// An import path is a claim. A require for github.com/urnetwork/connect/message beside a
-// replace of it to ../anything leaves the path exactly where §2.2 put it, and Module.Path still
-// reports the path that was asked for, because a replace does not change it. What a replace
-// changes is the directory, and the go command reports that, so the claim is checked against
-// the module that directory's own go.mod declares.
+// An import path is a claim. A require for github.com/urnetwork/message beside a replace of it to
+// ../anything leaves every path of that module exactly where §2.2 put it, and Module.Path still
+// reports the module that was asked for, because a replace does not change it. What a replace
+// changes is the directory, and the go command reports that, so the claim is checked against the
+// module that directory's own go.mod declares — and the check is that the two are the SAME module,
+// which is the rule the gate's failure message has always stated: §2.1's workspace layout
+// "replaces a sibling with the module of the same name and with nothing else".
+//
+// Until ledger 284 the check was weaker than its own message. It passed any origin the allow list
+// or connect's closure answered for, so connect replaced by a directory declaring glog, a module
+// the list allows, passed; and the message module replaced by its own sibling checkout would have
+// been refused, because the list allows three of that module's packages and never the module's
+// own path. The first was a hole and the second a false refusal, and both came from asking "is the
+// origin allowed" rather than "is the origin the module". TestAnAllowedPathWhoseCodeCameFrom-
+// ElsewhereIsRefused holds both rows.
 //
 // Only allowed paths are examined. An unlisted one is already being refused above, and naming
 // it twice buries the interesting line under the obvious one.
@@ -693,10 +770,10 @@ func substitutions(t *testing.T, deps []dependency, viaConnect map[string]bool) 
 		if dep.replaceDir != "" {
 			origin = modulePathDeclaredAt(t, dep.replaceDir)
 		}
-		if isAllowed(origin) || viaConnect[origin] {
+		if origin == dep.module {
 			continue
 		}
-		found = append(found, fmt.Sprintf("%s, whose code the go command read from module %s", dep.path, origin))
+		found = append(found, fmt.Sprintf("%s, whose code the go command read from module %s in place of %s", dep.path, origin, dep.module))
 	}
 	slices.Sort(found)
 	return slices.Compact(found)
@@ -976,11 +1053,18 @@ func assertTheConfigurationTook(t *testing.T, configuration buildConfiguration) 
 // working gate on the real module. Composed from escapes rather than written as a raw string
 // literal, so the fixture is the same bytes whatever this file's line endings are.
 //
-// The last two rows of the hand-written half are the segment boundary, one on each side of it,
-// and they are here because that boundary is the whole difference between this matcher and the
+// The later rows of the hand-written half are the segment boundary and the edges of the exact
+// entries, and they are here because those are the whole difference between this matcher and the
 // grep §2.2 prints. server/modelling is not the account identity layer and must come back
-// merely unlisted; connect/messagex is not connect/message and must not inherit its permission.
-// A matcher that compared bare prefixes agrees with every other row in this block.
+// merely unlisted; connect/messagex is not connect/message, message/messagex is not
+// message/message, and neither may inherit a permission from a bare prefix. message/syntax/inner
+// and message/protocol/inner are refused because the three message-module entries are exact, and
+// the module's own path because the list must never carry the module (O9). connect/message and
+// connect/mls/syntax are where the record layer and its codec lived until ledger 284, and the
+// allowance they had is gone with them. connect/mls/syntax and message/mls/state are under a ban
+// as well, §5.3's on connect/mls and the new one on message/mls, so they must come back forbidden
+// too. A matcher that compared bare prefixes, or held an exact entry as a subtree, agrees with
+// every other row in this block.
 //
 // Fields are: import path, standard, imports, module, main, replacement directory.
 var handWrittenControlRows = []string{
@@ -990,12 +1074,33 @@ var handWrittenControlRows = []string{
 	"golang.org/x/crypto/chacha20poly1305\tfalse\t\tgolang.org/x/crypto\tfalse\t",
 	"github.com/urnetwork/server/modelling\tfalse\t\tgithub.com/urnetwork/server\tfalse\t",
 	"github.com/urnetwork/connect/messagex\tfalse\t\tgithub.com/urnetwork/connect\tfalse\t",
+	"github.com/urnetwork/message/messagex\tfalse\t\tgithub.com/urnetwork/message\tfalse\t",
+	"github.com/urnetwork/message/syntax/inner\tfalse\t\tgithub.com/urnetwork/message\tfalse\t",
+	"github.com/urnetwork/message/protocol/inner\tfalse\t\tgithub.com/urnetwork/message\tfalse\t",
+	"github.com/urnetwork/message\tfalse\t\tgithub.com/urnetwork/message\tfalse\t",
+	"github.com/urnetwork/message/mls/state\tfalse\t\tgithub.com/urnetwork/message\tfalse\t",
+	"github.com/urnetwork/connect/message\tfalse\t\tgithub.com/urnetwork/connect\tfalse\t",
+	"github.com/urnetwork/connect/mls/syntax\tfalse\t\tgithub.com/urnetwork/connect\tfalse\t",
 }
 
 var handWrittenUnlisted = []string{
 	"golang.org/x/crypto/chacha20poly1305",
 	"github.com/urnetwork/server/modelling",
 	"github.com/urnetwork/connect/messagex",
+	"github.com/urnetwork/message/messagex",
+	"github.com/urnetwork/message/syntax/inner",
+	"github.com/urnetwork/message/protocol/inner",
+	"github.com/urnetwork/message",
+	"github.com/urnetwork/message/mls/state",
+	"github.com/urnetwork/connect/message",
+	"github.com/urnetwork/connect/mls/syntax",
+}
+
+// The hand-written rows a ban names as well as the allow list refusing them, so that the refusal
+// prints the section's own reason rather than the generic one.
+var handWrittenForbidden = []string{
+	"github.com/urnetwork/message/mls/state",
+	"github.com/urnetwork/connect/mls/syntax",
 }
 
 // One row per entry of forbiddenDependencies, and one for the package a directory below it,
@@ -1038,6 +1143,7 @@ func plantedControl() (block string, forbidden []string, unlisted []string) {
 	rows, forbidden, unlisted := generatedControlRows()
 	rows = append(rows, handWrittenControlRows...)
 	unlisted = append(unlisted, handWrittenUnlisted...)
+	forbidden = append(forbidden, handWrittenForbidden...)
 	slices.Sort(forbidden)
 	slices.Sort(unlisted)
 	return strings.Join(rows, "\n"), slices.Compact(forbidden), slices.Compact(unlisted)
@@ -1047,7 +1153,11 @@ var cleanControl = strings.Join([]string{
 	"fmt\ttrue\t\t\t\t",
 	"github.com/urnetwork/message-server/api\tfalse\t\tgithub.com/urnetwork/message-server\ttrue\t",
 	"github.com/urnetwork/server\tfalse\t\tgithub.com/urnetwork/server\tfalse\t",
-	"github.com/urnetwork/connect/message\tfalse\t\tgithub.com/urnetwork/connect\tfalse\t",
+	"github.com/urnetwork/connect\tfalse\t\tgithub.com/urnetwork/connect\tfalse\t",
+	"github.com/urnetwork/connect/protocol\tfalse\t\tgithub.com/urnetwork/connect\tfalse\t",
+	"github.com/urnetwork/message/message\tfalse\t\tgithub.com/urnetwork/message\tfalse\t",
+	"github.com/urnetwork/message/syntax\tfalse\t\tgithub.com/urnetwork/message\tfalse\t",
+	"github.com/urnetwork/message/protocol\tfalse\t\tgithub.com/urnetwork/message\tfalse\t",
 }, "\n")
 
 // The controls, also run before the module is measured, so that a matcher already proven broken
@@ -1097,39 +1207,57 @@ func TestTheMatcherRefusesWhatSpecB22Forbids(t *testing.T) {
 // The control is a real directory with a real go.mod in it, because the check reads that file:
 // a fixture that only pretended to have one would prove that a string comparison works and
 // nothing at all about whether the gate can find the answer on disk.
+//
+// The rows are the message module's, the record layer's home since ledger 284, and connect's, the
+// two siblings this module's go.mod replaces with a directory and whose packages §2.2 names. Three
+// of them tell the rule apart from the one it replaced, which asked whether the origin was
+// allowed rather than whether it was the module (see [substitutions]): connect replaced by a
+// directory declaring glog, and the message module replaced by one declaring connect, both name
+// an origin the allow list carries and must still be refused; and the message module's own
+// sibling checkout declares a module whose root path the list never carries, and must pass.
 func TestAnAllowedPathWhoseCodeCameFromElsewhereIsRefused(t *testing.T) {
-	elsewhere := t.TempDir()
-	if err := os.WriteFile(filepath.Join(elsewhere, "go.mod"), []byte("module example.com/not-connect\n\ngo 1.26.5\n"), 0o600); err != nil {
-		t.Fatalf("writing the impostor go.mod: %v", err)
+	declaring := func(module string) string {
+		directory := t.TempDir()
+		if err := os.WriteFile(filepath.Join(directory, "go.mod"), []byte("module "+module+"\n\ngo 1.26.5\n"), 0o600); err != nil {
+			t.Fatalf("writing a go.mod declaring %s: %v", module, err)
+		}
+		return directory
 	}
-	sibling := t.TempDir()
-	if err := os.WriteFile(filepath.Join(sibling, "go.mod"), []byte("module github.com/urnetwork/connect\n\ngo 1.26.5\n"), 0o600); err != nil {
-		t.Fatalf("writing the sibling go.mod: %v", err)
-	}
+	const (
+		messageModule = messageModulePath
+		glogModule    = "github.com/urnetwork/glog"
+	)
 
-	row := func(directory string) string {
-		return strings.Join([]string{
-			"github.com/urnetwork/connect/message", "false", "", "github.com/urnetwork/connect", "false", directory,
-		}, "\t")
-	}
+	for _, control := range []struct {
+		what      string
+		path      string // a path the allow list permits
+		module    string // the module the go command says the path was resolved from
+		directory string // where a replace pointed that module; empty for no replace
+		refused   bool
+	}{
+		{"the record layer replaced by a directory declaring example.com/not-message", messageModule + "/message", messageModule, declaring("example.com/not-message"), true},
+		{"the record layer read from the sibling checkout §2.1's own workspace layout is built on", messageModule + "/message", messageModule, declaring(messageModule), false},
+		{"the schema with no replace directive at all", messageModule + "/protocol", messageModule, "", false},
+		{"the codec replaced by a directory declaring connect, a module the allow list carries", messageModule + "/syntax", messageModule, declaring(connectModulePath), true},
+		{"connect replaced by a directory declaring example.com/not-connect", connectModulePath, connectModulePath, declaring("example.com/not-connect"), true},
+		{"connect replaced by a directory declaring glog, a module the allow list carries whole", connectModulePath + "/protocol", connectModulePath, declaring(glogModule), true},
+		{"connect read from the sibling checkout", connectModulePath, connectModulePath, declaring(connectModulePath), false},
+	} {
+		row := strings.Join([]string{control.path, "false", "", control.module, "false", control.directory}, "\t")
 
-	// the path half of the rule permits every one of these rows, so nothing but the directory
-	// decides — without this the check below could pass because the path had been refused
-	if forbidden, unlisted := violations(parseDependencies(t, "the substituted control", row(elsewhere)), nil); len(forbidden) != 0 || len(unlisted) != 0 {
-		t.Fatalf("the path half of the rule refused %v and %v, so this control is not testing what it claims", forbidden, unlisted)
-	}
+		// the path half of the rule permits every one of these rows, so nothing but the directory
+		// decides — without this a refusal below could be the path's and not the directory's
+		if forbidden, unlisted := violations(parseDependencies(t, control.what, row), nil); len(forbidden) != 0 || len(unlisted) != 0 {
+			t.Fatalf("%s: the path half of the rule refused %v and %v, so this control is not testing what it claims", control.what, forbidden, unlisted)
+		}
 
-	substituted := substitutions(t, parseDependencies(t, "the substituted control", row(elsewhere)), nil)
-	if len(substituted) != 1 {
-		t.Fatalf("connect/message replaced by a directory declaring module example.com/not-connect was reported as %v, want exactly one refusal", substituted)
-	}
-
-	if clean := substitutions(t, parseDependencies(t, "the sibling control", row(sibling)), nil); len(clean) != 0 {
-		t.Fatalf("the sibling checkout §2.1's own workspace layout is built on was refused as %v", clean)
-	}
-
-	if clean := substitutions(t, parseDependencies(t, "the unreplaced control", row("")), nil); len(clean) != 0 {
-		t.Fatalf("a dependency with no replace directive at all was refused as %v", clean)
+		substituted := substitutions(t, parseDependencies(t, control.what, row), nil)
+		switch {
+		case control.refused && len(substituted) != 1:
+			t.Errorf("%s was reported as %v, want exactly one refusal", control.what, substituted)
+		case !control.refused && len(substituted) != 0:
+			t.Errorf("%s was refused as %v", control.what, substituted)
+		}
 	}
 }
 
@@ -1167,7 +1295,7 @@ func TestEveryDependencyOfThisModuleIsOneSpecB22Allows(t *testing.T) {
 
 		forbidden, unlisted := violations(measured.deps, viaConnect)
 		if len(forbidden) != 0 {
-			t.Errorf("%s.\nspec B §2.2 forbids these outright and this module reaches them:\n  %s\nthe operator's model package is the account identity layer and §4.2 forbids consulting it; connect/mls is forbidden by §5.3, because the moment an MLS parser is in this process \"just validate the commit\" is a one-line change",
+			t.Errorf("%s.\nspec B §2.2 forbids these outright and this module reaches them:\n  %s\nthe operator's model package is the account identity layer and §4.2 forbids consulting it; message/mls, message/messagegroup and connect/mls are forbidden by §5.3, because the moment an MLS parser is in this process \"just validate the commit\" is a one-line change; message/sdk, like github.com/urnetwork/sdk, is a client",
 				measured, strings.Join(forbidden, "\n  "))
 		}
 		if len(unlisted) != 0 {
@@ -1175,7 +1303,7 @@ func TestEveryDependencyOfThisModuleIsOneSpecB22Allows(t *testing.T) {
 				measured, strings.Join(unlisted, "\n  "))
 		}
 		if substituted := substitutions(t, measured.deps, viaConnect); len(substituted) != 0 {
-			t.Errorf("%s.\nthese carry an import path §2.2 allows and code from a module it does not:\n  %s\na replace directive does not change an import path, so the allow list above cannot see this; §2.1's workspace layout replaces a sibling with the module of the same name and with nothing else",
+			t.Errorf("%s.\nthese carry an import path §2.2 allows and code from a module other than the one the path names:\n  %s\na replace directive does not change an import path, so the allow list above cannot see this; §2.1's workspace layout replaces a sibling with the module of the same name and with nothing else",
 				measured, strings.Join(substituted, "\n  "))
 		}
 	}
@@ -1228,17 +1356,22 @@ func TestNoAllowedDependencyIsAlsoForbidden(t *testing.T) {
 // permitted with the derivation — otherwise the derivation is doing nothing and the real module
 // is being let through by something else.
 //
-// It must not widen over a named ban, and not over a *child* of one either. Every ban here but
-// connect/mls is a subtree, so a loop over `banned.path` alone asked the same question seven
-// times and never asked the one that mattered: the derivation used to permit
-// connect/mls/state, because §5.3's entry is exact and the derived allowance covered connect's
-// whole module.
+// It must not widen over a named ban, and not over a *child* of one either. When this was
+// written every ban but connect/mls was a subtree, so a loop over `banned.path` alone asked the
+// same question seven times and never asked the one that mattered: the derivation used to permit
+// connect/mls/state, because §5.3's entry was exact and the derived allowance covered connect's
+// whole module. Every ban is a subtree since ledger 284, and the child probe stays, because an
+// exact ban can be written again.
 //
-// And it must not answer for connect's own packages at all. §2.2 allows connect at its root
-// package and names three more one at a time; a fourth is a question for §2.2. That is asserted
-// as the general fact — connect's own module is not in the derived set — and then illustrated on
-// three paths, because the general fact is the one that cannot be true of only the examples
-// somebody thought of.
+// And it must not answer for a module §2.2 names packages of one at a time. §2.2 allows connect
+// at its root package and names one more, connect/protocol; another is a question for §2.2. Since
+// ledger 284 it names three packages of the message module and bans three more. That is asserted
+// as the general fact twice — at the derivation, which carries no module the allow list names a
+// path in, and at the decision, which refuses such a module's unnamed packages even with the
+// module planted in the derived set — and then illustrated on paths of both modules, because the
+// general fact is the one that cannot be true of only the examples somebody thought of. connect
+// does not link the message module, so its half is planted: it holds the decision rather than
+// today's data.
 //
 // The last direction is that the derivation read anything at all. A derivation that answered an
 // empty map would make [permitted] the allow list again, and the whole of this module's real
@@ -1289,6 +1422,11 @@ func TestTheConnectClosureIsAllowedOnlyThroughConnectsOwnClosure(t *testing.T) {
 				t.Errorf("%s, under a ban §2.2 or §5.3 names and inside a module in the derived set, was permitted; a derived allowance must not reach under a path somebody looked at and refused",
 					path)
 			}
+			// asked of the ban directly as well: most of these modules are ones the allow list
+			// names a path in, and the refusal above is then that rule's, not the ban's
+			if !underABan(path) {
+				t.Errorf("%s is %s or beneath it and is read as under no ban", path, banned.path)
+			}
 			// only the path a rule names gets to print that section's reason. A child of an
 			// exact ban is refused as unlisted, which is what "a different question, and it
 			// should be looked at" means in this gate's own vocabulary
@@ -1299,22 +1437,65 @@ func TestTheConnectClosureIsAllowedOnlyThroughConnectsOwnClosure(t *testing.T) {
 		}
 	}
 
-	// and the direction that says connect's own packages are §2.2's business by name
+	// and the direction that says connect's own packages, and the message module's, are §2.2's
+	// business by name: first at the derivation
 	if viaConnect[connectModulePath] {
-		t.Fatalf("%s is in its own derived set, which makes every exact rule under it — the §5.3 ban on connect/mls included — into a subtree allowance",
+		t.Fatalf("%s is in its own derived set, which makes every exact rule under it into a subtree allowance",
 			connectModulePath)
+	}
+	for module := range viaConnect {
+		if allowListNamesAPathIn(module) {
+			t.Errorf("%s is in the derived set and the allow list names a path in it, so the derivation answers for its packages the list names one at a time", module)
+		}
+	}
+	for module, named := range map[string]bool{
+		connectModulePath:             true,
+		messageModulePath:             true,
+		"github.com/urnetwork/server": true,
+		"github.com/quic-go/quic-go":  false,
+		"github.com/urnetwork/messag": false,
+	} {
+		if allowListNamesAPathIn(module) != named {
+			t.Errorf("the allow list is read as naming a path in %s: %v, want %v", module, !named, named)
+		}
 	}
 	for _, unnamed := range []string{
 		connectModulePath + "/nat",
 		connectModulePath + "/mls/state",
 		connectModulePath + "/mls/syntax/inner",
+		connectModulePath + "/mls/syntax",
+		connectModulePath + "/message",
 	} {
 		if isAllowed(unnamed) {
 			t.Fatalf("%q is on the allow list, so it is not a probe of a package of connect §2.2 does not name", unnamed)
 		}
 		if _, unlisted := refusedBy(t, "the connect control", unnamed, connectModulePath, viaConnect); len(unlisted) != 1 {
-			t.Errorf("%q, a package of connect §2.2 names nowhere, is permitted with connect's own closure in hand; §2.2 allows connect at its root package and three others by name, and this is a fourth question",
+			t.Errorf("%q, a package of connect §2.2 names nowhere, is permitted with connect's own closure in hand; §2.2 allows connect at its root package and connect/protocol by name, and this is another question",
 				unnamed)
+		}
+	}
+
+	// and then at the decision, with both modules planted in the derived set: a module the list
+	// names a path in is never answered for by a derivation, whatever the derivation contains
+	planted := map[string]bool{connectModulePath: true, messageModulePath: true}
+	for linked := range viaConnect {
+		planted[linked] = true
+	}
+	for _, unnamed := range []struct{ path, module string }{
+		{connectModulePath + "/nat", connectModulePath},
+		{connectModulePath + "/message", connectModulePath},
+		{messageModulePath, messageModulePath},
+		{messageModulePath + "/messagex", messageModulePath},
+		{messageModulePath + "/syntax/inner", messageModulePath},
+		{messageModulePath + "/protocol/inner", messageModulePath},
+		{messageModulePath + "/internal/layering", messageModulePath},
+	} {
+		if isAllowed(unnamed.path) {
+			t.Fatalf("%q is on the allow list, so it is not a probe of a package §2.2 does not name", unnamed.path)
+		}
+		if _, unlisted := refusedBy(t, "the planted module control", unnamed.path, unnamed.module, planted); len(unlisted) != 1 {
+			t.Errorf("%q is permitted with %s planted in the derived set; §2.2 names that module's packages one at a time, and a derivation must not answer for the rest",
+				unnamed.path, unnamed.module)
 		}
 	}
 
@@ -1326,9 +1507,12 @@ func TestTheConnectClosureIsAllowedOnlyThroughConnectsOwnClosure(t *testing.T) {
 	// from the go command, so neither is a name here that goes stale.
 	unlinked := []string{}
 	for _, module := range modulesRequiredBy(t, connectModulePath) {
-		if !viaConnect[module] {
-			unlinked = append(unlinked, module)
+		// a module the allow list names a path in is answered by the list and never by the
+		// derivation, linked or not, so it is not a probe of what the derivation answers
+		if viaConnect[module] || allowListNamesAPathIn(module) {
+			continue
 		}
+		unlinked = append(unlinked, module)
 	}
 	if len(unlinked) == 0 {
 		t.Fatal("connect requires exactly the modules its allowed packages link, so nothing here can tell a derivation over what is linked from one over what is required")
@@ -1377,9 +1561,10 @@ func TestEverythingSpecB22ForbidsIsOnTheForbiddenList(t *testing.T) {
 	}
 
 	// connect/mls is the one entry §2.2's block does not carry — it comes from §5.3, and §13 item
-	// 8 is where §5.3 is given a shell line to assert it with. That line names the package, so it
-	// pins the entry the way the block pins the other six; with only the block parsed, deleting
-	// connect/mls from the list above left every test green.
+	// 8 is where §5.3 is given shell lines to assert it with. Since ledger 284 they name
+	// message/mls and connect/mls, so they pin connect/mls the way the block pins the other nine,
+	// and message/mls a second time; with only the block parsed, deleting connect/mls from the
+	// list above left every test green.
 	for _, grepped := range specBGrepsForDependencies(t, name, document) {
 		if !slices.ContainsFunc(forbiddenDependencies, func(banned rule) bool {
 			return banned.path == grepped || strings.HasSuffix(banned.path, "/"+grepped)
@@ -1619,10 +1804,12 @@ var errNoDependencyGrep = errors.New("carries no §13 item asserting a go list -
 
 // The import paths §13's acceptance items assert are absent from a go list -deps closure.
 //
-// Item 8 is the only one today: "`go list -deps ./... | grep connect/mls` is empty. Guards
-// §5.3." It is read out of that backticked shell line rather than restated here, because the
-// entry it pins is the one §2.2's FORBIDDEN block does not carry, and until this existed it was
-// the one entry on the forbidden list whose deletion left every test green.
+// Item 8 is the only one today, and since ledger 284 it carries two lines, `go list -deps ./... |
+// grep message/mls` and `go list -deps ./... | grep connect/mls`, each to be empty. They are read
+// out of those backticked shell lines rather than restated here, because the entry connect/mls
+// pins is the one §2.2's FORBIDDEN block does not carry, and until this existed it was the one
+// entry on the forbidden list whose deletion left every test green. The whole document is read,
+// not item 8 alone, so a grep line written anywhere in it is held to the list too.
 //
 // §2.2's own CI gate is a similar line and is deliberately not matched: it is fenced rather than
 // backticked, and its grep takes -E and an alternation rather than a path. A flag or a bare word

@@ -8,12 +8,12 @@ import (
 	"time"
 
 	"github.com/urnetwork/connect"
-	"github.com/urnetwork/connect/message"
-	"github.com/urnetwork/connect/protocol"
 	"github.com/urnetwork/message-server/api"
 	"github.com/urnetwork/message-server/harness"
 	"github.com/urnetwork/message-server/peer"
 	"github.com/urnetwork/message-server/store"
+	"github.com/urnetwork/message/message"
+	"github.com/urnetwork/message/protocol"
 )
 
 // The whole stack in one process: two real connect clients, peer's §4.2 frame dispatch, api's

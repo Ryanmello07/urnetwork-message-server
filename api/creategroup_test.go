@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/urnetwork/connect/message"
-	"github.com/urnetwork/connect/protocol"
 	"github.com/urnetwork/message-server/store"
+	"github.com/urnetwork/message/message"
+	"github.com/urnetwork/message/protocol"
 )
 
 // ── §4.3.2 and §6.1's carve-out ──────────────────────────────────────────────────────────

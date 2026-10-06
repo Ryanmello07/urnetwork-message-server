@@ -3,24 +3,37 @@ module github.com/urnetwork/message-server
 go 1.26.5
 
 // The siblings are checked out beside this repository and built from the working tree, the
-// way every other urnetwork go module in this workspace is wired. connect is required as of
-// the first import of it: store names the Reason codes of spec B §4.5, whose generated Go
-// lives in connect/protocol, so that the refusal vocabulary the API layer hands to clients and
-// the one the store answers with are one enum rather than two that have to be translated.
+// way every other urnetwork go module in this workspace is wired.
+//
+// message is github.com/urnetwork/message: URmessage's record layer, its presentation-language
+// codec and its schema, which left connect for a repository of their own (ledger 281 to 284).
+// This module imports three of its packages, message, syntax and protocol, which are the set
+// spec B §2.2 calls server-safe, and deps_test.go allows those three paths exactly. store names
+// the Reason codes of spec B §4.5, whose generated Go lives in message/protocol, so that the
+// refusal vocabulary the API layer hands to clients and the one the store answers with are one
+// enum rather than two that have to be translated.
+//
+// connect stays required for what is not messaging: the client peer and cmd/message-server attach
+// with, and connect/protocol's Frame and MessageType values, which carry a request. The connect
+// beside this repository must be one WITHOUT the messaging schema. A binary linking connect's old
+// copy of message.proto beside message/protocol's registers the same names twice, and protobuf
+// panics at init; cmd/messagectl/main_test.go starts a binary to see it.
 //
 // google.golang.org/protobuf arrived with connect as an indirect dependency and is now a direct
 // one. api names it: §4.3.8's `canonical_request_bytes` is a deterministic marshal, §4.3.8's `op`
 // is a field number read out of the compiled descriptor rather than written down, and §5.1
 // check 3 compares the request's projection with the parse as one message rather than as a list
 // of fields to forget one from. §2.2 does not print it and deps_test.go writes it down with the
-// reason: §2.2 allows connect/protocol, connect/protocol is protoc-gen-go output, and allowing
-// generated code while refusing the runtime it was generated against allows a package that
-// cannot be built.
+// reason: §2.2 allows message/protocol and connect/protocol, both are protoc-gen-go output, and
+// allowing generated code while refusing the runtime it was generated against allows a package
+// that cannot be built.
 //
 // glog is replaced even though this module never names it, because connect requires
 // github.com/urnetwork/glog v0.0.0 — a version no proxy serves — and a replace in a
 // dependency's go.mod is ignored. Only the main module's replaces apply, so connect is
 // unbuildable from here without this line.
+replace github.com/urnetwork/message => ../message
+
 replace github.com/urnetwork/connect => ../connect
 
 replace github.com/urnetwork/glog => ../glog
@@ -36,6 +49,7 @@ replace gvisor.dev/gvisor => ../gvisor
 require (
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/urnetwork/connect v0.0.0
+	github.com/urnetwork/message v0.0.0
 	google.golang.org/protobuf v1.36.11
 )
 

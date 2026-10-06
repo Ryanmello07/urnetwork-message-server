@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/urnetwork/connect/message"
-	"github.com/urnetwork/connect/protocol"
+	"github.com/urnetwork/message/message"
+	"github.com/urnetwork/message/protocol"
 )
 
 // ── §5.1 check 3: the record's group against the request's ───────────────────────────────

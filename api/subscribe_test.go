@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/urnetwork/connect/protocol"
+	"github.com/urnetwork/message/protocol"
 )
 
 // The registry's own rules, below the handler: the epoch ceiling, dropping a connection that is

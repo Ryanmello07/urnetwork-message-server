@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/urnetwork/connect/message"
-	"github.com/urnetwork/connect/protocol"
+	"github.com/urnetwork/message/message"
+	"github.com/urnetwork/message/protocol"
 )
 
 // §4.3.1's advertisement, as the property §10.2 makes it: **a value an operator sets in

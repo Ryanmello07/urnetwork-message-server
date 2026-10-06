@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/urnetwork/connect/message"
+	"github.com/urnetwork/message/message"
 )
 
 // The shared known-answer table for MASTER §8's sender formula, and what it is FOR.

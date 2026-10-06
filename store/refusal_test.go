@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/urnetwork/connect/protocol"
+	"github.com/urnetwork/message/protocol"
 )
 
 // §6.1 step (3b), against [resultsOf] itself rather than against whichever implementation

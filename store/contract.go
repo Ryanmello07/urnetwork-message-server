@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/urnetwork/connect/protocol"
+	"github.com/urnetwork/message/protocol"
 )
 
 // RunContract is every behavioural test a [Store] owes, and it belongs to the interface rather

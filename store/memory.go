@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/urnetwork/connect/protocol"
+	"github.com/urnetwork/message/protocol"
 )
 
 // The in-memory [Store]. Every row of §3.2 this transaction touches, held in maps, with the

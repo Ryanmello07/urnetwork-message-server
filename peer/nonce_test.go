@@ -12,9 +12,10 @@ import (
 	"time"
 
 	"github.com/urnetwork/connect"
-	"github.com/urnetwork/connect/message"
-	"github.com/urnetwork/connect/protocol"
+	connectprotocol "github.com/urnetwork/connect/protocol"
 	"github.com/urnetwork/message-server/api"
+	"github.com/urnetwork/message/message"
+	messageprotocol "github.com/urnetwork/message/protocol"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
@@ -24,7 +25,7 @@ import (
 // codec. A test that hand-rolled any of them would be asserting that two copies of a preimage in
 // this repository agree with each other, which is the one thing §12.1 A-1 says a test must never
 // be, and would make the replay property below a property of the copy.
-func sealRecord(t *testing.T, writeKey []byte, serverNonce []byte, streamIndex uint64) *protocol.Record {
+func sealRecord(t *testing.T, writeKey []byte, serverNonce []byte, streamIndex uint64) *messageprotocol.Record {
 	t.Helper()
 	header := message.RecordHeader{
 		Epoch:          1,
@@ -46,7 +47,7 @@ func sealRecord(t *testing.T, writeKey []byte, serverNonce []byte, streamIndex u
 	if err != nil {
 		t.Fatalf("EncodeRecord: %v", err)
 	}
-	return &protocol.Record{RecordBytes: encoded}
+	return &messageprotocol.Record{RecordBytes: encoded}
 }
 
 // A group's `write_key`, from a storage root this test chose. Not secret and not derived from an
@@ -66,19 +67,19 @@ func testWriteKey() []byte {
 // It is the smallest handler that can tell a replay from a fresh record, and it is the whole of
 // what the replay property needs: whether the server refuses a record sealed against a nonce it
 // no longer holds is decided by which nonce reaches this call.
-func verifyingSubmit(writeKey []byte) func(*api.Connection, *protocol.SubmitRequest) (protocol.Reason, *protocol.SubmitResponse, error) {
-	return func(conn *api.Connection, request *protocol.SubmitRequest) (protocol.Reason, *protocol.SubmitResponse, error) {
-		results := []*protocol.SubmitResult{}
+func verifyingSubmit(writeKey []byte) func(*api.Connection, *messageprotocol.SubmitRequest) (messageprotocol.Reason, *messageprotocol.SubmitResponse, error) {
+	return func(conn *api.Connection, request *messageprotocol.SubmitRequest) (messageprotocol.Reason, *messageprotocol.SubmitResponse, error) {
+		results := []*messageprotocol.SubmitResult{}
 		for _, projection := range request.GetRecords() {
-			reason := protocol.Reason_REASON_REJECTED
+			reason := messageprotocol.Reason_REASON_REJECTED
 			if parsed, err := message.ParseRecord(projection.GetRecordBytes()); err == nil {
 				if message.VerifyWriteAuth(writeKey, conn.ServerNonce, parsed) {
-					reason = protocol.Reason_REASON_OK
+					reason = messageprotocol.Reason_REASON_OK
 				}
 			}
-			results = append(results, &protocol.SubmitResult{Reason: reason})
+			results = append(results, &messageprotocol.SubmitResult{Reason: reason})
 		}
-		return protocol.Reason_REASON_OK, &protocol.SubmitResponse{Results: results}, nil
+		return messageprotocol.Reason_REASON_OK, &messageprotocol.SubmitResponse{Results: results}, nil
 	}
 }
 
@@ -88,7 +89,7 @@ func verifyingSubmit(writeKey []byte) func(*api.Connection, *protocol.SubmitRequ
 // body at all — which is what every front-check refusal looks like — and indexing into the results
 // of one is a panicking test rather than a failing test. A test that panics reports its own bug
 // instead of the one it found.
-func firstResult(t *testing.T, response *protocol.MessageServerResponse) protocol.Reason {
+func firstResult(t *testing.T, response *messageprotocol.MessageServerResponse) messageprotocol.Reason {
 	t.Helper()
 	results := response.GetSubmit().GetResults()
 	if len(results) == 0 {
@@ -117,11 +118,11 @@ func TestARecordSealedAgainstAClosedConnectionsNonceIsRefusedOnTheNext(t *testin
 	fixture.handler.onSubmit = verifyingSubmit(writeKey)
 
 	first := fixture.hello(t)
-	accepted := fixture.call(t, &protocol.SubmitRequest{
+	accepted := fixture.call(t, &messageprotocol.SubmitRequest{
 		GroupId: bytes.Repeat([]byte{0x21}, 32),
-		Records: []*protocol.Record{sealRecord(t, writeKey, first.GetServerNonce(), 1)},
+		Records: []*messageprotocol.Record{sealRecord(t, writeKey, first.GetServerNonce(), 1)},
 	})
-	if reason := firstResult(t, accepted); reason != protocol.Reason_REASON_OK {
+	if reason := firstResult(t, accepted); reason != messageprotocol.Reason_REASON_OK {
 		t.Fatalf("a record sealed against this connection's own nonce was answered %v", reason)
 	}
 
@@ -133,22 +134,22 @@ func TestARecordSealedAgainstAClosedConnectionsNonceIsRefusedOnTheNext(t *testin
 		t.Fatal("a second Hello issued the same server_nonce as the first; the nonce is not scoped to a connection at all")
 	}
 
-	replayed := fixture.call(t, &protocol.SubmitRequest{
+	replayed := fixture.call(t, &messageprotocol.SubmitRequest{
 		GroupId: bytes.Repeat([]byte{0x21}, 32),
-		Records: []*protocol.Record{held},
+		Records: []*messageprotocol.Record{held},
 	})
-	if reason := firstResult(t, replayed); reason != protocol.Reason_REASON_REJECTED {
+	if reason := firstResult(t, replayed); reason != messageprotocol.Reason_REASON_REJECTED {
 		t.Fatalf("a record sealed against the previous connection's nonce was answered %v on the next connection; §5.7's whole purpose is that this cannot verify", reason)
 	}
 
 	// the control: the same record, at the same stream index, re-MAC'd against the new
 	// connection's nonce, is accepted. So what refused the replay was the nonce and not the
 	// reconnect
-	resealed := fixture.call(t, &protocol.SubmitRequest{
+	resealed := fixture.call(t, &messageprotocol.SubmitRequest{
 		GroupId: bytes.Repeat([]byte{0x21}, 32),
-		Records: []*protocol.Record{sealRecord(t, writeKey, second.GetServerNonce(), 2)},
+		Records: []*messageprotocol.Record{sealRecord(t, writeKey, second.GetServerNonce(), 2)},
 	})
-	if reason := firstResult(t, resealed); reason != protocol.Reason_REASON_OK {
+	if reason := firstResult(t, resealed); reason != messageprotocol.Reason_REASON_OK {
 		t.Fatalf("a record re-MAC'd against the new connection's nonce was answered %v; §5.7's outbox rule says this is the recovery, so the refusal above was not about the nonce", reason)
 	}
 }
@@ -219,13 +220,13 @@ func TestARequestWhoseConnectionWasReplacedInFlightIsRefused(t *testing.T) {
 	arrived := &inbound{clientId: clientId, connection: first, bytes: 64}
 	ctx := withInbound(context.Background(), arrived)
 
-	if reason := checks.ConnectionAuthenticated(ctx, first.ApiConnection()); reason != protocol.Reason_REASON_OK {
+	if reason := checks.ConnectionAuthenticated(ctx, first.ApiConnection()); reason != messageprotocol.Reason_REASON_OK {
 		t.Fatalf("a request on the live connection was refused %v", reason)
 	}
 	if _, err := connections.Open(clientId); err != nil {
 		t.Fatalf("the second Open: %v", err)
 	}
-	if reason := checks.ConnectionAuthenticated(ctx, first.ApiConnection()); reason != protocol.Reason_REASON_REJECTED {
+	if reason := checks.ConnectionAuthenticated(ctx, first.ApiConnection()); reason != messageprotocol.Reason_REASON_REJECTED {
 		t.Fatalf("a request from a connection that has been replaced was answered %v, want REASON_REJECTED", reason)
 	}
 }
@@ -241,7 +242,7 @@ func TestARequestWhoseConnectionWasReplacedInFlightIsRefused(t *testing.T) {
 func TestTheNonceAHandlerVerifiesAgainstComesFromTheConnection(t *testing.T) {
 	fixture := newFixture(t)
 
-	request := (&protocol.MessageServerRequest{}).ProtoReflect().Descriptor()
+	request := (&messageprotocol.MessageServerRequest{}).ProtoReflect().Descriptor()
 	seen := map[protoreflect.FullName]bool{}
 	for _, arm := range bodyArmsOf(request) {
 		if field := nonceShapedFieldIn(arm.Message(), seen); field != "" {
@@ -252,7 +253,7 @@ func TestTheNonceAHandlerVerifiesAgainstComesFromTheConnection(t *testing.T) {
 
 	chosen := bytes.Repeat([]byte{0xAB}, ServerNonceBytes)
 	// every byte of this Hello the client controls, set to the value an attacker would pick
-	response := fixture.call(t, &protocol.HelloRequest{
+	response := fixture.call(t, &messageprotocol.HelloRequest{
 		SupportedVersions: []uint32{fixtureProtocolVersion},
 		ClientEpochHint:   chosen,
 	})
@@ -263,7 +264,7 @@ func TestTheNonceAHandlerVerifiesAgainstComesFromTheConnection(t *testing.T) {
 	fixture.nonce = issued
 
 	fixture.handler.forget()
-	fixture.call(t, &protocol.SubmitRequest{GroupId: chosen, Records: []*protocol.Record{{RecordBytes: chosen, BodyHash: chosen}}})
+	fixture.call(t, &messageprotocol.SubmitRequest{GroupId: chosen, Records: []*messageprotocol.Record{{RecordBytes: chosen, BodyHash: chosen}}})
 	calls := fixture.handler.recorded()
 	if len(calls) != 1 {
 		t.Fatalf("the submit reached the handler %d times", len(calls))
@@ -312,7 +313,7 @@ func TestOneConnectionKeepsOneNonceAcrossEveryRequestOnIt(t *testing.T) {
 	fixture.handler.forget()
 
 	for index := range 16 {
-		fixture.call(t, &protocol.FetchRequest{GroupId: bytes.Repeat([]byte{9}, 32), SinceRecordId: uint64(index)})
+		fixture.call(t, &messageprotocol.FetchRequest{GroupId: bytes.Repeat([]byte{9}, 32), SinceRecordId: uint64(index)})
 	}
 	calls := fixture.handler.recorded()
 	if len(calls) != 16 {
@@ -437,10 +438,10 @@ func (self *testClock) advance(interval time.Duration) {
 	self.now = self.now.Add(interval)
 }
 
-func submitting(record *protocol.Record) *protocol.SubmitRequest {
-	return &protocol.SubmitRequest{
+func submitting(record *messageprotocol.Record) *messageprotocol.SubmitRequest {
+	return &messageprotocol.SubmitRequest{
 		GroupId: bytes.Repeat([]byte{0x21}, 32),
-		Records: []*protocol.Record{record},
+		Records: []*messageprotocol.Record{record},
 	}
 }
 
@@ -464,7 +465,7 @@ func TestANonceDoesNotOutliveTheConnectionIdleBound(t *testing.T) {
 
 	first := fixture.hello(t)
 	inside := fixture.call(t, submitting(sealRecord(t, writeKey, first.GetServerNonce(), 1)))
-	if reason := firstResult(t, inside); reason != protocol.Reason_REASON_OK {
+	if reason := firstResult(t, inside); reason != messageprotocol.Reason_REASON_OK {
 		t.Fatalf("a record sealed against a nonce seconds old was answered %v; the bound below would then be refusing everything rather than refusing what is past it", reason)
 	}
 
@@ -472,7 +473,7 @@ func TestANonceDoesNotOutliveTheConnectionIdleBound(t *testing.T) {
 	clock.advance(time.Hour)
 
 	replayed := fixture.call(t, submitting(sealRecord(t, writeKey, first.GetServerNonce(), 2)))
-	if replayed.GetReason() != protocol.Reason_REASON_REJECTED {
+	if replayed.GetReason() != messageprotocol.Reason_REASON_REJECTED {
 		t.Fatalf("a request an hour past a one-minute idle bound was answered %v on the envelope; the session it names ended an hour ago and its nonce was to have gone with it",
 			replayed.GetReason())
 	}
@@ -491,7 +492,7 @@ func TestANonceDoesNotOutliveTheConnectionIdleBound(t *testing.T) {
 		t.Fatal("the Hello after the bound issued the previous connection's nonce again")
 	}
 	resealed := fixture.call(t, submitting(sealRecord(t, writeKey, second.GetServerNonce(), 2)))
-	if reason := firstResult(t, resealed); reason != protocol.Reason_REASON_OK {
+	if reason := firstResult(t, resealed); reason != messageprotocol.Reason_REASON_OK {
 		t.Fatalf("a record re-MAC'd against the new connection's nonce was answered %v, so the refusal above was not about the bound", reason)
 	}
 }
@@ -555,7 +556,7 @@ func TestAHelloNamingAnotherClientEndsThatClientsConnection(t *testing.T) {
 	victim := fixture.clientClient.ClientId()
 	first := fixture.hello(t)
 	accepted := fixture.call(t, submitting(sealRecord(t, writeKey, first.GetServerNonce(), 1)))
-	if reason := firstResult(t, accepted); reason != protocol.Reason_REASON_OK {
+	if reason := firstResult(t, accepted); reason != messageprotocol.Reason_REASON_OK {
 		t.Fatalf("the victim's own record was answered %v on its own connection", reason)
 	}
 	before, found := fixture.connections.Lookup(victim)
@@ -563,7 +564,7 @@ func TestAHelloNamingAnotherClientEndsThatClientsConnection(t *testing.T) {
 		t.Fatal("the victim has no connection to lose")
 	}
 
-	forged := fixture.request(&protocol.HelloRequest{SupportedVersions: []uint32{fixtureProtocolVersion}})
+	forged := fixture.request(&messageprotocol.HelloRequest{SupportedVersions: []uint32{fixtureProtocolVersion}})
 	body, err := connect.ProtoMarshal(forged)
 	if err != nil {
 		t.Fatalf("ProtoMarshal: %v", err)
@@ -571,9 +572,9 @@ func TestAHelloNamingAnotherClientEndsThatClientsConnection(t *testing.T) {
 	waiter := fixture.waitFor(forged.GetRequestId())
 	fixture.peer.receive(
 		connect.TransferPath{SourceId: victim},
-		[]*protocol.Frame{{MessageType: protocol.MessageType_MessageMessageServerRequest, MessageBytes: body}},
+		[]*connectprotocol.Frame{{MessageType: connectprotocol.MessageType_MessageMessageServerRequest, MessageBytes: body}},
 		connect.Peer{})
-	if response := fixture.await(t, waiter); response.GetReason() != protocol.Reason_REASON_OK {
+	if response := fixture.await(t, waiter); response.GetReason() != messageprotocol.Reason_REASON_OK {
 		t.Fatalf("the forged Hello was answered %v; this test is about what a Hello that succeeds costs somebody else", response.GetReason())
 	}
 
@@ -591,7 +592,7 @@ func TestAHelloNamingAnotherClientEndsThatClientsConnection(t *testing.T) {
 
 	// the victim, which has been told nothing, sends the next record out of its outbox
 	replayed := fixture.call(t, submitting(sealRecord(t, writeKey, first.GetServerNonce(), 2)))
-	if reason := firstResult(t, replayed); reason != protocol.Reason_REASON_REJECTED {
+	if reason := firstResult(t, replayed); reason != messageprotocol.Reason_REASON_REJECTED {
 		t.Fatalf("a record the victim sealed against its own live connection was answered %v after somebody else said Hello in its name; if this is REASON_OK the replacement did not happen and this test proves nothing",
 			reason)
 	}
@@ -630,7 +631,7 @@ type gatedChecks struct {
 //
 // Only the first request is held. The control that follows the refusal travels this same path,
 // and a gate that held every request would be a test that deadlocks rather than one that fails.
-func (self *gatedChecks) FrameWithinLimits(ctx context.Context, conn *api.Connection) protocol.Reason {
+func (self *gatedChecks) FrameWithinLimits(ctx context.Context, conn *api.Connection) messageprotocol.Reason {
 	reason := self.FrontChecks.FrameWithinLimits(ctx, conn)
 	self.once.Do(func() {
 		close(self.entered)
@@ -650,7 +651,7 @@ func TestAHelloArrivingInsideTheCheckTwoWindowRefusesTheRequest(t *testing.T) {
 	}
 	fixture.handler.front = gate
 
-	held := submitting(&protocol.Record{RecordBytes: []byte("one record, whose bytes this test never reads")})
+	held := submitting(&messageprotocol.Record{RecordBytes: []byte("one record, whose bytes this test never reads")})
 	inFlight := fixture.begin(t, fixture.request(held))
 	select {
 	case <-gate.entered:
@@ -667,7 +668,7 @@ func TestAHelloArrivingInsideTheCheckTwoWindowRefusesTheRequest(t *testing.T) {
 	close(gate.release)
 
 	response := fixture.await(t, inFlight)
-	if response.GetReason() != protocol.Reason_REASON_REJECTED {
+	if response.GetReason() != messageprotocol.Reason_REASON_REJECTED {
 		t.Fatalf("a request whose connection was replaced while it sat between the dispatcher's lookup and §5.1 check 2 was answered %v; it was authenticated against a nonce that no longer exists in this process",
 			response.GetReason())
 	}
@@ -679,7 +680,7 @@ func TestAHelloArrivingInsideTheCheckTwoWindowRefusesTheRequest(t *testing.T) {
 	// "the request was refused" is equally consistent with a peer that stopped serving when the
 	// gate opened
 	control := fixture.call(t, held)
-	if control.GetReason() != protocol.Reason_REASON_OK {
+	if control.GetReason() != messageprotocol.Reason_REASON_OK {
 		t.Fatalf("the same request on the new connection was answered %v, so what refused the one above was not the replacement", control.GetReason())
 	}
 }

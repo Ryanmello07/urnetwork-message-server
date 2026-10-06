@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/urnetwork/connect/message"
-	"github.com/urnetwork/connect/protocol"
 	"github.com/urnetwork/message-server/store"
+	"github.com/urnetwork/message/message"
+	"github.com/urnetwork/message/protocol"
 )
 
 // §4.3.5 SUBSCRIBE AND §4.4's PUSH, AS THIS BUILD SERVES THEM: A NOTIFICATION, NOT A RECORD STREAM.

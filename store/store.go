@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/urnetwork/connect/protocol"
+	"github.com/urnetwork/message/protocol"
 )
 
 // The exact-length identifier shapes of §3.1, which are `bytea` columns with a `CHECK` in

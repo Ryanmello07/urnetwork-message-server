@@ -9,8 +9,9 @@ import (
 	"time"
 
 	"github.com/urnetwork/connect"
-	"github.com/urnetwork/connect/protocol"
+	connectprotocol "github.com/urnetwork/connect/protocol"
 	"github.com/urnetwork/message-server/api"
+	messageprotocol "github.com/urnetwork/message/protocol"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
@@ -33,11 +34,11 @@ var (
 // test that wants to know which arm reached which handler needs something it can watch, and a
 // concrete *api.Handler is something it can only watch through a store.
 type Handler interface {
-	CreateGroup(ctx context.Context, conn *api.Connection, request *protocol.CreateGroupRequest) (protocol.Reason, *protocol.CreateGroupResponse, error)
-	Submit(ctx context.Context, conn *api.Connection, request *protocol.SubmitRequest) (protocol.Reason, *protocol.SubmitResponse, error)
-	Fetch(ctx context.Context, conn *api.Connection, request *protocol.FetchRequest) (protocol.Reason, *protocol.FetchResponse, error)
-	Subscribe(ctx context.Context, conn *api.Connection, request *protocol.SubscribeRequest) (protocol.Reason, *protocol.SubscribeResponse, error)
-	Unsubscribe(ctx context.Context, conn *api.Connection, request *protocol.UnsubscribeRequest) (protocol.Reason, error)
+	CreateGroup(ctx context.Context, conn *api.Connection, request *messageprotocol.CreateGroupRequest) (messageprotocol.Reason, *messageprotocol.CreateGroupResponse, error)
+	Submit(ctx context.Context, conn *api.Connection, request *messageprotocol.SubmitRequest) (messageprotocol.Reason, *messageprotocol.SubmitResponse, error)
+	Fetch(ctx context.Context, conn *api.Connection, request *messageprotocol.FetchRequest) (messageprotocol.Reason, *messageprotocol.FetchResponse, error)
+	Subscribe(ctx context.Context, conn *api.Connection, request *messageprotocol.SubscribeRequest) (messageprotocol.Reason, *messageprotocol.SubscribeResponse, error)
+	Unsubscribe(ctx context.Context, conn *api.Connection, request *messageprotocol.UnsubscribeRequest) (messageprotocol.Reason, error)
 	NotBuilt() []api.NotBuilt
 }
 
@@ -66,7 +67,7 @@ type FrameClient interface {
 	Ctx() context.Context
 	AddReceiveCallback(receiveCallback connect.ReceiveFunction) func()
 	SendWithTimeout(
-		frame *protocol.Frame,
+		frame *connectprotocol.Frame,
 		destinationId connect.Id,
 		ackCallback connect.AckFunction,
 		timeout time.Duration,
@@ -92,7 +93,7 @@ type Config struct {
 	// beside it, so that what a client is told and what it is held to are one number. Zero on
 	// either takes §4.6's and §4.3.1's defaults, and the same default is written back into the
 	// advertisement.
-	Capabilities *protocol.Capabilities
+	Capabilities *messageprotocol.Capabilities
 
 	// §4.3.1's `server_id`: 16 bytes, stable per fleet.
 	ServerId []byte
@@ -165,7 +166,7 @@ type Peer struct {
 	handler     Handler
 	connections *Connections
 
-	capabilities *protocol.Capabilities
+	capabilities *messageprotocol.Capabilities
 	serverId     []byte
 
 	protocolVersion   uint32
@@ -210,19 +211,19 @@ type route struct {
 	// exactly the "called and passed is the same as never called" that FrontChecks exists over.
 	pipeline bool
 
-	run func(ctx context.Context, arrived *inbound, body proto.Message) (protocol.Reason, proto.Message, error)
+	run func(ctx context.Context, arrived *inbound, body proto.Message) (messageprotocol.Reason, proto.Message, error)
 }
 
 type job struct {
 	arrived *inbound
-	request *protocol.MessageServerRequest
+	request *messageprotocol.MessageServerRequest
 }
 
 // A §4.6 refusal the receive loop decided, waiting only for its send. See [Peer.refuseLoop] for
 // why it does not travel on [Peer.jobs].
 type refusal struct {
 	clientId connect.Id
-	response *protocol.MessageServerResponse
+	response *messageprotocol.MessageServerResponse
 }
 
 type stats struct {
@@ -280,7 +281,7 @@ func New(config Config) (*Peer, error) {
 		return nil, ErrNoCapabilities
 	}
 
-	capabilities, _ := proto.Clone(config.Capabilities).(*protocol.Capabilities)
+	capabilities, _ := proto.Clone(config.Capabilities).(*messageprotocol.Capabilities)
 	if capabilities.GetMaxRequestBytes() == 0 {
 		capabilities.MaxRequestBytes = DefaultMaxRequestBytes
 	}
@@ -411,7 +412,7 @@ func (self *Peer) NotBuilt() []api.NotBuilt {
 // wrong the first time §4.3 grows a fifteenth.
 func (self *Peer) unservedArms() []api.NotBuilt {
 	notBuilt := []api.NotBuilt{}
-	for _, field := range bodyArmsOf((&protocol.MessageServerRequest{}).ProtoReflect().Descriptor()) {
+	for _, field := range bodyArmsOf((&messageprotocol.MessageServerRequest{}).ProtoReflect().Descriptor()) {
 		if _, served := self.routes[field.Message().FullName()]; served {
 			continue
 		}
@@ -506,13 +507,13 @@ var helloRotatesOnUnverifiedSourceId = api.NotBuilt{
 // The frames and their bytes are borrowed for the duration of this call (transfer.go:146), so
 // nothing here keeps a reference to either: the request is unmarshaled, which copies, and a
 // fragment's `part` is appended into a buffer of our own.
-func (self *Peer) receive(source connect.TransferPath, frames []*protocol.Frame, from connect.Peer) {
+func (self *Peer) receive(source connect.TransferPath, frames []*connectprotocol.Frame, from connect.Peer) {
 	for _, frame := range frames {
 		switch frame.GetMessageType() {
-		case protocol.MessageType_MessageMessageServerRequest:
+		case connectprotocol.MessageType_MessageMessageServerRequest:
 			self.stats.framesReceived.Add(1)
 			self.arrived(source.SourceId, frame)
-		case protocol.MessageType_MessageMessageServerFragment:
+		case connectprotocol.MessageType_MessageMessageServerFragment:
 			self.stats.framesReceived.Add(1)
 			self.arrivedFragment(source.SourceId, frame)
 		}
@@ -525,7 +526,7 @@ func (self *Peer) receive(source connect.TransferPath, frames []*protocol.Frame,
 // decided once, by [Checks.FrameWithinLimits], on the way through the pipeline. Refusing here
 // too would leave the pipeline's copy of check 1 unreachable, and an unreachable check is one
 // nobody notices the deletion of.
-func (self *Peer) arrived(clientId connect.Id, frame *protocol.Frame) {
+func (self *Peer) arrived(clientId connect.Id, frame *connectprotocol.Frame) {
 	arrived, request, decoded := decodeRequest(clientId, frame)
 	if !decoded {
 		self.stats.framesDropped.Add(1)
@@ -539,8 +540,8 @@ func (self *Peer) arrived(clientId connect.Id, frame *protocol.Frame) {
 // Split out from [Peer.arrived] because it is the whole of what the fuzz target has to reach: a
 // target that decoded the bytes itself would be fuzzing its own copy of this, and the interesting
 // half is what the dispatcher does with what came out.
-func decodeRequest(clientId connect.Id, frame *protocol.Frame) (*inbound, *protocol.MessageServerRequest, bool) {
-	request := &protocol.MessageServerRequest{}
+func decodeRequest(clientId connect.Id, frame *connectprotocol.Frame) (*inbound, *messageprotocol.MessageServerRequest, bool) {
+	request := &messageprotocol.MessageServerRequest{}
 	if frame.GetRaw() || proto.Unmarshal(frame.GetMessageBytes(), request) != nil {
 		return nil, nil, false
 	}
@@ -548,8 +549,8 @@ func decodeRequest(clientId connect.Id, frame *protocol.Frame) (*inbound, *proto
 }
 
 // One fragment frame, decoded, or nothing.
-func decodeFragment(frame *protocol.Frame) (*protocol.MessageServerFragment, bool) {
-	fragment := &protocol.MessageServerFragment{}
+func decodeFragment(frame *connectprotocol.Frame) (*messageprotocol.MessageServerFragment, bool) {
+	fragment := &messageprotocol.MessageServerFragment{}
 	if frame.GetRaw() || proto.Unmarshal(frame.GetMessageBytes(), fragment) != nil {
 		return nil, false
 	}
@@ -561,25 +562,25 @@ func decodeFragment(frame *protocol.Frame) (*protocol.MessageServerFragment, boo
 // A fragment carries a `request_id` even when the request it belongs to never assembles, so
 // unlike a malformed request frame every refusal on this path can be answered rather than
 // dropped — which is what makes REASON_OVERSIZE reach the client that caused it.
-func (self *Peer) arrivedFragment(clientId connect.Id, frame *protocol.Frame) {
+func (self *Peer) arrivedFragment(clientId connect.Id, frame *connectprotocol.Frame) {
 	fragment, decoded := decodeFragment(frame)
 	if !decoded {
 		self.stats.framesDropped.Add(1)
 		return
 	}
 	assembled, complete, reason := self.reassembly.accept(clientId, fragment)
-	if reason != protocol.Reason_REASON_OK {
+	if reason != messageprotocol.Reason_REASON_OK {
 		self.refuse(clientId, fragment.GetRequestId(), reason)
 		return
 	}
 	if !complete {
 		return
 	}
-	request := &protocol.MessageServerRequest{}
+	request := &messageprotocol.MessageServerRequest{}
 	if proto.Unmarshal(assembled, request) != nil {
 		// the fragments arrived and the bytes they carried are not a request; §4.5's
 		// non-specific refusal is the answer, and it has a request_id to travel on
-		self.refuse(clientId, fragment.GetRequestId(), protocol.Reason_REASON_REJECTED)
+		self.refuse(clientId, fragment.GetRequestId(), messageprotocol.Reason_REASON_REJECTED)
 		return
 	}
 	self.enqueue(job{
@@ -608,10 +609,10 @@ func (self *Peer) arrivedFragment(clientId connect.Id, frame *protocol.Frame) {
 // own refusals are already backed up — the newest is what goes, so §4.6's specific refusal, which
 // is the first one decided for a request, is the one that survives the generic ones behind it.
 // What it buys is that nothing a client can send makes this server's receive loop wait.
-func (self *Peer) refuse(clientId connect.Id, requestId uint64, reason protocol.Reason) {
+func (self *Peer) refuse(clientId connect.Id, requestId uint64, reason messageprotocol.Reason) {
 	current := refusal{
 		clientId: clientId,
-		response: &protocol.MessageServerResponse{RequestId: requestId, Reason: reason},
+		response: &messageprotocol.MessageServerResponse{RequestId: requestId, Reason: reason},
 	}
 	select {
 	case self.refusals <- current:
@@ -760,14 +761,14 @@ func (self *Peer) work() {
 // so two requests in flight on one connection can be answered out of order — which is what
 // `request_id` is for, and why a dispatcher that dropped it would turn concurrency into a
 // correlation bug rather than into a visible failure.
-func (self *Peer) answer(ctx context.Context, arrived *inbound, request *protocol.MessageServerRequest) *protocol.MessageServerResponse {
-	response := &protocol.MessageServerResponse{RequestId: request.GetRequestId()}
+func (self *Peer) answer(ctx context.Context, arrived *inbound, request *messageprotocol.MessageServerRequest) *messageprotocol.MessageServerResponse {
+	response := &messageprotocol.MessageServerResponse{RequestId: request.GetRequestId()}
 
 	field := request.ProtoReflect().WhichOneof(bodyOneofOf(request.ProtoReflect().Descriptor()))
 	if field == nil {
 		// no body at all, or an arm this build's descriptor does not know — the wire cannot tell
 		// them apart and neither does this. §4.5's non-specific refusal
-		response.Reason = protocol.Reason_REASON_REJECTED
+		response.Reason = messageprotocol.Reason_REASON_REJECTED
 		return response
 	}
 	body := request.ProtoReflect().Get(field).Message().Interface()
@@ -775,7 +776,7 @@ func (self *Peer) answer(ctx context.Context, arrived *inbound, request *protoco
 	if !served {
 		// an arm §4.3 defines and this build has no handler for. [Peer.unservedArms] declares
 		// every one of them, so this is a gap with an address rather than a shrug
-		response.Reason = protocol.Reason_REASON_INTERNAL
+		response.Reason = messageprotocol.Reason_REASON_INTERNAL
 		return response
 	}
 
@@ -783,7 +784,7 @@ func (self *Peer) answer(ctx context.Context, arrived *inbound, request *protoco
 		// the arms api does not own run check 1 here, because there is nowhere else for it to
 		// run. Hello is the only one, and check 2 cannot precede it: a connection is what Hello
 		// creates
-		if reason := withinLimits(arrived.bytes, self.maxRequestBytes); reason != protocol.Reason_REASON_OK {
+		if reason := withinLimits(arrived.bytes, self.maxRequestBytes); reason != messageprotocol.Reason_REASON_OK {
 			response.Reason = reason
 			return response
 		}
@@ -792,14 +793,14 @@ func (self *Peer) answer(ctx context.Context, arrived *inbound, request *protoco
 		// one is answered rather than served under a version this server does not speak; zero is
 		// a field the client did not set and is not a mismatch
 		if version := request.GetProtocolVersion(); version != 0 && version != self.protocolVersion {
-			response.Reason = protocol.Reason_REASON_UNSUPPORTED_VERSION
+			response.Reason = messageprotocol.Reason_REASON_UNSUPPORTED_VERSION
 			return response
 		}
 		// §5.1 check 2's lookup: the connection is resolved from the platform-authenticated
 		// source client_id, and from nothing the request carries
 		connection, found := self.connections.Lookup(arrived.clientId)
 		if !found {
-			response.Reason = protocol.Reason_REASON_REJECTED
+			response.Reason = messageprotocol.Reason_REASON_REJECTED
 			return response
 		}
 		arrived.connection = connection
@@ -809,12 +810,12 @@ func (self *Peer) answer(ctx context.Context, arrived *inbound, request *protoco
 	if err != nil {
 		// an error is this server's fault by construction — api answers a client's fault with a
 		// Reason — so it is REASON_INTERNAL and the body it might have built does not travel
-		response.Reason = protocol.Reason_REASON_INTERNAL
+		response.Reason = messageprotocol.Reason_REASON_INTERNAL
 		return response
 	}
 	response.Reason = reason
 	if err := setResponseBody(response, answered); err != nil {
-		response.Reason = protocol.Reason_REASON_INTERNAL
+		response.Reason = messageprotocol.Reason_REASON_INTERNAL
 		return response
 	}
 	return response
@@ -828,13 +829,13 @@ func (self *Peer) answer(ctx context.Context, arrived *inbound, request *protoco
 // arm's handler, which is a bug that reads as a passing test.
 func (self *Peer) buildRoutes() map[protoreflect.FullName]route {
 	return map[protoreflect.FullName]route{
-		nameOf(&protocol.HelloRequest{}): {
+		nameOf(&messageprotocol.HelloRequest{}): {
 			name:     "hello",
 			pipeline: false,
-			run: func(ctx context.Context, arrived *inbound, body proto.Message) (protocol.Reason, proto.Message, error) {
-				request, ok := body.(*protocol.HelloRequest)
+			run: func(ctx context.Context, arrived *inbound, body proto.Message) (messageprotocol.Reason, proto.Message, error) {
+				request, ok := body.(*messageprotocol.HelloRequest)
 				if !ok {
-					return protocol.Reason_REASON_INTERNAL, nil, ErrWrongArm
+					return messageprotocol.Reason_REASON_INTERNAL, nil, ErrWrongArm
 				}
 				reason, answered, err := self.hello(ctx, arrived, request)
 				if answered == nil {
@@ -843,13 +844,13 @@ func (self *Peer) buildRoutes() map[protoreflect.FullName]route {
 				return reason, answered, err
 			},
 		},
-		nameOf(&protocol.CreateGroupRequest{}): {
+		nameOf(&messageprotocol.CreateGroupRequest{}): {
 			name:     "create_group",
 			pipeline: true,
-			run: func(ctx context.Context, arrived *inbound, body proto.Message) (protocol.Reason, proto.Message, error) {
-				request, ok := body.(*protocol.CreateGroupRequest)
+			run: func(ctx context.Context, arrived *inbound, body proto.Message) (messageprotocol.Reason, proto.Message, error) {
+				request, ok := body.(*messageprotocol.CreateGroupRequest)
 				if !ok {
-					return protocol.Reason_REASON_INTERNAL, nil, ErrWrongArm
+					return messageprotocol.Reason_REASON_INTERNAL, nil, ErrWrongArm
 				}
 				reason, answered, err := self.handler.CreateGroup(ctx, arrived.connection.ApiConnection(), request)
 				if answered == nil {
@@ -858,13 +859,13 @@ func (self *Peer) buildRoutes() map[protoreflect.FullName]route {
 				return reason, answered, err
 			},
 		},
-		nameOf(&protocol.SubmitRequest{}): {
+		nameOf(&messageprotocol.SubmitRequest{}): {
 			name:     "submit",
 			pipeline: true,
-			run: func(ctx context.Context, arrived *inbound, body proto.Message) (protocol.Reason, proto.Message, error) {
-				request, ok := body.(*protocol.SubmitRequest)
+			run: func(ctx context.Context, arrived *inbound, body proto.Message) (messageprotocol.Reason, proto.Message, error) {
+				request, ok := body.(*messageprotocol.SubmitRequest)
 				if !ok {
-					return protocol.Reason_REASON_INTERNAL, nil, ErrWrongArm
+					return messageprotocol.Reason_REASON_INTERNAL, nil, ErrWrongArm
 				}
 				reason, answered, err := self.handler.Submit(ctx, arrived.connection.ApiConnection(), request)
 				if answered == nil {
@@ -873,13 +874,13 @@ func (self *Peer) buildRoutes() map[protoreflect.FullName]route {
 				return reason, answered, err
 			},
 		},
-		nameOf(&protocol.FetchRequest{}): {
+		nameOf(&messageprotocol.FetchRequest{}): {
 			name:     "fetch",
 			pipeline: true,
-			run: func(ctx context.Context, arrived *inbound, body proto.Message) (protocol.Reason, proto.Message, error) {
-				request, ok := body.(*protocol.FetchRequest)
+			run: func(ctx context.Context, arrived *inbound, body proto.Message) (messageprotocol.Reason, proto.Message, error) {
+				request, ok := body.(*messageprotocol.FetchRequest)
 				if !ok {
-					return protocol.Reason_REASON_INTERNAL, nil, ErrWrongArm
+					return messageprotocol.Reason_REASON_INTERNAL, nil, ErrWrongArm
 				}
 				reason, answered, err := self.handler.Fetch(ctx, arrived.connection.ApiConnection(), request)
 				if answered == nil {
@@ -888,13 +889,13 @@ func (self *Peer) buildRoutes() map[protoreflect.FullName]route {
 				return reason, answered, err
 			},
 		},
-		nameOf(&protocol.SubscribeRequest{}): {
+		nameOf(&messageprotocol.SubscribeRequest{}): {
 			name:     "subscribe",
 			pipeline: true,
-			run: func(ctx context.Context, arrived *inbound, body proto.Message) (protocol.Reason, proto.Message, error) {
-				request, ok := body.(*protocol.SubscribeRequest)
+			run: func(ctx context.Context, arrived *inbound, body proto.Message) (messageprotocol.Reason, proto.Message, error) {
+				request, ok := body.(*messageprotocol.SubscribeRequest)
 				if !ok {
-					return protocol.Reason_REASON_INTERNAL, nil, ErrWrongArm
+					return messageprotocol.Reason_REASON_INTERNAL, nil, ErrWrongArm
 				}
 				reason, answered, err := self.handler.Subscribe(ctx, arrived.connection.ApiConnection(), request)
 				if answered == nil {
@@ -905,13 +906,13 @@ func (self *Peer) buildRoutes() map[protoreflect.FullName]route {
 		},
 		// §4.3.8 exempts it from req_auth, and there is no response arm 15: the envelope's reason
 		// is the whole answer
-		nameOf(&protocol.UnsubscribeRequest{}): {
+		nameOf(&messageprotocol.UnsubscribeRequest{}): {
 			name:     "unsubscribe",
 			pipeline: true,
-			run: func(ctx context.Context, arrived *inbound, body proto.Message) (protocol.Reason, proto.Message, error) {
-				request, ok := body.(*protocol.UnsubscribeRequest)
+			run: func(ctx context.Context, arrived *inbound, body proto.Message) (messageprotocol.Reason, proto.Message, error) {
+				request, ok := body.(*messageprotocol.UnsubscribeRequest)
 				if !ok {
-					return protocol.Reason_REASON_INTERNAL, nil, ErrWrongArm
+					return messageprotocol.Reason_REASON_INTERNAL, nil, ErrWrongArm
 				}
 				reason, err := self.handler.Unsubscribe(ctx, arrived.connection.ApiConnection(), request)
 				return reason, nil, err
@@ -926,7 +927,7 @@ func (self *Peer) buildRoutes() map[protoreflect.FullName]route {
 // is no longer the one the subscription was made on. It reads the connection table without
 // touching it, so a stream of pushes cannot keep an idle connection alive by itself. A push is
 // one unfragmented frame: a notification is a group id and a number.
-func (self *Peer) Push(clientId []byte, serverNonce []byte, push *protocol.MessageServerPush) bool {
+func (self *Peer) Push(clientId []byte, serverNonce []byte, push *messageprotocol.MessageServerPush) bool {
 	id, err := connect.IdFromBytes(clientId)
 	if err != nil {
 		self.stats.pushesRefused.Add(1)
@@ -942,7 +943,7 @@ func (self *Peer) Push(clientId []byte, serverNonce []byte, push *protocol.Messa
 		self.stats.pushesRefused.Add(1)
 		return false
 	}
-	frame := &protocol.Frame{MessageType: protocol.MessageType_MessageMessageServerPush, MessageBytes: body}
+	frame := &connectprotocol.Frame{MessageType: connectprotocol.MessageType_MessageMessageServerPush, MessageBytes: body}
 	if !self.client.SendWithTimeout(frame, id, nil, api.PushTimeout, connect.Ctx(self.ctx)) {
 		self.stats.pushesRefused.Add(1)
 		return false
@@ -960,11 +961,11 @@ var _ api.Pusher = (*Peer)(nil)
 // §4.3.1's `max_response_bytes` binds here: a response past it is replaced by the refusal
 // REASON_OVERSIZE carrying the same `request_id`, because a response the transport will not
 // carry is a request the client never hears about at all.
-func (self *Peer) send(clientId connect.Id, response *protocol.MessageServerResponse) {
+func (self *Peer) send(clientId connect.Id, response *messageprotocol.MessageServerResponse) {
 	if self.maxResponseBytes < proto.Size(response) {
-		response = &protocol.MessageServerResponse{
+		response = &messageprotocol.MessageServerResponse{
 			RequestId: response.GetRequestId(),
-			Reason:    protocol.Reason_REASON_OVERSIZE,
+			Reason:    messageprotocol.Reason_REASON_OVERSIZE,
 		}
 	}
 	frames, err := responseFrames(response, self.fragmentPartBytes)
@@ -1035,7 +1036,7 @@ func bodyArmsOf(descriptor protoreflect.MessageDescriptor) []protoreflect.FieldD
 // api.opOf finds §4.3.8's op byte, rather than by a switch listing fourteen typed wrappers. A
 // switch is where a copy-paste puts a FetchResponse in the submit arm, and the wire is then a
 // response the client parses as another operation's.
-func setResponseBody(response *protocol.MessageServerResponse, body proto.Message) error {
+func setResponseBody(response *messageprotocol.MessageServerResponse, body proto.Message) error {
 	if body == nil {
 		return nil
 	}

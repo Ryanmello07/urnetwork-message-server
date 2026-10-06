@@ -15,7 +15,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 
-	"github.com/urnetwork/connect/mls/syntax"
+	"github.com/urnetwork/message/syntax"
 )
 
 // A preimage built here rather than by connect/message's builder: the same fields, the same

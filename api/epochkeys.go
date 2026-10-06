@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/urnetwork/connect/message"
-	"github.com/urnetwork/connect/protocol"
 	"github.com/urnetwork/message-server/store"
+	"github.com/urnetwork/message/message"
+	"github.com/urnetwork/message/protocol"
 )
 
 // §5.1 check 3's `0x0005` arm: the two doors an attachment can come through, the alignment rule

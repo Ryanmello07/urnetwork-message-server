@@ -3,8 +3,8 @@ package api
 import (
 	"testing"
 
-	"github.com/urnetwork/connect/message"
-	"github.com/urnetwork/connect/protocol"
+	"github.com/urnetwork/message/message"
+	"github.com/urnetwork/message/protocol"
 )
 
 // ── §4.3.3's batch ───────────────────────────────────────────────────────────────────────
