@@ -18,9 +18,10 @@ import (
 // The shared known-answer table for MASTER §8's sender formula, and what it is FOR.
 //
 // MASTER §8's window formula exists at more than one site, and the duplication is forced by the
-// dependency rule rather than chosen: Spec B §2.2 allows this module `connect/message` and
-// `connect/protocol` and nothing else, so [EphWindowAt] here cannot link
-// `connect/messagegroup.EphWindowAt`, which is the same function for the shipped sender. A test
+// dependency rule rather than chosen: Spec B §2.2 allows this module three packages of the
+// message module, `message`, `syntax` and `protocol`, and forbids its `messagegroup`, so
+// [EphWindowAt] here cannot link `message/messagegroup.EphWindowAt`, which is the same
+// function for the shipped sender. A test
 // that called both and compared them is the test this repository may not write. Ledger item 193
 // files that, and its *Blocks* line used to say the copies "agree today, by inspection" — which
 // was false when it was written. They disagreed on 9 of 32 probed `(bucket, sent_at_ms)` pairs,

@@ -209,7 +209,7 @@ func TestARecordTooLargeForOneFrameTravelsInSpecB46sFragments(t *testing.T) {
 //
 // This is the cross-connection replay defence of spec A §5.7 working through the whole stack:
 // peer mints the nonce at Hello and destroys the previous one, api reads it from the connection
-// and never from the request, and connect/message verifies the MAC over it. It is the property
+// and never from the request, and the record layer verifies the MAC over it. It is the property
 // most worth having an integration test for, because every layer holds one third of it.
 //
 // Three steps, and the third is not optional. Without the control, "refused" is equally

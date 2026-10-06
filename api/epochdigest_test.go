@@ -113,7 +113,7 @@ func TestACommitWhoseDigestMatchesTheRequestKeysIsAcceptedAndOneThatDoesNotIsRef
 	}
 }
 
-// The digest clause refuses BY THE SENTINEL `connect/message` gives it, and not by some other
+// The digest clause refuses BY THE SENTINEL the record layer gives it, and not by some other
 // clause of check 3 that happens to fire first.
 //
 // §4.5 merges every client-caused refusal into REASON_REJECTED, so the wire cannot tell this

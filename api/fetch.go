@@ -215,7 +215,7 @@ func (self *Handler) checkReadKey(ctx context.Context, pass *fetchPass) protocol
 	return protocol.Reason_REASON_OK
 }
 
-// Check 7 on the read path: §4.3.8's req_auth, recomputed by connect/message and compared in
+// Check 7 on the read path: §4.3.8's req_auth, recomputed by the record layer and compared in
 // constant time.
 //
 // `canonical_request_bytes` is the deterministically-marshaled request body with its own

@@ -21,7 +21,7 @@ import (
 
 // The client half of spec A §5.7: a record, sealed under a `write_key` and a connection's nonce.
 //
-// Everything here is connect/message's — the key derivation, the preimage, the MAC and the
+// Everything here is the record layer's — the key derivation, the preimage, the MAC and the
 // codec. A test that hand-rolled any of them would be asserting that two copies of a preimage in
 // this repository agree with each other, which is the one thing §12.1 A-1 says a test must never
 // be, and would make the replay property below a property of the copy.
@@ -61,7 +61,7 @@ func testWriteKey() []byte {
 	return message.WriteKey(root)
 }
 
-// A handler that does the one thing §5.1 check 7 does: recompute the MAC with connect/message's
+// A handler that does the one thing §5.1 check 7 does: recompute the MAC with the record layer's
 // own verifier, against the nonce the dispatcher handed it.
 //
 // It is the smallest handler that can tell a replay from a fresh record, and it is the whole of

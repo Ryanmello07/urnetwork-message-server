@@ -5,12 +5,12 @@
 // code that fills it, so that the dependency gate at the root of the module reads a tree that
 // matches the spec rather than a tree that matches whatever landed first.
 //
-// May import: github.com/urnetwork/connect/message for the record parser and the four
+// May import: github.com/urnetwork/message/message for the record parser and the four
 // preimages a record is authenticated by — this module never re-derives what that package
-// already computes — plus this module's store, blobd, redact and metrics. Never
-// github.com/urnetwork/connect/mls: §5.3 is normative that this binary links no MLS
-// implementation, and the moment one is in the process "just validate the commit" is a
-// one-line change.
+// already computes — and github.com/urnetwork/message/protocol for the schema, plus this
+// module's store, blobd, redact and metrics. Never github.com/urnetwork/message/mls or
+// message/messagegroup: §5.3 is normative that this binary links no MLS implementation, and
+// the moment one is in the process "just validate the commit" is a one-line change.
 //
 //urmsg:mayimport store blobd redact metrics
 package api

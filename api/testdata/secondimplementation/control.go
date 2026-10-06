@@ -18,7 +18,7 @@ import (
 	"github.com/urnetwork/message/syntax"
 )
 
-// A preimage built here rather than by connect/message's builder: the same fields, the same
+// A preimage built here rather than by the record layer's builder: the same fields, the same
 // order, agreeing with the real one today and diverging on the first edit to either.
 func writeAuthPreimage(serverNonce []byte, groupId []byte, senderHandle []byte, epoch uint64, ctHead []byte) []byte {
 	writer := syntax.NewWriter()

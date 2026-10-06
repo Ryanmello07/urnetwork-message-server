@@ -24,7 +24,7 @@ var (
 	// the reason the 2026-09-13 sentinel ruling exists at all: zero is the TRANSIENT RUNG's real
 	// window, so answering zero here would collapse "bucket 0, window 0 by definition" and
 	// "this is not a bucket" into one answer -- which is the sentinel collision that ruling was
-	// made to eliminate, reintroduced one repository over. [connect/messagegroup.EphWindowAt]
+	// made to eliminate, reintroduced one repository over. [message/messagegroup.EphWindowAt]
 	// refuses it; this refuses it in the same order and with the same precedence.
 	ErrEphBucketOffLadder = errors.New("harness: this bucket names no rung of the eph ladder")
 )
@@ -217,12 +217,12 @@ func projectionOf(header *message.RecordHeader, attachment *message.ServerAttach
 // repositories -- NOT over `testdata/eph-window-kat.txt`, which is a different and larger grid;
 // the measurement and both its commit ids are in item 193. Refusing off-ladder first, and
 // refusing the pre-epoch reading only on a rung that divides, is
-// [connect/messagegroup.EphWindowAt]'s order and is now this one.
+// [message/messagegroup.EphWindowAt]'s order and is now this one.
 //
-// WHY THIS IS WRITTEN HERE AND NOT LINKED. `connect/messagegroup` publishes `EphWindowAt` with this
+// WHY THIS IS WRITTEN HERE AND NOT LINKED. `message/messagegroup` publishes `EphWindowAt` with this
 // arithmetic for the real sender, and Spec B §2.2 does not allow this module to import that package
-// — §12.1's published surface for the server is `connect/message` and `connect/protocol` and
-// nothing else. This is therefore a SECOND SITE of one formula by construction of the dependency
+// — §12.1's published surface for the server is the record layer and the schema,
+// `message/message` and `message/protocol`, and nothing else. This is therefore a SECOND SITE of one formula by construction of the dependency
 // rule, and the divergence risk is real and filed rather than absorbed.
 //
 // WHAT HOLDS THE TWO SITES TOGETHER, since the import that would compare them directly is

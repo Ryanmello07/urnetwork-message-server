@@ -1004,7 +1004,7 @@ func wellFormedEpochAttachment(record *Record, opens uint64, keys *EpochKeyDeliv
 //
 // A `switch` over the named constants rather than a range or a `!= AttachmentNone`: a seventh
 // kind is given an answer here instead of inheriting one from whichever side of a bound it
-// falls on, which is the rule `connect/message`'s own kind tables are written to.
+// falls on, which is the rule the record layer's own kind tables are written to.
 func isEpochAttachmentKind(kind AttachmentKind) bool {
 	switch kind {
 	case AttachmentEpoch, AttachmentEpochDigest:

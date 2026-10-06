@@ -612,7 +612,7 @@ func (self *Handler) checkEpochKey(ctx context.Context, pass *submitPass) refusa
 
 // ── §5.1 check 7 ─────────────────────────────────────────────────────────────────────────
 
-// The MAC, recomputed byte-for-byte by connect/message's own builder and compared in constant
+// The MAC, recomputed byte-for-byte by the record layer's own builder and compared in constant
 // time — never by a local reimplementation. §12.1 A-1 gives the reason in one sentence: two
 // independent implementations of a MAC preimage diverge, and when they do the symptom is "some
 // clients cannot send", intermittently, with a byte-order difference nobody can see behind it.
@@ -746,7 +746,7 @@ func columnsOf(pass *recordPass) (*store.Record, error) {
 	}, nil
 }
 
-// connect/message's parsed attachment as the store's columns, which is a rename and a widening
+// The record layer's parsed attachment as the store's columns, which is a rename and a widening
 // and nothing else.
 func attachmentOf(attachment *message.ServerAttachment) *store.Attachment {
 	if attachment == nil {
@@ -768,7 +768,7 @@ func attachmentOf(attachment *message.ServerAttachment) *store.Attachment {
 			},
 		}
 	case message.AttachmentWrap:
-		// store.WrapTag carries a LeafIndex and connect/message's WrapTag carries an Epoch, so
+		// store.WrapTag carries a LeafIndex and the record layer's WrapTag carries an Epoch, so
 		// there is no leaf index in an authenticated record to put in it. Nothing in the store
 		// branches on the field; §6.1's snapshot-versus-device-wrap distinction is carried by
 		// the record's retention class and by which epoch's fan-out it is in. Left zero rather

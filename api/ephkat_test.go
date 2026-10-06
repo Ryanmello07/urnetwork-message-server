@@ -15,7 +15,7 @@ import (
 // from one function is a check that cannot fail. That reason is sound and this file does not
 // touch it. What item 193's *Blocks* line then said was that all three copies AGREE, which was
 // false: this copy and `harness`'s both collapsed `seconds <= 0`, so both answered window 0 for
-// a bucket that names no rung where `connect/messagegroup.EphWindowAt` refuses.
+// a bucket that names no rung where `message/messagegroup.EphWindowAt` refuses.
 //
 // Being deliberate is not the same as being unchecked. The fixture keeps its own arithmetic and
 // is driven over the shared answers, which is what this file does.
@@ -32,9 +32,9 @@ const apiEphKatPath = "../testdata/eph-window-kat.txt"
 // this very package.
 //
 // `harness/ephkat_test.go` pins the table with a SHA-256 over its canonical bytes, and this file
-// cannot: §12.1 A-1 says api uses connect/message's published surface and nothing else, and two
+// cannot: §12.1 A-1 says api uses the record layer's published surface and nothing else, and two
 // gates here enforce it over the derived class {crypto/hkdf, crypto/hmac, crypto/sha256,
-// crypto/subtle, connect/mls/syntax}. A first draft of this file imported crypto/sha256 for the
+// crypto/subtle, message/syntax}. A first draft of this file imported crypto/sha256 for the
 // digest and BOTH gates went red on it — correctly. An exemption would have been the laundering
 // TestNothingThisPackageCanReachHoldsASecondImplementation's own failure message warns about.
 //

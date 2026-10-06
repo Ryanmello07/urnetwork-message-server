@@ -17,7 +17,7 @@ import (
 //
 // `message.ParseServerAttachment` serves the five kinds Spec A §5.11 defines and refuses kind
 // `0x0005` BY NAME with `ErrServerAttachmentKindNotServed`. That refusal is not an obstacle to
-// route around; it is the interlock ruling 27 bought. A server built from a `connect/message`
+// route around; it is the interlock ruling 27 bought. A server built from a record layer
 // that has not been widened cannot be talked into installing an epoch whose keys it was never
 // handed, whatever a client sends it. `message.ParseEpochDigestAttachment` is the sixth kind's
 // own door, and this server opens it DELIBERATELY, once, here — which is what makes "this build
@@ -25,7 +25,7 @@ import (
 // parse, a gate and an install.
 //
 // Both doors run the same codec, the same body table and the same well-formedness check inside
-// `connect/message`, so nothing here re-derives a field width, an `alg_id` or
+// the record layer, so nothing here re-derives a field width, an `alg_id` or
 // `expected_wrap_count > 0` — Spec B §12.1 A-2.
 //
 // ── WHAT THIS FILE DOES NOT DO ─────────────────────────────────────────────────────────────
@@ -115,7 +115,7 @@ func parseServerAttachment(bs []byte) (*message.ServerAttachment, error) {
 // like an iff and stops being one the moment a second epoch kind exists: a kind `0x0005`
 // attachment on a NON-commit record gives `false != false`, which PASSES — so the clause that
 // exists to keep an epoch attachment off an ordinary record admits the newer of the two epoch
-// attachments on every ordinary record. `connect/message`'s own file comment names this server's
+// attachments on every ordinary record. The record layer's own file comment names this server's
 // three copies of the clause as the defect; this is the api layer's, and `store.isEpochAttachmentKind`
 // is the other two.
 func isEpochAttachmentKind(kind message.ServerAttachmentKind) bool {
@@ -226,7 +226,7 @@ func epochKeyAlignment(records []*recordPass, deliveries []*protocol.EpochKeyDel
 //
 // It is `message.CheckEpochKeysDigest` and a group id, and it is deliberately nothing else. The
 // epoch is the attachment's own — the checker refuses to take one — and the comparison is
-// constant time inside it. What this function adds is the ONE thing `connect/message` cannot
+// constant time inside it. What this function adds is the ONE thing the record layer cannot
 // have: the `group_id` the request named and this server verified the record's header against
 // three clauses earlier in check 3 (`staticShape` refuses a record whose header names another
 // group), at the `[32]byte` width the preimage frames.

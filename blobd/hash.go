@@ -13,7 +13,7 @@ import "crypto/sha256"
 //
 // It is here rather than in api for a second reason, and it is the one that decides the
 // placement. The api package may not compute a MAC, build a preimage, or parse a record — §5.1
-// check 7 and §12.1 A-2 both say the server never reimplements what connect/message already
+// check 7 and §12.1 A-2 both say the server never reimplements what the record layer already
 // computes — and api/second_implementation_test.go holds that as a gate with no exemption in
 // it: not one call into a MAC, a hash or the presentation-language codec, anywhere in the
 // package. A carve-out for "the one legitimate hash" would be a name on a list, which is the

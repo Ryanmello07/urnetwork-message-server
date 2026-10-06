@@ -15,7 +15,7 @@ import (
 // The reach that laundering a MAC through a neighbouring package would take.
 //
 // TestNoFunctionInThisPackageBuildsAPreimageComputesAMacOrParsesARecord derives its class from
-// connect/message's own imports, which is the half of a gate this project keeps getting wrong.
+// the record layer's own imports, which is the half of a gate this project keeps getting wrong.
 // Its scope was the other half and it was typed: the single directory ".". A second
 // implementation of the MAC placed in a package api/doc.go's mayimport list already permits, and
 // called from checkWriteAuth, passes that gate untouched — and this repository does not merely
@@ -113,9 +113,9 @@ func TestTheSecondImplementationScopeFindsAPackageOutsideThisOne(t *testing.T) {
 	}
 }
 
-// ── §5.1 check 7, decided by connect/message and by nothing else ─────────────────────────
+// ── §5.1 check 7, decided by the record layer and by nothing else ────────────────────────
 
-// The function that runs §5.1 check 7 on each path calls one of connect/message's verifiers.
+// The function that runs §5.1 check 7 on each path calls one of the record layer's verifiers.
 //
 // TestThisPackageDecidesEveryAuthenticatorThroughConnectMessage asserts that two distinct
 // verifiers are reached *somewhere* in the package, and that is not the same claim: the
@@ -145,7 +145,7 @@ func TestSpecB51sMacCheckIsDecidedByACallIntoConnectMessage(t *testing.T) {
 		}
 		reached := verifiersCalledIn(files, declared, verifiers, recordLayerImportPath(t))
 		if len(reached) == 0 {
-			t.Fatalf("%s runs §5.1 check %d and calls none of connect/message's verifiers (%v) at %s; check 7 is \"recompute the §5.4 preimage byte-for-byte using connect/message's encoder — never a local reimplementation\", and a comparison made any other way is the second implementation §12.1 A-1 is written against",
+			t.Fatalf("%s runs §5.1 check %d and calls none of the record layer's verifiers (%v) at %s; check 7 is \"recompute the §5.4 preimage byte-for-byte using connect/message's encoder — never a local reimplementation\", and a comparison made any other way is the second implementation §12.1 A-1 is written against",
 				name, number, verifiers, fileSet.Position(declared.Pos()))
 		}
 		t.Logf("%s decides check %d through %v", name, number, reached)
@@ -332,7 +332,7 @@ func functionNamed(files []*ast.File, name string) *ast.FuncDecl {
 	return nil
 }
 
-// The connect/message verifiers one function calls.
+// The record layer's verifiers one function calls.
 func verifiersCalledIn(files []*ast.File, declared *ast.FuncDecl, verifiers []string, path string) []string {
 	local := map[string]bool{}
 	for _, file := range files {

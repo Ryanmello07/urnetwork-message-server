@@ -49,22 +49,29 @@ missing either fails outright or, worse, reports clean having read nothing.
 ## Building
 
 The URnetwork Go repositories are built from the working tree, sibling-checked-out, the way the rest
-of the workspace is wired. This module's `go.mod` replaces two of them with `../`, so the checkout
-must look like this:
+of the workspace is wired. This module's `go.mod` replaces four of them with `../` (and `pion/sctp`
+with `../connect/sctp`), so the checkout must look like this:
 
 ```
 <workspace>/
-  connect/          github.com/urnetwork/connect     (branch beta/message)
+  connect/          github.com/urnetwork/connect     (without the messaging schema)
   glog/             github.com/urnetwork/glog
+  gvisor/           github.com/urnetwork/gvisor      (branch go)
+  message/          github.com/urnetwork/message
   message-server/   this repository
 ```
 
+`message` holds the record layer, its presentation-language codec and the messaging schema, which
+moved there out of `connect`; this module imports its `message`, `syntax` and `protocol` packages and
+nothing else of it. `connect` must be a `connect` from after that move: one that still carries
+`protocol/message.proto` registers the schema a second time, and every test binary that links both
+copies panics at init. `.github/workflows/gates.yml` pins both to the commits this module is tested
+against.
+
 `glog` is replaced even though nothing here names it: `connect` requires `github.com/urnetwork/glog
 v0.0.0`, a version no proxy serves, and a `replace` in a dependency's `go.mod` is ignored — only the
-main module's replaces apply. Without that line `connect` is unbuildable from here.
-
-Neither module is *required* yet, because nothing in this module imports either one. The `require`
-lands with the first import.
+main module's replaces apply. Without that line `connect` is unbuildable from here. `gvisor` and
+`pion/sctp` are replaced for the same reason, to the copies `connect`'s own `go.mod` names.
 
 ```bash
 go build ./...
@@ -104,11 +111,11 @@ It has a positive control, so a broken matcher cannot report the module clean, a
 than skips** when `go list` cannot run: a gate that skips is a gate that is off, and it prints the
 same green line as a gate that passed.
 
-The first package here that parses a record will fail this gate, and that failure is correct. §2.2
-allows `connect/message`; `connect/message` imports `connect/mls/syntax`; §5.3 and §13 item 8 ban
-`connect/mls` and assert it with a `grep` that also matches its child. The two cannot both hold as
-written, and the resolution belongs in the spec rather than in a quiet edit to the allow list. The
-test's comment says so at the point where somebody will be tempted.
+§2.2 allows three packages of `github.com/urnetwork/message` by their exact paths, `message/message`,
+`message/syntax` and `message/protocol`, and forbids its `mls`, `messagegroup` and `sdk`: the module
+is never allowed whole, because it also holds a client's MLS implementation. The test's comment says
+why at the point where somebody will be tempted to allow it, and a replace is accepted only when the
+directory it names declares the module it replaces.
 
 ## Postgres
 

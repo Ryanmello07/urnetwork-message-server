@@ -120,7 +120,7 @@ func TestEverySpecB102SettingSpecB431AdvertisesReachesTheAdvertisement(t *testin
 	}
 }
 
-// The two ladders §4.3.1 advertises are `connect/message`'s own, walked rather than copied.
+// The two ladders §4.3.1 advertises are the record layer's own, walked rather than copied.
 //
 // A literal here would be a second copy of a ladder §5.1 check 3 enforces as an EQUALITY: the two
 // would agree the day they were written, and the disagreement would surface as one size of record
@@ -132,12 +132,12 @@ func TestTheAdvertisedLaddersAreConnectMessagesOwn(t *testing.T) {
 	}
 	for bucket, advertised := range sizes {
 		if want := message.SizeBucketBytes(message.SizeBucket(bucket)); int(advertised) != want {
-			t.Fatalf("size bucket %d is advertised as %d and connect/message answers %d", bucket, advertised, want)
+			t.Fatalf("size bucket %d is advertised as %d and the record layer answers %d", bucket, advertised, want)
 		}
 	}
 	// and it stopped at the ladder's end rather than before it
 	if message.SizeBucketBytes(message.SizeBucket(len(sizes))) >= 0 {
-		t.Fatalf("the size ladder was cut at %d rungs and connect/message still answers for rung %d", len(sizes), len(sizes))
+		t.Fatalf("the size ladder was cut at %d rungs and the record layer still answers for rung %d", len(sizes), len(sizes))
 	}
 
 	windows := ephBucketLadder()
@@ -155,11 +155,11 @@ func TestTheAdvertisedLaddersAreConnectMessagesOwn(t *testing.T) {
 	}
 	for bucket, advertised := range windows {
 		if want := message.EphBucketSeconds(uint8(bucket)); int(advertised) != want {
-			t.Fatalf("eph bucket %d is advertised as %d and connect/message answers %d", bucket, advertised, want)
+			t.Fatalf("eph bucket %d is advertised as %d and the record layer answers %d", bucket, advertised, want)
 		}
 	}
 	if message.EphBucketSeconds(uint8(len(windows))) >= 0 {
-		t.Fatalf("the eph ladder was cut at %d rungs and connect/message still answers for rung %d", len(windows), len(windows))
+		t.Fatalf("the eph ladder was cut at %d rungs and the record layer still answers for rung %d", len(windows), len(windows))
 	}
 }
 
