@@ -54,12 +54,15 @@
 //     is derived from the tree, and every package in it must be reached.
 //   - An import path is a claim about where code came from, and a replace directive can put
 //     anything behind an allowed one without touching the path. The go command reports the
-//     directory it actually read, and that directory's own go.mod has to agree.
+//     directory it actually read, and that directory's own go.mod has to agree — and the
+//     directory reported has to be the one go.mod names, because a check of the directory that
+//     was handed none passes, which is how ledger 284's red team switched it off in one line.
 //   - Inside the module the layering was prose only. Eight package documents state a "May
 //     import:" contract, two of them structural halves of §11.1, and nothing read one.
 package messageserver
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"go/build"
@@ -241,7 +244,9 @@ type dependency struct {
 // Module.Replace.Dir is on the end because it is the only field that says where the code
 // actually came from. Module.Path is the path the go.mod asked for, which a replace does not
 // change; the directory is what a replace does change, and the two disagreeing is the one
-// substitution a list of import paths cannot see.
+// substitution a list of import paths cannot see. It is also the one field whose absence reads
+// as a clean answer — a module with no replace directory passes as itself — so what the closure
+// reports for it is held to go.mod's replaces ([replacementsDisagreeing]).
 const goListFormat = "{{.ImportPath}}\t{{.Standard}}\t{{join .Imports \",\"}}\t{{with .Module}}{{.Path}}\t{{.Main}}\t{{with .Replace}}{{.Dir}}{{end}}{{end}}"
 
 // The manifest of what this module is released for. Read by this gate and by the release job
@@ -753,8 +758,18 @@ func violations(deps []dependency, viaConnect map[string]bool) (forbidden []stri
 // origin allowed" rather than "is the origin the module". TestAnAllowedPathWhoseCodeCameFrom-
 // ElsewhereIsRefused holds both rows.
 //
-// Only allowed paths are examined. An unlisted one is already being refused above, and naming
-// it twice buries the interesting line under the obvious one.
+// Only permitted paths are examined: what the allow list names and what connect's closure answers
+// for, which is why this takes the derived set. An unlisted one is already being refused above,
+// and naming it twice buries the interesting line under the obvious one. Handed no derived set,
+// this examines the allow list's paths alone and passes every module connect brings with it
+// whatever directory it came from — pion/sctp and gvisor, the two replaces go.mod says exist to
+// prevent a wrong dependency with a green build, among them. So neither the gate nor its controls
+// call this: they ask [dependencyRule.refusalsOf], which hands it the set the rule carries.
+//
+// A row whose replace directory is empty passes as the module it names. That is right for a module
+// nothing replaces and is a hole for one go.mod does replace, if the go command stopped reporting
+// the directory — so the real gate holds every reported directory to go.mod separately, see
+// [replacementsDisagreeing].
 //
 // What this cannot see is a directory that declares itself to be the module it stands in for.
 // At that point the lie is inside a go.mod rather than inside the import graph, and it belongs
@@ -797,6 +812,216 @@ func modulePathDeclaredAt(t *testing.T, directory string) string {
 	}
 	t.Fatalf("%s %v", name, errNoModuleDirective)
 	return ""
+}
+
+// A directory holding nothing but a go.mod that declares the given module: a replace target for a
+// control row, real enough that [modulePathDeclaredAt] reads the answer off the disk.
+func directoryDeclaring(t *testing.T, module string) string {
+	t.Helper()
+	directory := t.TempDir()
+	if err := os.WriteFile(filepath.Join(directory, "go.mod"), []byte("module "+module+"\n\ngo 1.26.5\n"), 0o600); err != nil {
+		t.Fatalf("writing a go.mod declaring %s: %v", module, err)
+	}
+	return directory
+}
+
+// ── the rule, bound once ─────────────────────────────────────────────────────────────────
+
+// §2.2's rule as the gate applies it: the allow list, the bans, and the modules connect's allowed
+// packages link, held in one value.
+//
+// One value, because the two halves of the rule were once handed the derived set separately, at
+// the gate's own call sites, and nothing held the two arguments together. The red team of ledger
+// 284 passed nil to the impostor half's call in place of the derived set, a one-line edit, and
+// every test stayed green: the path half still permitted pion/sctp and gvisor through connect's
+// closure, the impostor half no longer examined either, and a replace of pion/sctp by a directory
+// declaring another module passed the gate end to end. Now the real gate decides every measured
+// closure through [dependencyRule.refusalsOf], and so do the impostor rows it plants from that
+// closure. A control row whose module the derived set answers for is examined by the impostor
+// half or the gate fails, wherever the edit that stopped it was made.
+type dependencyRule struct {
+	viaConnect map[string]bool
+}
+
+// What the rule refuses in one closure, by how: forbidden and unlisted by the path half
+// ([violations]), substituted by the impostor half ([substitutions]).
+type refusals struct {
+	forbidden   []string
+	unlisted    []string
+	substituted []string
+}
+
+func (self dependencyRule) refusalsOf(t *testing.T, deps []dependency) refusals {
+	t.Helper()
+	forbidden, unlisted := violations(deps, self.viaConnect)
+	return refusals{forbidden: forbidden, unlisted: unlisted, substituted: substitutions(t, deps, self.viaConnect)}
+}
+
+// ── the replace directives, read out of go.mod ───────────────────────────────────────────
+
+// One replace directive as `go mod edit -json` prints it.
+type goModReplace struct {
+	Old struct {
+		Path    string
+		Version string
+	}
+	New struct {
+		Path    string
+		Version string
+	}
+}
+
+var errVersionScopedReplace = errors.New("applies only while that version is the one selected, and this gate does not read which version was, so it cannot say which rows the replace should have reached; hold it here before adding one")
+
+// What go.mod replaces, module by module, against what the go command has to report for it: the
+// directory a directory replace resolves to, or "" for a replace by another module's version,
+// whose directory is the module cache's and is only required to be there.
+//
+// Read by `go mod edit -json`, which parses go.mod and resolves nothing, and NOT out of go list,
+// whose report is the thing held to it: a check that took the replaces from the same template it
+// checks agrees with a template that has stopped asking for them. A relative directory is joined
+// to the module root the way the go command joins it outside a workspace, lexically, so the two
+// compare as paths without resolving anything on the disk.
+func replacesInGoMod(t *testing.T) map[string]string {
+	t.Helper()
+	environment := hostConfiguration(t).environment()
+	var parsed struct {
+		Replace []goModReplace
+	}
+	if err := json.Unmarshal([]byte(goOutput(t, environment, "mod", "edit", "-json")), &parsed); err != nil {
+		t.Fatalf("go mod edit -json printed what this gate cannot parse: %v", err)
+	}
+	root := strings.TrimSpace(goOutput(t, environment, "list", "-m", "-f", "{{.Dir}}"))
+	if root == "" {
+		t.Fatal("go list -m named no module root, so a relative replace has nothing to be resolved against")
+	}
+	replaced := map[string]string{}
+	for _, replace := range parsed.Replace {
+		if replace.Old.Path == "" || replace.New.Path == "" {
+			t.Fatalf("go mod edit -json printed a replace with no path on one side: %+v", replace)
+		}
+		if replace.Old.Version != "" {
+			t.Fatalf("go.mod replaces %s@%s, which %v", replace.Old.Path, replace.Old.Version, errVersionScopedReplace)
+		}
+		if replace.New.Version != "" {
+			replaced[replace.Old.Path] = ""
+			continue
+		}
+		directory := replace.New.Path
+		if !filepath.IsAbs(directory) {
+			directory = filepath.Join(root, directory)
+		}
+		replaced[replace.Old.Path] = filepath.Clean(directory)
+	}
+	return replaced
+}
+
+// The replace directories one closure was reported with, held to go.mod both ways: every module
+// go.mod replaces is reported with the directory the replace resolves to, and no other module is
+// reported with one. Answers a line per module that disagrees, and records in reported the
+// directory each replaced module came back with.
+//
+// This is the half [substitutions] cannot do for itself. It reads the directory the go command
+// reports and nothing else, and a row reported with none passes as the module it names — so a
+// template that stopped asking for Module.Replace.Dir left the impostor half reading no directory
+// at all, and an impostor of the message module passed the gate with every test green. That was
+// the red team's first mutation of ledger 284.
+func replacementsDisagreeing(deps []dependency, replaced map[string]string, reported map[string]string) []string {
+	disagreeing := map[string]string{}
+	for _, dep := range deps {
+		if dep.standard || dep.main {
+			continue
+		}
+		wanted, isReplaced := replaced[dep.module]
+		switch {
+		case !isReplaced && dep.replaceDir != "":
+			disagreeing[dep.module] = fmt.Sprintf("%s (%s, among others) was reported read from %s, and go.mod replaces no such module", dep.module, dep.path, dep.replaceDir)
+		case isReplaced && dep.replaceDir == "":
+			disagreeing[dep.module] = fmt.Sprintf("%s (%s, among others) was reported with no replace directory, and go.mod replaces it with %s", dep.module, dep.path, describedReplace(wanted))
+		case isReplaced && wanted != "" && filepath.Clean(dep.replaceDir) != wanted:
+			disagreeing[dep.module] = fmt.Sprintf("%s (%s, among others) was reported read from %s, and go.mod replaces it with %s", dep.module, dep.path, dep.replaceDir, wanted)
+		}
+		if isReplaced && dep.replaceDir != "" {
+			reported[dep.module] = dep.replaceDir
+		}
+	}
+	lines := []string{}
+	for _, module := range sortedKeys(keysOf(disagreeing)) {
+		lines = append(lines, disagreeing[module])
+	}
+	return lines
+}
+
+func describedReplace(wanted string) string {
+	if wanted == "" {
+		return "another module's version"
+	}
+	return wanted
+}
+
+func keysOf[V any](values map[string]V) map[string]bool {
+	keys := map[string]bool{}
+	for key := range values {
+		keys[key] = true
+	}
+	return keys
+}
+
+// The last element of a module path, for naming the module an impostor control declares.
+func lastElementOf(module string) string {
+	return module[strings.LastIndex(module, "/")+1:]
+}
+
+// The impostor half, held to the closure it judges.
+//
+// For every module go.mod replaces with a directory and a measured closure links, one of its real
+// packages is planted through the same rule the gate just applied: read from a directory declaring
+// example.com/not-<name>, which must be refused as substituted, and from one declaring the module
+// itself, which must pass. The path half has to permit both rows, so nothing but the directory
+// decides them. The modules come from go.mod and the paths from the closure, so a replace added
+// tomorrow is probed tomorrow, and the probes that matter most are the ones the derived set
+// answers for: pion/sctp and gvisor today, permitted through connect's closure and examined by
+// the impostor half only while it is handed that closure.
+func assertTheImpostorHalfExaminesWhatIsReplaced(t *testing.T, rule dependencyRule, replaced map[string]string, sample map[string]string) {
+	t.Helper()
+	if len(sample) == 0 {
+		t.Fatalf("no module go.mod replaces with a directory is linked by any measured closure, so the impostor half has nothing here to be held to; go.mod replaces %v", sortedKeys(keysOf(replaced)))
+	}
+	throughTheClosure := []string{}
+	for _, module := range sortedKeys(keysOf(sample)) {
+		path := sample[module]
+		if rule.viaConnect[module] && !allowListNamesAPathIn(module) {
+			throughTheClosure = append(throughTheClosure, module)
+		}
+		impostor := "example.com/not-" + lastElementOf(module)
+		for _, probe := range []struct {
+			declares string
+			refused  bool
+		}{
+			{declares: impostor, refused: true},
+			{declares: module, refused: false},
+		} {
+			what := fmt.Sprintf("%s read from a directory declaring %s", path, probe.declares)
+			row := strings.Join([]string{path, "false", "", module, "false", directoryDeclaring(t, probe.declares)}, "\t")
+			decided := rule.refusalsOf(t, parseDependencies(t, what, row))
+			if len(decided.forbidden) != 0 || len(decided.unlisted) != 0 {
+				t.Errorf("%s: the path half refused it as %v and %v, so this probe is not testing the directory", what, decided.forbidden, decided.unlisted)
+				continue
+			}
+			switch {
+			case probe.refused && len(decided.substituted) != 1:
+				t.Errorf("%s was reported as %v, want it refused as substituted: the impostor half did not examine %s, which go.mod replaces with %s", what, decided.substituted, module, replaced[module])
+			case !probe.refused && len(decided.substituted) != 0:
+				t.Errorf("%s was refused as %v, and it is the module the path names", what, decided.substituted)
+			}
+		}
+	}
+	t.Logf("the impostor half was held to an impostor and to the real directory of each of the %d modules go.mod replaces with a directory that the closures link, %v; %d of them are permitted through connect's closure rather than by the allow list: %v",
+		len(sample), sortedKeys(keysOf(sample)), len(throughTheClosure), throughTheClosure)
+	if len(throughTheClosure) == 0 {
+		t.Fatalf("none of %v is permitted through connect's closure, so no probe here holds the impostor half to the derived set, which is the set it once stopped being handed (ledger 284's red team); TestAnAllowedPathWhoseCodeCameFromElsewhereIsRefused still plants one, and if no replaced module is linked through connect any more, this assertion goes deliberately, not quietly",
+			sortedKeys(keysOf(sample)))
+	}
 }
 
 // ── what this module is, derived from the tree ───────────────────────────────────────────
@@ -1208,55 +1433,64 @@ func TestTheMatcherRefusesWhatSpecB22Forbids(t *testing.T) {
 // a fixture that only pretended to have one would prove that a string comparison works and
 // nothing at all about whether the gate can find the answer on disk.
 //
-// The rows are the message module's, the record layer's home since ledger 284, and connect's, the
-// two siblings this module's go.mod replaces with a directory and whose packages §2.2 names. Three
-// of them tell the rule apart from the one it replaced, which asked whether the origin was
-// allowed rather than whether it was the module (see [substitutions]): connect replaced by a
-// directory declaring glog, and the message module replaced by one declaring connect, both name
-// an origin the allow list carries and must still be refused; and the message module's own
-// sibling checkout declares a module whose root path the list never carries, and must pass.
+// The rows are the message module's, the record layer's home since ledger 284, connect's, the two
+// siblings this module's go.mod replaces with a directory and whose packages §2.2 names, and
+// pion/sctp's, which go.mod replaces with connect's patched copy and §2.2 permits only through
+// connect's closure. Four of the message and connect rows tell the rule apart from the one it
+// replaced, which asked whether the origin was allowed rather than whether it was the module (see
+// [substitutions]): connect replaced by a directory declaring glog, and the message module replaced
+// by one declaring connect, both name an origin the allow list carries and must still be refused;
+// and the message module's own sibling checkout, and its schema with no replace directive at all,
+// both name a module whose root path the list never carries, and must pass.
+//
+// The two pion/sctp rows go through a derived set, planted, and through [dependencyRule], the
+// value the real gate decides its closures with. They tell apart an impostor half that examines
+// what the derived set permits from one that examines only what the allow list names: handed no
+// derived set, or filtering on the allow list alone, it passes a pion/sctp read from a directory
+// declaring example.com/not-sctp, which is the replace the red team of ledger 284 put through the
+// real gate end to end.
 func TestAnAllowedPathWhoseCodeCameFromElsewhereIsRefused(t *testing.T) {
-	declaring := func(module string) string {
-		directory := t.TempDir()
-		if err := os.WriteFile(filepath.Join(directory, "go.mod"), []byte("module "+module+"\n\ngo 1.26.5\n"), 0o600); err != nil {
-			t.Fatalf("writing a go.mod declaring %s: %v", module, err)
-		}
-		return directory
-	}
 	const (
 		messageModule = messageModulePath
 		glogModule    = "github.com/urnetwork/glog"
+		sctpModule    = "github.com/pion/sctp"
 	)
+	rule := dependencyRule{viaConnect: map[string]bool{sctpModule: true}}
+	if isAllowed(sctpModule) || allowListNamesAPathIn(sctpModule) {
+		t.Fatalf("%s is on the allow list in its own right, so its rows are not probes of what the derived set permits", sctpModule)
+	}
 
 	for _, control := range []struct {
 		what      string
-		path      string // a path the allow list permits
+		path      string // a path the rule permits
 		module    string // the module the go command says the path was resolved from
 		directory string // where a replace pointed that module; empty for no replace
 		refused   bool
 	}{
-		{"the record layer replaced by a directory declaring example.com/not-message", messageModule + "/message", messageModule, declaring("example.com/not-message"), true},
-		{"the record layer read from the sibling checkout §2.1's own workspace layout is built on", messageModule + "/message", messageModule, declaring(messageModule), false},
+		{"the record layer replaced by a directory declaring example.com/not-message", messageModule + "/message", messageModule, directoryDeclaring(t, "example.com/not-message"), true},
+		{"the record layer read from the sibling checkout §2.1's own workspace layout is built on", messageModule + "/message", messageModule, directoryDeclaring(t, messageModule), false},
 		{"the schema with no replace directive at all", messageModule + "/protocol", messageModule, "", false},
-		{"the codec replaced by a directory declaring connect, a module the allow list carries", messageModule + "/syntax", messageModule, declaring(connectModulePath), true},
-		{"connect replaced by a directory declaring example.com/not-connect", connectModulePath, connectModulePath, declaring("example.com/not-connect"), true},
-		{"connect replaced by a directory declaring glog, a module the allow list carries whole", connectModulePath + "/protocol", connectModulePath, declaring(glogModule), true},
-		{"connect read from the sibling checkout", connectModulePath, connectModulePath, declaring(connectModulePath), false},
+		{"the codec replaced by a directory declaring connect, a module the allow list carries", messageModule + "/syntax", messageModule, directoryDeclaring(t, connectModulePath), true},
+		{"connect replaced by a directory declaring example.com/not-connect", connectModulePath, connectModulePath, directoryDeclaring(t, "example.com/not-connect"), true},
+		{"connect replaced by a directory declaring glog, a module the allow list carries whole", connectModulePath + "/protocol", connectModulePath, directoryDeclaring(t, glogModule), true},
+		{"connect read from the sibling checkout", connectModulePath, connectModulePath, directoryDeclaring(t, connectModulePath), false},
+		{"pion/sctp, permitted through connect's closure, replaced by a directory declaring example.com/not-sctp", sctpModule, sctpModule, directoryDeclaring(t, "example.com/not-sctp"), true},
+		{"pion/sctp read from a directory declaring github.com/pion/sctp, as connect's patched copy does", sctpModule, sctpModule, directoryDeclaring(t, sctpModule), false},
 	} {
 		row := strings.Join([]string{control.path, "false", "", control.module, "false", control.directory}, "\t")
+		decided := rule.refusalsOf(t, parseDependencies(t, control.what, row))
 
 		// the path half of the rule permits every one of these rows, so nothing but the directory
 		// decides — without this a refusal below could be the path's and not the directory's
-		if forbidden, unlisted := violations(parseDependencies(t, control.what, row), nil); len(forbidden) != 0 || len(unlisted) != 0 {
-			t.Fatalf("%s: the path half of the rule refused %v and %v, so this control is not testing what it claims", control.what, forbidden, unlisted)
+		if len(decided.forbidden) != 0 || len(decided.unlisted) != 0 {
+			t.Fatalf("%s: the path half of the rule refused %v and %v, so this control is not testing what it claims", control.what, decided.forbidden, decided.unlisted)
 		}
 
-		substituted := substitutions(t, parseDependencies(t, control.what, row), nil)
 		switch {
-		case control.refused && len(substituted) != 1:
-			t.Errorf("%s was reported as %v, want exactly one refusal", control.what, substituted)
-		case !control.refused && len(substituted) != 0:
-			t.Errorf("%s was refused as %v", control.what, substituted)
+		case control.refused && len(decided.substituted) != 1:
+			t.Errorf("%s was reported as %v, want exactly one refusal", control.what, decided.substituted)
+		case !control.refused && len(decided.substituted) != 0:
+			t.Errorf("%s was refused as %v", control.what, decided.substituted)
 		}
 	}
 }
@@ -1265,15 +1499,26 @@ func TestAnAllowedPathWhoseCodeCameFromElsewhereIsRefused(t *testing.T) {
 
 // Every dependency of this module, in every configuration it is released for, is one spec B
 // §2.2 allows — and the closure that was measured covers the module.
+//
+// Every closure is decided by one [dependencyRule], built once from connect's derived closure, and
+// the impostor rows planted after the loop are decided by the same value: the two halves of the
+// rule cannot be handed two different derived sets, and the impostor half cannot stop examining
+// what the derived set permits while the closure goes on passing. And every replace directory the
+// go command reported is held to go.mod, so a closure in which the impostor half read no
+// directory at all is a failure rather than a pass.
 func TestEveryDependencyOfThisModuleIsOneSpecB22Allows(t *testing.T) {
 	assertTheMatcherWorks(t)
 
 	packages := packagesOfThisModule(t)
 	measurements := measureThisModule(t)
-	viaConnect := modulesLinkedByConnect(t)
+	rule := dependencyRule{viaConnect: modulesLinkedByConnect(t)}
 	t.Logf("the packages of %s that §2.2 allows link %d modules outside it, and §2.2's allowance of them carries every package of those that they reach",
-		connectModulePath, len(viaConnect))
+		connectModulePath, len(rule.viaConnect))
+	replaced := replacesInGoMod(t)
 	reached := map[string]bool{}
+	reported := map[string]string{}
+	linked := map[string]bool{}
+	sample := map[string]string{}
 
 	for _, measured := range measurements {
 		// what was measured, stated in the same breath as the verdict: a reader of a green run
@@ -1291,22 +1536,50 @@ func TestEveryDependencyOfThisModuleIsOneSpecB22Allows(t *testing.T) {
 			if dep.main {
 				reached[dep.path] = true
 			}
+			// one real package of every module go.mod replaces with a directory, for the impostor
+			// rows after the loop: the lowest path, so two runs plant the same rows
+			if wanted := replaced[dep.module]; wanted != "" && !dep.standard && !dep.main {
+				linked[dep.module] = true
+				if current, found := sample[dep.module]; !found || dep.path < current {
+					sample[dep.module] = dep.path
+				}
+			}
 		}
 
-		forbidden, unlisted := violations(measured.deps, viaConnect)
-		if len(forbidden) != 0 {
+		decided := rule.refusalsOf(t, measured.deps)
+		if len(decided.forbidden) != 0 {
 			t.Errorf("%s.\nspec B §2.2 forbids these outright and this module reaches them:\n  %s\nthe operator's model package is the account identity layer and §4.2 forbids consulting it; message/mls, message/messagegroup and connect/mls are forbidden by §5.3, because the moment an MLS parser is in this process \"just validate the commit\" is a one-line change; message/sdk, like github.com/urnetwork/sdk, is a client",
-				measured, strings.Join(forbidden, "\n  "))
+				measured, strings.Join(decided.forbidden, "\n  "))
 		}
-		if len(unlisted) != 0 {
+		if len(decided.unlisted) != 0 {
 			t.Errorf("%s.\nthese are not in spec B §2.2's allow list:\n  %s\neither the import is wrong, or §2.2 has grown and allowedDependencies in this file has not; write it down deliberately — this gate is the only place a new dependency of this module is looked at",
-				measured, strings.Join(unlisted, "\n  "))
+				measured, strings.Join(decided.unlisted, "\n  "))
 		}
-		if substituted := substitutions(t, measured.deps, viaConnect); len(substituted) != 0 {
+		if len(decided.substituted) != 0 {
 			t.Errorf("%s.\nthese carry an import path §2.2 allows and code from a module other than the one the path names:\n  %s\na replace directive does not change an import path, so the allow list above cannot see this; §2.1's workspace layout replaces a sibling with the module of the same name and with nothing else",
-				measured, strings.Join(substituted, "\n  "))
+				measured, strings.Join(decided.substituted, "\n  "))
+		}
+		if disagreeing := replacementsDisagreeing(measured.deps, replaced, reported); len(disagreeing) != 0 {
+			t.Errorf("%s.\nthe go command reported these modules' replace directories other than go.mod declares them:\n  %s\nthe impostor half of this gate reads the directory the go command reports and nothing else, and a module reported with none passes as the module it names, whatever go.mod pointed it at",
+				measured, strings.Join(disagreeing, "\n  "))
 		}
 	}
+
+	// what the closures were read from, said in the same breath as the verdict, and its
+	// complement: a replace no closure links is one this gate held to nothing
+	carried := []string{}
+	for _, module := range sortedKeys(keysOf(reported)) {
+		carried = append(carried, module+" => "+reported[module])
+	}
+	t.Logf("%d modules of the measured closures were read from a replace directory, each the one go.mod names:\n  %s", len(carried), strings.Join(carried, "\n  "))
+	unlinkedReplaces := []string{}
+	for _, module := range sortedKeys(keysOf(replaced)) {
+		if !linked[module] && reported[module] == "" {
+			unlinkedReplaces = append(unlinkedReplaces, module)
+		}
+	}
+	t.Logf("go.mod replaces %d modules, and %d of them no measured closure links: %v", len(replaced), len(unlinkedReplaces), unlinkedReplaces)
+	assertTheImpostorHalfExaminesWhatIsReplaced(t, rule, replaced, sample)
 
 	// the closure was measured; that it covers the module is a separate claim, and the counts
 	// above cannot make it. Narrowing the pattern to ./cmd/... leaves every one of them healthy
