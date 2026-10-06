@@ -17,7 +17,9 @@ go 1.26.5
 // with, and connect/protocol's Frame and MessageType values, which carry a request. The connect
 // beside this repository must be one WITHOUT the messaging schema. A binary linking connect's old
 // copy of message.proto beside message/protocol's registers the same names twice, and protobuf
-// panics at init; cmd/messagectl/main_test.go starts a binary to see it.
+// panics at init: the test binaries of peer, harness and cmd/message-server do, before a test runs,
+// and cmd/message-server/schema_test.go asks the registry which copy it holds. cmd/messagectl links
+// message/protocol alone, so its test cannot see it. scripts/siblings.sh refuses such a connect.
 //
 // google.golang.org/protobuf arrived with connect as an indirect dependency and is now a direct
 // one. api names it: §4.3.8's `canonical_request_bytes` is a deterministic marshal, §4.3.8's `op`

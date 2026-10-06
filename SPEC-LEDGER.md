@@ -12405,7 +12405,9 @@ repo and therefore the critical path — not this repository:
       - **`urnetwork/connect`:** the message packages and `message.proto` removed, and a generic
         `NewOperatorClientSettings` added, which the moved code needs: the plan's CX-1 and CX-2.
       - **`urnetwork/sdk`:** the messaging files and exports removed, and its settings delegated to
-        that connect function: the plan's SX-1 and SX-4.
+        that connect function: the plan's SX-1 and SX-4. *(**Superseded by item 285,** the lead's
+        ruling of 06:48:19 on 2026-10-06: the sdk's pull request does not delegate, and it is SX-4
+        alone. The core sdk keeps its private `newDeviceClientSettings`. Old wording kept.)*
       - **The owner's "possibly /sdk" is read as a definite sdk pull request.** That is the lead's
         reading: the sdk's pull request merges first, and afterwards nothing in the sdk imports
         connect's message code.
@@ -12437,7 +12439,8 @@ repo and therefore the critical path — not this repository:
     - **An order to settle** (section 7's entry, part 9). The sdk's pull request delegates to
       `NewOperatorClientSettings`, which connect's adds, yet it merges first, and the sdk's CI
       builds against connect's `main`, cloned unpinned. Between the two merges the sdk's `main`
-      would not build.
+      would not build. *(**Settled by item 285:** the sdk's pull request does not delegate, so
+      nothing in it waits on connect's, and the merge order above stands. Old wording kept.)*
 
 284. **THE MESSAGE SERVER IMPORTS `github.com/urnetwork/message`: THE RECORD LAYER, ITS CODEC AND THE
     SCHEMA COME FROM THE NEW MODULE, SPEC B §2.2 ALLOWS EXACTLY THOSE THREE PACKAGES OF IT, AND IT
@@ -12452,6 +12455,7 @@ repo and therefore the critical path — not this repository:
       2026-10-06 replaces the plan's schema freeze with an append-only rule, and keeps the message
       repository's check that its schema emits, byte for byte, what connect's did at `92a657fa`.
       That ruling is to be written as an item of its own, after this one (the review file's part E).
+      *(It is item 286.)*
     - **What changes.**
       - `go.mod` requires `github.com/urnetwork/message`, replaced by `../message`. Connect stays
         required, for the client and for `connect/protocol`'s `Frame` and `MessageType` values,
@@ -12486,17 +12490,26 @@ repo and therefore the critical path — not this repository:
       `connect/mls/syntax` at `92a657fa`, once the old paths in it are read as the new ones, and
       `message.proto` differs only in its `go_package` line.
     - **The merge order** is item 283's, with this one last: the sdk's removal, connect's,
-      `urnetwork/message`, then this. Against a connect that still carries `message.proto`, every
-      binary here would link the schema twice and panic at init, so this cannot merge before
-      connect's removal, and it imports `urnetwork/message`, so it cannot merge before that either.
+      `urnetwork/message`, then this. Against a connect that still carries `message.proto`, the
+      test binaries of `peer`, `harness` and `cmd/message-server` would link the schema twice and
+      panic at init, so this cannot merge before connect's removal, and it imports
+      `urnetwork/message`, so it cannot merge before that either. *(Corrected by this item's review:
+      it read "every binary here would link the schema twice and panic at init", and §7's control
+      E8 shows `cmd/messagectl` linking one copy.)*
       It is based on `3b0c9cd`, the head of message-server #2, so #2 merges first.
     - **The pins.** `gates.yml` fetches `urnetwork/message` and `urnetwork/connect` by commit, and
       both are placeholders that the step refuses until the two pull requests exist: the message
       pull request's head, and the head of connect's removal. The switch was tested against
       `split/import-all` at `f3f8f2bd` and `upstream/remove-message` at `5c281069`, both local.
+      *(Since this item's review, the pins are in `scripts/siblings.txt`, with `glog` and `gvisor`
+      pinned beside them at the message repository's commits, and `gates.yml` reads them through
+      `scripts/siblings.sh`, which runs by hand as well. The switch was verified again against
+      `split/import-all` at `cdd30926` and `upstream/remove-message` at `360dac9e`: §7's entry for
+      this item, under Reviewed by.)*
     - **Open.**
       - The red-team review of the change, Revision 24 with it. The ledger's §6 puts the diff
         review before the commit; the lead ordered it after, in the split's red-team phase.
+        *(Done on 2026-10-06, and recorded under Reviewed by in §7's entry for this item.)*
       - The pins, filled with the two heads once their pull requests are open.
       - Spec B's other sections still name `connect/message`, `connect/mls/syntax` or
         `connect/protocol` for messaging, on 24 lines outside the ones Revision 24 rewrote, and one
@@ -12505,6 +12518,58 @@ repo and therefore the critical path — not this repository:
       - `testdata/eph-window-kat.txt` still names its partner as
         `connect/messagegroup/testdata/eph-window-kat.txt`. Both repositories pin the whole file by
         its digest, so its prose changes in both at once, after both pull requests land.
+
+285. **THE LEAD'S RULING OF 2026-10-06 ON THE SDK'S PULL REQUEST: IT DOES NOT HAND ITS SETTINGS TO
+    CONNECT, AND THE ORDER ITEM 283 LEFT TO SETTLE IS SETTLED.** Times are UTC, on 2026-10-06. At
+    06:48:19, in the brief of the split's second wave, the lead ruled, verbatim: **"The sdk removal
+    PR does NOT delegate newDeviceClientSettings to connect (no cross-PR build dependency). Core
+    sdk keeps its private copy."**
+    - **What it settles: item 283's "order to settle".** The sdk's pull request merges first,
+      before connect's adds `NewOperatorClientSettings`, so an sdk that delegated to it would not
+      build between the two merges. With no delegation, nothing in the sdk's pull request waits on
+      connect's, and the merge order stands as item 283 gives it: the sdk's removal, connect's, then
+      `urnetwork/message`, and this repository's switch last (item 284).
+    - **What it changes in item 283:** the sdk's pull request is the plan's SX-4 alone, not SX-1
+      and SX-4. The core sdk keeps its private `newDeviceClientSettings`. Only the code that moves
+      to `urnetwork/message` calls `connect.NewOperatorClientSettings`, which connect's pull request
+      adds (CX-1). Item 283 points here beside its old wording.
+    - **What the branches hold,** read on 2026-10-06 at their local heads:
+      - the sdk's `upstream/remove-message` at `1945759a` defines `newDeviceClientSettings` in
+        `device_local_provider.go` and names no `NewOperatorClientSettings`;
+      - connect's `upstream/remove-message` at `360dac9e` defines `NewOperatorClientSettings` in
+        `operator_client_settings.go`;
+      - the message repository's `split/import-all` at `cdd30926` calls it from
+        `sdk/message_tunnel.go`, and from nowhere else.
+    - **Where it was recorded until now:** in the brief, in part E of the review file
+      (`URMESSAGE-DECISIONS-REVIEW-2026-10-05.md`, which is in no repository), and in the lead's
+      memory. Item 284 deferred it to an item of its own; its review found it still missing here.
+
+286. **THE LEAD'S RULING OF 2026-10-06 ON THE SCHEMA: NO FREEZE. `message.proto` IS APPEND-ONLY,
+    AND THE BYTE-EQUALITY CHECK AGAINST A PINNED PRE-REMOVAL CONNECT STAYS.** In the same brief, at
+    06:48:19 on 2026-10-06, verbatim: **"The schema moves fully in the message PR, because connect
+    drops its copy at the same time. Replace the plan's "schema freeze until M8" with the
+    append-only rule. KEEP the wire-golden byte-equality check against a pinned PRE-removal
+    connect."**
+    - **Why the freeze went.** The plan's freeze test held the schema and its wire corpus unchanged
+      through its stages M3 to M8, while the schema was to live in two places, and made the corpus
+      append-only only after M8 (the plan's R3-F5 and O3). Item 283 replaced the stages with three
+      pull requests built and tested together, and connect's pull request deletes its copy in the
+      same set, so the schema moves once, whole, in the message pull request.
+    - **The append-only rule, where it is enforced.** The message repository's `docs/BOUNDARY.md`
+      says "There is no freeze." Its wire corpus, `protocol/testdata/wire-golden.tsv`, is
+      append-only: every recorded row must still decode into the current types with no unknown
+      field and re-encode to exactly its bytes. A field or enum value added to an existing message
+      passes once the rows it changes are appended; a field removed, renumbered or retyped fails.
+      `TestTheWireCorpusIsAppendOnly` holds it.
+    - **The check that stays.** The corpus's first 197 rows are pinned by digest, and the message
+      repository's `test.sh` compares them byte for byte with what connect emits at `92a657fa`, the
+      connect from before the schema left it, pinned as `connect-golden` in that repository's
+      `scripts/siblings.txt`.
+    - **What it did here.** Item 284 took the schema from `message/protocol` in the same change as
+      the record layer and the codec, where the plan's MS-2 had waited for a later stage: with
+      connect's copy deleted in the same set, there is no other copy to import.
+    - **Where it was recorded until now:** as for item 285. Item 284 paraphrased it, and deferred it
+      to an item of its own.
 
 ## 6. Change process
 
@@ -25031,7 +25096,7 @@ Each ran in a scratch copy of this tree, beside the post-removal siblings or bes
 
 | control | what was planted | what failed, for its own reason |
 |---|---|---|
-| K1 | `substitutions()` back to `isAllowed(origin) \|\| viaConnect[origin]` | the substitution test, on its three rows that tell the rules apart; and the real gate, which refused `message/message`, `message/syntax` and `message/protocol` as substituted under every configuration (the plan's R2-F3): without the fix this commit cannot be green |
+| K1 | `substitutions()` back to `isAllowed(origin) \|\| viaConnect[origin]` | the substitution test, on its four rows that tell the rules apart, the schema with no replace directive among them; and the real gate, which refused `message/message`, `message/syntax` and `message/protocol` as substituted under every configuration (the plan's R2-F3): without the fix this commit cannot be green |
 | K2 | a subtree allow of `github.com/urnetwork/message` | `TestNoAllowedDependencyIsAlsoForbidden`, since it covers `message/mls`, and the matcher's planted control |
 | K3, K4 | `message/syntax`, then `message/protocol`, allowed as subtrees | the matcher, on `syntax/inner` and `protocol/inner` |
 | K5 to K8 | each ban deleted in turn: `message/mls`, `message/messagegroup`, `message/sdk`, `connect/mls` | `TestEverythingSpecB22ForbidsIsOnTheForbiddenList`: §2.2's block names the first three, and §13 item 8's grep names `connect/mls`; and the matcher, where a hand-written row names the ban |
@@ -25048,9 +25113,23 @@ Each ran in a scratch copy of this tree, beside the post-removal siblings or bes
 | E6 | `message/sdk` imported | the gate, before its rule: `go list` cannot resolve a nested module this one does not require, and the ban stands behind that |
 | E7 | beside connect `92a657fa`, a package importing `connect/message` | the gate: `connect/message` unlisted, and `connect/mls/syntax` forbidden |
 | E8 | this tree beside connect `92a657fa` | the test binaries of `peer`, `harness` and `cmd/message-server` panic at init, `file "message.proto" is already registered`, previously from `message/protocol`; `cmd/messagectl`'s passes, linking one copy |
+| K14 | `goListFormat` without `\t{{with .Replace}}{{.Dir}}{{end}}`: the red team's M1 | the real gate: each of the five modules go.mod replaces "was reported with no replace directory" |
+| K15 | `substitutions()` handed nil for the derived set, at `dependencyRule.refusalsOf`, the one place it is handed one: the red team's M2 | the substitution test, on its pion/sctp impostor row; and the real gate, whose impostors of pion/sctp and gvisor are not refused |
+| K16 | `substitutions()` examining what the allow list names, `!isAllowed(dep.path)`: the red team's M3 | the same two tests, on the same rows |
+| K17 | go.mod's replaces read as none | the real gate: five modules read from a directory "go.mod replaces no such module", and no module to plant an impostor of |
+| K18 | the rule bound with no derived set | the real gate: connect's closure unlisted, quic-go and pion/sctp among it |
+| K19 | no planted module counted as permitted through connect's closure | the real gate: no probe holds the impostor half to the derived set |
+| E9 | `replace github.com/urnetwork/message => ../impostor-message`: the module's own tree under a go.mod declaring `example.com/not-message` | the real gate: "github.com/urnetwork/message/message, whose code the go command read from module example.com/not-message"; `go build ./...` accepts it |
+| E10 | `replace github.com/pion/sctp => ../sctp-impostor`: connect's `sctp` under a go.mod declaring `example.com/not-sctp` | the real gate: "github.com/pion/sctp, whose code the go command read from module example.com/not-sctp"; `go build ./...` accepts it |
+| E11 to E13 | E9 under K14, and E10 under K15 and under K16 | the real gate, each time: the replace-directory check under K14, the planted impostors under K15 and K16. At `97c6d17` the same three impostors passed it |
 
 E8 is why CI's connect pin must be a connect after the removal, and why this pull request merges
 after connect's removal does.
+
+K14 to K19 and E9 to E13 are this entry's review's (Reviewed by, below). They ran beside message
+`cdd30926` and connect `360dac9e` (E7, E8 and the schema controls beside connect `92a657fa`), and
+the first 28 were run again there with them. 39 of 39 came out as the harness requires: each
+failed its named test with that test's own message, except C5, which is required to pass.
 
 #### 5. What this does not do
 
@@ -25066,3 +25145,138 @@ after connect's removal does.
 **Reviewed by:** pending. By the lead's order this entry's diff review is the split's red-team
 phase, after this commit rather than before it as §6 sets out. Its findings are recorded under this
 line in the commit that takes them.
+
+**The review, 2026-10-06:** the split's red team, its consumers lens: one reviewer, read only, in
+clones of its own beside message `f3f8f2bd`, connect `5c281069`, glog `80a11b43` and gvisor
+`c0783dba`, against the session's log, the spec, and the three pull requests. **Its verdict:** both
+switches do what they claim, and nothing in this target blocks the pull requests. It confirmed,
+independently:
+- the code identity: the 7 production files of `message/message`, the 9 of `message/syntax` and
+  `message.pb.go`, against connect `92a657fa` with the paths rewritten;
+- that `3a07270` changes only imports and qualifiers in its 48 files, and that `9b4c78d` is
+  token-identical with comments dropped and strings masked;
+- that no exported name is declared by both protocol packages, 210 and 115;
+- the closure on all three configurations, and a clean `go mod tidy` and `go mod verify`;
+- the deps gate's allow and forbid rules, with real impostors of the message module and of
+  pion/sctp refused end to end;
+- the 28 controls against their logs, and the ledger's and Spec B's quotes against the session's
+  log;
+- message-server #2, open and clean at `3b0c9cd`, and message-windows' vendored files, its upstream
+  twin and its pins.
+
+- **One MAJOR finding, taken in `8a9f9e6`.** The impostor half could be switched off in one line
+  with every test green. Three mutations each left the root package's 23 tests passing:
+  - M1, the go list template without the replace directory;
+  - M2, the real gate handing `substitutions()` nil for the derived set;
+  - M3, `substitutions()` filtering on the allow list alone.
+
+  Under M1 an impostor of the message module passed the gate, and under M2 or M3 one of
+  pion/sctp did. Reproduced here before the change, at `97c6d17` beside message `cdd30926` and
+  connect `360dac9e`: each of the three impostors passed under its mutation and was refused
+  without it. What changed:
+  - The real gate reads go.mod's replaces with `go mod edit -json` and prints the modules the
+    measured closures were read from a replace directory for. It fails unless every module go.mod
+    replaces was reported with the directory go.mod names, and no other module with one at all.
+    Today those are message, connect, glog, pion/sctp and gvisor.
+  - The rule is one value, `dependencyRule`, bound once to connect's derived closure. The real gate
+    decides every closure through it. From the closures it plants, for every module go.mod replaces
+    with a directory, an impostor and the real directory, and decides them through the same value:
+    two of the five, pion/sctp and gvisor, are permitted only through connect's closure. M2's call
+    site no longer exists, and the same edit at the one place the set is handed over fails (K15).
+  - `TestAnAllowedPathWhoseCodeCameFromElsewhereIsRefused` gains the two pion/sctp rows the finding
+    names, through the same value with a derived set planted.
+  - The controls are K14 to K19 and E9 to E13 above. M1, M2 at its new site and M3 each fail now.
+- **Two MINOR findings, taken.**
+  - **The two wave-2 rulings were not in this ledger.** Item 283 still said the sdk's pull request
+    delegates its settings, SX-1, and left its "order to settle" open. Items 285 and 286 now quote
+    both rulings of 06:48:19 verbatim, 285 settles item 283's order, and the §7 entry after this
+    one records them. Item 283 points at them beside its old wording. In this commit.
+  - **The pins were two env lines of a workflow.** urnetwork's own repositories no longer run
+    workflows (connect `e8611390`, glog `383109fb`, goidenticons `471b1569`), so the pins would have
+    gone with this one. Also, glog and gvisor were cloned at their branch heads, and glog's head
+    moved on 2026-10-06, to `3c6c9fd9`. In `1217e5e`:
+    - `scripts/siblings.txt` pins message, connect, glog and gvisor in the message repository's
+      format, with glog and gvisor at that repository's commits;
+    - `scripts/siblings.sh` clones each at its pin and, with `--verify`, refuses a sibling at any
+      other commit;
+    - `gates.yml` runs both. The README says how to run them by hand.
+
+    Its controls, 30 of 30, are in the pull request.
+- **Two NITs, taken.**
+  - **go.mod named `cmd/messagectl/main_test.go`** as what sees a double registration, and
+    messagectl links one copy (E8). It now names `cmd/message-server/schema_test.go` and the init
+    panics of `peer`, `harness` and `cmd/message-server`, in this commit. Item 284 says the same of
+    its merge order, and K1's row above says four rows, as K1's log does, where it said three. The
+    test's own comment said three as well, and says four since `8a9f9e6`, which rewrote it.
+  - **`gates.yml` refused a pre-removal connect by `protocol/message.proto`,** a file the go command
+    never compiles. `scripts/siblings.sh` refuses `protocol/message.proto`,
+    `protocol/message.pb.go`, and any `protocol/*.pb.go` generated from `message.proto`, in
+    `1217e5e`. A connect that kept `message.pb.go` and lost the `.proto` passed the old step and
+    is refused now.
+- **Verified again** at `1217e5e`, against message `cdd30926` and connect `360dac9e`, the heads of
+  the two pull requests after their own reviews. The production files of `message/message`,
+  `message/syntax` and `message/protocol`, and the root `go.mod` and `go.sum`, are byte-identical
+  between `f3f8f2bd` and `cdd30926`; only tests, testdata and a comment in `protocol/Makefile`
+  differ.
+  - **Windows,** Go 1.26.5, with PostgreSQL 17.6 and both `URMESSAGE_TEST_DSN` and
+    `URMESSAGE_REQUIRE_CONTRACT_COVERAGE=1` set: `go test -json -count=1 -run . -timeout 30m ./...`
+    exits 0 with 708 results passed, 232 tests and 476 subtests, none failed or skipped, and the
+    store prints `FULL RUN: 2 of 2`. `97c6d17`, run the same way beside the same siblings, gave the
+    same 708, compared both ways by package and name. `go build`, `go vet`, `gofmt -l`,
+    `go mod tidy -diff` and `go mod verify` are clean, and both released platforms build.
+  - **Linux,** on alt-2 (Go 1.26.5, gcc 13.3): `gates.yml`'s sibling step, read out of the workflow
+    and run as written with the pins filled, cloned the four siblings and verified each PINNED,
+    message and connect from local copies under urnetwork's URLs, glog and gvisor from GitHub by
+    SHA. Then its later steps: 564 results, 549 passed (217 tests and 332 subtests) and 15
+    skipped, the half of the store contract that needs PostgreSQL (`PARTIAL RUN: 1 of 2`); both
+    released platforms build; tidy, verify, gofmt and vet are clean; and
+    `CGO_ENABLED=1 go test -race ./...` passes.
+- **Left as they are:** the pins are still placeholders, and the integration report's must-change
+  items stand for every pin here: once the message and connect heads are final, the pins are
+  filled and these checks run again.
+
+### 2026-10-06 — Items 285 and 286: the lead's two wave-2 rulings, recorded
+
+**Change:** this ledger and a comment in `go.mod`. It adds items 285 and 286 and this entry, points
+item 283 at them, corrects item 284 and records its review. No spec or plan changes. Times are UTC,
+on 2026-10-06.
+
+#### 1. The rulings
+
+Both are the lead's, in the brief that started the split's second wave, at 06:48:19 (session
+f35258a1's log):
+- item 285: "The sdk removal PR does NOT delegate newDeviceClientSettings to connect (no cross-PR
+  build dependency). Core sdk keeps its private copy."
+- item 286: "The schema moves fully in the message PR, because connect drops its copy at the same
+  time. Replace the plan's "schema freeze until M8" with the append-only rule. KEEP the wire-golden
+  byte-equality check against a pinned PRE-removal connect."
+
+Until this entry they were in the brief, in part E of the review file and in the lead's memory, and
+item 284 said they would be items of their own. Its review found them still missing, and item 283
+contradicting the sdk's pull request.
+
+#### 2. What they correct here
+
+- **Item 283** said the sdk's pull request delegates its settings to connect (SX-1), and left the
+  order of the sdk's and connect's pull requests to settle. Item 285 settles it. Item 283 points at
+  285 beside its old wording.
+- **Item 284** paraphrased the schema ruling and deferred both. Items 285 and 286 are those items,
+  and item 284 points at 286.
+
+#### 3. Measured for this entry
+
+- The three branches, at their local heads: the sdk's `1945759a` keeps `newDeviceClientSettings`
+  and names no `NewOperatorClientSettings`; connect's `360dac9e` defines it; the message
+  repository's `cdd30926` calls it from `sdk/message_tunnel.go` alone (`git grep`, item 285).
+- The message repository at `cdd30926`: `docs/BOUNDARY.md`'s "There is no freeze" paragraph,
+  `TestTheWireCorpusIsAppendOnly`, the 197 pinned rows, and `connect-golden` at `92a657fa` in its
+  `scripts/siblings.txt` (item 286).
+
+#### 4. What this entry corrected in its own inputs
+
+- **O21's tags are pushed.** Part 9 of the entry for items 281 to 283 says they are not. Read at
+  21:58 with `git ls-remote`: `split/source-connect-2a` is on the connect fork, a tag object for
+  `e449f7d8`, and `split/source-sdk-3` is on the sdk fork, a tag object for `6141b98d`.
+
+**Reviewed by:** pending: the lead's review of this fix wave. The writer of this entry had no
+subagent to hand it to, so §6's diff review comes after this commit, as it did for item 284.
