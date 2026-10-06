@@ -29,3 +29,6 @@ go.sum text eol=lf
 # nothing that tolerates a stray carriage return either.
 *.txt text eol=lf
 *.yml text eol=lf
+
+# scripts/siblings.sh is run by bash, which reads a carriage return as part of the command before it.
+*.sh text eol=lf

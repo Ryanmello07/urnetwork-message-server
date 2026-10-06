@@ -65,8 +65,23 @@ with `../connect/sctp`), so the checkout must look like this:
 moved there out of `connect`; this module imports its `message`, `syntax` and `protocol` packages and
 nothing else of it. `connect` must be a `connect` from after that move: one that still carries
 `protocol/message.proto` registers the schema a second time, and every test binary that links both
-copies panics at init. `.github/workflows/gates.yml` pins both to the commits this module is tested
-against.
+copies panics at init.
+
+Which commit of each sibling this module is tested against is written down in
+[`scripts/siblings.txt`](scripts/siblings.txt), one pinned commit per sibling, and
+`scripts/siblings.sh` holds a checkout to it — with or without a CI service:
+
+```bash
+bash scripts/siblings.sh message connect glog gvisor           # clone the missing ones at their pins
+bash scripts/siblings.sh --verify message connect glog gvisor  # refuse any sibling at another commit
+```
+
+`--verify` refuses a sibling at any other commit or with modified files, a pin that is a placeholder
+or a short SHA, and a `connect` that still carries the messaging schema. `message` and `connect` are
+placeholders until the pull requests whose heads they name are open; to run against checkouts of
+your own meanwhile, name them in `MESSAGE_SERVER_TEST_UNPINNED` (for example
+`MESSAGE_SERVER_TEST_UNPINNED=message,connect`), and the script prints each as UNPINNED with both
+commits. `.github/workflows/gates.yml` runs the same two commands.
 
 `glog` is replaced even though nothing here names it: `connect` requires `github.com/urnetwork/glog
 v0.0.0`, a version no proxy serves, and a `replace` in a dependency's `go.mod` is ignored — only the
