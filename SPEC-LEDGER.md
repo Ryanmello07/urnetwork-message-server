@@ -12510,7 +12510,9 @@ repo and therefore the critical path — not this repository:
       - The red-team review of the change, Revision 24 with it. The ledger's §6 puts the diff
         review before the commit; the lead ordered it after, in the split's red-team phase.
         *(Done on 2026-10-06, and recorded under Reviewed by in §7's entry for this item.)*
-      - The pins, filled with the two heads once their pull requests are open.
+      - The pins, filled with the two heads once their pull requests are open. *(Filled on
+        2026-10-07 with the two heads on the owner's forks, before either pull request was open:
+        item 287.)*
       - Spec B's other sections still name `connect/message`, `connect/mls/syntax` or
         `connect/protocol` for messaging, on 24 lines outside the ones Revision 24 rewrote, and one
         of those, §4.2's `frame.proto`, is still right. §2.2 now says they mean the new packages;
@@ -12570,6 +12572,147 @@ repo and therefore the critical path — not this repository:
       connect's copy deleted in the same set, there is no other copy to import.
     - **Where it was recorded until now:** as for item 285. Item 284 paraphrased it, and deferred it
       to an item of its own.
+
+287. **THE LEAD'S RULINGS OF 2026-10-07 FOR THE SPLIT'S THIRD WAVE: THE PULL REQUESTS CARRY NO
+    WORKFLOW FILES, THE OWNER'S FORKS RUN THE CI WITH UPSTREAM'S `main` AS THE CONTROL, AND EVERY
+    PULL REQUEST OPENS AS A DRAFT. THIS REPOSITORY'S TWO PINS ARE FILLED.** Times are UTC.
+    - **The owner's note on CI.** At 09:46:47 on 2026-10-06 the owner wrote, verbatim: **"Note:
+      actions were disabled on our organization. Until then rely on my forks for actions since they
+      should almost be clones"**
+    - **What upstream had done.** At 05:14:06 on 2026-10-06 the maintainer's connect `e8611390`,
+      "Remove the GitHub workflows", deleted connect's workflow files and amended
+      `MESSAGEREVIEW.md`: its layout for the message repository no longer lists
+      `.github/workflows/`. Its message says "We build and test on our own hardware and do not use
+      GitHub Actions." Read on 2026-10-07 through GitHub's contents API, `connect`, `sdk`,
+      `windows`, `glog`, `goidenticons` and `message` have no `.github/workflows` on their default
+      branches, and this repository has one file there, `gates.yml`.
+    - **The rulings,** the lead's, in the brief that started the split's third wave, written at
+      02:07:08 on 2026-10-07 (session f35258a1's log). Verbatim:
+      - **R1.** "The upstream PRs carry NO GitHub workflow files. Each repo's own test.sh is the
+        whole run, as the maintainer runs it. CI evidence comes from the owner's FORKS: a fork-only
+        workflow on the fork's default branch (main), started by workflow_dispatch with inputs
+        "repository" (default: the fork) and "ref". It checks out that ref, gets the siblings the
+        way the ref's own scripts or pins say, and runs the repo's own test runner. The same
+        workflow, run on upstream main (repository = urnetwork/&lt;repo&gt;, ref = main), is the
+        CONTROL: a failure that also happens there is upstream's own."
+      - **R2.** "The message repo's record gate keeps reading the core sdk beside it (O18's
+        default). Flag it in the PR body as the maintainer's call."
+      - **R3.** "The 1 s establish hold ships with the move, in the message repo's sdk. It rests on
+        the owner's route rulings "Opportunistic + provider fix (Recommended)" and "Build the 1 s
+        hold (Recommended)"; the owner also merged its connect half, connect#217."
+      - **R4.** "The PRs open as DRAFTS, and the LEAD opens them. A PR is ready only when the
+        cross-PR move check passes at the heads that will merge."
+    - **For this repository,** in the same brief, verbatim: **"This repo still has its gates.yml
+      workflow upstream; keep it, and it runs on the fork on push."** So R1's first two sentences
+      do not describe this pull request, and the rest of R1 holds here:
+      - `gates.yml` has been upstream since #1 merged. It stays, and this pull request changes its
+        sibling step and nothing else in it. This repository has no `test.sh`: its run is
+        `gates.yml`'s steps, which the README gives as commands to run by hand.
+      - R1's fork-only workflow is `fork-ci.yml`, on the fork's `main` and in no pull request: the
+        fork's `1c9c11e` and `15eb705`, which add that one file and touch nothing else. Started
+        with a repository and a ref, it checks the ref out, reads the ref's own `gates.yml`, and
+        runs each of its `run` steps as written, in order, with the step's own environment. It
+        performs the checkout and setup-go steps itself and provides the job's services, after
+        holding each to the ref's, and it refuses any other key of the ref's job or steps by name.
+        Every step runs even after one fails, so that a control can be read step by step.
+    - **R2 and R3 are the message repository's,** and its pull request is where each is flagged
+      to the maintainer. Read at its head, `4d365abf`:
+      - R2: connect's record gate, `message/record_test.go`, also read the sdk checked out beside
+        connect (last changed there by connect `54b5b106`), and connect's pull request deletes the
+        gate with the code it guards. The message repository's copy keeps that half: it reads the
+        core sdk beside the repository. O18 is item 281's, the coverage that stays with the core
+        repositories.
+      - R3: the hold is that repository's `8fb91987`, three files of its `sdk`. It rests on item
+        279's two rulings, and its connect half is connect #217, merged as `92a657fa`.
+    - **R4.** No pull request of the set is open as this is written. The lead opens each as a
+      draft, in the order they merge: the sdk's removal, connect's, `urnetwork/message`, then this
+      one (items 283 and 284), which also waits for message-server #2. Why "up to date" cannot be
+      the test: `urnetwork/connect`'s `main` was at `6df2fa87` when connect's branch last merged
+      it, and at `d17a6ecb` when the control run of §7's entry cloned it, at 10:16 on 2026-10-07.
+    - **Where they were recorded until now:** in the brief, and in the owner's review file
+      (`URMESSAGE-DECISIONS-REVIEW-2026-10-05.md`, which is in no repository), where the lead wrote
+      them at 02:05:26 on 2026-10-07.
+    - **The set at the wave's end,** each head on the owner's fork of its repository:
+      - `urnetwork/sdk`: `upstream/remove-message` at `0f03e27e`, messaging removed, with `main`
+        merged at `06f33802`;
+      - `urnetwork/connect`: `upstream/remove-message` at `0f2ff669`, messaging removed and
+        `NewOperatorClientSettings` added, with `main` merged at `6df2fa87`;
+      - `urnetwork/message`: `split/import-all` at `4d365abf`, the import with its history;
+      - `urnetwork/message-server`: `split/use-message-repo`, the switch (item 284), at this
+        commit.
+    - **What this wave changed here.**
+      - **The two pins are filled** (`4cdb7d8`): `message` at `4d365abf` and `connect` at
+        `0f2ff669`, fetched from `Ryanmello07/urmessage` and `Ryanmello07/connect` until the two
+        pull requests merge. `glog` and `gvisor` stay where they were.
+      - **The script takes a pull request head from the fork it is on** (`493f9cc`). A fetch source
+        is `https://github.com/urnetwork/<repository>.git` or one of the review sources
+        `scripts/siblings.sh` lists by its exact URL, which are those two forks. Every mode prints
+        FORK and the URL beside such a pin. Until this wave the script refused every URL outside
+        urnetwork's, and the message repository's script, whose rules this one follows, took
+        review sources in the same wave.
+      - **The script's controls are in the tree** (`493f9cc`): `bash scripts/siblings.sh
+        --self-test`, 45 controls on pin files and throwaway checkouts, fetching nothing.
+        `gates.yml` runs it first. Until now they were a harness outside the repository.
+      - **One defect found on the way and fixed** (`493f9cc`): `--verify` read a sibling's modified
+        files through `git status | head -5`, and with enough of them to fill a pipe it stopped
+        without printing anything (§7's entry, part 5).
+    - **The pin this repository and the message repository hold on each other.** The message
+      repository's acceptance suite and its loopback library run this server in process, so it
+      pins this repository; this repository imports three of its packages, so it pins that one.
+      Two commits cannot each name the other. The message repository, at `4d365abf`, pins this one
+      at `ee23a490`, the commit before the pins here were filled, and this one pins `4d365abf`.
+      From `ee23a490` to `4cdb7d8` no Go file changes, nor `go.mod`, nor `go.sum`:
+      `git diff --stat ee23a490 4cdb7d8 -- '*.go' go.mod go.sum` prints nothing, where the same
+      command without the paths prints four files, and with them over `97c6d17..ee23a490` prints
+      `deps_test.go` and `go.mod`. So the server that repository's suite runs is the one tested
+      here. This commit and the edit-log entry change only this ledger.
+    - **Open.**
+      - **Before this pull request merges:** message-server #2 and the three pull requests merge
+        first. If either pinned head moved before it merged, its pin moves to the merged head in a
+        commit of its own and the runs of §7's entry are made again. Each line's URL then goes back
+        to urnetwork's, and its fork leaves the script's review sources.
+      - **§6's diff review** of this item and its entry, and of the entry for items 285 and 286,
+        whose "Reviewed by" is still pending: both are left to the review that follows this wave,
+        by the lead's order.
+      - **The `glog` pin** stays at `80a11b43` (item 288). Its `master` is at `fe810311`.
+
+288. **THE LEAD'S RULING OF 2026-10-07 ON THE TOOLCHAIN, R5: THE MESSAGE REPOSITORY KEEPS go1.26.5
+    THROUGH THE IMPORT, AND FOLLOWING CONNECT TO go1.27.1 IS A REVIEWED CHANGE OF ITS OWN.** Times
+    are UTC. The lead sent it at 03:05:14 on 2026-10-07 to the connect writer, to carry in that
+    writer's report, which is what the message writer reads. Its own heading dates it 2026-10-06,
+    the lead's local date. Verbatim, its five points:
+    - **1.** "The message repository keeps the reviewed crypto toolchain pin, go1.26.5, through the
+      import. Do NOT change the root go.mod toolchain line, or the literal in mls/pins_test.go. The
+      import stays a faithful move."
+    - **2.** "Make the pin hold on any host. A go.mod toolchain line never lowers the toolchain, so
+      test.sh must run every module that holds the pin under GOTOOLCHAIN=go1.26.5, set explicitly.
+      It must fail with a clear message if that toolchain cannot be had, naming the fix. Do the
+      same for the native composition build (compose.sh and the DLL build) and for the probes."
+    - **3.** "Add a check, with a control, that the built artefacts record the pinned toolchain:
+      for example "go version -m" on the composed library and on liveprobe must report go1.26.5.
+      The control is a build under another toolchain, which must be refused."
+    - **4.** "Following connect to go1.27.1 is a SEPARATE reviewed change after the import: its own
+      branch and PR, the full vector, KAT and guardrail suites re-run under 1.27.1, and a ledger
+      entry. Say so in the PR body, in one paragraph for the maintainer. It should state:" and then
+      three things: "connect main's toolchain line moved to go1.27.1 in 062b333e"; "mls
+      TestPinnedToolchain fails on connect main since then"; and "every module's go line is still
+      1.26.x, so nothing forces the message repository to follow yet."
+    - **5.** "glog: keep the 80a11b43 pin for now, and note that master moved to fe810311."
+    - **What it means here.**
+      - This module's `go.mod` says `go 1.26.5` and has no toolchain line. Connect's, at its pinned
+        head `0f2ff669`, says `go 1.26.3` and `toolchain go1.27.1`. A toolchain line binds the
+        module it is in when that module is the one being built, and here connect is a dependency,
+        so nothing in this module's build reads it.
+      - Every run of §7's entry for this item built this module, and the pinned connect with it,
+        under go1.26.5: on Windows, on alt-2, and on the fork's runner, where setup-go takes its
+        version from this `go.mod`.
+      - Point 5 is `scripts/siblings.txt`'s note beside the `glog` pin, in `4cdb7d8`. The pin moves
+        in a commit of its own, in this repository and the message repository together.
+    - **Points 1 to 4 are the message repository's.** Its `go.mod` at `4d365abf` keeps
+      `toolchain go1.26.5`. The ledger entry point 4 asks for is owed when that change is made;
+      this ledger records that repository's work as well as this one's (item 281).
+    - **Where it was recorded until now:** in the lead's message, in the connect writer's report,
+      and in the owner's review file.
 
 ## 6. Change process
 
@@ -25280,3 +25423,165 @@ contradicting the sdk's pull request.
 
 **Reviewed by:** pending: the lead's review of this fix wave. The writer of this entry had no
 subagent to hand it to, so §6's diff review comes after this commit, as it did for item 284.
+
+### 2026-10-07 — Items 287 and 288: the lead's wave-3 rulings and the owner's CI note recorded, and the two pins filled
+
+**Change:** this ledger: items 287 and 288, this entry, and a note in item 284. No spec or plan
+changes. The two commits before this one change the script that reads the pins and then fill them,
+`493f9cc` and `4cdb7d8`: `scripts/siblings.sh`, `scripts/siblings.txt`, `gates.yml`'s sibling step
+and the README. Neither changes a Go file. Times are UTC, on 2026-10-07 unless a date is given.
+
+#### 1. The rulings
+
+- **R1 to R4** are the lead's, in the brief that started the split's third wave, written at
+  02:07:08 (session f35258a1's log). Item 287 quotes the four, and the brief's sentence about this
+  repository's `gates.yml`.
+- **The owner's note on CI** is of 09:46:47 on 2026-10-06. Item 287 quotes it whole.
+- **R5** is the lead's, sent at 03:05:14 to the connect writer to relay. Item 288 quotes its five
+  points.
+- Until this entry they were in the brief and the message, in the writers' reports, and in the
+  owner's review file, where the lead wrote R1 to R4 at 02:05:26. Item 284's review found the
+  second wave's rulings missing from this ledger a day after they were made; these are recorded in
+  the wave that received them.
+
+#### 2. What it was built against
+
+| sibling | commit | fetched from | what it is |
+|---|---|---|---|
+| `message` | `4d365abf` | `Ryanmello07/urmessage` | `split/import-all`, the message pull request's branch |
+| `connect` | `0f2ff669` | `Ryanmello07/connect` | `upstream/remove-message`, connect's removal |
+| `glog` | `80a11b43` | `urnetwork/glog` | as before |
+| `gvisor` | `c0783dba` | `urnetwork/gvisor` | as before, the head of `go` |
+
+Every run below cloned the four with `scripts/siblings.sh`, from GitHub, and verified each PINNED.
+
+What moved under the pins since the entry for item 284, which ran beside message `cdd30926` and
+connect `360dac9e`:
+- **message.** `git diff --name-status cdd30926 4d365abf -- message syntax protocol go.mod go.sum`
+  names three files, all of them tests: `message/record_test.go`, `message/writeauth_test.go` and
+  `protocol/message_attestation_test.go`. Without the paths the same diff names 35. The blobs of
+  `protocol/message.proto`, `protocol/message.pb.go`, `go.mod` and `go.sum` are the same at
+  `f3f8f2bd`, `cdd30926` and `4d365abf`, so the 87 rows of wire bytes that entry compared are the
+  bytes this head emits.
+- **connect.** Two merges of `urnetwork/connect`'s `main`, at `a5e622c1` and at `6df2fa87`. 92
+  files differ between `360dac9e` and `0f2ff669`. Of `go.mod`, `go.sum`, `protocol/` and `sctp/`,
+  three do: `go.mod`, in its toolchain line (item 288), and `protocol/transfer.proto` with its
+  generated file.
+
+#### 3. Verification, at `4cdb7d8`
+
+- **Windows,** Go 1.26.5, with PostgreSQL 17.6 on 127.0.0.1 and both `URMESSAGE_TEST_DSN` and
+  `URMESSAGE_REQUIRE_CONTRACT_COVERAGE=1` set. `go test -json -count=1 -run . -timeout 30m ./...`
+  exits 0: 708 results passed, 232 tests and 476 subtests, none failed or skipped, and the store
+  printed `FULL RUN: 2 of 2 implementations of Store were held to RunContract`. Compared by package
+  and name with the run at `ee23a49` beside the earlier heads, they are the same 708, both ways,
+  and none changed. `go build`, `go vet`, `gofmt -l`, `go mod tidy -diff` and `go mod verify` are
+  clean, and both released platforms build.
+- **Linux,** on alt-2 (Go 1.26.5, gcc 13.3), with no database there. `gates.yml`'s sibling step,
+  read out of the workflow and run as written: the script's 45 controls, the four clones from
+  GitHub, then PINNED four times, `message` and `connect` each with FORK and its URL. Then the later
+  steps: 564 results, 549 passed (217 tests and 332 subtests) and 15 skipped, the half of the store
+  contract that needs PostgreSQL (`PARTIAL RUN: 1 of 2`). They are the 564 names of the run at
+  `1217e5e`, both ways. Tidy, verify, gofmt and vet are clean, both released platforms build, and
+  `CGO_ENABLED=1 go test -race ./...` passes.
+- **The fork,** `Ryanmello07/urnetwork-message-server`, on GitHub's `ubuntu-latest` runner, with
+  Go 1.26.5 taken from this `go.mod` and the workflow's `postgres:17` service:
+
+  | run | workflow | what it tested | result |
+  |---|---|---|---|
+  | 37606187633 | `gates.yml`, on the push | this branch at `4cdb7d8` | success, every step |
+  | 37606283543 | `fork-ci.yml` | this branch at `4cdb7d8` | passed: the ref's five steps |
+  | 37606287218 | `fork-ci.yml`, the control | `urnetwork/message-server` `main`, `6c3153f` | failed, for upstream's own reason |
+
+  - **The push run:** 708 results passed by package and name, 232 tests and 476 subtests, none
+    failed or skipped, and `FULL RUN: 2 of 2`. Against the fork's last run before the switch,
+    37425508016 at `3b0c9cd` with 706 names: no name is lost, none changed, and the two added are
+    the switch's own, `TestThisModuleResolvesTheProtobufRuntimeTheMessageModuleResolves` and
+    `TestTheMessagingSchemaIsRegisteredOnceAndFromTheMessageModule`.
+  - **The control:** upstream's `main` clones connect at whatever its `main` holds, `d17a6ecb`
+    that minute. Connect imports `github.com/refraction-networking/utls` since its `c5a9589d`, and
+    this repository's `go.sum` at `6c3153f` has no line for it. Four packages fail to set up, four
+    tests of the root package fail, and `go vet` and the platform build step stop on the same
+    missing `go.sum` entry; 440 results passed and 4 failed. message-server #2 is the repair: its
+    `3b0c9cd` pins connect and carries the `go.sum` lines.
+  - **Failed on the branch and not on the control:** nothing.
+
+#### 4. Controls, at `4cdb7d8`
+
+- **The dependency gate and the switch: 39 of 39.** The controls of the entry for item 284, run
+  again beside message `4d365abf` and connect `0f2ff669`, and beside connect `92a657fa` for E7, E8
+  and C1 to C5. 38 failed their named test with that test's own message, and C5 is required to
+  pass.
+- **The script's own: 45, in the tree.** `bash scripts/siblings.sh --self-test` runs a copy of the
+  script on pin files and on checkouts it makes with `git init`, and fetches nothing. Each control
+  must end the way it says and print the line that says why:
+  - the pin file's rules, 21: an urnetwork URL and each listed review source accepted, the second
+    kind with FORK; another repository of the same owner, another owner's fork of a listed
+    repository, a listed URL with a path after it or spelled another way, another host, another
+    scheme, a URL that climbs out or has no path to climb, and no URL at all, each refused; a
+    short commit, a branch name, a placeholder, a field after the commit, a name pinned twice or
+    not at all, and a name that is a path or a pattern, each refused; and a CRLF pin file read the
+    same;
+  - a checkout held to its pin, 14: PINNED, with FORK when the pin's source is a review source;
+    WRONG COMMIT; UNPINNED only for the sibling that is named; UNPINNABLE; DIRTY, also when the
+    sibling is named unpinned, and with 2,000 modified files; a clone onto an existing checkout;
+    MISSING;
+  - a connect that still carries the messaging schema, 10: accepted when its `frame.pb.go` only
+    names `message.proto` in a comment; refused with the schema in it, for each of its three
+    reasons; refused with `message.proto` gone and `message.pb.go` kept, with the generated file
+    renamed or written with CRLF, and when named unpinned; accepted again once the schema is gone.
+- **Each rule changed, one at a time: 30 mutations** of a copy of the script, and the self-test
+  run against the copy. On alt-2 every one turned `SIBLINGS SELF-TEST PASS` into `FAIL` with a
+  control broken; unchanged, the copy passes. Four of them widen the review-source rule, to any
+  repository of the owner, to the repository's name under any owner, to a prefix, and to a URL
+  without its `.git`, and each is caught by the control written for it. On Windows 28 of the 30
+  are caught. The two that are not are the script's own handling of a carriage return, in the pin
+  file and in a generated file: Git for Windows' grep strips carriage returns itself, so those
+  lines cannot be seen to matter there.
+- **The ones that fetch: 15 of 15,** on alt-2 and again on Windows, against GitHub: all four
+  cloned as committed, one commit each with `core.autocrlf` off; connect `92a657fa` refused at
+  the clone and by `--verify`, for all three reasons; a commit its source does not hold refused
+  by name, leaving no directory behind; the message head asked of the connect fork, refused the
+  same way; and `gates.yml`'s step, read out of the workflow, with the pins as committed, with a
+  pre-removal connect pinned, and with the placeholders of `ee23a49`.
+
+#### 5. What this entry found
+
+- **`--verify` could stop without a word.** It read a sibling's modified files through
+  `git status | head -5`. With more of them than a pipe holds, `head` leaves first, git dies
+  writing, and under `pipefail` the script exits there: on alt-2, with 2,000 modified files, it
+  printed nothing and exited 141. That is the state of a sibling checked out with the wrong line
+  endings, which is one of the things `--verify` is there to name. Since `493f9cc` the list is read
+  whole, its first five lines are printed and the rest counted. The message repository's script
+  has the same pipe.
+- **GitHub serves a fork's commit under its parent's URL.** Measured from two hosts with no URL
+  rewriting: `git fetch --depth 1` of `0f2ff669`, by its full id, from
+  `https://github.com/urnetwork/connect.git` succeeds, and so do `urnetwork/message` for
+  `4d365abf` and `urnetwork/message-server` for `4cdb7d8`, which had been pushed to the fork
+  minutes before and is in no pull request. The controls: a commit id nobody holds is not served,
+  and `urnetwork/connect` does not serve the message head. So the
+  comment the pin file carried until `4cdb7d8`, "GitHub serves a pull request's head by SHA from
+  the upstream repository once the pull request exists", understated it: no pull request is
+  needed. And a pin's URL does not show that its commit is on a branch of that repository. The
+  commit id is what binds, which is the script's own first rule. The pins are on the forks' URLs
+  all the same, by the brief: "Fetch by SHA from the owner's forks until the PRs merge, with a
+  comment saying so."
+- **`go test -v` prints 710 result lines for these 708 results.**
+  `TestAGroupCreatedBeforeARestartIsStillReachableAfterIt` runs its own binary again, twice, and
+  each child's result line is printed inside the parent's output under the parent's name.
+  `fork-ci.yml` counted lines in run 37606283543 and reported 232 tests and 478 subtests; since
+  the fork's `15eb705` it counts a result once, by package and name.
+
+#### 6. What this does not do
+
+- It does not open the pull request. By R4 the lead opens it, as a draft.
+- It cites no run of this commit: a commit cannot name the run that tests it. This commit changes
+  only this ledger, the runs above are of the commit before it, and the pull request's body cites
+  the runs on its head.
+- It does not put the pins back on urnetwork's URLs, and it does not move the `glog` pin (item
+  287's open list).
+- It does not run the store contract on Linux outside GitHub's runner: alt-2 has no PostgreSQL.
+
+**Reviewed by:** pending: the review that follows this wave, by the lead's order. It takes the
+entry before this one as well, for items 285 and 286, whose line still reads pending. Each review
+is recorded under its own entry's line, in the commit that takes it.
