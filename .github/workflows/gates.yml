@@ -81,7 +81,8 @@ jobs:
       # lived since ledger 284. connect is urnetwork/connect WITHOUT the messaging schema: a connect
       # whose protocol package still registers message.proto registers it beside message/protocol's
       # copy, and every test binary that links both panics at init. Their pins are the heads of the
-      # message pull request and of connect's removal, placeholders until those pull requests exist;
+      # message pull request and of connect's removal, fetched from the forks those pull requests
+      # come from until they merge, and the script prints FORK beside each for as long as that is so;
       # glog's and gvisor's are the commits urnetwork/message pins. Each moves in a commit of its own,
       # and moving it is the change to review.
       - name: the sibling modules go.mod replaces to

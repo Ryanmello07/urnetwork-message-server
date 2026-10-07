@@ -15,23 +15,37 @@
 # pin in a commit of its own.
 # name  url  commit
 #
+# TWO OF THESE PINS ARE PULL REQUEST HEADS, FETCHED FROM THE OWNER'S FORKS UNTIL THEY MERGE. This
+# module's switch is the fourth of a set: the removal of messaging from urnetwork/sdk, the removal
+# from urnetwork/connect, the import into urnetwork/message, and this. They are built and tested
+# together, so this file pins the heads of two of them, and those heads are on the forks the pull
+# requests come from. The pin is the commit, which no fetch source can change. When a pull request
+# has merged (with a merge commit, so its head keeps its id), switch that line's URL to the
+# urnetwork repository named in its comment and delete the fork from scripts/siblings.sh's review
+# sources; until then every run of the script prints FORK beside that sibling.
+#
 # message: github.com/urnetwork/message, where this module's record layer, its codec and its
-# schema live since ledger 284. Pinned to the HEAD OF THE MESSAGE PULL REQUEST. PLACEHOLDER until
-# that pull request is open: siblings.sh refuses it. GitHub serves a pull request's head by SHA
-# from the upstream repository once the pull request exists, so the URL stays urnetwork's.
-message https://github.com/urnetwork/message.git FILL_IN_THE_MESSAGE_PR_HEAD_SHA
+# schema live since ledger 284. Pinned to the head of the message pull request: branch
+# split/import-all of the fork. That repository pins this one in turn, because its acceptance suite
+# and its loopback library run this server in process, and two commits cannot each name the other:
+# it pins ee23a490, this branch before this pin was filled. From ee23a490 to the commit that filled
+# this pin no Go file changes, nor go.mod, nor go.sum, so the server tested there is the one tested
+# here. After the merge: https://github.com/urnetwork/message.git.
+message https://github.com/Ryanmello07/urmessage.git 4d365abfdb1ab1666def8bd0fdf708625b190e39
 #
 # connect: the transport, from AFTER messaging left it. A connect whose protocol package still
 # registers message.proto registers it beside message/protocol's copy, and every test binary that
-# links both panics at init; siblings.sh refuses such a connect by name. Pinned to the HEAD OF
-# CONNECT'S PULL REQUEST THAT REMOVES MESSAGING and adds connect.NewOperatorClientSettings.
-# PLACEHOLDER, as above. Until ledger 284 this pin was 92a657fa, upstream's main when connect #217
-# merged, in gates.yml.
-connect https://github.com/urnetwork/connect.git FILL_IN_THE_CONNECT_REMOVAL_PR_HEAD_SHA
+# links both panics at init; siblings.sh refuses such a connect by name. Pinned to the head of the
+# connect pull request that removes messaging and adds connect.NewOperatorClientSettings: branch
+# upstream/remove-message of the fork, which merges urnetwork/connect main at 6df2fa87. It is the
+# commit the message repository pins. Until ledger 284 this pin was 92a657fa, upstream's main when
+# connect #217 merged, in gates.yml. After the merge: https://github.com/urnetwork/connect.git.
+connect https://github.com/Ryanmello07/connect.git 0f2ff66907f2c5fae735c45f687e598568ae85c4
 #
 # glog and gvisor: what connect requires and replaces by path, which its own go.mod cannot do for
 # this module. These are the commits github.com/urnetwork/message pins in its scripts/siblings.txt,
 # so the two repositories are tested against the same pair. gvisor's commit is on
-# urnetwork/gvisor's default branch, go.
+# urnetwork/gvisor's default branch, go. glog's master has since moved to fe810311; the pin moves
+# in a commit of its own, in both repositories, with the run that shows the set still passes.
 glog https://github.com/urnetwork/glog.git 80a11b434ae90ae2221deb932daa21913919875a
 gvisor https://github.com/urnetwork/gvisor.git c0783dba2eeff7b79692a7f122ffee5f8bd837c1
