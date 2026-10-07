@@ -12139,7 +12139,9 @@ repo and therefore the critical path — not this repository:
       sdk, items 281 and 282 and MS-0 here, and MW-0 and MW-1 in message-windows. At 05:17 the
       lead told the owner that the wave's work feeds item 283's shape, and that a consolidated wave
       follows it. At 06:22 neither new repository held anything but `main` at `0d697b0a`. The lead
-      reviews each result, and makes every push.
+      reviews each result, and makes every push. *(So it stood until the third wave, whose brief of
+      2026-10-07 gave each repository's writer a limited authority to push to the owner's fork:
+      item 287. Old wording kept.)*
 
 282. **THE OWNER'S DESIGN RULINGS OF 2026-10-05: AN IDENTITY LAYER, A HISTORY STORE AND A
     RECOVERY PHRASE COME FIRST, AND EVERY OTHER RECOMMENDATION IS TAKEN.** Times are UTC, on
@@ -12446,7 +12448,9 @@ repo and therefore the critical path — not this repository:
     SCHEMA COME FROM THE NEW MODULE, SPEC B §2.2 ALLOWS EXACTLY THOSE THREE PACKAGES OF IT, AND IT
     FORBIDS THE REST.** Item 283's first follow-up, written on 2026-10-06 beside the three pull
     requests and tested with them. It is the branch `split/use-message-repo`, off the fork's `main`
-    at `3b0c9cd`, and it is local until the lead pushes. Spec B is at Revision 24.
+    at `3b0c9cd`, and it is local until the lead pushes. *(Pushed to the owner's fork by this
+    repository's writer on 2026-10-07, under the third wave's fork authority: item 287. Old wording
+    kept.)* Spec B is at Revision 24.
     - **One change, where the plan had two.** The plan's MS-1 took the record layer and the codec
       once its stage 2a had merged, and its MS-2 took the schema after connect's removal. Under item
       283 the message pull request carries all of it, and connect's pull request deletes
@@ -12544,7 +12548,10 @@ repo and therefore the critical path — not this repository:
         `sdk/message_tunnel.go`, and from nowhere else.
     - **Where it was recorded until now:** in the brief, in part E of the review file
       (`URMESSAGE-DECISIONS-REVIEW-2026-10-05.md`, which is in no repository), and in the lead's
-      memory. Item 284 deferred it to an item of its own; its review found it still missing here.
+      memory. §7's entry for item 284, part 5, deferred both rulings to items of their own; item
+      284 itself names only the schema ruling. That item's review found this one still missing
+      here. *(Corrected by the review of 2026-10-07: it read "Item 284 deferred it to an item of
+      its own".)*
 
 286. **THE LEAD'S RULING OF 2026-10-06 ON THE SCHEMA: NO FREEZE. `message.proto` IS APPEND-ONLY,
     AND THE BYTE-EQUALITY CHECK AGAINST A PINNED PRE-REMOVAL CONNECT STAYS.** In the same brief, at
@@ -12607,14 +12614,23 @@ repo and therefore the critical path — not this repository:
       do not describe this pull request, and the rest of R1 holds here:
       - `gates.yml` has been upstream since #1 merged. It stays, and this pull request changes its
         sibling step and nothing else in it. This repository has no `test.sh`: its run is
-        `gates.yml`'s steps, which the README gives as commands to run by hand.
+        `gates.yml`'s steps, which the README gives as commands to run by hand. *(Not so when this
+        was written, as this item's review found. The workflow has five `run` steps, and the README
+        gave three of them: the sibling commands, the suite and `go vet`. It had no `gofmt`
+        command, and it built `cmd/message-server` for linux/amd64 alone, where the workflow builds
+        every package once for each line of `release-platforms.txt`, linux/arm64 among them. The
+        commit that takes the review puts both steps in the README as the workflow has them: §7's
+        entry, under Reviewed by.)*
       - R1's fork-only workflow is `fork-ci.yml`, on the fork's `main` and in no pull request: the
         fork's `1c9c11e` and `15eb705`, which add that one file and touch nothing else. Started
         with a repository and a ref, it checks the ref out, reads the ref's own `gates.yml`, and
         runs each of its `run` steps as written, in order, with the step's own environment. It
-        performs the checkout and setup-go steps itself and provides the job's services, after
-        holding each to the ref's, and it refuses any other key of the ref's job or steps by name.
-        Every step runs even after one fails, so that a control can be read step by step.
+        performs the checkout and setup-go steps itself and provides the job's services, and it
+        holds each to the ref's before it runs a step of the ref's, refusing by name when they
+        differ. It refuses any other key of the ref's job or steps by name too. *(Reworded by this
+        item's review: it read "after holding each to the ref's", and the two steps come first,
+        since the ref's `gates.yml` cannot be read before the checkout.)* Every step runs even
+        after one fails, so that a control can be read step by step.
     - **R2 and R3 are the message repository's,** and its pull request is where each is flagged
       to the maintainer. Read at its head, `4d365abf`:
       - R2: connect's record gate, `message/record_test.go`, also read the sdk checked out beside
@@ -12629,17 +12645,78 @@ repo and therefore the critical path — not this repository:
       one (items 283 and 284), which also waits for message-server #2. Why "up to date" cannot be
       the test: `urnetwork/connect`'s `main` was at `6df2fa87` when connect's branch last merged
       it, and at `d17a6ecb` when the control run of §7's entry cloned it, at 10:16 on 2026-10-07.
+      - **The cross-PR move check** is the connect writer's `move_check.py` (sha256 `34de89dd…`).
+        It is in no repository: it is in the session's scratch for the split, under
+        `exec/cx3/movecheck/`. For every path connect's pull request deletes against the `main` it
+        merges into, the message head must hold that path's bytes as that `main` has them, apart
+        from the path and import-path rewrite the message repository declares, or the path must
+        carry a recorded disposition; and the merge must leave in connect no path the move takes.
+        What it guards is a file the maintainer changed on `main` after the import took it:
+        connect's merge deletes that file and the message repository's merge is what brings it
+        back, so a stale copy there loses the change with no test failing anywhere.
+      - **Who runs it, and what is recorded.** The lead runs it at the heads that will merge.
+        Those are not known until the merges, and no run at them is recorded here. Two earlier
+        runs are:
+        - the connect writer's, at connect `0f2ff669` against message `cdd30926`, with
+          `urnetwork/connect`'s `main` at `6df2fa87` and again at `511ee2cf`: it passed;
+        - one made for this record at 12:10 on 2026-10-07, read only, in clones of its own:
+          `move_check.py --connect <clone> --tip 0f2ff669 --parent d17a6ecb --message <clone>
+          --message-tip 4d365abf`, each commit by its full id. It passed. `main` is not an
+          ancestor of the branch, the two merge cleanly, and the merge deletes 848 paths: the
+          message head holds 694 identical, 120 with the declared import rewrite, 15 with that
+          rewrite in strings and comments too, 17 adapted there, and 2 with `main`'s later change
+          already merged in. No path the move takes is left in connect. The control: against the
+          message head of 2026-10-06, `f3f8f2bd`, the same command fails on nine paths.
+
+        *(Both sub-items added by this item's review, which found R4 naming the check and this
+        ledger never saying what it is.)*
+    - **Who pushes.** Item 281 says the lead "makes every push", and item 284 that this branch "is
+      local until the lead pushes". The same brief changed that, and this item did not record it
+      until its review. Verbatim: **"YOUR FORK AUTHORITY, limited. You are the only writer of your
+      repo."** Then its five points:
+      - "You may push YOUR PR branch to the owner's fork: the remote named origin or fork that
+        points at github.com/Ryanmello07/... Never upstream."
+      - "For fork CI, you may push ONE kind of commit to the fork's default branch: commits that
+        touch only files under .github/workflows/ whose names start with "fork-"."
+      - "Before EVERY push, run "git push --dry-run --porcelain", and accept only '*' (new ref) or
+        ' ' (fast-forward). Stop on '+', '!' or '-'. Never force. Never delete a remote ref."
+      - "You may dispatch that fork workflow on your branch, and on upstream main as the control."
+      - "Never open, comment on, or edit a PR or an issue. Never change repository settings."
+
+      It is item 281's no-force rule put in each writer's hands, and it reaches no further than
+      the owner's fork: the lead still opens every pull request (R4). Under it this repository's
+      writer made four pushes to `Ryanmello07/urnetwork-message-server` on 2026-10-07, each after
+      its dry run:
+      - 10:15:26: `split/use-message-repo` created at `4cdb7d8`. The dry run printed `*`, a new
+        ref;
+      - 10:16:09: `main` from `3b0c9cd` to `1c9c11e`. A space, a fast-forward;
+      - 10:25:14: `main` from `1c9c11e` to `15eb705`. A space;
+      - 10:37:31: `split/use-message-repo` from `4cdb7d8` to `1e111e8`. A space.
+
+      The times and the commits are GitHub's, from
+      `gh api repos/Ryanmello07/urnetwork-message-server/activity`; the flags are the writer's own
+      report. Both pushes to `main` touch `.github/workflows/fork-ci.yml` and nothing else. The
+      same query shows no forced update and no deletion on this fork after 2026-10-04. It does
+      return two forced updates, of `upstream/urmessage` on 2026-10-03 and 2026-10-04, the
+      practice item 281 retired, so the empty answer is not a blind one. The commit that takes
+      this item's review is pushed the same way, and cannot record its own push.
     - **Where they were recorded until now:** in the brief, and in the owner's review file
       (`URMESSAGE-DECISIONS-REVIEW-2026-10-05.md`, which is in no repository), where the lead wrote
       them at 02:05:26 on 2026-10-07.
-    - **The set at the wave's end,** each head on the owner's fork of its repository:
+    - **The set when this item was written,** each head on the owner's fork of its repository:
       - `urnetwork/sdk`: `upstream/remove-message` at `0f03e27e`, messaging removed, with `main`
         merged at `06f33802`;
       - `urnetwork/connect`: `upstream/remove-message` at `0f2ff669`, messaging removed and
         `NewOperatorClientSettings` added, with `main` merged at `6df2fa87`;
       - `urnetwork/message`: `split/import-all` at `4d365abf`, the import with its history;
-      - `urnetwork/message-server`: `split/use-message-repo`, the switch (item 284), at this
-        commit.
+      - `urnetwork/message-server`: `split/use-message-repo`, the switch (item 284), at `1e111e8`,
+        the commit that added this item.
+
+      *(Corrected by this item's review: it read "The set at the wave's end" and "at this commit".
+      The wave had two phases left, and the commit that takes the review moves this head. A commit
+      cannot name itself, so this repository's final head is left to the pull request's body. The
+      other three were still their forks' heads when the review was taken: §7's entry, under
+      Reviewed by.)*
     - **What this wave changed here.**
       - **The two pins are filled** (`4cdb7d8`): `message` at `4d365abf` and `connect` at
         `0f2ff669`, fetched from `Ryanmello07/urmessage` and `Ryanmello07/connect` until the two
@@ -12660,12 +12737,16 @@ repo and therefore the critical path — not this repository:
       repository's acceptance suite and its loopback library run this server in process, so it
       pins this repository; this repository imports three of its packages, so it pins that one.
       Two commits cannot each name the other. The message repository, at `4d365abf`, pins this one
-      at `ee23a490`, the commit before the pins here were filled, and this one pins `4d365abf`.
+      at `ee23a490`, a commit from before the pins here were filled, and this one pins `4d365abf`.
+      *(It read "the commit before the pins here were filled": `493f9cc` lies between `ee23a490`
+      and `4cdb7d8`, which filled them. Corrected by this item's review.)*
       From `ee23a490` to `4cdb7d8` no Go file changes, nor `go.mod`, nor `go.sum`:
       `git diff --stat ee23a490 4cdb7d8 -- '*.go' go.mod go.sum` prints nothing, where the same
       command without the paths prints four files, and with them over `97c6d17..ee23a490` prints
       `deps_test.go` and `go.mod`. So the server that repository's suite runs is the one tested
-      here. This commit and the edit-log entry change only this ledger.
+      here. This commit and the edit-log entry change only this ledger. *(The commit that takes
+      this item's review changes this ledger and `README.md`, so the first command still prints
+      nothing when it is run to that commit.)*
     - **Open.**
       - **Before this pull request merges:** message-server #2 and the three pull requests merge
         first. If either pinned head moved before it merged, its pin moves to the merged head in a
@@ -12673,7 +12754,10 @@ repo and therefore the critical path — not this repository:
         to urnetwork's, and its fork leaves the script's review sources.
       - **§6's diff review** of this item and its entry, and of the entry for items 285 and 286,
         whose "Reviewed by" is still pending: both are left to the review that follows this wave,
-        by the lead's order.
+        by the lead's order. *(Done on 2026-10-07 by an independent reviewer, in this wave's own
+        ledger-review phase: that is the brief's "the review that follows", and it was not a review
+        after the wave. All 14 of its findings are taken, and it is recorded under Reviewed by in
+        both entries of §7, in one commit.)*
       - **The `glog` pin** stays at `80a11b43` (item 288). Its `master` is at `fe810311`.
 
 288. **THE LEAD'S RULING OF 2026-10-07 ON THE TOOLCHAIN, R5: THE MESSAGE REPOSITORY KEEPS go1.26.5
@@ -12709,8 +12793,18 @@ repo and therefore the critical path — not this repository:
       - Point 5 is `scripts/siblings.txt`'s note beside the `glog` pin, in `4cdb7d8`. The pin moves
         in a commit of its own, in this repository and the message repository together.
     - **Points 1 to 4 are the message repository's.** Its `go.mod` at `4d365abf` keeps
-      `toolchain go1.26.5`. The ledger entry point 4 asks for is owed when that change is made;
-      this ledger records that repository's work as well as this one's (item 281).
+      `toolchain go1.26.5`, which is point 1. Points 2 and 3 are done there as well, read at the
+      same commit:
+      - its `test.sh` reads the pin from that line through `scripts/toolchain.sh` and exports
+        `GOTOOLCHAIN` to it before the first go command, and stops, naming the fix, on a host that
+        cannot run that toolchain. `sdk/cgo/build.sh` does the same for the native library;
+      - `scripts/toolchain.sh --artefact` asks each built binary, and the library, which toolchain
+        built it. The script's own controls build one program under another toolchain and require
+        it refused, and say so when a host can get no other toolchain.
+
+      *(Points 2 and 3 added by this item's review: the item gave the state of point 1 alone.)*
+      The ledger entry point 4 asks for is owed when that change is made; this ledger records that
+      repository's work as well as this one's (item 281).
     - **Where it was recorded until now:** in the lead's message, in the connect writer's report,
       and in the owner's review file.
 
@@ -25237,6 +25331,13 @@ with the same `glog` and `gvisor`.
 Each ran in a scratch copy of this tree, beside the post-removal siblings or beside connect
 `92a657fa`, and each had to fail its named test with that test's own message. 21 of 21 did.
 
+*(Added by the review of 2026-10-07. The 21 are K1 to K13 and E1 to E8, the controls this entry had
+when it was written. C1 to C7 are the controls of the tests `d4b9b3d` added or changed two commits
+later; that commit changed no spec or plan, so it has no entry, and its controls were described in
+the pull request's body alone. Their rows are added below, after E8, because the paragraph under
+the table counts "the first 28" and names C5, and nothing here said what either was. 21 and 7 are
+the 28, and the 11 of this entry's own review make 39.)*
+
 | control | what was planted | what failed, for its own reason |
 |---|---|---|
 | K1 | `substitutions()` back to `isAllowed(origin) \|\| viaConnect[origin]` | the substitution test, on its four rows that tell the rules apart, the schema with no replace directive among them; and the real gate, which refused `message/message`, `message/syntax` and `message/protocol` as substituted under every configuration (the plan's R2-F3): without the fix this commit cannot be green |
@@ -25256,6 +25357,13 @@ Each ran in a scratch copy of this tree, beside the post-removal siblings or bes
 | E6 | `message/sdk` imported | the gate, before its rule: `go list` cannot resolve a nested module this one does not require, and the ban stands behind that |
 | E7 | beside connect `92a657fa`, a package importing `connect/message` | the gate: `connect/message` unlisted, and `connect/mls/syntax` forbidden |
 | E8 | this tree beside connect `92a657fa` | the test binaries of `peer`, `harness` and `cmd/message-server` panic at init, `file "message.proto" is already registered`, previously from `message/protocol`; `cmd/messagectl`'s passes, linking one copy |
+| C1 | beside connect `92a657fa`, `store`'s imports of `message/protocol` turned back to `connect/protocol` | `cmd/messagectl`'s `TestThisBinaryStartsWithTheMessagingSchemaRegisteredOnce`: `message.proto` "is registered with go_package "github.com/urnetwork/connect/protocol"", so "store reaches a copy of the schema other than the message module's" |
+| C2 | beside connect `92a657fa`, nothing planted, and `GOLANG_PROTOBUF_REGISTRATION_CONFLICT=warn` in the environment: under it the second copy of the schema, which E8 panics on, is dropped with a warning | `cmd/message-server`'s `TestTheMessagingSchemaIsRegisteredOnceAndFromTheMessageModule`: the variable "relaxes protobuf's registration-conflict policy, so this binary would start with a second copy of the schema linked" |
+| C3 | beside connect `92a657fa`, every import of `message/protocol` in this module turned back | the same test: "the registered message.proto declares go_package "github.com/urnetwork/connect/protocol"" |
+| C4 | beside connect `92a657fa`, `api`'s and `store`'s imports turned back | `api`'s `TestOnlyTheCheckThatVerifiesTheProjectionEverReadsIt`: "this package imports no github.com/urnetwork/message/protocol, the schema beside its record layer" |
+| C5 | C4's tree, with that gate's `wireImportPath` as it was at `3a07270`, where it took any import ending in `/protocol` | nothing: the same test passes, and it is required to. The old rule accepts the tree C4's rule refuses, which is what `d4b9b3d` changed it for |
+| C6 | beside the post-removal siblings, `google.golang.org/protobuf` lowered to v1.36.10 in the message module's `go.mod` | `TestThisModuleResolvesTheProtobufRuntimeTheMessageModuleResolves`: "this module resolves google.golang.org/protobuf v1.36.11 and github.com/urnetwork/message resolves v1.36.10" |
+| C7 | the same runtime raised to v1.36.12 in this module's `go.mod` | the same test: "this module resolves google.golang.org/protobuf v1.36.12 and github.com/urnetwork/message resolves v1.36.11" |
 | K14 | `goListFormat` without `\t{{with .Replace}}{{.Dir}}{{end}}`: the red team's M1 | the real gate: each of the five modules go.mod replaces "was reported with no replace directory" |
 | K15 | `substitutions()` handed nil for the derived set, at `dependencyRule.refusalsOf`, the one place it is handed one: the red team's M2 | the substitution test, on its pion/sctp impostor row; and the real gate, whose impostors of pion/sctp and gvisor are not refused |
 | K16 | `substitutions()` examining what the allow list names, `!isAllowed(dep.path)`: the red team's M3 | the same two tests, on the same rows |
@@ -25270,9 +25378,11 @@ E8 is why CI's connect pin must be a connect after the removal, and why this pul
 after connect's removal does.
 
 K14 to K19 and E9 to E13 are this entry's review's (Reviewed by, below). They ran beside message
-`cdd30926` and connect `360dac9e` (E7, E8 and the schema controls beside connect `92a657fa`), and
-the first 28 were run again there with them. 39 of 39 came out as the harness requires: each
-failed its named test with that test's own message, except C5, which is required to pass.
+`cdd30926` and connect `360dac9e` (E7, E8 and C1 to C5 beside connect `92a657fa`), and the first
+28, which are K1 to K13, E1 to E8 and C1 to C7, were run again there with them. 39 of 39 came out
+as the harness requires: each failed its named test with that test's own message, except C5, which
+is required to pass. *(Corrected by the review of 2026-10-07: it read "the schema controls" for C1
+to C5 and "the first 28" with no list, when the table stopped at 21 before the review's own.)*
 
 #### 5. What this does not do
 
@@ -25283,7 +25393,9 @@ failed its named test with that test's own message, except C5, which is required
 - It does not touch `testdata/eph-window-kat.txt`, whose prose still names connect. Its bytes are
   pinned by digest in both repositories (item 284).
 - It records neither of the lead's two wave-2 rulings. They are to be items of their own, after
-  this one (item 284).
+  this one (item 284). *(Item 284 says so of the schema ruling alone. This line is where the sdk's
+  ruling was deferred: noted by the review of 2026-10-07, which found item 285 and the entry for
+  items 285 and 286 crediting item 284 with both.)*
 
 **Reviewed by:** pending. By the lead's order this entry's diff review is the split's red-team
 phase, after this commit rather than before it as §6 sets out. Its findings are recorded under this
@@ -25344,7 +25456,10 @@ independently:
       other commit;
     - `gates.yml` runs both. The README says how to run them by hand.
 
-    Its controls, 30 of 30, are in the pull request.
+    Its controls, 30 of 30, were listed in the pull request's body as it then stood, and the
+    harness that ran them was outside the repository. Since `493f9cc` the script carries its
+    controls itself (item 287). *(Corrected by the review of 2026-10-07: it read "are in the pull
+    request", when no pull request of the set existed, and none is open now.)*
 - **Two NITs, taken.**
   - **go.mod named `cmd/messagectl/main_test.go`** as what sees a double registration, and
     messagectl links one copy (E8). It now names `cmd/message-server/schema_test.go` and the init
@@ -25395,16 +25510,17 @@ f35258a1's log):
   byte-equality check against a pinned PRE-removal connect."
 
 Until this entry they were in the brief, in part E of the review file and in the lead's memory, and
-item 284 said they would be items of their own. Its review found them still missing, and item 283
-contradicting the sdk's pull request.
+§7's entry for item 284, part 5, said they would be items of their own; item 284 itself names only
+the schema ruling. That item's review found them still missing, and item 283 contradicting the
+sdk's pull request.
 
 #### 2. What they correct here
 
 - **Item 283** said the sdk's pull request delegates its settings to connect (SX-1), and left the
   order of the sdk's and connect's pull requests to settle. Item 285 settles it. Item 283 points at
   285 beside its old wording.
-- **Item 284** paraphrased the schema ruling and deferred both. Items 285 and 286 are those items,
-  and item 284 points at 286.
+- **Item 284** paraphrased the schema ruling and deferred it, and its §7 entry, part 5, deferred
+  both. Items 285 and 286 are those items, and item 284 points at 286.
 
 #### 3. Measured for this entry
 
@@ -25421,8 +25537,38 @@ contradicting the sdk's pull request.
   21:58 with `git ls-remote`: `split/source-connect-2a` is on the connect fork, a tag object for
   `e449f7d8`, and `split/source-sdk-3` is on the sdk fork, a tag object for `6141b98d`.
 
-**Reviewed by:** pending: the lead's review of this fix wave. The writer of this entry had no
-subagent to hand it to, so §6's diff review comes after this commit, as it did for item 284.
+**Reviewed by:** pending when this entry was committed: an independent diff review, in the third
+wave's ledger-review phase. The writer of this entry had no subagent to hand it to, so §6's diff
+review comes after this commit, as it did for item 284. *(Corrected by that review: it read
+"pending: the lead's review of this fix wave", and the review was not the lead's.)*
+
+**The review, 2026-10-07:** one independent reviewer, read only, of this ledger's diff from
+`97c6d17` to `1e111e8`. That diff is this entry with its two items, the record of item 284's review
+above, and the entry after this one with its two items. It is one review, and its account is under
+that entry's line. What follows is what it found in the text this entry's commit, `ee23a49`, added.
+Every finding is taken, in the commit that records this.
+- **Verified:** both rulings, in items 285 and 286 and in part 1, are in the brief of 06:48:19 in
+  the session's log, word for word; the facts of part 3 hold at `1945759a`, `360dac9e` and
+  `cdd30926`; and both of O21's tags are on the forks.
+- **MINOR, shared with the entry after this one: the control counts did not add up inside this
+  ledger.** The record of item 284's review said "the first 28", "39 of 39" and "except C5", and
+  that entry's table listed 21 controls before the review's own, with nothing to define C1 to C7.
+  The numbers were right. The table now carries C1 to C7, each with what was planted and what
+  failed, and the paragraph under it names the 28.
+- **NIT: three sentences credited item 284 with deferring both rulings.** Item 284's body names
+  one, the schema's; both were deferred by its §7 entry, part 5. Corrected in item 285, where the
+  old wording is kept, and in parts 1 and 2 of this entry, which read "item 284 said they would be
+  items of their own" and "**Item 284** paraphrased the schema ruling and deferred both". A fourth
+  place of the same kind is that part 5 itself, which cites item 284 for both: it was found by
+  searching this ledger for "deferred", "of their own" and "of its own", not by the reviewer, and
+  is noted where it stands.
+- **NIT: "Its controls, 30 of 30, are in the pull request."** No pull request existed. Corrected
+  where it stands, in the record of item 284's review, with the old wording kept.
+- **NIT: this entry's pending line named the wrong review,** as the line above now says.
+- **A promise the last record did not keep.** The entry for item 284 said its findings would be
+  "recorded under this line in the commit that takes them". Its MAJOR and one MINOR were taken in
+  `8a9f9e6` and `1217e5e`, and recorded in `ee23a49`. The reviewer asked that this time one commit
+  do both, and it does.
 
 ### 2026-10-07 — Items 287 and 288: the lead's wave-3 rulings and the owner's CI note recorded, and the two pins filled
 
@@ -25441,8 +25587,10 @@ and the README. Neither changes a Go file. Times are UTC, on 2026-10-07 unless a
   points.
 - Until this entry they were in the brief and the message, in the writers' reports, and in the
   owner's review file, where the lead wrote R1 to R4 at 02:05:26. Item 284's review found the
-  second wave's rulings missing from this ledger a day after they were made; these are recorded in
-  the wave that received them.
+  second wave's rulings missing from this ledger on the day they were made; these are recorded in
+  the wave that received them. *(Corrected by this entry's review: it read "a day after they were
+  made". The rulings are of 06:48:19 on 2026-10-06, and `ee23a49`, which took that finding, was
+  committed at 22:34:59 the same day, 15 hours and 47 minutes later.)*
 
 #### 2. What it was built against
 
@@ -25461,8 +25609,11 @@ connect `360dac9e`:
   names three files, all of them tests: `message/record_test.go`, `message/writeauth_test.go` and
   `protocol/message_attestation_test.go`. Without the paths the same diff names 35. The blobs of
   `protocol/message.proto`, `protocol/message.pb.go`, `go.mod` and `go.sum` are the same at
-  `f3f8f2bd`, `cdd30926` and `4d365abf`, so the 87 rows of wire bytes that entry compared are the
-  bytes this head emits.
+  `f3f8f2bd`, `cdd30926` and `4d365abf`, so the comparison of wire bytes made at `f3f8f2bd` holds
+  for what this head emits. *(Corrected by this entry's review: it read "so the 87 rows of wire
+  bytes that entry compared are the bytes this head emits". Neither that entry nor item 284
+  compares wire bytes; the comparison was in the pull request's body and nowhere in this ledger.
+  It is recorded under Reviewed by, below, where it was also made again at `4d365abf` itself.)*
 - **connect.** Two merges of `urnetwork/connect`'s `main`, at `a5e622c1` and at `6df2fa87`. 92
   files differ between `360dac9e` and `0f2ff669`. Of `go.mod`, `go.sum`, `protocol/` and `sctp/`,
   three do: `go.mod`, in its toolchain line (item 288), and `protocol/transfer.proto` with its
@@ -25476,7 +25627,11 @@ connect `360dac9e`:
   printed `FULL RUN: 2 of 2 implementations of Store were held to RunContract`. Compared by package
   and name with the run at `ee23a49` beside the earlier heads, they are the same 708, both ways,
   and none changed. `go build`, `go vet`, `gofmt -l`, `go mod tidy -diff` and `go mod verify` are
-  clean, and both released platforms build.
+  clean, and both released platforms build. *(Corrected by this entry's review: this is not a run
+  at `4cdb7d8`. It ran from 10:06:13 to 10:12:24 with HEAD at `493f9cc` and `gates.yml`,
+  `README.md` and `scripts/siblings.txt` modified in the tree, the three files `4cdb7d8` committed
+  at 10:12:35. The Windows run of committed bytes is the clean one at `1e111e8`, from 10:36:11 to
+  10:42:28: the same 708 names, both ways, with none changed.)*
 - **Linux,** on alt-2 (Go 1.26.5, gcc 13.3), with no database there. `gates.yml`'s sibling step,
   read out of the workflow and run as written: the script's 45 controls, the four clones from
   GitHub, then PINNED four times, `message` and `connect` each with FORK and its URL. Then the later
@@ -25511,7 +25666,8 @@ connect `360dac9e`:
 - **The dependency gate and the switch: 39 of 39.** The controls of the entry for item 284, run
   again beside message `4d365abf` and connect `0f2ff669`, and beside connect `92a657fa` for E7, E8
   and C1 to C5. 38 failed their named test with that test's own message, and C5 is required to
-  pass.
+  pass. *(C1 to C7 had no row in that entry's table when this was written. This entry's review
+  added them there.)*
 - **The script's own: 45, in the tree.** `bash scripts/siblings.sh --self-test` runs a copy of the
   script on pin files and on checkouts it makes with `git init`, and fetches nothing. Each control
   must end the way it says and print the line that says why:
@@ -25537,7 +25693,13 @@ connect `360dac9e`:
   without its `.git`, and each is caught by the control written for it. On Windows 28 of the 30
   are caught. The two that are not are the script's own handling of a carriage return, in the pin
   file and in a generated file: Git for Windows' grep strips carriage returns itself, so those
-  lines cannot be seen to matter there.
+  lines cannot be seen to matter there. *(Corrected by this entry's review: the two runs this
+  bullet reports are not runs at `4cdb7d8`. They were made at about 09:47 on alt-2 and 10:03 on
+  Windows, on the script as it stood in the working tree before `493f9cc` committed it at
+  10:04:08, and no copy of that file was kept. The runs of the committed file, which is one blob,
+  `9d67b7d6`, at `493f9cc`, `4cdb7d8` and `1e111e8`: on alt-2 at `1e111e8`, at about 10:57, all 30
+  are caught and the unchanged copy passes; on Windows, from 12:06 to 12:18, 28 of the 30 are
+  caught, the unchanged copy passes, and the two not caught are the same two.)*
 - **The ones that fetch: 15 of 15,** on alt-2 and again on Windows, against GitHub: all four
   cloned as committed, one commit each with `core.autocrlf` off; connect `92a657fa` refused at
   the clone and by `--verify`, for all three reasons; a commit its source does not hold refused
@@ -25582,6 +25744,141 @@ connect `360dac9e`:
   287's open list).
 - It does not run the store contract on Linux outside GitHub's runner: alt-2 has no PostgreSQL.
 
-**Reviewed by:** pending: the review that follows this wave, by the lead's order. It takes the
-entry before this one as well, for items 285 and 286, whose line still reads pending. Each review
-is recorded under its own entry's line, in the commit that takes it.
+**Reviewed by:** pending when this entry was committed: the review that follows, in this wave's own
+ledger-review phase, by the lead's order. §6 puts the diff review before the commit, and this one
+came after it, as the two before it did. It takes the entry before this one as well, for items 285
+and 286, whose line still reads pending. Each review is recorded under its own entry's line, in the
+commit that takes it. *(Corrected by that review: it read "the review that follows this wave", and
+it did not say that §6 puts the review first.)*
+
+**The review, 2026-10-07:** one independent reviewer, read only, in a clone of its own, of this
+ledger's diff from `97c6d17` to `1e111e8`: the record of item 284's review, items 285 to 288, and
+the two entries for them. No spec file changed in that range. **Its verdict:** approve with
+changes, with no BLOCKER and no MAJOR, 5 MINOR and 9 NIT. It found the quotes exact, the facts
+true at the commits cited apart from the findings, and nothing overclaimed: "merged" is used only
+of what merged, and "pushed" only of what was pushed. It checked, independently:
+- **every quote, against the session's log,** with wrapped whitespace collapsed: the owner's note,
+  whole, with no period after it; the wave-2 rulings; R1 to R4, the `gates.yml` sentence and the
+  brief's "Fetch by SHA" sentence; R5's five points, and that its own heading says 2026-10-06; and
+  R3's two option labels against the owner's answers and item 279. Five quotes with one word
+  changed were each not found;
+- **git:** every diff query of item 287 and of this entry; what the items say of the sdk at
+  `1945759a`, of connect at `360dac9e` and `0f2ff669`, and of message at `cdd30926` and `4d365abf`;
+  and that the pathspec `'*.go'` sees files in directories;
+- **GitHub:** the four fork heads, both of O21's tags, `glog`'s `master` and gvisor's `go`; that no
+  pull request of the set is open, with #2 open at `3b0c9cd`; and that the six repositories item
+  287 names have no workflows;
+- **the fork's logs, recounted:** 708 names passed in 37606187633, and in 37608641390, the push run
+  at `1e111e8`: 232 tests and 476 subtests, in 710 result lines, with `FULL RUN: 2 of 2`; 706 names
+  in 37425508016, none lost or changed and the two named tests added; and in the control,
+  37606287218, 440 passed and 4 failed on the `go.sum` line, with connect at `d17a6ecb`;
+- **by running:** urnetwork's URLs serve `0f2ff669`, `4d365abf` and `4cdb7d8`, and refuse both
+  controls; in its own clone the self-test holds 45 controls and the script clones and verifies the
+  four pins; the dependency, edit-log and plan-linter gates pass there under go1.26.5, beside a
+  connect whose toolchain line is go1.27.1; and K14 and K15 fail with the messages §7's table
+  gives.
+
+It did not check the Linux name comparison against the run at `1217e5e`, the dry-run flags of the
+four pushes, or the silent exit 141 on alt-2.
+
+**All 14 findings are taken, in the commit that records this, and none is rejected.** Two of the
+NITs are of the text `ee23a49` added, with part of a third and part of one MINOR, and those are
+under the entry before this one. The rest:
+- **MINOR: "the 87 rows of wire bytes that entry compared".** No entry compared wire bytes; the
+  comparison was in the pull request's body alone. Part 2 is corrected, and the measurement is
+  recorded here, made again at the pinned head.
+  - **The program** builds every message `message.proto` declares, 52 of them, with each field
+    given a value derived from its number and kind, repeated fields twice and nested messages to
+    two levels. It builds each once with no `oneof` member set, and once more for each member: 6 of
+    `MessageServerPush`, 15 of `MessageServerRequest` and 14 of `MessageServerResponse`. That is 87
+    rows. Each is marshalled with protobuf's deterministic option, as `canonical_request_bytes` is,
+    and printed as a name, a length and a SHA-256.
+  - **The two builds agree on all 87 rows, byte for byte:** in this tree against `message/protocol`
+    at `4d365abf`, and in the same tree beside connect `92a657fa` against `connect/protocol`. Each
+    output is also the one wave 2 kept, from `f3f8f2bd` and from `92a657fa`.
+  - **The control:** the same program leaving unset each message's own field 3, where that field
+    is not repeated, moves 40 of the 87 rows. It is wave 2's control, whose definition had not been
+    kept: of the candidates tried, this one alone gives wave 2's kept output, byte for byte.
+- **MINOR: the control counts did not add up inside this ledger.** Part 4 said "C1 to C5" and "39
+  of 39", and nothing in this ledger defined C1 to C7. §7's table for item 284 now carries them,
+  and part 4 points there. The rest of this finding is under the entry before this one.
+- **MINOR: who pushes.** Items 281 and 284 said the lead makes every push. The third wave's brief
+  gave each writer a limited authority over the owner's fork, this repository's writer made four
+  pushes under it, and item 287 recorded none of that. Item 287 now quotes the brief's block,
+  lists the four pushes with GitHub's times and the dry runs' flags, and gives the query that shows
+  no forced update. Items 281 and 284 point at it, old wording kept.
+- **MINOR: R4's "cross-PR move check" was nowhere defined.** Item 287's R4 now says what the check
+  requires, where the tool is and who runs it. It also records a run at today's heads, connect
+  `0f2ff669` and message `4d365abf` against `urnetwork/connect`'s `main` at `d17a6ecb`, which
+  passed, with a control that fails. No run at the heads that will merge is recorded: that is the
+  lead's, when they are known.
+- **MINOR: the README gave three of the workflow's five steps.** Item 287 said the README gives
+  `gates.yml`'s steps as commands to run by hand, and the pull request's body told the maintainer
+  that without the workflow "the run is three commands from the README, then `go test`". Followed
+  as written, that loses the `gofmt` check and the linux/arm64 build. `README.md` changes in this
+  commit: under `go build` and `--print-config` it now gives the five steps, the three sibling
+  commands and then the suite, `gofmt`, `go vet` and the released platforms. Measured:
+  - a script outside the repository reads both files and holds each README step to the workflow's
+    own. The `gofmt` and platform steps are the workflow's scripts, byte for byte, inside
+    parentheses, so that pasted into a shell their `exit 1` ends a subshell. `go vet` is the
+    workflow's command. The suite's is the workflow's with `-count=1` added, which a machine with a
+    build cache needs for the run to be a run;
+  - each of the two new steps was run as the README has it, on Windows and on alt-2. The tree
+    passes both, and `built 2 released platforms` is printed. The controls: an unformatted file
+    planted is named and refused; a setting the step does not know, a file that names no platform,
+    and a platform go cannot build are each refused, the last by go's own message;
+  - nothing in the tree holds the README's copy of a step to the workflow's. They were compared
+    for this record, and a later change to one must be made to the other by hand.
+- **NIT: "the commit before the pins here were filled".** `ee23a490` is two commits before
+  `4cdb7d8`. Corrected in item 287.
+- **NIT: "a day after they were made".** It was the same day. Corrected in part 1.
+- **NIT: three pending lines named the wrong review:** item 287's open list, this entry's line and
+  the line of the entry before it. And this entry did not say that §6 puts the review first. Each
+  is corrected where it stands.
+- **NIT: three runs headed "at `4cdb7d8`" were made before that commit existed:** the Windows suite
+  of part 3 and the two script-mutation runs of part 4. Each bullet is corrected, and names the run
+  of committed bytes. The Windows one of the script's blob `9d67b7d6` was made for this record.
+- **NIT: "The set at the wave's end" and "at this commit".** Corrected in item 287. When this was
+  written, at 12:38 on 2026-10-07, `git ls-remote` still gave the forks' heads as item
+  287 lists them: the sdk's `0f03e27e`, connect's `0f2ff669` and message's `4d365abf`. This
+  repository's head is the commit that records this, which the pull request's body names.
+- **NIT: `fork-ci.yml`'s order was described backwards.** Reworded in item 287.
+- **NIT: item 288 gave the state of R5's point 1 alone.** Points 2 and 3 are added, read at
+  `4d365abf`.
+
+**Every place this commit changes,** since some are in entries above this one: items 281, 284, 285,
+287 and 288; §7's entry for item 284, in part 4, part 5 and one line of its review's record; the
+entry for items 285 and 286, in parts 1 and 2 and under its Reviewed by; this entry, in parts 1 to
+4 and here; and `README.md`. Each change to earlier text says what it replaced, where it stands or
+in the record of the review that found it. No Go file changes, nor `go.mod`, nor `go.sum`, nor a
+spec, nor a plan.
+
+**Run again for this commit,** on its tree as it stood before these last lines were written.
+`README.md` did not change after the runs. This ledger did, in four places: these lines, the time
+in the finding before them, and two sentences reworded, one in item 287's open list and one in
+C2's row. Nothing but the root package's tests reads this ledger, and they were run once more on
+the finished text, the two gates among them. Each run cloned the four siblings with
+`scripts/siblings.sh`, from GitHub, and verified each PINNED: message `4d365abf`, connect
+`0f2ff669`, `glog` `80a11b43` and gvisor `c0783dba`.
+- **The two gates this ledger answers to:** `go test ./ -run TestTheEditLogGate`, 6 tests, and
+  `go test ./ -run TestThePlanLinter`, 7 tests, pass. This commit changes no spec and no plan, so
+  the edit-log gate asks no entry of it, and the review is recorded under the entries it is of.
+- **Windows,** Go 1.26.5, with PostgreSQL 17.6 on 127.0.0.1 and both variables set, from 12:23:56
+  to 12:29:45: `go test -json -count=1 -run . -timeout 30m ./...` exits 0 with 708 results passed,
+  232 tests and 476 subtests, none failed or skipped, and `FULL RUN: 2 of 2`. They are the 708
+  names of the clean run at `1e111e8`, both ways, with none changed. `go build`, `go vet`,
+  `gofmt -l`, `go mod tidy -diff` and `go mod verify` are clean.
+- **Linux,** on alt-2 (Go 1.26.5, gcc 13.3, bash 5.2), with no database there: the README's five
+  steps as the README has them, read out of it on that host by the script named above. The sibling
+  step printed `SIBLINGS SELF-TEST PASS` and PINNED four times. The suite gave 564 results, 549
+  passed and 15 skipped, the half of the store contract that needs PostgreSQL
+  (`PARTIAL RUN: 1 of 2`): the same 564 names as at `1e111e8`, both ways. `gofmt`, `go vet` and
+  the platform step pass, `go mod tidy -diff` and `go mod verify` are clean, and
+  `CGO_ENABLED=1 go test -race ./...` passes.
+- **The controls,** on Windows, from 12:30:49 to 12:37:36: the 39 of §7's table for item 284,
+  beside the same siblings, and beside connect `92a657fa` for E7, E8 and C1 to C5. 38 failed their
+  named test with that test's own message, and C5 passed, as it is required to. The script's 45
+  hold on both hosts.
+
+It cites no run of itself, as part 6 says of the commit before it: the pull request's body cites
+the runs on its head.

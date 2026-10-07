@@ -94,12 +94,61 @@ main module's replaces apply. Without that line `connect` is unbuildable from he
 
 ```bash
 go build ./...
-go vet ./...
-go test -count=1 -run '.' -timeout 30m ./...
 go run ./cmd/message-server --print-config   # reads every resource, opens nothing, prints it
+```
 
-# the release configuration, which is what CI builds and what deps_test.go measures against
-GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build ./cmd/message-server
+**The whole run is five steps, and it needs no CI service.** They are the five `run` steps of
+`.github/workflows/gates.yml`, in its order. The first is the three `scripts/siblings.sh` commands
+above. The other four follow, each as the workflow has it, with two differences for a run by hand:
+`go test` gains `-count=1`, because a machine with a build cache reports a cached result without
+running anything; and the two steps that end in `exit 1` are wrapped in `( ... )`, so that pasted
+into a shell they end the subshell and not the shell.
+
+```bash
+# 2. every gate and every suite. The PostgreSQL half needs the two variables described below.
+go test -v -count=1 -run '.' -timeout 30m ./...
+
+# 3. gofmt
+(
+  unformatted="$(gofmt -l .)"
+  if [ -n "$unformatted" ]; then
+    printf 'gofmt would rewrite:\n%s\n' "$unformatted"
+    exit 1
+  fi
+)
+
+# 4. go vet
+go vet ./...
+
+# 5. every released platform: every package, built once for each line of release-platforms.txt,
+#    which is the file deps_test.go measures against
+(
+  set -eu
+  built=0
+  while read -r platform settings; do
+    case "$platform" in ''|'#'*) continue ;; esac
+    goos="${platform%%/*}"
+    goarch="${platform##*/}"
+    cgo=0
+    tags=''
+    for setting in $settings; do
+      case "$setting" in
+        cgo=*)  cgo="${setting#cgo=}" ;;
+        tags=*) tags="${setting#tags=}" ;;
+        '#'*)   break ;;
+        *)      printf 'release-platforms.txt: %s is not a setting this job knows\n' "$setting"; exit 1 ;;
+      esac
+    done
+    printf '\n== %s/%s cgo=%s tags=%s ==\n' "$goos" "$goarch" "$cgo" "$tags"
+    GOOS="$goos" GOARCH="$goarch" CGO_ENABLED="$cgo" go build ${tags:+-tags "$tags"} ./...
+    built=$((built + 1))
+  done < release-platforms.txt
+  if [ "$built" -eq 0 ]; then
+    echo 'release-platforms.txt named no platform, so this job built nothing'
+    exit 1
+  fi
+  printf '\nbuilt %d released platforms\n' "$built"
+)
 ```
 
 Go 1.26.5. Measured 2026-09-14 with PostgreSQL 17.6 running:
