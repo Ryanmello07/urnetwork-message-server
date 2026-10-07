@@ -1,0 +1,299 @@
+# fork-ci: this fork's CI for any commit of this repository, or of urnetwork/message-server.
+#
+# GitHub Actions is off for the urnetwork organization, so a pull request there runs nothing, and
+# the evidence a pull request cites comes from a run on the fork it was pushed from. This workflow
+# is that run. It lives on the fork's default branch only, and no pull request carries it.
+#
+#   gh workflow run fork-ci.yml --repo Ryanmello07/urnetwork-message-server --ref main \
+#       -f repository=Ryanmello07/urnetwork-message-server -f ref=<branch or full commit SHA>
+#
+# THE CONTROL is the same workflow on upstream's main:
+#
+#   gh workflow run fork-ci.yml --repo Ryanmello07/urnetwork-message-server --ref main \
+#       -f repository=urnetwork/message-server -f ref=main
+#
+# A step that fails on a branch and also fails there is upstream's own failure, not the branch's.
+#
+# IT RUNS THE REF'S OWN GATES, NOT A COPY OF THEM. The repository's test runner is its
+# .github/workflows/gates.yml, which the fork also runs on every push. This workflow checks the ref
+# out, reads THAT file from it, and runs each of its `run:` steps as written, in order, with the
+# step's own env: so the siblings are fetched the way the ref says (scripts/siblings.sh and its
+# pins on a branch that has them, the clone commands of an older ref otherwise), and the suite is
+# the command the ref names. What it cannot take from the ref it checks against the ref instead,
+# and fails by name when they differ: the checkout and setup-go steps, which it performs itself,
+# and the job's services, which a job fixes before any step runs. Any other key of the ref's job
+# or steps is refused rather than ignored, because a step this workflow ran differently from
+# GitHub would be a result about this workflow.
+#
+# EVERY STEP RUNS, EVEN AFTER ONE FAILS, and the summary says which ran after a failure. GitHub
+# stops a job at its first failed step; a control is read step by step, so a later step's own
+# answer is worth having on both sides. The job fails if any step did.
+name: fork-ci
+
+run-name: fork-ci ${{ inputs.repository }}@${{ inputs.ref }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      repository:
+        description: owner/name of the repository to test
+        required: true
+        default: Ryanmello07/urnetwork-message-server
+      ref:
+        description: the branch, tag or full commit SHA to test
+        required: true
+        default: main
+
+permissions:
+  contents: read
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+
+    # The services of gates.yml's own job, which the step below compares with the ref's.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: urmessage_ci
+          POSTGRES_DB: urmessage_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: the ref's own gates.yml, each run step as written
+        env:
+          FORK_CI_REPOSITORY: ${{ inputs.repository }}
+          FORK_CI_REF: ${{ inputs.ref }}
+          FORK_CI_OUT: ${{ runner.temp }}/fork-ci
+        run: |
+          python3 -c 'import yaml' 2>/dev/null || sudo apt-get install -y -q python3-yaml
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
+          import time
+
+          import yaml
+
+          GATES = ".github/workflows/gates.yml"
+          OUT = os.environ["FORK_CI_OUT"]
+          os.makedirs(OUT, exist_ok=True)
+
+          # What this workflow does itself, in place of the ref's steps of the same name.
+          PERFORMED_HERE = {
+              "actions/checkout@v4": {"fetch-depth": 0},
+              "actions/setup-go@v5": {"go-version-file": "go.mod"},
+          }
+          # What this workflow's own job provides, which a job fixes before any step runs.
+          PROVIDED_HERE = {
+              "runs-on": "ubuntu-latest",
+              "services": {
+                  "postgres": {
+                      "image": "postgres:17",
+                      "env": {"POSTGRES_PASSWORD": "urmessage_ci", "POSTGRES_DB": "urmessage_test"},
+                      "ports": ["5432:5432"],
+                      "options": '--health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 20',
+                  }
+              },
+          }
+          EXPRESSION = "$" + "{{"
+
+
+          def git(*arguments, cwd="."):
+              done = subprocess.run(["git", "-C", cwd, *arguments], capture_output=True, text=True)
+              return done.stdout.strip() if done.returncode == 0 else ""
+
+
+          def refuse(reason):
+              print("::error::fork-ci cannot stand in for this ref's gates.yml: " + reason)
+              with open(os.path.join(OUT, "summary.txt"), "a", encoding="utf-8") as summary:
+                  summary.write("REFUSED: " + reason + "\n")
+              sys.exit(2)
+
+
+          lines = []
+
+
+          def say(text=""):
+              print(text, flush=True)
+              lines.append(text)
+
+
+          head = git("rev-parse", "HEAD")
+          say("fork-ci: %s @ %s" % (os.environ["FORK_CI_REPOSITORY"], os.environ["FORK_CI_REF"]))
+          say("checked out: %s  %s" % (head, git("log", "-1", "--format=%cI %s")))
+          say("go: " + subprocess.run(["go", "version"], capture_output=True, text=True).stdout.strip())
+
+          if not os.path.exists(GATES):
+              refuse("the ref carries no " + GATES)
+          with open(GATES, encoding="utf-8") as source:
+              workflow = yaml.safe_load(source)
+          # PyYAML reads the key `on` as the boolean true; either spelling is the trigger block.
+          unknown = sorted(str(key) for key in workflow if key not in ("name", "on", True, "permissions", "jobs"))
+          if unknown:
+              refuse("its workflow carries the keys %s, which this workflow does not reproduce" % unknown)
+          if list(workflow["jobs"]) != ["gates"]:
+              refuse("its jobs are %s, want exactly the job gates" % list(workflow["jobs"]))
+          job = workflow["jobs"]["gates"]
+          unknown = sorted(key for key in job if key not in ("runs-on", "services", "steps"))
+          if unknown:
+              refuse("its job carries the keys %s, which this workflow does not reproduce" % unknown)
+          theirs = {"runs-on": job.get("runs-on"), "services": job.get("services")}
+          for service in (theirs["services"] or {}).values():
+              if isinstance(service.get("options"), str):
+                  service["options"] = " ".join(service["options"].split())
+          if theirs != PROVIDED_HERE:
+              refuse("its job runs on, and with services, other than this workflow's:\n  the ref: %s\n  here:    %s"
+                     % (json.dumps(theirs, sort_keys=True), json.dumps(PROVIDED_HERE, sort_keys=True)))
+
+          plan = []
+          performed = []
+          for index, step in enumerate(job["steps"], 1):
+              unknown = sorted(key for key in step if key not in ("name", "uses", "with", "run", "env"))
+              if unknown:
+                  refuse("step %d carries the keys %s, which this workflow does not reproduce" % (index, unknown))
+              if "uses" in step:
+                  if step["uses"] not in PERFORMED_HERE or step.get("with") != PERFORMED_HERE[step["uses"]]:
+                      refuse("step %d uses %s with %s, and this workflow performs only %s"
+                             % (index, step["uses"], json.dumps(step.get("with")), json.dumps(PERFORMED_HERE, sort_keys=True)))
+                  performed.append(step["uses"])
+                  continue
+              if "run" not in step:
+                  refuse("step %d neither uses an action nor runs a script" % index)
+              environment = {str(key): str(value) for key, value in (step.get("env") or {}).items()}
+              if EXPRESSION in step["run"] or any(EXPRESSION in value for value in environment.values()):
+                  refuse("step %d carries a GitHub expression, which only GitHub evaluates" % index)
+              plan.append((index, step.get("name") or "step %d" % index, step["run"], environment))
+          if sorted(performed) != sorted(PERFORMED_HERE):
+              refuse("it uses %s, and this workflow performs %s: one of them would be skipped silently"
+                     % (performed, sorted(PERFORMED_HERE)))
+          if not plan:
+              refuse("it has no run step, so this workflow would report a clean run of nothing")
+
+          say()
+          say("NOT run from the ref, because this workflow performs them itself (checked equal to the ref's):")
+          for uses in performed:
+              say("  " + uses + " with " + json.dumps(PERFORMED_HERE[uses]))
+          say("  runs-on and services: " + json.dumps(PROVIDED_HERE, sort_keys=True))
+          say("run from the ref, as written, in order: %d steps" % len(plan))
+          for index, name, _, environment in plan:
+              say("  %d. %s%s" % (index, name, "  [env: %s]" % ", ".join(sorted(environment)) if environment else ""))
+
+          results = []
+          failed_before = False
+          for index, name, script, environment in plan:
+              path = os.path.join(OUT, "step-%02d.sh" % index)
+              log_path = os.path.join(OUT, "step-%02d.log" % index)
+              with open(path, "w", encoding="utf-8", newline="\n") as target:
+                  target.write(script)
+              print("::group::step %d: %s" % (index, name), flush=True)
+              started = time.time()
+              with open(log_path, "w", encoding="utf-8", errors="replace") as log:
+                  # GitHub's own default for a run step on Linux: bash -e {0}
+                  process = subprocess.Popen(["bash", "-e", path], env=dict(os.environ, **environment), stdin=subprocess.DEVNULL,
+                                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace")
+                  for line in process.stdout:
+                      sys.stdout.write(line)
+                      log.write(line)
+                  code = process.wait()
+              sys.stdout.flush()
+              print("::endgroup::", flush=True)
+              results.append((index, name, code, time.time() - started, failed_before, log_path))
+              if code != 0:
+                  print("::error::step %d (%s) exited %d" % (index, name, code), flush=True)
+                  failed_before = True
+
+          say()
+          say("siblings beside the checkout, as the ref's own step left them:")
+          parent = os.path.dirname(os.getcwd())
+          here = os.path.basename(os.getcwd())
+          found = 0
+          for entry in sorted(os.listdir(parent)):
+              if entry == here or not os.path.isdir(os.path.join(parent, entry, ".git")):
+                  continue
+              found += 1
+              say("  %-10s %s  %s" % (entry, git("rev-parse", "HEAD", cwd=os.path.join(parent, entry)),
+                                      git("log", "-1", "--format=%cI", cwd=os.path.join(parent, entry))))
+          if found == 0:
+              say("  none")
+
+          result_line = re.compile(r"^(\s*)--- (PASS|FAIL|SKIP): (\S+)")
+          package_line = re.compile(r"^(ok|FAIL)\s+(github\.com/\S+)|^(\?)\s+(github\.com/\S+)\s+\[no test files\]")
+          say()
+          say("steps:")
+          any_failed = False
+          for index, name, code, seconds, after_failure, log_path in results:
+              verdict = "ok" if code == 0 else "FAILED (exit %d)" % code
+              any_failed = any_failed or code != 0
+              say("  %d. %-45s %s, %.0f s%s" % (index, name, verdict, seconds, "  [ran after an earlier step failed]" if after_failure else ""))
+              counts = {"PASS": [0, 0], "FAIL": [0, 0], "SKIP": [0, 0]}
+              failures = []
+              packages = {"ok": 0, "FAIL": 0, "?": 0}
+              banners = []
+              with open(log_path, encoding="utf-8", errors="replace") as log:
+                  for line in log:
+                      match = result_line.match(line)
+                      if match:
+                          counts[match.group(2)][1 if match.group(1) else 0] += 1
+                          if match.group(2) == "FAIL":
+                              failures.append(match.group(3))
+                          continue
+                      match = package_line.match(line)
+                      if match and match.group(1) in ("ok", "FAIL"):
+                          packages[match.group(1)] += 1
+                          if match.group(1) == "FAIL":
+                              failures.append("package " + " ".join(line.split()[1:]))
+                      elif match and match.group(3):
+                          packages["?"] += 1
+                      if "FULL RUN:" in line or "PARTIAL RUN:" in line or "SIBLINGS SELF-TEST" in line or line.startswith(("PINNED ", "UNPINNED ", "panic: ")):
+                          banners.append(line.strip())
+              if sum(sum(pair) for pair in counts.values()):
+                  say("       go test results: %d passed (%d tests, %d subtests), %d failed, %d skipped; packages: %d ok, %d FAIL, %d with no test files"
+                      % (sum(counts["PASS"]), counts["PASS"][0], counts["PASS"][1], sum(counts["FAIL"]), sum(counts["SKIP"]),
+                         packages["ok"], packages["FAIL"], packages["?"]))
+              for failure in failures[:60]:
+                  say("       FAIL " + failure)
+              for banner in list(dict.fromkeys(banners))[:12]:
+                  say("       " + banner[:300])
+              if code != 0:
+                  with open(log_path, encoding="utf-8", errors="replace") as log:
+                      tail = log.read().splitlines()[-12:]
+                  for line in tail:
+                      say("       | " + line[:300])
+          say()
+          say("FORK-CI %s: %s @ %s" % ("FAILED" if any_failed else "PASSED", os.environ["FORK_CI_REPOSITORY"], head))
+
+          with open(os.path.join(OUT, "summary.txt"), "w", encoding="utf-8") as summary:
+              summary.write("\n".join(lines) + "\n")
+          if os.environ.get("GITHUB_STEP_SUMMARY"):
+              with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+                  summary.write("```\n" + "\n".join(lines) + "\n```\n")
+          sys.exit(1 if any_failed else 0)
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fork-ci
+          path: ${{ runner.temp }}/fork-ci
+          if-no-files-found: warn
