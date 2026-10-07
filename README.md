@@ -72,16 +72,18 @@ Which commit of each sibling this module is tested against is written down in
 `scripts/siblings.sh` holds a checkout to it — with or without a CI service:
 
 ```bash
+bash scripts/siblings.sh --self-test                           # the script's own controls; it fetches nothing
 bash scripts/siblings.sh message connect glog gvisor           # clone the missing ones at their pins
 bash scripts/siblings.sh --verify message connect glog gvisor  # refuse any sibling at another commit
 ```
 
 `--verify` refuses a sibling at any other commit or with modified files, a pin that is a placeholder
-or a short SHA, and a `connect` that still carries the messaging schema. `message` and `connect` are
-placeholders until the pull requests whose heads they name are open; to run against checkouts of
-your own meanwhile, name them in `MESSAGE_SERVER_TEST_UNPINNED` (for example
+or a short SHA, a pin fetched from anywhere but `https://github.com/urnetwork/` or a review source
+the script lists by its exact URL, and a `connect` that still carries the messaging schema. `message`
+and `connect` are placeholders until the pull requests whose heads they name are open; to run against
+checkouts of your own meanwhile, name them in `MESSAGE_SERVER_TEST_UNPINNED` (for example
 `MESSAGE_SERVER_TEST_UNPINNED=message,connect`), and the script prints each as UNPINNED with both
-commits. `.github/workflows/gates.yml` runs the same two commands.
+commits. `.github/workflows/gates.yml` runs the same three commands.
 
 `glog` is replaced even though nothing here names it: `connect` requires `github.com/urnetwork/glog
 v0.0.0`, a version no proxy serves, and a `replace` in a dependency's `go.mod` is ignored — only the

@@ -8,10 +8,11 @@
 #
 # scripts/siblings.sh reads it. With a name it clones a missing sibling at its pin; with --verify
 # it refuses a sibling at any other commit, or with modified tracked files, before anything is
-# built; and either way it refuses an unpinned name, a short or symbolic commit, a URL outside
-# https://github.com/urnetwork/, and a connect that still carries the messaging schema.
-# .github/workflows/gates.yml runs both. The format is github.com/urnetwork/message's own
-# scripts/siblings.txt, and so are the rules. Move a pin in a commit of its own.
+# built; and either way it refuses an unpinned name, a short or symbolic commit, a fetch source
+# that is neither https://github.com/urnetwork/ nor one of the review sources it lists, and a
+# connect that still carries the messaging schema. .github/workflows/gates.yml runs both. The
+# format is github.com/urnetwork/message's own scripts/siblings.txt, and so are the rules. Move a
+# pin in a commit of its own.
 # name  url  commit
 #
 # message: github.com/urnetwork/message, where this module's record layer, its codec and its

@@ -70,11 +70,12 @@ jobs:
       # would notice the difference. The pins live in that file and not in this step, because this
       # step is not the only place this module is tested: urnetwork builds and tests on its own
       # hardware (connect e8611390), and a pin that lived only here would go with the workflow. So
-      # this step runs the same script a person runs by hand, scripts/siblings.sh: first to clone,
-      # then to verify. Each run refuses a placeholder, a short SHA, a URL outside urnetwork's and a
-      # connect that still carries the messaging schema, each by name. Until ledger 284's
-      # review the pins for message and connect were this step's env, and glog and gvisor were
-      # cloned at their branch heads, which moved under it (glog to 3c6c9fd9 on 2026-10-06).
+      # this step runs the same script a person runs by hand, scripts/siblings.sh: its own controls
+      # first, then to clone, then to verify. It refuses a placeholder, a short SHA, a fetch source
+      # that is neither urnetwork's nor one of the review sources the script lists, and a connect
+      # that still carries the messaging schema, each by name. Until ledger 284's review the pins
+      # for message and connect were this step's env, and glog and gvisor were cloned at their
+      # branch heads, which moved under it (glog to 3c6c9fd9 on 2026-10-06).
       #
       # message is urnetwork/message, where this module's record layer, its codec and its schema have
       # lived since ledger 284. connect is urnetwork/connect WITHOUT the messaging schema: a connect
@@ -86,6 +87,7 @@ jobs:
       - name: the sibling modules go.mod replaces to
         run: |
           set -eu
+          bash scripts/siblings.sh --self-test
           bash scripts/siblings.sh message connect glog gvisor
           bash scripts/siblings.sh --verify message connect glog gvisor
 
