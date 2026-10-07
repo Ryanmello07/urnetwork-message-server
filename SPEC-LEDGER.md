@@ -25869,12 +25869,14 @@ the finished text, the two gates among them. Each run cloned the four siblings w
   names of the clean run at `1e111e8`, both ways, with none changed. `go build`, `go vet`,
   `gofmt -l`, `go mod tidy -diff` and `go mod verify` are clean.
 - **Linux,** on alt-2 (Go 1.26.5, gcc 13.3, bash 5.2), with no database there: the README's five
-  steps as the README has them, read out of it on that host by the script named above. The sibling
-  step printed `SIBLINGS SELF-TEST PASS` and PINNED four times. The suite gave 564 results, 549
-  passed and 15 skipped, the half of the store contract that needs PostgreSQL
-  (`PARTIAL RUN: 1 of 2`): the same 564 names as at `1e111e8`, both ways. `gofmt`, `go vet` and
-  the platform step pass, `go mod tidy -diff` and `go mod verify` are clean, and
-  `CGO_ENABLED=1 go test -race ./...` passes.
+  steps, read out of it on that host by the script named above. Four ran as the README has them,
+  and the suite ran with `-json` in place of the README's `-v`, so that its results could be
+  compared by name. *(Corrected by the commit after this one: it read "the README's five steps as
+  the README has them".)* The sibling step printed `SIBLINGS SELF-TEST PASS` and PINNED four
+  times. The suite gave 564 results, 549 passed and 15 skipped, the half of the store contract
+  that needs PostgreSQL (`PARTIAL RUN: 1 of 2`): the same 564 names as at `1e111e8`, both ways.
+  `gofmt`, `go vet` and the platform step pass, `go mod tidy -diff` and `go mod verify` are clean,
+  and `CGO_ENABLED=1 go test -race ./...` passes.
 - **The controls,** on Windows, from 12:30:49 to 12:37:36: the 39 of §7's table for item 284,
   beside the same siblings, and beside connect `92a657fa` for E7, E8 and C1 to C5. 38 failed their
   named test with that test's own message, and C5 passed, as it is required to. The script's 45
@@ -25882,3 +25884,44 @@ the finished text, the two gates among them. Each run cloned the four siblings w
 
 It cites no run of itself, as part 6 says of the commit before it: the pull request's body cites
 the runs on its head.
+
+**Added by the commit after that one,** which changes these lines and the Linux line above them,
+and nothing else. It corrects that line, and it records the runs of `0711734`, which that commit
+could not cite. Each cloned the four siblings with `scripts/siblings.sh`, from GitHub, at the same
+pins. Times are UTC, on 2026-10-07.
+- **The correction.** The Linux line read "the README's five steps as the README has them". Four of
+  the five ran so, and the suite ran with `-json`. All five have since run exactly as the README
+  has them, on both hosts, at `0711734` (below).
+- **The fork,** `Ryanmello07/urnetwork-message-server`, on GitHub's `ubuntu-latest` runner, with
+  Go 1.26.5 and the workflow's `postgres:17` service:
+
+  | run | workflow | what it tested | result |
+  |---|---|---|---|
+  | 37622923532 | `gates.yml`, on the push | this branch at `0711734` | success, every step |
+  | 37622941249 | `fork-ci.yml` | this branch at `0711734` | passed: the ref's five steps |
+  | 37622954455 | `fork-ci.yml`, the control | `urnetwork/message-server` `main`, `6c3153f` | failed, for upstream's own reason |
+
+  - **The push run:** 708 results passed by package and name, 232 tests and 476 subtests, none
+    failed or skipped, and `FULL RUN: 2 of 2`. They are the 708 names of 37608641390, the push run
+    at `1e111e8`, both ways, with none changed.
+  - **The control** failed as the two before it did: `main` cloned connect at `d17a6ecb`, and
+    `go.sum` at `6c3153f` has no line for the module connect has imported since its `c5a9589d`.
+    440 results passed and 4 failed.
+  - **Failed on the branch and not on the control:** nothing.
+- **Windows, a clean checkout,** from 12:42:55 to 12:48:39, with PostgreSQL 17.6 and both
+  variables set: the same 708 names passed, none failed or skipped, and `FULL RUN: 2 of 2`.
+  `go build`, `go vet`, `gofmt -l`, `go mod tidy -diff` and `go mod verify` are clean, and both
+  released platforms build.
+- **Windows, the README's way,** from 12:56:06 to 13:03:02: a fresh clone of the fork with
+  `core.autocrlf=true` in effect, as on a stock Windows git, and then the five steps exactly as the
+  README has them. The suite printed 710 result lines for the same 708 names, all passed, and
+  `FULL RUN: 2 of 2`. The other four steps passed.
+- **Linux, the README's way,** on alt-2, from 13:08:29 to 13:09:45: a fresh clone of the fork, and
+  the five steps exactly as the README has them. The suite gave the same 564 names, 549 passed and
+  15 skipped (`PARTIAL RUN: 1 of 2`), and `CGO_ENABLED=1 go test -race ./...` passes.
+- **The controls:** the 39 of §7's table for item 284, on Windows, from 12:48:53 to 12:55:19: 38
+  failed their named test with that test's own message, and C5 passed, as it is required to. The
+  15 that fetch, on alt-2, from a clone of the fork at that commit: 15 of 15.
+
+This commit changes no file but this ledger. The root package's tests were run on its text, the two
+gates among them, and its own runs are in the pull request's body.
