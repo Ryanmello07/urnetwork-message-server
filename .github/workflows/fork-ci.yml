@@ -246,7 +246,13 @@ jobs:
               verdict = "ok" if code == 0 else "FAILED (exit %d)" % code
               any_failed = any_failed or code != 0
               say("  %d. %-45s %s, %.0f s%s" % (index, name, verdict, seconds, "  [ran after an earlier step failed]" if after_failure else ""))
-              counts = {"PASS": [0, 0], "FAIL": [0, 0], "SKIP": [0, 0]}
+              # A result is counted once, by package and name. go test -v prints a package's results and
+              # then its verdict line, so a result belongs to the next verdict; and a test that runs its
+              # own binary again prints the child's result line inside its own output, under its own
+              # name, which a count of lines would take for one more test.
+              named = {}
+              pending = []
+              printed = 0
               failures = []
               packages = {"ok": 0, "FAIL": 0, "?": 0}
               banners = []
@@ -254,23 +260,33 @@ jobs:
                   for line in log:
                       match = result_line.match(line)
                       if match:
-                          counts[match.group(2)][1 if match.group(1) else 0] += 1
-                          if match.group(2) == "FAIL":
-                              failures.append(match.group(3))
+                          printed += 1
+                          pending.append((match.group(3), match.group(2)))
                           continue
                       match = package_line.match(line)
                       if match and match.group(1) in ("ok", "FAIL"):
                           packages[match.group(1)] += 1
+                          for test, state in pending:
+                              named[(match.group(2), test)] = state
+                          pending = []
                           if match.group(1) == "FAIL":
                               failures.append("package " + " ".join(line.split()[1:]))
                       elif match and match.group(3):
                           packages["?"] += 1
                       if "FULL RUN:" in line or "PARTIAL RUN:" in line or "SIBLINGS SELF-TEST" in line or line.startswith(("PINNED ", "UNPINNED ", "panic: ")):
                           banners.append(line.strip())
-              if sum(sum(pair) for pair in counts.values()):
-                  say("       go test results: %d passed (%d tests, %d subtests), %d failed, %d skipped; packages: %d ok, %d FAIL, %d with no test files"
-                      % (sum(counts["PASS"]), counts["PASS"][0], counts["PASS"][1], sum(counts["FAIL"]), sum(counts["SKIP"]),
+              for test, state in pending:
+                  named[("a package that printed no verdict", test)] = state
+              if named:
+                  def count(state, sub):
+                      return sum(1 for (_, test), got in named.items() if got == state and ("/" in test) == sub)
+                  say("       go test results, by package and name: %d passed (%d tests, %d subtests), %d failed, %d skipped; packages: %d ok, %d FAIL, %d with no test files"
+                      % (count("PASS", False) + count("PASS", True), count("PASS", False), count("PASS", True),
+                         count("FAIL", False) + count("FAIL", True), count("SKIP", False) + count("SKIP", True),
                          packages["ok"], packages["FAIL"], packages["?"]))
+                  if printed != len(named):
+                      say("       (the log prints %d result lines for those %d names)" % (printed, len(named)))
+              failures = ["%s %s" % (package, test) for (package, test), got in named.items() if got == "FAIL"] + failures
               for failure in failures[:60]:
                   say("       FAIL " + failure)
               for banner in list(dict.fromkeys(banners))[:12]:
