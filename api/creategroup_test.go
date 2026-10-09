@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/urnetwork/connect/message"
-	"github.com/urnetwork/connect/protocol"
 	"github.com/urnetwork/message-server/store"
+	"github.com/urnetwork/message/message"
+	"github.com/urnetwork/message/protocol"
 )
 
 // ── §4.3.2 and §6.1's carve-out ──────────────────────────────────────────────────────────
@@ -143,7 +143,7 @@ func TestEveryRuleOfTheCreateGroupCarveOutRefusesBeforeTheTransaction(t *testing
 // with §4.5's merged refusal and not with a more specific code.
 //
 // This is the one rule of the carve-out the store cannot stand in for and check 7 cannot either.
-// connect/message refuses a MAC key that is not thirty-two octets, so a short key fails check 7
+// The record layer refuses a MAC key that is not thirty-two octets, so a short key fails check 7
 // no matter what — which makes "the length was checked" and "the length was not checked"
 // identical on every request that is wrong in only that one way. A request that is wrong in two
 // ways separates them: the head below is over the cap, so check 3 has a REASON_OVERSIZE ready,

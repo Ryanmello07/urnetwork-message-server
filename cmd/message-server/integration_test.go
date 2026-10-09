@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/urnetwork/connect/protocol"
 	"github.com/urnetwork/message-server/peer"
+	"github.com/urnetwork/message/protocol"
 )
 
 // A request that arrives before this connection said Hello is refused by check 2, inside api's

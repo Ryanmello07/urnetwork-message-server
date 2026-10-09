@@ -9,8 +9,9 @@ import (
 	"time"
 
 	"github.com/urnetwork/connect"
-	"github.com/urnetwork/connect/protocol"
+	connectprotocol "github.com/urnetwork/connect/protocol"
 	"github.com/urnetwork/message-server/api"
+	messageprotocol "github.com/urnetwork/message/protocol"
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -35,8 +36,8 @@ func TestARequestTravelsTheFramePathAndIsAnswered(t *testing.T) {
 		t.Fatal("HelloResponse carried no Capabilities; §4.3.1 calls it the whole of the server-advertised contract")
 	}
 
-	response := fixture.call(t, &protocol.SubmitRequest{GroupId: bytes.Repeat([]byte{1}, 32)})
-	if response.GetReason() != protocol.Reason_REASON_OK {
+	response := fixture.call(t, &messageprotocol.SubmitRequest{GroupId: bytes.Repeat([]byte{1}, 32)})
+	if response.GetReason() != messageprotocol.Reason_REASON_OK {
 		t.Fatalf("the submit was answered %v, want REASON_OK", response.GetReason())
 	}
 	if response.GetSubmit() == nil {
@@ -60,20 +61,20 @@ func TestEveryResponseCarriesItsOwnRequestIdUnderConcurrency(t *testing.T) {
 
 	// a handler that finishes in a deliberately scrambled order, so the responses cannot arrive
 	// in the order the requests were sent and correlation is the only thing that can work
-	fixture.handler.onFetch = func(conn *api.Connection, request *protocol.FetchRequest) (protocol.Reason, *protocol.FetchResponse, error) {
+	fixture.handler.onFetch = func(conn *api.Connection, request *messageprotocol.FetchRequest) (messageprotocol.Reason, *messageprotocol.FetchResponse, error) {
 		time.Sleep(time.Duration(request.GetSinceRecordId()%7) * 3 * time.Millisecond)
-		return protocol.Reason_REASON_OK, &protocol.FetchResponse{HighWaterRecordId: request.GetSinceRecordId()}, nil
+		return messageprotocol.Reason_REASON_OK, &messageprotocol.FetchResponse{HighWaterRecordId: request.GetSinceRecordId()}, nil
 	}
 
 	const requests = 64
-	waiters := map[uint64]chan *protocol.MessageServerResponse{}
+	waiters := map[uint64]chan *messageprotocol.MessageServerResponse{}
 	markers := map[uint64]uint64{}
 	for index := range requests {
 		// the marker is the fetch's own since_record_id, echoed by the handler into the
 		// response body: a response landing on the wrong request_id shows up as a body that
 		// belongs to another request rather than as a missing answer
 		marker := uint64(1000 + index)
-		request := fixture.request(&protocol.FetchRequest{GroupId: bytes.Repeat([]byte{2}, 32), SinceRecordId: marker})
+		request := fixture.request(&messageprotocol.FetchRequest{GroupId: bytes.Repeat([]byte{2}, 32), SinceRecordId: marker})
 		markers[request.GetRequestId()] = marker
 		waiters[request.GetRequestId()] = fixture.begin(t, request)
 	}
@@ -114,13 +115,13 @@ func TestTwoIdenticalRequestsInFlightAreAnsweredTwice(t *testing.T) {
 
 	release := make(chan struct{})
 	entered := make(chan struct{}, 2)
-	fixture.handler.onFetch = func(conn *api.Connection, request *protocol.FetchRequest) (protocol.Reason, *protocol.FetchResponse, error) {
+	fixture.handler.onFetch = func(conn *api.Connection, request *messageprotocol.FetchRequest) (messageprotocol.Reason, *messageprotocol.FetchResponse, error) {
 		entered <- struct{}{}
 		<-release
-		return protocol.Reason_REASON_OK, &protocol.FetchResponse{HighWaterRecordId: request.GetSinceRecordId()}, nil
+		return messageprotocol.Reason_REASON_OK, &messageprotocol.FetchResponse{HighWaterRecordId: request.GetSinceRecordId()}, nil
 	}
 
-	body := &protocol.FetchRequest{GroupId: bytes.Repeat([]byte{3}, 32), SinceRecordId: 7}
+	body := &messageprotocol.FetchRequest{GroupId: bytes.Repeat([]byte{3}, 32), SinceRecordId: 7}
 	first := fixture.begin(t, fixture.request(proto.Clone(body)))
 	second := fixture.begin(t, fixture.request(proto.Clone(body)))
 
@@ -139,7 +140,7 @@ func TestTwoIdenticalRequestsInFlightAreAnsweredTwice(t *testing.T) {
 	if one.GetRequestId() == two.GetRequestId() {
 		t.Fatalf("two requests were both answered with request_id %d", one.GetRequestId())
 	}
-	for _, response := range []*protocol.MessageServerResponse{one, two} {
+	for _, response := range []*messageprotocol.MessageServerResponse{one, two} {
 		if response.GetFetch().GetHighWaterRecordId() != 7 {
 			t.Fatalf("a response to a fetch from record 7 carries %d", response.GetFetch().GetHighWaterRecordId())
 		}
@@ -163,28 +164,28 @@ func TestEachArmReachesItsOwnHandlerAndAnswersInItsOwnArm(t *testing.T) {
 	for _, current := range []struct {
 		arm      string
 		body     proto.Message
-		answered func(*protocol.MessageServerResponse) bool
+		answered func(*messageprotocol.MessageServerResponse) bool
 	}{
 		{
 			arm:      "create_group",
-			body:     &protocol.CreateGroupRequest{GroupId: bytes.Repeat([]byte{4}, 32)},
-			answered: func(response *protocol.MessageServerResponse) bool { return response.GetCreateGroup() != nil },
+			body:     &messageprotocol.CreateGroupRequest{GroupId: bytes.Repeat([]byte{4}, 32)},
+			answered: func(response *messageprotocol.MessageServerResponse) bool { return response.GetCreateGroup() != nil },
 		},
 		{
 			arm:      "submit",
-			body:     &protocol.SubmitRequest{GroupId: bytes.Repeat([]byte{5}, 32)},
-			answered: func(response *protocol.MessageServerResponse) bool { return response.GetSubmit() != nil },
+			body:     &messageprotocol.SubmitRequest{GroupId: bytes.Repeat([]byte{5}, 32)},
+			answered: func(response *messageprotocol.MessageServerResponse) bool { return response.GetSubmit() != nil },
 		},
 		{
 			arm:      "fetch",
-			body:     &protocol.FetchRequest{GroupId: bytes.Repeat([]byte{6}, 32), SinceRecordId: 11},
-			answered: func(response *protocol.MessageServerResponse) bool { return response.GetFetch() != nil },
+			body:     &messageprotocol.FetchRequest{GroupId: bytes.Repeat([]byte{6}, 32), SinceRecordId: 11},
+			answered: func(response *messageprotocol.MessageServerResponse) bool { return response.GetFetch() != nil },
 		},
 	} {
 		t.Run(current.arm, func(t *testing.T) {
 			fixture.handler.forget()
 			response := fixture.call(t, current.body)
-			if response.GetReason() != protocol.Reason_REASON_OK {
+			if response.GetReason() != messageprotocol.Reason_REASON_OK {
 				t.Fatalf("%s was answered %v", current.arm, response.GetReason())
 			}
 			calls := fixture.handler.recorded()
@@ -206,7 +207,7 @@ func TestEachArmReachesItsOwnHandlerAndAnswersInItsOwnArm(t *testing.T) {
 func TestEveryArmOfTheRequestOneofIsServedOrDeclared(t *testing.T) {
 	fixture := newFixture(t)
 
-	arms := bodyArmsOf((&protocol.MessageServerRequest{}).ProtoReflect().Descriptor())
+	arms := bodyArmsOf((&messageprotocol.MessageServerRequest{}).ProtoReflect().Descriptor())
 	if len(arms) < 15 {
 		t.Fatalf("MessageServerRequest.body was read as having %d arms; §4.3 declares fifteen, so the descriptor walk has stopped finding them", len(arms))
 	}
@@ -251,8 +252,8 @@ func TestMalformedInboundIsRefusedOrDroppedAndNeverPanics(t *testing.T) {
 	fixture.hello(t)
 
 	t.Run("no body at all", func(t *testing.T) {
-		response := fixture.await(t, fixture.begin(t, &protocol.MessageServerRequest{RequestId: 90001}))
-		if response.GetReason() != protocol.Reason_REASON_REJECTED {
+		response := fixture.await(t, fixture.begin(t, &messageprotocol.MessageServerRequest{RequestId: 90001}))
+		if response.GetReason() != messageprotocol.Reason_REASON_REJECTED {
 			t.Fatalf("a request with no body was answered %v, want REASON_REJECTED", response.GetReason())
 		}
 	})
@@ -261,20 +262,20 @@ func TestMalformedInboundIsRefusedOrDroppedAndNeverPanics(t *testing.T) {
 		// field 60 is inside no arm of §4.3's oneof, so it lands in unknown fields and the
 		// oneof is unset — which is the same thing on the wire as no body at all, and is
 		// answered the same way
-		request := &protocol.MessageServerRequest{RequestId: 90002}
+		request := &messageprotocol.MessageServerRequest{RequestId: 90002}
 		unknown := protowire.AppendTag(nil, 60, protowire.BytesType)
 		unknown = protowire.AppendBytes(unknown, []byte{0x08, 0x01})
 		request.ProtoReflect().SetUnknown(protoreflect.RawFields(unknown))
 		response := fixture.await(t, fixture.begin(t, request))
-		if response.GetReason() != protocol.Reason_REASON_REJECTED {
+		if response.GetReason() != messageprotocol.Reason_REASON_REJECTED {
 			t.Fatalf("a request naming an unknown arm was answered %v, want REASON_REJECTED", response.GetReason())
 		}
 	})
 
 	t.Run("bytes that are not a protobuf", func(t *testing.T) {
 		before := fixture.peer.Stats()
-		fixture.sendFrame(t, &protocol.Frame{
-			MessageType:  protocol.MessageType_MessageMessageServerRequest,
+		fixture.sendFrame(t, &connectprotocol.Frame{
+			MessageType:  connectprotocol.MessageType_MessageMessageServerRequest,
 			MessageBytes: []byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff},
 		})
 		waitForDrop(t, fixture, before.FramesDropped+1)
@@ -282,12 +283,12 @@ func TestMalformedInboundIsRefusedOrDroppedAndNeverPanics(t *testing.T) {
 
 	t.Run("a raw frame, which §4.2 says this binding never sends", func(t *testing.T) {
 		before := fixture.peer.Stats()
-		body, err := connect.ProtoMarshal(&protocol.MessageServerRequest{RequestId: 90003})
+		body, err := connect.ProtoMarshal(&messageprotocol.MessageServerRequest{RequestId: 90003})
 		if err != nil {
 			t.Fatalf("ProtoMarshal: %v", err)
 		}
-		fixture.sendFrame(t, &protocol.Frame{
-			MessageType:  protocol.MessageType_MessageMessageServerRequest,
+		fixture.sendFrame(t, &connectprotocol.Frame{
+			MessageType:  connectprotocol.MessageType_MessageMessageServerRequest,
 			MessageBytes: body,
 			Raw:          true,
 		})
@@ -295,7 +296,7 @@ func TestMalformedInboundIsRefusedOrDroppedAndNeverPanics(t *testing.T) {
 	})
 
 	// the server is still serving after all four
-	if response := fixture.call(t, &protocol.FetchRequest{GroupId: bytes.Repeat([]byte{7}, 32)}); response.GetReason() != protocol.Reason_REASON_OK {
+	if response := fixture.call(t, &messageprotocol.FetchRequest{GroupId: bytes.Repeat([]byte{7}, 32)}); response.GetReason() != messageprotocol.Reason_REASON_OK {
 		t.Fatalf("after four malformed frames a good request was answered %v", response.GetReason())
 	}
 }
@@ -323,8 +324,8 @@ func TestAHelloThatNamesNoSharedVersionIssuesNoNonce(t *testing.T) {
 	fixture := newFixture(t)
 
 	for _, versions := range [][]uint32{nil, {}, {fixtureProtocolVersion + 1}, {0}} {
-		response := fixture.call(t, &protocol.HelloRequest{SupportedVersions: versions})
-		if response.GetReason() != protocol.Reason_REASON_UNSUPPORTED_VERSION {
+		response := fixture.call(t, &messageprotocol.HelloRequest{SupportedVersions: versions})
+		if response.GetReason() != messageprotocol.Reason_REASON_UNSUPPORTED_VERSION {
 			t.Fatalf("a Hello naming versions %v was answered %v, want REASON_UNSUPPORTED_VERSION", versions, response.GetReason())
 		}
 		if response.GetHello() != nil {
@@ -336,8 +337,8 @@ func TestAHelloThatNamesNoSharedVersionIssuesNoNonce(t *testing.T) {
 	}
 
 	// and a request on the connection that was never opened is refused rather than served
-	response := fixture.call(t, &protocol.SubmitRequest{GroupId: bytes.Repeat([]byte{8}, 32)})
-	if response.GetReason() != protocol.Reason_REASON_REJECTED {
+	response := fixture.call(t, &messageprotocol.SubmitRequest{GroupId: bytes.Repeat([]byte{8}, 32)})
+	if response.GetReason() != messageprotocol.Reason_REASON_REJECTED {
 		t.Fatalf("a submit with no connection was answered %v, want REASON_REJECTED", response.GetReason())
 	}
 	if calls := fixture.handler.recorded(); len(calls) != 0 {
@@ -404,7 +405,7 @@ func TestTheRateLimitCheckIsStillDeclaredAbsent(t *testing.T) {
 	if !found {
 		t.Fatalf("§5.1 check 4 is not declared unbuilt by this build's front checks: %v", fixture.checks.NotBuilt())
 	}
-	if reason := fixture.checks.WithinRateLimits(fixture.ctx, &api.Connection{}, 12); reason != protocol.Reason_REASON_OK {
+	if reason := fixture.checks.WithinRateLimits(fixture.ctx, &api.Connection{}, 12); reason != messageprotocol.Reason_REASON_OK {
 		t.Fatalf("check 4 answered %v; the point of ChecksNotImplemented is that it passes and says so, not that it refuses", reason)
 	}
 }
@@ -426,18 +427,18 @@ func TestCloseReturnsWithRequestsInFlightAndDispatchesNothingAfter(t *testing.T)
 
 	entered := make(chan struct{}, 1)
 	release := make(chan struct{})
-	fixture.handler.onFetch = func(conn *api.Connection, request *protocol.FetchRequest) (protocol.Reason, *protocol.FetchResponse, error) {
+	fixture.handler.onFetch = func(conn *api.Connection, request *messageprotocol.FetchRequest) (messageprotocol.Reason, *messageprotocol.FetchResponse, error) {
 		select {
 		case entered <- struct{}{}:
 		default:
 		}
 		<-release
-		return protocol.Reason_REASON_OK, &protocol.FetchResponse{HighWaterRecordId: request.GetSinceRecordId()}, nil
+		return messageprotocol.Reason_REASON_OK, &messageprotocol.FetchResponse{HighWaterRecordId: request.GetSinceRecordId()}, nil
 	}
 
 	// more requests than there are workers, so the queue is occupied as well as the workers
 	for index := range 32 {
-		fixture.sendRequest(t, fixture.request(&protocol.FetchRequest{
+		fixture.sendRequest(t, fixture.request(&messageprotocol.FetchRequest{
 			GroupId:       bytes.Repeat([]byte{0xC0}, 32),
 			SinceRecordId: uint64(index),
 		}))
@@ -461,7 +462,7 @@ func TestCloseReturnsWithRequestsInFlightAndDispatchesNothingAfter(t *testing.T)
 	}
 
 	before := len(fixture.handler.recorded())
-	fixture.sendRequest(t, fixture.request(&protocol.FetchRequest{GroupId: bytes.Repeat([]byte{0xC1}, 32)}))
+	fixture.sendRequest(t, fixture.request(&messageprotocol.FetchRequest{GroupId: bytes.Repeat([]byte{0xC1}, 32)}))
 	time.Sleep(250 * time.Millisecond)
 	if after := len(fixture.handler.recorded()); after != before {
 		t.Fatalf("%d requests were served after Close returned", after-before)
@@ -494,8 +495,8 @@ func TestEveryPipelineArmRefusesAProtocolVersionThisServerDoesNotSpeak(t *testin
 	fixture.hello(t)
 
 	// an arm of §4.3's oneof, filled in through the descriptor rather than by naming its type
-	inArm := func(arm protoreflect.FieldDescriptor, version uint32) *protocol.MessageServerRequest {
-		request := &protocol.MessageServerRequest{
+	inArm := func(arm protoreflect.FieldDescriptor, version uint32) *messageprotocol.MessageServerRequest {
+		request := &messageprotocol.MessageServerRequest{
 			RequestId:       fixture.nextRequestId.Add(1),
 			ProtocolVersion: version,
 		}
@@ -504,7 +505,7 @@ func TestEveryPipelineArmRefusesAProtocolVersionThisServerDoesNotSpeak(t *testin
 	}
 
 	gated := 0
-	for _, arm := range bodyArmsOf((&protocol.MessageServerRequest{}).ProtoReflect().Descriptor()) {
+	for _, arm := range bodyArmsOf((&messageprotocol.MessageServerRequest{}).ProtoReflect().Descriptor()) {
 		current, served := fixture.peer.routes[arm.Message().FullName()]
 		if !served || !current.pipeline {
 			continue
@@ -513,7 +514,7 @@ func TestEveryPipelineArmRefusesAProtocolVersionThisServerDoesNotSpeak(t *testin
 
 		fixture.handler.forget()
 		refused := fixture.await(t, fixture.begin(t, inArm(arm, fixtureProtocolVersion+1)))
-		if refused.GetReason() != protocol.Reason_REASON_UNSUPPORTED_VERSION {
+		if refused.GetReason() != messageprotocol.Reason_REASON_UNSUPPORTED_VERSION {
 			t.Fatalf("a %s naming protocol version %d was answered %v; this server speaks %d and §4.3.1 negotiated that at Hello",
 				arm.Name(), fixtureProtocolVersion+1, refused.GetReason(), fixtureProtocolVersion)
 		}
@@ -525,11 +526,11 @@ func TestEveryPipelineArmRefusesAProtocolVersionThisServerDoesNotSpeak(t *testin
 		// request. It is the control that says the refusal above is about the value and not
 		// about the presence of the gate
 		unset := fixture.await(t, fixture.begin(t, inArm(arm, 0)))
-		if unset.GetReason() != protocol.Reason_REASON_OK {
+		if unset.GetReason() != messageprotocol.Reason_REASON_OK {
 			t.Fatalf("a %s that named no protocol version at all was answered %v; an unset field is not a mismatch", arm.Name(), unset.GetReason())
 		}
 		matched := fixture.await(t, fixture.begin(t, inArm(arm, fixtureProtocolVersion)))
-		if matched.GetReason() != protocol.Reason_REASON_OK {
+		if matched.GetReason() != messageprotocol.Reason_REASON_OK {
 			t.Fatalf("a %s naming this server's own version was answered %v", arm.Name(), matched.GetReason())
 		}
 	}
@@ -542,14 +543,14 @@ func TestEveryPipelineArmRefusesAProtocolVersionThisServerDoesNotSpeak(t *testin
 	// check 2 to resolve and nothing for this gate to have been negotiated against yet. §4.3.1
 	// negotiates there on supported_versions, which
 	// TestAHelloThatNamesNoSharedVersionIssuesNoNonce is about
-	hello := &protocol.MessageServerRequest{
+	hello := &messageprotocol.MessageServerRequest{
 		RequestId:       fixture.nextRequestId.Add(1),
 		ProtocolVersion: fixtureProtocolVersion + 1,
 	}
-	if err := setRequestBody(hello, &protocol.HelloRequest{SupportedVersions: []uint32{fixtureProtocolVersion}}); err != nil {
+	if err := setRequestBody(hello, &messageprotocol.HelloRequest{SupportedVersions: []uint32{fixtureProtocolVersion}}); err != nil {
 		t.Fatalf("setRequestBody: %v", err)
 	}
-	if response := fixture.await(t, fixture.begin(t, hello)); response.GetReason() != protocol.Reason_REASON_OK {
+	if response := fixture.await(t, fixture.begin(t, hello)); response.GetReason() != messageprotocol.Reason_REASON_OK {
 		t.Fatalf("a Hello whose envelope named version %d and whose supported_versions named %d was answered %v; §4.3.1 negotiates on the list, and the envelope field is what the list has not agreed yet",
 			fixtureProtocolVersion+1, fixtureProtocolVersion, response.GetReason())
 	}
@@ -575,24 +576,24 @@ func TestABlockedEnqueueIsReleasedWhenThePeerCloses(t *testing.T) {
 	release := make(chan struct{})
 	var once sync.Once
 	t.Cleanup(func() { once.Do(func() { close(release) }) })
-	fixture.handler.onSubmit = func(conn *api.Connection, request *protocol.SubmitRequest) (protocol.Reason, *protocol.SubmitResponse, error) {
+	fixture.handler.onSubmit = func(conn *api.Connection, request *messageprotocol.SubmitRequest) (messageprotocol.Reason, *messageprotocol.SubmitResponse, error) {
 		select {
 		case entered <- struct{}{}:
 		default:
 		}
 		<-release
-		return protocol.Reason_REASON_OK, &protocol.SubmitResponse{}, nil
+		return messageprotocol.Reason_REASON_OK, &messageprotocol.SubmitResponse{}, nil
 	}
 
 	// the one worker, occupied
-	fixture.sendRequest(t, fixture.request(&protocol.SubmitRequest{GroupId: bytes.Repeat([]byte{0x21}, 32)}))
+	fixture.sendRequest(t, fixture.request(&messageprotocol.SubmitRequest{GroupId: bytes.Repeat([]byte{0x21}, 32)}))
 	select {
 	case <-entered:
 	case <-time.After(30 * time.Second):
 		t.Fatal("the only worker never reached the handler, so the queue below is not full")
 	}
 
-	waiting := job{arrived: &inbound{clientId: fixture.clientClient.ClientId()}, request: &protocol.MessageServerRequest{}}
+	waiting := job{arrived: &inbound{clientId: fixture.clientClient.ClientId()}, request: &messageprotocol.MessageServerRequest{}}
 	// the one queue slot, filled
 	fixture.peer.enqueue(waiting)
 

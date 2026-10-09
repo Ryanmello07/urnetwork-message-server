@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/urnetwork/connect"
-	"github.com/urnetwork/connect/protocol"
 	"github.com/urnetwork/message-server/api"
+	"github.com/urnetwork/message/protocol"
 )
 
 // ── the coverage of §5.1's front checks ──────────────────────────────────────────────────

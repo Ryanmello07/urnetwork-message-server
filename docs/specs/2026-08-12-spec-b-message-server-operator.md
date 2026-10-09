@@ -697,6 +697,30 @@ Each was mutated, and each mutant failed the test written for it. A diff review 
 first draft's weakest points, among them the call-site test that was missing and five MASTER sentences
 this change made false.
 
+**Revision 24 — 2026-10-06 — the message module: the record layer, its codec and the schema are
+`github.com/urnetwork/message`'s, and the rest of that module is forbidden (ledger item 284).** The
+repository split (ledger items 281 to 283) moves URmessage out of `connect` and the sdk into
+`github.com/urnetwork/message`, and connect's removal pull request deletes `message`, `messagegroup`,
+`mls` and `message.proto` from connect. This module switches its imports in the same set of pull
+requests, and this revision is the rule the switch is checked against: decision O9 of item 281.
+
+§2.2's ALLOWED block names `message/message`, `message/syntax` and `message/protocol`, each exactly, in
+place of `connect/message`, connect's copy of the codec and connect's copy of the schema. The FORBIDDEN
+block adds `message/mls`, `message/messagegroup` and `message/sdk`, and the CI gate's grep follows. Two
+new paragraphs give the reasons, and say that every other section naming the old paths means the new
+ones, because the move changed import paths and nothing else. §5.3's normative paragraph and §13 item 8
+name the new codec and the new ban: the codec is a peer of `mls` now, so the prefix grep and the
+package agree again, and `connect/mls` stays asserted absent.
+
+No wire field, reason code, check or column changes. Built and tested in the same commit, in
+`deps_test.go`: the allow list carries the three paths exactly, and the forbidden list the three
+subtrees plus `connect/mls`, which is a subtree now too; `substitutions()` passes a replace only when
+the directory declares the module the go command names, which is what its own failure message always
+said; and connect's derived closure answers for no module the allow list names a path in. The ledger's
+§7 entry for item 284 records what was run. Its diff review is the split's red-team phase, after this
+commit, by the lead's order, rather than before it as the ledger's §6 sets out; item 284 carries the
+result.
+
 ---
 
 ## 1. Scope
@@ -735,9 +759,11 @@ message-server/
 
 ```
 ALLOWED:  github.com/urnetwork/server            (root package only)
-          github.com/urnetwork/connect           (beta/message)
-          github.com/urnetwork/connect/protocol
-          github.com/urnetwork/connect/message   (record parser, shared with spec A)
+          github.com/urnetwork/connect           (without the messaging schema)
+          github.com/urnetwork/connect/protocol  (the Frame a request rides in)
+          github.com/urnetwork/message/message   (record parser, shared with spec A)
+          github.com/urnetwork/message/syntax    (the codec the record parser is built on)
+          github.com/urnetwork/message/protocol  (the messaging schema)
           github.com/urnetwork/glog
           jackc/pgx/v5, redis/go-redis/v9, minio/minio-go/v7,
           prometheus/client_golang
@@ -748,16 +774,23 @@ FORBIDDEN: github.com/urnetwork/server/model
            github.com/urnetwork/server/controller
            github.com/urnetwork/server/api
            github.com/urnetwork/sdk
+           github.com/urnetwork/message/mls
+           github.com/urnetwork/message/messagegroup
+           github.com/urnetwork/message/sdk
 ```
 
 CI gate:
 
 ```bash
-go list -deps ./... | grep -E 'urnetwork/server/(model|session|task|controller|api)|urnetwork/sdk' && exit 1
+go list -deps ./... | grep -E 'urnetwork/server/(model|session|task|controller|api)|urnetwork/sdk|urnetwork/message/(mls|messagegroup|sdk)' && exit 1
 exit 0
 ```
 
 The rule exists because the operator's model package *is* the account identity layer, and §4.2 forbids the message server from consulting it. The cost is that `server/task` is unavailable, so §7.4 specifies an in-process scheduler behind a Postgres advisory lock instead.
+
+**The message module (Revision 24).** URmessage's record layer, its presentation-language codec and its schema left `connect` for a module of their own, `github.com/urnetwork/message`. Three of that module's packages are allowed, each by its exact path and never the module as a whole: `message/message` (which was `connect/message`), `message/syntax` (which was `connect/mls/syntax`) and `message/protocol` (`message.proto`, which was in `connect/protocol`). They are the module's server-safe set: `message` and `protocol` import neither `mls` nor `messagegroup`, and `syntax` imports only the standard library. The rest of the module is forbidden, every package beneath each entry included, for two reasons. `message/mls` is an MLS implementation and `message/messagegroup` the client group engine built on it, which §5.3 keeps out of this process; and `message/sdk` is a client, forbidden for the reason `github.com/urnetwork/sdk` is. The move changed import paths and nothing else: the same functions, the same schema names, field numbers and encodings, and the same bytes on the wire and in every preimage. So wherever another section of this document names `connect/message`, `connect/mls/syntax`, or `connect/protocol` for a messaging type, it means the package above.
+
+`connect` stays for what is not messaging: the connect client, and §4.2's frame binding, whose `Frame` and `MessageType` values are still `connect/protocol`'s. It must be a `connect` that no longer carries `message.proto`. A binary linking that copy beside `message/protocol` registers the same names twice, and protobuf refuses it at init.
 
 ### 2.3 Process model
 
@@ -2440,7 +2473,7 @@ This is not symmetry for its own sake. `req_auth` under an epoch *write* key wou
 
 The server never derives a read key. It receives one per epoch, installs it against that epoch, and serves reads authenticated under any it still retains. It no longer compares a commit's read key against a previously installed one — a differing value is now the normal case, once per epoch.
 
-**Normative:** the message server binary MUST NOT link an MLS implementation. A CI check asserts it, over the **package** and not over the prefix: `github.com/urnetwork/connect/mls` appears nowhere in `go list -deps`, while `github.com/urnetwork/connect/mls/syntax` — the TLS presentation-language codec `connect/message` frames every record with, which carries no MLS type, no key schedule and no validation semantic — does appear and is correct. §13 item 8 states the assertion in full and revision 10 argues why the prefix form could not be satisfied by any build that parses a record. This is not fussiness — the moment an MLS parser is in this process, the temptation to "just validate the commit" becomes a one-line change, and I5 dies quietly.
+**Normative:** the message server binary MUST NOT link an MLS implementation. A CI check asserts it: neither `github.com/urnetwork/message/mls` nor `github.com/urnetwork/connect/mls`, nor any package beneath either, appears in `go list -deps`, while `github.com/urnetwork/message/syntax` — the TLS presentation-language codec `message/message` frames every record with, which carries no MLS type, no key schedule and no validation semantic — does appear and is correct. Since Revision 24 the codec is a peer of `message/mls` rather than beneath it, so the prefix and the package coincide. Until then it was `connect/mls/syntax`, the check was over the **package** and not over the prefix, and revision 10 argues why the prefix form could not be satisfied by any build that parsed a record. §13 item 8 states the assertion in full. This is not fussiness — the moment an MLS parser is in this process, the temptation to "just validate the commit" becomes a one-line change, and I5 dies quietly.
 
 ### 5.4 The `server_attachment` amendment to master spec §9.2 — RULED, adopted
 
@@ -4172,7 +4205,7 @@ Master spec §14 makes §9.7 an acceptance criterion for this slice. Concretely,
 5. **Retention matrix.** One record per class; advance a fake clock; assert the §7.2 table exactly — including that `EPH(0)` never produced a row, that a pruned `MEDIA` retained its head and `body_hash`, that an expired `EPH(1..5)` left its ~60-byte placeholder row, and that the `PERMANENT` blob and its row both survive.
 6. **Restore trap.** Restore a backup taken before a prune; assert the service refuses traffic until `sweep-now --until-clean` completes. Guards §10.4 trap 1.
 7. **No-log acceptance.** Full workload with logs, metrics, traces, database log, Redis log, and object-store log captured; assert no generated identifier appears in any byte of any of them. Guards §9.7 and §11.
-8. **No-MLS assertion.** The binary links no MLS implementation, asserted over the **package** and not over the prefix: `go list -deps ./... | grep connect/mls` names `github.com/urnetwork/connect/mls` nowhere. That closure does name `github.com/urnetwork/connect/mls/syntax`, and that is correct rather than a violation — the TLS presentation-language codec is what `connect/message` encodes and parses every record with, §2.2 explicitly ALLOWS `connect/message`, and a length-prefix reader carries no MLS type, no key schedule and no validation semantic. The prefix form this item carried until 2026-08-26 could not be satisfied by any build of this module that parses a record at all, which is the condition §5.1 check 7 requires of every submit; §2.2's allow list carries `connect/mls/syntax` for that reason and for no wider one. Guards §5.3.
+8. **No-MLS assertion.** The binary links no MLS implementation: `go list -deps ./... | grep message/mls` names nothing, and neither does `go list -deps ./... | grep connect/mls`. That closure does name `github.com/urnetwork/message/syntax`, and that is correct rather than a violation — the TLS presentation-language codec is what `message/message` encodes and parses every record with, §2.2 explicitly ALLOWS both, and a length-prefix reader carries no MLS type, no key schedule and no validation semantic. Since Revision 24 the codec is a peer of `message/mls` rather than its child, so these are prefix greps and the prefix and the package coincide. From 2026-08-26 until Revision 24 the codec was `connect/mls/syntax`, and this item asserted the package and not the prefix, because the prefix form it carried until 2026-08-26 could not be satisfied by any build of this module that parses a record at all, which is the condition §5.1 check 7 requires of every submit. `connect/mls` stays asserted: a `connect` old enough to carry it would bring an MLS implementation in under the transport's name. Guards §5.3.
 9. **Dependency deny-list.** §2.2's `go list -deps` gate.
 10. **DoS ordering.** 10^5 submits with invalid `write_auth` against random group ids produce zero rows in `pg_stat_statements` beyond the epoch-key negative-cache reads. Guards §5.1's check order.
 11. **Migration-on-populated-database.** Every migration applied to a database restored from the previous release's schema with representative data.

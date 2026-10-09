@@ -9,9 +9,10 @@ import (
 	"time"
 
 	"github.com/urnetwork/connect"
-	"github.com/urnetwork/connect/message"
-	"github.com/urnetwork/connect/protocol"
+	connectprotocol "github.com/urnetwork/connect/protocol"
 	"github.com/urnetwork/message-server/peer"
+	"github.com/urnetwork/message/message"
+	messageprotocol "github.com/urnetwork/message/protocol"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
@@ -102,7 +103,7 @@ type Client struct {
 	nextRequestId atomic.Uint64
 
 	mutex   sync.Mutex
-	waiting map[uint64]chan *protocol.MessageServerResponse
+	waiting map[uint64]chan *messageprotocol.MessageServerResponse
 	partial map[uint64]*partial
 	counts  Counts
 
@@ -110,7 +111,7 @@ type Client struct {
 	// below is computed over, and it is replaced by each Hello — which is spec A §5.7's outbox
 	// rule from the client's side: a record sealed against the previous one no longer verifies.
 	nonce        []byte
-	capabilities *protocol.Capabilities
+	capabilities *messageprotocol.Capabilities
 }
 
 // One inbound response being reassembled, per §4.6's (source, request_id) — the source being the
@@ -134,7 +135,7 @@ func New(config Config) (*Client, error) {
 		protocolVersion: config.ProtocolVersion,
 		partBytes:       config.PartBytes,
 		timeout:         config.Timeout,
-		waiting:         map[uint64]chan *protocol.MessageServerResponse{},
+		waiting:         map[uint64]chan *messageprotocol.MessageServerResponse{},
 		partial:         map[uint64]*partial{},
 	}
 	if self.partBytes <= 0 || peer.MaxFragmentPartBytes < self.partBytes {
@@ -173,13 +174,13 @@ func (self *Client) Nonce() []byte {
 }
 
 // §4.3.1's advertisement from the last Hello, or nil. A clone, for [Client.Nonce]'s reason.
-func (self *Client) Capabilities() *protocol.Capabilities {
+func (self *Client) Capabilities() *messageprotocol.Capabilities {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 	if self.capabilities == nil {
 		return nil
 	}
-	clone, _ := proto.Clone(self.capabilities).(*protocol.Capabilities)
+	clone, _ := proto.Clone(self.capabilities).(*messageprotocol.Capabilities)
 	return clone
 }
 
@@ -190,18 +191,18 @@ func (self *Client) Capabilities() *protocol.Capabilities {
 // The frames and their bytes are borrowed for the duration of this call, so nothing here keeps a
 // reference to either — the response is unmarshaled, which copies, and a fragment's `part` is
 // appended into a buffer of our own.
-func (self *Client) receive(source connect.TransferPath, frames []*protocol.Frame, from connect.Peer) {
+func (self *Client) receive(source connect.TransferPath, frames []*connectprotocol.Frame, from connect.Peer) {
 	for _, frame := range frames {
 		switch frame.GetMessageType() {
-		case protocol.MessageType_MessageMessageServerResponse:
+		case connectprotocol.MessageType_MessageMessageServerResponse:
 			self.countResponseFrame()
-			response := &protocol.MessageServerResponse{}
+			response := &messageprotocol.MessageServerResponse{}
 			if proto.Unmarshal(frame.GetMessageBytes(), response) == nil {
 				self.deliver(response)
 			}
-		case protocol.MessageType_MessageMessageServerFragment:
+		case connectprotocol.MessageType_MessageMessageServerFragment:
 			self.countResponseFrame()
-			fragment := &protocol.MessageServerFragment{}
+			fragment := &messageprotocol.MessageServerFragment{}
 			if proto.Unmarshal(frame.GetMessageBytes(), fragment) != nil {
 				continue
 			}
@@ -209,7 +210,7 @@ func (self *Client) receive(source connect.TransferPath, frames []*protocol.Fram
 			if !complete {
 				continue
 			}
-			response := &protocol.MessageServerResponse{}
+			response := &messageprotocol.MessageServerResponse{}
 			if proto.Unmarshal(assembled, response) == nil {
 				self.deliver(response)
 			}
@@ -230,7 +231,7 @@ func (self *Client) countResponseFrame() {
 // the fragmentation this milestone claims is carried end to end would be carried by one function
 // calling another, and a mistake in the cutting would be undone by the same mistake in the
 // joining.
-func (self *Client) accept(fragment *protocol.MessageServerFragment) ([]byte, bool) {
+func (self *Client) accept(fragment *messageprotocol.MessageServerFragment) ([]byte, bool) {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 
@@ -258,7 +259,7 @@ func (self *Client) accept(fragment *protocol.MessageServerFragment) ([]byte, bo
 	return current.bytes, true
 }
 
-func (self *Client) deliver(response *protocol.MessageServerResponse) {
+func (self *Client) deliver(response *messageprotocol.MessageServerResponse) {
 	self.mutex.Lock()
 	waiter, found := self.waiting[response.GetRequestId()]
 	if found {
@@ -282,7 +283,7 @@ func (self *Client) deliver(response *protocol.MessageServerResponse) {
 // The waiter is registered before the send, because a response that arrives before its waiter
 // does is a response this client files as uncorrelated — a correlation failure the harness would
 // have invented for itself, and the concurrent tests are looking for exactly that number.
-func (self *Client) Call(ctx context.Context, body proto.Message) (*protocol.MessageServerResponse, error) {
+func (self *Client) Call(ctx context.Context, body proto.Message) (*messageprotocol.MessageServerResponse, error) {
 	return self.call(ctx, body, self.partBytes)
 }
 
@@ -293,12 +294,12 @@ func (self *Client) Call(ctx context.Context, body proto.Message) (*protocol.Mes
 // answer one. It is also the only way to reach §5.1 check 1's copy *inside* the api pipeline: a
 // request that never assembles is refused by the reassembler, one stage earlier, and the copy
 // that a real *api.Handler runs is then never asked.
-func (self *Client) CallWhole(ctx context.Context, body proto.Message) (*protocol.MessageServerResponse, error) {
+func (self *Client) CallWhole(ctx context.Context, body proto.Message) (*messageprotocol.MessageServerResponse, error) {
 	return self.call(ctx, body, 0)
 }
 
-func (self *Client) call(ctx context.Context, body proto.Message, partBytes int) (*protocol.MessageServerResponse, error) {
-	request := &protocol.MessageServerRequest{
+func (self *Client) call(ctx context.Context, body proto.Message, partBytes int) (*messageprotocol.MessageServerResponse, error) {
+	request := &messageprotocol.MessageServerRequest{
 		RequestId:       self.nextRequestId.Add(1),
 		ProtocolVersion: self.protocolVersion,
 	}
@@ -306,7 +307,7 @@ func (self *Client) call(ctx context.Context, body proto.Message, partBytes int)
 		return nil, err
 	}
 
-	waiter := make(chan *protocol.MessageServerResponse, 1)
+	waiter := make(chan *messageprotocol.MessageServerResponse, 1)
 	self.mutex.Lock()
 	self.waiting[request.GetRequestId()] = waiter
 	self.mutex.Unlock()
@@ -343,7 +344,7 @@ func (self *Client) forget(requestId uint64) {
 }
 
 // The request on the wire: one frame, or §4.6's fragments of it.
-func (self *Client) send(request *protocol.MessageServerRequest, partBytes int) error {
+func (self *Client) send(request *messageprotocol.MessageServerRequest, partBytes int) error {
 	frames, err := requestFrames(request, partBytes)
 	if err != nil {
 		return err
@@ -369,22 +370,22 @@ func (self *Client) send(request *protocol.MessageServerRequest, partBytes int) 
 //
 // A part size of zero or less means this request is not fragmented at all, whatever its size.
 // See [Client.CallWhole] for the one thing that is only reachable that way.
-func requestFrames(request *protocol.MessageServerRequest, partBytes int) ([]*protocol.Frame, error) {
+func requestFrames(request *messageprotocol.MessageServerRequest, partBytes int) ([]*connectprotocol.Frame, error) {
 	body, err := connect.ProtoMarshal(request)
 	if err != nil {
 		return nil, err
 	}
 	if partBytes <= 0 || len(body) <= partBytes {
-		return []*protocol.Frame{{
-			MessageType:  protocol.MessageType_MessageMessageServerRequest,
+		return []*connectprotocol.Frame{{
+			MessageType:  connectprotocol.MessageType_MessageMessageServerRequest,
 			MessageBytes: body,
 		}}, nil
 	}
 	count := (len(body) + partBytes - 1) / partBytes
-	frames := make([]*protocol.Frame, 0, count)
+	frames := make([]*connectprotocol.Frame, 0, count)
 	for index := 0; index < count; index++ {
 		end := min((index+1)*partBytes, len(body))
-		encoded, err := connect.ProtoMarshal(&protocol.MessageServerFragment{
+		encoded, err := connect.ProtoMarshal(&messageprotocol.MessageServerFragment{
 			RequestId: request.GetRequestId(),
 			Index:     uint32(index),
 			Count:     uint32(count),
@@ -395,8 +396,8 @@ func requestFrames(request *protocol.MessageServerRequest, partBytes int) ([]*pr
 			connect.MessagePoolReturn(body)
 			return nil, err
 		}
-		frames = append(frames, &protocol.Frame{
-			MessageType:  protocol.MessageType_MessageMessageServerFragment,
+		frames = append(frames, &connectprotocol.Frame{
+			MessageType:  connectprotocol.MessageType_MessageMessageServerFragment,
 			MessageBytes: encoded,
 		})
 	}
@@ -406,7 +407,7 @@ func requestFrames(request *protocol.MessageServerRequest, partBytes int) ([]*pr
 	return frames, nil
 }
 
-func returnFrames(frames []*protocol.Frame) {
+func returnFrames(frames []*connectprotocol.Frame) {
 	for _, frame := range frames {
 		connect.MessagePoolReturn(frame.MessageBytes)
 	}
@@ -416,15 +417,15 @@ func returnFrames(frames []*protocol.Frame) {
 
 // §4.3.1, as a client performs it: negotiate a version, keep the nonce, and re-MAC everything
 // against it from here on.
-func (self *Client) Hello(ctx context.Context, versions ...uint32) (protocol.Reason, *protocol.HelloResponse, error) {
+func (self *Client) Hello(ctx context.Context, versions ...uint32) (messageprotocol.Reason, *messageprotocol.HelloResponse, error) {
 	if len(versions) == 0 {
 		versions = []uint32{self.protocolVersion}
 	}
-	response, err := self.Call(ctx, &protocol.HelloRequest{SupportedVersions: versions})
+	response, err := self.Call(ctx, &messageprotocol.HelloRequest{SupportedVersions: versions})
 	if err != nil {
-		return protocol.Reason_REASON_INTERNAL, nil, err
+		return messageprotocol.Reason_REASON_INTERNAL, nil, err
 	}
-	if response.GetReason() != protocol.Reason_REASON_OK {
+	if response.GetReason() != messageprotocol.Reason_REASON_OK {
 		return response.GetReason(), nil, nil
 	}
 	hello := response.GetHello()
@@ -433,17 +434,17 @@ func (self *Client) Hello(ctx context.Context, versions ...uint32) (protocol.Rea
 	}
 	self.mutex.Lock()
 	self.nonce = append([]byte(nil), hello.GetServerNonce()...)
-	self.capabilities, _ = proto.Clone(hello.GetCapabilities()).(*protocol.Capabilities)
+	self.capabilities, _ = proto.Clone(hello.GetCapabilities()).(*messageprotocol.Capabilities)
 	self.mutex.Unlock()
 	return response.GetReason(), hello, nil
 }
 
-func (self *Client) CreateGroup(ctx context.Context, request *protocol.CreateGroupRequest) (protocol.Reason, *protocol.CreateGroupResponse, error) {
+func (self *Client) CreateGroup(ctx context.Context, request *messageprotocol.CreateGroupRequest) (messageprotocol.Reason, *messageprotocol.CreateGroupResponse, error) {
 	response, err := self.Call(ctx, request)
 	if err != nil {
-		return protocol.Reason_REASON_INTERNAL, nil, err
+		return messageprotocol.Reason_REASON_INTERNAL, nil, err
 	}
-	if response.GetReason() != protocol.Reason_REASON_OK {
+	if response.GetReason() != messageprotocol.Reason_REASON_OK {
 		return response.GetReason(), nil, nil
 	}
 	if response.GetCreateGroup() == nil {
@@ -452,12 +453,12 @@ func (self *Client) CreateGroup(ctx context.Context, request *protocol.CreateGro
 	return response.GetReason(), response.GetCreateGroup(), nil
 }
 
-func (self *Client) Submit(ctx context.Context, request *protocol.SubmitRequest) (protocol.Reason, *protocol.SubmitResponse, error) {
+func (self *Client) Submit(ctx context.Context, request *messageprotocol.SubmitRequest) (messageprotocol.Reason, *messageprotocol.SubmitResponse, error) {
 	response, err := self.Call(ctx, request)
 	if err != nil {
-		return protocol.Reason_REASON_INTERNAL, nil, err
+		return messageprotocol.Reason_REASON_INTERNAL, nil, err
 	}
-	if response.GetReason() != protocol.Reason_REASON_OK {
+	if response.GetReason() != messageprotocol.Reason_REASON_OK {
 		return response.GetReason(), nil, nil
 	}
 	if response.GetSubmit() == nil {
@@ -472,18 +473,18 @@ func (self *Client) Submit(ctx context.Context, request *protocol.SubmitRequest)
 // request's own canonical bytes: a caller that filled in `req_auth` and then changed a field
 // would be sending a MAC over a request it did not send, which is a bug that reads as a server
 // refusing a well-formed fetch.
-func (self *Client) Fetch(ctx context.Context, request *protocol.FetchRequest, readKey []byte) (protocol.Reason, *protocol.FetchResponse, error) {
+func (self *Client) Fetch(ctx context.Context, request *messageprotocol.FetchRequest, readKey []byte) (messageprotocol.Reason, *messageprotocol.FetchResponse, error) {
 	if len(readKey) == 0 {
-		return protocol.Reason_REASON_INTERNAL, nil, ErrNoReadKey
+		return messageprotocol.Reason_REASON_INTERNAL, nil, ErrNoReadKey
 	}
 	if err := self.authorize(request, readKey); err != nil {
-		return protocol.Reason_REASON_INTERNAL, nil, err
+		return messageprotocol.Reason_REASON_INTERNAL, nil, err
 	}
 	response, err := self.Call(ctx, request)
 	if err != nil {
-		return protocol.Reason_REASON_INTERNAL, nil, err
+		return messageprotocol.Reason_REASON_INTERNAL, nil, err
 	}
-	if response.GetReason() != protocol.Reason_REASON_OK {
+	if response.GetReason() != messageprotocol.Reason_REASON_OK {
 		return response.GetReason(), nil, nil
 	}
 	if response.GetFetch() == nil {
@@ -495,7 +496,7 @@ func (self *Client) Fetch(ctx context.Context, request *protocol.FetchRequest, r
 // §4.3.8's `req_auth`: over the deterministically marshaled body with its own `req_auth` field
 // cleared, under the epoch's read key, over this connection's nonce, with the op byte read out of
 // the descriptor.
-func (self *Client) authorize(request *protocol.FetchRequest, readKey []byte) error {
+func (self *Client) authorize(request *messageprotocol.FetchRequest, readKey []byte) error {
 	nonce := self.Nonce()
 	if len(nonce) == 0 {
 		return ErrNoNonce
@@ -522,7 +523,7 @@ func (self *Client) authorize(request *protocol.FetchRequest, readKey []byte) er
 // typed wrappers, for the reason peer's own setResponseBody is: a switch is where a copy-paste
 // puts a FetchRequest in the submit arm, and the server then answers an operation nobody asked
 // for.
-func setBody(request *protocol.MessageServerRequest, body proto.Message) error {
+func setBody(request *messageprotocol.MessageServerRequest, body proto.Message) error {
 	if body == nil {
 		return ErrNoArm
 	}
@@ -540,7 +541,7 @@ func setBody(request *protocol.MessageServerRequest, body proto.Message) error {
 // constant here that disagreed with the arm would produce a refusal on exactly one operation,
 // which §4.5 deliberately refuses to explain to the client.
 func opOf(body proto.Message) (uint8, error) {
-	field, err := armOf((&protocol.MessageServerRequest{}).ProtoReflect().Descriptor(), body)
+	field, err := armOf((&messageprotocol.MessageServerRequest{}).ProtoReflect().Descriptor(), body)
 	if err != nil {
 		return 0, err
 	}

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"google.golang.org/protobuf/reflect/protoregistry"
+	"google.golang.org/protobuf/types/descriptorpb"
 )
 
 // The test file every main package of this module needs, and messagectl's.
@@ -17,13 +18,20 @@ import (
 // starts this binary. Without one, that job printed "[no test files]" for this directory and
 // started nothing: finding R3-F7 of the repository split's plan (ledger 281).
 //
-// The schema is about to move. The split takes message.proto from connect/protocol to
-// github.com/urnetwork/message/protocol (ledger 283), and a binary that links both copies panics
-// at init under protobuf's default registration-conflict policy.
+// The schema moved. The split took message.proto from connect/protocol to
+// github.com/urnetwork/message/protocol (ledger 283 and 284), and a binary that links both copies
+// panics at init under protobuf's default registration-conflict policy. messagectl links one:
+// store reaches message/protocol, and nothing messagectl links reaches connect/protocol. The
+// binaries that link both are cmd/message-server's, peer's and harness's, and
+// cmd/message-server/schema_test.go holds the one this repository deploys.
 
-// The path the messaging schema registers under. The move changes the file's go_package and not
+// The path the messaging schema registers under. The move changed the file's go_package and not
 // its name, so the path holds on both sides of it.
 const messagingSchema = "message.proto"
+
+// The go_package the registered copy declares since the move: the message module's, and never
+// connect's old copy, which a connect pinned from before its removal still carries.
+const messagingSchemaPackage = "github.com/urnetwork/message/protocol"
 
 // The variable that relaxes protobuf's registration-conflict policy. Set to warn or ignore, it
 // lets a second copy of a schema be dropped with at most a warning, and the binary starts: a
@@ -50,6 +58,11 @@ func TestThisBinaryStartsWithTheMessagingSchemaRegisteredOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%s: %v", messagingSchema, err)
 	}
-	t.Logf("%s is registered, as proto package %s, and this binary started under the policy that panics on a second copy",
-		file.Path(), file.Package())
+	options, _ := file.Options().(*descriptorpb.FileOptions)
+	if goPackage := options.GetGoPackage(); goPackage != messagingSchemaPackage {
+		t.Fatalf("%s is registered with go_package %q, want %q: store reaches a copy of the schema other than the message module's",
+			messagingSchema, goPackage, messagingSchemaPackage)
+	}
+	t.Logf("%s is registered, as proto package %s from %s, and this binary started under the policy that panics on a second copy",
+		file.Path(), file.Package(), messagingSchemaPackage)
 }

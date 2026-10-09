@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/urnetwork/connect/message"
-	"github.com/urnetwork/connect/protocol"
+	"github.com/urnetwork/message/message"
+	"github.com/urnetwork/message/protocol"
 )
 
 // ── §5.1 check 3: the record's group against the request's ───────────────────────────────
@@ -18,7 +18,7 @@ import (
 // nothing about this one. The MAC is not a backstop either, and this test proves that rather
 // than assuming it: `header.group_id` is inside the `write_auth` preimage, so a record sealed
 // for another group under THIS group's epoch key verifies perfectly well under this group's key.
-// The bytes below are checked against connect/message's own verifier before they are submitted,
+// The bytes below are checked against the record layer's own verifier before they are submitted,
 // so a failure here cannot be read as "the forgery was malformed".
 func TestARecordThatNamesAnotherGroupIsRefusedBeforeItIsStoredUnderThisOne(t *testing.T) {
 	counted := &countingStore{}
@@ -115,7 +115,7 @@ func TestAFoundingCommitThatNamesAnotherGroupCreatesNothing(t *testing.T) {
 // later retry can be compared against; the cap is check 3's own and is the only bound on the
 // field anywhere in this process, because §5.1 check 1's `max_request_bytes` belongs to the
 // frame decoder and is declared unbuilt. The number the cap defaults to is read off
-// connect/message's size ladder rather than typed here, so a rung added above 64 KiB moves both
+// the record layer's size ladder rather than typed here, so a rung added above 64 KiB moves both
 // together instead of leaving a head cap under a body the same server accepts.
 func TestACtHeadIsRequiredAndBoundedByTheHeadCap(t *testing.T) {
 	top := 0
@@ -125,7 +125,7 @@ func TestACtHeadIsRequiredAndBoundedByTheHeadCap(t *testing.T) {
 		}
 	}
 	if DefaultMaxCtHeadBytes != top {
-		t.Fatalf("the default head cap is %d and the top of connect/message's inline ladder is %d; check 3's cap is read off the ladder so that the two cannot drift",
+		t.Fatalf("the default head cap is %d and the top of the record layer's inline ladder is %d; check 3's cap is read off the ladder so that the two cannot drift",
 			DefaultMaxCtHeadBytes, top)
 	}
 

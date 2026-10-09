@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/urnetwork/connect/message"
-	"github.com/urnetwork/connect/protocol"
 	"github.com/urnetwork/message-server/harness"
 	"github.com/urnetwork/message-server/store"
+	"github.com/urnetwork/message/message"
+	"github.com/urnetwork/message/protocol"
 )
 
 // A group created before a restart is still reachable after it, **and the restart is a real one**.

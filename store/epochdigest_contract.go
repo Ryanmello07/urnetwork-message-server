@@ -5,7 +5,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/urnetwork/connect/protocol"
+	"github.com/urnetwork/message/protocol"
 )
 
 // Ruling 27's sixth attachment kind, at the STORE boundary: the epoch a `0x0005` commit opens is

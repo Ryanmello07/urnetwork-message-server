@@ -7,9 +7,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/urnetwork/connect/message"
-	"github.com/urnetwork/connect/protocol"
 	"github.com/urnetwork/message-server/store"
+	"github.com/urnetwork/message/message"
+	"github.com/urnetwork/message/protocol"
 )
 
 // ── §5.1 check 5's filter, and which fact it is about ────────────────────────────────────

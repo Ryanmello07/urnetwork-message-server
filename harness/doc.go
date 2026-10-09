@@ -37,7 +37,8 @@
 // rather than a convention — TestTheHarnessIsReachedOnlyFromTests in deps_test.go derives it
 // from the module's own import graph.
 //
-// May import: github.com/urnetwork/connect and its protocol and message packages, and this
+// May import: github.com/urnetwork/connect and its protocol package, the message module's
+// message and protocol packages, and this
 // module's store for the identifier widths, blobd for §8.3's content hash, and peer for §4.6's
 // part size. The last three are all "the one place this number is written" rather than
 // convenience: a client that carried its own copy of the sender-handle width, of SHA-256 over a

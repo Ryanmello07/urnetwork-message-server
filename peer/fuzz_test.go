@@ -8,7 +8,8 @@ import (
 	"time"
 
 	"github.com/urnetwork/connect"
-	"github.com/urnetwork/connect/protocol"
+	connectprotocol "github.com/urnetwork/connect/protocol"
+	messageprotocol "github.com/urnetwork/message/protocol"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
@@ -36,7 +37,7 @@ var fuzzPeer = sync.OnceValue(func() *Peer {
 		Handler:         handler,
 		Connections:     connections,
 		Checks:          checks,
-		Capabilities:    &protocol.Capabilities{},
+		Capabilities:    &messageprotocol.Capabilities{},
 		ProtocolVersion: fixtureProtocolVersion,
 		ServerId:        make([]byte, 16),
 	})
@@ -51,15 +52,15 @@ var fuzzPeer = sync.OnceValue(func() *Peer {
 func seedInbound(f *testing.F) {
 	f.Helper()
 	bodies := []proto.Message{
-		&protocol.HelloRequest{SupportedVersions: []uint32{fixtureProtocolVersion}},
-		&protocol.SubmitRequest{GroupId: make([]byte, 32)},
-		&protocol.FetchRequest{GroupId: make([]byte, 32), ReadEpoch: 3},
-		&protocol.CreateGroupRequest{GroupId: make([]byte, 32)},
-		&protocol.SubscribeRequest{},
-		&protocol.RendezvousDepositRequest{},
+		&messageprotocol.HelloRequest{SupportedVersions: []uint32{fixtureProtocolVersion}},
+		&messageprotocol.SubmitRequest{GroupId: make([]byte, 32)},
+		&messageprotocol.FetchRequest{GroupId: make([]byte, 32), ReadEpoch: 3},
+		&messageprotocol.CreateGroupRequest{GroupId: make([]byte, 32)},
+		&messageprotocol.SubscribeRequest{},
+		&messageprotocol.RendezvousDepositRequest{},
 	}
 	for index, body := range bodies {
-		request := &protocol.MessageServerRequest{RequestId: uint64(index + 1), ProtocolVersion: fixtureProtocolVersion}
+		request := &messageprotocol.MessageServerRequest{RequestId: uint64(index + 1), ProtocolVersion: fixtureProtocolVersion}
 		if err := setRequestBody(request, body); err != nil {
 			f.Fatalf("setRequestBody: %v", err)
 		}
@@ -72,7 +73,7 @@ func seedInbound(f *testing.F) {
 	}
 	// a request with no body at all, an empty frame, a truncated one, and bytes that are not a
 	// protobuf in any reading
-	empty, _ := proto.Marshal(&protocol.MessageServerRequest{RequestId: 7})
+	empty, _ := proto.Marshal(&messageprotocol.MessageServerRequest{RequestId: 7})
 	f.Add(empty, false, false)
 	f.Add([]byte{}, false, false)
 	f.Add([]byte{0x08}, false, false)
@@ -100,16 +101,16 @@ func FuzzTheInboundFrameSurfaceRefusesRatherThanPanics(f *testing.F) {
 	clientId := connect.NewId()
 
 	f.Fuzz(func(t *testing.T, body []byte, fragmented bool, raw bool) {
-		frame := &protocol.Frame{MessageBytes: body, Raw: raw}
+		frame := &connectprotocol.Frame{MessageBytes: body, Raw: raw}
 
 		if fragmented {
-			frame.MessageType = protocol.MessageType_MessageMessageServerFragment
+			frame.MessageType = connectprotocol.MessageType_MessageMessageServerFragment
 			fragment, decoded := decodeFragment(frame)
 			if !decoded {
 				return
 			}
 			assembled, complete, reason := served.reassembly.accept(clientId, fragment)
-			if reason != protocol.Reason_REASON_OK && complete {
+			if reason != messageprotocol.Reason_REASON_OK && complete {
 				t.Fatalf("a refused fragment answered %v and reported the request complete anyway, with %d bytes for dispatch", reason, len(assembled))
 			}
 			if complete != (assembled != nil) && len(assembled) != 0 {
@@ -121,7 +122,7 @@ func FuzzTheInboundFrameSurfaceRefusesRatherThanPanics(f *testing.F) {
 			return
 		}
 
-		frame.MessageType = protocol.MessageType_MessageMessageServerRequest
+		frame.MessageType = connectprotocol.MessageType_MessageMessageServerRequest
 		arrived, request, decoded := decodeRequest(clientId, frame)
 		if !decoded {
 			// a frame that does not decode is dropped rather than answered, because a response
@@ -135,7 +136,7 @@ func FuzzTheInboundFrameSurfaceRefusesRatherThanPanics(f *testing.F) {
 		if response.GetRequestId() != request.GetRequestId() {
 			t.Fatalf("a request with request_id %d was answered under %d", request.GetRequestId(), response.GetRequestId())
 		}
-		if response.GetReason() == protocol.Reason_REASON_OK && request.ProtoReflect().WhichOneof(bodyOneofOf(request.ProtoReflect().Descriptor())) == nil {
+		if response.GetReason() == messageprotocol.Reason_REASON_OK && request.ProtoReflect().WhichOneof(bodyOneofOf(request.ProtoReflect().Descriptor())) == nil {
 			t.Fatal("a request with no body at all was answered REASON_OK")
 		}
 	})
@@ -164,15 +165,15 @@ func FuzzTheResponseArmIsTheOneThatHoldsTheBodysType(f *testing.F) {
 	f.Add(uint64(0), 3)
 	f.Add(^uint64(0), 7)
 
-	arms := bodyArmsOf((&protocol.MessageServerResponse{}).ProtoReflect().Descriptor())
+	arms := bodyArmsOf((&messageprotocol.MessageServerResponse{}).ProtoReflect().Descriptor())
 	f.Fuzz(func(t *testing.T, requestId uint64, which int) {
-		response := &protocol.MessageServerResponse{RequestId: requestId}
+		response := &messageprotocol.MessageServerResponse{RequestId: requestId}
 		if which < 0 {
 			which = -which
 		}
 		// half the inputs get a message that is an arm of the response oneof, and half get one
 		// that is an arm of the *request* oneof and therefore of no response arm at all
-		requestArms := bodyArmsOf((&protocol.MessageServerRequest{}).ProtoReflect().Descriptor())
+		requestArms := bodyArmsOf((&messageprotocol.MessageServerRequest{}).ProtoReflect().Descriptor())
 		var body proto.Message
 		wanted := true
 		if which%2 == 0 {
