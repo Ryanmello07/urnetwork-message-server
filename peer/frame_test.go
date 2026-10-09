@@ -10,13 +10,14 @@ import (
 	"time"
 
 	"github.com/urnetwork/connect"
-	"github.com/urnetwork/connect/protocol"
+	connectprotocol "github.com/urnetwork/connect/protocol"
 	"github.com/urnetwork/message-server/api"
+	messageprotocol "github.com/urnetwork/message/protocol"
 	"google.golang.org/protobuf/proto"
 )
 
 // §4.6, from the client's side: one request, cut into parts and sent as fragment frames.
-func (self *fixture) sendFragments(t *testing.T, request *protocol.MessageServerRequest, partBytes int) {
+func (self *fixture) sendFragments(t *testing.T, request *messageprotocol.MessageServerRequest, partBytes int) {
 	t.Helper()
 	body, err := proto.Marshal(request)
 	if err != nil {
@@ -24,7 +25,7 @@ func (self *fixture) sendFragments(t *testing.T, request *protocol.MessageServer
 	}
 	count := (len(body) + partBytes - 1) / partBytes
 	for index := range count {
-		self.sendFragment(t, &protocol.MessageServerFragment{
+		self.sendFragment(t, &messageprotocol.MessageServerFragment{
 			RequestId: request.GetRequestId(),
 			Index:     uint32(index),
 			Count:     uint32(count),
@@ -33,22 +34,22 @@ func (self *fixture) sendFragments(t *testing.T, request *protocol.MessageServer
 	}
 }
 
-func (self *fixture) sendFragment(t *testing.T, fragment *protocol.MessageServerFragment) {
+func (self *fixture) sendFragment(t *testing.T, fragment *messageprotocol.MessageServerFragment) {
 	t.Helper()
 	body, err := connect.ProtoMarshal(fragment)
 	if err != nil {
 		t.Fatalf("ProtoMarshal: %v", err)
 	}
-	self.sendFrame(t, &protocol.Frame{
-		MessageType:  protocol.MessageType_MessageMessageServerFragment,
+	self.sendFrame(t, &connectprotocol.Frame{
+		MessageType:  connectprotocol.MessageType_MessageMessageServerFragment,
 		MessageBytes: body,
 	})
 }
 
 // A request body of about this many bytes, for the tests that are about a bound rather than
 // about a field.
-func filler(bytesWanted int) *protocol.FetchRequest {
-	return &protocol.FetchRequest{
+func filler(bytesWanted int) *messageprotocol.FetchRequest {
+	return &messageprotocol.FetchRequest{
 		GroupId: bytes.Repeat([]byte{0x44}, 32),
 		ReqAuth: bytes.Repeat([]byte{0x55}, bytesWanted),
 	}
@@ -63,14 +64,14 @@ func filler(bytesWanted int) *protocol.FetchRequest {
 // sent something too large is told so, and told which request it was.
 func TestARequestPastMaxRequestBytesIsRefusedAndNeverServed(t *testing.T) {
 	fixture := newFixtureWith(t, Config{
-		Capabilities: &protocol.Capabilities{MaxRequestBytes: 512},
+		Capabilities: &messageprotocol.Capabilities{MaxRequestBytes: 512},
 	})
 	fixture.hello(t)
 	fixture.handler.forget()
 
 	request := fixture.request(filler(1500))
 	response := fixture.await(t, fixture.begin(t, request))
-	if response.GetReason() != protocol.Reason_REASON_OVERSIZE {
+	if response.GetReason() != messageprotocol.Reason_REASON_OVERSIZE {
 		t.Fatalf("a request of about 1500 bytes against a 512 byte cap was answered %v, want REASON_OVERSIZE", response.GetReason())
 	}
 	if response.GetRequestId() != request.GetRequestId() {
@@ -81,7 +82,7 @@ func TestARequestPastMaxRequestBytesIsRefusedAndNeverServed(t *testing.T) {
 	}
 
 	// and one inside the cap still goes through, so what refused was the size
-	if inside := fixture.call(t, filler(64)); inside.GetReason() != protocol.Reason_REASON_OK {
+	if inside := fixture.call(t, filler(64)); inside.GetReason() != messageprotocol.Reason_REASON_OK {
 		t.Fatalf("a request inside the cap was answered %v", inside.GetReason())
 	}
 }
@@ -92,7 +93,7 @@ func TestARequestPastMaxRequestBytesIsRefusedAndNeverServed(t *testing.T) {
 // number and enforcing another gives every client a size to fragment to that it will then be
 // refused at, and §5.1 check 1 is the only place the client would find out.
 func TestTheAdvertisedRequestCapIsTheOneCheckOneEnforces(t *testing.T) {
-	fixture := newFixtureWith(t, Config{Capabilities: &protocol.Capabilities{MaxRequestBytes: 4096}})
+	fixture := newFixtureWith(t, Config{Capabilities: &messageprotocol.Capabilities{MaxRequestBytes: 4096}})
 	hello := fixture.hello(t)
 	if int(hello.GetCapabilities().GetMaxRequestBytes()) != fixture.checks.maxRequestBytes {
 		t.Fatalf("Hello advertises max_request_bytes %d and check 1 enforces %d",
@@ -115,7 +116,7 @@ func TestTheAdvertisedRequestCapIsTheOneCheckOneEnforces(t *testing.T) {
 		Handler:      fixture.handler,
 		Connections:  connections,
 		Checks:       checks,
-		Capabilities: &protocol.Capabilities{MaxRequestBytes: 8192},
+		Capabilities: &messageprotocol.Capabilities{MaxRequestBytes: 8192},
 	})
 	if !errors.Is(err, ErrCapMismatch) {
 		t.Fatalf("a peer advertising 8192 and enforcing 4096 was built with err %v", err)
@@ -138,7 +139,7 @@ func TestAPeerAndItsHandlersChecksShareOneRegistry(t *testing.T) {
 		Handler:      fixture.handler,
 		Connections:  fixture.connections,
 		Checks:       checks,
-		Capabilities: &protocol.Capabilities{},
+		Capabilities: &messageprotocol.Capabilities{},
 	})
 	if !errors.Is(err, ErrCheckedElsewhere) {
 		t.Fatalf("a peer whose checks read another registry was built with err %v", err)
@@ -154,19 +155,19 @@ func TestAFragmentedRequestIsReassembledAndServed(t *testing.T) {
 	fixture.handler.forget()
 
 	marker := uint64(4242)
-	request := fixture.request(&protocol.FetchRequest{
+	request := fixture.request(&messageprotocol.FetchRequest{
 		GroupId:       bytes.Repeat([]byte{0x66}, 32),
 		SinceRecordId: marker,
 		ReqAuth:       bytes.Repeat([]byte{0x77}, 6000),
 	})
-	waiter := make(chan *protocol.MessageServerResponse, 1)
+	waiter := make(chan *messageprotocol.MessageServerResponse, 1)
 	fixture.mutex.Lock()
 	fixture.waiting[request.GetRequestId()] = waiter
 	fixture.mutex.Unlock()
 
 	fixture.sendFragments(t, request, DefaultFragmentPartBytes)
 	response := fixture.await(t, waiter)
-	if response.GetReason() != protocol.Reason_REASON_OK {
+	if response.GetReason() != messageprotocol.Reason_REASON_OK {
 		t.Fatalf("a fragmented request was answered %v", response.GetReason())
 	}
 	if response.GetFetch().GetHighWaterRecordId() != marker {
@@ -183,19 +184,19 @@ func TestAFragmentedRequestIsReassembledAndServed(t *testing.T) {
 // an unbounded reassembly buffer is a memory-exhaustion vector, and one freed a stage later is
 // one an attacker holds open by never sending the last fragment.
 func TestReassemblyPastTheCapIsRefusedAndTheBufferFreedAtOnce(t *testing.T) {
-	fixture := newFixtureWith(t, Config{Capabilities: &protocol.Capabilities{MaxRequestBytes: 4096}})
+	fixture := newFixtureWith(t, Config{Capabilities: &messageprotocol.Capabilities{MaxRequestBytes: 4096}})
 	fixture.hello(t)
 	fixture.handler.forget()
 
 	request := fixture.request(filler(12000))
-	waiter := make(chan *protocol.MessageServerResponse, 1)
+	waiter := make(chan *messageprotocol.MessageServerResponse, 1)
 	fixture.mutex.Lock()
 	fixture.waiting[request.GetRequestId()] = waiter
 	fixture.mutex.Unlock()
 
 	fixture.sendFragments(t, request, 2048)
 	response := fixture.await(t, waiter)
-	if response.GetReason() != protocol.Reason_REASON_OVERSIZE {
+	if response.GetReason() != messageprotocol.Reason_REASON_OVERSIZE {
 		t.Fatalf("a reassembly past a 4096 byte cap was answered %v, want REASON_OVERSIZE", response.GetReason())
 	}
 	if response.GetRequestId() != request.GetRequestId() {
@@ -240,16 +241,16 @@ func TestEveryWaySpecB46AbortsAReassembly(t *testing.T) {
 		build    func() *reassembly
 		open     func(t *testing.T, buffers *reassembly)
 		from     connect.Id
-		fragment *protocol.MessageServerFragment
-		reason   protocol.Reason
+		fragment *messageprotocol.MessageServerFragment
+		reason   messageprotocol.Reason
 	}
 	plain := func() *reassembly {
 		return newReassembly(clock, 4096, 16, DefaultMaxReassemblies, DefaultReassemblyIdle)
 	}
-	first := func(fragment *protocol.MessageServerFragment) func(t *testing.T, buffers *reassembly) {
+	first := func(fragment *messageprotocol.MessageServerFragment) func(t *testing.T, buffers *reassembly) {
 		return func(t *testing.T, buffers *reassembly) {
 			t.Helper()
-			if _, _, reason := buffers.accept(clientId, fragment); reason != protocol.Reason_REASON_OK {
+			if _, _, reason := buffers.accept(clientId, fragment); reason != messageprotocol.Reason_REASON_OK {
 				t.Fatalf("the fragment this case needs in flight was answered %v", reason)
 			}
 		}
@@ -262,34 +263,34 @@ func TestEveryWaySpecB46AbortsAReassembly(t *testing.T) {
 		"an index that is not below the fragment count": {
 			build:    plain,
 			from:     clientId,
-			fragment: &protocol.MessageServerFragment{RequestId: 1, Index: 0, Count: 0},
-			reason:   protocol.Reason_REASON_REJECTED,
+			fragment: &messageprotocol.MessageServerFragment{RequestId: 1, Index: 0, Count: 0},
+			reason:   messageprotocol.Reason_REASON_REJECTED,
 		},
 		// §4.6 aborts rather than buffering a hole, and before the buffer exists that is the same
 		// rule read as "a first fragment must be index 0"
 		"an index that is not the one this reassembly is waiting for": {
 			build:    plain,
 			from:     clientId,
-			fragment: &protocol.MessageServerFragment{RequestId: 1, Index: 1, Count: 3, Part: []byte("b")},
-			reason:   protocol.Reason_REASON_REJECTED,
+			fragment: &messageprotocol.MessageServerFragment{RequestId: 1, Index: 1, Count: 3, Part: []byte("b")},
+			reason:   messageprotocol.Reason_REASON_REJECTED,
 		},
 		// the index is the one this buffer is waiting for and the count is not the one it was
 		// opened with, so no other rule fires on it
 		"a fragment count that changed mid-reassembly": {
 			build:    plain,
-			open:     first(&protocol.MessageServerFragment{RequestId: 1, Index: 0, Count: 3, Part: []byte("a")}),
+			open:     first(&messageprotocol.MessageServerFragment{RequestId: 1, Index: 0, Count: 3, Part: []byte("a")}),
 			from:     clientId,
-			fragment: &protocol.MessageServerFragment{RequestId: 1, Index: 1, Count: 5, Part: []byte("b")},
-			reason:   protocol.Reason_REASON_REJECTED,
+			fragment: &messageprotocol.MessageServerFragment{RequestId: 1, Index: 1, Count: 5, Part: []byte("b")},
+			reason:   messageprotocol.Reason_REASON_REJECTED,
 		},
 		"§4.6's concurrent reassemblies for one client": {
 			build: func() *reassembly {
 				return newReassembly(clock, 4096, 1, DefaultMaxReassemblies, DefaultReassemblyIdle)
 			},
-			open:     first(&protocol.MessageServerFragment{RequestId: 1, Index: 0, Count: 2, Part: []byte("a")}),
+			open:     first(&messageprotocol.MessageServerFragment{RequestId: 1, Index: 0, Count: 2, Part: []byte("a")}),
 			from:     clientId,
-			fragment: &protocol.MessageServerFragment{RequestId: 2, Index: 0, Count: 2, Part: []byte("a")},
-			reason:   protocol.Reason_REASON_REJECTED,
+			fragment: &messageprotocol.MessageServerFragment{RequestId: 2, Index: 0, Count: 2, Part: []byte("a")},
+			reason:   messageprotocol.Reason_REASON_REJECTED,
 		},
 		// a second client, inside its own §4.6 cap and refused for what the first one holds:
 		// the bound above the per-client one, which nothing but this rule can be refusing
@@ -297,18 +298,18 @@ func TestEveryWaySpecB46AbortsAReassembly(t *testing.T) {
 			build: func() *reassembly {
 				return newReassembly(clock, 4096, DefaultReassembliesPerClient, 1, DefaultReassemblyIdle)
 			},
-			open:     first(&protocol.MessageServerFragment{RequestId: 1, Index: 0, Count: 2, Part: []byte("a")}),
+			open:     first(&messageprotocol.MessageServerFragment{RequestId: 1, Index: 0, Count: 2, Part: []byte("a")}),
 			from:     stranger,
-			fragment: &protocol.MessageServerFragment{RequestId: 1, Index: 0, Count: 2, Part: []byte("a")},
-			reason:   protocol.Reason_REASON_REJECTED,
+			fragment: &messageprotocol.MessageServerFragment{RequestId: 1, Index: 0, Count: 2, Part: []byte("a")},
+			reason:   messageprotocol.Reason_REASON_REJECTED,
 		},
 		"§5.1 check 1's max_request_bytes over the whole reassembly": {
 			build: func() *reassembly {
 				return newReassembly(clock, 8, 16, DefaultMaxReassemblies, DefaultReassemblyIdle)
 			},
 			from:     clientId,
-			fragment: &protocol.MessageServerFragment{RequestId: 1, Index: 0, Count: 2, Part: []byte("nine byte")},
-			reason:   protocol.Reason_REASON_OVERSIZE,
+			fragment: &messageprotocol.MessageServerFragment{RequestId: 1, Index: 0, Count: 2, Part: []byte("nine byte")},
+			reason:   messageprotocol.Reason_REASON_OVERSIZE,
 		},
 	}
 
@@ -357,7 +358,7 @@ func TestEveryWaySpecB46AbortsAReassembly(t *testing.T) {
 			if current.open != nil {
 				current.open(t, without)
 			}
-			if _, _, reason := without.accept(current.from, current.fragment); reason != protocol.Reason_REASON_OK {
+			if _, _, reason := without.accept(current.from, current.fragment); reason != messageprotocol.Reason_REASON_OK {
 				t.Fatalf("with %q taken out of §4.6's aborts the same fragment is still answered %v, so what refused it above was another rule and this case observes nothing about this one",
 					rule.name, reason)
 			}
@@ -369,14 +370,14 @@ func TestEveryWaySpecB46AbortsAReassembly(t *testing.T) {
 	// itself is asserted; what is here is that a fragment arriving after it continues nothing.
 	t.Run("past §4.6's thirty seconds", func(t *testing.T) {
 		buffers := plain()
-		if _, _, reason := buffers.accept(clientId, &protocol.MessageServerFragment{RequestId: 1, Index: 0, Count: 2, Part: []byte("a")}); reason != protocol.Reason_REASON_OK {
+		if _, _, reason := buffers.accept(clientId, &messageprotocol.MessageServerFragment{RequestId: 1, Index: 0, Count: 2, Part: []byte("a")}); reason != messageprotocol.Reason_REASON_OK {
 			t.Fatalf("the first fragment was answered %v", reason)
 		}
 		now = now.Add(DefaultReassemblyIdle + time.Second)
 		defer func() { now = now.Add(-(DefaultReassemblyIdle + time.Second)) }()
 		// the second fragment of an expired request opens a new reassembly, so it is refused as
 		// a first fragment with a non-zero index rather than appended to a buffer that is gone
-		if _, _, reason := buffers.accept(clientId, &protocol.MessageServerFragment{RequestId: 1, Index: 1, Count: 2, Part: []byte("b")}); reason != protocol.Reason_REASON_REJECTED {
+		if _, _, reason := buffers.accept(clientId, &messageprotocol.MessageServerFragment{RequestId: 1, Index: 1, Count: 2, Part: []byte("b")}); reason != messageprotocol.Reason_REASON_REJECTED {
 			t.Fatalf("a fragment arriving after the expiry was appended to the expired buffer: %v", reason)
 		}
 		if left := buffers.holding().reassemblies; left != 0 {
@@ -392,13 +393,13 @@ func TestEveryWaySpecB46AbortsAReassembly(t *testing.T) {
 // copies of `max < bytes` is a build that refuses a fragmented request at one size and an
 // unfragmented one at another.
 func TestCheckOneRefusesTheSameWayOnBothPathsItRunsOn(t *testing.T) {
-	fixture := newFixtureWith(t, Config{Capabilities: &protocol.Capabilities{MaxRequestBytes: 2048}})
+	fixture := newFixtureWith(t, Config{Capabilities: &messageprotocol.Capabilities{MaxRequestBytes: 2048}})
 	fixture.hello(t)
 
 	unfragmented := fixture.await(t, fixture.begin(t, fixture.request(filler(6000))))
 
 	fragmented := fixture.request(filler(6000))
-	waiter := make(chan *protocol.MessageServerResponse, 1)
+	waiter := make(chan *messageprotocol.MessageServerResponse, 1)
 	fixture.mutex.Lock()
 	fixture.waiting[fragmented.GetRequestId()] = waiter
 	fixture.mutex.Unlock()
@@ -408,7 +409,7 @@ func TestCheckOneRefusesTheSameWayOnBothPathsItRunsOn(t *testing.T) {
 	if unfragmented.GetReason() != reassembled.GetReason() {
 		t.Fatalf("the same oversize request was answered %v unfragmented and %v fragmented", unfragmented.GetReason(), reassembled.GetReason())
 	}
-	if unfragmented.GetReason() != protocol.Reason_REASON_OVERSIZE {
+	if unfragmented.GetReason() != messageprotocol.Reason_REASON_OVERSIZE {
 		t.Fatalf("both paths answered %v, want REASON_OVERSIZE", unfragmented.GetReason())
 	}
 }
@@ -431,11 +432,11 @@ func TestCheckOnesBoundIsExactlyTheNumberCapabilitiesAdvertises(t *testing.T) {
 		for _, max := range []int{1, 512, 4096, DefaultMaxRequestBytes} {
 			for _, current := range []struct {
 				bytes int
-				want  protocol.Reason
+				want  messageprotocol.Reason
 			}{
-				{max - 1, protocol.Reason_REASON_OK},
-				{max, protocol.Reason_REASON_OK},
-				{max + 1, protocol.Reason_REASON_OVERSIZE},
+				{max - 1, messageprotocol.Reason_REASON_OK},
+				{max, messageprotocol.Reason_REASON_OK},
+				{max + 1, messageprotocol.Reason_REASON_OVERSIZE},
 			} {
 				if got := withinLimits(current.bytes, max); got != current.want {
 					t.Errorf("%d bytes against a bound of %d was answered %v, want %v; §5.1 check 1 bounds a request *at* max_request_bytes and refuses past it",
@@ -446,13 +447,13 @@ func TestCheckOnesBoundIsExactlyTheNumberCapabilitiesAdvertises(t *testing.T) {
 	})
 
 	t.Run("a request of exactly the advertised cap is served, and one byte more is refused", func(t *testing.T) {
-		fixture := newFixtureWith(t, Config{Capabilities: &protocol.Capabilities{MaxRequestBytes: 4096}})
+		fixture := newFixtureWith(t, Config{Capabilities: &messageprotocol.Capabilities{MaxRequestBytes: 4096}})
 		hello := fixture.hello(t)
 		cap := int(hello.GetCapabilities().GetMaxRequestBytes())
 		fixture.handler.forget()
 
 		atTheCap := requestOfExactly(t, fixture, cap)
-		if response := fixture.await(t, fixture.begin(t, atTheCap)); response.GetReason() != protocol.Reason_REASON_OK {
+		if response := fixture.await(t, fixture.begin(t, atTheCap)); response.GetReason() != messageprotocol.Reason_REASON_OK {
 			t.Fatalf("a request of exactly the advertised max_request_bytes (%d) was answered %v; a client that cuts its requests to the number in Capabilities would be refused at every one of them",
 				cap, response.GetReason())
 		}
@@ -462,7 +463,7 @@ func TestCheckOnesBoundIsExactlyTheNumberCapabilitiesAdvertises(t *testing.T) {
 
 		fixture.handler.forget()
 		pastTheCap := requestOfExactly(t, fixture, cap+1)
-		if response := fixture.await(t, fixture.begin(t, pastTheCap)); response.GetReason() != protocol.Reason_REASON_OVERSIZE {
+		if response := fixture.await(t, fixture.begin(t, pastTheCap)); response.GetReason() != messageprotocol.Reason_REASON_OVERSIZE {
 			t.Fatalf("a request of %d bytes against an advertised cap of %d was answered %v", cap+1, cap, response.GetReason())
 		}
 		if calls := fixture.handler.recorded(); len(calls) != 0 {
@@ -477,10 +478,10 @@ func TestCheckOnesBoundIsExactlyTheNumberCapabilitiesAdvertises(t *testing.T) {
 		clientId := connect.NewId()
 
 		assembled, complete, reason := replay(buffers, clientId, 1, bytes.Repeat([]byte{0x41}, maxRequestBytes), 16)
-		if reason != protocol.Reason_REASON_OK || !complete || len(assembled) != maxRequestBytes {
+		if reason != messageprotocol.Reason_REASON_OK || !complete || len(assembled) != maxRequestBytes {
 			t.Fatalf("a reassembly of exactly the %d byte cap answered %v complete=%v with %d bytes", maxRequestBytes, reason, complete, len(assembled))
 		}
-		if _, _, reason := replay(buffers, clientId, 2, bytes.Repeat([]byte{0x42}, maxRequestBytes+1), 16); reason != protocol.Reason_REASON_OVERSIZE {
+		if _, _, reason := replay(buffers, clientId, 2, bytes.Repeat([]byte{0x42}, maxRequestBytes+1), 16); reason != messageprotocol.Reason_REASON_OVERSIZE {
 			t.Fatalf("a reassembly of one byte past the %d byte cap answered %v", maxRequestBytes, reason)
 		}
 		if holding := buffers.holding(); holding != (held{}) {
@@ -496,7 +497,7 @@ func TestCheckOnesBoundIsExactlyTheNumberCapabilitiesAdvertises(t *testing.T) {
 // protocol version inside it are varints whose own length depends on their value. A test that
 // assumed "40 bytes of envelope" would be asserting the bound one byte to the side of where it
 // is, which is the whole thing this helper exists to get right.
-func requestOfExactly(t *testing.T, fixture *fixture, want int) *protocol.MessageServerRequest {
+func requestOfExactly(t *testing.T, fixture *fixture, want int) *messageprotocol.MessageServerRequest {
 	t.Helper()
 	request := fixture.request(filler(want))
 	body := request.GetFetch()
@@ -527,28 +528,28 @@ func TestAResponseTooLargeForOneFrameTravelsAsFragments(t *testing.T) {
 	fixture.hello(t)
 	fixture.forgetFrames()
 
-	fixture.handler.onFetch = func(conn *api.Connection, request *protocol.FetchRequest) (protocol.Reason, *protocol.FetchResponse, error) {
-		return protocol.Reason_REASON_OK, &protocol.FetchResponse{
+	fixture.handler.onFetch = func(conn *api.Connection, request *messageprotocol.FetchRequest) (messageprotocol.Reason, *messageprotocol.FetchResponse, error) {
+		return messageprotocol.Reason_REASON_OK, &messageprotocol.FetchResponse{
 			HighWaterRecordId: request.GetSinceRecordId(),
-			Records:           []*protocol.Record{{RecordBytes: bytes.Repeat([]byte{0x88}, 9000)}},
+			Records:           []*messageprotocol.Record{{RecordBytes: bytes.Repeat([]byte{0x88}, 9000)}},
 		}, nil
 	}
 
-	request := fixture.request(&protocol.FetchRequest{GroupId: bytes.Repeat([]byte{1}, 32), SinceRecordId: 31})
+	request := fixture.request(&messageprotocol.FetchRequest{GroupId: bytes.Repeat([]byte{1}, 32), SinceRecordId: 31})
 	response := fixture.await(t, fixture.begin(t, request))
-	if response.GetReason() != protocol.Reason_REASON_OK {
+	if response.GetReason() != messageprotocol.Reason_REASON_OK {
 		t.Fatalf("a large fetch was answered %v", response.GetReason())
 	}
 	if response.GetRequestId() != request.GetRequestId() {
 		t.Fatalf("the reassembled response carries request_id %d, want %d", response.GetRequestId(), request.GetRequestId())
 	}
 
-	fragments := []*protocol.MessageServerFragment{}
+	fragments := []*messageprotocol.MessageServerFragment{}
 	for _, frame := range fixture.frames() {
-		if frame.GetMessageType() != protocol.MessageType_MessageMessageServerFragment {
+		if frame.GetMessageType() != connectprotocol.MessageType_MessageMessageServerFragment {
 			continue
 		}
-		fragment := &protocol.MessageServerFragment{}
+		fragment := &messageprotocol.MessageServerFragment{}
 		if err := proto.Unmarshal(frame.GetMessageBytes(), fragment); err != nil {
 			t.Fatalf("a fragment frame did not decode: %v", err)
 		}
@@ -574,7 +575,7 @@ func TestAResponseTooLargeForOneFrameTravelsAsFragments(t *testing.T) {
 		}
 		assembled = append(assembled, fragment.GetPart()...)
 	}
-	rebuilt := &protocol.MessageServerResponse{}
+	rebuilt := &messageprotocol.MessageServerResponse{}
 	if err := proto.Unmarshal(assembled, rebuilt); err != nil {
 		t.Fatalf("the concatenated parts are not a MessageServerResponse: %v", err)
 	}
@@ -589,18 +590,18 @@ func TestAResponseTooLargeForOneFrameTravelsAsFragments(t *testing.T) {
 // hears about at all — and a client with no answer and no reason retries forever.
 func TestAResponsePastMaxResponseBytesIsRefusedWithItsOwnRequestId(t *testing.T) {
 	fixture := newFixtureWith(t, Config{
-		Capabilities: &protocol.Capabilities{MaxResponseBytes: 4096},
+		Capabilities: &messageprotocol.Capabilities{MaxResponseBytes: 4096},
 	})
 	fixture.hello(t)
-	fixture.handler.onFetch = func(conn *api.Connection, request *protocol.FetchRequest) (protocol.Reason, *protocol.FetchResponse, error) {
-		return protocol.Reason_REASON_OK, &protocol.FetchResponse{
-			Records: []*protocol.Record{{RecordBytes: bytes.Repeat([]byte{0x99}, 20000)}},
+	fixture.handler.onFetch = func(conn *api.Connection, request *messageprotocol.FetchRequest) (messageprotocol.Reason, *messageprotocol.FetchResponse, error) {
+		return messageprotocol.Reason_REASON_OK, &messageprotocol.FetchResponse{
+			Records: []*messageprotocol.Record{{RecordBytes: bytes.Repeat([]byte{0x99}, 20000)}},
 		}, nil
 	}
 
-	request := fixture.request(&protocol.FetchRequest{GroupId: bytes.Repeat([]byte{2}, 32)})
+	request := fixture.request(&messageprotocol.FetchRequest{GroupId: bytes.Repeat([]byte{2}, 32)})
 	response := fixture.await(t, fixture.begin(t, request))
-	if response.GetReason() != protocol.Reason_REASON_OVERSIZE {
+	if response.GetReason() != messageprotocol.Reason_REASON_OVERSIZE {
 		t.Fatalf("a 20000 byte response against a 4096 byte cap was answered %v, want REASON_OVERSIZE", response.GetReason())
 	}
 	if response.GetRequestId() != request.GetRequestId() {
@@ -628,7 +629,7 @@ func TestAResponsePastMaxResponseBytesIsRefusedWithItsOwnRequestId(t *testing.T)
 func TestAFragmentedRequestThatAssemblesToNothingIsAnswered(t *testing.T) {
 	fixture := newFixture(t)
 
-	empty, err := proto.Marshal(&protocol.MessageServerRequest{})
+	empty, err := proto.Marshal(&messageprotocol.MessageServerRequest{})
 	if err != nil {
 		t.Fatalf("Marshal: %v", err)
 	}
@@ -639,12 +640,12 @@ func TestAFragmentedRequestThatAssemblesToNothingIsAnswered(t *testing.T) {
 	// the control, unfragmented. request_id 0 is what those zero bytes decode to, and it is what
 	// a response to them has to carry
 	control := fixture.waitFor(0)
-	fixture.sendFrame(t, &protocol.Frame{
-		MessageType:  protocol.MessageType_MessageMessageServerRequest,
+	fixture.sendFrame(t, &connectprotocol.Frame{
+		MessageType:  connectprotocol.MessageType_MessageMessageServerRequest,
 		MessageBytes: empty,
 	})
 	unfragmented := fixture.await(t, control)
-	if unfragmented.GetReason() != protocol.Reason_REASON_REJECTED {
+	if unfragmented.GetReason() != messageprotocol.Reason_REASON_REJECTED {
 		t.Fatalf("zero bytes in a request frame were answered %v; §4.5's non-specific refusal is what a request with no body arm gets", unfragmented.GetReason())
 	}
 
@@ -652,7 +653,7 @@ func TestAFragmentedRequestThatAssemblesToNothingIsAnswered(t *testing.T) {
 		before := fixture.peer.Stats()
 		waiter := fixture.waitFor(0)
 		for index := range count {
-			fixture.sendFragment(t, &protocol.MessageServerFragment{RequestId: 0, Index: index, Count: count})
+			fixture.sendFragment(t, &messageprotocol.MessageServerFragment{RequestId: 0, Index: index, Count: count})
 		}
 		fragmented := fixture.await(t, waiter)
 
@@ -724,7 +725,7 @@ func TestASpecB46RefusalIsNotSentOnConnectsReceiveLoop(t *testing.T) {
 		Handler:         &recordingHandler{},
 		Connections:     connections,
 		Checks:          checks,
-		Capabilities:    &protocol.Capabilities{},
+		Capabilities:    &messageprotocol.Capabilities{},
 		ProtocolVersion: fixtureProtocolVersion,
 		ServerId:        make([]byte, 16),
 		SendTimeout:     sendTimeout,
@@ -737,14 +738,14 @@ func TestASpecB46RefusalIsNotSentOnConnectsReceiveLoop(t *testing.T) {
 
 	// §4.6 aborts a reassembly whose `count` names no fragments at all, so every one of these
 	// is a refusal carrying a request_id of its own
-	frames := make([]*protocol.Frame, 0, frameCount)
+	frames := make([]*connectprotocol.Frame, 0, frameCount)
 	for index := range frameCount {
-		body, err := connect.ProtoMarshal(&protocol.MessageServerFragment{RequestId: uint64(index) + 1})
+		body, err := connect.ProtoMarshal(&messageprotocol.MessageServerFragment{RequestId: uint64(index) + 1})
 		if err != nil {
 			t.Fatalf("ProtoMarshal: %v", err)
 		}
-		frames = append(frames, &protocol.Frame{
-			MessageType:  protocol.MessageType_MessageMessageServerFragment,
+		frames = append(frames, &connectprotocol.Frame{
+			MessageType:  connectprotocol.MessageType_MessageMessageServerFragment,
 			MessageBytes: body,
 		})
 	}
@@ -798,7 +799,7 @@ func TestASpecB46RefusalIsNotSentOnConnectsReceiveLoop(t *testing.T) {
 // and the client would be told REASON_REJECTED for a request whose actual fault was a bound it
 // could have read out of Capabilities.
 func TestTheRefusalsOfOneAbortedReassemblyKeepTheirOrder(t *testing.T) {
-	fixture := newFixtureWith(t, Config{Capabilities: &protocol.Capabilities{MaxRequestBytes: 2048}})
+	fixture := newFixtureWith(t, Config{Capabilities: &messageprotocol.Capabilities{MaxRequestBytes: 2048}})
 	fixture.hello(t)
 	fixture.forgetFrames()
 
@@ -808,17 +809,17 @@ func TestTheRefusalsOfOneAbortedReassemblyKeepTheirOrder(t *testing.T) {
 	waiter := fixture.waitFor(request.GetRequestId())
 	fixture.sendFragments(t, request, 1024)
 
-	if response := fixture.await(t, waiter); response.GetReason() != protocol.Reason_REASON_OVERSIZE {
+	if response := fixture.await(t, waiter); response.GetReason() != messageprotocol.Reason_REASON_OVERSIZE {
 		t.Fatalf("the first refusal the client correlated was %v; the fragment that broke the cap is what the client has to be told about", response.GetReason())
 	}
 
 	responses := fixture.responsesFor(t, request.GetRequestId(), 32)
-	if responses[0].GetReason() != protocol.Reason_REASON_OVERSIZE {
+	if responses[0].GetReason() != messageprotocol.Reason_REASON_OVERSIZE {
 		t.Fatalf("the first of %d responses for this request_id was %v; §4.6's specific refusal was overtaken by the generic ones behind it",
 			len(responses), responses[0].GetReason())
 	}
 	for index, response := range responses[1:] {
-		if response.GetReason() != protocol.Reason_REASON_REJECTED {
+		if response.GetReason() != messageprotocol.Reason_REASON_REJECTED {
 			t.Fatalf("response %d of this aborted reassembly was %v; every fragment after the abort names a reassembly that is gone, and §4.5's non-specific refusal is what that gets",
 				index+1, response.GetReason())
 		}

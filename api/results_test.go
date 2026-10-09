@@ -3,8 +3,8 @@ package api
 import (
 	"testing"
 
-	"github.com/urnetwork/connect/protocol"
 	"github.com/urnetwork/message-server/store"
+	"github.com/urnetwork/message/protocol"
 )
 
 // §6.1 step (3b) at the wire boundary: whatever the store hands over, a refusal leaves this

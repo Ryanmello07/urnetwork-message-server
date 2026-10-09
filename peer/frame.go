@@ -6,7 +6,8 @@ import (
 	"time"
 
 	"github.com/urnetwork/connect"
-	"github.com/urnetwork/connect/protocol"
+	connectprotocol "github.com/urnetwork/connect/protocol"
+	messageprotocol "github.com/urnetwork/message/protocol"
 )
 
 // §4.6's own numbers, as constants rather than as literals in the middle of a branch.
@@ -62,11 +63,11 @@ const (
 // anything looser serves a request past the number this server told every client it enforces.
 // Each is one character, which is why the boundary is asserted at the number rather than near it
 // — see TestCheckOnesBoundIsExactlyTheNumberCapabilitiesAdvertises.
-func withinLimits(bytes int, max int) protocol.Reason {
+func withinLimits(bytes int, max int) messageprotocol.Reason {
 	if max < bytes {
-		return protocol.Reason_REASON_OVERSIZE
+		return messageprotocol.Reason_REASON_OVERSIZE
 	}
-	return protocol.Reason_REASON_OK
+	return messageprotocol.Reason_REASON_OK
 }
 
 // §4.6's `part` size, decided in one function: min(peer_advertised_frame_budget, 2048).
@@ -106,7 +107,7 @@ type abortRule struct {
 	name string
 
 	// The refusal this rule decides, or REASON_OK when this fragment is not its business.
-	refuses func(state fragmentState) protocol.Reason
+	refuses func(state fragmentState) messageprotocol.Reason
 }
 
 // What one abort rule decides on: the arriving fragment, whatever is already buffered under its
@@ -116,7 +117,7 @@ type abortRule struct {
 // deciding about — and so that a test can build the state a rule fires on without having to
 // build the history that would produce it.
 type fragmentState struct {
-	fragment *protocol.MessageServerFragment
+	fragment *messageprotocol.MessageServerFragment
 
 	// nil when nothing is open for this (client_id, request_id) yet: this fragment would open it.
 	current *partial
@@ -157,11 +158,11 @@ var reassemblyAborts = []abortRule{
 		// a `count` of zero is the degenerate case of this rather than a rule beside it: it
 		// names no fragments at all, and no index is below zero of them
 		name: "an index that is not below the fragment count",
-		refuses: func(state fragmentState) protocol.Reason {
+		refuses: func(state fragmentState) messageprotocol.Reason {
 			if state.fragment.GetCount() <= state.fragment.GetIndex() {
-				return protocol.Reason_REASON_REJECTED
+				return messageprotocol.Reason_REASON_REJECTED
 			}
-			return protocol.Reason_REASON_OK
+			return messageprotocol.Reason_REASON_OK
 		},
 	},
 	{
@@ -169,11 +170,11 @@ var reassemblyAborts = []abortRule{
 		// before the buffer exists, this is also "a first fragment that is not index 0 is a
 		// request whose beginning is not coming"
 		name: "an index that is not the one this reassembly is waiting for",
-		refuses: func(state fragmentState) protocol.Reason {
+		refuses: func(state fragmentState) messageprotocol.Reason {
 			if state.fragment.GetIndex() != state.next() {
-				return protocol.Reason_REASON_REJECTED
+				return messageprotocol.Reason_REASON_REJECTED
 			}
-			return protocol.Reason_REASON_OK
+			return messageprotocol.Reason_REASON_OK
 		},
 	},
 	{
@@ -181,14 +182,14 @@ var reassemblyAborts = []abortRule{
 		// it mid-request is describing two different requests under one request_id, and this
 		// buffer completes on the number it was opened with
 		name: "a fragment count that changed mid-reassembly",
-		refuses: func(state fragmentState) protocol.Reason {
+		refuses: func(state fragmentState) messageprotocol.Reason {
 			if state.opening() {
-				return protocol.Reason_REASON_OK
+				return messageprotocol.Reason_REASON_OK
 			}
 			if state.fragment.GetCount() != state.current.count {
-				return protocol.Reason_REASON_REJECTED
+				return messageprotocol.Reason_REASON_REJECTED
 			}
-			return protocol.Reason_REASON_OK
+			return messageprotocol.Reason_REASON_OK
 		},
 	},
 	{
@@ -197,11 +198,11 @@ var reassemblyAborts = []abortRule{
 		// to: REASON_RATE_LIMITED would be a claim that this build has the limiter of §4.7, and
 		// §5.1 check 4 is still absent
 		name: "§4.6's concurrent reassemblies for one client",
-		refuses: func(state fragmentState) protocol.Reason {
+		refuses: func(state fragmentState) messageprotocol.Reason {
 			if state.opening() && state.perClient <= state.openForClient {
-				return protocol.Reason_REASON_REJECTED
+				return messageprotocol.Reason_REASON_REJECTED
 			}
-			return protocol.Reason_REASON_OK
+			return messageprotocol.Reason_REASON_OK
 		},
 	},
 	{
@@ -210,18 +211,18 @@ var reassemblyAborts = []abortRule{
 		// [DefaultMaxReassemblies]. Zero or less is no global bound at all, which is what the
 		// client side of a test reassembles under
 		name: "the reassemblies this server holds for every client at once",
-		refuses: func(state fragmentState) protocol.Reason {
+		refuses: func(state fragmentState) messageprotocol.Reason {
 			if state.opening() && 0 < state.maxReassemblies && state.maxReassemblies <= state.open {
-				return protocol.Reason_REASON_REJECTED
+				return messageprotocol.Reason_REASON_REJECTED
 			}
-			return protocol.Reason_REASON_OK
+			return messageprotocol.Reason_REASON_OK
 		},
 	},
 	{
 		// §5.1 check 1's `max_request_bytes`, over the reassembled request rather than over any
 		// one frame, and asked last because it is the one abort §4.6 names a code for
 		name: "§5.1 check 1's max_request_bytes over the whole reassembly",
-		refuses: func(state fragmentState) protocol.Reason {
+		refuses: func(state fragmentState) messageprotocol.Reason {
 			return withinLimits(state.buffered()+len(state.fragment.GetPart()), state.maxRequestBytes)
 		},
 	},
@@ -306,7 +307,7 @@ func newReassembly(now func() time.Time, maxRequestBytes int, perClient int, max
 // a drop: a well-formed frame carrying a request_id that was received, never served and never
 // answered. The unfragmented path decodes those same zero bytes and answers REASON_REJECTED,
 // and §4.6 is not a second opinion about what an empty request means.
-func (self *reassembly) accept(clientId connect.Id, fragment *protocol.MessageServerFragment) ([]byte, bool, protocol.Reason) {
+func (self *reassembly) accept(clientId connect.Id, fragment *messageprotocol.MessageServerFragment) ([]byte, bool, messageprotocol.Reason) {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 	self.expire()
@@ -324,7 +325,7 @@ func (self *reassembly) accept(clientId connect.Id, fragment *protocol.MessageSe
 	}
 	for _, rule := range self.aborts {
 		reason := rule.refuses(state)
-		if reason == protocol.Reason_REASON_OK {
+		if reason == messageprotocol.Reason_REASON_OK {
 			continue
 		}
 		// whatever this key holds goes now — and a key that holds nothing is a drop of nothing,
@@ -342,11 +343,11 @@ func (self *reassembly) accept(clientId connect.Id, fragment *protocol.MessageSe
 	current.bytes = append(current.bytes, fragment.GetPart()...)
 	current.next++
 	if current.next < current.count {
-		return nil, false, protocol.Reason_REASON_OK
+		return nil, false, messageprotocol.Reason_REASON_OK
 	}
 	assembled := current.bytes
 	self.drop(key)
-	return assembled, true, protocol.Reason_REASON_OK
+	return assembled, true, messageprotocol.Reason_REASON_OK
 }
 
 // Everything past §4.6's 30 seconds, dropped, and how many went.
@@ -480,24 +481,24 @@ func (self *reassembly) expiryReads() uint64 {
 // [partSize] is idempotent so the second application changes nothing; what it buys is that this
 // function cannot be handed a part size at all — a zero would be a division by zero on the
 // fragment count, and anything past the ceiling would be a MUST NOT on the wire.
-func responseFrames(response *protocol.MessageServerResponse, partBytes int) ([]*protocol.Frame, error) {
+func responseFrames(response *messageprotocol.MessageServerResponse, partBytes int) ([]*connectprotocol.Frame, error) {
 	partBytes = partSize(partBytes)
 	body, err := connect.ProtoMarshal(response)
 	if err != nil {
 		return nil, err
 	}
 	if len(body) <= partBytes {
-		return []*protocol.Frame{{
-			MessageType:  protocol.MessageType_MessageMessageServerResponse,
+		return []*connectprotocol.Frame{{
+			MessageType:  connectprotocol.MessageType_MessageMessageServerResponse,
 			MessageBytes: body,
 		}}, nil
 	}
 
 	count := (len(body) + partBytes - 1) / partBytes
-	frames := make([]*protocol.Frame, 0, count)
+	frames := make([]*connectprotocol.Frame, 0, count)
 	for index := 0; index < count; index++ {
 		end := min((index+1)*partBytes, len(body))
-		fragment, err := connect.ProtoMarshal(&protocol.MessageServerFragment{
+		fragment, err := connect.ProtoMarshal(&messageprotocol.MessageServerFragment{
 			RequestId: response.GetRequestId(),
 			Index:     uint32(index),
 			Count:     uint32(count),
@@ -510,8 +511,8 @@ func responseFrames(response *protocol.MessageServerResponse, partBytes int) ([]
 			connect.MessagePoolReturn(body)
 			return nil, err
 		}
-		frames = append(frames, &protocol.Frame{
-			MessageType:  protocol.MessageType_MessageMessageServerFragment,
+		frames = append(frames, &connectprotocol.Frame{
+			MessageType:  connectprotocol.MessageType_MessageMessageServerFragment,
 			MessageBytes: fragment,
 		})
 	}
@@ -523,7 +524,7 @@ func responseFrames(response *protocol.MessageServerResponse, partBytes int) ([]
 
 // Give a frame's bytes back to the pool. MessagePoolReturn drops anything that did not come
 // from one, so this is safe on a frame built any other way.
-func returnFrames(frames []*protocol.Frame) {
+func returnFrames(frames []*connectprotocol.Frame) {
 	for _, frame := range frames {
 		connect.MessagePoolReturn(frame.MessageBytes)
 	}

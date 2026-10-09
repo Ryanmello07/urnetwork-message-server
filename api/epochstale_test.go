@@ -11,9 +11,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/urnetwork/connect/message"
-	"github.com/urnetwork/connect/protocol"
 	"github.com/urnetwork/message-server/store"
+	"github.com/urnetwork/message/message"
+	"github.com/urnetwork/message/protocol"
 )
 
 // A WRITE AT ANY EPOCH BUT THE CURRENT ONE IS REFUSED, through §5.1's whole submit pipeline —

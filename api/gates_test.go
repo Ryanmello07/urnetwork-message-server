@@ -15,7 +15,7 @@ import (
 // The reach that laundering a MAC through a neighbouring package would take.
 //
 // TestNoFunctionInThisPackageBuildsAPreimageComputesAMacOrParsesARecord derives its class from
-// connect/message's own imports, which is the half of a gate this project keeps getting wrong.
+// the record layer's own imports, which is the half of a gate this project keeps getting wrong.
 // Its scope was the other half and it was typed: the single directory ".". A second
 // implementation of the MAC placed in a package api/doc.go's mayimport list already permits, and
 // called from checkWriteAuth, passes that gate untouched — and this repository does not merely
@@ -113,9 +113,9 @@ func TestTheSecondImplementationScopeFindsAPackageOutsideThisOne(t *testing.T) {
 	}
 }
 
-// ── §5.1 check 7, decided by connect/message and by nothing else ─────────────────────────
+// ── §5.1 check 7, decided by the record layer and by nothing else ────────────────────────
 
-// The function that runs §5.1 check 7 on each path calls one of connect/message's verifiers.
+// The function that runs §5.1 check 7 on each path calls one of the record layer's verifiers.
 //
 // TestThisPackageDecidesEveryAuthenticatorThroughConnectMessage asserts that two distinct
 // verifiers are reached *somewhere* in the package, and that is not the same claim: the
@@ -145,7 +145,7 @@ func TestSpecB51sMacCheckIsDecidedByACallIntoConnectMessage(t *testing.T) {
 		}
 		reached := verifiersCalledIn(files, declared, verifiers, recordLayerImportPath(t))
 		if len(reached) == 0 {
-			t.Fatalf("%s runs §5.1 check %d and calls none of connect/message's verifiers (%v) at %s; check 7 is \"recompute the §5.4 preimage byte-for-byte using connect/message's encoder — never a local reimplementation\", and a comparison made any other way is the second implementation §12.1 A-1 is written against",
+			t.Fatalf("%s runs §5.1 check %d and calls none of the record layer's verifiers (%v) at %s; check 7 is \"recompute the §5.4 preimage byte-for-byte using connect/message's encoder — never a local reimplementation\", and a comparison made any other way is the second implementation §12.1 A-1 is written against",
 				name, number, verifiers, fileSet.Position(declared.Pos()))
 		}
 		t.Logf("%s decides check %d through %v", name, number, reached)
@@ -332,7 +332,7 @@ func functionNamed(files []*ast.File, name string) *ast.FuncDecl {
 	return nil
 }
 
-// The connect/message verifiers one function calls.
+// The record layer's verifiers one function calls.
 func verifiersCalledIn(files []*ast.File, declared *ast.FuncDecl, verifiers []string, path string) []string {
 	local := map[string]bool{}
 	for _, file := range files {
@@ -450,26 +450,35 @@ func projectionFieldNames(t *testing.T, files []*ast.File) []string {
 	return found
 }
 
-// The import path this module names connect/protocol by, taken from this package's own imports.
+// The import path of the schema whose Record a projection field holds: the protocol package of
+// the module this package's record layer comes from, which is where ledger 284 put the two, and
+// this package has to import it.
+//
+// It was the one import ending in "/protocol" until then. That was the same package while
+// connect/protocol held the schema and the frame both, and it stopped being one the day the
+// schema moved: connect/protocol still exists and holds the frame, so a package importing it
+// beside message/protocol would have had two candidates and no way to choose, and a package
+// importing connect's old copy of the schema instead would have passed for the right one. The
+// schema is chosen by path now, and the path is derived from the record layer this package
+// already uses rather than typed here.
 func wireImportPath(t *testing.T) string {
 	t.Helper()
+	recordLayer := recordLayerImportPath(t)
+	module, cut := strings.CutSuffix(recordLayer, "/message")
+	if !cut || module == "" {
+		t.Fatalf("the record layer %s is not a module's message package, so there is no protocol package beside it to look for", recordLayer)
+	}
+	wire := module + "/protocol"
 	_, files := parseGoDir(t, ".", false)
-	found := ""
 	for _, file := range files {
 		for _, imported := range file.Imports {
-			path := importPath(t, imported)
-			if strings.HasSuffix(path, "/protocol") {
-				if found != "" && found != path {
-					t.Fatalf("this package imports two wire protocols, %s and %s", found, path)
-				}
-				found = path
+			if importPath(t, imported) == wire {
+				return wire
 			}
 		}
 	}
-	if found == "" {
-		t.Fatal("this package imports no connect/protocol, so there is no wire Record for this gate to look for")
-	}
-	return found
+	t.Fatalf("this package imports no %s, the schema beside its record layer %s, so there is no wire Record for this gate to look for", wire, recordLayer)
+	return ""
 }
 
 // Every package of this module reachable from one directory, closed over the import graph, as

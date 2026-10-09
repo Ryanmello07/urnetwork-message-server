@@ -10,8 +10,9 @@ import (
 	"time"
 
 	"github.com/urnetwork/connect"
-	"github.com/urnetwork/connect/protocol"
+	connectprotocol "github.com/urnetwork/connect/protocol"
 	"github.com/urnetwork/message-server/api"
+	messageprotocol "github.com/urnetwork/message/protocol"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
@@ -45,11 +46,11 @@ type fixture struct {
 	nonce []byte
 
 	mutex     sync.Mutex
-	waiting   map[uint64]chan *protocol.MessageServerResponse
-	unmatched []*protocol.MessageServerResponse
+	waiting   map[uint64]chan *messageprotocol.MessageServerResponse
+	unmatched []*messageprotocol.MessageServerResponse
 
 	// The response fragments of §4.6, as the client sees them before it reassembles anything.
-	rawFrames  []*protocol.Frame
+	rawFrames  []*connectprotocol.Frame
 	reassembly *reassembly
 }
 
@@ -88,7 +89,7 @@ func newFixtureWith(t *testing.T, config Config) *fixture {
 		serverClient: serverClient,
 		clientClient: clientClient,
 		handler:      &recordingHandler{},
-		waiting:      map[uint64]chan *protocol.MessageServerResponse{},
+		waiting:      map[uint64]chan *messageprotocol.MessageServerResponse{},
 	}
 
 	if config.Now == nil {
@@ -103,7 +104,7 @@ func newFixtureWith(t *testing.T, config Config) *fixture {
 		config.Connections = connections
 	}
 	if config.Capabilities == nil {
-		config.Capabilities = &protocol.Capabilities{
+		config.Capabilities = &messageprotocol.Capabilities{
 			MaxRecordsPerSubmit: api.DefaultMaxRecordsPerSubmit,
 			MaxRecordsPerFetch:  api.DefaultMaxRecordsPerFetch,
 		}
@@ -159,10 +160,10 @@ func newFixtureWith(t *testing.T, config Config) *fixture {
 // It keeps the raw frames as well as the decoded responses, because §4.6's fragmentation is a
 // property of the frames and a test that only looked at what reassembled could not tell one
 // frame from four.
-func (self *fixture) receive(source connect.TransferPath, frames []*protocol.Frame, from connect.Peer) {
+func (self *fixture) receive(source connect.TransferPath, frames []*connectprotocol.Frame, from connect.Peer) {
 	for _, frame := range frames {
 		self.mutex.Lock()
-		self.rawFrames = append(self.rawFrames, &protocol.Frame{
+		self.rawFrames = append(self.rawFrames, &connectprotocol.Frame{
 			MessageType:  frame.GetMessageType(),
 			MessageBytes: append([]byte(nil), frame.GetMessageBytes()...),
 			Raw:          frame.GetRaw(),
@@ -170,21 +171,21 @@ func (self *fixture) receive(source connect.TransferPath, frames []*protocol.Fra
 		self.mutex.Unlock()
 
 		switch frame.GetMessageType() {
-		case protocol.MessageType_MessageMessageServerResponse:
-			response := &protocol.MessageServerResponse{}
+		case connectprotocol.MessageType_MessageMessageServerResponse:
+			response := &messageprotocol.MessageServerResponse{}
 			if proto.Unmarshal(frame.GetMessageBytes(), response) == nil {
 				self.deliver(response)
 			}
-		case protocol.MessageType_MessageMessageServerFragment:
-			fragment := &protocol.MessageServerFragment{}
+		case connectprotocol.MessageType_MessageMessageServerFragment:
+			fragment := &messageprotocol.MessageServerFragment{}
 			if proto.Unmarshal(frame.GetMessageBytes(), fragment) != nil {
 				continue
 			}
 			assembled, complete, reason := self.reassembly.accept(source.SourceId, fragment)
-			if reason != protocol.Reason_REASON_OK || !complete {
+			if reason != messageprotocol.Reason_REASON_OK || !complete {
 				continue
 			}
-			response := &protocol.MessageServerResponse{}
+			response := &messageprotocol.MessageServerResponse{}
 			if proto.Unmarshal(assembled, response) == nil {
 				self.deliver(response)
 			}
@@ -192,7 +193,7 @@ func (self *fixture) receive(source connect.TransferPath, frames []*protocol.Fra
 	}
 }
 
-func (self *fixture) deliver(response *protocol.MessageServerResponse) {
+func (self *fixture) deliver(response *messageprotocol.MessageServerResponse) {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 	waiter, found := self.waiting[response.GetRequestId()]
@@ -204,10 +205,10 @@ func (self *fixture) deliver(response *protocol.MessageServerResponse) {
 	waiter <- response
 }
 
-func (self *fixture) frames() []*protocol.Frame {
+func (self *fixture) frames() []*connectprotocol.Frame {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
-	return append([]*protocol.Frame{}, self.rawFrames...)
+	return append([]*connectprotocol.Frame{}, self.rawFrames...)
 }
 
 func (self *fixture) forgetFrames() {
@@ -216,15 +217,15 @@ func (self *fixture) forgetFrames() {
 	self.rawFrames = nil
 }
 
-func (self *fixture) uncorrelated() []*protocol.MessageServerResponse {
+func (self *fixture) uncorrelated() []*messageprotocol.MessageServerResponse {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
-	return append([]*protocol.MessageServerResponse{}, self.unmatched...)
+	return append([]*messageprotocol.MessageServerResponse{}, self.unmatched...)
 }
 
 // A request built around one arm of §4.3's oneof, with a fresh `request_id`.
-func (self *fixture) request(body proto.Message) *protocol.MessageServerRequest {
-	request := &protocol.MessageServerRequest{
+func (self *fixture) request(body proto.Message) *messageprotocol.MessageServerRequest {
+	request := &messageprotocol.MessageServerRequest{
 		RequestId:       self.nextRequestId.Add(1),
 		ProtocolVersion: fixtureProtocolVersion,
 	}
@@ -237,9 +238,9 @@ func (self *fixture) request(body proto.Message) *protocol.MessageServerRequest 
 // Send, and answer a channel the response will arrive on. Registered before the send, because a
 // response that arrives before its waiter does is a response the correlator files as unmatched —
 // which is a correlation failure this fixture must not be able to invent for itself.
-func (self *fixture) begin(t *testing.T, request *protocol.MessageServerRequest) chan *protocol.MessageServerResponse {
+func (self *fixture) begin(t *testing.T, request *messageprotocol.MessageServerRequest) chan *messageprotocol.MessageServerResponse {
 	t.Helper()
-	waiter := make(chan *protocol.MessageServerResponse, 1)
+	waiter := make(chan *messageprotocol.MessageServerResponse, 1)
 	self.mutex.Lock()
 	self.waiting[request.GetRequestId()] = waiter
 	self.mutex.Unlock()
@@ -252,27 +253,27 @@ func (self *fixture) begin(t *testing.T, request *protocol.MessageServerRequest)
 // [fixture.begin] registers one for a request it built; the fragment tests below build the frame
 // themselves, and the request_id they have to correlate on is the one inside those bytes rather
 // than the one a helper chose.
-func (self *fixture) waitFor(requestId uint64) chan *protocol.MessageServerResponse {
-	waiter := make(chan *protocol.MessageServerResponse, 1)
+func (self *fixture) waitFor(requestId uint64) chan *messageprotocol.MessageServerResponse {
+	waiter := make(chan *messageprotocol.MessageServerResponse, 1)
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 	self.waiting[requestId] = waiter
 	return waiter
 }
 
-func (self *fixture) sendRequest(t *testing.T, request *protocol.MessageServerRequest) {
+func (self *fixture) sendRequest(t *testing.T, request *messageprotocol.MessageServerRequest) {
 	t.Helper()
 	body, err := connect.ProtoMarshal(request)
 	if err != nil {
 		t.Fatalf("ProtoMarshal: %v", err)
 	}
-	self.sendFrame(t, &protocol.Frame{
-		MessageType:  protocol.MessageType_MessageMessageServerRequest,
+	self.sendFrame(t, &connectprotocol.Frame{
+		MessageType:  connectprotocol.MessageType_MessageMessageServerRequest,
 		MessageBytes: body,
 	})
 }
 
-func (self *fixture) sendFrame(t *testing.T, frame *protocol.Frame) {
+func (self *fixture) sendFrame(t *testing.T, frame *connectprotocol.Frame) {
 	t.Helper()
 	if !self.clientClient.Send(frame, self.serverClient.ClientId(), nil) {
 		connect.MessagePoolReturn(frame.MessageBytes)
@@ -282,7 +283,7 @@ func (self *fixture) sendFrame(t *testing.T, frame *protocol.Frame) {
 
 // One request, answered. The timeout is generous and is a test failure rather than a hang: a
 // dispatcher that dropped `request_id` would otherwise leave this blocked forever.
-func (self *fixture) await(t *testing.T, waiter chan *protocol.MessageServerResponse) *protocol.MessageServerResponse {
+func (self *fixture) await(t *testing.T, waiter chan *messageprotocol.MessageServerResponse) *messageprotocol.MessageServerResponse {
 	t.Helper()
 	select {
 	case response := <-waiter:
@@ -293,16 +294,16 @@ func (self *fixture) await(t *testing.T, waiter chan *protocol.MessageServerResp
 	}
 }
 
-func (self *fixture) call(t *testing.T, body proto.Message) *protocol.MessageServerResponse {
+func (self *fixture) call(t *testing.T, body proto.Message) *messageprotocol.MessageServerResponse {
 	t.Helper()
 	return self.await(t, self.begin(t, self.request(body)))
 }
 
 // §4.3.1, as a client performs it: say Hello, keep the nonce, and re-MAC everything against it.
-func (self *fixture) hello(t *testing.T) *protocol.HelloResponse {
+func (self *fixture) hello(t *testing.T) *messageprotocol.HelloResponse {
 	t.Helper()
-	response := self.call(t, &protocol.HelloRequest{SupportedVersions: []uint32{fixtureProtocolVersion}})
-	if response.GetReason() != protocol.Reason_REASON_OK {
+	response := self.call(t, &messageprotocol.HelloRequest{SupportedVersions: []uint32{fixtureProtocolVersion}})
+	if response.GetReason() != messageprotocol.Reason_REASON_OK {
 		t.Fatalf("Hello was answered %v, want REASON_OK", response.GetReason())
 	}
 	hello := response.GetHello()
@@ -316,7 +317,7 @@ func (self *fixture) hello(t *testing.T) *protocol.HelloResponse {
 // The request-side counterpart of [setResponseBody], for the fixture only: a client that had to
 // name the arm and the field number separately would be a client that could put a FetchRequest
 // in the submit arm, which is the thing under test rather than a thing to help it along.
-func setRequestBody(request *protocol.MessageServerRequest, body proto.Message) error {
+func setRequestBody(request *messageprotocol.MessageServerRequest, body proto.Message) error {
 	if body == nil {
 		return nil
 	}
@@ -369,9 +370,9 @@ type recordingHandler struct {
 	notBuilt []api.NotBuilt
 
 	// Set by the tests that need a handler that blocks, refuses, or verifies a MAC.
-	onSubmit      func(conn *api.Connection, request *protocol.SubmitRequest) (protocol.Reason, *protocol.SubmitResponse, error)
-	onFetch       func(conn *api.Connection, request *protocol.FetchRequest) (protocol.Reason, *protocol.FetchResponse, error)
-	onCreateGroup func(conn *api.Connection, request *protocol.CreateGroupRequest) (protocol.Reason, *protocol.CreateGroupResponse, error)
+	onSubmit      func(conn *api.Connection, request *messageprotocol.SubmitRequest) (messageprotocol.Reason, *messageprotocol.SubmitResponse, error)
+	onFetch       func(conn *api.Connection, request *messageprotocol.FetchRequest) (messageprotocol.Reason, *messageprotocol.FetchResponse, error)
+	onCreateGroup func(conn *api.Connection, request *messageprotocol.CreateGroupRequest) (messageprotocol.Reason, *messageprotocol.CreateGroupResponse, error)
 }
 
 var _ Handler = (*recordingHandler)(nil)
@@ -400,70 +401,70 @@ func (self *recordingHandler) forget() {
 }
 
 // §5.1 checks 1, 2 and 4, in order, in front of every operation — api/submit.go's frontChecks.
-func (self *recordingHandler) frontChecks(ctx context.Context, conn *api.Connection, op uint8) protocol.Reason {
+func (self *recordingHandler) frontChecks(ctx context.Context, conn *api.Connection, op uint8) messageprotocol.Reason {
 	if self.front == nil {
-		return protocol.Reason_REASON_OK
+		return messageprotocol.Reason_REASON_OK
 	}
-	if reason := self.front.FrameWithinLimits(ctx, conn); reason != protocol.Reason_REASON_OK {
+	if reason := self.front.FrameWithinLimits(ctx, conn); reason != messageprotocol.Reason_REASON_OK {
 		return reason
 	}
-	if reason := self.front.ConnectionAuthenticated(ctx, conn); reason != protocol.Reason_REASON_OK {
+	if reason := self.front.ConnectionAuthenticated(ctx, conn); reason != messageprotocol.Reason_REASON_OK {
 		return reason
 	}
 	return self.front.WithinRateLimits(ctx, conn, op)
 }
 
-func (self *recordingHandler) CreateGroup(ctx context.Context, conn *api.Connection, request *protocol.CreateGroupRequest) (protocol.Reason, *protocol.CreateGroupResponse, error) {
-	if reason := self.frontChecks(ctx, conn, 11); reason != protocol.Reason_REASON_OK {
+func (self *recordingHandler) CreateGroup(ctx context.Context, conn *api.Connection, request *messageprotocol.CreateGroupRequest) (messageprotocol.Reason, *messageprotocol.CreateGroupResponse, error) {
+	if reason := self.frontChecks(ctx, conn, 11); reason != messageprotocol.Reason_REASON_OK {
 		return reason, nil, nil
 	}
 	self.record("create_group", conn, uint64(len(request.GetGroupId())))
 	if self.onCreateGroup != nil {
 		return self.onCreateGroup(conn, request)
 	}
-	return protocol.Reason_REASON_OK, &protocol.CreateGroupResponse{CurrentEpoch: 1, RecordId: 1}, nil
+	return messageprotocol.Reason_REASON_OK, &messageprotocol.CreateGroupResponse{CurrentEpoch: 1, RecordId: 1}, nil
 }
 
-func (self *recordingHandler) Submit(ctx context.Context, conn *api.Connection, request *protocol.SubmitRequest) (protocol.Reason, *protocol.SubmitResponse, error) {
-	if reason := self.frontChecks(ctx, conn, 12); reason != protocol.Reason_REASON_OK {
+func (self *recordingHandler) Submit(ctx context.Context, conn *api.Connection, request *messageprotocol.SubmitRequest) (messageprotocol.Reason, *messageprotocol.SubmitResponse, error) {
+	if reason := self.frontChecks(ctx, conn, 12); reason != messageprotocol.Reason_REASON_OK {
 		return reason, nil, nil
 	}
 	self.record("submit", conn, uint64(len(request.GetRecords())))
 	if self.onSubmit != nil {
 		return self.onSubmit(conn, request)
 	}
-	results := []*protocol.SubmitResult{}
+	results := []*messageprotocol.SubmitResult{}
 	for range request.GetRecords() {
-		results = append(results, &protocol.SubmitResult{Reason: protocol.Reason_REASON_OK})
+		results = append(results, &messageprotocol.SubmitResult{Reason: messageprotocol.Reason_REASON_OK})
 	}
-	return protocol.Reason_REASON_OK, &protocol.SubmitResponse{Results: results}, nil
+	return messageprotocol.Reason_REASON_OK, &messageprotocol.SubmitResponse{Results: results}, nil
 }
 
-func (self *recordingHandler) Fetch(ctx context.Context, conn *api.Connection, request *protocol.FetchRequest) (protocol.Reason, *protocol.FetchResponse, error) {
-	if reason := self.frontChecks(ctx, conn, 13); reason != protocol.Reason_REASON_OK {
+func (self *recordingHandler) Fetch(ctx context.Context, conn *api.Connection, request *messageprotocol.FetchRequest) (messageprotocol.Reason, *messageprotocol.FetchResponse, error) {
+	if reason := self.frontChecks(ctx, conn, 13); reason != messageprotocol.Reason_REASON_OK {
 		return reason, nil, nil
 	}
 	self.record("fetch", conn, request.GetSinceRecordId())
 	if self.onFetch != nil {
 		return self.onFetch(conn, request)
 	}
-	return protocol.Reason_REASON_OK, &protocol.FetchResponse{HighWaterRecordId: request.GetSinceRecordId()}, nil
+	return messageprotocol.Reason_REASON_OK, &messageprotocol.FetchResponse{HighWaterRecordId: request.GetSinceRecordId()}, nil
 }
 
-func (self *recordingHandler) Subscribe(ctx context.Context, conn *api.Connection, request *protocol.SubscribeRequest) (protocol.Reason, *protocol.SubscribeResponse, error) {
-	if reason := self.frontChecks(ctx, conn, 14); reason != protocol.Reason_REASON_OK {
+func (self *recordingHandler) Subscribe(ctx context.Context, conn *api.Connection, request *messageprotocol.SubscribeRequest) (messageprotocol.Reason, *messageprotocol.SubscribeResponse, error) {
+	if reason := self.frontChecks(ctx, conn, 14); reason != messageprotocol.Reason_REASON_OK {
 		return reason, nil, nil
 	}
 	self.record("subscribe", conn, uint64(len(request.GetSubscriptions())))
-	return protocol.Reason_REASON_OK, &protocol.SubscribeResponse{}, nil
+	return messageprotocol.Reason_REASON_OK, &messageprotocol.SubscribeResponse{}, nil
 }
 
-func (self *recordingHandler) Unsubscribe(ctx context.Context, conn *api.Connection, request *protocol.UnsubscribeRequest) (protocol.Reason, error) {
-	if reason := self.frontChecks(ctx, conn, 15); reason != protocol.Reason_REASON_OK {
+func (self *recordingHandler) Unsubscribe(ctx context.Context, conn *api.Connection, request *messageprotocol.UnsubscribeRequest) (messageprotocol.Reason, error) {
+	if reason := self.frontChecks(ctx, conn, 15); reason != messageprotocol.Reason_REASON_OK {
 		return reason, nil
 	}
 	self.record("unsubscribe", conn, uint64(len(request.GetGroupIds())))
-	return protocol.Reason_REASON_OK, nil
+	return messageprotocol.Reason_REASON_OK, nil
 }
 
 func (self *recordingHandler) NotBuilt() []api.NotBuilt {
@@ -476,16 +477,16 @@ func (self *recordingHandler) NotBuilt() []api.NotBuilt {
 // Read out of the raw frames rather than through [fixture.deliver], because the correlator keeps
 // the first response for a request_id and files the rest as unmatched — and which one is first
 // is exactly what a test about ordering has to look at.
-func (self *fixture) responsesFor(t *testing.T, requestId uint64, wanted int) []*protocol.MessageServerResponse {
+func (self *fixture) responsesFor(t *testing.T, requestId uint64, wanted int) []*messageprotocol.MessageServerResponse {
 	t.Helper()
 	deadline := time.Now().Add(30 * time.Second)
 	for {
-		found := []*protocol.MessageServerResponse{}
+		found := []*messageprotocol.MessageServerResponse{}
 		for _, frame := range self.frames() {
-			if frame.GetMessageType() != protocol.MessageType_MessageMessageServerResponse {
+			if frame.GetMessageType() != connectprotocol.MessageType_MessageMessageServerResponse {
 				continue
 			}
-			response := &protocol.MessageServerResponse{}
+			response := &messageprotocol.MessageServerResponse{}
 			if proto.Unmarshal(frame.GetMessageBytes(), response) != nil || response.GetRequestId() != requestId {
 				continue
 			}

@@ -4,8 +4,8 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/urnetwork/connect/message"
-	"github.com/urnetwork/connect/protocol"
+	"github.com/urnetwork/message/message"
+	"github.com/urnetwork/message/protocol"
 )
 
 // THE EPOCH CEILING of ledger item 246, through §5.1.1's whole read path rather than through the

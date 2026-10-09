@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/urnetwork/connect/protocol"
+	"github.com/urnetwork/message/protocol"
 )
 
 // The exact-length identifier shapes of §3.1, which are `bytea` columns with a `CHECK` in
@@ -36,7 +36,7 @@ const (
 const firstRecordId uint64 = 1
 
 // The retention-class wire bytes of §3.1. The class and the bucket are joined and split in
-// connect/message and nowhere else; what reaches this package is the byte.
+// the record layer and nowhere else; what reaches this package is the byte.
 const (
 	ClassPermanent uint8 = 0x00
 	ClassDurable   uint8 = 0x01
@@ -130,7 +130,7 @@ var (
 // A record decomposed into the columns of §3.2's `message_record`, plus the parsed projection
 // of its `server_attachment`.
 //
-// The parsing is not done here. §4.3.3 makes `record_bytes` authoritative and connect/message
+// The parsing is not done here. §4.3.3 makes `record_bytes` authoritative and the record layer
 // its only parser and encoder; the API layer parses, checks every projection field against the
 // parse, verifies write_auth, and hands the columns over. This package stores columns and
 // re-encodes on the way out, which is why there is no `record_bytes` field: keeping one would
@@ -193,7 +193,7 @@ const (
 	// Ruling 27's sixth kind, spec A §5.11's `0x0005`. APPENDED and never inserted: these
 	// values are `message_record.attachment_kind` on disk, so a renumbering is every stored
 	// row reinterpreted as another kind. The value here is this package's own and is not the
-	// wire code — §5.11's `0x0005` is `connect/message`'s — which is why the two are five and
+	// wire code — §5.11's `0x0005` is the record layer's — which is why the two are five and
 	// five by coincidence and not by construction.
 	AttachmentEpochDigest
 )
@@ -230,7 +230,7 @@ type EpochAttachment struct {
 // one digest over both of them.
 //
 // The six public fields are declared here rather than by embedding [EpochAttachment], for the
-// reason `connect/message` gives of its own copy: embedding would put `WriteKey` and `ReadKey`
+// reason the record layer gives of its own copy: embedding would put `WriteKey` and `ReadKey`
 // one selector away from a structure whose whole purpose is not to have them. The cost of the
 // duplication is that a field added to one must be added to the other, and [openingOf] is where
 // a reader finds out — it reads both into one shape and will not compile with a field it has
@@ -261,7 +261,7 @@ type EpochDigestAttachment struct {
 // is the whole of what ruling 33 buys read into this package's own types. [Record] is what
 // [Store.Fetch] answers with and what `api.rebuildRecord` re-encodes onto the wire, so a key
 // pair on it would be one more serve path that has to remember to clear it — ledger item 244
-// re-opened inside this repository, one layer below where `connect/protocol` closed it.
+// re-opened inside this repository, one layer below where the schema closed it.
 //
 // SINGULAR, where the wire's `SubmitRequest.epoch_keys` is a repeated field positionally
 // aligned with `records`. That is not a simplification, it is the set the wire actually admits:

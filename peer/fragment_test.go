@@ -11,8 +11,9 @@ import (
 	"time"
 
 	"github.com/urnetwork/connect"
-	"github.com/urnetwork/connect/protocol"
+	connectprotocol "github.com/urnetwork/connect/protocol"
 	"github.com/urnetwork/message-server/api"
+	messageprotocol "github.com/urnetwork/message/protocol"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -69,15 +70,15 @@ func TestTheConcurrentReassemblyCapIsTheConfiguredOneAndTheSlotComesBack(t *test
 			clientId := connect.NewId()
 
 			// every request here is two fragments long, so opening one leaves it in flight
-			open := func(requestId uint64) protocol.Reason {
-				_, _, reason := buffers.accept(clientId, &protocol.MessageServerFragment{
+			open := func(requestId uint64) messageprotocol.Reason {
+				_, _, reason := buffers.accept(clientId, &messageprotocol.MessageServerFragment{
 					RequestId: requestId, Index: 0, Count: 2, Part: []byte("ab"),
 				})
 				return reason
 			}
 
 			for index := range bound {
-				if reason := open(uint64(index)); reason != protocol.Reason_REASON_OK {
+				if reason := open(uint64(index)); reason != messageprotocol.Reason_REASON_OK {
 					t.Fatalf("in-flight reassembly %d of %d was answered %v", index+1, bound, reason)
 				}
 			}
@@ -88,7 +89,7 @@ func TestTheConcurrentReassemblyCapIsTheConfiguredOneAndTheSlotComesBack(t *test
 
 			// the one past the cap is refused, and it buffers nothing on its way to being
 			// refused: a cap applied after the allocation is a cap on nothing that matters
-			if reason := open(uint64(bound)); reason != protocol.Reason_REASON_REJECTED {
+			if reason := open(uint64(bound)); reason != messageprotocol.Reason_REASON_REJECTED {
 				t.Fatalf("reassembly %d against a cap of %d was answered %v", bound+1, bound, reason)
 			}
 			if after := buffers.holding(); after != full {
@@ -97,34 +98,34 @@ func TestTheConcurrentReassemblyCapIsTheConfiguredOneAndTheSlotComesBack(t *test
 
 			// the cap is one client's and not this server's
 			other := connect.NewId()
-			if _, _, reason := buffers.accept(other, &protocol.MessageServerFragment{
+			if _, _, reason := buffers.accept(other, &messageprotocol.MessageServerFragment{
 				RequestId: 0, Index: 0, Count: 2, Part: []byte("ab"),
-			}); reason != protocol.Reason_REASON_OK {
+			}); reason != messageprotocol.Reason_REASON_OK {
 				t.Fatalf("a second client was answered %v for the first client's in-flight reassemblies", reason)
 			}
 
 			// a completed reassembly gives its slot and its bytes back
-			_, complete, reason := buffers.accept(clientId, &protocol.MessageServerFragment{
+			_, complete, reason := buffers.accept(clientId, &messageprotocol.MessageServerFragment{
 				RequestId: 0, Index: 1, Count: 2, Part: []byte("cd"),
 			})
-			if !complete || reason != protocol.Reason_REASON_OK {
+			if !complete || reason != messageprotocol.Reason_REASON_OK {
 				t.Fatalf("the last fragment of an open request answered complete=%v %v", complete, reason)
 			}
 			if holding := buffers.holding(); holding.reassemblies != bound || holding.bytes != 2*bound {
 				t.Fatalf("one of %d reassemblies completed and the reassembler still holds %+v; its slot and its four bytes should have gone", bound, holding)
 			}
-			if reason := open(uint64(bound)); reason != protocol.Reason_REASON_OK {
+			if reason := open(uint64(bound)); reason != messageprotocol.Reason_REASON_OK {
 				t.Fatalf("the slot of a completed reassembly was not given back: a new request was answered %v", reason)
 			}
 
 			// and so does an aborted one — here by a repeat of index 0, which is §4.6's
 			// out-of-order abort on a request whose next index is 1
-			if _, _, reason := buffers.accept(clientId, &protocol.MessageServerFragment{
+			if _, _, reason := buffers.accept(clientId, &messageprotocol.MessageServerFragment{
 				RequestId: uint64(bound), Index: 0, Count: 2, Part: []byte("ab"),
-			}); reason != protocol.Reason_REASON_REJECTED {
+			}); reason != messageprotocol.Reason_REASON_REJECTED {
 				t.Fatalf("a repeated index 0 was answered %v, want the request aborted", reason)
 			}
-			if reason := open(uint64(bound) + 1); reason != protocol.Reason_REASON_OK {
+			if reason := open(uint64(bound) + 1); reason != messageprotocol.Reason_REASON_OK {
 				t.Fatalf("the slot of an aborted reassembly was not given back: a new request was answered %v", reason)
 			}
 
@@ -178,12 +179,12 @@ func TestTheReassembliesThisServerHoldsAtOnceAreBoundedAcrossClients(t *testing.
 	for index := range 4 * maxReassemblies {
 		// a stranger apiece, each opening one reassembly and so inside §4.6's sixteen
 		clientId := connect.NewId()
-		_, _, reason := buffers.accept(clientId, &protocol.MessageServerFragment{RequestId: 1, Index: 0, Count: 2, Part: []byte("ab")})
-		if reason == protocol.Reason_REASON_REJECTED {
+		_, _, reason := buffers.accept(clientId, &messageprotocol.MessageServerFragment{RequestId: 1, Index: 0, Count: 2, Part: []byte("ab")})
+		if reason == messageprotocol.Reason_REASON_REJECTED {
 			refusedAt = index
 			break
 		}
-		if reason != protocol.Reason_REASON_OK {
+		if reason != messageprotocol.Reason_REASON_OK {
 			t.Fatalf("stranger %d opening its first reassembly was answered %v", index, reason)
 		}
 		opened = append(opened, clientId)
@@ -198,10 +199,10 @@ func TestTheReassembliesThisServerHoldsAtOnceAreBoundedAcrossClients(t *testing.
 
 	// and the bound is on what is held rather than on what has ever arrived: a reassembly that
 	// completes gives its slot back to whoever asks next
-	if _, complete, reason := buffers.accept(opened[0], &protocol.MessageServerFragment{RequestId: 1, Index: 1, Count: 2, Part: []byte("cd")}); !complete || reason != protocol.Reason_REASON_OK {
+	if _, complete, reason := buffers.accept(opened[0], &messageprotocol.MessageServerFragment{RequestId: 1, Index: 1, Count: 2, Part: []byte("cd")}); !complete || reason != messageprotocol.Reason_REASON_OK {
 		t.Fatalf("the last fragment of an open request answered complete=%v %v", complete, reason)
 	}
-	if _, _, reason := buffers.accept(connect.NewId(), &protocol.MessageServerFragment{RequestId: 1, Index: 0, Count: 2, Part: []byte("ab")}); reason != protocol.Reason_REASON_OK {
+	if _, _, reason := buffers.accept(connect.NewId(), &messageprotocol.MessageServerFragment{RequestId: 1, Index: 0, Count: 2, Part: []byte("ab")}); reason != messageprotocol.Reason_REASON_OK {
 		t.Fatalf("the slot of a completed reassembly was not given back: the next stranger was answered %v", reason)
 	}
 
@@ -244,13 +245,13 @@ func TestReassemblyStateExpiresAtSpecB46sBoundAndNotBefore(t *testing.T) {
 	clientId := connect.NewId()
 	fragments := fragmentsOf(1, []byte("aaaabbbbcccc"), 4)
 
-	if _, _, reason := buffers.accept(clientId, fragments[0]); reason != protocol.Reason_REASON_OK {
+	if _, _, reason := buffers.accept(clientId, fragments[0]); reason != messageprotocol.Reason_REASON_OK {
 		t.Fatalf("the first fragment was answered %v", reason)
 	}
 	// at exactly the bound the state is still there and still accepting: §4.6 expires *after*
 	// 30 s, and a reassembly abandoned at 30.000 s aborts requests nobody was slow about
 	clock.advance(idle)
-	if _, _, reason := buffers.accept(clientId, fragments[1]); reason != protocol.Reason_REASON_OK {
+	if _, _, reason := buffers.accept(clientId, fragments[1]); reason != messageprotocol.Reason_REASON_OK {
 		t.Fatalf("the second fragment, arriving exactly %v after the first, was answered %v", idle, reason)
 	}
 	if holding := buffers.holding(); holding.reassemblies != 1 || holding.bytes != 8 {
@@ -266,23 +267,23 @@ func TestReassemblyStateExpiresAtSpecB46sBoundAndNotBefore(t *testing.T) {
 	if holding := buffers.holding(); holding != (held{}) {
 		t.Fatalf("an expired reassembly left %+v behind", holding)
 	}
-	if _, _, reason := buffers.accept(clientId, fragments[2]); reason != protocol.Reason_REASON_REJECTED {
+	if _, _, reason := buffers.accept(clientId, fragments[2]); reason != messageprotocol.Reason_REASON_REJECTED {
 		t.Fatalf("a fragment arriving after the expiry was answered %v; there is no buffer left for it to continue", reason)
 	}
 
 	// the expiry is also what gives the per-client cap back on a client that opened reassemblies
 	// and went quiet, so every one of them goes rather than just enough of them to make room
 	for index := range buffers.perClient {
-		if _, _, reason := buffers.accept(clientId, &protocol.MessageServerFragment{
+		if _, _, reason := buffers.accept(clientId, &messageprotocol.MessageServerFragment{
 			RequestId: uint64(100 + index), Index: 0, Count: 2, Part: []byte("ab"),
-		}); reason != protocol.Reason_REASON_OK {
+		}); reason != messageprotocol.Reason_REASON_OK {
 			t.Fatalf("reassembly %d was answered %v", index+1, reason)
 		}
 	}
 	clock.advance(idle + time.Nanosecond)
-	if _, _, reason := buffers.accept(clientId, &protocol.MessageServerFragment{
+	if _, _, reason := buffers.accept(clientId, &messageprotocol.MessageServerFragment{
 		RequestId: 999, Index: 0, Count: 2, Part: []byte("ab"),
-	}); reason != protocol.Reason_REASON_OK {
+	}); reason != messageprotocol.Reason_REASON_OK {
 		t.Fatalf("a client whose %d expired reassemblies should have been collected was answered %v", buffers.perClient, reason)
 	}
 	if holding := buffers.holding(); holding.reassemblies != 1 {
@@ -307,13 +308,13 @@ func TestReassemblyStateIsFreedWithNoFurtherFragmentToSweepIt(t *testing.T) {
 	// delivered by calling the receive callback the way connect calls it, so that the fragment
 	// is buffered before the assertion below rather than in a race with it
 	part := bytes.Repeat([]byte{0x33}, 512)
-	body, err := connect.ProtoMarshal(&protocol.MessageServerFragment{RequestId: 77, Index: 0, Count: 4, Part: part})
+	body, err := connect.ProtoMarshal(&messageprotocol.MessageServerFragment{RequestId: 77, Index: 0, Count: 4, Part: part})
 	if err != nil {
 		t.Fatalf("ProtoMarshal: %v", err)
 	}
 	fixture.peer.receive(
 		connect.TransferPath{SourceId: connect.NewId()},
-		[]*protocol.Frame{{MessageType: protocol.MessageType_MessageMessageServerFragment, MessageBytes: body}},
+		[]*connectprotocol.Frame{{MessageType: connectprotocol.MessageType_MessageMessageServerFragment, MessageBytes: body}},
 		connect.Peer{},
 	)
 	if holding := fixture.peer.reassembly.holding(); holding.bytes != len(part) {
@@ -376,13 +377,13 @@ func TestTheSweepPeriodIsHalfSpecB46sBoundAndATickIsWhatFreesTheBuffer(t *testin
 		// delivered by calling the receive callback the way connect calls it, so the fragment is
 		// buffered before the assertions below rather than in a race with them
 		part := bytes.Repeat([]byte{0x33}, 512)
-		body, err := connect.ProtoMarshal(&protocol.MessageServerFragment{RequestId: 77, Index: 0, Count: 4, Part: part})
+		body, err := connect.ProtoMarshal(&messageprotocol.MessageServerFragment{RequestId: 77, Index: 0, Count: 4, Part: part})
 		if err != nil {
 			t.Fatalf("ProtoMarshal: %v", err)
 		}
 		fixture.peer.receive(
 			connect.TransferPath{SourceId: connect.NewId()},
-			[]*protocol.Frame{{MessageType: protocol.MessageType_MessageMessageServerFragment, MessageBytes: body}},
+			[]*connectprotocol.Frame{{MessageType: connectprotocol.MessageType_MessageMessageServerFragment, MessageBytes: body}},
 			connect.Peer{},
 		)
 		if holding := fixture.peer.reassembly.holding(); holding.bytes != len(part) {
@@ -491,14 +492,14 @@ func TestAnOversizeReassemblyFreesEveryByteAtTheMomentItRefuses(t *testing.T) {
 	refusedAt := -1
 	for index, fragment := range fragments {
 		assembled, complete, reason := buffers.accept(clientId, fragment)
-		if reason == protocol.Reason_REASON_OVERSIZE {
+		if reason == messageprotocol.Reason_REASON_OVERSIZE {
 			refusedAt = index
 			if complete || assembled != nil {
 				t.Fatalf("the refusal reported complete=%v and handed back %d bytes for dispatch", complete, len(assembled))
 			}
 			break
 		}
-		if reason != protocol.Reason_REASON_OK || complete {
+		if reason != messageprotocol.Reason_REASON_OK || complete {
 			t.Fatalf("fragment %d of a request inside the cap was answered %v complete=%v", index, reason, complete)
 		}
 		buffered += len(fragment.GetPart())
@@ -520,7 +521,7 @@ func TestAnOversizeReassemblyFreesEveryByteAtTheMomentItRefuses(t *testing.T) {
 	// what assembles on them carries none of the aborted request's bytes
 	wanted := []byte("a request that fits")
 	assembled, complete, reason := replay(buffers, clientId, 1, wanted, 8)
-	if !complete || reason != protocol.Reason_REASON_OK {
+	if !complete || reason != messageprotocol.Reason_REASON_OK {
 		t.Fatalf("a request inside the cap on the same request_id was answered %v complete=%v", reason, complete)
 	}
 	if !bytes.Equal(assembled, wanted) {
@@ -550,19 +551,19 @@ func TestAnOutOfOrderIndexAbortsAndNoLaterFragmentResurrectsIt(t *testing.T) {
 	clientId := connect.NewId()
 	fragments := fragmentsOf(1, []byte("aaabbbccc"), 3)
 
-	if _, _, reason := buffers.accept(clientId, fragments[0]); reason != protocol.Reason_REASON_OK {
+	if _, _, reason := buffers.accept(clientId, fragments[0]); reason != messageprotocol.Reason_REASON_OK {
 		t.Fatalf("index 0 was answered %v", reason)
 	}
 	if holding := buffers.holding(); holding.bytes != 3 {
 		t.Fatalf("after index 0 the reassembler holds %+v", holding)
 	}
-	if _, _, reason := buffers.accept(clientId, fragments[2]); reason != protocol.Reason_REASON_REJECTED {
+	if _, _, reason := buffers.accept(clientId, fragments[2]); reason != messageprotocol.Reason_REASON_REJECTED {
 		t.Fatalf("index 2 arriving after index 0 was answered %v, want the request aborted", reason)
 	}
 	if holding := buffers.holding(); holding != (held{}) {
 		t.Fatalf("an out-of-order index left %+v buffered; §4.6 aborts rather than buffering holes", holding)
 	}
-	if _, complete, reason := buffers.accept(clientId, fragments[1]); reason != protocol.Reason_REASON_REJECTED || complete {
+	if _, complete, reason := buffers.accept(clientId, fragments[1]); reason != messageprotocol.Reason_REASON_REJECTED || complete {
 		t.Fatalf("index 1, arriving after the abort, was answered %v complete=%v; it is the fragment a hole-buffering receiver would have been waiting for", reason, complete)
 	}
 	if holding := buffers.holding(); holding != (held{}) {
@@ -571,7 +572,7 @@ func TestAnOutOfOrderIndexAbortsAndNoLaterFragmentResurrectsIt(t *testing.T) {
 
 	wanted := []byte("xxxyyyzzz")
 	assembled, complete, reason := replay(buffers, clientId, 1, wanted, 3)
-	if !complete || reason != protocol.Reason_REASON_OK {
+	if !complete || reason != messageprotocol.Reason_REASON_OK {
 		t.Fatalf("the same request_id sent again in order was answered %v complete=%v", reason, complete)
 	}
 	if !bytes.Equal(assembled, wanted) {
@@ -613,7 +614,7 @@ func TestConcurrentReassembliesDoNotContaminateEachOther(t *testing.T) {
 	type outcome struct {
 		sender      sender
 		assembled   []byte
-		reason      protocol.Reason
+		reason      messageprotocol.Reason
 		completions int
 	}
 	outcomes := make(chan outcome, len(senders))
@@ -626,10 +627,10 @@ func TestConcurrentReassembliesDoNotContaminateEachOther(t *testing.T) {
 			// released together, so the fragments actually interleave rather than queueing up
 			// behind whichever goroutine the scheduler happened to start first
 			<-start
-			found := outcome{sender: current, reason: protocol.Reason_REASON_OK}
+			found := outcome{sender: current, reason: messageprotocol.Reason_REASON_OK}
 			for _, fragment := range fragmentsOf(current.requestId, current.body, 64) {
 				assembled, complete, reason := buffers.accept(clients[current.client], fragment)
-				if reason != protocol.Reason_REASON_OK {
+				if reason != messageprotocol.Reason_REASON_OK {
 					found.reason = reason
 					break
 				}
@@ -651,7 +652,7 @@ func TestConcurrentReassembliesDoNotContaminateEachOther(t *testing.T) {
 		seen++
 		what := fmt.Sprintf("client %d's request %d", found.sender.client, found.sender.requestId)
 		switch {
-		case found.reason != protocol.Reason_REASON_OK:
+		case found.reason != messageprotocol.Reason_REASON_OK:
 			t.Errorf("%s was answered %v while three other reassemblies were open", what, found.reason)
 		case found.completions != 1:
 			t.Errorf("%s completed %d times", what, found.completions)
@@ -695,21 +696,21 @@ func TestTwoClientsFragmentingOneRequestIdAtOnceAreEachAnsweredTheirOwn(t *testi
 	fixture.hello(t)
 
 	other, otherResponses := fixture.anotherClient(t)
-	otherHello := &protocol.MessageServerRequest{RequestId: 1, ProtocolVersion: fixtureProtocolVersion}
-	if err := setRequestBody(otherHello, &protocol.HelloRequest{SupportedVersions: []uint32{fixtureProtocolVersion}}); err != nil {
+	otherHello := &messageprotocol.MessageServerRequest{RequestId: 1, ProtocolVersion: fixtureProtocolVersion}
+	if err := setRequestBody(otherHello, &messageprotocol.HelloRequest{SupportedVersions: []uint32{fixtureProtocolVersion}}); err != nil {
 		t.Fatalf("setRequestBody: %v", err)
 	}
 	sendRequestFrom(t, other, fixture.serverClient, otherHello)
-	if response := awaitOn(t, otherResponses, otherHello.GetRequestId()); response.GetReason() != protocol.Reason_REASON_OK {
+	if response := awaitOn(t, otherResponses, otherHello.GetRequestId()); response.GetReason() != messageprotocol.Reason_REASON_OK {
 		t.Fatalf("the second client's Hello was answered %v", response.GetReason())
 	}
 	fixture.handler.forget()
 
 	// two requests that differ in nothing this server can tell apart except the client they
 	// arrive from and the marker each carries back
-	requestOf := func(marker uint64) *protocol.MessageServerRequest {
-		request := &protocol.MessageServerRequest{RequestId: shared, ProtocolVersion: fixtureProtocolVersion}
-		if err := setRequestBody(request, &protocol.FetchRequest{
+	requestOf := func(marker uint64) *messageprotocol.MessageServerRequest {
+		request := &messageprotocol.MessageServerRequest{RequestId: shared, ProtocolVersion: fixtureProtocolVersion}
+		if err := setRequestBody(request, &messageprotocol.FetchRequest{
 			GroupId:       bytes.Repeat([]byte{0x21}, 32),
 			SinceRecordId: marker,
 			ReqAuth:       bytes.Repeat([]byte{0x22}, 6000),
@@ -728,9 +729,9 @@ func TestTwoClientsFragmentingOneRequestIdAtOnceAreEachAnsweredTheirOwn(t *testi
 	}
 	for round := range mineFragments {
 		delivering := sync.WaitGroup{}
-		deliver := func(clientId connect.Id, frame *protocol.Frame) {
+		deliver := func(clientId connect.Id, frame *connectprotocol.Frame) {
 			defer delivering.Done()
-			fixture.peer.receive(connect.TransferPath{SourceId: clientId}, []*protocol.Frame{frame}, connect.Peer{})
+			fixture.peer.receive(connect.TransferPath{SourceId: clientId}, []*connectprotocol.Frame{frame}, connect.Peer{})
 		}
 		delivering.Add(2)
 		go deliver(fixture.clientClient.ClientId(), mineFragments[round])
@@ -740,7 +741,7 @@ func TestTwoClientsFragmentingOneRequestIdAtOnceAreEachAnsweredTheirOwn(t *testi
 
 	mine := fixture.await(t, waiter)
 	theirs := awaitOn(t, otherResponses, shared)
-	if mine.GetReason() != protocol.Reason_REASON_OK || theirs.GetReason() != protocol.Reason_REASON_OK {
+	if mine.GetReason() != messageprotocol.Reason_REASON_OK || theirs.GetReason() != messageprotocol.Reason_REASON_OK {
 		t.Fatalf("two clients fragmenting at once were answered %v and %v", mine.GetReason(), theirs.GetReason())
 	}
 	if mine.GetFetch().GetHighWaterRecordId() != mineMarker {
@@ -836,9 +837,9 @@ func TestWhatSpecB46sExpiryCostsDoesNotGrowWithWhatIsOpen(t *testing.T) {
 		buffers := newReassembly(clock.time, 4096, open+1, open+1, DefaultReassemblyIdle)
 		clientId := connect.NewId()
 		for index := range open {
-			if _, _, reason := buffers.accept(clientId, &protocol.MessageServerFragment{
+			if _, _, reason := buffers.accept(clientId, &messageprotocol.MessageServerFragment{
 				RequestId: uint64(index), Index: 0, Count: 2, Part: []byte("ab"),
-			}); reason != protocol.Reason_REASON_OK {
+			}); reason != messageprotocol.Reason_REASON_OK {
 				t.Fatalf("reassembly %d of %d was answered %v", index, open, reason)
 			}
 		}
@@ -847,9 +848,9 @@ func TestWhatSpecB46sExpiryCostsDoesNotGrowWithWhatIsOpen(t *testing.T) {
 		}
 
 		before := buffers.expiryReads()
-		if _, _, reason := buffers.accept(clientId, &protocol.MessageServerFragment{
+		if _, _, reason := buffers.accept(clientId, &messageprotocol.MessageServerFragment{
 			RequestId: uint64(open), Index: 0, Count: 2, Part: []byte("ab"),
-		}); reason != protocol.Reason_REASON_OK {
+		}); reason != messageprotocol.Reason_REASON_OK {
 			t.Fatalf("the fragment being measured was answered %v", reason)
 		}
 		cost := buffers.expiryReads() - before
@@ -955,7 +956,7 @@ func TestAnInboundPartPastSpecB46sSenderBudgetIsAcceptedAndTheReceiversOwnBoundI
 	if len(past) <= MaxFragmentPartBytes || DefaultMaxRequestBytes < len(past) {
 		t.Fatalf("a part of %d bytes is not past §4.6's %d and inside max_request_bytes %d", len(past), MaxFragmentPartBytes, DefaultMaxRequestBytes)
 	}
-	if _, _, reason := buffers.accept(clientId, &protocol.MessageServerFragment{RequestId: 1, Index: 0, Count: 2, Part: past}); reason != protocol.Reason_REASON_OK {
+	if _, _, reason := buffers.accept(clientId, &messageprotocol.MessageServerFragment{RequestId: 1, Index: 0, Count: 2, Part: past}); reason != messageprotocol.Reason_REASON_OK {
 		t.Fatalf("an inbound part of %d bytes, past §4.6's sender ceiling of %d and inside max_request_bytes, was answered %v; this receiver polices the reassembly and not the sender's budget",
 			len(past), MaxFragmentPartBytes, reason)
 	}
@@ -964,9 +965,9 @@ func TestAnInboundPartPastSpecB46sSenderBudgetIsAcceptedAndTheReceiversOwnBoundI
 	}
 
 	// and the bound this receiver does hold refuses at its own number
-	if _, _, reason := buffers.accept(connect.NewId(), &protocol.MessageServerFragment{
+	if _, _, reason := buffers.accept(connect.NewId(), &messageprotocol.MessageServerFragment{
 		RequestId: 1, Index: 0, Count: 2, Part: bytes.Repeat([]byte{0x6d}, DefaultMaxRequestBytes+1),
-	}); reason != protocol.Reason_REASON_OVERSIZE {
+	}); reason != messageprotocol.Reason_REASON_OVERSIZE {
 		t.Fatalf("a part one byte past max_request_bytes was answered %v", reason)
 	}
 }
@@ -1063,7 +1064,7 @@ func FuzzTheFragmentPathIsBoundedAndLeavesNothingBehind(f *testing.F) {
 			if op[7]&1 != 0 {
 				clock.advance(DefaultReassemblyIdle / 3)
 			}
-			assembled, complete, reason := buffers.accept(clients[int(op[0])%len(clients)], &protocol.MessageServerFragment{
+			assembled, complete, reason := buffers.accept(clients[int(op[0])%len(clients)], &messageprotocol.MessageServerFragment{
 				RequestId: uint64(op[1]),
 				Index:     uint32(binary.BigEndian.Uint16(op[2:4])),
 				Count:     uint32(binary.BigEndian.Uint16(op[4:6])),
@@ -1073,7 +1074,7 @@ func FuzzTheFragmentPathIsBoundedAndLeavesNothingBehind(f *testing.F) {
 			if maxRequestBytes < len(assembled) {
 				t.Fatalf("a reassembly answered %d bytes against a %d byte cap", len(assembled), maxRequestBytes)
 			}
-			if reason != protocol.Reason_REASON_OK && (complete || assembled != nil) {
+			if reason != messageprotocol.Reason_REASON_OK && (complete || assembled != nil) {
 				t.Fatalf("a refusal (%v) reported complete=%v with %d bytes for dispatch", reason, complete, len(assembled))
 			}
 			holding := buffers.holding()
@@ -1148,11 +1149,11 @@ func (self *reassembly) consistent() error {
 }
 
 // One request's worth of fragments, as §4.6 says a sender cuts them.
-func fragmentsOf(requestId uint64, body []byte, partBytes int) []*protocol.MessageServerFragment {
+func fragmentsOf(requestId uint64, body []byte, partBytes int) []*messageprotocol.MessageServerFragment {
 	count := max((len(body)+partBytes-1)/partBytes, 1)
-	fragments := make([]*protocol.MessageServerFragment, 0, count)
+	fragments := make([]*messageprotocol.MessageServerFragment, 0, count)
 	for index := range count {
-		fragments = append(fragments, &protocol.MessageServerFragment{
+		fragments = append(fragments, &messageprotocol.MessageServerFragment{
 			RequestId: requestId,
 			Index:     uint32(index),
 			Count:     uint32(count),
@@ -1163,13 +1164,13 @@ func fragmentsOf(requestId uint64, body []byte, partBytes int) []*protocol.Messa
 }
 
 // A whole request, fragmented and accepted in order, and whatever its last fragment answered.
-func replay(buffers *reassembly, clientId connect.Id, requestId uint64, body []byte, partBytes int) ([]byte, bool, protocol.Reason) {
+func replay(buffers *reassembly, clientId connect.Id, requestId uint64, body []byte, partBytes int) ([]byte, bool, messageprotocol.Reason) {
 	var assembled []byte
 	complete := false
-	reason := protocol.Reason_REASON_OK
+	reason := messageprotocol.Reason_REASON_OK
 	for _, fragment := range fragmentsOf(requestId, body, partBytes) {
 		assembled, complete, reason = buffers.accept(clientId, fragment)
-		if reason != protocol.Reason_REASON_OK {
+		if reason != messageprotocol.Reason_REASON_OK {
 			return assembled, complete, reason
 		}
 	}
@@ -1192,20 +1193,20 @@ func largeFetchParts(t *testing.T, fixture *fixture) []int {
 	t.Helper()
 	fixture.hello(t)
 	fixture.forgetFrames()
-	fixture.handler.onFetch = func(conn *api.Connection, request *protocol.FetchRequest) (protocol.Reason, *protocol.FetchResponse, error) {
-		return protocol.Reason_REASON_OK, &protocol.FetchResponse{
-			Records: []*protocol.Record{{RecordBytes: bytes.Repeat([]byte{0x77}, 9000)}},
+	fixture.handler.onFetch = func(conn *api.Connection, request *messageprotocol.FetchRequest) (messageprotocol.Reason, *messageprotocol.FetchResponse, error) {
+		return messageprotocol.Reason_REASON_OK, &messageprotocol.FetchResponse{
+			Records: []*messageprotocol.Record{{RecordBytes: bytes.Repeat([]byte{0x77}, 9000)}},
 		}, nil
 	}
-	if response := fixture.call(t, &protocol.FetchRequest{GroupId: bytes.Repeat([]byte{0x31}, 32)}); response.GetReason() != protocol.Reason_REASON_OK {
+	if response := fixture.call(t, &messageprotocol.FetchRequest{GroupId: bytes.Repeat([]byte{0x31}, 32)}); response.GetReason() != messageprotocol.Reason_REASON_OK {
 		t.Fatalf("a 9000 byte fetch was answered %v", response.GetReason())
 	}
 	parts := []int{}
 	for _, frame := range fixture.frames() {
-		if frame.GetMessageType() != protocol.MessageType_MessageMessageServerFragment {
+		if frame.GetMessageType() != connectprotocol.MessageType_MessageMessageServerFragment {
 			continue
 		}
-		fragment := &protocol.MessageServerFragment{}
+		fragment := &messageprotocol.MessageServerFragment{}
 		if err := proto.Unmarshal(frame.GetMessageBytes(), fragment); err != nil {
 			t.Fatalf("a fragment frame did not decode: %v", err)
 		}
@@ -1233,7 +1234,7 @@ func until(t *testing.T, what string, done func() bool) {
 // Two clients rather than two request_ids on one, because §4.6 keys reassembly on
 // (source client_id, request_id) and one client cannot exercise the client_id half of that key
 // at all.
-func (self *fixture) anotherClient(t *testing.T) (*connect.Client, chan *protocol.MessageServerResponse) {
+func (self *fixture) anotherClient(t *testing.T) (*connect.Client, chan *messageprotocol.MessageServerResponse) {
 	t.Helper()
 	other := connect.NewClient(self.ctx, connect.NewId(), connect.NewNoContractClientOob(), connect.DefaultClientSettings())
 	toServer := make(connect.Route)
@@ -1246,13 +1247,13 @@ func (self *fixture) anotherClient(t *testing.T) (*connect.Client, chan *protoco
 	self.serverClient.RouteManager().UpdateTransport(connect.NewReceiveGatewayTransport(), []connect.Route{toServer})
 	self.serverClient.ContractManager().AddNoContractPeer(other.ClientId())
 
-	responses := make(chan *protocol.MessageServerResponse, 64)
-	unsubscribe := other.AddReceiveCallback(func(source connect.TransferPath, frames []*protocol.Frame, from connect.Peer) {
+	responses := make(chan *messageprotocol.MessageServerResponse, 64)
+	unsubscribe := other.AddReceiveCallback(func(source connect.TransferPath, frames []*connectprotocol.Frame, from connect.Peer) {
 		for _, frame := range frames {
-			if frame.GetMessageType() != protocol.MessageType_MessageMessageServerResponse {
+			if frame.GetMessageType() != connectprotocol.MessageType_MessageMessageServerResponse {
 				continue
 			}
-			response := &protocol.MessageServerResponse{}
+			response := &messageprotocol.MessageServerResponse{}
 			if proto.Unmarshal(frame.GetMessageBytes(), response) != nil {
 				continue
 			}
@@ -1271,40 +1272,40 @@ func (self *fixture) anotherClient(t *testing.T) (*connect.Client, chan *protoco
 
 // t.Errorf rather than t.Fatalf on the three below, because they are called from the goroutines
 // of the interleaving test and only a test's own goroutine may end it.
-func sendFrom(t *testing.T, from *connect.Client, to *connect.Client, frame *protocol.Frame) {
+func sendFrom(t *testing.T, from *connect.Client, to *connect.Client, frame *connectprotocol.Frame) {
 	if !from.Send(frame, to.ClientId(), nil) {
 		connect.MessagePoolReturn(frame.MessageBytes)
 		t.Errorf("a client's send did not take a frame of type %v", frame.GetMessageType())
 	}
 }
 
-func sendRequestFrom(t *testing.T, from *connect.Client, to *connect.Client, request *protocol.MessageServerRequest) {
+func sendRequestFrom(t *testing.T, from *connect.Client, to *connect.Client, request *messageprotocol.MessageServerRequest) {
 	body, err := connect.ProtoMarshal(request)
 	if err != nil {
 		t.Errorf("ProtoMarshal: %v", err)
 		return
 	}
-	sendFrom(t, from, to, &protocol.Frame{
-		MessageType:  protocol.MessageType_MessageMessageServerRequest,
+	sendFrom(t, from, to, &connectprotocol.Frame{
+		MessageType:  connectprotocol.MessageType_MessageMessageServerRequest,
 		MessageBytes: body,
 	})
 }
 
 // One request, as the §4.2 frames §4.6 fragments it into.
-func frameFragmentsOf(t *testing.T, request *protocol.MessageServerRequest, partBytes int) []*protocol.Frame {
+func frameFragmentsOf(t *testing.T, request *messageprotocol.MessageServerRequest, partBytes int) []*connectprotocol.Frame {
 	t.Helper()
 	body, err := proto.Marshal(request)
 	if err != nil {
 		t.Fatalf("Marshal: %v", err)
 	}
-	frames := []*protocol.Frame{}
+	frames := []*connectprotocol.Frame{}
 	for _, fragment := range fragmentsOf(request.GetRequestId(), body, partBytes) {
 		encoded, err := proto.Marshal(fragment)
 		if err != nil {
 			t.Fatalf("Marshal: %v", err)
 		}
-		frames = append(frames, &protocol.Frame{
-			MessageType:  protocol.MessageType_MessageMessageServerFragment,
+		frames = append(frames, &connectprotocol.Frame{
+			MessageType:  connectprotocol.MessageType_MessageMessageServerFragment,
 			MessageBytes: encoded,
 		})
 	}
@@ -1312,7 +1313,7 @@ func frameFragmentsOf(t *testing.T, request *protocol.MessageServerRequest, part
 }
 
 // The response for one `request_id` on a client that keeps no correlator of its own.
-func awaitOn(t *testing.T, responses chan *protocol.MessageServerResponse, requestId uint64) *protocol.MessageServerResponse {
+func awaitOn(t *testing.T, responses chan *messageprotocol.MessageServerResponse, requestId uint64) *messageprotocol.MessageServerResponse {
 	t.Helper()
 	deadline := time.After(30 * time.Second)
 	for {

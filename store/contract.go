@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/urnetwork/connect/protocol"
+	"github.com/urnetwork/message/protocol"
 )
 
 // RunContract is every behavioural test a [Store] owes, and it belongs to the interface rather
@@ -4037,7 +4037,7 @@ func assertTheSentinelExtractorWorks(t *testing.T) {
 const (
 	plantedReasonSource = `package planted
 
-import "github.com/urnetwork/connect/protocol"
+import "github.com/urnetwork/message/protocol"
 
 func f() protocol.Reason { return protocol.Reason_REASON_QUOTA_EXCEEDED }
 `
@@ -4054,7 +4054,7 @@ func f() int { return 0 }
 	// walk from Under may pick up.
 	plantedWalkSource = `package under
 
-import "github.com/urnetwork/connect/protocol"
+import "github.com/urnetwork/message/protocol"
 
 type Under struct{ helper *Helper }
 type Helper struct{}

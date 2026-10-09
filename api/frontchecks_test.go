@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/urnetwork/connect/protocol"
+	"github.com/urnetwork/message/protocol"
 )
 
 // ── §5.1 checks 1, 2 and 4 ───────────────────────────────────────────────────────────────

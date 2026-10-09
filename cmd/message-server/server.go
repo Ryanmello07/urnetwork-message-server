@@ -14,12 +14,12 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/urnetwork/connect/message"
-	"github.com/urnetwork/connect/protocol"
 	"github.com/urnetwork/message-server/api"
 	"github.com/urnetwork/message-server/endpoint"
 	"github.com/urnetwork/message-server/peer"
 	"github.com/urnetwork/message-server/store"
+	"github.com/urnetwork/message/message"
+	"github.com/urnetwork/message/protocol"
 )
 
 // The process of spec B §2.3, assembled.
@@ -273,7 +273,7 @@ func canAttach(deploy deployment, loaded configuration) bool {
 	return err == nil
 }
 
-// §4.3.1's advertisement, from §10.2's values, §7.3's limits and `connect/message`'s ladders.
+// §4.3.1's advertisement, from §10.2's values, §7.3's limits and the record layer's ladders.
 //
 // Every §10.2 value that §4.3.1 has a field for is carried here, and that is the whole point of
 // loading a configuration rather than printing one: `operator_host`, `hosting_jurisdiction` and
@@ -312,11 +312,11 @@ func (self *server) capabilities() *protocol.Capabilities {
 	}
 }
 
-// §4.3.1's `size_bucket_bytes`, walked out of `connect/message` rather than written down here.
+// §4.3.1's `size_bucket_bytes`, walked out of the record layer rather than written down here.
 //
 // Neither ladder exports a length. Both accessors answer a NEGATIVE for a rung that is not on the
 // ladder, which IS the boundary, so walking until the answer goes negative derives the ladder from
-// the package that owns it — and a rung added to `connect/message` tomorrow arrives here
+// the package that owns it — and a rung added to the record layer tomorrow arrives here
 // advertised instead of being a fifth copy of a list that is now wrong.
 //
 // The alternative, a literal `[]uint32{256, 1024, 4096, 16384, 65536}`, is a second copy of a

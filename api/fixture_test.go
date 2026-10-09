@@ -5,15 +5,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/urnetwork/connect/message"
-	"github.com/urnetwork/connect/protocol"
 	"github.com/urnetwork/message-server/blobd"
 	"github.com/urnetwork/message-server/store"
+	"github.com/urnetwork/message/message"
+	"github.com/urnetwork/message/protocol"
 	"google.golang.org/protobuf/proto"
 )
 
 // The sender in this package's tests plays the client, which is the only party in the system
-// that seals a record. It reaches for connect/message for every derivation, every preimage and
+// that seals a record. It reaches for the record layer for every derivation, every preimage and
 // every encoding, exactly as the sdk does — a test that hand-rolled any of them would be the
 // second implementation §12.1 A-1 is written against, and it would be a second implementation
 // inside the repository whose whole gate is that there is not one.
@@ -258,7 +258,7 @@ func (self *fixture) epochKeys(opens uint64) *protocol.EpochKeyDelivery {
 // `api.parseServerAttachment`.
 //
 // `message.EncodeServerAttachment` REFUSES kind 0x0005 by name — the two doors are how
-// `connect/message` keeps "which kinds does this build serve" one question per door — so a
+// the record layer keeps "which kinds does this build serve" one question per door — so a
 // fixture that called it alone could not build a 0x0005 record at all.
 func encodeAtItsDoor(t *testing.T, attachment *message.ServerAttachment) []byte {
 	t.Helper()

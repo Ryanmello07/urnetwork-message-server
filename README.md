@@ -49,31 +49,106 @@ missing either fails outright or, worse, reports clean having read nothing.
 ## Building
 
 The URnetwork Go repositories are built from the working tree, sibling-checked-out, the way the rest
-of the workspace is wired. This module's `go.mod` replaces two of them with `../`, so the checkout
-must look like this:
+of the workspace is wired. This module's `go.mod` replaces four of them with `../` (and `pion/sctp`
+with `../connect/sctp`), so the checkout must look like this:
 
 ```
 <workspace>/
-  connect/          github.com/urnetwork/connect     (branch beta/message)
+  connect/          github.com/urnetwork/connect     (without the messaging schema)
   glog/             github.com/urnetwork/glog
+  gvisor/           github.com/urnetwork/gvisor      (branch go)
+  message/          github.com/urnetwork/message
   message-server/   this repository
 ```
 
+`message` holds the record layer, its presentation-language codec and the messaging schema, which
+moved there out of `connect`; this module imports its `message`, `syntax` and `protocol` packages and
+nothing else of it. `connect` must be a `connect` from after that move: one that still carries
+`protocol/message.proto` registers the schema a second time, and every test binary that links both
+copies panics at init.
+
+Which commit of each sibling this module is tested against is written down in
+[`scripts/siblings.txt`](scripts/siblings.txt), one pinned commit per sibling, and
+`scripts/siblings.sh` holds a checkout to it — with or without a CI service:
+
+```bash
+bash scripts/siblings.sh --self-test                           # the script's own controls; it fetches nothing
+bash scripts/siblings.sh message connect glog gvisor           # clone the missing ones at their pins
+bash scripts/siblings.sh --verify message connect glog gvisor  # refuse any sibling at another commit
+```
+
+`--verify` refuses a sibling at any other commit or with modified files, a pin that is a placeholder
+or a short SHA, a pin fetched from anywhere but `https://github.com/urnetwork/` or a review source
+the script lists by its exact URL, and a `connect` that still carries the messaging schema. `message`
+and `connect` are pinned to the heads of the pull requests that move messaging into
+`github.com/urnetwork/message`, and until those merge they are fetched from the forks they were
+pushed to: the script prints `FORK` and the URL beside each, every time. To run against checkouts of
+your own, name them in `MESSAGE_SERVER_TEST_UNPINNED` (for example
+`MESSAGE_SERVER_TEST_UNPINNED=message,connect`), and the script prints each as UNPINNED with both
+commits. `.github/workflows/gates.yml` runs the same three commands.
+
 `glog` is replaced even though nothing here names it: `connect` requires `github.com/urnetwork/glog
 v0.0.0`, a version no proxy serves, and a `replace` in a dependency's `go.mod` is ignored — only the
-main module's replaces apply. Without that line `connect` is unbuildable from here.
-
-Neither module is *required* yet, because nothing in this module imports either one. The `require`
-lands with the first import.
+main module's replaces apply. Without that line `connect` is unbuildable from here. `gvisor` and
+`pion/sctp` are replaced for the same reason, to the copies `connect`'s own `go.mod` names.
 
 ```bash
 go build ./...
-go vet ./...
-go test -count=1 -run '.' -timeout 30m ./...
 go run ./cmd/message-server --print-config   # reads every resource, opens nothing, prints it
+```
 
-# the release configuration, which is what CI builds and what deps_test.go measures against
-GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build ./cmd/message-server
+**The whole run is five steps, and it needs no CI service.** They are the five `run` steps of
+`.github/workflows/gates.yml`, in its order. The first is the three `scripts/siblings.sh` commands
+above. The other four follow, each as the workflow has it, with two differences for a run by hand:
+`go test` gains `-count=1`, because a machine with a build cache reports a cached result without
+running anything; and the two steps that end in `exit 1` are wrapped in `( ... )`, so that pasted
+into a shell they end the subshell and not the shell.
+
+```bash
+# 2. every gate and every suite. The PostgreSQL half needs the two variables described below.
+go test -v -count=1 -run '.' -timeout 30m ./...
+
+# 3. gofmt
+(
+  unformatted="$(gofmt -l .)"
+  if [ -n "$unformatted" ]; then
+    printf 'gofmt would rewrite:\n%s\n' "$unformatted"
+    exit 1
+  fi
+)
+
+# 4. go vet
+go vet ./...
+
+# 5. every released platform: every package, built once for each line of release-platforms.txt,
+#    which is the file deps_test.go measures against
+(
+  set -eu
+  built=0
+  while read -r platform settings; do
+    case "$platform" in ''|'#'*) continue ;; esac
+    goos="${platform%%/*}"
+    goarch="${platform##*/}"
+    cgo=0
+    tags=''
+    for setting in $settings; do
+      case "$setting" in
+        cgo=*)  cgo="${setting#cgo=}" ;;
+        tags=*) tags="${setting#tags=}" ;;
+        '#'*)   break ;;
+        *)      printf 'release-platforms.txt: %s is not a setting this job knows\n' "$setting"; exit 1 ;;
+      esac
+    done
+    printf '\n== %s/%s cgo=%s tags=%s ==\n' "$goos" "$goarch" "$cgo" "$tags"
+    GOOS="$goos" GOARCH="$goarch" CGO_ENABLED="$cgo" go build ${tags:+-tags "$tags"} ./...
+    built=$((built + 1))
+  done < release-platforms.txt
+  if [ "$built" -eq 0 ]; then
+    echo 'release-platforms.txt named no platform, so this job built nothing'
+    exit 1
+  fi
+  printf '\nbuilt %d released platforms\n' "$built"
+)
 ```
 
 Go 1.26.5. Measured 2026-09-14 with PostgreSQL 17.6 running:
@@ -104,11 +179,11 @@ It has a positive control, so a broken matcher cannot report the module clean, a
 than skips** when `go list` cannot run: a gate that skips is a gate that is off, and it prints the
 same green line as a gate that passed.
 
-The first package here that parses a record will fail this gate, and that failure is correct. §2.2
-allows `connect/message`; `connect/message` imports `connect/mls/syntax`; §5.3 and §13 item 8 ban
-`connect/mls` and assert it with a `grep` that also matches its child. The two cannot both hold as
-written, and the resolution belongs in the spec rather than in a quiet edit to the allow list. The
-test's comment says so at the point where somebody will be tempted.
+§2.2 allows three packages of `github.com/urnetwork/message` by their exact paths, `message/message`,
+`message/syntax` and `message/protocol`, and forbids its `mls`, `messagegroup` and `sdk`: the module
+is never allowed whole, because it also holds a client's MLS implementation. The test's comment says
+why at the point where somebody will be tempted to allow it, and a replace is accepted only when the
+directory it names declares the module it replaces.
 
 ## Postgres
 

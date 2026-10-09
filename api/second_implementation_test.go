@@ -23,11 +23,11 @@ import (
 // reimplementation". The failure this prevents is not a wrong implementation; it is a second
 // one that agrees today.
 //
-// **The class is derived and not typed, and it is derived from connect/message.** What the
+// **The class is derived and not typed, and it is derived from the record layer.** What the
 // server must not do is what that package does, so the ban is read out of that package's own
 // imports on every run: the cryptographic primitives it is built from, and the presentation
 // language it frames bytes with. The two standard-library trees a preimage or an encoding can
-// come out of at all — crypto/… and encoding/… — are in the class whether or not connect/message
+// come out of at all — crypto/… and encoding/… — are in the class whether or not the record layer
 // currently imports something from them, so the edit that adds crypto/sha3 or encoding/binary
 // over there does not need a matching edit here. An enumeration would have held hmac and sha256
 // and missed subtle, or held all three and missed the syntax codec, which is the specific shape
@@ -37,7 +37,7 @@ import (
 // them: a preimage hand-assembled with append and a tag compared with a hand-written loop names
 // no package at all. What covers that is the other direction —
 // TestThisPackageDecidesEveryAuthenticatorThroughConnectMessage asserts that the authenticator
-// decisions here are calls into connect/message, so a hand-rolled comparison would have to
+// decisions here are calls into the record layer, so a hand-rolled comparison would have to
 // replace one of those rather than sit beside it.
 func TestNoFunctionInThisPackageBuildsAPreimageComputesAMacOrParsesARecord(t *testing.T) {
 	class := secondImplementationClass(t)
@@ -45,7 +45,7 @@ func TestNoFunctionInThisPackageBuildsAPreimageComputesAMacOrParsesARecord(t *te
 
 	findings := secondImplementationFindings(t, ".", class)
 	if len(findings) != 0 {
-		t.Fatalf("this package reaches for the record layer's own primitives in %d places, and §12.1 A-1 says it uses connect/message's published surface and nothing else:\n\t%s",
+		t.Fatalf("this package reaches for the record layer's own primitives in %d places, and §12.1 A-1 says it uses the record layer's published surface and nothing else:\n\t%s",
 			len(findings), strings.Join(findings, "\n\t"))
 	}
 }
@@ -80,15 +80,15 @@ func TestTheSecondImplementationGateFlagsTheControlFixture(t *testing.T) {
 }
 
 // The other direction: the authenticator decisions this package makes are calls into
-// connect/message's verifiers, and not comparisons of its own.
+// the record layer's verifiers, and not comparisons of its own.
 //
 // It is what keeps the ban above from being satisfied by deleting the verification instead of
-// delegating it. The class is connect/message's own exported Verify* surface, read out of that
+// delegating it. The class is the record layer's own exported Verify* surface, read out of that
 // package rather than named here.
 func TestThisPackageDecidesEveryAuthenticatorThroughConnectMessage(t *testing.T) {
 	verifiers := recordLayerVerifiers(t)
 	if len(verifiers) < 2 {
-		t.Fatalf("connect/message exports %d Verify* functions (%v); the write path and the read path each need one, so a class this small means the scan missed them",
+		t.Fatalf("the record layer exports %d Verify* functions (%v); the write path and the read path each need one, so a class this small means the scan missed them",
 			len(verifiers), verifiers)
 	}
 
@@ -117,14 +117,15 @@ func TestThisPackageDecidesEveryAuthenticatorThroughConnectMessage(t *testing.T)
 		})
 	}
 	if len(reached) < 2 {
-		t.Fatalf("this package reaches %d of connect/message's verifiers (%v), and §5.1 has two authenticated paths: write_auth on submit and req_auth on read",
+		t.Fatalf("this package reaches %d of the record layer's verifiers (%v), and §5.1 has two authenticated paths: write_auth on submit and req_auth on read",
 			len(reached), reached)
 	}
 }
 
 // ── the derivation ───────────────────────────────────────────────────────────────────────
 
-// The import path this module names connect/message by, taken from this package's own imports.
+// The import path of the record layer, message/message since ledger 284, taken from this
+// package's own imports.
 func recordLayerImportPath(t *testing.T) string {
 	t.Helper()
 	_, files := parseGoDir(t, ".", false)
@@ -141,12 +142,12 @@ func recordLayerImportPath(t *testing.T) string {
 		}
 	}
 	if found == "" {
-		t.Fatalf("this package imports no connect/message, so §12.1 A-1's surface is reached by nothing and this gate has nothing to derive a class from")
+		t.Fatalf("this package imports no record layer, no package ending in /message, so §12.1 A-1's surface is reached by nothing and this gate has nothing to derive a class from")
 	}
 	return found
 }
 
-// Where connect/message's source is, through this module's own replace directive rather than
+// Where the record layer's source is, through this module's own replace directive rather than
 // through a path written here: the workspace is sibling-checked-out and a developer who moved
 // the checkout moved the replace with it.
 func recordLayerDir(t *testing.T) string {
@@ -186,7 +187,7 @@ var recordLayerLandmarks = []string{"EncodeRecord", "ParseRecord", "ComputeWrite
 
 // The packages a preimage, a MAC or a record encoding can be built out of.
 //
-// Two halves, both rules rather than lists. The first is what connect/message imports that is
+// Two halves, both rules rather than lists. The first is what the record layer imports that is
 // outside the standard library — the presentation language it frames every encoding with, and
 // anything else it grows a dependency on. The second is the two standard-library trees the
 // primitives live in, which is a fact about the standard library's layout and not about this
@@ -238,7 +239,7 @@ func classIncludesPath(path string) bool {
 	return first == "crypto" || first == "encoding"
 }
 
-// connect/message's exported verifiers, read out of its source.
+// The record layer's exported verifiers, read out of its source.
 func recordLayerVerifiers(t *testing.T) []string {
 	t.Helper()
 	_, files := parseGoDir(t, recordLayerDir(t), false)

@@ -6,8 +6,8 @@ import (
 	"slices"
 
 	"github.com/urnetwork/connect"
-	"github.com/urnetwork/connect/protocol"
 	"github.com/urnetwork/message-server/api"
+	"github.com/urnetwork/message/protocol"
 )
 
 var (

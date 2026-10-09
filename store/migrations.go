@@ -310,7 +310,7 @@ ALTER TABLE message_epoch
 	// the `verify_pub` the TOFU gate pins, the `leaf_index` that tells a snapshot from a device
 	// wrap — and [Store.Fetch] hands the parsed attachment back to its caller.
 	//
-	// They cannot be re-derived from the bytes here. §4.3.3 makes `connect/message` the only
+	// They cannot be re-derived from the bytes here. §4.3.3 makes the record layer the only
 	// parser of `server_attachment` and the API layer the only caller of it; a store that
 	// re-parsed would be the second parser store.go's missing `record_bytes` field exists to
 	// prevent, and it would be parsing bytes this package never validated.
