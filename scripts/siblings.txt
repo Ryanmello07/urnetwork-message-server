@@ -40,7 +40,7 @@ message https://github.com/urnetwork/message.git 2e859f73b20dd5f78c5c1ffe0b262cb
 # upstream/remove-message of the fork, which merges urnetwork/connect main at 6df2fa87. It is the
 # commit the message repository pins. Until ledger 284 this pin was 92a657fa, upstream's main when
 # connect #217 merged, in gates.yml. After the merge: https://github.com/urnetwork/connect.git.
-connect https://github.com/urnetwork/connect.git 0f2ff66907f2c5fae735c45f687e598568ae85c4
+connect https://github.com/urnetwork/connect.git 847460bba8aa31fb2e86ce007e9d5443d884544b
 #
 # glog and gvisor: what connect requires and replaces by path, which its own go.mod cannot do for
 # this module. These are the commits github.com/urnetwork/message pins in its scripts/siblings.txt,
