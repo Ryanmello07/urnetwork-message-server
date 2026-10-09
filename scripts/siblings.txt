@@ -31,7 +31,7 @@
 # it pins ee23a490, this branch before this pin was filled. From ee23a490 to the commit that filled
 # this pin no Go file changes, nor go.mod, nor go.sum, so the server tested there is the one tested
 # here. After the merge: https://github.com/urnetwork/message.git.
-message https://github.com/urnetwork/message.git 4d365abfdb1ab1666def8bd0fdf708625b190e39
+message https://github.com/urnetwork/message.git 2e859f73b20dd5f78c5c1ffe0b262cbedb3d2080
 #
 # connect: the transport, from AFTER messaging left it. A connect whose protocol package still
 # registers message.proto registers it beside message/protocol's copy, and every test binary that
