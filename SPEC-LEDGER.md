@@ -11727,6 +11727,718 @@ repo and therefore the critical path — not this repository:
       - connect #213 and #214, which item 277 left alone, were closed unmerged from the owner's
         account at 05:23 and 05:24 UTC.
 
+279. **THE URNETWORK ROUTE ON 2026-10-04: THE SILENT FLEET MEASURED, TWO OWNER RULINGS, AND THE
+    CLIENT HALF COMMITTED.** At 17:46 UTC the owner asked, verbatim: **"What’s the issue then? Is
+    it that the providers are running old code? Ik the vpn works. Maybe host your own node, note
+    the client id and connect to it manually?"**
+    - **The mechanism, reproduced on exits of our own** (section 7's entry "Item 279", part 2). We
+      ran three providers on our VPS and pinned the merged client to each.
+      - **sn's provider** (urfoundation/sn `9356e1d4`, on the forks' connect `8cc3b556` and sdk
+        `22629e9a`) completes the per-peer handshake. The first URmessage Hello is answered on
+        attempt 1, in 1.39 s and 1.46 s.
+      - **Our build of the operator's connect-era provider CLI** (its untracked `provider/main.go`,
+        at its connect checkout `647bdae0`) answers no ClientHello. All 14 went unanswered: the 13
+        that reached the client's 5 s evaluation were cancelled at 5.00 s, and the 14th was still
+        open when the run ended. The URmessage Hello is never answered.
+      - **The same build with one setting added**, `EncryptionModeOpportunistic`, is answered on
+        attempt 1, in 1.44 s.
+      - **Why:** connect's default per-peer mode is Off, and in that mode `DeliverEncryptedControl`
+        drops every ClientHello. sdk's provider path has turned sessions on since `8a91a91c`
+        (2026-07-22, as `Encrypt = true`), and has set Opportunistic since `e7680ba6` (2026-08-09).
+        No `provider/main.go` in connect's history turns sessions on.
+      - The handshake's messages did not change between those two connects: the third provider
+        completes the handshake with the merged client.
+    - **The fleet, measured** (section 7's entry, part 3, with its queries). At 20:46 UTC the
+      operator had 246 connected public providers.
+      - 245 name one program in their client descriptions, which end `[v3.23.0-fix.28.0]`, all in
+        one network.
+      - 1 runs a connect-era CLI.
+      - Item 278's four runs sent ClientHellos to 73 exits. 72 name that program, and none of them
+        answered. The one that answered is that connect-era CLI.
+      - **So the silent fleet is, by its client descriptions, one third-party provider program,
+        not the connect-era CLI.** Its source is in no repository we have: connect, sdk, sn,
+        server and the operator's source tree were searched. Why it drops the ClientHello is
+        inferred, not seen: connect's Off default fits.
+      - This supersedes item 278's guess, "beta's exits probably run older provider code". Which
+        connect the program is built on is not known.
+      - At 20:44 UTC the owner said, verbatim: **"Btw, most providers are hosted by my friend so if
+        you need them to update give instructions to me to relay"**. At 20:52 UTC the lead gave the
+        owner relay instructions: set `EncryptionSettings.Mode = EncryptionModeOpportunistic`
+        (connect `d2553e06` or later), or, if the program is sdk-based, update the sdk to `e7680ba6`
+        or later.
+      - **"Ik the vpn works":** by default the VPN does not ask for a session, so a silent exit
+        carries its traffic unsealed, as it carries the alpha's.
+    - **Ruling 1: "Opportunistic + provider fix (Recommended)".** At 12:20 UTC the owner had
+      answered the lead's question on the mode, verbatim: **"Need more info and risks notice on
+      this, explain to me"**. At 18:38 UTC the lead put three options (section 7's entry, part 4),
+      and at 19:58 UTC the owner chose this one. It read: "Client goes Opportunistic now, so the
+      merged SDK works on today's fleet, never worse than the current alpha, and seals with every
+      updated exit. You ship the one-line fix to the beta's provider CLI so sealing coverage grows;
+      REQUIRED can be reconsidered once most exits answer."
+      - At 20:52 UTC the lead told the owner that "seals with every updated exit" was too strong,
+        because of the pre-session window below. The ruling stood.
+      - **The client half is committed, not yet shipped.** No build anyone runs carries it: the
+        alpha ships `alpha/premerge`, and upstream's `main` carries REQUIRED until #156 merges.
+        - sdk's fork `main` is `c71bb73b`. It sits on `f1f28d2e`, an `-s ours` absorb of
+          upstream's `2e131adb`, which leaves the tree unchanged.
+        - Upstream, it is urnetwork/sdk#156: branch `upstream/route-opportunistic` at
+          `98e444e1`, which is upstream's `main` plus one commit. Its `go test` passed upstream
+          (run `37234810669`).
+      - **Measured** (section 7's entry, part 4):
+        - Unpinned, on the fleet: the first URmessage Hello was answered on attempt 1, after
+          2.007 s and 2.463 s. Nothing was sealed.
+        - Pinned to our exits: attempt 1, after 1.21 to 1.29 s. Each run was sealed, and the
+          exit's identity was verified.
+        - The live probe, `liveprobe -route urnetwork`, reported "13 STEPS, 1668 ASSERTIONS, ALL
+          HELD", twice.
+      - **What Opportunistic gives up.** It defeats a relay that reads, not one that interferes,
+        and the app cannot tell which it met.
+        - **With an exit that never answers**, such as each of the 72 exits of that program we
+          reached, the relay reads every packet's headers. The alpha's Off shows every relay the
+          same today.
+        - **With an exit that answers**, the relay reads every packet sent before the session is
+          usable. Measured: 3 to 6 application writes per window, in the 0.55 to 0.62 s before the
+          cipher was usable. They were the TCP open to the endpoint, and in 4 windows of 5 its TLS
+          ClientHello too.
+        - **What only REQUIRED gives**, as `c71bb73b`'s comment names it:
+          - the entry hold in `SendSequence.Pack`;
+          - the signed key-history hold (`keyHistoryRequiredWithLock`), narrow in this tunnel even
+            under REQUIRED: it sets no `PeerClientKeyPinStore` and no `TrustedClientKeySigners`,
+            so an operator could downgrade it by withholding the history;
+          - `ReceiveSequence.receiveHead`'s gate against plaintext from a sealed exit;
+          - refusing the downgrade that a forged nack forces through `handleUnknownWrapNack`.
+        - Content stays TLS to the pinned endpoint, and MLS, in every mode.
+      - **Item 278's text obligation.** `c71bb73b`'s comment in `message_tunnel.go` meets it. The
+        app's text does not yet, so it stays open.
+      - **The provider half** is a patch to the connect-era CLI, handed to the owner (section 7's
+        entry, part 5). The fleet does not run that CLI, so the fleet's fix is the third party's
+        update.
+    - **Ruling 2: the 1 s establish hold.** At 21:07 UTC the lead asked, verbatim: **"Should I close
+      Opportunistic's pre-session gap with a 1 s 'establish hold' in connect?"** At 04:17 UTC on
+      2026-10-05 the owner chose **"Build the 1 s hold (Recommended)"**. That option read: "A small
+      opt-in connect setting: an Opportunistic window holds its writes up to 1 s for the exit's
+      session (measured setup: 0.55-0.62 s). Exits that answer seal from the first byte, so the TCP
+      open and TLS ClientHello are never readable. Exits that don't answer fall back after 1 s, so
+      today's fleet pays about 1 s more on the first Hello. Needs a connect PR plus a one-line sdk
+      follow-up. It still can't stop a relay that deliberately drops the handshake."
+      - **In progress:** `EncryptionSettings.OpportunisticEstablishHold`, zero by default.
+    - **The test exits.** At 20:44 UTC the owner said, verbatim: **"However for our test period go
+      ahead and make your own providers on a vps"**. Two public systemd units now run on the VPS
+      (section 7's entry, part 5).
+      - `urn-exit-a` runs sn's provider.
+      - `urn-exit-b` runs the patched connect-era CLI.
+      - **`urn-exit-a` also runs sn's extender role on the message-server box.** sn `9356e1d4` has
+        no flag to disable it. The role's TCP 443 bind fails and leaves the message server's
+        listener alone, and it binds UDP 443 and 4053. **The lead's ruling:** it stays for the test
+        period, and is revisited if it adds load or if the message server ever listens on UDP 443.
+    - **Upstream merged seven of our pull requests** (section 7's entry, part 6). All seven were
+      merged by Ryanmello07, with merge commits.
+      - Item 277's trap is armed. message-windows and sdk have absorbed their merges. connect's
+        absorb and this repository's follow this commit.
+      - From 20:04 UTC, upstream sdk's `main` carries the REQUIRED route, until #156 merges.
+    - **This resolves item 278's "The fix is the owner's to choose".**
+      - Item 277's ruling stands: the alpha ships `alpha/premerge` until it is moved.
+      - The route work judged that move feasible. It is open.
+
+280. **THE OWNER'S DIRECTIVE OF 2026-10-05: HARDEN THE CRYPTOGRAPHY IN THE LEAD'S ORDER, WITH
+    SIMULATION TESTS, AND THE EXTERNAL AUDIT COMES AFTER THE ALPHA.** Times are UTC, on 2026-10-05.
+    At 04:17 the owner pasted two external AI reviews of URmessage's cryptography, with these words,
+    verbatim: **"Notice: revie of encryption and methodology by 2 AI agents. Review with caution to
+    see if we can make improvements."** The pasted text opens, verbatim: **"Online research with 2
+    models about your encryption and methodology, review with reason and see if we can improve the
+    protocol based on this or we need to accept the downsides."**
+    - **The reviews were checked against the code, then against their sources** (section 7's entry
+      "Item 280", parts 2 and 3, and `docs/reports/2026-10-05-crypto-review.md`). The reviewers had
+      seen a short summary of the stack, not the specs. One subagent grounded each claim in the code
+      and the specs, and a second fact-checked the external claims against primary sources.
+      - **One review read our PQ layer as bootstrap and transport only, and the other asked whether
+        X-Wing is re-run per epoch or applied once to static keys. It is per commit, though to
+        static keys.** Every commit the sdk publishes draws a fresh `pq_secret` and X-Wing-seals it
+        to each remaining device's static key.
+      - **The join epoch is the weak point.** The joiner's `pq_secret` travels in plaintext in the
+        pasted invite, beside an X25519 Welcome (item 266).
+      - **Nothing heals after a device compromise.** The device X-Wing key never rotates, nothing
+        sends a self-update, and keys are not encrypted at rest (items 229 and 266).
+      - **KT, TOFU and safety numbers are specified, and none is built.** Joins are unauthenticated.
+      - **The OpenMLS oracle and interop never existed.** The interop peers' image digests in
+        connect's `mls/interop/PINS.md` are placeholders.
+      - **The `req_auth` protobuf preimage has no KAT.** connect pins the framing and the tag. The
+        deterministic protobuf bytes inside them, which the sdk and the server each marshal, are
+        pinned nowhere.
+      - **The X-Wing pin docs disagree with the code.** The code pins draft-10's vectors. Spec A
+        says -06, and its combiner table puts the label first, where the code puts it last.
+      - **draft-mahy-mls-xwing is dead, and 0x004D is non-standard.**
+      - **X-Wing's HPKE id 0x647a is assigned, but its DeriveKeyPair is split** between X-Wing -11
+        and hpke-pq-05 (reproduced, part 3), and OpenMLS 0.9.0 and main take opposite sides (read
+        from source; that they fail to interoperate is inferred).
+    - **The lead's recommendation**, put to the owner at 04:53: adopt 1 to 5, defer a PQ MLS
+      ciphersuite (C6), and accept no deniability (item 232) and classical authentication.
+      1. **Seal the join secret** to the joiner's X-Wing key, which its KeyPackage already carries.
+         A recorder of both pasted codes, with a future quantum computer, can read the epoch a
+         join opens (item 266). For a two-person chat that never commits again, that is the whole
+         chat.
+      2. **Safety numbers and TOFU.** Whoever controls the paste channel can substitute keys, and
+         nothing shows it. The lead judged this the largest practical gap, larger than PQ.
+      3. **A self-update cadence, X-Wing key rotation, and keys at rest.** A copied device state
+         keeps decrypting until that device is removed (item 266).
+      4. **Testing:** the vector families, an OpenMLS-main interop and state-machine cross-check,
+         and a `req_auth` KAT. Today the vectors check the cryptography, not the state machine.
+      5. **Quick fixes:** the X-Wing pin docs, MASTER §13's PQ overclaim, an honest PQ statement,
+         govulncheck and Dependabot.
+
+      **Why the suite waits:** no PQ MLS suite has an assigned codepoint, the draft's list has been
+      reshuffled three times, one KEM id carries two key derivations, and OpenMLS measures its
+      X-Wing messages at about eight times the bytes. After 1 and 3, what a PQ suite would add is
+      narrow: PQ healing after a device compromise. S3's red team settles that, because S3's own
+      key rotation re-keys with X-Wing (section 7's entry, part 4).
+    - **The directive.** At 04:58 the owner answered "Which of the crypto improvements should I
+      start on (red-team first for protocol changes)?", verbatim: **"All of the above in best
+      recommended order. Focus on improving security, update me with tests on each major success
+      and finalize with me when all tasks are completed, use ledger system, ultracode and use
+      simulation tests. Use VPSs to your advantage, let me know if you need to install major
+      changes on them or need access or administrative help. Create new task list and update
+      ledger as well"**
+    - **The audit ruling.** The same answer took the lead's second question, "Our own plan requires
+      a decision on a funded external audit before any non-beta user, and it is now due. What should
+      I do?" The owner's answer, verbatim: **"Audit comes after the alpha is out. It’s planned in
+      our wider scope so don’t worry and move forward, we plan to use some of the best
+      auditors"**.
+      - **It settles OD #25, "decision deferred to slice 5", and the timing of C7's audit.** An
+        external audit is planned, and it comes after the alpha is out.
+      - **C7 itself is unchanged.** It asks for "a funded external audit before any non-beta user".
+        The ruling names the alpha, so the two do not conflict.
+      - **Nor is the gate MASTER §15 item 7 describes.** Spec A's audit gate blocks general
+        availability if an audit is commissioned. The ruling says one is planned.
+      - **MASTER still reads the audit as a decision taken at slice 5**, in §14 and in §15 item 7.
+        This commit edits no spec, so those sentences and OD #25's row stand as written until a
+        spec pass carries the ruling.
+    - **What stays as it was.**
+      - **C6: a PQ MLS ciphersuite is still deferred.** C6 keeps v1's MLS suite classical, and
+        MASTER §7 (:1098) adopts a PQ suite once draft-ietf-mls-pq-ciphersuites is an RFC. The
+        fact-check found that draft at -06, in working-group last call, with no codepoints.
+      - **No deniability:** the owner's ruling (item 232), and MASTER's permanent non-goal (:554).
+      - **Classical authentication:** Ed25519, under C6's classical suite.
+    - **The task list** is `docs/plans/2026-10-05-hardening-program.md`, in the lead's order. Each
+      track gets its own plan, reviewed before any code.
+      - **S0, foundations.**
+        - S0.1 records the rulings: this item.
+        - S0.2 is an in-process adversary simulation harness. It runs red on today's gaps first.
+        - S0.3 is the quick fixes, with the `req_auth` KAT.
+        - S0.4 is the MLS state-machine vectors.
+      - **S1** seals the join secret.
+      - **S2** builds safety numbers and TOFU.
+      - **S3** heals: a self-update cadence, X-Wing key rotation in leaf extension 0xF002, and keys
+        at rest (item 229).
+      - **S4** runs OpenMLS main interop and differential state-machine fuzzing, never against
+        0.9.0.
+      - **S5** ships to the alpha as a new package, then finalizes with the owner.
+    - **The gates, on every track:**
+      - a red team before the spec, for a protocol change;
+      - a diff review and a ledger entry for every spec or plan change;
+      - one writer per repository;
+      - simulation tests red before the change and green after it;
+      - a test-backed report to the owner at each major success.
+    - **Two further test VPSs.** At 05:20 the owner supplied two more VPSs for heavy work. The lead
+      had asked for one. The lead installed the pinned Go toolchain, go1.26.5, on both, and Rust on
+      one, for the OpenMLS oracle. Their addresses are not recorded here.
+    - **Item 279's owed absorbs are done** (section 7's entry, part 7).
+      - This repository's: the fork's `main` is `81cf1f4`, a `git merge -s ours` of upstream's
+        `6c3153fd`, and its tree is unchanged.
+      - connect's: `1f97ebb2` is `git merge -s ours` of `b4b7e070`, #216's one commit, with the
+        tree unchanged, and it is on the fork's `beta/message` and `main`.
+      - **It is not of `94453d74`, which item 279 named.** That merge also carries upstream's
+        durablevolume fix (`c6186b79`, `492794ba`), and an ours-merge of it would mark the fix
+        merged without its content.
+    - **The design work is running.** An ultracode workflow, read-only, gives each track a designer,
+      a red team and a revision that answers every finding. Each protocol track has three red-team
+      lenses, and the testing track one. Its output becomes the per-track plans, each reviewed
+      before execution under §6's change process.
+
+281. **THE OWNER'S DIRECTIVE OF 2026-10-05: URMESSAGE MOVES INTO A REPOSITORY OF ITS OWN, EVERY
+    CHANGE GOES TO THE OWNER'S FORK FIRST, AND NOTHING IS EVER FORCE-PUSHED.** Times are UTC. At
+    06:25 on 2026-10-05 the owner wrote, verbatim: **"Latest review declares we should split repos.
+    https://github.com/urnetwork/connect/commit/13ced4c8d50bf04c518667f2ad4b3948498abe56 URmessage
+    has gotten big enough and with reason we can fork only the necesary message code into a new repo
+    instead of building on connect/sdk new repo forked at https://github.com/Ryanmello07/urmessage
+    we can use this along with sdk (for apis n stuff for networking, however message repo can have
+    message specific sdk like apis all built in one) maintainer wants us to pull out our message
+    checkpoint and push it to new repo. no force pushing. update all subagents when their work is
+    done- its still needed but we are now swapping push direction to my personal fork then upstream
+    urnetwork/message"**
+    - **The maintainer's design** is `MESSAGEREVIEW.md`, the one file connect's `13ced4c8` adds
+      (06:02). Upstream's `main` carries it unchanged. It recommends four changes, which are its
+      four stages:
+      1. **Create the message repository:** the `github.com/urnetwork/message` Go module, with its
+         own releases, documentation, CI and dependency-boundary checks.
+      2. **Move messaging out of connect:** `message`, `messagegroup`, `mls` and `syntax`, keeping
+         their history, tests and fixtures. The messaging protobuf schema follows as a separate
+         change, regenerated once. The carrier does not change.
+      3. **Move messaging out of the sdk:** the root messaging code and `urmessage`, the native
+         bindings, the probes and the integration checks. The core sdk gets a native build without
+         messaging, and the message repository owns a composition build.
+      4. **Carry messaging as a subprotocol, and finish:** one application-owned envelope on both
+         routes, frame values 1000 to 1003 reserved against reuse, and no messaging left in connect
+         or the core sdk.
+    - **Its boundary rules:**
+      - neither connect nor the core sdk depends on the message module, directly or transitively,
+        and that holds for native bindings and release builds as well as for Go imports;
+      - the five foundational packages import neither connect nor the core sdk. Only `message/sdk`
+        may, and only their generic APIs;
+      - the root holds no Go package. The packages beneath it are peers, and none imports its own
+        descendants, which is why `mls/syntax` is promoted to `syntax`;
+      - the server-safe packages are `message`, `syntax` and `protocol`. Neither `message` nor
+        `protocol` reaches `mls` or `messagegroup`, and `syntax` stays standard-library-only. The
+        dependency checks allow those paths exactly, never the whole module;
+      - no process compiles two copies of the messaging schema, and authenticated inner bytes stay
+        byte-compatible;
+      - and, of every check that moves: "do not weaken a check merely because its path changed".
+    - **What it leaves out is this repository.** In its words: "Message-server implementation and
+      deployment changes require a separate assessment." The message server stays here, and becomes
+      a consumer of the new module when it switches its imports (item 283). Stage 4 is a wire
+      change, and the design asks for a choice between a coordinated switch and a dual carrier
+      before that stage begins.
+    - **The repositories.** `urnetwork/message` was created at 06:20. Its one commit, `0d697b0a`,
+      adds `LICENSE`. The owner's fork, `Ryanmello07/urmessage`, was created at 06:24. At 03:58 on
+      2026-10-06 both still had one branch, `main`, at `0d697b0a`, and at 06:22 they still did.
+    - **The push direction.** Message work is committed to branches of `Ryanmello07/urmessage`, and
+      each branch is pull-requested to `urnetwork/message`, base `main`. Every other repository
+      keeps item 277's flow: a branch on the fork, then a pull request upstream. The plan's brief to
+      every agent (its section 2) carries the new direction and the rule below. Each agent gets it
+      when its current work is done, as the directive asks. **Until then, nothing on the server
+      stops an agent from force-pushing to `urnetwork/message` or to a fork.** The plan's rulesets
+      were to cover that interval, and under O1 none was created (section 7's entry, parts 4
+      and 7).
+    - **No force push, ever.** No `--force` or `--force-with-lease`, no `+` refspec, no deleting and
+      re-creating a branch, and no GitHub "Update branch" by rebase.
+      - A pull request's branch moves only by new commits, or by merging upstream's `main` into it.
+        Starting again means a new branch name and a new pull request.
+      - Before every push, `git push --dry-run --porcelain` must flag every ref `*` (new) or with a
+        space (fast-forward), never `+`.
+      - Upstream merges are "Create a merge commit" only. A squash or a rebase would drop the
+        history the imports carry, and this ledger cites commits by hash (item 277's ruling).
+      - The fork's `main` then fast-forwards to upstream's. connect's and sdk's forks carry commits
+        of their own, so their `main`s take upstream's by a merge, never by a reset.
+    - **What it retires.** Section 7's entry "Item 277 done" (part 1) set the practice, and item
+      278's entry repeats it: an `upstream/*` branch is a `main` plus exactly one commit, rebuilt by
+      reset, cherry-pick and force-push. **That practice is retired.** Item 277's entry also records
+      what it once cost: a push ran after a cherry-pick had stopped on a conflict, and sdk #155's
+      head was the fork's own `main` for about 25 seconds.
+    - **The plan.** The lead's executable plan, v2, was written read-only and rehearsed in scratch,
+      after three red teams. It is not in this repository; section 7's entry, part 3, summarizes it.
+      **Its sequence is replaced by item 283,** the owner's ruling of 05:16 on 2026-10-06.
+      - **History moves with the code.** git-filter-repo passes over connect's `e449f7d8`, the
+        fork's `beta/message`, keep every commit that touched the moved paths: 24 for
+        `CODESTYLE.md`; 465 for `message`, `messagegroup`, `mls` and `syntax`, with their workflow
+        and `.gitattributes`; and 10 for the schema. Each import must pass a verifier that checks it
+        byte for byte against its source, commit for commit, and that no earlier tip was rewritten.
+        Under item 283 all of it, and the sdk's messaging code with its own history, reaches
+        `urnetwork/message` in one pull request.
+      - **Replaced by item 283: each stage a branch on the fork, and a pull request of its own.**
+        M1 was `split/1-scaffold` (stage 1, with `CODESTYLE.md`), M2 `split/2a-foundational`, M3
+        `split/2b-protocol`, M4 to M7 `split/3a-sdk` to `split/3d-acceptance`, M8
+        `split/2c-cutover`, where the schema flipped, and then stage 4.
+      - **Also replaced: the other repositories moving in step.** connect was to add a generic
+        `NewOperatorClientSettings` (CX-1), then remove the packages and the schema in one pull
+        request (CX-2). The sdk was to sync (SX-0), then remove its messaging (SX-4). This
+        repository was to pin its CI's connect and add a test (MS-0), take `message/message` and
+        `message/syntax` (MS-1), and then the schema (MS-2). message-windows was to switch to the
+        composition build (MW-2). SX-0 and MS-0 stand; the rest becomes item 283's three pull
+        requests and two follow-ups.
+      - connect's CX-0 is done: the owner merged #217, item 279's establish hold, at 09:10, as
+        `92a657fa`.
+    - **The owner's three rulings on the plan.** At 21:50 the lead put the three decisions that
+      block the first push. At 03:30 on 2026-10-06 the owner answered, verbatim:
+      - **O1.** "Split O1: enforce 'no force push' server-side with GitHub rulesets before the first
+        push (on urnetwork/message + your 5 forks: block force-push/deletion of main, tag
+        protection, PRs required on urnetwork/message)?" **"github repos on mainstream block
+        forcepush already, just continue without using it"**. So no ruleset is created, and the
+        prepared scripts' ruleset precondition gives way to the dry-run check above.
+      - **O2.** "Split O2: the vendored MLS test vectors (from mlswg) carry no license. How should
+        the new repo carry them?" **"Keep + NOTICE + ask mlswg (Recommended)"**. That option read:
+        "Keep them as test data with an explicit 'no license granted' row in NOTICE, and ask mlswg
+        for a license statement; fallback is fetching them by pinned digest at test time. NOTICE
+        also keeps both BringYour copyright lines."
+      - **O17.** "Split O17: CODESTYLE.md in connect is largely the maintainer's (105 lines). How
+        should it move?" **"Import with its history (Recommended)"**. That option read: "Carry its
+        24-commit history into the new repo so authorship is preserved; I'll mention it to the
+        maintainer in the PR."
+    - **A second O1 precondition is outside the owner's answer.** The prepared import script,
+      `assemble-import.sh` (sha256 `38d64e07…`), also refuses while `urnetwork/message` allows
+      squash or rebase merges, "O1 as a gate, not a hope": such a merge of an import pull request
+      destroys the history it carries. The question put to the owner did not carry that part, and
+      both merges are still allowed (section 7's entry, part 4).
+      - The M1 writer's adapted copy (sha256 `b993796f…`) prints the setting instead, "O1
+        (informational, not enforced)". It leaves a squash to the next import's ancestry check,
+        which sees one only after upstream's `main` has lost the history. Under item 283 no next
+        import follows: one pull request carries all of it.
+      - That downgrade has no ruling. The choice goes to the owner: turn squash and rebase off on
+        `urnetwork/message`, one setting, and the gate stays enforced; or record the downgrade as a
+        ruling, naming what replaces it and the coverage lost, and amend the plan's §5.4.i,
+        "squash and rebase still off" (section 7's entry, part 9).
+    - **What the servers enforce,** read at 03:58 on 2026-10-06 (section 7's entry, part 4).
+      - `urnetwork/connect` and `urnetwork/sdk` refuse a non-fast-forward push and a deletion on
+        every branch, by rulesets with no bypass, in place since 2026-08-19. O1's "already" holds
+        there.
+      - `urnetwork/message`, `urnetwork/message-server`, `urnetwork/message-windows` and all five
+        forks have no ruleset and no protected branch. **So on the new repository and on every
+        fork, the rule is kept by the dry-run check, not by the server.**
+      - `urnetwork/message` still allows squash and rebase merges. The plan's O1 would have turned
+        them off, and the question put to the owner did not carry that part. At 03:32 the lead told
+        the owner to merge there with "Create a merge commit" only.
+    - **Every other decision of the plan takes the plan's recommendation, where it has one.** The
+      lead applied them without a further question. They are listed here, and in the review file
+      (item 282), for the owner's post-review, and the owner may override any of them. Where one
+      named a stage of the plan's, it is read here under item 283:
+      - O3: every binary registers `message.proto` once. The plan kept every consumer on connect's
+        copy until its cutover, and froze `message/protocol` from M3 to M8. Read under item 283,
+        the message repository merges only after connect's copy is gone, so the merge order keeps
+        the rule, and the freeze has no stages to span;
+      - O4: `message/sdk` is a nested module, and so are `sdk/cgo`, `cp3b`, `livepeer` and
+        `liveprobe`;
+      - O5: SX-0 syncs sdk's fork by a merge, and pins the clones in its `fork-modules.yml` by
+        commit;
+      - O6: a generic `connect.NewOperatorClientSettings`, which connect's pull request carries,
+        and explicit URLs in the extracted client;
+      - O7: the composition build overlays the core sdk's native build with the message ABI, and
+        keeps the name `URnetworkSdk.dll`;
+      - O8: the core ABI version goes to 2 when the messaging exports leave, in the sdk's pull
+        request. That is the maintainer's call;
+      - O9: this repository allows `message/message` and `message/syntax` exactly, bans the other
+        subtrees, and tightens `substitutions()` to `origin == dep.module`. That edits Spec B §2.2,
+        so it lands with this repository's switch, with its own diff review and ledger entry;
+      - O10: FuzzTreeMath is confirmed dropped, or a port is queued after the message pull request
+        merges;
+      - O11: the alpha is unaffected until stage 4. Package 02d stays on `alpha/premerge` (item
+        277), and this repository's `6530519`, which the alpha's server runs, is to be tagged;
+      - O12: an address literal in the moved sdk code becomes a documentation address, in the
+        message pull request;
+      - O13: resolved, since connect #218 is closed;
+      - O14: no tag before the cutover, and the first, `v0.1.0`, is annotated and made by the
+        owner. The plan's cutover, M8, came after connect's removal and this repository's schema
+        switch. Read under item 283, the first tag waits for this repository's switch;
+      - O15: stage 4's carrier, its subprotocol ID (at least 1024) and the proto package name have
+        no recommendation to apply. They go to the owner before stage 4;
+      - O16: two test-only gate packages, `internal/layering` and `internal/repository`;
+      - O18: connect's removal pull request adds a connect-local line-ending gate, and the sdk's
+        removal pull request a core-sdk citation gate. If the maintainer declines either, the
+        coverage lost is recorded;
+      - O19: the new repository's `docs/BOUNDARY.md` pins this repository's `docs/specs` by
+        commit. Moving Spec A and MASTER, with their history, is a later call of the maintainer's;
+      - O20: the `mls` guardrails cover the root module, as in connect. `message/sdk` carries gates
+        of its own, among them a new crypto-scope gate;
+      - O21: annotated tags on the forks, `split/source-connect-2a` at `e449f7d8` and
+        `split/source-sdk-3` at SX-0, which stands. With O1, no ruleset protects them.
+    - **The hardening work moves with the code.** Item 280's tracks and item 282's foundations
+      change code that is moving: connect's `mls`, `messagegroup` and `message`, and the sdk's
+      messaging code. Once the message pull request carries that code, the work lands in
+      `urnetwork/message`, through the fork. Server work still lands here, the specs stay here (O19)
+      and so do the plans, and this ledger records both. The extraction comes first in the order,
+      and J3a, next in it, waits only for the extraction's snapshot (item 282).
+    - **Where it stands.** At 03:32 on 2026-10-06 the lead started the first wave, local-only, with
+      one writer per repository: X0 and M1 for the new repository, CX-1 in connect, SX-0 in the
+      sdk, items 281 and 282 and MS-0 here, and MW-0 and MW-1 in message-windows. At 05:17 the
+      lead told the owner that the wave's work feeds item 283's shape, and that a consolidated wave
+      follows it. At 06:22 neither new repository held anything but `main` at `0d697b0a`. The lead
+      reviews each result, and makes every push.
+
+282. **THE OWNER'S DESIGN RULINGS OF 2026-10-05: AN IDENTITY LAYER, A HISTORY STORE AND A
+    RECOVERY PHRASE COME FIRST, AND EVERY OTHER RECOMMENDATION IS TAKEN.** Times are UTC, on
+    2026-10-05. Item 280's design workflow returned red-teamed designs for its four tracks: T1, the
+    join seal (S1); T2, safety numbers and TOFU (S2); T3, healing and keys at rest (S3); and T4,
+    the testing work of S0 and S4. Between them they carry 48 questions for the owner (section 7's
+    entry, part 5). The owner answered in two batches.
+    - **Batch 1, the four tracks.** At 07:06 the lead put four questions, and at 07:11 the owner
+      answered, verbatim:
+      1. "Second devices: the safety-number design (T2) is only sound for now if each identity is
+         one computer. Retract self-service second devices for the alpha?" **"Build identity layer
+         first"**. This overrides T2's Q10, which recommended retracting MASTER §11's self-service
+         second devices for the alpha. Multi-device stays, and an identity layer, with its own red
+         team, comes before T2's safety numbers ship. That is **F1**.
+      2. "Healing latency (T3): without a local encrypted history store, a 1:1 chat heals up to 30
+         days (+offline time) after a compromise, vs Signal's one round trip. Accept that for now?"
+         **"History store first"**. This overrides T3's O1, which recommended a recorded waiver of
+         30 days plus events now, with the store as the next track. It also overrides O9's interim
+         limit: a timer only in groups of at most 16 leaves until the store exists. The local
+         encrypted history store comes before healing ships, so healing can run PQ3-style, at 7
+         days or 50 messages, from the start. That is **F2**.
+      3. "Keys at rest (T3): in the alpha, if Windows DPAPI can't unseal the key store (e.g.
+         profile restored on another machine), all local message state is lost - there's no
+         recovery yet. Accept?" **"Create recovery path via seedphrase (can be changed if possible
+         from the user however may take time) yes seal keys is something I want but you need to
+         make the recovery path."** This overrides T3's O14, which recommended accepting that loss
+         in the alpha. Keys are sealed at rest, and a recovery path by seedphrase comes with the
+         sealing, with a phrase the user can change. That is **F3**.
+      4. "The remaining ~35 design questions all have a recommendation (code points, join-code
+         handling, test-only hooks red-teamed first, Dependabot on your forks, public PQ wording,
+         two-package rollout, etc.). How should I handle them?" **"Accept recommendations"**. Every
+         other recommendation of T1 to T4 is taken: 45 questions by count, less O9's interim limit
+         (answer 2). Three of them change in effect:
+         - T2's Q9 accepts a deviation from Spec A §8.1 until S3's keys at rest exist, and in the
+           new order that lasts until T3's at-rest phase;
+         - T1's Q9 lands J3a "on both lines now". The lead's order of 07:12 put it next, after the
+           extraction snapshot (below);
+         - T1's Q8 builds and gates on `beta/message`. Once the code moves, that work lands in
+           `urnetwork/message` instead (item 281).
+    - **The three foundations** were designed and red-teamed from 07:12 to 09:15. Each had three
+      red-team lenses, and a revision that answers every finding:
+      - **F1, the identity layer.** An identity root key certifies a signing key for each
+        generation, held only on computers where the phrase was typed, and that key signs a list
+        of at most 10 devices. A computer joins by a SAS link, a phrase link or a restore. Round 1
+        found 26 issues.
+      - **F2, the local encrypted history store.** History is sealed on the device under keys of
+        its own, apart from MLS, so it stays readable past the epochs MLS keeps, and deletes are
+        crypto-shredded. Round 1 found 48 issues.
+      - **F3, seedphrase recovery.** A 25-word phrase, separate from the URnetwork account phrase,
+        opens an encrypted backup that the message server holds, and the phrase can be changed.
+        Round 1 found 44 issues.
+    - **Batch 2, the three foundations.** At 09:16 the lead put four questions, and at 21:46 the
+      owner answered, verbatim:
+      1. "Recovery phrase restore: if one of your other computers used the backup in the last 14
+         days, should a restore-by-phrase wait 72 hours (approvable instantly from that
+         computer)?" **"Yes, set dynamic. default 24 hour, can be turned off / raised to 1 week.
+         This can be authorized on chain / encrypted signed with the phrase, and to disable/raise
+         it will need to wait the previous time to change it"**. This modifies F3's Q5, which
+         recommended 72 hours. The lead reads it so: the hold stays, and its length becomes the
+         user's setting, 24 hours by default, off, or up to a week. The setting is signed with the
+         phrase, and a change to it waits out the hold already set. The words "on chain" are
+         recorded as said: whether they mean a public log, or the phrase's signature alone, is
+         round 2's to settle.
+      2. "Recovery phrase format (separate from the URnetwork account phrase, and can never be
+         confused with it):" **"25 words, max strength"**. This overrides F3's Q6, which
+         recommended a 19-bit checksum that repairs one wrong or missing word. The phrase takes the
+         8-bit checksum instead: about 2,000 times more resistant to someone who saw 22 of the 25
+         words, at the cost that any typo means typing it again.
+      3. "Who can add or remove computers on your identity?" **"Phrase typed and signed in via qr
+         code / emoji match method (same as matrix) however if they have a security delay then it
+         needs to wait that long for the computer to be removed by force."** This modifies F1's
+         Q3, which recommended that only computers where the phrase was typed add and remove
+         computers. The lead reads it so: a computer verified by a QR code or an emoji match, as
+         Matrix does it, gains that right too, and a forced removal waits out the user's hold. It
+         also bears on F1's Q15, a 6-digit code typed on the authorizing computer. Round 2
+         reconciles the two.
+      4. "The remaining ~60 foundation questions (storage engine = sealed segment log, sealed
+         index, phrase never stored on device, 180-day device-list renewal, disappearing-message
+         keys never backed up, etc.) all have recommendations. Same as before?" **"Accept
+         recommendations"**. Every other recommendation of F1 to F3 is taken: 63 questions by
+         count, with F1's Q15 left to round 2 (answer 3). The option read: "Take every remaining
+         recommendation; round-2 red teams run before any spec edit, and each ruling goes in the
+         ledger."
+    - **The order.** At 07:12 the lead sent the owner the task list, in this order:
+      1. the repository extraction (item 281);
+      2. T1's held-group gate (J3a), on both lines, next, after the extraction snapshot. It closes
+         a defect reachable in today's 02d;
+      3. S0: the simulation harness, the quick fixes and the state-machine vectors;
+      4. T1, the join seal;
+      5. F1, then T2 on it;
+      6. F2 and F3, then T3 on them;
+      7. T4: OpenMLS differential testing, govulncheck, and the `req_auth` pins;
+      8. shipping to the alpha, then the final sign-off with the owner.
+
+      Batch 2 refined steps 5 and 6, through two of the recommendations it took. F1's Q13 orders
+      T1, then F1's core and multi-device, then T2, then F1's succession, then F2, then T3. F3's
+      Q14 orders F1, then F2, then T3's healing phase, then F3, then T3's at-rest phase, which
+      seals a computer's keys only once its backup is confirmed.
+    - **Where J3a lands.** J3a is sdk-only, and the sdk's messaging code moves from SX-0's result,
+      the commit O21 tags `split/source-sdk-3`. A change made to the sdk's copy after that
+      snapshot is not in the import, and once a path is imported its sdk copy is frozen except for
+      its removal (section 7's entry, part 3). So on the mainline J3a lands in the message
+      repository's copy, through the fork, either on the message pull request's branch or after it
+      merges, which is the lead's to settle. On `alpha/premerge`, the alpha's own line, which no
+      import reads, it lands as T1's Q8 says.
+    - **Round 2 comes before any spec edit.** T1, T2, T3, F1, F2 and F3 each get a second red team,
+      on what their revisions added, before any spec edit, and the owner's answers go into that
+      round. Each track's spec edits then land in this repository, each commit with a diff review
+      and its ledger entry. This commit edits no spec.
+    - **The review file.** At 21:46, just after the batch-2 answers, the owner asked, verbatim:
+      **"Make sure to build me a markdown file of ALL ai suggestions so I can do a post review,
+      from this time and last time. as well as the direct asked questions. I kinda wanna be on top
+      of this rn"**. At 21:50 the lead delivered `URMESSAGE-DECISIONS-REVIEW-2026-10-05.md`. It is
+      outside this repository, and a folder beside it holds the full designs, the split plan and
+      `MESSAGEREVIEW.md`. The file itself holds:
+      - every question put to the owner directly since 2026-10-04, with the exact answer and its
+        options. The file says A1's options did not survive, but the session's log still holds
+        them;
+      - every recommendation of both batches, verbatim from the red-teamed designs, with the
+        overrides above marked;
+      - the two external reviews of item 280, and what was done with each;
+      - the lead's own decisions, made without asking;
+      - the split plan's decisions as they then stood, all pending. Three were answered after it
+        was delivered (item 281).
+    - **Every recommendation, one line each,** as both bulk answers promised: all 114, T1 to T4's
+      48 and F1 to F3's 66, counted as section 7's entry, part 5, counts them. Each line ends with
+      its status: taken as recommended, or, in bold, overridden or modified by an answer above,
+      taken but changed in effect, or left to round 2. The words are this ledger's; the exact
+      rows are in the designs and the review file.
+      - **T1, the join seal (9):**
+        - Q1: an updated adder refuses any join code without 0xF004, old ones too. Taken.
+        - Q2: rule the new and shipped code points now; reserve two for the recovery wrap. Taken.
+        - Q3: the legacy v2 reader stays for pre-T1 groups, with no dated sunset. Taken.
+        - Q4: seal the join secrets only, now; A+ stays deferred. Taken.
+        - Q5: a rekey after each legacy join, a one-time sweep of old groups, no re-founding. Taken.
+        - Q6: only the adder's copy changes; the joiner's label keeps "secret" for now. Taken.
+        - Q7: probes run on the live server with the existing probe accounts. Taken.
+        - Q8: build and gate on `beta/message`, then `alpha/premerge`. **Taken, changed in effect.**
+        - Q9: J3a on both lines now, ahead of the rest of T1. **Taken, changed in effect.**
+      - **T2, safety numbers and TOFU (13):**
+        - Q1: contacts are user-named sets of keys, with unique labels in the sdk. Taken.
+        - Q2: a join anchors on the GroupInfo signer, and a mismatch quarantines it. Taken.
+        - Q3: a provenance class `pasted_code`, kept apart from comparison. Taken.
+        - Q4: accepting without comparing stays possible, behind a typed name. Taken.
+        - Q5: IP2 reserves nothing now; it is specified later, under its own red team. Taken.
+        - Q6: QR in the Windows app comes later; the scan payload stays in the sdk. Taken.
+        - Q7: a committer's continuity claim waits for the identity layer. Taken.
+        - Q8: 6 groups of 5 digits per person, and a 12-group pair number. Taken.
+        - Q9: the deviation from Spec A §8.1 until S3's keys at rest. **Taken, changed in effect.**
+        - Q10: retract MASTER §11's self-service second devices for the alpha. **Overridden (F1).**
+        - Q11: an old key superseded in a group of three or more does not block. Taken.
+        - Q12: "direct" is the user's declaration, not the live member count. Taken.
+        - Q13: identicons become per viewer, and are no longer called a security check. Taken.
+      - **T3, healing and keys at rest (15):**
+        - O1: 30 days plus events now, as a recorded waiver; the store next. **Overridden (F2).**
+        - O2: the device keeps only public values, not `recovery_root` or the seed. Taken.
+        - O3: `storage_root` is not chained across epochs. Taken.
+        - O4: device wraps are kept for good in the alpha; rule again before 50 leaves. Taken.
+        - O5: DPAPI now, Windows Hello next, then a TPM and a sealed manifest. Taken.
+        - O6: the joiner heal and its send gate are on. Taken.
+        - O7: an alarm halts, keeps seeds until the group is forgotten, names both causes. Taken.
+        - O8: a rollback across T3 is refused loudly, and there is no plaintext backup. Taken.
+        - O9: its 16-leaf interim limit falls (F2); its wave and slot stay. **Modified.**
+        - O10: removing devices that stay offline is filed as its own item. Taken.
+        - O11: a 30-day backstop after the upgrade, then legacy groups ask to be re-added. Taken.
+        - O12: a per-sender commit rate limit on the server, after package 03. Taken.
+        - O13: an optional "set up this device again", not forced, and a tester notice. Taken.
+        - O14: accept that a failed unseal loses all local state in the alpha. **Overridden (F3).**
+        - O15: two packages: 03 for healing, then 04 for keys at rest. Taken.
+      - **T4, testing (11):**
+        - Q1: four join-time relaxations behind an unexported join, the PSK hook red-teamed. Taken.
+        - Q2: item 162: a family is green only if it compares a case; P10 is the CAS item. Taken.
+        - Q3: the OpenMLS stdio differential, in both roles, is Gate 2 for v1. Taken.
+        - Q4: Rust per commit and nightly in Actions; the Rust VPS for peers and long runs. Taken.
+        - Q5: pin Go's bytes for the five `req_auth` arms now; v2 waits for a non-Go client. Taken.
+        - Q6: S1 also seals `group_handle_key`. Taken.
+        - Q7: M devices are M identities grouped as one person until provisioning exists. Taken.
+        - Q8: the public PQ text, the PQ line out of "Better than Signal", the audit ruling. Taken.
+        - Q9: Dependabot alerts and updates on the three forks now; upstream later. Taken.
+        - Q10: govulncheck blocks on every reachable finding, the stdlib's included. Taken.
+        - Q11: L2's probe and L3's read-only counts on the message-server box. Taken.
+      - **F1, the identity layer (22):**
+        - Q1: three levels: the identity root key, a signing key per generation, devices. Taken.
+        - Q2: the phrase is never stored on a device. Taken.
+        - Q3: only computers where the phrase was typed add and remove computers. **Modified.**
+        - Q4: in identity mode an ADMIN or OWNER may add a member's certified device. Taken.
+        - Q5: in a two-person conversation either side may re-add the other's device. Taken.
+        - Q6: an ADMIN, OWNER or DM peer may remove a device its newest list drops. Taken.
+        - Q7: migration is opt-in and in place, per group, refreshes spread over 14 days. Taken.
+        - Q8: pairing by paste now; the rendezvous comes with contact cards. Taken.
+        - Q9: disclose what the self group and the link groups reveal, in MASTER §13. Taken.
+        - Q10: identity-level deletes, in identity-mode groups, after items 273 and 274. Taken.
+        - Q11: a 180-day device-list expiry, renewed every 30 days, with warnings. Taken.
+        - Q12: a verified succession blocks a DM until acknowledged; device notices do not. Taken.
+        - Q13: the order T1, F1's core and multi-device, T2, F1's succession, F2, T3. Taken.
+        - Q14: new groups require 0xF005, so pre-F1 join codes are refused. Taken.
+        - Q15: a 6-digit SAS, typed on the authorizing computer, burned after 3. **Round 2.**
+        - Q16: `sh/v3` stays out of F1; a succession keeps the handle. Taken.
+        - Q17: mixed groups accept what older versions do, and flag bad keys, not halt. Taken.
+        - Q18: a computer removes a current sibling computer only by revoking it. Taken.
+        - Q19: "Set up from phrase" signs out the others; "Link with phrase" keeps them. Taken.
+        - Q20: the generation's signing key is derived from the phrase. Taken.
+        - Q21: the device record is left untouched until opt-in. Taken.
+        - Q22: "N computers" and a list code sit beside safety numbers, never inside. Taken.
+      - **F2, the history store (26):**
+        - OH-1: the store engine is a purpose-built sealed segment log, not SQLite. Taken.
+        - OH-2: the index is sealed, superseding OD #5's plaintext metadata columns. Taken.
+        - OH-3: the erase lag L is 1 in the alpha and 0 at GA. Taken.
+        - OH-4: A2: DPAPI seals store.key on Windows now; MLS state stays clear until F2-B. Taken.
+        - OH-5: T3's state-store sealing moves into F2-B, for one at-rest migration. Taken.
+        - OH-6: durable text is kept on the device until the user deletes it. Taken.
+        - OH-7: "delete for me" is not synced across one person's devices, for now. Taken.
+        - OH-8: F3 re-rules OD #28: the device keeps public values only. Taken.
+        - OH-9: no per-epoch recovery wraps; restores come from backups. Taken.
+        - OH-10: keep the 1-year default, and say the server copy is for offline delivery. Taken.
+        - OH-11: prunable wraps come later, and are filed. Taken.
+        - OH-12: file that the history grant carries content, not keys. Taken.
+        - OH-13: within-epoch forward secrecy and a TPM root after T3, each red-teamed. Taken.
+        - OH-14: item 186's key half goes to the EPH track. Taken.
+        - OH-15: backups hold text, contacts and pins, and no attachments in v1. Taken.
+        - OH-16: state kinds are allocated at commit, with a registry gate. Taken.
+        - OH-17: the new Spec C copy is approved after round 2. Taken.
+        - OH-18: erasure stays in shadow mode until F3's backups exist. Taken.
+        - OH-19: MLS evidence, the signatures, is kept with stored history. Taken.
+        - OH-20: a P1 waiver: "delete for me" is not cryptographic while the epoch is held. Taken.
+        - OH-21: screen security, blocking Recall and capture, is on by default. Taken.
+        - OH-22: the F2-C lock: Windows Hello by default, or a passphrase or a PIN. Taken.
+        - OH-23: a record needing a newer build holds its epoch 7 days, then is a gap. Taken.
+        - OH-24: file S2-29 and land its rename retry before F2. Taken.
+        - OH-25: hourly incremental backups when something changed, a weekly full. Taken.
+        - OH-26: F2-B keys the state and stream stores' file names, and pads rows. Taken.
+      - **F3, seedphrase recovery (18):**
+        - Q1: the recovery phrase is separate from the URnetwork account phrase. Taken.
+        - Q2: the identity is escrowed in the vault, not derived from the phrase. Taken.
+        - Q3: no "Show my phrase" and no save to a file: only Check and Replace. Taken.
+        - Q4: MASTER's recovery wraps, `RECOVERY_PUB`, `RecoveryTag` and op 18 retire. Taken.
+        - Q5: a 72-hour hold on a restore by phrase, if the backup was used lately. **Modified.**
+        - Q6: a 19-bit checksum that repairs one wrong or missing word. **Overridden.**
+        - Q7: history is in the backup by default, which undoes deletions for 30 days. Taken.
+        - Q8: a 256 MiB vault, frozen backups kept 90 days, idle ones deleted at 2 years. Taken.
+        - Q9: replacing the phrase is immediate with the old one, else a 90-day freeze. Taken.
+        - Q10: the core sdk also refuses 25-word sign-ins, as defence in depth. Taken.
+        - Q11: the vault and its server prerequisites go to the test VPS, then live. Taken.
+        - Q12: existing alpha users get a 7-day grace before the confirmation gate. Taken.
+        - Q13: a user's computers show when the backup was opened, and pending requests. Taken.
+        - Q14: the order F1, F2, T3's healing, F3, T3's at-rest; no bundle-0 F3. Taken.
+        - Q15: four items go to F1, among them co-signed identity-state updates. Taken.
+        - Q16: disappearing messages get a separate key per computer, never backed up. Taken.
+        - Q17: Windows Hello gates the phrase ceremonies and signs a backup record. Taken.
+        - Q18: each own commit escrows a 32-octet seed first, after round 2 and L-F5. Taken.
+
+283. **THE OWNER'S RULING OF 2026-10-06: THE SPLIT LANDS AS THREE PULL REQUESTS, BUILT AND TESTED
+    TOGETHER, IN PLACE OF THE PLAN'S EIGHT STAGES.** Times are UTC, on 2026-10-06. At 05:16 the
+    owner wrote, verbatim: **"Yeah continue, just use a PR to remove message from /connect and
+    possibly /sdk then PR to /message with everything we need and we will need to build off that
+    and test"**
+    - **The lead's reading,** sent to the owner at 05:17: "three PRs, built and tested together as
+      a set".
+      - **`urnetwork/message`:** everything, with its history: `mls`, `syntax`, `message`,
+        `messagegroup`, `protocol` with the schema, the messaging sdk (`sdk/` and `sdk/urmessage`),
+        the probes, and the native composition build of `URnetworkSdk.dll` with the message
+        exports.
+      - **`urnetwork/connect`:** the message packages and `message.proto` removed, and a generic
+        `NewOperatorClientSettings` added, which the moved code needs: the plan's CX-1 and CX-2.
+      - **`urnetwork/sdk`:** the messaging files and exports removed, and its settings delegated to
+        that connect function: the plan's SX-1 and SX-4.
+      - **The owner's "possibly /sdk" is read as a definite sdk pull request.** That is the lead's
+        reading: the sdk's pull request merges first, and afterwards nothing in the sdk imports
+        connect's message code.
+    - **The merge order:** the sdk's removal, then connect's, then `urnetwork/message`. The message
+      repository goes last because it needs a connect without `message.pb.go`: two copies of the
+      schema in one binary panic at startup.
+    - **Two follow-ups:** this repository switches its imports to `github.com/urnetwork/message`,
+      and message-windows takes its DLL from the message repository. The live alpha is unaffected
+      throughout: it ships from the pinned `alpha/premerge` branches.
+    - **What it replaces** (item 281):
+      - the plan's stage-per-pull-request structure, M1 to M8, each stage a branch and a pull
+        request of its own;
+      - the sequencing of CX-1, CX-2, SX-1, SX-4, MS-1, MS-2 and MW-2, which becomes the three pull
+        requests in the order above, then this repository's switch and message-windows' DLL as
+        follow-ups.
+    - **What it keeps:** item 281's push direction and its no-force rule; O1, O2 and O17; history
+      moving with the code; and `MESSAGEREVIEW.md`'s layout and boundary rules. The design asks
+      for the schema's move as "a separate reviewable change"; inside one pull request, that can
+      only be a commit of its own. Stage 4's carrier is not among the three, and still waits on
+      O15. SX-0, the sdk's sync, and MS-0 stand.
+    - **The first wave's work feeds it.** At 05:17 the lead named the history extraction, the
+      scaffold, the connect settings function, the sdk sync and this ledger. A consolidated wave
+      follows: the three branches built together as sibling checkouts; then the full suites, the
+      wire bytes shown unchanged, liveprobe against the live server with binaries built from the
+      new repository, and the Windows app against the new DLL; then a red team of each diff; then
+      the three pull requests, opened in the order they merge.
+    - **The plan's decisions are re-read under it,** each in item 281's list where it named a
+      stage. O3's and O14's are readings, not renames.
+    - **An order to settle** (section 7's entry, part 9). The sdk's pull request delegates to
+      `NewOperatorClientSettings`, which connect's adds, yet it merges first, and the sdk's CI
+      builds against connect's `main`, cloned unpinned. Between the two merges the sdk's `main`
+      would not build.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
@@ -23151,3 +23863,1041 @@ Why exits do not answer is not known. The fork's provider release has never buil
 
 Its four optional NITs were taken too: the 33 skips, "every run that reached it", the unexplained
 missing checks, and #213's minute.
+
+---
+
+### 2026-10-04 — Item 279: the URnetwork route, the silent fleet measured, two owner rulings, the client half committed, and upstream's merges
+
+**Change:** this ledger and one new report. It adds item 279, this entry, and
+`docs/reports/2026-10-04-provider-ab.md`. No spec or plan changes. Times are UTC.
+
+#### 1. The question
+
+Item 278 found the cause of the URnetwork route regression: "The merged SDK requires a per-peer
+session with every exit, and almost no beta exit answers one." It left open why.
+- At 12:20 the owner asked for more information, and a notice of the risks, before choosing a mode.
+- At 17:46 the owner asked whether the providers run old code. The owner proposed the test: run a
+  node of our own, note its client id, and connect to it directly.
+
+#### 2. The experiment: three providers of our own
+
+**The setup, the same in every run:**
+- **The client** was `livepeer`, built from the forks' sdk `22629e9a` and connect `8cc3b556`, plus
+  an 18-line experiment patch.
+  - 15 lines are the pin: `URMESSAGE_EXIT_CLIENT_ID` becomes `ProviderSpec{ClientId}`, which skips
+    find-providers2.
+  - The other 3 print the Hello's timing.
+  - The `PostQuantumEncryption` profile, which requires a session, was unchanged.
+- It ran as user2, with route `urnetwork` and endpoint `wss://74.50.11.53/urmessage/v1` with its
+  pin, from a fresh state directory each time.
+- **The providers** ran on our VPS, under a new seedphrase account, `urmessage-exit-probe`. Its
+  secrets stay on the VPS, mode 600.
+- No `URmessage.exe` and no other livepeer was running at the start of any run. The run script
+  refuses to start otherwise.
+
+| run | provider | per-peer handshake | first URmessage Hello | traffic to the exit |
+|---|---|---|---|---|
+| A, twice | urfoundation/sn `9356e1d4` (`./cli/miner`) on connect `8cc3b556` and sdk `22629e9a`, with an env-gated glog `-v` | completes: 1 ClientHello, 1 complete, identity verified | attempt 1, in 1.456 s and 1.388 s | 15 sealed writes each, 0 plaintext application writes |
+| B | our build of the operator's untracked `provider/main.go` at its connect `647bdae0`, with `golang.org/x/term v0.45.0` added to go.mod (part 7) and an env-gated glog `-v` | never: 14 ClientHellos, 0 answered, 13 cancelled at exactly 5.00 s, 1 still open at exit | never: 3 attempts of 60 s each, then `FAIL` after 190 s | 0 application writes, sealed or plaintext; 28 plaintext handshake frames |
+| B′ | B, plus one setting: `EncryptionModeOpportunistic` | completes | attempt 1, in 1.444 s | 15 sealed, 0 plaintext application |
+
+**Why B's result can be trusted:**
+- **The hellos were delivered and ignored, not lost.** B logged a receipt for all 14 of the
+  client's window ids: `[r]head 1 (TransferEncryptedControl)`.
+  - The VPS's clock ran 4.71 to 5.19 s ahead of the client's.
+  - We know because A and B′ logged each ClientHello after the client sent it, and answered before
+    the client finished.
+  - Corrected for that offset, every hello reached B within 0.55 s of leaving the client. That is
+    well inside the client's 5 s.
+- **B logged no `[tls]` line and never wrote `.provider.cert`.**
+  - Its server TLS configuration is built only when the mode is not Off.
+  - The same extraction kept 58 `[tls]` lines for A and 27 for B′.
+  - B's receipts are themselves logged at V(1), so the absence is not a logging level.
+- **The 5.00 s is the client's, not the exit's.**
+  - Each of B's 13 cancels came at the instant the window's evaluation failed with "encryption
+    required: session not established with peer".
+  - Any exit that does not answer produces it, whatever it runs.
+  - Item 278's cancels were not all at 5 s either: 69 of 123 were.
+- **The counting script reproduces item 278's published figures.**
+  - On 278's two merged runs it gives 130 ClientHellos, 2 complete and 123 cancelled: 69 at 4.9 to
+    5.1 s, 49 at 9.85 to 10.03 s, 3 at 8.6 to 8.8 s, and 2 at 3.7 to 3.8 s. 5 were still open.
+  - On the two `OPPORTUNISTIC` runs it reproduces 278's write table: 252, 206, 28 and 18, and 276,
+    228, 29 and 19.
+
+**The mechanism:**
+- connect's `DefaultEncryptionSettings().Mode` is `EncryptionModeOff` at both `647bdae0` and
+  `8cc3b556`. In that mode `DeliverEncryptedControl` returns at once, unanswered (`647bdae0`
+  `transfer_encrypt.go:3610-3612`).
+- sdk's provider path has turned sessions on since `8a91a91c` (2026-07-22), as `Encrypt = true`:
+  "the provider always enables the e2e encryption sessions". `e7680ba6` (2026-08-09) made it
+  `Mode = EncryptionModeOpportunistic`, at `device_local_provider.go:207` in `22629e9a`.
+- **The connect-era CLI never turns sessions on.** That holds for the operator's copy and for the
+  last committed one.
+  - The last committed one is `ecd2b90f` (2026-07-04). Upstream deleted the CLI the same day, in
+    `3b6b151e`, which is why the operator's copy is untracked.
+  - At `ecd2b90f` the switch was `EncryptionSettings.Encrypt`, default false. `Mode` first appears
+    in connect `d2553e06` (2026-08-09).
+  - `git log --all -G` over `provider/main.go` finds no version that sets either one. The same
+    search over sdk's provider path finds `8a91a91c` (`Encrypt = true`), then `e7680ba6`.
+- **The handshake's messages did not change** between `647bdae0` and `8cc3b556`. B′ completes the
+  handshake with the merged client.
+  - The wire did change in between, but only by addition: two Ack fields and a `report_id` in
+    `transfer.proto`, the URmessage MessageTypes in `frame.proto`, `extender.proto`, and the new
+    `message.proto`.
+
+**Each provider's public window**, by the VPS's clock:
+- A: 18:19:24 to 18:21:06;
+- B: 18:24:31 to 18:28:39;
+- B′: 18:30:22 to 18:31:32.
+
+No other sender's traffic reached any of them in those windows. Every sender was one of our own
+windows, or the platform.
+
+#### 3. The fleet, measured
+
+These are read-only queries on the operator's database. q8 ran at 20:46.
+
+**`provinv/q8.sql`: connected public providers, by program.**
+
+```sql
+with p as (
+  select distinct nc.client_id, coalesce(nc.description,'') as d, nc.network_id
+  from provide_key pk
+  join network_client nc on nc.client_id = pk.client_id
+  join network_client_connection ncc on ncc.client_id = nc.client_id and ncc.connected
+  where pk.provide_mode = 3
+)
+select case when d ~ '\[[^]]+\]$' then substring(d from '\[([^]]+)\]$')
+            when d like 'provider %' then 'connect-era CLI'
+            when d = '' then '(empty)' else '(other)' end as program_version,
+       count(*) as connected_public_providers, count(distinct network_id) as networks
+from p group by 1 order by 2 desc;
+```
+
+- **245** report `v3.23.0-fix.28.0`. Their descriptions read `<host> [v3.23.0-fix.28.0]`, and all
+  245 are in one network.
+- **1** is a connect-era CLI. Its description reads `provider linux`, and its client was created on
+  2026-09-07.
+
+**`provinv/q7.sql`: item 278's exits, by program.**
+- It takes the 73 exits that item 278's four runs sent a ClientHello to. The runs are merged-1,
+  merged-pqeon-2, merged-opp-1 and merged-opp-long. The exits come from their `[tls]` lines that
+  read `client c=… <id> outbox batch 0: <n> bytes (record type 0x16)`, item 278's ClientHello
+  query, and `… <id> handshake complete`. Their `opened session for peer <id> as client` lines
+  give the same 73.
+- It looks each one up the same way. The ids are not printed here, because they are a third party's
+  clients.
+- **72 report `v3.23.0-fix.28.0`, and none of them answered.** The one that answered, in both
+  merged runs, is the connect-era CLI.
+- The two merged runs alone reach 71 of the 73, which is item 278's count.
+
+**What this settles, and what it does not:**
+- **By its client descriptions, the silent fleet is one program, under one network.** It is not
+  the connect-era CLI.
+- **Its source is in no repository we have.** connect, sdk, sn, server and the operator's source
+  tree were searched.
+- **Why it drops the ClientHello is inferred, not seen.** connect's Off default fits. The relay
+  instructions in item 279 cover both ways the program could be built.
+- **The fleet's one connect-era CLI answers**, although no CLI source we hold turns sessions on. So
+  it runs a build we do not hold.
+- **The REQUIRED criterion can now be measured.** "Once most exits answer" means q8 by program
+  version, plus a pinned run to an exit of each version.
+
+#### 4. The rulings, and the client half
+
+**Ruling 1.** At 18:38 the lead asked "Which per-peer encryption mode should URmessage's URnetwork
+route use?", with three options. At 19:58 the owner chose the first, which item 279 quotes.
+- "Opportunistic + provider fix (Recommended)": chosen.
+- "Keep REQUIRED, fix providers first": "Strongest privacy, but URmessage on the merged SDK stays
+  broken (about 2+ min or failed Hellos) until most beta exits run the fixed provider. The alpha
+  stays on the pre-merge SDK, which is effectively 'off', until then."
+- "Opportunistic only": "Client change only; leave the provider CLI as is. Works now, but almost
+  nothing gets sealed until exits update some other way."
+
+At 20:52 the lead told the owner that "seals with every updated exit" was too strong, because of
+the pre-session window measured below. The ruling stood.
+
+**The client half: sdk `c71bb73b` on the fork's `main`, and urnetwork/sdk#156.**
+- **What it changes:**
+  - `messageTunnelClientSettings` sets the mode to `EncryptionModeOpportunistic`, with the key api
+    wired as before.
+  - `messageTunnelMultiClientSettings` turns `PostQuantumEncryption` from true to false, because
+    connect reads it as REQUIRED. It keeps `AllowDirect` false.
+  - The comments in `message_tunnel.go` and `message_route.go` say what the relay can read.
+- **The tests.** `message_tunnel_test.go` runs the tunnel itself to an exit in the same process.
+  Five mutants each fail at least one case.
+- **Where it sits.**
+  - `c71bb73b` sits on `f1f28d2e`, an `-s ours` absorb of upstream's `2e131adb`. The absorb leaves
+    the tree as `22629e9a` had it.
+  - #156 is branch `upstream/route-opportunistic` at `98e444e1`, which is upstream's `main` plus
+    one commit. Its `go test` passed upstream (run `37234810669`).
+
+**Measured on the beta on 2026-10-04, in `route-opp/runs`:**
+
+| runs | exit | first URmessage Hello | per-peer sessions | plaintext application writes before the cipher was usable | sealed writes |
+|---|---|---|---|---|---|
+| opp-a1, opp-a2 | unpinned: the fleet | attempt 1, after 2.007 s and 2.463 s | 12 ClientHellos each, none answered | all of them: 136 and 211 | 0 |
+| opp-b1 | exit A (sn's provider) | attempt 1, after 1.234 s | 1, identity verified | 6 | 8 |
+| pinA-opp-1, pinA-opp-2 | `urn-exit-a` | attempt 1, after 1.212 s and 1.212 s | 1 each, identity verified | 6 and 6 | 9 and 8 |
+| pinB-opp-1, pinB-opp-2 | `urn-exit-b` | attempt 1, after 1.209 s and 1.293 s | 1 each, identity verified | 6 and 3 | 9 and 12 |
+
+- **The pre-session window** runs from the ClientHello until the cipher is usable. It lasted 0.549
+  to 0.621 s.
+  - By size, the writes in it were the TCP open to the endpoint: 3 or 4 writes of 95 to 178 bytes.
+  - In 4 windows of 5 they also carried its TLS ClientHello, in writes of 1,200 and 574 bytes.
+  - REQUIRED holds these writes: under REQUIRED, A's and B′'s runs sent 0 of them.
+- **The queries.**
+  - `count_run.sh` counts what item 278's table counts.
+  - `per_window.sh` counts per window client. An application write is a `write plaintext` line
+    with `forceUnwrapped=false` to a non-zero destination. It counts those before that window's
+    `cipher is now usable`.
+- **The live probe.** On the VPS, `liveprobe -route urnetwork` reported "13 STEPS, 1668 ASSERTIONS,
+  ALL HELD" in 2 runs. `c71bb73b`'s message records it.
+- **Item 278's text obligation.** `c71bb73b`'s comment in `message_tunnel.go` meets it.
+  - It says what the relay reads in three cases, with these numbers: after the session completes
+    (sizes and timing only), before it completes, and with a silent exit.
+  - It names what REQUIRED adds: the entry hold in `SendSequence.Pack`, the signed key-history hold
+    (`keyHistoryRequiredWithLock`), and `ReceiveSequence.receiveHead`'s gate.
+  - It names the downgrade a forged nack forces through `handleUnknownWrapNack`, and says: "This
+    app cannot tell."
+  - The app's text does not say this yet (part 9).
+
+**Ruling 2.** At 21:07 the lead asked the question item 279 quotes, with two options. At 04:17 on
+2026-10-05 the owner chose "Build the 1 s hold (Recommended)".
+- The other option was "Ship Opportunistic as is": "Keep today's behaviour: each new exit
+  connection sends its first 3-6 writes unsealed (the TCP open and TLS ClientHello to the message
+  server's address) before the session seals."
+- **In progress:** connect's `EncryptionSettings.OpportunisticEstablishHold`, zero by default. A
+  connect pull request comes first, then a one-line sdk follow-up.
+
+#### 5. The provider half, and our test exits
+
+**The patch to the connect-era CLI.**
+- It makes the same change as B′, without the env gate.
+- It applies to the operator's `provider/main.go` (sha256 `7b4bd794…`).
+- **It compiles for linux/amd64 against `647bdae0` only with `golang.org/x/term v0.45.0` added to
+  go.mod and go.sum.** Those lines go with the patch.
+  - The operator's `main.go` imports x/term.
+  - `647bdae0`'s go.mod no longer requires it (part 7).
+- **Its reach is the connect-era CLI only.** The fleet's one CLI exit already answers.
+  - So the patch serves our `urn-exit-b`, and any CLI exit someone starts.
+  - The fleet's fix is the third party's update, relayed by the owner.
+
+**The test exits** run on the VPS, with the owner's leave (item 279). They are two systemd units
+under the probe account. Both are public, and each is capped at `MemoryMax=700M` and
+`CPUQuota=60%`.
+- `urn-exit-a` runs sn's provider, client `01a10822-…`. It adopts exit A's credential, so its id is
+  stable across restarts.
+- `urn-exit-b` runs the patched connect-era CLI. It mints a new client id on each start.
+- A third unit, `urn-exit-a2`, ran sn with a fresh auth-client credential. sn's custody check
+  rejected it (`.provider.jwt.rejected`), and the unit was removed.
+- While they run, other beta users can egress through the VPS.
+- `urn-exit-a` runs sn's extender role on this box (part 7, finding 5), and sn `9356e1d4` has no
+  flag to disable it. **The lead's ruling:** it stays for the test period, and is revisited if it
+  adds load or if the message server ever listens on UDP 443.
+
+#### 6. Upstream: seven merges, and item 277's trap
+
+All seven were merged by Ryanmello07, with merge commits.
+
+| repository | pull request | merge commit | merged |
+|---|---|---|---|
+| connect | #215 | `9baa9421` | 11:33 |
+| sdk | #154 | `d0227b40` | 11:33 |
+| server | #446 | `f3b94d0d` | 11:42 |
+| message-windows | #1 | `e9ba0be2` | 11:43 |
+| connect | #216 | `94453d74` | 20:02 |
+| sdk | #155 | `2e131adb` | 20:04 |
+| message-server | #1 | `6c3153fd` | 20:08 |
+
+- **Item 277's "THE TRAP THIS SETS" is armed** in all four of our repositories.
+  - message-windows has absorbed its merge: `7e962e3d` (12:14) keeps the fork's files.
+  - sdk has absorbed its merge: `f1f28d2e` is an `-s ours` merge, and its tree is unchanged.
+  - connect's absorb (of `94453d74`) and this repository's (of `6c3153fd`) follow this commit.
+- From 20:04, upstream sdk's `main` carries the REQUIRED route (`message_tunnel.go:92`,
+  `PostQuantumEncryption: true`), until #156 merges.
+
+#### 7. On the operator: a report, not a fix
+
+This is the owner's rule, applied as `docs/reports/2026-09-15-operator-and-connect-findings.md`
+applies it.
+
+1. **The provider source on the operator is not in git.**
+   - `provider/main.go` is untracked in the operator's connect checkout.
+   - The operator's connect `647bdae0`, and its parent `8f07a862`, are on neither the fork nor
+     upstream.
+   - The fork's `beta/merge-main-2026-07-25` is at `3648dd7b`, an ancestor of both. So the operator
+     is two unpushed merge commits (2026-09-15) ahead of the fork.
+2. **That source does not build at its own checkout.**
+   - It imports `golang.org/x/term`, which `647bdae0`'s go.mod does not require. x/term left
+     connect's go.mod in `2ce0a49a` (2026-07-15), eleven days after upstream deleted the CLI in
+     `3b6b151e`.
+   - So whatever binary the operator deployed was not built from this tree as it stands.
+3. **Today's sn provider cannot create a client on this operator.**
+   - It speaks only `POST /network/register-client-v1`, which server `3eaa31e7` does not have.
+   - Adopting the account's original credential works: exit A did, and `urn-exit-a` does.
+   - sn's own custody check refuses a fresh auth-client credential (`urn-exit-a2`).
+   - So a fresh install of today's provider cannot join this beta.
+4. **Seedphrase accounts are rate-limited per address.**
+   - Item 264 recorded a sixth account refused: "a sixth hit the operator's per-address rate limit".
+   - This run's account was created at the first attempt.
+5. **Today's provider also starts an extender role.**
+   - On the VPS it bound UDP 443 and 4053.
+   - Its TCP 443 and UDP 53 binds failed. TCP 443 is the message server's own listener, so the
+     message server was untouched.
+   - `urn-exit-a` now runs that provider there, and sn `9356e1d4` has no flag to disable the role.
+     The lead's ruling is in part 5.
+
+#### 8. Where the evidence is
+
+- **The report** is `docs/reports/2026-10-04-provider-ab.md`, committed here.
+- **The working files are in session f35258a1's scratch directory**, under `provinv/` and
+  `route-opp/`. They are not durable. They are:
+  - the run logs, and the address-stripped provider extracts;
+  - the scripts `count_run.sh` and `per_window.sh`;
+  - the queries `q1.sql` to `q9.sql`;
+  - the diffs, and the patch.
+- **Two of them stay out of this repository:**
+  - the client logs, because they carry network addresses;
+  - `q7.sql`, because it lists 73 of a third party's client ids.
+
+  The other files carry neither. The queries behind the counts are printed in this entry, in item
+  278's query table, or in the report. The CLI exit's description and creation date come from
+  `q4.sql` and `q5.sql`, which print only buckets.
+- **The raw provider logs** held addresses. They were shredded on the VPS once the extracts were
+  taken. A stale log watcher from an earlier session was killed there too.
+- **The message server was undisturbed:**
+  - `urmessage.service` and PostgreSQL were active at every check;
+  - `/readyz` reported ready;
+  - the extender's failed TCP 443 bind left the server's listener alone.
+
+#### 9. Open
+
+- **The 1 s establish hold** (ruling 2): a connect pull request, then the one-line sdk follow-up.
+- **The app's text about the route**, under the G4 honesty rule and item 278's obligation. The
+  route work found that it must say:
+  - the operator can read where the traffic goes (the server's address and port) and the TCP and
+    TLS headers, unless the exit seals a session;
+  - nearly no beta exit does today;
+  - even then, the first moments of each new exit connection go unsealed;
+  - an interfering operator can always force the unsealed form, and the app cannot tell;
+  - sizes and timing are always visible;
+  - the messages are always encrypted to the pinned key, with MLS above that.
+
+  If the app ever shows "sealed", it must come from `PeerEncryptionStates().Sealed`, never from
+  the setting.
+- **Moving the alpha off `alpha/premerge`** (item 277's ruling). The route work judged it feasible:
+  the message code has barely moved, and the C ABI is compatible.
+- **The third party's update**, relayed by the owner. When one of its exits is updated, pin a test
+  client to it.
+- **The REQUIRED criterion.** It can now be measured with q8 and a pinned run (part 3).
+- **The absorbs** of connect (`94453d74`) and of this repository (`6c3153fd`).
+- **urnetwork/sdk#156**, to merge upstream.
+- **`urn-exit-a`'s extender role** on the message-server box stays for the test period (part 5).
+  Revisit it if it adds load, or if the message server ever listens on UDP 443.
+
+Ruling 1 closes item 278's open "The owner's choice in part 4".
+
+**Reviewed by:** a subagent, against the logs, the runs, the source and GitHub. **First round:
+approve with changes.**
+- **Five MAJOR findings, all taken:**
+  - the headline claimed more than the experiment showed;
+  - the fleet could be counted, and now it is;
+  - what Opportunistic gives up was understated, and it is now measured;
+  - the hand-over patch needs x/term, and B is relabelled;
+  - #155 had merged, and the merges are now recorded.
+- **Nine MINOR findings, all taken:**
+  - 14 against 13 cancelled;
+  - a misquote of item 278;
+  - checking against 278's published figures;
+  - the sixth account;
+  - "the wire";
+  - the two clocks;
+  - the report's hygiene;
+  - "70 silent";
+  - the missing Open and Reviewed parts.
+- **The NITs were taken**, except committing the scripts. What they count is printed here and in
+  item 278's query table instead.
+
+**Second round: approve with changes.** It re-derived the run tables with `count_run.sh` and
+`per_window.sh`, the hashes and the seven merges against git and GitHub, and every quote against
+the session's log. The splice leaves every byte of `81bb1a4` in place. The printed q8 differs from
+`provinv/q8.sql` only by that file's first line, `\pset footer off`, a psql display setting, so it
+is the same query.
+- **Two MAJOR findings, both taken:**
+  - "the client half shipped": no build anyone runs carries it, and the report never said that the
+    alpha still ships `alpha/premerge`;
+  - the lead's ruling on `urn-exit-a`'s extender role was missing, and part 9 still listed it as
+    open.
+- **Eight MINOR findings, all taken:**
+  - the owner's "What’s", now verbatim, with its curly apostrophe;
+  - q8 ran at 20:46, not at about 21:45;
+  - the change turns `PostQuantumEncryption` off; it did not keep it off;
+  - sdk's provider path has turned sessions on since `8a91a91c` (2026-07-22), not since `e7680ba6`;
+  - x/term left connect's go.mod in `2ce0a49a`, not when the CLI was deleted;
+  - the fleet claims now say what the client descriptions name, and 72 exits are not every exit;
+  - q7's extraction, and the queries behind the CLI exit's description and date;
+  - the app-text list, now in part 9 rather than in the lead's notes.
+- **Five of its NITs were taken:** run A's glog `-v`, the key-history hold's narrow reach in this
+  tunnel, the clock bound of 4.71 s, "by default" for the VPN, and "attempt 1" for the alpha
+  comparison. Three were left: the four-item attribution to `c71bb73b`'s comment, a pointer in
+  item 278, which would break the splice's byte-identity, and the friend quote, which is the
+  owner's call.
+
+---
+
+### 2026-10-05 — Item 280: two AI crypto reviews checked, a hardening program, the audit ruling
+
+**Change:** this ledger, one new plan, one new report and a pointer in `docs/plans/README.md`. It
+adds item 280, this entry, `docs/plans/2026-10-05-hardening-program.md` and
+`docs/reports/2026-10-05-crypto-review.md`, and the README's paragraph naming the plan. No spec
+changes. Times are UTC, on 2026-10-05.
+
+#### 1. What happened, in order
+
+| time | what |
+|---|---|
+| 04:17 | The owner pasted two external AI reviews of our encryption and methodology. Item 280 quotes the words. |
+| 04:31 | In the route work, connect's absorb was committed as `1f97ebb2`: `git merge -s ours` of `b4b7e070`, #216's one commit (part 7). |
+| 04:51 | The grounding came back: each review claim, checked against the code and the specs. |
+| 04:52 | The fact-check came back: each external claim, checked against primary sources. |
+| 04:53 | The lead put the verdict and the recommendation to the owner, and asked two questions: which improvements to start on, and what to do about the audit. |
+| 04:58 | The owner answered both: the directive and the audit ruling. Item 280 quotes both. |
+| 05:03 | The design workflow started, and the lead sent the owner the task list. |
+| 05:20 | The owner supplied two further test VPSs. |
+| 05:21 | go1.26.5 was installed on both, and Rust on one. |
+| 05:24 | This repository's absorb of upstream's `6c3153fd` was committed, as `81cf1f4`. |
+| 05:53 | The route work reported that it had absorbed `b4b7e070`, not `94453d74`, so as not to drop upstream's durablevolume fix (part 7). At 05:54 the fork's `beta/message` and `main` were pushed to `e449f7d8`, which carries the absorb. |
+
+#### 2. The reviews, against what we build
+
+The report, `docs/reports/2026-10-05-crypto-review.md`, has the table, with a citation per row.
+- **Pinned at:**
+  - connect `8cc3b556`. Its `mls`, `messagegroup`, `message` and `protocol` trees are unchanged at
+    today's `e449f7d8`.
+  - sdk `c71bb73b`. Its `urmessage` tree is unchanged at today's `d20d82c1`.
+  - this repository's `81cf1f4`, and message-windows `0b08178`.
+- **PQ, as built, is a storage layer above a classical MLS.**
+  - One suite, 0x0003. 0x0001 is implemented and refused (connect `mls/group.go:396-401`).
+  - MLS's HPKE is X25519 only (`mls/hpke.go:214`, `:271`; item 251).
+  - Each commit draws a fresh `pq_secret` and seals it with X-Wing to each remaining device's
+    static key, as a PERMANENT record (sdk `urmessage/group.go:2037-2079`,
+    `urmessage/pqepoch.go:1556`). The alpha's sdk, `d2fb60ac`, does this too.
+  - `storage_root` = HKDF-Extract(salt = the MLS exporter, ikm = `pq_secret`) (connect
+    `messagegroup/keyschedule.go:104`, `:131`).
+- **The join.** The `Invite` carries `PqSecret` in the clear (sdk `urmessage/invite.go:45-51`,
+  `:88`; `urmessage/pqepoch.go:1383`).
+- **No healing.** `ProposeUpdate` re-encodes the leaf's existing X-Wing key (connect
+  `mls/group.go:1800-1803`). Every key is on disk in the clear (sdk
+  `urmessage/statestore_durable.go:29-50`; item 229).
+- **Verification is specified, not built.**
+  - This repository's `kt/doc.go:5` reads "This package holds no code yet".
+  - MASTER §10.2, Spec A §7.6 and Spec C's screens 16 to 18 specify TOFU and safety numbers. The
+    sdk has no safety-number API, and the Windows app shows a key-change record only in its demo
+    data (message-windows `app/src/App/Demo/DemoWorld.cpp:376`).
+- **Tests.**
+  - Seven of the sixteen vector families have no runner in connect's registry
+    (`mls/vectors_test.go:110`: 2, 8, 9, 13, 14, 15 and 16). Two of them are partly covered
+    outside it: 16's runner exists in `mls/syntax` and is not installed, and
+    `mls/crypto_labels_test.go` checks 2's constructions.
+  - ValSem240 to 246 appear nowhere in connect. They are six codes, since there is no 243, and
+    Spec A (:884-889) expects `ErrProfileExternalCommit` for each. Each needs a new_member_commit
+    sender, which connect refuses earlier, with `errProcessSenderType`
+    (`mls/commit_process_test.go:871-877`).
+  - The interop peers' image digests are placeholders (`mls/interop/PINS.md:21-23`).
+- **`req_auth`.** The sdk and the server each marshal the request with `Deterministic: true` (sdk
+  `urmessage/record.go:246`, `:269`; this repository's `api/fetch.go:250`). connect pins the
+  framing and the tag over raw request octets (`message/writeauth_test.go:457`, `:509`). No test
+  pins a marshal's bytes.
+- **The transport to the message server,** on the direct and URnetwork routes (item 268), is TLS
+  1.3 only, with X25519MLKEM768 only (`endpoint/endpoint.go:184-194`). The client pins the server's
+  key (sdk `message_route.go:332-349`). Authentication is classical.
+- **No dependency monitoring.** connect, sdk, this repository and message-windows carry no
+  Dependabot or Renovate configuration that applies, and no file names govulncheck. connect's
+  `sctp/renovate.json` is a vendored copy of pion's, which Renovate does not read from a
+  subdirectory.
+
+**The queries behind the three absences:**
+
+| what | query | result |
+|---|---|---|
+| ValSem240 to 246 | `git -C connect grep -E 'ValSem24[0-6]' 8cc3b556` | 0 lines. Control, in the same tree: `func TestValSem` finds 29 tests, and `ValSem2[0-9]{2}` finds ValSem200 to 209. The query finds names, not behaviour: no test names ValSem400 either, yet `TestPastEpochWindowDropsOlderState` tests its bound. |
+| dependency monitoring | `git ls-tree -r --name-only <commit> -- .github`, for a dependabot or renovate file; `git grep -i govulncheck <commit> -- .github`; then both again without `-- .github` | Under `.github`, 0 in each repository. Repository-wide, the file search finds 2 paths, both in connect's vendored `sctp/`: `sctp/renovate.json` and `sctp/.github/workflows/renovate-go-sum-fix.yaml`, pion's, which neither Renovate nor GitHub Actions reads from a subdirectory. No file anywhere names govulncheck. Control: the same grep finds `actions/setup-go` in 3, 2 and 1 workflow files of connect, sdk and this repository (message-windows has no Go workflow). |
+| a `req_auth` marshal KAT | the test files naming `ComputeRequestAuth`, `ReqAuth`, `req_auth` or `Deterministic: true`; then, in them, any quoted hex string of 16 or more digits, any `[]byte{0x…}` literal and any `hex.` call | 7 files in each repository. connect: 2 hold such a literal. `message/writeauth_test.go` pins the framing and the tag over raw request octets, and `protocol/message_test.go`'s one literal is a fill pattern. sdk: 2, both fill patterns. This repository: 3, all fill patterns. None pins a request's marshal. Control: the same probe finds 35 hex strings in `message/writeauth_test.go`. |
+
+#### 3. The fact-check, and the derivation split reproduced
+
+**The split neither review saw: one codepoint, two key derivations.**
+- X-Wing draft-11 §5.6 defines `DeriveKeyPair(ikm)` as `GenerateKeyPairDerand(SHAKE256(ikm, 32))`.
+- draft-ietf-hpke-pq-05 uses `SHAKE256.LabeledDerive(ikm, "DeriveKeyPair", "", 32)`, with
+  `suite_id` = "KEM" || I2OSP(0x647a, 2). It asks IANA to "replace the entry for the value 0x647a".
+- IANA's HPKE registry lists 0x647A as X-Wing, citing draft -06.
+
+**How it was reproduced.** `derive_check.py` recomputes only the X25519 half of each public key,
+because no ML-KEM is needed to tell the two derivations apart.
+- From a seed it takes SHAKE256(seed, 96), bytes 64 to 96, as the X25519 scalar, multiplies the
+  base point, and compares the result with the last 32 bytes of the published public key.
+- **The control** is X-Wing -11's own Appendix C vectors, seed to public key, under the same code.
+- **The two candidate seeds** are A, SHAKE256(ikm, 32), and B, LabeledDerive, over the `ikmR` of
+  hpke-pq-05's two MLKEM768-X25519 vectors.
+
+It was re-run for this entry:
+
+```
+CONTROL X-Wing -11 Appendix C: 3 vectors match, 0 mismatch
+A.5.  MLKEM768-X25519, HKDF-SHA256, ChaCha20Poly1305: len(ikmR)=32 len(pkRm)=1216
+   A  plain SHAKE256(ikm,32)  [X-Wing -11 s5.6] matches pkRm: False
+   B  LabeledDerive            [hpke-pq-05 s4]   matches pkRm: True
+A.12.  MLKEM768-X25519, SHAKE256, ChaCha20Poly1305: len(ikmR)=32 len(pkRm)=1216
+   A  plain SHAKE256(ikm,32)  [X-Wing -11 s5.6] matches pkRm: False
+   B  LabeledDerive            [hpke-pq-05 s4]   matches pkRm: True
+```
+
+Its inputs are the plain-text drafts, by sha256: `xwing-11.txt` `1353f61f…`, `hpke-pq-05.txt`
+`c3afa398…`. The script is `ccf30adb…`. All three are in the scratch directory part 9 names.
+
+**Which side OpenMLS takes** was read from source, not run.
+- crates.io hpke-rs 0.7.0 derives an X-Wing key pair from `shake256::<32>(ikm)` (its
+  `src/kem.rs`). That is the unlabeled form.
+- OpenMLS's `Cargo.lock` takes hpke-rs from crates.io until `ff94cdc2b036` (#2170, 2026-09-10), and
+  from a git revision of the libcrux repository after it:
+
+  | OpenMLS commit | date | `hpke-rs` in `Cargo.lock` |
+  |---|---|---|
+  | `06605afb0def` (#2145, the 0.9.0 release prep) | 2026-08-03 | crates.io 0.7.0 |
+  | `e725f587b107` (#2187, 0.9.0 merged back) | 2026-08-25 | crates.io 0.7.0 |
+  | `27ddc74e9ebf` (#2185) | 2026-08-28 | crates.io 0.7.0 |
+  | `1b02263b19b9` (#2172) | 2026-09-09 | crates.io 0.7.0 |
+  | `ff94cdc2b036` (#2170) | 2026-09-10 | git, libcrux `2b0b67c9` |
+  | `774c6a7fb3f2` (#2215) | 2026-09-28 | git, libcrux `39c4f2f2` |
+  | `055a2b4b06b5` (#2249) | 2026-10-02 | git, libcrux `2456eda0` |
+
+- At all three libcrux revisions, `crates/protocols/hpke/src/kem.rs` derives through
+  `pq_derive_keypair_seed`. That is LabeledDerive, unless that crate's
+  `draft-connolly-cfrg-hpke-mlkem` feature is on.
+- OpenMLS's root `Cargo.toml` at `ff94cdc2b036` says why: "The next hpke-rs release (with the
+  draft-ietf-hpke-pq derivation) is not out yet; use the git version until it is. See
+  openmls/openmls#2170." Its `libcrux_crypto/Cargo.toml` enables
+  `hpke-rs-libcrux/draft-ietf-hpke-pq` under the PQ feature.
+- **The queries** are in the table below. The crates.io crate's `src/kem.rs` was read from the
+  downloaded `hpke-rs-0.7.0.crate`.
+- Go's `crypto/hpke` (Go 1.26 and later) uses LabeledDerive too (the fact-check, read from source).
+- **0.9.0's side holds while hpke-rs 0.7.0 is the newest 0.7.x.** OpenMLS asks for hpke-rs `0.7`,
+  in `openmls_rust_crypto/Cargo.toml` and `libcrux_crypto/Cargo.toml`, at `e725f587b107` and at
+  `ff94cdc2b036`. A 0.7.x release with the labeled form would change what a fresh resolve of 0.9.0
+  gets. crates.io's newest hpke-rs is 0.7.0, read on 2026-10-05.
+- **The consequence is inferred, not run:** OpenMLS 0.9.0 and main should not interoperate on any
+  X-Wing suite. So any cross-check that runs X-Wing inside HPKE uses main at or after
+  `ff94cdc2b0`, never 0.9.0. S4's interop and fuzzing run 0x0003, whose HPKE is X25519 only, so
+  0.9.0 would serve there too. S4 uses main so that one pinned oracle serves both (the plan's S4).
+
+| what | query |
+|---|---|
+| the commits that touched OpenMLS's lockfile | `gh api 'repos/openmls/openmls/commits?path=Cargo.lock&since=2026-08-01T00:00:00Z&until=2026-10-05T00:00:00Z'` |
+| the `hpke-rs` entry at each | `gh api -H "Accept: application/vnd.github.raw" "repos/openmls/openmls/contents/Cargo.lock?ref=<sha>"`, then the `source` line after `name = "hpke-rs"` |
+| the derivation at each pinned revision | `gh api -H "Accept: application/vnd.github.raw" "repos/celabshq/libcrux/contents/crates/protocols/hpke/src/kem.rs?ref=<rev>"` |
+| the pin's stated reason | the same, for `Cargo.toml` and `libcrux_crypto/Cargo.toml` in `openmls/openmls` at `ff94cdc2b036` |
+| OpenMLS's hpke-rs requirement | the same, for `openmls_rust_crypto/Cargo.toml` and `libcrux_crypto/Cargo.toml` at `e725f587b107` and `ff94cdc2b036`; and `https://crates.io/api/v1/crates/hpke-rs`, for the newest version |
+
+**The rest of the fact-check** is in the report's section 4. The corrections that matter here:
+- X-Wing's HPKE id is assigned, not "IANA-pending".
+- draft-mahy-mls-xwing stopped at -00 and expired on 2024-09-05.
+- 0x004D is OpenMLS's own number. IANA's MLS registry holds only RFC 9420's 0x0001 to 0x0007.
+- draft-ietf-mls-pq-ciphersuites-06 lists TBD1 to TBD11, and none is an X-Wing suite with
+  ChaCha20-Poly1305, SHA-256 and Ed25519, the PQ twin of our 0x0003.
+- XMTP wraps Welcomes with X-Wing, not KeyPackages.
+- Signal's SPQR is 1:1 only. Its groups have no PQ ratchet.
+
+#### 4. The recommendation put to the owner at 04:53, condensed
+
+| | action | why | cost |
+|---|---|---|---|
+| 1 | Seal the joiner's `pq_secret` to the X-Wing key its KeyPackage already carries, instead of pasting it in the clear. XMTP seals Welcomes this way. | Today a two-person chat that never commits again is protected only classically for its whole life. This makes every epoch harvest-proof. | small |
+| 2 | Safety numbers and TOFU key-change warnings, as already specified | Joins are unauthenticated: whoever controls the paste channel can substitute keys. The largest practical gap, larger than PQ. | medium |
+| 3 | Self-updates on a cadence, rotating the device X-Wing key in each, and keys encrypted at rest | Today a copied device state keeps decrypting. This gives real post-compromise security, with PQ re-keying to fresh keys. | medium |
+| 4 | Wire the unused vector families, build the specified OpenMLS interop and state-machine cross-check against OpenMLS main, and add a `req_auth` KAT | The reviewers' strongest methodology point: the vectors check the cryptography, not the state machine. | medium |
+| 5 | Correct the X-Wing pin in the docs, fix MASTER §13's PQ overclaim, publish an honest PQ statement, add govulncheck and Dependabot | Cheap honesty and hygiene. gorilla/websocket parses unauthenticated input on our public :443. | small |
+| defer | A PQ MLS ciphersuite inside TreeKEM | C6: wait for the RFC and its codepoints. After 1 and 3, what remains is narrow: PQ healing after a device compromise. Go's `crypto/hpke` has the hybrid KEM, as a test oracle for that day. | large, and in flux |
+| accept | No deniability, and classical (Ed25519) authentication | No deniability: the owner's ruling (item 232) and MASTER's permanent non-goal (:554). Classical authentication: C6's classical suite. Deniability is absent MLS-wide, and Signal's groups sign too. | none |
+
+**Where this record departs from the message:**
+- Row 3 said "a stolen device key reads all future epochs". It reads them until that device is
+  removed (item 266).
+- The defer row said "as your locked decision C6 already says". C6 keeps v1's MLS suite classical.
+  The wait for the RFC is MASTER §7's (:1098), and C4's for ML-KEM-1024.
+- The defer row's "what remains is narrow" is the lead's judgment, and it pulls against row 3:
+  S3's key rotation re-keys with X-Wing, which would itself heal the storage layer post-quantum.
+  S3's red team settles what a PQ suite would still add (the plan's S3, "The honest limits").
+- The accept row said "Already your recorded ruling". That ruling, item 232, is about deniability
+  alone.
+
+Items 1 and 3 change the protocol, so by the project's rule each gets an adversarial red team before
+any spec edit. Item 2 is specified already, and its red team tests the specified design.
+
+#### 5. What the two rulings settle, and what they leave
+
+- **The directive adopts all five, in the lead's order.** It also asks for:
+  - ultracode;
+  - simulation tests;
+  - the ledger, and a new task list, which is the plan this entry adds;
+  - a report with tests at each major success;
+  - a final sign-off with the owner when every task is done;
+  - use of the VPSs, telling the owner before a major change to them, or when access or
+    administrative help is needed.
+- **The audit ruling settles OD #25 and the timing of C7's audit.**
+  - OD #25 (`docs/reviews/2026-08-12-owner-decisions-1-45.md:64`) deferred the decision to slice 5.
+    It is taken: an audit is planned, and it comes after the alpha.
+  - C7's own clause, "a funded external audit before any non-beta user", is unchanged. An alpha
+    tester is not a non-beta user, so the ruling and C7 agree.
+  - MASTER §15 item 7 (:3468-3474) says Spec A's audit gate "blocks general availability **if** an
+    audit is commissioned". The ruling says one is planned, and moves nothing in that gate.
+  - MASTER §14 (:3417-3420) still reads "The external cryptographic audit is a decision taken at
+    slice 5", §15 item 7 is headed "RULED, decided at slice 5", and OD #25's row is unedited. A
+    spec pass owes them the ruling (part 10).
+- **What neither ruling changes:**
+  - C6: v1's MLS suite stays classical, and a PQ suite waits until draft-ietf-mls-pq-ciphersuites
+    is an RFC (MASTER §7, :1098).
+  - Item 232: no deniability.
+  - Classical authentication, under C6's suite.
+
+#### 6. The task list and its gates
+
+`docs/plans/2026-10-05-hardening-program.md` holds the tracks, their order, the gates each passes,
+and a status table. The table is a snapshot as of this commit. Each track's progress lands as a
+ledger entry, and the table moves in that commit.
+- **The status as of this commit:**
+  - S0.1: this commit.
+  - S0.2, S0.3, S0.4 and S4: their design is in review.
+  - S1, S2 and S3: their design and red team are running.
+  - S5: not started.
+- **Each track gets its own implementation plan in `docs/plans/`, reviewed before code.** The plan
+  warns about one trap for their file names. The plan linter reads `-((?:p|s|m)[0-9]+)-` out of a
+  plan's file name as its token (`planlint_test.go:158`), and `s1` and `s2` are taken. A per-track
+  plan named `…-s1-…` would collide with them.
+
+#### 7. The two further VPSs, the absorbs, and the design work
+
+- **The two further test VPSs** run Ubuntu 24.04, and the owner gave root access to both.
+  - go1.26.5, the Go that connect's, sdk's and this repository's go.mod pin, is installed on both.
+    Rust stable is installed on one, for the OpenMLS oracle.
+  - Their addresses are not recorded here.
+  - The lead plans to move the two test exits, `urn-exit-a` and `urn-exit-b` (item 279), off the
+    message-server box onto one of them, once the 1 s hold's live runs have finished with them.
+- **The absorbs.**
+  - This repository's: `81cf1f4` is `git merge -s ours` of upstream's `6c3153fd`. Its tree,
+    `f5ef812d`, is its first parent `68bcb3f`'s, so item 277's trap is disarmed here without a
+    file moving.
+  - connect's: `1f97ebb2`, committed at 04:31 in the route work, is `git merge -s ours` of
+    `b4b7e070`, #216's one commit. Its tree, `78341c2e`, is its first parent `8cc3b556`'s, and it
+    is on the fork's `beta/message` and `main`.
+  - **It is not of `94453d74`, which item 279 named** (its parts 6 and 9). That merge also carries
+    upstream's durablevolume fix (`c6186b79`, `492794ba`), and an ours-merge of it would mark the
+    fix merged without its content, so no later sync would bring it. The route work saw this, and
+    reported it at 05:53.
+
+  | what | query, in connect | result |
+  |---|---|---|
+  | the absorb's parents and tree | `git log -1 --format=%P 1f97ebb2`; `git rev-parse 1f97ebb2^{tree} 8cc3b556^{tree}` | `8cc3b556` and `b4b7e070`; both trees are `78341c2e` |
+  | where it is | `git branch -r --contains 1f97ebb2`, after a fetch (`origin` is the fork) | `origin/beta/message` and `origin/main` |
+  | what `94453d74` would add | `git merge-base --is-ancestor 94453d74 origin/beta/message`; `git log origin/beta/message..94453d74`; `git diff --stat origin/beta/message...94453d74` | not an ancestor; `94453d74`, `9baa9421`, `492794ba` and `c6186b79`; 4 durablevolume files |
+
+- **The design workflow** started at 05:03. It is read-only, and it has four tracks:
+  - the join seal;
+  - safety numbers and TOFU;
+  - healing;
+  - testing, with the quick fixes and the simulation harness.
+
+  Each track has a designer, a red team and a revision that answers every finding. The three
+  protocol tracks each get three red-team lenses:
+  - the join seal: a cryptographic attacker, the MLS state machine, and compatibility;
+  - safety numbers: a protocol-binding attacker, usable security, and implementation;
+  - healing: a post-compromise adversary, state and concurrency, and platform key storage.
+
+  The testing track gets one lens, a test-methodology skeptic. The output becomes the per-track
+  plans.
+
+#### 8. What this pass corrected in its own inputs
+
+- **"S2-24" for keys at rest does not resolve.** The brief this entry was written from, the
+  grounding, and sdk's `urmessage/statestore_durable.go:49` call the at-rest gap S2-24. Item 229
+  says that id is a different item, and that item 229 is "the real filing; cite it and not S2-24".
+  Item 280, this entry and the plan cite item 229. Inside `docs/plans/` the plan linter would
+  resolve S2-24 silently, to the `s2` plan's own S2-24, which is about where the next append lands.
+- **"The `req_auth` preimage has no KAT" is narrower than it reads.**
+  - connect's `TestRequestAuthPreimageIsPinnedToItsExactBytes` and
+    `TestRequestAuthTagIsPinnedToItsExactBytes` pin the framing and the tag, over raw request
+    octets.
+  - connect's `protocol/message_test.go` checks that the deterministic marshal is stable within one
+    process.
+  - What nothing pins is a known request's marshal to known bytes. A second implementation, in
+    another language, needs exactly that, and protobuf does not promise it. S0.3's KAT is that.
+- **The red team is not three lenses on every track.** The testing track has one (part 7).
+- **The OpenMLS switch is confirmed, not carried.**
+  - The fact-check dated it to #2170. That pull request's description says its only lockfile change
+    was a new crate.
+  - The merged commit changed `Cargo.toml`, `Cargo.lock` and `libcrux_crypto/Cargo.toml`, and the
+    root `Cargo.toml` names #2170 as the reason for the git pin (part 3). So the date holds.
+- **The brief said connect's absorb of `94453d74` was in progress.** It had been committed at
+  04:31, of `b4b7e070`, and the route work reported that at 05:53, after the brief was written
+  (part 7). The first draft of this entry carried the brief's sentence, and the review caught it.
+
+#### 9. Where the evidence is
+
+- **The report** is `docs/reports/2026-10-05-crypto-review.md`, committed here.
+- **The working files are in session f35258a1's scratch directory.** They are not durable.
+  - Under `crypto-review/`: `REVIEWS.md`, the two reviews, condensed from the paste, with the
+    greeting that named a person removed; `GROUNDING.md`, the grounding, with a citation per
+    claim; and `factcheck/`, the fact-check's `REPORT.md`, the primary texts it read, and
+    `derive_check.py`.
+  - Under `item280/`: libcrux's `kem.rs` at the three revisions OpenMLS pinned, fetched for this
+    entry.
+  - Under `item280/r2/`: OpenMLS's `Cargo.toml`, `openmls_rust_crypto/Cargo.toml` and
+    `libcrux_crypto/Cargo.toml` at `e725f587b107` and `ff94cdc2b036`, fetched while answering the
+    review.
+- **The reviews themselves stay out of this repository.** The report summarizes them.
+
+#### 10. Open
+
+- **The per-track plans.** S0.2's harness comes first. S0.3 and S0.4 follow, then S1 to S3 once
+  their red teams return, then S4.
+- **MASTER §14's and §15 item 7's audit sentences, and OD #25's row,** still read as a decision
+  taken at slice 5. S0.3 edits MASTER anyway, and can carry the ruling.
+- **Found while writing, for S0.3:** MASTER §7 (:874-877) cites draft-ietf-mls-pq-ciphersuites-01
+  and draft-ietf-mls-combiner-02. The fact-check found the first at -06, and the second expired.
+- **S5 meets item 279's open item:** the alpha ships `alpha/premerge`. Either the alpha moves to the
+  forks' mains first, or the hardening also lands on that branch. S5's plan decides, and the owner
+  rules if it is a choice between the two.
+- **The test exits' move** to a further test VPS (part 7).
+- **Item 279's open "The absorbs" is closed** by part 7, with `b4b7e070` in place of `94453d74`.
+  Its other open items stand as it records them.
+
+**Reviewed by:** a subagent diff review, against the session's log, the code at the pins, the
+specs, GitHub and the fact-check's sources. **First round: approve with changes.** It confirmed
+every quote byte for byte, the audit ruling's two U+2019s included, and every time in part 1. It
+found the splice byte-exact, no CR and no prose line over 100 columns, the hygiene clean, about 45
+citations resolving, the absences holding against their controls, the external facts matching
+their sources, and the gates passing.
+- **One MAJOR finding, taken:** connect's absorb was recorded as in progress, of `94453d74`. It was
+  done, of `b4b7e070`, and an ours-merge of `94453d74` would have dropped upstream's durablevolume
+  fix. Item 280 and parts 1, 7, 8 and 10 now say so.
+- **Ten MINOR findings, all taken:**
+  - recommendation 1's recorder needs a future quantum computer, in item 280 and the report;
+  - "PQ at bootstrap only" was the lead's paraphrase: one review read the layer as bootstrap and
+    transport only, and the other asked;
+  - "Reproduced" now covers the split alone, and which side each OpenMLS takes is marked as read;
+  - the RFC condition is MASTER §7's, not C6's, and item 232 rules on deniability, not on
+    authentication;
+  - part 4 is titled a condensation, and its departures from the message are listed under it;
+  - the report no longer says the owner adopted the table's order;
+  - the vector and ValSem absences now say what the queries measured, and S0.4 takes the sentinel
+    question;
+  - what a PQ suite adds after S1 and S3 is left to S3's red team;
+  - "never 0.9.0" is scoped: needed for X-Wing inside HPKE, a choice for S4's 0x0003 runs;
+  - this paragraph was missing.
+- **All five NITs were taken:** Windows' directory ACL for keys at rest, the transport's P-256 key,
+  connect's vendored Renovate file with the repository-wide query, "S0.3 will" for planned work,
+  and a pointer to the plan in `docs/plans/README.md`.
+
+---
+
+### 2026-10-05 — Items 281 to 283: the repo split, the owner's design rulings, three pull requests
+
+**Change:** this ledger only. It adds items 281, 282 and 283, and this entry. No spec or plan
+changes. Times are UTC, on 2026-10-05 unless another date is given.
+
+#### 1. What happened, in order
+
+| time | what |
+|---|---|
+| 06:02 | The maintainer's connect commit `13ced4c8` adds `MESSAGEREVIEW.md`. |
+| 06:20 | `urnetwork/message` is created. Its one commit, `0d697b0a`, adds `LICENSE`. |
+| 06:24 | The owner's fork, `Ryanmello07/urmessage`, is created. |
+| 06:25 | The owner's directive (item 281). |
+| 06:29 | The split plan starts, read-only: five inventories, a plan, three red teams, a revision. |
+| 07:06 | Batch 1 is put to the owner: four questions on the four tracks. |
+| 07:11 | The owner answers batch 1 (item 282). |
+| 07:12 | The foundation designs start, read-only. The lead sends the owner the new order. |
+| 09:10 | The owner merges connect #217, item 279's establish hold, as `92a657fa`. |
+| 09:15 | The three foundation designs return. |
+| 09:16 | Batch 2 is put to the owner: four questions on the foundations. |
+| 10:02 | The split plan returns, as v2. |
+| 21:46 | The owner answers batch 2, and asks for a file of every AI suggestion. |
+| 21:50 | The review file is delivered. The lead puts O1, O2 and O17. |
+| 03:30 | 2026-10-06. The owner answers O1, O2 and O17 (item 281). |
+| 03:32 | 2026-10-06. Wave 1 starts, local-only, with one writer per repository. |
+| 03:58 | 2026-10-06. The GitHub reads of part 4. |
+| 05:16 | 2026-10-06. The owner makes the split three pull requests, tested together (item 283). |
+| 05:17 | 2026-10-06. The lead replies with its reading of the ruling (item 283). |
+| 06:22 | 2026-10-06. The GitHub reads repeated for this entry's review round (part 4). |
+
+#### 2. The maintainer's design
+
+`MESSAGEREVIEW.md` is 467 lines (sha256 `47b6fab6…`), and `13ced4c8` adds nothing else. Upstream
+connect's `main` holds the same bytes: `13ced4c8` is its ancestor, and no later commit touches the
+file.
+- **The layout:** one module, `github.com/urnetwork/message`, with `CODESTYLE.md` and the CI at
+  the root, and six packages beneath it: `message`, `messagegroup`, `mls`, `syntax`, `protocol`
+  and `sdk`, with `sdk/urmessage` under `sdk`.
+- **What moves:** connect's `message`, `messagegroup` and `mls`, with `mls/syntax` as `syntax`;
+  `protocol/message.proto`, its generated code and its tests; the sdk's root `message*.go` as
+  `message/sdk`, with `urmessage` under it; the native messaging ABI, the probes and the
+  integration checks.
+- **What it measured:** without messaging and its schema, the core native library is 2,105,456
+  bytes smaller, 4.50%, on macOS arm64. Loaded passively, the footprint differs by about 0.1 to
+  0.2 MiB. It calls these comparative builds of today's code, not of the new layout.
+- **What it leaves to a decision:** stage 4's rollout, a coordinated switch or a period of two
+  carriers. With two, one carrier is chosen per session before any request, and an uncertain
+  write is not resent through the other "merely because the first reply timed out", unless the
+  operation's deduplication contract permits it.
+- **Its own effort table** calls mixed-version compatibility "Potentially the largest portion".
+
+#### 3. The plan, in summary
+
+The plan is `split/SPLIT-PLAN-FINAL.md` in session f35258a1's scratch directory, and its copy
+`SPLIT-FINAL.md` sits beside the review file. Both are sha256 `64d9499f…`. Neither is durable, and
+neither is in this repository. **Its sequence of stages is replaced by item 283;** its rules, its
+tooling and its decisions stand as item 281 reads them.
+- **What it rests on:** `MESSAGEREVIEW.md`, five inventories, plan v1, and three red teams. The red
+  teams returned 29 findings. v2 answers all 29: it rejects one sub-part with evidence, and does
+  not adopt one alternative fix.
+- **What v2 ran, in scratch only.** It pushed nothing and wrote nothing on GitHub. Every rehearsal
+  push went to a local bare repository.
+  - Three git-filter-repo passes over connect `e449f7d8`, each run twice with the same result:
+    `d3b3b26a` (24 commits, `CODESTYLE.md`), `fbbc842d` (465 commits, 837 files) and `28a9c4f1`
+    (10 commits, 8 files). X0 reproduces them on a test VPS before M1.
+  - The verifier, `verify_split3.py` (sha256 `85fcadf4…`), passed a rehearsal of M1 and M2. Each
+    of its negative controls failed for its own reason: a swapped history, a weakened workflow, a
+    rename that hides an edit, an undeclared literal, an unneeded one, a rewritten earlier tip,
+    and a manifest edited after the run.
+  - The import script was rehearsed for M1 against that local stand-in. It builds the merge,
+    writes the merge's proof paragraph from the verifier's own run, re-verifies the final commit,
+    and only then runs the dry run and pushes.
+- **Its pins:** connect `e449f7d8`, sdk `d20d82c1`, this repository `afc52ae`, message-windows
+  `3553de85`. CI siblings are upstream connect `92a657fa` and upstream sdk `1ca8b35a`.
+- **Its rules, beyond item 281's:**
+  - once a path is imported into `urnetwork/message`, its copy in connect or the sdk is frozen,
+    except for its removal pull request;
+  - a gate whose walk starts at a module or repository root names who keeps the half that does
+    not move, before its file moves;
+  - every narrowing prints its complement.
+- **For this repository:**
+  - MS-0 pins its CI's connect to `92a657fa` in `gates.yml`, and adds
+    `cmd/messagectl/main_test.go`;
+  - the plan's MS-1 and MS-2 become one follow-up under item 283, once the message pull request
+    is merged: this module requires `github.com/urnetwork/message`, its imports of connect's
+    `message`, `mls/syntax` and messaging schema switch to the new module, the deps gate changes
+    under O9, and the pins move past connect's removal.
+- **A name clash.** The plan numbers three follow-ups F1 to F3: re-vendoring the mlswg vectors
+  with LF line endings, the mlswg license, and `message/sdk`'s constant-time and erasure
+  guardrails (O20). They are not item 282's foundations F1 to F3, and this ledger calls them the
+  plan's follow-ups.
+
+#### 4. What the servers enforce
+
+Read at 03:58 on 2026-10-06, with GET requests only. For each repository `<r>`:
+- `gh api repos/<r>/rulesets`;
+- `gh api repos/<r>/rules/branches/main`;
+- `gh api "repos/<r>/branches?protected=true&per_page=100" --paginate`;
+- `gh api repos/<r>`, for the merge settings.
+
+| repository | rulesets | rules on `main` | protected branches |
+|---|---|---|---|
+| `urnetwork/connect` | 2 | `deletion`, `non_fast_forward` | 963 |
+| `urnetwork/sdk` | 2 | `deletion`, `non_fast_forward` | 873 |
+| `urnetwork/message` | 0 | none | 0 |
+| `urnetwork/message-server` | 0 | none | 0 |
+| `urnetwork/message-windows` | 0 | none | 0 |
+| each of the five forks | 0 | none | 0 |
+
+- connect's and sdk's rulesets are "Default", on every branch, created on 2026-08-19, and
+  "Protect Default", on the default branch, created on 2026-08-22. None of the four has a bypass
+  actor.
+- **The control is in the same query.** connect's and sdk's rows show that these queries find a
+  ruleset, and the branches it protects, where one exists.
+- `urnetwork/message` allows merge commits, squash merges and rebase merges.
+- **So O1's "already" is true of connect and sdk.** On `urnetwork/message`, on the message
+  server's and message-windows' upstreams, and on every fork, nothing on the server refuses a
+  force push.
+- **Read again at 06:22 on 2026-10-06,** for this entry's review round, with `git ls-remote` and
+  `gh api` GET requests only:
+  - both new repositories still hold one branch, `main`, at `0d697b0a`;
+  - `urnetwork/message` still allows merge commits, squash merges and rebase merges;
+  - no `split/*` tag is on the connect or the sdk fork, and this repository has no tag at all, on
+    its fork or upstream. **The control fires in the same reads:** they list 1,741 tags on
+    `urnetwork/connect`, one on the connect fork and 42 on the sdk fork;
+  - neither upstream connect's `main` nor `92a657fa` defines `NewOperatorClientSettings`, and the
+    same search finds `DefaultClientSettings` there. Upstream sdk's CI clones connect's `main` at
+    depth 1, unpinned (item 283).
+
+#### 5. The rulings, against the designs
+
+The designs are in session f35258a1's scratch directory, under `hardening-designs/` and
+`foundation-designs/`. Byte-identical copies sit beside the review file.
+
+| answer | question | its recommendation | now |
+|---|---|---|---|
+| batch 1, 1 | T2 Q10 | retract self-service second devices in the alpha | overridden: F1 |
+| batch 1, 2 | T3 O1 | 30 days plus events, as a recorded waiver | overridden: F2 |
+| batch 1, 2 | T3 O9 | a timer only in groups of 16 leaves or fewer, until the store | overridden |
+| batch 1, 3 | T3 O14 | accept that a failed unseal loses all local state | overridden: F3 |
+| batch 1, 4 | T2 Q9 | the deviation from Spec A §8.1 until S3 | taken; lasts longer |
+| batch 1, 4 | T1 Q8 | build on `beta/message`, then `alpha/premerge` | taken; new repository |
+| batch 1, 4 | T1 Q9 | J3a on both lines now | taken; after the snapshot |
+| batch 2, 1 | F3 Q5 | a 72-hour hold | modified |
+| batch 2, 2 | F3 Q6 | the 19-bit checksum that repairs one word | overridden |
+| batch 2, 3 | F1 Q3 | only computers where the phrase was typed | modified |
+| batch 2, 3 | F1 Q15 | a 6-digit code, typed | for round 2 |
+
+The rows are at:
+- T1's Q8 and Q9: `T1-join-seal-FINAL.md:706` and `:708`;
+- T2's Q9 and Q10: `T2-safety-numbers-FINAL.md:1124-1125`;
+- T3's O1, O9 and O14: `T3-healing-FINAL.md:1240`, `:1248` and `:1253`;
+- F1's Q3, Q13 and Q15: `F1-identity-layer-FINAL.md:1232`, `:1242` and `:1244`;
+- F3's Q5, Q6 and Q14: `F3-seedphrase-recovery-FINAL.md:1373`, `:1374` and `:1382`.
+
+O9's other two parts, a legacy wave over 14 days for groups of up to 50 leaves and a one-day
+slot, are taken with the rest.
+
+**The counts in item 282.** Each count is the questions a design lists for the owner: in its part
+(3), the questions for the owner, or in its §7.3 for T3 and F3, which list them all.
+- T1 has 9, T2 13, T3 15 and T4 11: 48 in all. Batch 1 asked about three directly, so its fourth
+  answer took the other 45. The question had said "~35", counted from each design's part (3),
+  where T3 lists only its seven blocking questions (part 7).
+- F1 has 22, F2 26 and F3 18: 66 in all. Batch 2 asked about three directly, so its fourth answer
+  took the other 63. The question had said "~60".
+- Item 282 lists all 114, one line each, with its status. The table above is the subset whose
+  status is not plain "taken".
+
+#### 6. The review file
+
+- **Where:** `URMESSAGE-DECISIONS-REVIEW-2026-10-05.md` is in the owner's workspace, beside the
+  repository clones, and in no repository. It is 80,076 bytes and 971 lines (sha256
+  `e39c7ea2…`).
+- **Beside it,** `urmessage-review-2026-10-05/` holds nine files: `T1-FINAL.md` to `T4-FINAL.md`,
+  `F1-FINAL.md` to `F3-FINAL.md`, `SPLIT-FINAL.md` and `MESSAGEREVIEW.md`. Each is byte-identical
+  to its original in the scratch directory, and `MESSAGEREVIEW.md` to connect's.
+- **Its parts:**
+  - A, every question put to the owner directly since 2026-10-04. The session's log also holds
+    22 earlier ones, from 2026-09-05 to 2026-09-18, which the file does not carry, and A1's
+    options, which the file says did not survive;
+  - B and C, every recommendation of batches 1 and 2, verbatim, with the overrides listed first;
+  - D, the two external reviews of item 280, and what was done with each;
+  - E, the lead's decisions made without asking;
+  - F, the split plan's decisions, marked pending;
+  - G, where everything lives.
+- **It is a snapshot.** Its part F still reads PENDING for O1, O2 and O17, which were answered at
+  03:30 on 2026-10-06. Its last line promised items 281 and 282, which are this commit.
+
+#### 7. What this entry corrected in its own inputs
+
+- **The plan's brief says the servers refuse a force push.** Its section 2 reads "NO FORCE PUSH,
+  ever -- and the servers now refuse one", because P0 was to create the rulesets. Under O1 none
+  was created, and part 4 measures that nothing this work pushes to refuses one. Wave 1's brief
+  replaces the sentence with the dry-run check.
+- **O1 leaves more of the plan untrue than that sentence.**
+  - Section 2's preamble: "The rulesets (O1) enforce the push rule in the meantime". It was the
+    plan's only reason the brief could wait until each agent's work was done.
+  - Section 2's merge line: "(squash/rebase are disabled on urnetwork/message)". Both are still
+    allowed. Wave 1's brief sets aside only "the ruleset parts", so for its agents that sentence
+    still stands.
+  - P0's rule for `urnetwork/message`'s `main`, a pull request required and later required
+    checks, was not created either.
+  - So until an agent receives the brief, nothing on the server stops it from force-pushing to
+    `urnetwork/message` or to a fork (item 281).
+- **O1's answer holds for connect and sdk only** (part 4). Item 281 records the answer and the
+  measurement together.
+- **The plan's O1 would also have turned off squash and rebase merges** on `urnetwork/message`.
+  The question did not carry that part, so both are still allowed, and the import script's
+  refusal over them is outside O1's answer (item 281).
+- **O21's tags were to be protected by a tag ruleset.** None exists.
+- **F1 to F3 name two different things** (part 3).
+- **Batch 1's question said "~35".** The lead counted from each design's part (3), where T3 lists
+  only its seven blocking questions; the bulk answer took 45, counting all 15 in T3's §7.3
+  (part 5).
+
+#### 8. Where the evidence is
+
+- **The quotes** are from session f35258a1's log, by time:
+  - the directive, at 06:25;
+  - batch 1, asked at 07:06 and answered at 07:11, and the lead's order, at 07:12;
+  - batch 2, asked at 09:16 and answered at 21:46;
+  - the request for the review file, at 21:46;
+  - O1, O2 and O17, asked at 21:50 and answered at 03:30 on 2026-10-06;
+  - wave 1's brief, at 03:32 on 2026-10-06;
+  - item 283's ruling, at 05:16 on 2026-10-06, and the lead's reply, at 05:17.
+- **The working files are in session f35258a1's scratch directory.** They are not durable.
+  - `split/`: `MESSAGEREVIEW.md`, the plan, its inventories, its `rev2/` tooling and rehearsal
+    outputs, and in `exec/tools/` the M1 writer's adapted import script;
+  - `hardening-designs/` and `foundation-designs/`: the seven red-teamed designs;
+  - `item281/`: this entry's scripts, with their outputs, and `gh_reads.sh` with the reads of
+    part 4;
+  - `item281r2/`: the review round's scripts and outputs, with `gh_reads2.sh` and the reads of
+    06:22.
+- **The review file and its folder** are in the owner's workspace, outside every repository.
+
+#### 9. Open
+
+- **Round 2** for T1, T2, T3, F1, F2 and F3, before any spec edit (item 282).
+- **The program plan predates all three items.** `docs/plans/2026-10-05-hardening-program.md`
+  names neither the extraction nor F1 to F3, and its order and status table are item 280's. Its
+  next change carries them.
+- **Recording each recommendation the bulk answers took is done.** Batch 1's option read: "Take
+  every remaining recommendation; I'll list each one in the ledger and flag only anything that
+  turns out to need you (e.g. Dependabot needs your repo-admin click)." Item 282 lists all 114,
+  one line each, with its status.
+- **O1's premise, back to the owner.** O1's answer rests on "github repos on mainstream block
+  forcepush already". That holds for connect and sdk only (part 4): on `urnetwork/message`'s
+  `main`, nothing refuses a force push or a deletion. The owner is to be told, and asked whether
+  O1 stands, and the answer is recorded against item 281.
+- **The squash and rebase gate** (item 281). Either the owner turns both off on
+  `urnetwork/message` and the import script's refusal stays enforced, or its downgrade becomes a
+  recorded ruling and the plan's §5.4.i is amended. Until then, each merge there is "Create a
+  merge commit", chosen by hand. The M1 writer's reviewer reads the adapted script,
+  `split/exec/tools/assemble-import.o1.sh`, against the original.
+- **The order of the sdk's and connect's pull requests** (item 283). The sdk's pull request
+  delegates to `NewOperatorClientSettings`, which connect's adds, yet it merges first, and the
+  sdk's CI would not build between the two merges (part 4). Either the function reaches connect's
+  `main` first, or the delegation waits for connect's merge.
+- **Where J3a lands on the mainline:** on the message pull request's branch, or after it merges
+  (item 282).
+- **O9** lands with this repository's switch, with its Spec B §2.2 edit and its own ledger entry.
+- **O10:** FuzzTreeMath is confirmed dropped, or a port is queued after the message pull request
+  merges.
+- **O11's tag** on this repository's `6530519` is not made (part 4).
+- **O21's tags are not pushed** (part 4): `split/source-connect-2a`, the plan's P0 step 3, and
+  `split/source-sdk-3`, which follows SX-0.
+- **O15,** stage 4's carrier, goes to the owner before stage 4.
+- **The mlswg license** (O2): asking mlswg for a license statement is the plan's follow-up 2.
+- **Dependabot on the forks** (T4's Q9) needs the owner's repository-admin action.
+- **Item 279's open "The 1 s establish hold"** is half closed: connect #217 is merged (part 1).
+  Its sdk half is on the fork's `beta/message`, `d20d82c1`, and reaches upstream in the message
+  pull request, since its files move there (item 283).
+
+**Reviewed by:** a subagent diff review, against the session's log, the plan, `MESSAGEREVIEW.md`,
+the seven designs, the review file, the prepared scripts and GitHub, read with GET requests only.
+**First round: not ready to commit.** It confirmed the splice byte-exact, all 29 owner quotes and
+the 4 option texts byte for byte, the claims made of the plan, `MESSAGEREVIEW.md` and the
+designs, the 11 cited design rows, the question counts, the GitHub reads, the review file and the
+nine copies beside it, the hygiene and the form, and the gates passing, 13 of 13.
+- **One BLOCKER, taken:** at 05:16 on 2026-10-06, after this entry's first draft, the owner
+  replaced the plan's stage-per-pull-request sequence, and the ruling had been recorded outside
+  this ledger only. Item 283 records it. Item 281 marks what it replaces and re-reads O3, O6, O8,
+  O9, O10, O12, O14, O18 and O21 under it, and parts 1, 3 and 9 follow it.
+- **Two MAJOR findings, taken:**
+  - both bulk answers promised the owner a list in this ledger, and item 282 now lists all 114
+    recommendations, one line each, with its status;
+  - the import script's refusal over squash and rebase merges is outside O1's answer, and an
+    adapted copy had downgraded it without a ruling. Item 281 puts the choice to the owner, and
+    part 9 carries it.
+- **Five MINOR findings, all taken:**
+  - part 7 lists what else O1 leaves untrue in the plan, and item 281 says that nothing on the
+    server covers an agent before its brief arrives;
+  - part 9 takes O1's premise back to the owner;
+  - T1's Q8 and Q9 change in effect too, J3a's "after the extraction snapshot" is restored, and
+    item 282 says where J3a lands;
+  - the review file's questions are scoped to 2026-10-04 on, and the log's copy of A1's options
+    is named;
+  - part 9 carries O10, O11's tag and O21's tags, the tags read again at 06:22.
+- **All four NITs were taken:** "on chain" is quoted as the owner wrote it, the counting rule no
+  longer quotes a heading, stage 4's resend rule keeps its condition, and the "~35" is explained
+  by how it was counted.

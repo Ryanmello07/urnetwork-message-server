@@ -19,3 +19,7 @@ Slices, in order:
 
 Slice 1 is the schedule risk and is first because it has an objective completion test. Slices 1–5
 produce something two people can text on.
+
+**Security hardening** (2026-10-05, ledger item 280) runs outside the slices.
+`2026-10-05-hardening-program.md` orders its tracks, and each track's own plan is
+`<date>-hardening-<name>.md`.
