@@ -59,8 +59,6 @@ pins="${SIBLINGS_FILE:-$here/scripts/siblings.txt}"
 
 # The forks a pull request head under review may be fetched from, one URL per line.
 review_sources="
-https://github.com/Ryanmello07/urmessage.git
-https://github.com/Ryanmello07/connect.git
 "
 
 # source_of <url>: prints "upstream" or "fork", or fails for a fetch source this script refuses.
@@ -149,18 +147,26 @@ self_test() {
     listed=$((listed + 1))
     pin "one $url $fake"
     expect pass "a pull request head on the listed review source $url" "(checked, not cloned) FORK $url" '' --check one
+    pin "one ${url%.git} $fake"
+    expect fail "the same review source spelled without its .git" "$refused" '' --check one
   done <<<"$review_sources"
   if [ "$listed" -eq 0 ]; then
     echo "  no review source is listed, so none is accepted: every pin is fetched from urnetwork/"
   fi
+  # The two forks this list named until their pull requests merged, on 2026-10-09. Each is refused
+  # now, by the line that names it.
+  for url in https://github.com/Ryanmello07/urmessage.git https://github.com/Ryanmello07/connect.git; do
+    pin "one $url $fake"
+    expect fail "a fork that was a review source until its pull request merged" "fetches from $url, which is $refused" '' --check one
+  done
   pin "one https://github.com/Ryanmello07/unlisted.git $fake"
   expect fail "another repository of the same owner" "$refused" '' --check one
   pin "one https://github.com/someone-else/connect.git $fake"
-  expect fail "another owner's fork of a listed repository" "$refused" '' --check one
+  expect fail "another owner's fork of a repository that was listed" "$refused" '' --check one
   pin "one https://github.com/Ryanmello07/connect.git/../../someone-else/connect.git $fake"
-  expect fail "a listed review source with a path after it" "$refused" '' --check one
+  expect fail "a fork's URL with a path after it" "$refused" '' --check one
   pin "one https://github.com/Ryanmello07/connect $fake"
-  expect fail "a listed review source spelled another way" "$refused" '' --check one
+  expect fail "a fork's URL spelled another way" "$refused" '' --check one
   pin "one https://github.com.example.invalid/urnetwork/connect.git $fake"
   expect fail "an urnetwork URL on another host" "$refused" '' --check one
   pin "one http://github.com/urnetwork/connect.git $fake"
@@ -193,8 +199,16 @@ self_test() {
   checkout one
   pin "one https://github.com/urnetwork/connect.git $sha"
   expect pass "a sibling at its pinned commit" "PINNED one $sha" '' --verify one
+  # A fork that is not listed is refused in this mode as well, with the checkout at the very commit
+  # its line pins: the fetch source is asked about before the checkout is looked at.
   pin "one https://github.com/Ryanmello07/connect.git $sha"
-  expect pass "a sibling at a pin fetched from a review source" "PINNED one $sha FORK https://github.com/Ryanmello07/connect.git" '' --verify one
+  expect fail "a sibling at its pin, the pin on a fork that was a review source" "fetches from https://github.com/Ryanmello07/connect.git, which is $refused" '' --verify one
+  # With a review source listed, the same checkout is accepted and says where its pin was fetched from.
+  url=$(grep -m 1 . <<<"$review_sources" || true)
+  if [ -n "$url" ]; then
+    pin "one $url $sha"
+    expect pass "a sibling at a pin fetched from the listed review source $url" "PINNED one $sha FORK $url" '' --verify one
+  fi
   pin "one https://github.com/urnetwork/connect.git $fake"
   expect fail "a sibling at another commit" "WRONG COMMIT one" '' --verify one
   expect pass "the same sibling, named unpinned" "UNPINNED one $sha (scripts/siblings.txt pins $fake)" 'one' --verify one

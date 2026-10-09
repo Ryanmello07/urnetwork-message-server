@@ -31,7 +31,7 @@
 # it pins ee23a490, this branch before this pin was filled. From ee23a490 to the commit that filled
 # this pin no Go file changes, nor go.mod, nor go.sum, so the server tested there is the one tested
 # here. After the merge: https://github.com/urnetwork/message.git.
-message https://github.com/Ryanmello07/urmessage.git 4d365abfdb1ab1666def8bd0fdf708625b190e39
+message https://github.com/urnetwork/message.git 4d365abfdb1ab1666def8bd0fdf708625b190e39
 #
 # connect: the transport, from AFTER messaging left it. A connect whose protocol package still
 # registers message.proto registers it beside message/protocol's copy, and every test binary that
@@ -40,7 +40,7 @@ message https://github.com/Ryanmello07/urmessage.git 4d365abfdb1ab1666def8bd0fdf
 # upstream/remove-message of the fork, which merges urnetwork/connect main at 6df2fa87. It is the
 # commit the message repository pins. Until ledger 284 this pin was 92a657fa, upstream's main when
 # connect #217 merged, in gates.yml. After the merge: https://github.com/urnetwork/connect.git.
-connect https://github.com/Ryanmello07/connect.git 0f2ff66907f2c5fae735c45f687e598568ae85c4
+connect https://github.com/urnetwork/connect.git 0f2ff66907f2c5fae735c45f687e598568ae85c4
 #
 # glog and gvisor: what connect requires and replaces by path, which its own go.mod cannot do for
 # this module. These are the commits github.com/urnetwork/message pins in its scripts/siblings.txt,
