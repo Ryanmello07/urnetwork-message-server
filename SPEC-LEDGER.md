@@ -12751,7 +12751,9 @@ repo and therefore the critical path — not this repository:
       - **Before this pull request merges:** message-server #2 and the three pull requests merge
         first. If either pinned head moved before it merged, its pin moves to the merged head in a
         commit of its own and the runs of §7's entry are made again. Each line's URL then goes back
-        to urnetwork's, and its fork leaves the script's review sources.
+        to urnetwork's, and its fork leaves the script's review sources. *(Done once all four
+        had merged, on 2026-10-09 and 2026-10-10: item 289. They did not merge in this order:
+        this pull request was the second of the four.)*
       - **§6's diff review** of this item and its entry, and of the entry for items 285 and 286,
         whose "Reviewed by" is still pending: both are left to the review that follows this wave,
         by the lead's order. *(Done on 2026-10-07 by an independent reviewer, in this wave's own
@@ -12807,6 +12809,183 @@ repo and therefore the critical path — not this repository:
       repository's work as well as this one's (item 281).
     - **Where it was recorded until now:** in the lead's message, in the connect writer's report,
       and in the owner's review file.
+
+289. **THE LEAD'S RULINGS OF 2026-10-09 FOR THE SPLIT'S SIXTH WAVE: THE SET HAS MERGED, AND EVERY
+    REPOSITORY'S PINS MOVE TO THE MERGED COMMITS. THIS REPOSITORY'S TWO PINS MOVED, AND ITS SCRIPT
+    LISTS NO REVIEW SOURCE.** Times are UTC.
+    - **The set merged on 2026-10-09,** each pull request with a merge commit, so every commit kept
+      its id. Read from GitHub on 2026-10-10, each merge commit with its two parents:
+
+      | repository | pull request | merge commit | committed |
+      |---|---|---|---|
+      | `urnetwork/message` | #1, the import | `07704991` | 09:07:08 |
+      | `urnetwork/message-server` | #3, the switch (item 284) | `e9eae67a` | 12:22:00 |
+      | `urnetwork/message` | #2, its records after the import | `a0d47bef` | 12:24:16 |
+      | `urnetwork/sdk` | #158, the removal | `b8209d9d` | 12:25:06 |
+      | `urnetwork/connect` | #219, the removal | `847460bb` | 13:44:48 |
+
+    - **The owner,** verbatim, from the session's log. At 02:06:24 on 2026-10-09: **"Let me know
+      when each are ready ill merge and handle the repos. just PR it and open it"** At 09:07:44,
+      after the first merge: **"merged, be sure to verify all the code works with ssimulations and
+      live tests as before- ready for the rest of the PRs"**
+    - **The rulings** are the lead's, in the notes that started the wave, a file last written at
+      13:45 on 2026-10-09, the minute after connect's removal merged. The wave is three pull
+      requests, in this order: `urnetwork/message`, whose pins move first; then this repository;
+      then `urnetwork/message-windows`. Verbatim, with the notes' bold markup left out, the ones
+      that bind here:
+      - "2 and 3 pin a commit of 1. A pin is a commit, never a branch head, and it must be served
+        by SHA from the urnetwork URL: a PR head is, once the PR is open. So 1 is opened first,
+        then 2 and 3 pin its head."
+      - **W6-1.** "Each pin moves in a commit of its own, as `scripts/siblings.txt` requires". The
+        order it then gives is the message repository's. This repository took the same shape: the
+        URLs with no pin moved, then message, then connect.
+      - **W6-2.** "The pins are the MERGE COMMITS on the upstream mains as the table gives them,
+        unless an upstream `main` has moved past its merge commit when you start: then pin
+        `main`'s head on that day, and say which. Do not chase `main` after that."
+      - **W6-6.** "The toolchain pin does NOT move in this wave. It stays go1.26.5. Moving it is its
+        own reviewed change, next"
+      - **W6-7.** "Queued small fixes go in with the PR of the repository they belong to, each in
+        its own commit". Its two lines for this repository: "message-server: the readiness test
+        that fails under load (`TestReadinessRefusesOnAClusterWhoseTimezoneIsNotUtc`: `/readyz`
+        bounds each precondition at 2 s, and they expire while the store suite loads the same
+        cluster). Fix the TEST's dependence on a loaded cluster. Do not loosen the server's bound"
+        and "message-server `README.md`: the clone command's comment says "clone the missing
+        ones", and it stops at the first sibling that exists." The first is item 290.
+      - **W6-9.** "No workflow files in upstream PRs. CI evidence is the fork's `fork-ci.yml`,
+        dispatched with `repository` and `ref`, with upstream `main` as the control."
+      - **W6-10.** "The owner merges. Agents open, edit, mark and merge nothing. The lead opens
+        each PR."
+    - **What they mean here.**
+      - **connect is pinned to `847460bb`,** the merge commit, which is W6-2's first clause and is
+        the commit the message repository pins. Its second clause would put this pin at `main`'s
+        head if `main` had moved when the pin did. `108cb94`, which moved it, says in its message
+        that `847460bb` was still `main`'s head at 18:25 on 2026-10-09; that was not measured
+        again. On 2026-10-10 at 02:23 `main` was at `483909c4`, 13 commits and 38 files on, with
+        `go.mod` and nine files of `protocol/` among them. The pin does not follow it: W6-2 ends
+        "Do not chase `main` after that", and this repository and the message repository are
+        tested beside one connect, so the two pins move together.
+      - **message is pinned to `2e859f73`,** the head of `urnetwork/message`'s pull request 3,
+        branch `sync/after-removals-1`, which was open on 2026-10-10 at 02:23. It is eight commits
+        past that repository's `main`, `a0d47bef`, and `https://github.com/urnetwork/message.git`
+        serves it by its id. Its own `scripts/siblings.txt` pins connect `847460bb`, the sdk
+        `b8209d9d`, this repository at `e9eae67a`, and the `glog` and `gvisor` this repository
+        pins. It stays in that repository's history only if the pull request merges with a merge
+        commit.
+      - **`gates.yml` and W6-9.** This repository's `gates.yml` has been upstream since #1 and
+        stays (item 287). `23011fa` changes one comment in it and nothing a runner reads: every
+        line it changes there is a comment line, and the file parses to the same document before
+        and after. `fork-ci.yml` is on the fork's `main` and in no pull request.
+      - **The toolchain did not move.** This module's `go.mod` says `go 1.26.5` and has no
+        toolchain line. Connect's, at `847460bb`, says `go 1.26.3` and `toolchain go1.27.1`, as it
+        did at the old pin (item 288).
+    - **What this wave changed here:** six commits on `e9eae67a`. None changes a spec or a plan,
+      and the only Go file changed is one test file.
+      - `71980e5`: both URLs go to urnetwork with no pin moved, and the two forks leave
+        `scripts/siblings.sh`'s review sources. `--self-test` holds that each fork is refused.
+      - `35f6d4d`: message from `4d365abf` to `2e859f73`.
+      - `108cb94`: connect from `0f2ff669` to `847460bb`, with the three lines `go mod tidy` asks
+        for: `github.com/theodorsm/covert-dtls v1.5.1`, indirect, and its two `go.sum` lines.
+      - `f7ebbad`: the two startup tests (item 290).
+      - `0657b74`: the README's clone command had the comment "clone the missing ones at their
+        pins", and the command stops at the first sibling that is already there. The comment is
+        corrected, and the paragraph on `MESSAGE_SERVER_TEST_UNPINNED` says to leave one's own
+        checkouts out of that command.
+      - `23011fa`: the comments of `scripts/siblings.txt` and `scripts/siblings.sh`, a paragraph of
+        the README and a comment of `gates.yml` say that the set has merged.
+    - **This closes** item 287's open point, "Each line's URL then goes back to urnetwork's, and
+      its fork leaves the script's review sources". Its condition, "If either pinned head moved
+      before it merged", did not arise: #3 merged with the pins it had.
+    - **Open.**
+      - **`urnetwork/message`'s pull request 3 has not merged.** When it has, `2e859f73` must be an
+        ancestor of that repository's `main`. If it was squashed or rebased it is not, and this
+        pin moves to the commit that merged.
+      - **`urnetwork/connect`'s `main` is past the pin** (above). The next move is the message
+        repository's and this one's together, each in a commit of its own.
+      - **The `glog` pin** stays at `80a11b43` (item 288), and the toolchain at go1.26.5 (W6-6).
+      - **§6's diff review** of this item, item 290 and their entry: pending (§7's entry, under
+        Reviewed by).
+
+290. **THE TWO STARTUP TESTS THAT READ `/readyz` DEPENDED ON A QUIET CLUSTER, AND FAILED IN WHOLE
+    RUNS OF THE SUITE ON WINDOWS. A PRECONDITION THAT HAS TO OPEN A CONNECTION CAN OUTLAST THE
+    ENDPOINT'S 2 s BOUND, AND IS THEN NAMED ALTHOUGH IT IS MET. THE TESTS NOW HOLD THE ENDPOINT TO
+    WHAT EACH PRECONDITION ANSWERS. THE BOUND IS NOT CHANGED, AND A TEST HOLDS IT FOR THE FIRST
+    TIME.** `f7ebbad`; the measurements are in §7's entry.
+    - **The finding** is W6-7's (item 289). It comes from the verification of the merged set on
+      2026-10-09, on a Windows host with a private PostgreSQL 17.6, whose record says: at
+      `eef9c9dc`, the README's step 2 failed in three whole runs of four, one of the two beside the
+      pinned message and both beside its `main`; every failure was
+      `TestReadinessRefusesOnAClusterWhoseTimezoneIsNotUtc`; the suite passed with its packages
+      run one at a time; and the test passed alone ten times of ten. Those runs are not this
+      item's, and its own are in §7's entry. What they printed is quoted here, from the
+      verification's logs in the session's scratch for the split (under `postmerge/ms/`), because
+      the root cause can be read off it. Three sets of names:
+      - "a cluster in UTC (§3.1's requirement, met): /readyz refused on [clock_utc
+        ordinal_credential connect_client_attached], and clock_utc should have been named: false"
+      - "a cluster in America/Phoenix changed the refusal set beyond clock_utc:
+        [database_reachable migrations_at_head clock_utc ordinal_credential
+        connect_client_attached]"
+      - "a cluster in UTC (§3.1's requirement, met): /readyz refused on [database_reachable
+        migrations_at_head clock_utc clock_skew ordinal_credential connect_client_attached], and
+        clock_utc should have been named: false"
+    - **The root cause is in the tests.** `/readyz` gives each precondition `readinessTimeout`,
+      2 s, and names one that has not answered inside it exactly as it names one that refused:
+      the body carries a name and a constant sentence and never the error (§11.1). That is right
+      for a probe. Both tests read "not named" as "met", which holds only while every check
+      answers inside the bound.
+    - **What outlasts the bound is a new connection, never a query.** Four preconditions ask the
+      database. `clock_utc` opens a connection of its own on every ask, by design. The other
+      three use the replica's pool, and a replica that has just been built has an empty one: the
+      first of them, `database_reachable`, opens the pool's first connection. An acquire whose
+      time ran out leaves its connection being built and a later check that finds none idle
+      starts another (puddle v2.2.2, `pool.go`), so `migrations_at_head` and `clock_skew` are
+      named as well for as long as no connection has arrived. That is the three sets above, in
+      order: `clock_utc`'s own connection late and the pool's first in time; the pool's first
+      taking more than two seconds and arriving before `clock_skew`'s turn, six seconds in; and
+      no connection there by then.
+    - **Why a new connection is slow on a loaded cluster.** PostgreSQL gives each connection a
+      backend of its own, and on Windows starting one is starting a process. A DSN that does not
+      say `sslmode` costs two: pgx asks for TLS first, and the backend that answers only says no.
+      Nearly all of a new connection's cost is the wait for a backend's first byte, twice over; a
+      query on a connection already open does not wait for it. Measured (§7's entry, part 3):
+      beside the store package's suite on an idle machine a new connection took 46 ms at the
+      median and 639 ms at most; beside two copies of it with the CPUs oversubscribed, 584 ms at
+      the median, and two of 257 outlasted the bound, while a query on an open connection never
+      took 70 ms. The whole suite starts 438 to 592 backends in a run, up to 52 of them in one
+      second, and a pool's default
+      size is the number of CPUs when that is more than four (pgx v5.10.0, `pgxpool/pool.go`).
+      What else the machine was doing on 2026-10-09, when the runs failed, is not in their logs.
+    - **The fix is in what the tests assert,** and in nothing else: `health.go` is not changed.
+      Before a replica listens, each of its readiness checks is wrapped to record what it returns
+      to `/readyz` and how long it was given; the wrapper passes the endpoint's context through
+      and returns the check's own answer. Then every precondition is asked with no bound, which
+      is what is true of the deployment, and `/readyz` is asked, once each and in that order. The
+      endpoint is held to four things that are true of it on any cluster:
+      - it asked every precondition once, in the order they are declared;
+      - it gave each one `readinessTimeout`: a deadline, no later than that, and no sooner than
+        half of it;
+      - a check that answered inside that time answered as it does with no bound, and only a
+        check that asks the database may run out of time;
+      - its body names exactly the checks that did not return nil.
+
+      So a name in the body is a precondition that is unmet or one whose bound was seen to
+      expire. The tests hold their sets to what the preconditions answer. That `clock_utc` is
+      named on a cluster that is not UTC is still read off the endpoint, which is §13 item 21.
+      A name the bound added is logged, so a run says how often it happened.
+    - **Not done by waiting or by asking again.** Nothing waits for the cluster to be quiet. The
+      preconditions are asked once and the endpoint once, whatever either says.
+    - **What is given up.** On an idle cluster the old assertions also failed when a database
+      check outlasted the bound for a reason of its own: a check that had become slow. That is
+      now a logged line and not a failure, because a test cannot tell it from load.
+    - **Open.**
+      - **`readinessTimeout`'s own value is held by no test,** before or after: changed to 10 s,
+        the eight tests that read readiness all pass (§7's entry, part 3). What is held now is
+        that `/readyz` hands each check the bound it declares.
+      - **The suite's DSN says nothing of `sslmode`,** so every connection it opens starts two
+        backends. Saying `sslmode=disable` in the suite's own DSNs would halve that. It is not
+        done here: the DSN is the developer's, and `gates.yml`'s.
+      - **Linux was not measured for this.** The fork's runs on GitHub's runner have each passed
+        all 708 results (§7's entries for items 287 and 288), and the relay of §7's entry was run
+        on Windows only.
 
 ## 6. Change process
 
@@ -25925,3 +26104,215 @@ pins. Times are UTC, on 2026-10-07.
 
 This commit changes no file but this ledger. The root package's tests were run on its text, the two
 gates among them, and its own runs are in the pull request's body.
+
+### 2026-10-10 — Items 289 and 290: the pins move to the merged commits, and two startup tests stop depending on a quiet cluster
+
+**Change:** this ledger: items 289 and 290, this entry, and one note in item 287's open list. No
+spec or plan changes. The six commits before this one are the work: `71980e5`, `35f6d4d` and
+`108cb94` move the two URLs and then the two pins, `f7ebbad` changes
+`cmd/message-server/startup_test.go`, `0657b74` the README, and `23011fa` comments in four files.
+One Go file changes in all, and it is a test. Times are UTC, on 2026-10-10 unless a date is given.
+
+#### 1. What it was built against
+
+| sibling | commit | fetched from | what it is |
+|---|---|---|---|
+| `message` | `2e859f73` | `urnetwork/message` | the head of its pull request 3, eight commits past its `main` |
+| `connect` | `847460bb` | `urnetwork/connect` | the merge of the removal, on its `main` |
+| `glog` | `80a11b43` | `urnetwork/glog` | as before |
+| `gvisor` | `c0783dba` | `urnetwork/gvisor` | as before, on `go` |
+
+Every run below stood beside these four, each cloned by `scripts/siblings.sh` from the URL its line
+names and verified PINNED, with FORK beside none. The host is a Windows machine with 24 logical
+CPUs, Go 1.26.5, and a PostgreSQL 17.6 cluster made for these runs by `initdb` with its defaults
+(`max_connections` 100), on 127.0.0.1, in the zone `America/Phoenix`.
+
+#### 2. The pins
+
+The first three commits were made on 2026-10-09 between 18:15 and 18:26, by a run of this wave that
+ended before it could report, and their messages carry what that run measured. Everything below was
+measured again for this entry, on 2026-10-10.
+- **Served by id, with controls.** `git fetch --depth 1 <url> <commit>` into a fresh repository,
+  with no credential helper, which is how the script fetches a pin: `urnetwork/message` serves
+  `2e859f73` and `4d365abf`, and `urnetwork/connect` serves `847460bb` and `0f2ff669`. A commit id
+  nobody holds is refused ("not our ref"), and so is the message commit asked of
+  `urnetwork/connect`.
+- **Ancestry,** by GitHub's compare: `a0d47bef` is 10 commits ahead of `4d365abf` and none behind;
+  `2e859f73` is 8 ahead of `a0d47bef` and none behind; `847460bb` is 63 ahead of `0f2ff669` and
+  none behind, 165 files.
+- **`71980e5` moves no pin,** so what it builds is the same bytes fetched from another place. The
+  script's own controls hold, 45 of them, at `108cb94` and again at `23011fa`, whose comments
+  differ. The seven changes its message lists were made again, each to a copy of the script as
+  `23011fa` has it, and the self-test run against the copy. Either fork listed again: FAIL, on
+  that fork's own control or controls. A new source listed: PASS, with 48 controls. The urnetwork
+  rule widened to any repository of the forks' owner: FAIL, on four. The empty-URL refusal
+  removed: FAIL, on one. A listed source matched as a substring, and `--verify` not printing
+  FORK: each FAIL, on one. Unchanged, the copy passes with its 45.
+- **Under the message pin nothing this module builds from changed.**
+  `git diff --name-status 4d365abf 2e859f73 -- message syntax protocol go.mod go.sum` prints
+  nothing, where the same command without the paths names 30 files, none of them Go. Built beside
+  each of the two, with `-trimpath`, this module's eight test binaries and its two commands are the
+  same bytes: 0 of 10 digests differ, and the control, one test binary linked with one extra `-X`,
+  differs.
+- **Under the connect pin one module arrives.** With `main`'s `go.mod` and `go.sum` beside connect
+  `847460bb`, `go build ./...` stops on "missing go.sum entry for module providing package
+  github.com/theodorsm/covert-dtls/pkg/fingerprints (imported by github.com/urnetwork/connect)",
+  and `go mod tidy -diff` asks for three lines, which are `108cb94`'s whole change to the two
+  files. `go list -deps -test ./...` names 45 modules beside the old pin and 46 beside this one,
+  on linux/amd64, linux/arm64 and windows/amd64 alike, and the one gained is that module. Connect
+  has imported it since its `219d2f9e`, which is an ancestor of `847460bb` and not of `0f2ff669`.
+- **At `108cb94`:** `go build`, `go vet`, `gofmt -l`, `go mod tidy -diff` and `go mod verify` are
+  clean.
+
+#### 3. The readiness tests (item 290)
+
+- **Where a new connection's time goes.** From 02:36:39 to 02:42:23 the store package's suite ran
+  against the cluster, and for as long as it did, three things ran beside it: the two startup
+  tests as they were at `108cb94`, again and again, each run a fresh process, in a scratch copy
+  that logs every check `/readyz` makes; and a probe that opened one connection every two seconds
+  the way `clock_utc` does, and timed one query on a connection it kept open. 158 samples of each:
+
+  | | p50 | p90 | max |
+  |---|---|---|---|
+  | a new connection, dial to ready | 46 ms | 152 ms | 639 ms |
+  | dial 1, to the server's first byte | 19 ms | 121 ms | 540 ms |
+  | dial 2, to the server's first byte | 20 ms | 95 ms | 139 ms |
+  | then authentication and start-up | 4 ms | 9 ms | 26 ms |
+  | either TCP connect alone | | | 9 ms |
+  | one query on an open connection | 0 ms | 2 ms | 14 ms |
+
+  Every sample dialled twice, the first time to ask for TLS. The server's log of those minutes
+  agrees: 1,048 backends started, and 524 of them were never authorized. At most 33 sessions were
+  open at once, of the 100 the cluster allows.
+- **Which checks pay for it.** In the same run `/readyz` was asked 50 times, 500 checks, none of
+  which outlasted its bound, and all ten runs of the two tests passed. By precondition, the
+  slowest check: `database_reachable` 298 ms and `clock_utc` 174 ms, the two that open a
+  connection; `migrations_at_head` 18 ms and `clock_skew` 1 ms, on the connection the pool then
+  had; the six that ask nothing of the database, under 1 ms.
+- **The same failures, with no load.** A relay in front of the idle cluster held back the first
+  bytes the cluster sent on each new connection and passed everything else straight through. The
+  two tests, alone, through it:
+
+  | held back | the tests at `108cb94` | the tests at `f7ebbad` |
+  |---|---|---|
+  | 0 s | pass | (pass, with no relay) |
+  | 2.5 s | both fail; `/readyz` names `database_reachable`, `migrations_at_head` and `clock_utc` | both pass; `clock_utc` named on an expired bound in 5 asks of 5 |
+  | 4.5 s | both fail; `clock_skew` is named as well | both pass, the same 5 of 5 |
+
+  Those two sets of names are two of the three item 290 quotes, in the tests' own messages, word
+  for word.
+- **What the tests still catch.** Thirteen changes to `server.go` or `health.go`, each made to a
+  copy of the tree, one at a time, with the eight tests that read readiness run against it on the
+  idle cluster: the two startup tests and six of `health_test.go`. The tests as they were are
+  `startup_test.go` at `108cb94`; as they are, the blob `f7ebbad` commits.
+
+  | the change | as they were | as they are |
+  |---|---|---|
+  | `clock_utc` blind | caught | caught |
+  | `clock_utc` always refusing | caught | caught |
+  | `clock_skew` refusing on a wrong zone | caught | caught |
+  | `clock_utc` out of the set | caught | caught |
+  | `migrations_at_head` blind | caught | caught |
+  | the endpoint stopping at the first unmet | caught | caught |
+  | the endpoint not printing `clock_utc` | caught | caught |
+  | the endpoint naming a precondition that is met | caught | caught |
+  | every database check answering in 2.5 s, which is no defect | **both fail** | both pass, with 5 lines about an expired bound |
+  | the bound removed | not caught | caught |
+  | an eighth of the bound handed to each check | not caught | caught |
+  | twice the bound handed to each check | not caught | caught |
+  | `readinessTimeout` itself changed to 10 s | not caught | not caught |
+
+  Unchanged, both pass.
+- **The whole suite, the README's way, five times before and five times after.** The README's
+  step 2, read out of each tree's own README and run as written, every package at once, in a
+  clone at `108cb94` and a clone at `23011fa`, turn about: before, after, before, after. Nothing
+  else was started beside a run, and the machine was otherwise idle, with under one of its 24
+  CPUs busy just before the first. From 03:03:26 to 05:11:27:
+
+  | round | before, at `108cb94` | after, at `23011fa` |
+  |---|---|---|
+  | 1 | 708 passed, 0 failed, 250 s | 708 passed, 0 failed, 604 s |
+  | 2 | 708 passed, 0 failed, 546 s | 708 passed, 0 failed, 608 s |
+  | 3 | 708 passed, 0 failed, 795 s | 708 passed, 0 failed, 917 s |
+  | 4 | 708 passed, 0 failed, 389 s | 708 passed, 0 failed, 1,048 s |
+  | 5 | 708 passed, 0 failed, 1,218 s | 708 passed, 0 failed, 1,196 s |
+
+  **Failed before: 0 of 5. Failed after: 0 of 5.** So these ten runs do not show the failure, and
+  they do not show the fix. They show that the fix costs the suite nothing, and that one run of
+  the suite, on this machine with nothing else running, does not make the cluster slow enough:
+  in the five runs after, the two tests asked `/readyz` 25 times and no bound expired, with no
+  logged line. Every run printed `FULL RUN: 2 of 2`, and the ten runs' results are the same 708
+  names, compared by package and name.
+  - **The server's log, run by run:** 438 to 592 backends started, half of them never authorized;
+    29 to 37 sessions open at most, of 100; and in a run's busiest second, 18 to 52 backends
+    started.
+  - **The runs slowed, and that is not the readiness tests.** Rounds 1 to 3 shared one database,
+    made for them. A run of the store package took 247 s on it at first and 783 s in the fifth
+    run, as the catalogs filled with the dead rows of the schemas earlier runs had dropped:
+    `pg_depend` held 928,224 of them during the sixth. The fourth round's first run was stopped
+    by hand at 04:06:49 and the database dropped, and rounds 4 and 5 ran on a new one, where the
+    same slowing began again. No run reached the suite's own 30-minute limit.
+- **A loaded cluster, and what grows on it.** From 05:12:08 to 05:23:53 two copies of the store
+  package's suite ran against one database at once, with 48 threads kept busy beside them on the
+  machine's 24 CPUs: the other work a machine does while a suite runs. The same probe, 257
+  samples:
+
+  | | p50 | p90 | p99 | max |
+  |---|---|---|---|---|
+  | a new connection, dial to ready | 584 ms | 671 ms | 1,929 ms | 2,462 ms |
+  | dial 1, to the server's first byte | 251 ms | 297 ms | 757 ms | 1,915 ms |
+  | dial 2, to the server's first byte | 254 ms | 298 ms | 788 ms | 1,841 ms |
+  | then authentication and start-up | 81 ms | 99 ms | 139 ms | 774 ms |
+  | one query on an open connection | 37 ms | 49 ms | 68 ms | 69 ms |
+
+  A new connection cost about thirteen times what it cost beside one suite on an idle machine,
+  and two of the 257 outlasted the bound. A query on an open connection never took a tenth of a
+  second. Both versions of the two tests ran in a loop beside it, the old ones in the scratch
+  copy that logs each check. In 11 asks of `/readyz` there, `database_reachable` took up to
+  747 ms and `clock_utc` up to 949 ms, against 242 ms for `migrations_at_head` and 108 ms for
+  `clock_skew`. No bound expired in those asks and no test failed: two runs of the old pair and
+  one of the new had finished when the run was stopped by hand. The server's log of those
+  minutes: 1,334 backends started, 667 of them never authorized, and at most 63 sessions open.
+- **What was reproduced, and what was not.** The failure itself was not seen under load in this
+  entry's runs: not in the five whole runs before the fix, and not in the loaded run. Its cause
+  was, in both halves. Under load the one cost that reaches the bound is a new connection's
+  (above). And a new connection that is slow, with nothing else changed, fails the tests as they
+  were with the messages of 2026-10-09, and does not fail the tests as they are (the relay). The
+  runs that failed that day also spent the bound on each database precondition they named: by
+  the verification's logs, a failing subtest ran 8.01 s with four of them named, 6.32 s with
+  three, and 3.23 s with one.
+
+#### 4. Verification, at `23011fa`
+
+- **The suite.** The five runs "after" of part 3 are runs of `23011fa`: in each, 708 results
+  passed, 232 tests and 476 subtests, none failed or skipped, and the store printed
+  `FULL RUN: 2 of 2`. They are the 708 names of the five runs at `108cb94`, both ways, so this
+  branch adds, loses and renames no test.
+- **The other steps,** in the same clone, each as the README has it: `gofmt`, `go vet`, and the
+  released platforms, which printed `built 2 released platforms`. `go build ./...`,
+  `go mod tidy -diff` and `go mod verify` are clean.
+- **Under the race detector,** with gcc 16.2.0: the two startup tests pass on the idle cluster,
+  and no race is reported.
+- **The two gates this ledger answers to,** on this commit's text:
+  `go test ./ -run TestTheEditLogGate`, 6 tests, and `go test ./ -run TestThePlanLinter`, 7
+  tests, pass, and so does the rest of the root package. This commit changes no spec and no
+  plan, so the edit-log gate asks no entry of it.
+
+#### 5. What this does not do
+
+- It does not open the pull request, and it cites no run of itself: a commit cannot name the run
+  that tests it. This commit changes only this ledger, the runs above are of the commits before
+  it, and the pull request's body cites the runs on its head.
+- It does not move the `glog` pin or the toolchain (items 288 and 289), and it does not follow
+  `urnetwork/connect`'s `main` past the merge (item 289).
+- It does not hold `readinessTimeout`'s own value, and it does not change the suite's DSN (item
+  290).
+- It does not measure the relay or the loaded runs on Linux.
+- It does not touch the fork's `main`. That already held `urnetwork/message-server`'s `main`, as
+  `a479952`, a merge this wave's writer did not make; its tree differs from `e9eae67a`'s by
+  `.github/workflows/fork-ci.yml` alone.
+
+**Reviewed by:** pending when this entry was committed. §6 puts the diff review before the commit.
+The writer of this wave could start no reviewer and was told to message no other agent, so the
+review is the one that follows the wave, as it was for the two entries before this one. It is
+recorded here, in the commit that takes it.
