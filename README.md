@@ -79,11 +79,12 @@ bash scripts/siblings.sh --verify message connect glog gvisor  # refuse any sibl
 
 `--verify` refuses a sibling at any other commit or with modified files, a pin that is a placeholder
 or a short SHA, a pin fetched from anywhere but `https://github.com/urnetwork/` or a review source
-the script lists by its exact URL, and a `connect` that still carries the messaging schema. `message`
-and `connect` are pinned to the heads of the pull requests that move messaging into
-`github.com/urnetwork/message`, and until those merge they are fetched from the forks they were
-pushed to: the script prints `FORK` and the URL beside each, every time. To run against checkouts of
-your own, name them in `MESSAGE_SERVER_TEST_UNPINNED` (for example
+the script lists by its exact URL, and a `connect` that still carries the messaging schema. Every
+pin is fetched from `https://github.com/urnetwork/` today: the pull requests that moved messaging
+into `github.com/urnetwork/message` have merged, `connect` is pinned to the merge of its removal,
+and the script lists no review source. When it lists one, it prints `FORK` and the URL beside each
+pin fetched from it, every time. To run against checkouts of your own, name them in
+`MESSAGE_SERVER_TEST_UNPINNED` (for example
 `MESSAGE_SERVER_TEST_UNPINNED=message,connect`) and leave them out of the clone command, which
 refuses a sibling that is already there: `--verify` then prints each as UNPINNED with both commits.
 `.github/workflows/gates.yml` runs the same three commands.

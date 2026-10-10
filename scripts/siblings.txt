@@ -15,31 +15,34 @@
 # pin in a commit of its own.
 # name  url  commit
 #
-# TWO OF THESE PINS ARE PULL REQUEST HEADS, FETCHED FROM THE OWNER'S FORKS UNTIL THEY MERGE. This
-# module's switch is the fourth of a set: the removal of messaging from urnetwork/sdk, the removal
-# from urnetwork/connect, the import into urnetwork/message, and this. They are built and tested
-# together, so this file pins the heads of two of them, and those heads are on the forks the pull
-# requests come from. The pin is the commit, which no fetch source can change. When a pull request
-# has merged (with a merge commit, so its head keeps its id), switch that line's URL to the
-# urnetwork repository named in its comment and delete the fork from scripts/siblings.sh's review
-# sources; until then every run of the script prints FORK beside that sibling.
+# EVERY PIN IS FETCHED FROM https://github.com/urnetwork/, AND THE SCRIPT LISTS NO REVIEW SOURCE.
+# This module's switch to github.com/urnetwork/message was the fourth of a set that was built and
+# tested together: the removal of messaging from urnetwork/sdk, the removal from urnetwork/connect,
+# the import into urnetwork/message, and this. While they were under review this file pinned the
+# heads of two of them, on the forks they had been pushed to. All four merged on 2026-10-09, each
+# with a merge commit, so every commit kept its id: the two lines went back to urnetwork URLs with
+# their commits unchanged, and then each pin moved in a commit of its own. The pin is the commit,
+# which no fetch source can change.
 #
 # message: github.com/urnetwork/message, where this module's record layer, its codec and its
-# schema live since ledger 284. Pinned to the head of the message pull request: branch
-# split/import-all of the fork. That repository pins this one in turn, because its acceptance suite
-# and its loopback library run this server in process, and two commits cannot each name the other:
-# it pins ee23a490, this branch before this pin was filled. From ee23a490 to the commit that filled
-# this pin no Go file changes, nor go.mod, nor go.sum, so the server tested there is the one tested
-# here. After the merge: https://github.com/urnetwork/message.git.
+# schema live since ledger 284. Pinned to 2e859f73, the commit of that repository whose own pins
+# are the merged set: connect 847460bb, the core SDK b8209d9d, and this repository at e9eae67a.
+# When this pin was written it was the head of the branch that moves those pins, eight commits past
+# that repository's main (a0d47bef); urnetwork/message serves it by its id, and a merge commit
+# keeps that id. That repository pins this one in turn, because its acceptance suite and its
+# loopback library run this server in process, and two commits cannot each name the other: it pins
+# e9eae67a, this repository's main before these pins moved. From there to the commit that moved
+# them no Go file changes, and go.mod and go.sum gain only the three lines connect 847460bb asks
+# for, so the server tested there is the one tested here.
 message https://github.com/urnetwork/message.git 2e859f73b20dd5f78c5c1ffe0b262cbedb3d2080
 #
 # connect: the transport, from AFTER messaging left it. A connect whose protocol package still
 # registers message.proto registers it beside message/protocol's copy, and every test binary that
-# links both panics at init; siblings.sh refuses such a connect by name. Pinned to the head of the
-# connect pull request that removes messaging and adds connect.NewOperatorClientSettings: branch
-# upstream/remove-message of the fork, which merges urnetwork/connect main at 6df2fa87. It is the
-# commit the message repository pins. Until ledger 284 this pin was 92a657fa, upstream's main when
-# connect #217 merged, in gates.yml. After the merge: https://github.com/urnetwork/connect.git.
+# links both panics at init; siblings.sh refuses such a connect by name. Pinned to 847460bb, the
+# merge of the removal on urnetwork/connect's main, which also adds
+# connect.NewOperatorClientSettings. It is the commit the message repository pins. Until that
+# merge this pin was the removal's head, 0f2ff669, and until ledger 284 it was 92a657fa,
+# upstream's main when connect #217 merged, in gates.yml.
 connect https://github.com/urnetwork/connect.git 847460bba8aa31fb2e86ce007e9d5443d884544b
 #
 # glog and gvisor: what connect requires and replaces by path, which its own go.mod cannot do for

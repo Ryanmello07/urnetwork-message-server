@@ -35,19 +35,22 @@
 # so no fetch source can change what a pin builds; what the URL rule protects is that the pins can
 # be fetched from the project's own repositories by anyone, for good.
 #
-# REVIEW SOURCES. This module's switch to github.com/urnetwork/message is the fourth of a set of
-# pull requests that are built and tested together: the removals from urnetwork/sdk and
-# urnetwork/connect, the import into urnetwork/message, and this one. It pins the heads of two of
-# them, and those heads exist on the owner's forks before either is merged upstream, so until its
-# pull request merges a head is fetched from the fork it was pushed to. Those forks are named here
+# REVIEW SOURCES. A pin may also be fetched from a fork this script lists by its exact URL. That is
+# for one case: pull requests that are built and tested together before any of them has merged,
+# when a head one of them pins exists only on the fork it was pushed to. Such forks are named here
 # one by one, and nothing else outside urnetwork/ is accepted: not another repository of the same
 # owner, not another owner's fork of the same repository. Every mode prints FORK and the URL beside
 # such a pin, so a run against a commit the upstream repository does not hold yet says so each time.
 #
-# WHEN A PULL REQUEST MERGES (with a merge commit, so its head stays the commit it was), the pinned
-# commit is in the upstream repository: change that sibling's URL in scripts/siblings.txt back to
-# https://github.com/urnetwork/..., and delete its line here. The list is empty once both have
-# merged, and --self-test then says that no review source is accepted.
+# NONE IS LISTED TODAY. The list named the owner's forks of urnetwork/message and urnetwork/connect
+# while this module's switch to github.com/urnetwork/message was under review with the three pull
+# requests it was built and tested with: the removals from urnetwork/sdk and urnetwork/connect, and
+# the import into urnetwork/message. All four merged on 2026-10-09, each with a merge commit, so the
+# pinned heads kept their ids. scripts/siblings.txt went back to urnetwork URLs, the two forks left
+# the list, and --self-test holds that each of them is refused and says that no review source is
+# accepted. To use the list again, add the fork's URL below and pin the head; when its pull request
+# has merged (with a merge commit, so the head stays the commit it was), change the URL back and
+# delete the line.
 #
 # MESSAGE_SERVER_TEST_UNPINNED, a comma-separated list of names, lets --verify accept those siblings
 # at whatever commit they are checked out at, placeholder pin or not. Each is printed as UNPINNED
@@ -57,7 +60,7 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 pins="${SIBLINGS_FILE:-$here/scripts/siblings.txt}"
 
-# The forks a pull request head under review may be fetched from, one URL per line.
+# The forks a pull request head under review may be fetched from, one URL per line. None today.
 review_sources="
 "
 
