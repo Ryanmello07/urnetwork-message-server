@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -27,7 +28,8 @@ import (
 // actually performs rather than as a set of unit assertions: point the process at an EMPTY
 // database, start it, watch `/readyz` refuse and say `migrations_at_head`, run the migration the
 // way §10.3 says migrations are run, and watch that one precondition — and only that one — stop
-// being named.
+// being named. [readinessWatch.ask] says what of that is read off the endpoint and what is asked of
+// the precondition itself.
 //
 // What it does NOT assert, because it cannot and because pretending otherwise is the failure
 // mode this repository has been bitten by: that a record can be submitted. That needs a
@@ -66,6 +68,7 @@ func TestAFirstStartAgainstAnEmptyDatabaseServesHealthAndNamesWhatIsMissing(t *t
 		t.Fatal("a deployment with no connect client stood up a frame dispatcher anyway; every counter behind it would read zero forever and look like a server nobody has messaged")
 	}
 
+	watch := watchReadiness(t, current)
 	if err := current.listen(); err != nil {
 		t.Fatalf("binding §10.1's private health port: %v", err)
 	}
@@ -79,17 +82,22 @@ func TestAFirstStartAgainstAnEmptyDatabaseServesHealthAndNamesWhatIsMissing(t *t
 		t.Fatalf("/healthz answered %d %q on a process that is running", status, body)
 	}
 
-	// an empty database: migrations have not run, and that is what the endpoint must say
-	status, body := get(t, address, "/readyz")
-	if status != http.StatusServiceUnavailable {
-		t.Fatalf("/readyz answered %d against an empty database:\n%s", status, body)
+	// an empty database: migrations have not run, and that is what the endpoint must say.
+	//
+	// `unmet` is what is true of this deployment, and [readinessWatch.ask] has already held
+	// `/readyz` to it: the endpoint named every precondition in it, and named nothing else unless
+	// its own bound expired on that precondition. So the first assertion below is one about the
+	// endpoint, and the second cannot be failed by a cluster that was slow to answer
+	before := watch.ask(t)
+	if before.status != http.StatusServiceUnavailable {
+		t.Fatalf("/readyz answered %d against an empty database:\n%s", before.status, before.body)
 	}
-	beforeMigration := refusedNames(body)
+	beforeMigration := before.unmet
 	if !slices.Contains(beforeMigration, "migrations_at_head") {
-		t.Fatalf("/readyz against an empty database did not refuse on migrations_at_head; it refused on %v", beforeMigration)
+		t.Fatalf("an empty database is not refused on migrations_at_head; the unmet preconditions are %v", beforeMigration)
 	}
 	if slices.Contains(beforeMigration, "database_reachable") {
-		t.Fatalf("/readyz says the database is unreachable, and this test just created a schema in it: %v", beforeMigration)
+		t.Fatalf("database_reachable is unmet, and this test just created a schema in that database: %v", beforeMigration)
 	}
 
 	// §10.3: "a dedicated init job or `messagectl migrate`, never N replicas racing at startup".
@@ -103,20 +111,20 @@ func TestAFirstStartAgainstAnEmptyDatabaseServesHealthAndNamesWhatIsMissing(t *t
 		t.Fatalf("the first migration against an empty database: %v", err)
 	}
 
-	status, body = get(t, address, "/readyz")
-	if status != http.StatusServiceUnavailable {
-		t.Fatalf("/readyz answered %d on a replica with no transport credential; §9.1 requires one per ordinal:\n%s", status, body)
+	after := watch.ask(t)
+	if after.status != http.StatusServiceUnavailable {
+		t.Fatalf("/readyz answered %d on a replica with no transport credential; §9.1 requires one per ordinal:\n%s", after.status, after.body)
 	}
-	afterMigration := refusedNames(body)
+	afterMigration := after.unmet
 	if slices.Contains(afterMigration, "migrations_at_head") {
-		t.Fatalf("the migration ran and /readyz still refuses on migrations_at_head: %v", afterMigration)
+		t.Fatalf("the migration ran and migrations_at_head is still unmet: %v", afterMigration)
 	}
 
 	// exactly one precondition changed, and it is the one the migration is about. A readiness
 	// that went from five refusals to one would also pass the line above
 	removed, added := difference(beforeMigration, afterMigration)
 	if !slices.Equal(removed, []string{"migrations_at_head"}) || 0 < len(added) {
-		t.Fatalf("running the migration removed %v and added %v from the refusal set; it must remove exactly migrations_at_head",
+		t.Fatalf("running the migration removed %v from the unmet preconditions and added %v; it must remove exactly migrations_at_head",
 			removed, added)
 	}
 
@@ -125,13 +133,13 @@ func TestAFirstStartAgainstAnEmptyDatabaseServesHealthAndNamesWhatIsMissing(t *t
 	// This is the half of F1 that was not a defect in the code: the per-process filter was wired
 	// for four passes and appeared on no not-built list, while the ops document said the list was
 	// complete. The entry now comes from the filter itself, so a build that rewires it says so.
-	if !strings.Contains(body, api.StoreKnownGroupsNotBuilt.What) {
-		t.Fatalf("/readyz does not name what §5.1 check 5's filter substitutes for:\n%s", body)
+	if !strings.Contains(after.body, api.StoreKnownGroupsNotBuilt.What) {
+		t.Fatalf("/readyz does not name what §5.1 check 5's filter substitutes for:\n%s", after.body)
 	}
 
 	// what is left is the provisioning a bare box does not have, and nothing else
 	if !slices.Equal(afterMigration, []string{"ordinal_credential", "connect_client_attached"}) {
-		t.Fatalf("a migrated server with no credential refuses on %v; the only two things missing are §9.1's network_client and the attachment that needs it",
+		t.Fatalf("a migrated server with no credential has %v unmet; the only two things missing are §9.1's network_client and the attachment that needs it",
 			afterMigration)
 	}
 
@@ -197,9 +205,16 @@ func TestAFirstStartAgainstAnEmptyDatabaseServesHealthAndNamesWhatIsMissing(t *t
 // — so the precondition can be watched refusing without touching a shared cluster and without a
 // narrowed tolerance standing in for the real cause.
 //
-// The second half is the one that would have caught the original defect: `clock_skew` must NOT be
-// named. The two are different faults with different repairs — a postgresql.conf and an NTP
+// The second half is the one that would have caught the original defect: `clock_skew` must NOT
+// refuse. The two are different faults with different repairs — a postgresql.conf and an NTP
 // daemon — and a single precondition covering both is how one of them went unobserved.
+//
+// "Must not refuse" is not "must not be named", and this test used to assert the second. `/readyz`
+// also names a precondition that did not answer inside its bound, this test runs while other
+// packages load the same cluster, and it failed for that in the whole suite and never alone
+// (ledger item 290). So that clock_utc IS named is read off the endpoint, and everything that must
+// not refuse is held to what the precondition itself answers. [readinessWatch.ask] keeps the two
+// apart, and says how.
 func TestReadinessRefusesOnAClusterWhoseTimezoneIsNotUtc(t *testing.T) {
 	dsn := freshSchemaDsn(t)
 	ctx := context.Background()
@@ -238,34 +253,41 @@ func TestReadinessRefusesOnAClusterWhoseTimezoneIsNotUtc(t *testing.T) {
 				t.Fatalf("newServer: %v", err)
 			}
 			defer replica.Close()
+			watch := watchReadiness(t, replica)
 			if err := replica.listen(); err != nil {
 				t.Fatalf("listen: %v", err)
 			}
 
-			status, body := get(t, replica.healthAddress(), "/readyz")
-			if status != http.StatusServiceUnavailable {
-				t.Fatalf("/readyz answered %d on a replica with no credential:\n%s", status, body)
+			answer := watch.ask(t)
+			if answer.status != http.StatusServiceUnavailable {
+				t.Fatalf("/readyz answered %d on a replica with no credential:\n%s", answer.status, answer.body)
 			}
-			refused := refusedNames(body)
+			unmet := answer.unmet
 
-			if slices.Contains(refused, "clock_utc") != current.refuses {
-				t.Fatalf("a cluster in %s (%s): /readyz refused on %v, and clock_utc should have been named: %v",
-					current.zone, current.why, refused, current.refuses)
+			// §13 item 21 itself, at the endpoint: a cluster that is not UTC is named for it
+			if current.refuses && !slices.Contains(answer.named, "clock_utc") {
+				t.Fatalf("a cluster in %s (%s): /readyz does not name clock_utc; it names %v",
+					current.zone, current.why, answer.named)
+			}
+			// and named because it refuses, which a cluster in UTC does not
+			if slices.Contains(unmet, "clock_utc") != current.refuses {
+				t.Fatalf("a cluster in %s (%s): the unmet preconditions are %v, and clock_utc should be among them: %v",
+					current.zone, current.why, unmet, current.refuses)
 			}
 			// the other half of §3.1 is a different fault and must not be blamed for this one
-			if slices.Contains(refused, "clock_skew") {
+			if slices.Contains(unmet, "clock_skew") {
 				t.Fatalf("a cluster in %s made clock_skew refuse as well; the two machines' wall clocks have not moved and an operator sent to NTP by a timezone fault has been sent to the wrong place: %v",
-					current.zone, refused)
+					current.zone, unmet)
 			}
 			// and nothing else moved: a wrong zone is one precondition and not a cascade
 			without := []string{}
-			for _, name := range refused {
+			for _, name := range unmet {
 				if name != "clock_utc" {
 					without = append(without, name)
 				}
 			}
 			if !slices.Equal(without, []string{"ordinal_credential", "connect_client_attached"}) {
-				t.Fatalf("a cluster in %s changed the refusal set beyond clock_utc: %v", current.zone, refused)
+				t.Fatalf("a cluster in %s changed the unmet preconditions beyond clock_utc: %v", current.zone, unmet)
 			}
 		})
 	}
@@ -550,7 +572,13 @@ func withSessionTimezone(t *testing.T, dsn string, zone string) string {
 // One request against the health listener.
 func get(t *testing.T, address string, path string) (int, string) {
 	t.Helper()
-	client := &http.Client{Timeout: 10 * time.Second}
+	return getWithin(t, address, path, 10*time.Second)
+}
+
+// The same, for a caller that knows how long the answer may take.
+func getWithin(t *testing.T, address string, path string, patience time.Duration) (int, string) {
+	t.Helper()
+	client := &http.Client{Timeout: patience}
 	response, err := client.Get("http://" + address + path)
 	if err != nil {
 		t.Fatalf("GET %s: %v", path, err)
@@ -561,6 +589,188 @@ func get(t *testing.T, address string, path string) (int, string) {
 		t.Fatalf("reading %s: %v", path, err)
 	}
 	return response.StatusCode, string(body)
+}
+
+// What a replica's readiness answered.
+type readinessAnswer struct {
+	// `/readyz` as it ships: its status, the preconditions it named in the order it printed them,
+	// and its whole body.
+	status int
+	named  []string
+	body   string
+
+	// The preconditions that are unmet, in the order they are declared: what each one answers when
+	// it is given the time it needs. This is what is true of the deployment, and it is what a test
+	// holds a set to.
+	unmet []string
+}
+
+// One precondition, as `/readyz` asked it.
+type readinessCheck struct {
+	name string
+	// What the check returned to the endpoint, and whether the time the endpoint gave it had run
+	// out by then.
+	err     error
+	expired bool
+	// How long the endpoint gave it, counted from the moment the check began. `bounded` is false
+	// when the context it was handed carried no deadline at all.
+	given   time.Duration
+	bounded bool
+}
+
+// A replica whose readiness checks are watched while `/readyz` makes them.
+type readinessWatch struct {
+	replica *server
+	// The replica's preconditions as [newServer] built them, before they were watched.
+	shipped []precondition
+
+	guard sync.Mutex
+	asked []readinessCheck
+}
+
+// Watch what each precondition answers when `/readyz` asks it.
+//
+// Every `met` of the replica's own readiness — the slice the endpoint walks, not a second copy of
+// it — is wrapped to record what it was given and what it returned. The wrapper hands the
+// endpoint's context through untouched and returns the check's own answer, so the endpoint behaves
+// exactly as it ships.
+//
+// It is called before [server.listen], and refuses otherwise: the health listener's goroutines read
+// that slice, and a write to it after they have started is a data race whichever of the two happens
+// first.
+func watchReadiness(t *testing.T, replica *server) *readinessWatch {
+	t.Helper()
+	if replica.listener != nil {
+		t.Fatal("watchReadiness after listen: the health listener already reads the preconditions this would rewrite")
+	}
+	watch := &readinessWatch{replica: replica, shipped: slices.Clone(replica.ready.preconditions)}
+	for index, item := range watch.shipped {
+		replica.ready.preconditions[index].met = func(ctx context.Context) error {
+			began := time.Now()
+			deadline, bounded := ctx.Deadline()
+			err := item.met(ctx)
+			check := readinessCheck{
+				name:    item.name,
+				err:     err,
+				expired: ctx.Err() != nil || (bounded && !time.Now().Before(deadline)),
+				given:   deadline.Sub(began),
+				bounded: bounded,
+			}
+			watch.guard.Lock()
+			watch.asked = append(watch.asked, check)
+			watch.guard.Unlock()
+			return err
+		}
+	}
+	return watch
+}
+
+// Ask a replica's readiness: every precondition itself, then `/readyz`, once each, and hold the
+// endpoint to what the preconditions said.
+//
+// **Why there are two questions.** [readiness.unmet] gives each precondition [readinessTimeout],
+// and one that has not answered inside it is named exactly as one that refused: the body carries a
+// name and a constant sentence and never the error (§11.1), so nothing in it tells "not met" from
+// "not answered in time". That is right for a probe, which must not send traffic to a database that
+// takes two seconds to say it is there. It is also why "`/readyz` does not name it" cannot be read
+// as "it is met" on a cluster something else is loading, and the two tests that call this used to
+// read it so.
+//
+// **What that cost, and where the time goes.** Both tests failed in whole runs of the suite, on a
+// Windows host, and never alone (ledger item 290). What ran out of time was not a query. It was a
+// NEW connection. A replica that has just been built has an empty pool, so its first pool-backed
+// check opens one, and `clock_utc` opens its own on every ask, by design. PostgreSQL gives each
+// connection a backend of its own, on Windows a new process, and a DSN that does not say `sslmode`
+// costs two: pgx asks for TLS first, and the backend that answers only says no. Nearly all of a new
+// connection's cost is the wait for that backend's first byte, twice over, and a query on a
+// connection already open does not wait for it. The failures named exactly the checks that had to
+// open a connection, and holding back nothing but a new connection's first bytes, on an idle
+// cluster, reproduces them name for name.
+//
+// **First, every precondition, with no bound.** Each is asked through the closure [newServer]
+// built, with a context that carries no deadline, so what comes back is what is true however long
+// the cluster takes to say it. That is `unmet`.
+//
+// **Then the endpoint, as it ships, and every answer it was given.** [watchReadiness] recorded what
+// each check returned to `/readyz` and how long it had been given, and the endpoint is held to four
+// things, which are true of it on any cluster, idle or loaded:
+//
+//   - it asked every precondition, once, in the order they are declared;
+//   - it gave each one [readinessTimeout]: a deadline, no later than that and not much sooner;
+//   - where a check answered inside that time, its answer is the one the precondition gave with no
+//     bound. Only where the time ran out first may the endpoint differ, and only a check that asks
+//     the database can run out of it: [precondition.needsDatabase] declares which those are;
+//   - its body names exactly the preconditions whose checks did not return nil, in order.
+//
+// So a name in the body is a precondition that is unmet or one whose bound was seen to expire, and
+// never a third thing. On a cluster nothing else is loading the two questions get the same answer.
+// When they do not, the names the bound added are logged, so that a run says how often that
+// happened rather than hiding that it did.
+//
+// Nothing here waits for the cluster to be quiet, and nothing is asked again because of what was
+// answered: the preconditions are asked once and the endpoint once, in that order, whatever either
+// says. The server's bound is not touched. It is one of the things held.
+func (self *readinessWatch) ask(t *testing.T) readinessAnswer {
+	t.Helper()
+	set := self.shipped
+	var answer readinessAnswer
+
+	truth := make([]error, len(set))
+	for index, item := range set {
+		truth[index] = item.met(context.Background())
+		if truth[index] != nil {
+			answer.unmet = append(answer.unmet, item.name)
+		}
+	}
+
+	self.guard.Lock()
+	self.asked = nil
+	self.guard.Unlock()
+	// the endpoint cannot take longer than every bound expiring, so the client waits that long,
+	// twice over: an answer slower than that is a bound that does not hold, and fails here
+	patience := 2 * time.Duration(len(set)) * readinessTimeout
+	answer.status, answer.body = getWithin(t, self.replica.healthAddress(), "/readyz", patience)
+	answer.named = refusedNames(answer.body)
+	self.guard.Lock()
+	asked := slices.Clone(self.asked)
+	self.guard.Unlock()
+
+	if len(asked) != len(set) {
+		t.Fatalf("/readyz asked %d preconditions of the %d this replica has:\n%s", len(asked), len(set), answer.body)
+	}
+	var returned, late []string
+	for index, check := range asked {
+		item := set[index]
+		if check.name != item.name {
+			t.Fatalf("/readyz asked %s where %s is declared; it must ask them in order", check.name, item.name)
+		}
+		if !check.bounded || readinessTimeout < check.given || check.given < readinessTimeout/2 {
+			t.Fatalf("/readyz gave %s %s to answer (a deadline at all: %v), and its bound is %s",
+				item.name, check.given, check.bounded, readinessTimeout)
+		}
+		if check.err != nil {
+			returned = append(returned, item.name)
+		}
+		if check.err != nil && check.expired {
+			if !item.needsDatabase {
+				t.Fatalf("/readyz ran out of time on %s, which asks nothing outside this process", item.name)
+			}
+			late = append(late, item.name)
+			continue
+		}
+		if (check.err != nil) != (truth[index] != nil) {
+			t.Fatalf("%s answered /readyz inside its bound, and not as it answers with no bound: to the endpoint %v, with no bound %v",
+				item.name, check.err, truth[index])
+		}
+	}
+	if !slices.Equal(answer.named, returned) {
+		t.Fatalf("/readyz names %v, and the checks that did not return nil to it are %v:\n%s", answer.named, returned, answer.body)
+	}
+	if 0 < len(late) {
+		t.Logf("/readyz named %v on an expired bound: no answer inside %s on this cluster at this moment; the unmet preconditions are %v",
+			late, readinessTimeout, answer.unmet)
+	}
+	return answer
 }
 
 // The precondition names a `/readyz` body refused on, in the order it printed them.
