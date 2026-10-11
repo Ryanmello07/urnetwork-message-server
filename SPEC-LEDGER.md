@@ -12892,24 +12892,40 @@ repo and therefore the critical path — not this repository:
         checkouts out of that command.
       - `23011fa`: the comments of `scripts/siblings.txt` and `scripts/siblings.sh`, a paragraph of
         the README and a comment of `gates.yml` say that the set has merged.
-    - **This closes** item 287's open point, "Each line's URL then goes back to urnetwork's, and
-      its fork leaves the script's review sources". Its condition, "If either pinned head moved
-      before it merged", did not arise: #3 merged with the pins it had.
+    - **This closes** item 287's open point, "Each line's URL then goes back to urnetwork's, and its
+      fork leaves the script's review sources". Its condition, "If either pinned head moved before
+      it merged", arose: both pinned heads moved before their pull requests merged, and before #3
+      merged at 12:22. `urnetwork/message`'s #1 merged with its head at `66628426`, four commits
+      past the pin `4d365abf`, pushed to the fork's branch at 04:08 on 2026-10-09;
+      `urnetwork/connect`'s #219 with its head at `4bcc5fd8`, 62 commits past `0f2ff669`, pushed at
+      08:48. The push times are GitHub's activity of each fork's branch. #3 merged with the pins it
+      had, so the condition's remedy is this item's: each pin moved in a commit of its own,
+      `35f6d4d` and `108cb94`, and the runs of §7's entry were made again. *(Corrected by this
+      item's review: it read "did not arise: #3 merged with the pins it had".)*
     - **Open.**
       - **`urnetwork/message`'s pull request 3 has not merged.** When it has, `2e859f73` must be an
         ancestor of that repository's `main`. If it was squashed or rebased it is not, and this
-        pin moves to the commit that merged.
+        pin moves to the commit that merged. *(Done. Read from GitHub on 2026-10-11: it merged at
+        06:31:42 on 2026-10-10 as `cc5efcc2`, a merge commit whose parents are `a0d47bef` and
+        `2e859f73` and whose tree is `2e859f73`'s, `498b0619`. So `2e859f73` is an ancestor of that
+        repository's `main`, and this pin stays.)*
       - **`urnetwork/connect`'s `main` is past the pin** (above). The next move is the message
         repository's and this one's together, each in a commit of its own.
       - **The `glog` pin** stays at `80a11b43` (item 288), and the toolchain at go1.26.5 (W6-6).
       - **§6's diff review** of this item, item 290 and their entry: pending (§7's entry, under
-        Reviewed by).
+        Reviewed by). *(Done on 2026-10-11 by an independent reviewer, after `urnetwork/message`'s
+        pull request 3 merged and before this pull request was opened. All six of its findings are
+        taken, and it is recorded under Reviewed by in §7's entry, in the commit that takes it.)*
 
-290. **THE TWO STARTUP TESTS THAT READ `/readyz` DEPENDED ON A QUIET CLUSTER, AND FAILED IN WHOLE
-    RUNS OF THE SUITE ON WINDOWS. A PRECONDITION THAT HAS TO OPEN A CONNECTION CAN OUTLAST THE
-    ENDPOINT'S 2 s BOUND, AND IS THEN NAMED ALTHOUGH IT IS MET. THE TESTS NOW HOLD THE ENDPOINT TO
-    WHAT EACH PRECONDITION ANSWERS. THE BOUND IS NOT CHANGED, AND A TEST HOLDS IT FOR THE FIRST
-    TIME.** `f7ebbad`; the measurements are in §7's entry.
+290. **THE TWO STARTUP TESTS THAT READ `/readyz` DEPENDED ON A QUIET CLUSTER, AND ONE OF THEM FAILED
+    IN WHOLE RUNS OF THE SUITE ON WINDOWS. A PRECONDITION THAT HAS TO OPEN A CONNECTION CAN OUTLAST
+    THE ENDPOINT'S 2 s BOUND, AND IS THEN NAMED ALTHOUGH IT IS MET. THE TESTS NOW HOLD THE ENDPOINT
+    TO WHAT EACH PRECONDITION ANSWERS. THE BOUND IS NOT CHANGED, AND FOR THE FIRST TIME A TEST HOLDS
+    THE ENDPOINT TO HANDING EACH CHECK THAT BOUND; ITS VALUE IS STILL HELD BY NO TEST.** `f7ebbad`;
+    the measurements are in §7's entry. *(Corrected by this item's review. The heading read "AND
+    FAILED IN WHOLE RUNS", and only one of the two did; and it read "A TEST HOLDS IT FOR THE FIRST
+    TIME", where what a test holds is that `/readyz` hands each check the bound. The same claim in
+    the comment on `ask` in `startup_test.go` is corrected by `0190495`.)*
     - **The finding** is W6-7's (item 289). It comes from the verification of the merged set on
       2026-10-09, on a Windows host with a private PostgreSQL 17.6, whose record says: at
       `eef9c9dc`, the README's step 2 failed in three whole runs of four, one of the two beside the
@@ -12970,7 +12986,12 @@ repo and therefore the critical path — not this repository:
       So a name in the body is a precondition that is unmet or one whose bound was seen to
       expire. The tests hold their sets to what the preconditions answer. That `clock_utc` is
       named on a cluster that is not UTC is still read off the endpoint, which is §13 item 21.
-      A name the bound added is logged, so a run says how often it happened.
+      A name the bound added is logged, so a run says how often it happened. The unbounded asks come
+      first and run the replica's own checks, and the first of those that use its pool opens the
+      pool's first connection before `/readyz` is asked: at the endpoint the one check left to open
+      a new connection is `clock_utc`, which opens one of its own on every ask. That is why only
+      `clock_utc` is logged in the relay's rows of §7's entry, part 3. *(Added by this item's
+      review.)*
     - **Not done by waiting or by asking again.** Nothing waits for the cluster to be quiet. The
       preconditions are asked once and the endpoint once, whatever either says.
     - **What is given up.** On an idle cluster the old assertions also failed when a database
@@ -26200,7 +26221,9 @@ measured again for this entry, on 2026-10-10.
   | 4.5 s | both fail; `clock_skew` is named as well | both pass, the same 5 of 5 |
 
   Those two sets of names are two of the three item 290 quotes, in the tests' own messages, word
-  for word.
+  for word. In the tests as they are, the asks with no bound come first and open the pool's first
+  connection, so at the endpoint `clock_utc` is the one check left to open a connection, and it is
+  the one logged (item 290). *(Added by this entry's review.)*
 - **What the tests still catch.** Thirteen changes to `server.go` or `health.go`, each made to a
   copy of the tree, one at a time, with the eight tests that read readiness run against it on the
   idle cluster: the two startup tests and six of `health_test.go`. The tests as they were are
@@ -26314,5 +26337,96 @@ measured again for this entry, on 2026-10-10.
 
 **Reviewed by:** pending when this entry was committed. §6 puts the diff review before the commit.
 The writer of this wave could start no reviewer and was told to message no other agent, so the
-review is the one that follows the wave, as it was for the two entries before this one. It is
-recorded here, in the commit that takes it.
+review came after the commit, as it did for the two entries before this one. It is recorded here, in
+the commit that takes it. *(Corrected by that review: it read "so the review is the one that follows
+the wave, as it was for the two entries before this one". Their review was taken in their wave's own
+ledger-review phase, which item 287's open list says was not a review after the wave.)*
+
+**The review, 2026-10-11:** one independent reviewer, read only, in clones of its own fetched by id.
+It covers this ledger's diff from `23011fa` to `63ca85ba`: items 289 and 290, the note in item 287's
+open list, and this entry. It also covers the change they record, `e9eae67a..63ca85ba`. No spec or
+plan file changed in that range. It was taken after `urnetwork/message`'s pull request 3 merged and
+before this pull request was opened. **Its verdict:** approve with changes, with no BLOCKER and no
+MAJOR, 2 MINOR and 4 NIT. It found the rulings' quotes exact against the notes, the five merge
+commits and their times exact, and every count it ran again true. It found item 290's account of the
+cause borne out by its own runs. It found the change as described: `health.go` and `server.go` are
+the same blobs at `e9eae67a` and `63ca85ba`, `startup_test.go` is the only Go file changed, nothing
+waits or asks again, and each check is handed the bound unchanged. It checked, independently:
+- **git:** `2e859f73` is 8 commits on `a0d47bef`. `847460bb` is 63 commits on `0f2ff669`, 165 files.
+  `483909c4` is 13 commits on `847460bb`, 38 files, with `go.mod` and nine under `protocol/` among
+  them. Connect says `go 1.26.3` and `toolchain go1.27.1` at both pins. `219d2f9e` is an ancestor of
+  `847460bb` and not of `0f2ff669`. `23011fa` changes comment lines only, and `gates.yml` parses to
+  the same document before and after; a control that changes one `run` line does not. `847460bb` was
+  still connect `main`'s head at 18:25 on 2026-10-09: the first commit after it was committed at
+  00:01 on 2026-10-10.
+- **GitHub:** each of the four pins is served by its id from its urnetwork URL with no credential
+  helper. A made-up id is refused, and so is the message commit asked of `urnetwork/connect`. Each
+  pin is an ancestor of its repository's default branch. Pull request 3 of `urnetwork/message`
+  merged at 06:31:42 on 2026-10-10 as `cc5efcc2`, with parents `a0d47bef` and `2e859f73` and
+  `2e859f73`'s tree. The fork's runs: 38027937793 at `63ca85ba`, 708 passed, `PINNED` four times
+  with no `FORK`; 38019225151 at `e9eae67a`, 708 passed, with `FORK` beside message and connect;
+  38027937903, the push run, success.
+- **The 2026-10-09 logs** item 290 quotes: the three messages are word for word, and the subtests
+  ran 3.23 s, 6.32 s and 8.01 s. In the four whole runs every failure was the timezone test.
+- **By running,** on Windows, against a PostgreSQL 17.6 cluster of its own (`initdb` defaults,
+  `America/Phoenix`). It used a relay built from a byte-identical copy of the one this entry used.
+  Through it the two tests at `108cb94` pass at 0 s. At 2.5 s they fail naming `database_reachable`,
+  `migrations_at_head` and `clock_utc`, and item 290's second quote comes out word for word. At
+  4.5 s `clock_skew` is named as well, and the third quote comes out word for word. The tests at
+  `63ca85ba` pass at 0 s and at 2.5 s, logging `clock_utc` named on an expired bound in 5 asks of 5.
+  With `log_connections` on, a run of the two tests started two backends per authorized connection,
+  32 for 16; with `sslmode=disable` added to the DSN it started one, 16 for 16. The README's step 2
+  at `63ca85ba` passed 708 results by package and name, 232 tests and 476 subtests, none failed or
+  skipped, with `FULL RUN: 2 of 2`; it started 502 backends and authorized 251. The two tests pass
+  under `-race`, with gcc 16.1.0. `go mod tidy -diff` is clean, and at `35f6d4d` it asks for exactly
+  `108cb94`'s three lines. The two gates pass on this entry's text: `TestTheEditLogGate`, 6 tests,
+  and `TestThePlanLinter`, 7, and so does the root package. A pending edit to Spec B with no entry
+  turns the edit-log gate red. The plan linter reads this ledger only for its item numbers.
+
+It did not check: the probe and loaded-run measurements of part 3; the thirteen changes of part 3,
+against which it read the new assertions, which agree; the byte-identical builds and module counts
+of part 2; or the seven changes to the script.
+
+**All 6 findings are taken, in the commit that records this, and none is rejected.** One of them is
+taken in the commit before it as well, `0190495`, which changes a comment in `startup_test.go`.
+- **MINOR: item 289 says item 287's condition "did not arise".** It did. Both pinned heads moved
+  before their pull requests merged, and before #3 merged at 12:22. `urnetwork/message`'s #1 merged
+  at `66628426`, four commits past `4d365abf`, and `urnetwork/connect`'s #219 at `4bcc5fd8`, 62 past
+  `0f2ff669`. #3 merged with the pins it had, so the condition's remedy is this item's moves,
+  `35f6d4d` and `108cb94`, and this entry's runs. Corrected in item 289, where it stands.
+- **MINOR: item 290's heading says the two startup tests failed in whole runs.** One did. In the
+  four whole runs of 2026-10-09 every failure was the timezone test, as the item's first bullet
+  says. The first-start test passed in all five of that day's runs that ran it. The test's own new
+  comment, `startup_test.go` line 679, says what the heading says. The heading is corrected, and the
+  comment by `0190495`, which changes that sentence and nothing else.
+- **NIT: item 290's heading says "a test holds it", the bound, while its open list says the bound's
+  value is held by no test.** What a test holds now is that `/readyz` hands each check the bound it
+  declares. The heading says so now.
+- **NIT: item 290 does not say that the unbounded pass opens the pool's first connection before
+  `/readyz` is asked.** So at the endpoint only `clock_utc` dials, which is why the relay rows log
+  `clock_utc` alone. Item 290 says so now, and so does part 3, beside the relay's table.
+- **NIT: Reviewed by says the review "follows the wave, as it was for the two entries before this
+  one".** Item 287's open list records that the review of those two entries was taken in that wave's
+  own ledger-review phase and "was not a review after the wave". Their entry's own line was
+  corrected away from that wording. Corrected where it stands, above.
+- **NIT, overtaken since the commit: item 289's open list** says `urnetwork/message`'s pull request
+  3 has not merged and that this review is pending. Both points are closed where they stand, as item
+  287's were.
+
+**Every place this commit changes:** items 289 and 290, and this entry, in part 3, under Reviewed by
+and here. The commit before it, `0190495`, changes one sentence of the comment on `ask` in
+`cmd/message-server/startup_test.go`, and nothing else. Each change to earlier text says what it
+replaced where it stands, or in the record of the review that found it. No other Go file changes,
+nor `go.mod`, nor `go.sum`, nor a spec, nor a plan.
+
+**Run again for this commit,** on Windows with Go 1.26.5, beside the four siblings at their pins,
+each verified PINNED:
+- **The two gates this ledger answers to,** on its finished text:
+  `go test ./ -run TestTheEditLogGate`, 6 tests, and `go test ./ -run TestThePlanLinter`, 7 tests,
+  pass, and so does the rest of the root package. This commit changes no spec and no plan, so the
+  edit-log gate asks no entry of it.
+- **At `0190495`:** `gofmt -l` and `go vet` are clean, and the two startup tests pass, the timezone
+  test's three subtests among them, with no bound logged as expired. They ran against a PostgreSQL
+  17.6 cluster made for the run by `initdb`, in the zone `America/Phoenix`.
+
+It cites no run of itself: the pull request's body cites the runs on its head.
