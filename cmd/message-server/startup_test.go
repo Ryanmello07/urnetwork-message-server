@@ -676,8 +676,9 @@ func watchReadiness(t *testing.T, replica *server) *readinessWatch {
 // as "it is met" on a cluster something else is loading, and the two tests that call this used to
 // read it so.
 //
-// **What that cost, and where the time goes.** Both tests failed in whole runs of the suite, on a
-// Windows host, and never alone (ledger item 290). What ran out of time was not a query. It was a
+// **What that cost, and where the time goes.** TestReadinessRefusesOnAClusterWhoseTimezoneIsNotUtc
+// failed in whole runs of the suite, on a Windows host, and never alone, and the first-start test
+// reads `/readyz` the same way (ledger item 290). What ran out of time was not a query. It was a
 // NEW connection. A replica that has just been built has an empty pool, so its first pool-backed
 // check opens one, and `clock_utc` opens its own on every ask, by design. PostgreSQL gives each
 // connection a backend of its own, on Windows a new process, and a DSN that does not say `sslmode`
