@@ -13086,9 +13086,16 @@ repo and therefore the critical path — not this repository:
       still names 1,231 exports (§7's entry).
     - **Open.**
       - **The pull requests:** the lead opens them, and the owner merges, each with a merge commit.
+        *(`urnetwork/message-windows`'s was opened on 2026-10-12 as its pull request 5, at
+        `bc73c468`. This repository's is opened on the head that this item's review makes.)*
       - **§6's diff review** of this item and its entry: pending (§7's entry, under Reviewed by).
+        *(Done on 2026-10-12 by the lead, before this repository's pull request was opened. Its one
+        finding is taken, and it is recorded under Reviewed by in §7's entry, in the commit that
+        takes it.)*
       - **The alpha server still runs go1.26.5 builds:** its `message-server` is `6530519`, under
         its unit since 2026-10-03, and its `messagectl` is `047843d`. R6 asks no emergency rebuild.
+        *(Overtaken on 2026-10-12: the lead installed this branch's build of both, from
+        `20c035a1`, and a live probe held against it. §7's entry, under Reviewed by.)*
       - **On a host whose go command is newer than go1.27.2,** the README's steps 1 to 4 run under
         that go: a toolchain line is a minimum, and nothing here forces it. Step 5 refuses that
         host's binaries, and the fix it names is the one the README gives, `GOTOOLCHAIN=go1.27.2`.
@@ -26589,8 +26596,11 @@ The two platforms give the same lists:
 
 - **The standard library's 16, on `main`:** GO-2026-5026, -5972, -6088, -6089, -6090, -6218, -6603,
   -6604, -6605, -6607, -6608, -6610, -6611, -6612, -6613 and -6617. Five of them, -6603, -6610,
-  -6611, -6612 and -6617, are the HTTP/2 advisories that are also x/net's five. Each is fixed by
-  go1.26.9 on the 1.26 line, and by go1.27.2.
+  -6611, -6612 and -6617, are the HTTP/2 advisories that are also x/net's five. On the 1.26 line,
+  six of the sixteen, -5026, -5972, -6088, -6089, -6090 and -6218, are fixed in go1.26.6, and the
+  other ten in go1.26.9. go1.27.2 has all sixteen fixes. *(Corrected by this item's review. It
+  read "Each is fixed by go1.26.9 on the 1.26 line, and by go1.27.2", which holds, and did not say
+  that six were fixed three releases earlier.)*
 - **x/net's 5:** GO-2026-6603, -6610, -6611, -6612 and -6617, each fixed in v0.60.0. **x/text's 1:**
   GO-2026-6629, a panic on crafted input to `x/text/secure/precis`, fixed in v0.41.0.
 - **The tool is built under the toolchain it scans with.** One built by go1.26.5 cannot load
@@ -26674,7 +26684,61 @@ Its branch `toolchain/go1.27.2` is at `bc73c468`, one commit on `96ef1997`.
   `5ea2e73e`'s by `.github/workflows/fork-ci.yml` alone. That merge is the fork's, and is not this
   branch.
 
-**Reviewed by:** pending, the lead's diff review before the pull request opens.
+**Reviewed by:** the lead's diff review of 2026-10-12, taken before this repository's pull request
+was opened. *(It read "pending, the lead's diff review before the pull request opens" when this
+entry was committed.)*
+
+**The review, 2026-10-12:** the lead's own, as item 291 named it, and not an independent one: the
+lead wrote the brief this change carries out. It covers `5ea2e73e..20c035a1`, the four commits and
+this ledger's text, each claim read against the tree or the run it names. **Its verdict:** approve,
+with no BLOCKER, no MAJOR and no MINOR, and one NIT, which is taken:
+- **NIT, part 3:** "Each is fixed by go1.26.9 on the 1.26 line" holds, but six of the sixteen are
+  fixed in go1.26.6, as the advisories' own records in the scan's output give them. Part 3 now says
+  so.
+
+Two points of item 291's open list were overtaken the same day, and are closed where they stand:
+- **The alpha server runs this branch's build.** At 20:47:03 on 2026-10-12 the lead installed
+  `message-server` and `messagectl` built from `20c035a1` under go1.27.2, for linux/amd64 with cgo
+  off and `-trimpath`, and built twice in two clones to the same bytes (sha256 `8e1c9539…52599487`
+  and `78dd412d…1515136e`), and restarted the unit. Before that, the new `messagectl status` read
+  the live database as "migrations: at head, 13 applied", as the deployed one did, so nothing was
+  migrated. The binaries it replaced, and a dump of the database, are kept on the box. `/readyz`
+  answered `ready` one second after the restart. A live probe built from `urnetwork/message`
+  `0bb2128f` under go1.27.2 then ran against the server's own endpoint through a URnetwork exit,
+  from 20:47:20, and printed `13 STEPS, 1668 ASSERTIONS, ALL HELD` after about 66 s, with no retry
+  and no panic. From the restart to the probe's end the server logged 26 INFO lines, 33 WARN lines
+  and no ERROR. The 33 WARN lines are its startup list of what is not built, the same 33 it logged
+  at its previous start, on 2026-10-03.
+- **`urnetwork/message-windows`'s pull request** was opened on 2026-10-12 as its pull request 5, at
+  `bc73c468`.
+
+**It checked,** each against the tree or the run it names:
+- **The runs.** Each fork run this entry cites tested the commit it names: the ref its checkout step
+  printed, in each run's log.
+- **`scripts/siblings.txt`'s comment.** Between `2e859f73` and `0bb2128f`, message's root `go.mod`
+  differs in its toolchain line only, and the 26 changed lines of `protocol/message.pb.go` are all
+  comment lines; the same count over `mls/pins_test.go` finds its 4 changed code lines, as a
+  control. This module links three of message's packages: `message`, `protocol` and `syntax`.
+  Between `e9eae67a` and `5ea2e73e` the one Go file that changes here is
+  `cmd/message-server/startup_test.go`, and `go.mod` and `go.sum` gain covert-dtls's three lines.
+- **The modules.** The new x/net, x/crypto, x/sys and x/text lines of `go.sum` are the ones
+  message's `sdk/go.sum` holds at `0bb2128f`, and x/sync's are not there. `cmd/message-server`
+  links 16 packages of x/net and the eight of x/crypto that part 2 names, and `cmd/messagectl`
+  links no other package of x/crypto. Of the eight, diffed in the module cache between v0.54.0 and
+  v0.58.0, six are the same files; chacha20 and internal/poly1305 differ in their `//go:build`
+  lines and by new loong64 and riscv64 files, and in nothing else.
+- **The script.** `scripts/toolchain.sh`, comments aside, differs from message's at `0bb2128f` in
+  one refusal message only, which names this repository's released binaries where message's names
+  its builds and its tests. Where a host's go command is the pin itself, its self-test asks for
+  another release for its control, and says so when it can have none.
+- **The migrations:** thirteen, from `001` to `012`, with `003b`, `004b`, `005b` and `005c` among
+  them.
+- **The scan:** part 3's counts, from the scan's own output for linux/amd64: 17 advisories reached
+  on `main`, 16 of them in the standard library.
+- **The quotations and times.** The two from the lead's brief are as the brief was sent. R6's file
+  was last written at 13:29:27 on 2026-10-09. `urnetwork/message`'s pull request 4 merged at
+  17:00:39 on 2026-10-11, as GitHub records it, as `0bb2128f`, whose parents are `cc5efcc2` and
+  `f67db5b9` and whose tree is `f67db5b9`'s, `6fecf361`.
 
 **Run again for this commit,** on Windows under go1.27.2, beside the four siblings at their pins,
 each verified PINNED:
