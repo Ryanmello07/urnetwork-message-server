@@ -13008,6 +13008,94 @@ repo and therefore the critical path — not this repository:
         all 708 results (§7's entries for items 287 and 288), and the relay of §7's entry was run
         on Windows only.
 
+291. **THE LEAD'S RULING R6 ON THE TOOLCHAIN, CARRIED OUT: THE PIN MOVES TO go1.27.2 IN THREE
+    REVIEWED CHANGES, ONE A REPOSITORY. `urnetwork/message`'S MERGED AS `0bb2128f`. THIS
+    REPOSITORY'S IS THE BRANCH `toolchain/go1.27.2`: IT PINS THAT COMMIT, GIVES THIS MODULE A
+    TOOLCHAIN LINE, HOLDS EVERY RELEASED BINARY TO IT, AND MOVES `golang.org/x/net` TO v0.61.0.
+    `urnetwork/message-windows`'S IS A BRANCH OF THE SAME NAME.** Times are UTC.
+    - **R6** is the lead's, in its rulings of 2026-10-09 on the S0 and T1 plan, a file last written
+      at 13:29:27 on 2026-10-09. Verbatim, with the file's bold markup left out, the lines that bind
+      here:
+      - "The pin moves in ONE reviewed change of its own, as `scripts/toolchain.sh` requires:
+        go.mod's line and `mls/pins_test.go`'s literal together, with the vector, known-answer and
+        guardrail suites run again under the new compiler."
+      - "Target: go1.27.2, the compiler `urnetwork/build`'s `all/run.sh` requires today (read
+        2026-10-09; urnetwork/server's go.mod asks for 1.27.2, and connect's toolchain line is
+        go1.27.1). One move, not two: ruling R5 already left "follow connect to go1.27.x" as a
+        change still owed."
+      - "The fallback: go1.26.9, only if a cryptographic suite fails under go1.27 for a reason that
+        is not ours to fix in this change. Say which suite and why."
+      - "`golang.org/x/net` goes to v0.60.0 or newer in the same change, wherever a module requires
+        it."
+      - "Three repositories, three pull requests: `message` (the pin), `message-server` (its own
+        go.mod line, and what it says about the pin), `message-windows` (the toolchain its build
+        script checks the dll for). One writer each."
+      - "The live alpha server. Its binary is built under the same pin, and the advisories that
+        matter to a public endpoint are denial-of-service ones in the HTTP/2 server. It holds only
+        ciphertext and is disposable (the owner, 2026-10-09). No emergency rebuild: the next server
+        package is built under the new pin."
+    - **The lead's brief for this repository's change,** of 2026-10-12, gives R6 in one paragraph
+      and adds a decision of its own. Verbatim: "THE PIN MOVES TO go1.27.2, which urnetwork/build
+      requires, in its own reviewed change across message, message-server and message-windows,
+      BEFORE T1 ships. Fallback go1.26.9. x/net goes to v0.60.0 or newer. It must show the vectors,
+      wire-golden and one CROSS-COMPILER run." And: "both consumers pin message at 0bb2128f,
+      upstream main's merge commit. The earlier pin, 2e859f73, was an open PR's head."
+    - **`urnetwork/message`'s change merged** at 17:00:39 on 2026-10-11 as `0bb2128f`, the merge of
+      its pull request 4: a merge commit on `main` whose second parent is the pull request's head,
+      `f67db5b9`, and whose tree is that head's tree, `6fecf361`. It moved the root go.mod's
+      toolchain line, `scripts/toolchain.sh` and `mls/pins_test.go`'s `TestPinnedToolchain` to
+      go1.27.2, moved `golang.org/x/net` to v0.61.0 in the modules that require it, and builds
+      `protoc-gen-go` under the pin. Its body reports, under go1.27.2: every vector family and known
+      answer, with the same per-file counts as under go1.26.5; the wire corpus, byte for byte; one
+      cross-compiler run, both ways and in both roles; and govulncheck v1.9.0 reaching no advisory
+      in any module, where under go1.26.5 it reached up to 15 in the standard library and 5 in
+      `golang.org/x/net` in the SDK modules. Those are that pull request's measurements, not this
+      item's. The lead's brief adds one of 2026-10-12: a live probe built from `0bb2128f` under
+      go1.27.2 ran against the alpha and printed `13 STEPS, 1668 ASSERTIONS, ALL HELD`.
+    - **This is also the entry item 288 owed.** R5's point 4 made following connect to go1.27.x "a
+      SEPARATE reviewed change after the import: its own branch and PR, the full vector, KAT and
+      guardrail suites re-run under 1.27.1, and a ledger entry", and item 288 said that "The ledger
+      entry point 4 asks for is owed when that change is made". The change was made in
+      `urnetwork/message`, at go1.27.2 rather than 1.27.1, by R6, and this item is its entry: this
+      ledger records that repository's work as well as this one's (item 281).
+    - **What R6 asks of this repository** is "its own go.mod line, and what it says about the pin".
+      This module had no toolchain line (items 288 and 289), so it was built by whatever go command
+      a host had, and the fork's runner took go1.26.5 from its go line. The branch, four commits on
+      `main` `5ea2e73e`:
+      - `6e6a25c7` moves the message pin from `2e859f73` to `0bb2128f`, the lead's decision above,
+        in `scripts/siblings.txt` and its comment. connect, glog and gvisor stay, because
+        `0bb2128f`'s own pins for them are this file's.
+      - `6cea56e5` moves `golang.org/x/net` from v0.57.0 to v0.61.0. This module requires it, and
+        `cmd/message-server` links its `http2` package through connect. x/net's own requirements
+        move x/crypto to v0.58.0, x/sys to v0.49.0, x/text to v0.43.0 and x/sync to v0.24.0. The go
+        command wrote both files.
+      - `22347c12` gives `go.mod` the line `toolchain go1.27.2`, with a comment, and keeps the go
+        line at 1.26.5. It adds `scripts/toolchain.sh`, whose code is `urnetwork/message`'s at
+        `0bb2128f` line for line. The step that builds every released platform, in `gates.yml` and
+        as the README's step 5, now runs the script's own controls first, and then refuses any
+        binary it builds that does not record the pin. The README says which toolchain this is.
+      - This commit: this item and its entry in §7.
+
+      The fallback was not taken: nothing here failed under go1.27.2 (§7's entry).
+    - **`urnetwork/message-windows`'s change** is the branch `toolchain/go1.27.2` of
+      `Ryanmello07/urmessage-windows`, at `bc73c468`: one commit on that repository's `main`,
+      `96ef1997`, which moves `composition.txt`'s message pin to `0bb2128f`, with its comment. Its
+      build script reads the toolchain from message's root go.mod at the pinned commit, so that line
+      is the whole of the move there: the dll is built under go1.27.2, and the script's check 7 asks
+      the dll which toolchain built it. Its three vendored ABI files do not change, and its `.def`
+      still names 1,231 exports (§7's entry).
+    - **Open.**
+      - **The pull requests:** the lead opens them, and the owner merges, each with a merge commit.
+      - **§6's diff review** of this item and its entry: pending (§7's entry, under Reviewed by).
+      - **The alpha server still runs go1.26.5 builds:** its `message-server` is `6530519`, under
+        its unit since 2026-10-03, and its `messagectl` is `047843d`. R6 asks no emergency rebuild.
+      - **On a host whose go command is newer than go1.27.2,** the README's steps 1 to 4 run under
+        that go: a toolchain line is a minimum, and nothing here forces it. Step 5 refuses that
+        host's binaries, and the fix it names is the one the README gives, `GOTOOLCHAIN=go1.27.2`.
+      - **One advisory is left, at module level only:** GO-2026-5932, the notice that
+        `golang.org/x/crypto/openpgp` is unmaintained, which has no fix. This module never imports
+        that package.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
@@ -26428,5 +26516,171 @@ each verified PINNED:
 - **At `0190495`:** `gofmt -l` and `go vet` are clean, and the two startup tests pass, the timezone
   test's three subtests among them, with no bound logged as expired. They ran against a PostgreSQL
   17.6 cluster made for the run by `initdb`, in the zone `America/Phoenix`.
+
+It cites no run of itself: the pull request's body cites the runs on its head.
+
+### 2026-10-12 — Item 291: the toolchain moves to go1.27.2, and golang.org/x/net to v0.61.0
+
+**Change:** this ledger: item 291 and this entry. No spec or plan changes. The three commits before
+this one are the work: `6e6a25c7` moves message's pin in `scripts/siblings.txt`, `6cea56e5` moves
+`golang.org/x/net` in `go.mod` and `go.sum`, and `22347c12` gives `go.mod` its toolchain line, adds
+`scripts/toolchain.sh`, and changes the README and the step of `gates.yml` that builds every
+released platform. No Go file changes. Times are UTC, on 2026-10-12 unless a date is given.
+
+#### 1. What it was built against
+
+| sibling | commit | fetched from | what it is |
+|---|---|---|---|
+| `message` | `0bb2128f` | `urnetwork/message` | the merge of its pull request 4, on its `main` |
+| `connect` | `847460bb` | `urnetwork/connect` | as before, the merge of the removal |
+| `glog` | `80a11b43` | `urnetwork/glog` | as before |
+| `gvisor` | `c0783dba` | `urnetwork/gvisor` | as before, on `go` |
+
+Every run of this branch below stood beside these four, each cloned by `scripts/siblings.sh` from
+the URL its line names and verified PINNED, with FORK beside none; the runs of `main` stood beside
+`main`'s pins, message `2e859f73` and the other three as here. The host is a Windows machine with 24
+logical CPUs. Its installed Go is 1.26.5, and on this branch the go command switched itself to
+go1.27.2 by the toolchain line. The PostgreSQL 17.6 cluster was made for these runs by `initdb` with
+its defaults, on 127.0.0.1, in the zone `America/Phoenix`.
+
+#### 2. The commits, measured
+
+- **`6e6a25c7`.** Between `2e859f73` and `0bb2128f`, the Go files under `message/`, `syntax/` and
+  `protocol/` differ only in `protocol/message.pb.go`, in 26 changed lines, every one of them a
+  comment line: each changed line of `git diff -U0` was read as a comment, and a code line planted
+  as a control was counted. The root `go.mod` differs in its toolchain line only. Beside the new
+  pin, under go1.26.5, `go mod tidy -diff` is clean, and `go build ./...` and `go mod verify` pass.
+- **`6cea56e5`.** Written by `go get golang.org/x/net@v0.61.0` and then `go mod tidy`, under
+  go1.26.5: five lines of `go.mod` and ten of `go.sum`. The new `go.sum` lines of x/net, x/crypto,
+  x/sys and x/text are the ones `urnetwork/message`'s `sdk/go.sum` holds at `0bb2128f`; x/sync is
+  not listed there. `cmd/message-server` links sixteen packages of x/net, `http2` among them, which
+  connect imports, and x/text's `secure/precis`, which pgx's `pgconn` imports. Of x/crypto it links
+  eight packages: chacha20, chacha20poly1305, internal/poly1305, internal/alias, cryptobyte,
+  cryptobyte/asn1, hkdf and sha3. Between v0.54.0 and v0.58.0 six of them are the same files, and
+  chacha20 and internal/poly1305 differ only in build constraints and new files that admit loong64
+  and riscv64 assembly, so on amd64 and arm64 the same files compile.
+- **`22347c12`.** `go mod tidy` under go1.27.2 leaves `go.mod` as it is, its comment and its go line
+  included. The README's step 5, run as written:
+  - with `GOTOOLCHAIN` unset, it ran under go1.27.2, the script's seven controls held, and the four
+    binaries, `message-server` and `messagectl` for linux/amd64 and linux/arm64, recorded go1.27.2.
+    The control program built under another toolchain was built by the host's go1.26.5, with
+    `GOTOOLCHAIN=local`;
+  - under `GOTOOLCHAIN=go1.26.5`, and again under `GOTOOLCHAIN=go1.27.1`, it stopped at the first
+    platform, naming both binaries and the toolchain each recorded;
+  - with its `--artefact` line deleted, it passed under go1.26.5, so that line is the refusal.
+
+  The script refuses a `go.mod` with no toolchain line, and one with two. The README's step 5 is
+  `gates.yml`'s step as written, wrapped in `( ... )`, before this commit and after it: the two
+  texts were compared, the README's dedented.
+
+#### 3. The vulnerability scan
+
+`govulncheck` v1.9.0, pinned, over `./...` for each line of `release-platforms.txt` (linux/amd64 and
+linux/arm64, with cgo off), at symbol level, against the database as last modified at 22:31:09 on
+2026-10-08. An advisory is counted as reached when the code calls one of its vulnerable functions.
+The two platforms give the same lists:
+
+| | `main` `5ea2e73e`, go1.26.5, x/net v0.57.0 | after `6cea56e5`, go1.26.5, x/net v0.61.0 | `22347c12`, go1.27.2 |
+|---|---|---|---|
+| standard library | 16 | 16 | 0 |
+| `golang.org/x/net` | 5 | 0 | 0 |
+| `golang.org/x/text` | 1 | 0 | 0 |
+| distinct advisories | 17 | 16 | 0 |
+
+- **The standard library's 16, on `main`:** GO-2026-5026, -5972, -6088, -6089, -6090, -6218, -6603,
+  -6604, -6605, -6607, -6608, -6610, -6611, -6612, -6613 and -6617. Five of them, -6603, -6610,
+  -6611, -6612 and -6617, are the HTTP/2 advisories that are also x/net's five. Each is fixed by
+  go1.26.9 on the 1.26 line, and by go1.27.2.
+- **x/net's 5:** GO-2026-6603, -6610, -6611, -6612 and -6617, each fixed in v0.60.0. **x/text's 1:**
+  GO-2026-6629, a panic on crafted input to `x/text/secure/precis`, fixed in v0.41.0.
+- **The tool is built under the toolchain it scans with.** One built by go1.26.5 cannot load
+  go1.27.2's standard library ("file requires newer Go version go1.27") and stops before it reads
+  anything: the first scan of `22347c12` was such a run, and it printed a configuration and no
+  finding. So a stream is counted only when it holds govulncheck's SBOM message, and that first scan
+  is not counted.
+- **Control.** The go1.27.2-built tool, run on `main` under go1.26.5, finds the same 17, in 851
+  findings per platform, where at `22347c12` it makes one. So the empty column is not the tool's.
+- **Below the reached level:** at `22347c12` one advisory is reported at module level only,
+  GO-2026-5932, the notice that `golang.org/x/crypto/openpgp` is unmaintained, which has no fix. At
+  `main` there were also three in `golang.org/x/crypto/ssh` and three in the standard library at
+  module level, and two in the standard library at package level; none of them is reported at
+  `22347c12`.
+- **What the scan does not say:** which advisories a client of the server's endpoint can trigger. It
+  reports what the binary's call graph reaches, and the endpoint's TLS configuration offers ALPN
+  `http/1.1` only (`endpoint/endpoint.go`). That was not examined further.
+
+#### 4. Verification, at `22347c12`
+
+- **The README's five steps, run as written,** in a fresh clone of this branch with
+  `core.autocrlf=true` at system scope, each step read out of the README of the tree under test. All
+  five pass: the script's 45 controls, and PINNED four times; 708 results passed by package and
+  name, 232 tests and 476 subtests, none failed or skipped, with `FULL RUN: 2 of 2`; `gofmt` and
+  `go vet` clean; and step 5 as in part 2, with `built 2 released platforms`. The suite ran under
+  go1.27.2, in 326 s. `go mod verify` and `go mod tidy -diff` are clean, and the tree is clean after
+  the run.
+- **The same five steps at `main` `5ea2e73e`,** in a fresh clone on the same host and cluster, with
+  a database of its own, under go1.26.5: all five pass, with 708 results passed. They are the same
+  708 names, by package and name, with the same verdict.
+- **The fork's runs on `22347c12`:** 38295146528, `fork-ci.yml`, success: 708 passed, PINNED four
+  times with FORK beside none, `FULL RUN: 2 of 2`, step 5's seven controls held, and its four
+  binaries each recorded go1.27.2. setup-go installed go1.26.5 from the go line, and the go command
+  fetched go1.27.2 ("go: downloading go1.27.2 (linux/amd64)") and ran under it. 38295136614,
+  `gates.yml` on the push, success with the same counts.
+
+#### 5. The alpha server against this branch
+
+Read from the box on 2026-10-12, changing nothing there: the service has run since 2026-10-03 with
+no restart. Its `message-server` records `vcs.revision` `6530519b` and go1.26.5, and its
+`messagectl` records `047843df` and go1.26.5. Both commits are in this branch's history.
+- **The migrations are the same.** `store/migrations.go`, read with `go/parser` without its comments
+  and printed with `go/printer`, gives the same bytes at `047843d`, `6530519` and `22347c12`:
+  thirteen migrations, `001 message_group` to `012 message_record epoch digest`, with the same SQL.
+  Between `6530519` and `22347c12` the file differs in one comment line. A control that changes one
+  word of one migration's SQL changes both digests.
+- **What else changed in `cmd/`, `peer/`, `api/` and `store/`,** from `6530519` to `22347c12`: 18
+  files that are not tests, and 35 test files and one test fixture. In the 18: the record layer's
+  import paths, from `connect/message` and `connect/protocol` to `github.com/urnetwork/message`'s
+  (item 284), with the import names and order that brought; `peer/peer.go`'s sends, which take a
+  `connect.Id` where they took a `connect.TransferPath` (`9e14de6`, built against upstream connect);
+  and comments. With those renames, the import order and the comments folded away, no other line of
+  the 18 differs.
+
+#### 6. `urnetwork/message-windows`
+
+Its branch `toolchain/go1.27.2` is at `bc73c468`, one commit on `96ef1997`.
+- **Its build script, with `-Vendor`,** from the branch's tree, in a new workspace: the self-test
+  holds 42 of 42, and all eleven checks pass, 22 PASS lines and no FAIL. The three vendored files
+  are the composition's byte for byte as they were, so none changes, and gen names 1,231 exports,
+  1,172 from the core and 59 messaging. The dll records go1.27.2, `golang.org/x/net` v0.61.0,
+  `golang.org/x/crypto` v0.58.0 and `vcs.revision` `0bb2128f` with `vcs.modified=false`: 52,011,520
+  bytes, sha256 `b4170598…be7ba4aa`.
+- **A fresh clone of the branch,** with `core.autocrlf=true`, and `-Stage` in a second workspace:
+  the same eleven checks pass, and the dll is the same file, byte for byte. The app builds, Release
+  x64, with 0 errors and 3 CS1668 warnings, and `URmessage.exe --diagnose` with a fresh, empty app
+  root exits 0: 118 lines, 96 PASS, 0 FAIL.
+- **Its fork's runs:** 38298197843 at `bc73c468`, and as the control 38298201460 at `87422c84`,
+  whose tree is `96ef1997`'s. Both jobs of each succeed, and `--diagnose` gives 96 PASS and 0 FAIL
+  in each. The dll records go1.27.2 at the head and go1.26.5 in the control.
+
+#### 7. What this does not do
+
+- It does not open the pull requests, and it cites no run of itself: this commit changes only this
+  ledger, and the pull request's body cites the runs on its head.
+- It does not install anything on the alpha server or restart it.
+- It does not force the pin on the README's steps 1 to 4 (item 291's open list), and it moves
+  neither the go line nor the connect, glog and gvisor pins.
+- It does not run the suite on Linux by hand: the fork's runs are its Linux runs.
+- The fork's `main` was brought to `5ea2e73e` by a merge, `2784ede2`, whose tree differs from
+  `5ea2e73e`'s by `.github/workflows/fork-ci.yml` alone. That merge is the fork's, and is not this
+  branch.
+
+**Reviewed by:** pending, the lead's diff review before the pull request opens.
+
+**Run again for this commit,** on Windows under go1.27.2, beside the four siblings at their pins,
+each verified PINNED:
+- **The two gates this ledger answers to,** on its finished text:
+  `go test ./ -run TestTheEditLogGate`, 6 tests, and
+  `go test ./ -run TestThePlanLinter`, 7 tests, pass, and so does the rest of the root
+  package. This commit changes no spec and no plan, so the edit-log gate asks no entry of it.
 
 It cites no run of itself: the pull request's body cites the runs on its head.
