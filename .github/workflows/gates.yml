@@ -137,9 +137,21 @@ jobs:
       # Every configuration release-platforms.txt names, built from that file rather than from
       # a matrix retyped here. deps_test.go measures the same file, so a platform this job
       # builds is a platform the dependency rule was checked against.
+      #
+      # AND EVERY BINARY IT BUILDS MUST RECORD THE PINNED TOOLCHAIN, go.mod's toolchain line. That
+      # line is a minimum: a go command older than the pin fetches the pin and runs it, and a newer
+      # one builds with itself and says nothing. So each platform's commands are written to a
+      # scratch directory, and scripts/toolchain.sh --artefact asks each binary which toolchain
+      # built it and refuses any other answer. Its --self-test runs first, and shows that the
+      # refusal works: a program built under another toolchain, and a copy of one whose recorded
+      # version was rewritten, are both refused, and the same program built under the pin is
+      # accepted.
       - name: build every released platform
         run: |
           set -eu
+          binaries=$(mktemp -d)
+          trap 'rm -rf "$binaries"' EXIT
+          bash scripts/toolchain.sh --self-test "$binaries/controls"
           built=0
           while read -r platform settings; do
             case "$platform" in ''|'#'*) continue ;; esac
@@ -156,7 +168,8 @@ jobs:
               esac
             done
             printf '\n== %s/%s cgo=%s tags=%s ==\n' "$goos" "$goarch" "$cgo" "$tags"
-            GOOS="$goos" GOARCH="$goarch" CGO_ENABLED="$cgo" go build ${tags:+-tags "$tags"} ./...
+            GOOS="$goos" GOARCH="$goarch" CGO_ENABLED="$cgo" go build ${tags:+-tags "$tags"} -o "$binaries/$built/" ./...
+            bash scripts/toolchain.sh --artefact "$binaries/$built"/*
             built=$((built + 1))
           done < release-platforms.txt
           if [ "$built" -eq 0 ]; then
