@@ -35,19 +35,22 @@
 # so no fetch source can change what a pin builds; what the URL rule protects is that the pins can
 # be fetched from the project's own repositories by anyone, for good.
 #
-# REVIEW SOURCES. This module's switch to github.com/urnetwork/message is the fourth of a set of
-# pull requests that are built and tested together: the removals from urnetwork/sdk and
-# urnetwork/connect, the import into urnetwork/message, and this one. It pins the heads of two of
-# them, and those heads exist on the owner's forks before either is merged upstream, so until its
-# pull request merges a head is fetched from the fork it was pushed to. Those forks are named here
+# REVIEW SOURCES. A pin may also be fetched from a fork this script lists by its exact URL. That is
+# for one case: pull requests that are built and tested together before any of them has merged,
+# when a head one of them pins exists only on the fork it was pushed to. Such forks are named here
 # one by one, and nothing else outside urnetwork/ is accepted: not another repository of the same
 # owner, not another owner's fork of the same repository. Every mode prints FORK and the URL beside
 # such a pin, so a run against a commit the upstream repository does not hold yet says so each time.
 #
-# WHEN A PULL REQUEST MERGES (with a merge commit, so its head stays the commit it was), the pinned
-# commit is in the upstream repository: change that sibling's URL in scripts/siblings.txt back to
-# https://github.com/urnetwork/..., and delete its line here. The list is empty once both have
-# merged, and --self-test then says that no review source is accepted.
+# NONE IS LISTED TODAY. The list named the owner's forks of urnetwork/message and urnetwork/connect
+# while this module's switch to github.com/urnetwork/message was under review with the three pull
+# requests it was built and tested with: the removals from urnetwork/sdk and urnetwork/connect, and
+# the import into urnetwork/message. All four merged on 2026-10-09, each with a merge commit, so the
+# pinned heads kept their ids. scripts/siblings.txt went back to urnetwork URLs, the two forks left
+# the list, and --self-test holds that each of them is refused and says that no review source is
+# accepted. To use the list again, add the fork's URL below and pin the head; when its pull request
+# has merged (with a merge commit, so the head stays the commit it was), change the URL back and
+# delete the line.
 #
 # MESSAGE_SERVER_TEST_UNPINNED, a comma-separated list of names, lets --verify accept those siblings
 # at whatever commit they are checked out at, placeholder pin or not. Each is printed as UNPINNED
@@ -57,10 +60,8 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 pins="${SIBLINGS_FILE:-$here/scripts/siblings.txt}"
 
-# The forks a pull request head under review may be fetched from, one URL per line.
+# The forks a pull request head under review may be fetched from, one URL per line. None today.
 review_sources="
-https://github.com/Ryanmello07/urmessage.git
-https://github.com/Ryanmello07/connect.git
 "
 
 # source_of <url>: prints "upstream" or "fork", or fails for a fetch source this script refuses.
@@ -149,18 +150,26 @@ self_test() {
     listed=$((listed + 1))
     pin "one $url $fake"
     expect pass "a pull request head on the listed review source $url" "(checked, not cloned) FORK $url" '' --check one
+    pin "one ${url%.git} $fake"
+    expect fail "the same review source spelled without its .git" "$refused" '' --check one
   done <<<"$review_sources"
   if [ "$listed" -eq 0 ]; then
     echo "  no review source is listed, so none is accepted: every pin is fetched from urnetwork/"
   fi
+  # The two forks this list named until their pull requests merged, on 2026-10-09. Each is refused
+  # now, by the line that names it.
+  for url in https://github.com/Ryanmello07/urmessage.git https://github.com/Ryanmello07/connect.git; do
+    pin "one $url $fake"
+    expect fail "a fork that was a review source until its pull request merged" "fetches from $url, which is $refused" '' --check one
+  done
   pin "one https://github.com/Ryanmello07/unlisted.git $fake"
   expect fail "another repository of the same owner" "$refused" '' --check one
   pin "one https://github.com/someone-else/connect.git $fake"
-  expect fail "another owner's fork of a listed repository" "$refused" '' --check one
+  expect fail "another owner's fork of a repository that was listed" "$refused" '' --check one
   pin "one https://github.com/Ryanmello07/connect.git/../../someone-else/connect.git $fake"
-  expect fail "a listed review source with a path after it" "$refused" '' --check one
+  expect fail "a fork's URL with a path after it" "$refused" '' --check one
   pin "one https://github.com/Ryanmello07/connect $fake"
-  expect fail "a listed review source spelled another way" "$refused" '' --check one
+  expect fail "a fork's URL spelled another way" "$refused" '' --check one
   pin "one https://github.com.example.invalid/urnetwork/connect.git $fake"
   expect fail "an urnetwork URL on another host" "$refused" '' --check one
   pin "one http://github.com/urnetwork/connect.git $fake"
@@ -193,8 +202,16 @@ self_test() {
   checkout one
   pin "one https://github.com/urnetwork/connect.git $sha"
   expect pass "a sibling at its pinned commit" "PINNED one $sha" '' --verify one
+  # A fork that is not listed is refused in this mode as well, with the checkout at the very commit
+  # its line pins: the fetch source is asked about before the checkout is looked at.
   pin "one https://github.com/Ryanmello07/connect.git $sha"
-  expect pass "a sibling at a pin fetched from a review source" "PINNED one $sha FORK https://github.com/Ryanmello07/connect.git" '' --verify one
+  expect fail "a sibling at its pin, the pin on a fork that was a review source" "fetches from https://github.com/Ryanmello07/connect.git, which is $refused" '' --verify one
+  # With a review source listed, the same checkout is accepted and says where its pin was fetched from.
+  url=$(grep -m 1 . <<<"$review_sources" || true)
+  if [ -n "$url" ]; then
+    pin "one $url $sha"
+    expect pass "a sibling at a pin fetched from the listed review source $url" "PINNED one $sha FORK $url" '' --verify one
+  fi
   pin "one https://github.com/urnetwork/connect.git $fake"
   expect fail "a sibling at another commit" "WRONG COMMIT one" '' --verify one
   expect pass "the same sibling, named unpinned" "UNPINNED one $sha (scripts/siblings.txt pins $fake)" 'one' --verify one
