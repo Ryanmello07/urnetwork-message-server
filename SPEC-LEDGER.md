@@ -13369,8 +13369,9 @@ repo and therefore the critical path — not this repository:
 
 293. **S0 OF THE HARDENING PLAN IS CLOSED. ITS FOUR COMMITS ARE `urnetwork/message`'S PULL
     REQUEST 5, AT `393e864b1e19`, WHICH MERGES AFTER THIS ITEM. ITS FULL RUNS GIVE THE VERDICTS R15
-    ALLOWS AND NO OTHER, ITS SCAN PASSES, AND EVERY PHASE-END COUNT EQUALS THE PLAN'S. THE
-    PROGRAM'S S0.2, S0.3 AND S0.4 MOVE.** Times are UTC.
+    ALLOWS AND NO OTHER, ITS SCAN PASSES, AND EVERY PHASE-END COUNT EQUALS THE PLAN'S, OR, FOR
+    THE PROBES, THE LAB RUN'S THAT THE PLAN CITES. THE PROGRAM'S S0.2, S0.3 AND S0.4 MOVE.** Times
+    are UTC. *(The title's "or, for the probes" is added by this item's review.)*
     - **What closes.** Task 31 of the plan item 292 filed,
       `docs/plans/2026-10-09-hardening-harness-and-join-seal.md`, closes phase S0 in five steps:
       the full run on both hosts, the fork's workflow with all four legs, the pull request, this
@@ -13404,6 +13405,8 @@ repo and therefore the critical path — not this repository:
         C-consumer line above."
       - "`windows`: `VERDICT: PASS`, or the narrowed verdict with EXACTLY ONE narrowing, the
         ThreadSanitizer line above."
+      - ("Above" is R15's own text. §7's entry, part 3, prints both lines. *(Added by this
+        item's review.)*)
       - "Any other narrowing, a second narrowing, or a FAIL stops the close and is a finding for
         the lead."
 
@@ -13423,7 +13426,10 @@ repo and therefore the critical path — not this repository:
       toolchain move has landed, and it passes.
     - **The phase end,** measured on Windows under go1.27.2 at `393e864b`, equals the plan's:
       `messagegroup` 359, `sdk` 308 and `sdk/cp3b` 106; the harness 25 in normal mode, and 17 FAIL
-      and 8 PASS in strict mode; the root module with `mls` 2522; and the probes' own tests 6.
+      and 8 PASS in strict mode; and the root module with `mls` 2522. The probes' own tests are 6,
+      which the plan does not print: it is the count of the lab run its "Measured results" cites
+      (§7's entry, part 5). *(Corrected by this item's review. It read "…; and the probes' own
+      tests 6", among the counts that equal the plan's.)*
       - **The RED report** is the strict run's 17 lines, which the pull request quotes as the
         branch printed them: 8 gaps that T1a closes, 6 that T1 closes, 2 that the identity track
         closes, and 1, keys at rest, that the healing track closes.
@@ -13436,8 +13442,11 @@ repo and therefore the critical path — not this repository:
       6). None of them changes a commit of the branch, a count or a verdict.
     - **The program's status table,** in `docs/plans/2026-10-05-hardening-program.md`, moves in
       this commit, in Task 31 Step 4's words. Its three Status cells, before and after:
-      - S0.2, the harness: "design in review", now "landed for the join path", with the list under
-        "Not in S0" in the plan as what its own plan still owes;
+      - S0.2, the harness: "design in review", now "landed for the join path", with what it still
+        owes listed under "Not in S0" in the plan, each item with the plan that takes it;
+        *(corrected by this item's review, here and in the cell: it read "with the list under 'Not
+        in S0' in the plan as what its own plan still owes", which a reader could take for the join
+        seal's plan)*
       - S0.3, the quick fixes: "design in review", now "pin file and scan landed; document fixes
         owed";
       - S0.4, the state-machine vectors: "design in review", now "family 16 installed".
@@ -13457,7 +13466,9 @@ repo and therefore the critical path — not this repository:
         paired with T1a, which the owner is told to merge first (R7).
       - **§6's diff review** of this item, its entry and the three cells: pending. It is made on
         this commit before this repository's pull request opens, and is recorded in the commit
-        after it, which is the lead's, as items 291's and 292's were.
+        after it, which is the lead's, as items 291's and 292's were. *(Done on 2026-10-13 by an
+        independent subagent, before this repository's pull request was opened. Its findings are
+        recorded under Reviewed by in §7's entry, in the commit that takes them.)*
 
 ## 6. Change process
 
@@ -27308,8 +27319,9 @@ workflow changes. Times are UTC, on 2026-10-13 unless a date is given.
   `mls/vectors_test.go` and `mls/deserialization_kat_test.go`. No file under `docs/history`
   changes, as Task 31 Step 2 requires; the same query finds the 4 files under `sdk/cp3b/`.
 - **Its body** carries what Task 31 Step 3 asks: the two verdict lines, run 38320014750 with its
-  four legs, and the RED report as the branch printed it. Its 17 `ADVSIM` lines are the strict
-  run's, byte for byte. The plan's Task 27 prints the same 17 lines with one space after each id,
+  four legs, and the RED report as the branch printed it. Its 17 `ADVSIM` lines, the strict run's
+  `state=open` lines of its 22, are the strict run's, byte for byte *("of its 22" added by this
+  entry's review)*. The plan's Task 27 prints the same 17 lines with one space after each id,
   where the branch pads each id to 30 columns, so the two are equal once a run of spaces is read
   as one. The plan's lines are not edited for it (the lead's review of the branch, "One nuance").
 
@@ -27415,7 +27427,9 @@ each suite's `-v` log:
 - **No suite has a `--- FAIL` line outside strict mode.** `gofmt` was clean over 400 files, and
   its misformatted control was listed. Build and vet of the five modules were clean when run
   again (part 6, the first point), and the layering gate's 8 tests passed.
-- **The RED report** is the strict run's 17 `ADVSIM` lines, which the pull request quotes (part
+- **The RED report** is the 17 `state=open` lines of the strict run's 22 `ADVSIM` lines *(corrected
+  by this entry's review, which read "the strict run's 17 `ADVSIM` lines")*, which the pull
+  request quotes (part
   2). By the step each names: 8 that T1a closes, 6 that T1 closes, 2 that T2, the identity track,
   closes, and 1, `S4-state-thief`, that T3, the healing track, closes at rest.
 - **The mutants.** S0's 8, HV1 to HV8, are the plan's Appendix B diffs, byte for byte. Each was
@@ -27487,7 +27501,7 @@ rows.
 
 | row | before | after |
 |---|---|---|
-| S0.2 | design in review | landed for the join path (ledger item 293); the list under "Not in S0" in `2026-10-09-hardening-harness-and-join-seal.md` is what its own plan still owes |
+| S0.2 | design in review | landed for the join path (ledger item 293); what it still owes is listed under "Not in S0" in `2026-10-09-hardening-harness-and-join-seal.md`, each item with the plan that takes it |
 | S0.3 | design in review | pin file and scan landed; document fixes owed (ledger item 293) |
 | S0.4 | design in review | family 16 installed (ledger item 293) |
 
@@ -27521,8 +27535,31 @@ the commit once it exists, and the runs on the pushed head make that check.
 - It does not edit item 292. Its open points on its pull request and on the status table are met
   (item 293), and this commit adds no note to them.
 
-**Reviewed by:** pending: §6's diff review of this item, this entry and the three cells, made on
-this commit before this repository's pull request opens, and recorded in the commit after it,
-which is the lead's, as items 291's and 292's were.
+**Reviewed by:** an independent subagent's diff review of 2026-10-13, §6's, made on this entry's
+commit before this repository's pull request was opened. *(When this entry was committed it read
+"pending", and named this review.)*
+
+**The review, 2026-10-13:** read-only, by a reviewer that wrote neither this entry nor its brief.
+It covers `063ddba7..5622c0d1`, each claim read against its source: pull request 5 and its four
+commits; all four job logs of fork run 38320014750, fetched again; the `alt-2` logs; the scan;
+the phase-end counts; Appendix B's eight mutants against their diffs; the gates, the linter's
+control, and the whole root package; the commit; and both runs on this commit's head.
+**Its verdict:** changes, with no BLOCKER and no MAJOR, two MINOR and four NIT findings, none of
+which touches a number. Taken in this commit, each where it stands, with a note:
+- **MINOR, the probes' count:** the plan prints none; the 6 is the lab run's that the plan
+  cites. The title and the phase-end bullet now say so.
+- **MINOR, the S0.2 cell:** "what its own plan still owes" could read as the join seal's plan,
+  which owes none of it. The cell, the item's bullet and part 7's row now say that what S0.2
+  still owes is listed under "Not in S0", each item with the plan that takes it.
+- **NIT, 17 of 22:** the RED report is the strict run's 17 `state=open` lines of its 22.
+- **NIT, R15's "above":** a note says where both lines are printed.
+
+Not taken: the program plan's "As of the commit that adds this plan" line, outside the three
+cells this step changes (each cell cites this item); and the first commit's wording of the
+control, which no commit can change: the control is the three cells with `main`'s ledger, which
+lacks item 293, as part 8 says.
+
+The two gates this ledger answers to pass on the finished text: TestTheEditLogGate, 6 tests, and
+TestThePlanLinter, 7 tests, and so does the rest of the root package.
 
 It cites no run of itself: the pull request's body cites the runs on its head.
