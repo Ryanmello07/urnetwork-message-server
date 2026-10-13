@@ -314,6 +314,7 @@ func editLogLedgerDebt() []string {
 func editLogLedgerBackfilled() []string {
 	return []string{
 		"92a27e1", // paid by the 2026-10-02 entry; ledger 269 records how it went unnoticed
+		"b54be74", // paid by the 2026-10-13 entry for item 293's review; it moved one plan cell and appended no entry
 	}
 }
 

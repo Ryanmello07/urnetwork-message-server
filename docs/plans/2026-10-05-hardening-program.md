@@ -57,9 +57,9 @@ moves in that commit.
 | Track | What | Gate before it closes | Status | Reports to the owner |
 |---|---|---|---|---|
 | S0.1 | Record the rulings: ledger item 280, this plan, the report | a diff review of that commit | this commit | no |
-| S0.2 | The adversary simulation harness: in process, N members by M devices, three adversary oracles | the test-methodology red team; red on today's gaps first | design in review | no |
-| S0.3 | The quick fixes: the X-Wing pin docs, MASTER's PQ overclaims, an honest PQ statement, govulncheck and Dependabot, the `req_auth` KAT | a diff review; the KAT must fail under a seeded marshal change | design in review | no |
-| S0.4 | The MLS state-machine vectors: the seven pending families, ValSem240 to 246 | each must fail for the right reason | design in review | no |
+| S0.2 | The adversary simulation harness: in process, N members by M devices, three adversary oracles | the test-methodology red team; red on today's gaps first | landed for the join path (ledger item 293); what it still owes is listed under "Not in S0" in `2026-10-09-hardening-harness-and-join-seal.md`, each item with the plan that takes it | no |
+| S0.3 | The quick fixes: the X-Wing pin docs, MASTER's PQ overclaims, an honest PQ statement, govulncheck and Dependabot, the `req_auth` KAT | a diff review; the KAT must fail under a seeded marshal change | pin file and scan landed; document fixes owed (ledger item 293) | no |
+| S0.4 | The MLS state-machine vectors: the seven pending families, ValSem240 to 246 | each must fail for the right reason | family 16 installed (ledger item 293) | no |
 | S1 | Seal the join secret | red team, spec, simulation red to green, a live probe | design and red team running | yes |
 | S2 | Safety numbers and TOFU | red team, a simulated key swap that must be caught, Windows screenshots | design and red team running | yes |
 | S3 | Healing: a self-update cadence, X-Wing key rotation, keys at rest | red team, spec, a simulated stolen device and then healing | design and red team running | yes |
