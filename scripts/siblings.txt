@@ -25,16 +25,20 @@
 # which no fetch source can change.
 #
 # message: github.com/urnetwork/message, where this module's record layer, its codec and its
-# schema live since ledger 284. Pinned to 2e859f73, the commit of that repository whose own pins
-# are the merged set: connect 847460bb, the core SDK b8209d9d, and this repository at e9eae67a.
-# When this pin was written it was the head of the branch that moves those pins, eight commits past
-# that repository's main (a0d47bef); urnetwork/message serves it by its id, and a merge commit
-# keeps that id. That repository pins this one in turn, because its acceptance suite and its
-# loopback library run this server in process, and two commits cannot each name the other: it pins
-# e9eae67a, this repository's main before these pins moved. From there to the commit that moved
-# them no Go file changes, and go.mod and go.sum gain only the three lines connect 847460bb asks
-# for, so the server tested there is the one tested here.
-message https://github.com/urnetwork/message.git 2e859f73b20dd5f78c5c1ffe0b262cbedb3d2080
+# schema live since ledger 284. Pinned to 0bb2128f, the merge commit of that repository's pull
+# request 4 on its main (2026-10-11), which moved its pinned toolchain from go1.26.5 to go1.27.2.
+# Its own pins are the merged set: connect 847460bb, the core SDK b8209d9d, and this repository at
+# e9eae67a. The pin before it was 2e859f73, an ancestor of 0bb2128f. Between the two, the Go
+# files this module builds from, under message/, syntax/ and protocol/, differ only in comment
+# lines of protocol/message.pb.go, which protoc-gen-go lays out by the compiler that built it; and
+# that repository's go.mod differs only in its toolchain line, which binds that repository's own
+# builds and not this module's. That repository pins this one in turn, because its acceptance
+# suite and its loopback library run this server in process, and two commits cannot each name the
+# other: it pins e9eae67a, this repository's main before the merged set's pins moved here. Between
+# e9eae67a and 5ea2e73e, this repository's main when this pin moved, the one Go file that changed
+# is a test, cmd/message-server/startup_test.go, and go.mod and go.sum gained only the three lines
+# connect 847460bb asks for.
+message https://github.com/urnetwork/message.git 0bb2128fdf146b7580c8ca21d112966053126703
 #
 # connect: the transport, from AFTER messaging left it. A connect whose protocol package still
 # registers message.proto registers it beside message/protocol's copy, and every test binary that

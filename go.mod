@@ -2,6 +2,15 @@ module github.com/urnetwork/message-server
 
 go 1.26.5
 
+// The toolchain this module is built and tested with: go1.27.2, the release urnetwork/build
+// requires and github.com/urnetwork/message pins. A toolchain line is a minimum. A go command older
+// than it fetches it and runs it, and a newer one builds with itself and says nothing, so the step
+// of .github/workflows/gates.yml that builds every released platform asks each binary it builds
+// which toolchain built it (scripts/toolchain.sh --artefact) and refuses any other. The go line
+// stays 1.26.5: it is the language version, and the oldest release that may build this module at
+// all, and nothing in this module or in a dependency asks for the language of 1.27.
+toolchain go1.27.2
+
 // The siblings are checked out beside this repository and built from the working tree, the
 // way every other urnetwork go module in this workspace is wired.
 //
@@ -91,12 +100,12 @@ require (
 	github.com/quic-go/quic-go v0.61.0 // indirect
 	github.com/urnetwork/glog v0.0.0 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
-	golang.org/x/crypto v0.54.0 // indirect
+	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/exp v0.0.0-20260727155853-b88d891fe743 // indirect
-	golang.org/x/net v0.57.0 // indirect
-	golang.org/x/sync v0.22.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/text v0.40.0 // indirect
+	golang.org/x/net v0.61.0 // indirect
+	golang.org/x/sync v0.24.0 // indirect
+	golang.org/x/sys v0.49.0 // indirect
+	golang.org/x/text v0.43.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	gvisor.dev/gvisor v0.0.0-20260909230408-9b1144b679cb // indirect
 	src.agwa.name/tlshacks v0.0.4 // indirect
