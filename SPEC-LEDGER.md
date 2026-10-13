@@ -13506,16 +13506,24 @@ repo and therefore the critical path — not this repository:
       held that day. So after this edit the block holds 5 engine and 33 handle methods, of the code's
       6 and 35 at T1a. The paragraph says so, and names the three. This item does not widen Task
       32's edit to transcribe them.
-    - **What it changes:** no wire byte, no other section of Spec A, and no other document. No
-      plan changes, and no code.
+    - **What it changes:** no wire byte, no section of Spec A but §6 and its edit log §0.6, and no
+      other document. No plan changes, and no code. *(Corrected by this item's review. It read "no
+      other section of Spec A", and §0.6 gains row A-32.)*
     - **Item 293's open point on Task 32** is met by this item, but for its merge.
     - **Open.**
       - **§6's diff review** of this item, its entry and the spec edit: pending. It is made by a
         subagent on this commit before this repository's pull request opens, and is recorded in
-        the commit after it, which is the lead's, as items 291's to 293's were.
+        the commit after it, which is the lead's, as items 291's to 293's were. *(Done on 2026-10-13
+        by an independent subagent, before this repository's pull request was opened; recorded
+        under Reviewed by in §7's entry, in the commit that takes its findings.)*
       - **The block's drift** (above): whether §6's block transcribes `LoadGroup`, `RoleAt` and
         `CommitRemoveWithExtensions`, or keeps them as amendments the code documents, is for the
-        lead to rule. It is not done here.
+        lead to rule. It is not done here. *(Ruled on 2026-10-13 by the lead, R19: Task 32 is not
+        widened. Task 41, the next change to Spec A, transcribes `LoadGroup`, `RoleAt` and
+        `CommitRemoveWithExtensions` into the block, in its own commit and with its own edit-log
+        row, and its writer checks the block against the code on the day: the block must hold every
+        method the code declares, 6 engine and 35 handle at T1a's close, or more if T1 adds any. The
+        plan's Task 41 does not yet say so; its writer's brief carries R19.)*
       - **The pull request:** the lead opens it, paired with T1a, and the owner is told to merge it
         before T1a's pull request to `urnetwork/message` (R7).
       - **Task 34** writes the code, in T1a's branch, cut from `urnetwork/message`'s `main` now
@@ -27681,7 +27689,10 @@ to six; the handle's 35 are untouched."
 - **The method** is written into the block in that spelling, which is also the spelling of Task
   34's interface declaration, `messagegroup/engine.go`'s hunk in its Step 3. The block's other
   lines write `welcome, ratchetTree []byte`; the plan's spelling is kept, as the one the gate of
-  Task 34 will compare.
+  Task 34 will compare. *(Corrected by this item's review. No gate reads §6's block:
+  `TestTheEngineInterfacesAreExactlySectionSixsBlock` compares `engine.go` with a transcription
+  held in `engine_test.go`, which is how the drift in part 3 went unseen. The plan's spelling is
+  kept because it is the spelling of Task 34's declaration.)*
 - **The paragraph** follows the block's note of 2026-09-22, and says each of the four things Step
   1 lists, in the words of Task 34 where it has them: the match is against the group the Welcome
   describes; a refused join leaves no epoch state and puts the key package back; the empty id is
@@ -27706,7 +27717,8 @@ The code holds three methods the block does not: `LoadGroup` on the engine, and 
 `CommitRemoveWithExtensions` on the handle. The block holds none the code does not.
 `engine_test.go` asserts 5 and 35 at `9cead7ae`, and Task 34's Step 3 moves its literal to 6 and
 35. The last column is the plan's, not a measurement. The paragraph states the drift and names the
-three, and item 294 leaves it open for the lead.
+three, and item 294 leaves it open for the lead. *(Ruled since, R19: Task 41 transcribes the
+three. See item 294.)*
 
 #### 4. The gates
 
@@ -27733,7 +27745,28 @@ history before the push, and a red one stops it.
 - It changes no code, here or in `urnetwork/message`: Task 34 is T1a's.
 - It does not edit item 293, whose open point on Task 32 this item meets but for its merge.
 
-**Reviewed by:** pending. §6's diff review is made by a subagent on this commit before this
-repository's pull request opens, and the lead records it in the commit after it.
+**Reviewed by:** an independent subagent's diff review of 2026-10-13, §6's, made on this entry's
+commit before this repository's pull request was opened. *(When this entry was committed it read
+"pending", and named this review.)*
+
+**The review, 2026-10-13:** read-only, by a reviewer that wrote neither this entry nor its brief.
+It covers `7eac17a0..4b21dd04`: the spec edit against Task 32 and Task 34's declaration, byte for
+byte; the method counts of the block before and after and of the code at `9cead7ae`; every sha,
+time and count of this item and entry; the gates and the whole root package on the committed
+history; the commit; and both runs on its head. **Its verdict:** changes, with no BLOCKER, one
+MAJOR, two MINOR and three NIT findings, none against the spec edit itself. Taken in this commit,
+ledger only, each where it stands, with a note:
+- **MAJOR, the lead's ruling on the block's drift was not in the record:** item 294's open point
+  and part 3 now carry R19, under which Task 41 transcribes the three methods.
+- **MINOR, the gate's claim:** no gate reads §6's block; part 2 now says so.
+- **MINOR, "no other section of Spec A":** §0.6 changes too; the item now says so.
+
+Not taken: the NITs. The three methods' declarations call themselves additions with a date and a
+ledger item, not all "amendments"; `connect/mls` is the house name of a path the split moved; and
+the review came after the commit, as for items 291 to 293. None changes what the item records, and
+editing Spec A for any would need its own §0.6 row. Spec A is not changed by this commit.
+
+The two gates this ledger answers to pass on the finished text: TestTheEditLogGate, 6 tests, and
+TestThePlanLinter, 7 tests, and so does the rest of the root package.
 
 It cites no run of itself: the pull request's body cites the runs on its head.
