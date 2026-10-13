@@ -99,6 +99,13 @@ go build ./...
 go run ./cmd/message-server --print-config   # reads every resource, opens nothing, prints it
 ```
 
+**The toolchain is go1.27.2,** the `toolchain` line of `go.mod`. That line is a minimum. A go
+command older than it fetches go1.27.2 and runs it (`GOTOOLCHAIN=auto`, the go command's default),
+and a newer one builds with itself and says nothing. Step 5 below asks every binary it builds which
+toolchain built it, with [`scripts/toolchain.sh`](scripts/toolchain.sh) `--artefact`, and refuses
+any other answer; on a host whose go command is newer than go1.27.2, run the steps with
+`GOTOOLCHAIN=go1.27.2`.
+
 **The whole run is five steps, and it needs no CI service.** They are the five `run` steps of
 `.github/workflows/gates.yml`, in its order. The first is the three `scripts/siblings.sh` commands
 above. The other four follow, each as the workflow has it, with two differences for a run by hand:
@@ -123,9 +130,13 @@ go test -v -count=1 -run '.' -timeout 30m ./...
 go vet ./...
 
 # 5. every released platform: every package, built once for each line of release-platforms.txt,
-#    which is the file deps_test.go measures against
+#    which is the file deps_test.go measures against, and every binary it builds held to the
+#    toolchain line of go.mod by scripts/toolchain.sh, whose own controls run first
 (
   set -eu
+  binaries=$(mktemp -d)
+  trap 'rm -rf "$binaries"' EXIT
+  bash scripts/toolchain.sh --self-test "$binaries/controls"
   built=0
   while read -r platform settings; do
     case "$platform" in ''|'#'*) continue ;; esac
@@ -142,7 +153,8 @@ go vet ./...
       esac
     done
     printf '\n== %s/%s cgo=%s tags=%s ==\n' "$goos" "$goarch" "$cgo" "$tags"
-    GOOS="$goos" GOARCH="$goarch" CGO_ENABLED="$cgo" go build ${tags:+-tags "$tags"} ./...
+    GOOS="$goos" GOARCH="$goarch" CGO_ENABLED="$cgo" go build ${tags:+-tags "$tags"} -o "$binaries/$built/" ./...
+    bash scripts/toolchain.sh --artefact "$binaries/$built"/*
     built=$((built + 1))
   done < release-platforms.txt
   if [ "$built" -eq 0 ]; then
