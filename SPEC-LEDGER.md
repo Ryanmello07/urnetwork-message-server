@@ -13531,10 +13531,10 @@ repo and therefore the critical path — not this repository:
 
 295. **T1a OF THE HARDENING PLAN IS CLOSED. ITS FIVE COMMITS ARE `urnetwork/message`'S PULL
     REQUEST 6, AT `73669fe1185b`, WHICH MERGES AFTER THIS ITEM. ITS FULL RUNS GIVE THE VERDICTS R15
-    ALLOWS AND NO OTHER, AND NO RACE REPORT; ITS SCAN PASSES; EVERY PHASE-END COUNT EQUALS THE
-    PLAN'S; AND ALL 35 OF ITS MUTANTS ARE KILLED. NO APP PACKAGE IS BUILT ON IT BEFORE TASK 39 IS
-    DONE (R13), AND ITS MECHANISMS ARE REVIEWED AT TASK 57, AFTER IT MERGES.** Times are UTC, on
-    2026-10-13.
+    ALLOWS AND NO OTHER, AND NO RACE REPORT; ITS SCAN PASSES; EVERY PHASE-END COUNT THE PLAN
+    PRINTS EQUALS THE PLAN'S; AND ALL 35 OF ITS MUTANTS ARE KILLED. NO APP PACKAGE IS BUILT ON IT
+    BEFORE TASK 39 IS DONE (R13), AND ITS MECHANISMS ARE REVIEWED AT TASK 57, AFTER IT MERGES.**
+    Times are UTC, on 2026-10-13. *(The title's "the plan prints" is added by this item's review.)*
     - **What closes.** Task 40 of the plan item 292 filed,
       `docs/plans/2026-10-09-hardening-harness-and-join-seal.md`, closes phase T1a in five steps:
       the full run on both hosts, the fork's workflow with all four legs, the pull request, this
@@ -13597,8 +13597,10 @@ repo and therefore the critical path — not this repository:
     - **The phase end,** measured on Windows under go1.27.2 at `73669fe1`, equals the plan's
       "Measured results" in its row "T1a: the open item": `messagegroup` 361, `sdk` 321 and
       `sdk/cp3b` 114; 9 FAIL in strict mode; and the root module with `mls` 2524. Strict mode
-      passes the other 17, and normal mode passes 26, S0's 25 and the one new scenario. The probes'
-      own tests are 6, as at S0.
+      passes the other 17. Normal mode passes 26, S0's 25 and the one new scenario, and the probes'
+      own tests are 6, as at S0: the plan prints neither count at T1a (§7's entry, part 5).
+      *(Corrected by this item's review, which found the two counts run on from "equals the
+      plan's".)*
       - **The RED report** is the strict run's 9 `state=open` lines, which the pull request quotes
         byte for byte: 6 gaps that T1 closes, 2 that the identity track closes, and 1, keys at
         rest, that the healing track closes. The 8 of S0's RED report that T1a was to close now
@@ -13667,7 +13669,9 @@ repo and therefore the critical path — not this repository:
       - **`MG-8`,** for the healing track's plan.
       - **§6's diff review** of this item and its entry: pending. It is made on this commit before
         this repository's pull request opens, and is recorded in the commit after it, which is the
-        lead's, as items 291's to 294's were.
+        lead's, as items 291's to 294's were. *(Done on 2026-10-13 by an independent subagent,
+        before this repository's pull request was opened; recorded under Reviewed by in §7's
+        entry.)*
 
 ## 6. Change process
 
@@ -27937,7 +27941,9 @@ workflow changes. Times are UTC, on 2026-10-13.
   - the pull request, its commits and its comparison with `main`, as GitHub serves them, and the
     same commits in a local clone, beside the lab's chain;
   - the plan, on this `main`.
-- **One thing was run for this entry, and it writes nothing:** `git apply --check -v` of each of
+- **One thing of T1a's was run for this entry, and it writes nothing** *("of T1a's" added by this
+  entry's review; the gates of part 8 and the checking scripts also ran)*: `git apply --check -v`
+  of each of
   the 35 mutant diffs, in a clone of this entry's own at `73669fe1` and at the lab's T1 tip
   `9ce2ee7` (part 6).
 
@@ -28171,8 +28177,9 @@ pins, before the push:
 - `go test ./ -count=1`, the whole root package: `ok`.
 - **The linter** prints the nine counts it printed on `main` before this item, unchanged, since no
   plan changes: properties 371, plan-supplied tests 227, class-deriving properties 74, task
-  references 3304, open items 955, plan tokens 2220, ledger citations 266, Consumes entries 320
-  and qualified consumed names 15. No line of its output names
+  references 3304, open-item references 955, plan references 2220, ledger references 266,
+  Consumes entries 320 and qualified consumed names 15 *(the three labels corrected by this
+  entry's review: each class counts references)*. No line of its output names
   `2026-10-09-hardening-harness-and-join-seal.md` or `2026-10-05-hardening-program.md`, where the
   same output names `2026-08-30-slice2-s1-sdk-surface.md` on 17 lines of its own.
 
@@ -28187,8 +28194,30 @@ pins, before the push:
 - It does not edit item 294. Its open points on Task 34 and on its pull request are met (item
   295); its point on the block's drift is R19's, Task 41.
 
-**Reviewed by:** pending: §6's diff review of this item and this entry, made on this commit before
-this repository's pull request opens, and recorded in the commit after it, which is the lead's,
-as items 291's to 294's were.
+**Reviewed by:** an independent subagent's diff review of 2026-10-13, §6's, made on this entry's
+commit before this repository's pull request was opened. *(When this entry was committed it read
+"pending", and named this review.)*
+
+**The review, 2026-10-13:** read-only, by a reviewer that wrote neither this entry nor its brief.
+It covers `232c4b1c..44f456d4`, each claim read against its source: pull request 6 and its five
+commits' patch-ids against the lab; the four job logs of fork run 38365404475, fetched again; the
+`alt-2` logs and the scan; the phase-end counts; the 35 mutants, their table against the plan's
+and Appendix B's diffs applied again at `73669fe1` and at the lab's T1 tip; the "see it fail"
+comparisons; the rulings; the gates and the whole root package; the commit; and both runs on its
+head. **Its verdict:** changes, with no BLOCKER and no MAJOR, one MINOR and four NIT findings,
+none of which touches a plan or a spec. Taken in this commit, each where it stands, with a note:
+- **MINOR, the title:** every phase-end count THE PLAN PRINTS equals the plan's; normal mode's 26
+  and the probes' 6 have no plan value, as part 5 says.
+- **NIT, part 1:** one thing of T1a's was run, not one thing in all.
+- **NIT, part 8:** three of the linter's classes count references, and are now named so.
+
+Not taken: an optional sentence on the vulnerabilities govulncheck lists in required modules the
+code does not call (4, 2, 1, 1 and 1, none a finding of the script's); and the commit message's
+"four legs, each with exactly the one narrowing R15 allows", which the provenance leg, running no
+`test.sh`, does not print. The item and this entry word it correctly, and no commit can change
+the message.
+
+The two gates this ledger answers to pass on the finished text: TestTheEditLogGate, 6 tests, and
+TestThePlanLinter, 7 tests, and so does the rest of the root package.
 
 It cites no run of itself: the pull request's body cites the runs on its head.
