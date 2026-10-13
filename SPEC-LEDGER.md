@@ -13367,6 +13367,98 @@ repo and therefore the critical path — not this repository:
       - **The program plan's status table** does not move in this commit. Task 31 Step 4 moves
         S0.2, S0.3 and S0.4 at S0's close, in its own ledger entry.
 
+293. **S0 OF THE HARDENING PLAN IS CLOSED. ITS FOUR COMMITS ARE `urnetwork/message`'S PULL
+    REQUEST 5, AT `393e864b1e19`, WHICH MERGES AFTER THIS ITEM. ITS FULL RUNS GIVE THE VERDICTS R15
+    ALLOWS AND NO OTHER, ITS SCAN PASSES, AND EVERY PHASE-END COUNT EQUALS THE PLAN'S. THE
+    PROGRAM'S S0.2, S0.3 AND S0.4 MOVE.** Times are UTC.
+    - **What closes.** Task 31 of the plan item 292 filed,
+      `docs/plans/2026-10-09-hardening-harness-and-join-seal.md`, closes phase S0 in five steps:
+      the full run on both hosts, the fork's workflow with all four legs, the pull request, this
+      repository's ledger entry with the program's status rows, and the report to the owner. The
+      first three are done, and this item records them. It is the fourth, Task 31 Step 4, which is
+      this repository's writer's (R7). The fifth is the lead's, and is not recorded here.
+    - **The pull request.** `urnetwork/message`'s pull request 5, "S0 of the hardening plan: the
+      adversary harness, RED on 17 open gaps, and three quick fixes", from the branch
+      `hardening/s0-adversary-harness` of `Ryanmello07/urmessage` at
+      `393e864b1e1947efc577d1085104cb968ce004d0`, to `main`. It was opened at 04:39:21 on
+      2026-10-13, 89 seconds after this repository's pull request 6 merged as `063ddba7f717` and
+      put the plan on this repository's `main`, which R18 asks to come first. Its base is `main`
+      `0bb2128f`, which had not moved when this item was written. Its four commits are each
+      authored and committed by Ryanmello07, and each names the plan's tasks it carries:
+      - `5e0585dfb1a5`, "advsim: the adversary harness, 22 scenarios, RED on 17 open gaps",
+        Tasks 2 to 27;
+      - `f19a279df867`, "mls/interop: the pin file names nothing that does not exist", Task 28;
+      - `0ded4f4e235c`, "scripts: govulncheck over every module, an opt-in step of test.sh",
+        Task 29;
+      - `393e864b1e19`, "mls: vector family 16 is installed in the manifest", Task 30.
+
+      Against `0bb2128f` they change 11 files, with 2079 lines added and 22 removed, and none under
+      `docs/history`. The body quotes the RED report of Task 27 as the branch printed it, the two
+      verdict lines, the fork's run and the scan, as Task 31 Step 3 asks.
+    - **It merges after this item.** Task 31 Step 4 and R7 put this repository's pull request for
+      the close first: the owner is told to merge it first, and then `urnetwork/message`'s pull
+      request 5, each with a merge commit.
+    - **The verdicts.** R15, the lead's ruling of 2026-10-12 that amends R8, verbatim:
+      - "`alt-2`, `linux` and `linux-newer-go`:
+        `VERDICT: PASS, narrower than the full run (above)`, with EXACTLY ONE narrowing, the
+        C-consumer line above."
+      - "`windows`: `VERDICT: PASS`, or the narrowed verdict with EXACTLY ONE narrowing, the
+        ThreadSanitizer line above."
+      - "Any other narrowing, a second narrowing, or a FAIL stops the close and is a finding for
+        the lead."
+
+      Every run gave the narrowed verdict with exactly the one narrowing R15 allows it, held both
+      ways, and none has a FAIL row or a line that names a data race. §7's entry prints each run's
+      narrowing as the run printed it.
+      - **`alt-2`,** `./test.sh` whole and unmodified on a fresh clone at `393e864b`, on
+        2026-10-12: 73 PASS and 0 FAIL in 1460 s, under go1.27.2, with gcc 13.3.0 and `-race`.
+      - **The fork's run 38320014750** of `fork-ci.yml`, on `393e864b`, all four legs `success`:
+        `linux` 73 PASS and `linux-newer-go` 73 PASS, with gcc 13.3.0; `windows` 75 PASS, in a
+        `core.autocrlf=true` clone with MinGW-w64 gcc 14.2.0; and `provenance`, at whose recorded
+        tip the import's proof passes.
+    - **The scan (R16).** `bash scripts/vulncheck.sh` on `alt-2`, over the same tree right after
+      `test.sh`, with `govulncheck` v1.9.0 under go1.27.2:
+      `VERDICT: PASS (7 of 8 modules scanned, no finding, …)`. The eighth is the loopback modfile,
+      which is not scanned, by design. R16 expects the scan to pass from S0 on, because the
+      toolchain move has landed, and it passes.
+    - **The phase end,** measured on Windows under go1.27.2 at `393e864b`, equals the plan's:
+      `messagegroup` 359, `sdk` 308 and `sdk/cp3b` 106; the harness 25 in normal mode, and 17 FAIL
+      and 8 PASS in strict mode; the root module with `mls` 2522; and the probes' own tests 6.
+      - **The RED report** is the strict run's 17 lines, which the pull request quotes as the
+        branch printed them: 8 gaps that T1a closes, 6 that T1 closes, 2 that the identity track
+        closes, and 1, keys at rest, that the healing track closes.
+      - **S0's 8 mutants,** HV1 to HV8 of the plan's Appendix B, are each killed by the test it
+        names.
+      - **Task 28's and Task 30's "see it fail" outputs** equal the plan's, line for line but for
+        durations.
+    - **What differed** from the plan or the check: seven points of the S0 writer's report and two
+      notes of the lead's review of the branch, each with the lead's disposition (§7's entry, part
+      6). None of them changes a commit of the branch, a count or a verdict.
+    - **The program's status table,** in `docs/plans/2026-10-05-hardening-program.md`, moves in
+      this commit, in Task 31 Step 4's words. Its three Status cells, before and after:
+      - S0.2, the harness: "design in review", now "landed for the join path", with the list under
+        "Not in S0" in the plan as what its own plan still owes;
+      - S0.3, the quick fixes: "design in review", now "pin file and scan landed; document fixes
+        owed";
+      - S0.4, the state-machine vectors: "design in review", now "family 16 installed".
+
+      Each cell names this item, and S0.2's names the plan whose list it is. Nothing else in that
+      file changes. The cells say "landed" of what pull request 5 carries: until it merges, after
+      this item, the table is one merge ahead of `urnetwork/message`'s `main`.
+    - **Item 292's open points on its pull request and on this table are met:** this repository's
+      pull request 6 merged before the S0 pull request opened, and this item moves the table.
+    - **Open.**
+      - **The merge of `urnetwork/message`'s pull request 5,** by the owner, with a merge commit,
+        after this repository's pull request for this item has merged (Task 31 Step 4, R7).
+      - **T1a,** the next phase. Its branch is cut from `urnetwork/message`'s `main` after pull
+        request 5 has merged, and not before (R18).
+      - **Task 32,** this repository's next task: Spec A section 6 declares `JoinFromWelcomeInto`,
+        with its ledger entry and the spec's own edit-log row, in a small pull request of its own
+        paired with T1a, which the owner is told to merge first (R7).
+      - **§6's diff review** of this item, its entry and the three cells: pending. It is made on
+        this commit before this repository's pull request opens, and is recorded in the commit
+        after it, which is the lead's, as items 291's and 292's were.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
@@ -27162,5 +27254,275 @@ what it read:
 
 The two gates this ledger answers to pass on the finished text: TestTheEditLogGate, 6 tests, and
 TestThePlanLinter, 7 tests, and so does the rest of the root package.
+
+It cites no run of itself: the pull request's body cites the runs on its head.
+
+### 2026-10-13 — Item 293: S0 is closed, its pull request is urnetwork/message#5, and three rows of the program's status table move
+
+**Change:** this ledger, item 293 and this entry, and one plan,
+`docs/plans/2026-10-05-hardening-program.md`: the Status cells of three rows of its status table,
+S0.2, S0.3 and S0.4. No spec changes, and no code: no Go file, `go.mod`, `go.sum`, script or
+workflow changes. Times are UTC, on 2026-10-13 unless a date is given.
+
+#### 1. What it was made on, and where each number comes from
+
+- **This repository's `main`,** `063ddba7f717`, the merge of its pull request 6, which GitHub
+  records as merged at 04:37:52. It was fetched again before this item's branch was cut, and it
+  had not moved.
+- **The siblings,** each at the commit `scripts/siblings.txt` pins, and clean: `message`
+  `0bb2128f`, `connect` `847460bb`, `glog` `80a11b43` and `gvisor` `c0783dba`.
+- **The host:** a Windows machine, with `GOWORK=off`, `GOTOOLCHAIN=go1.27.2` and `GOPROXY=off`,
+  at below-normal priority. The script that ran the gates printed its `go version` first:
+  `go version go1.27.2 windows/amd64`.
+- **No run of S0 was made again for this item.** Each number below is read off its run's own
+  output, by scripts of this entry's own, each with a control that must fail:
+  - the four job logs of the fork's run, fetched from GitHub's jobs API,
+    `gh api repos/Ryanmello07/urmessage/actions/jobs/<id>/logs`;
+  - the `alt-2` logs, the Windows phase-end logs, the mutants' logs and the "see it fail"
+    captures, as the S0 writer saved them in the session's scratch (`s0exec/out/`);
+  - the pull request, its commits and its comparison with `main`, as GitHub serves them;
+  - the plan, on this `main`.
+
+#### 2. The pull request
+
+- **`urnetwork/message`'s pull request 5,** opened at 04:39:21 from the branch
+  `hardening/s0-adversary-harness` of `Ryanmello07/urmessage` to `main`. Its head is
+  `393e864b1e19`, which is also the head of the fork's branch. R18 holds every phase pull request
+  back until the plan's commit is on this repository's `main`: pull request 6 put it there at
+  04:37:52, 89 seconds before.
+- **Its four commits,** on `main` `0bb2128f`. Author and committer are both
+  `Ryanmello07 <67509637+Ryanmello07@users.noreply.github.com>` on each, and GitHub links each to
+  that account. Each message is the plan's subject, a line that names the plan's file and the
+  tasks, and the two trailers.
+
+| commit | subject | the plan's tasks |
+|---|---|---|
+| `5e0585dfb1a5` | advsim: the adversary harness, 22 scenarios, RED on 17 open gaps | 2 to 27 |
+| `f19a279df867` | mls/interop: the pin file names nothing that does not exist | 28 |
+| `0ded4f4e235c` | scripts: govulncheck over every module, an opt-in step of test.sh | 29 |
+| `393e864b1e19` | mls: vector family 16 is installed in the manifest | 30 |
+
+- **What it changes:** 11 files, with 2079 lines added and 22 removed: the harness's three test
+  files and its registry, `sdk/cp3b/testdata/advsim/known-gaps.json`; `mls/interop/PINS.md` and
+  `mls/pins_truth_test.go`; `scripts/vulncheck.sh`, `test.sh` and `docs/RELEASING.md`; and
+  `mls/vectors_test.go` and `mls/deserialization_kat_test.go`. No file under `docs/history`
+  changes, as Task 31 Step 2 requires; the same query finds the 4 files under `sdk/cp3b/`.
+- **Its body** carries what Task 31 Step 3 asks: the two verdict lines, run 38320014750 with its
+  four legs, and the RED report as the branch printed it. Its 17 `ADVSIM` lines are the strict
+  run's, byte for byte. The plan's Task 27 prints the same 17 lines with one space after each id,
+  where the branch pads each id to 30 columns, so the two are equal once a run of spaces is read
+  as one. The plan's lines are not edited for it (the lead's review of the branch, "One nuance").
+
+#### 3. The full runs (R8, as R15 words it)
+
+R15 asks the close's record to print every line under `NARROWER THAN THE FULL RUN:` from each
+run, and holds the printed set to the allowed set both ways: equal, and not merely contained. A
+script read each run's summary rows, its narrowings, its verdict and its `DATA RACE` lines out of
+the run's own log. Its three controls, a run with a second narrowing, one with a FAIL row and one
+with a `DATA RACE` line, are each refused.
+
+- **`alt-2`, on 2026-10-12,** run by the S0 writer. The host is `urmessage-alt-2`, Linux
+  6.8.0-106-generic with 6 CPUs, and its compiler is gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1)
+  13.3.0. The tree was a fresh clone of the owner's fork at `393e864b`, tree `3f65ed87`, with
+  `core.autocrlf=false`, `test.sh` at mode 100755, and empty caches. The host's go1.26.5 ran
+  go1.27.2, which `test.sh` forces with `GOTOOLCHAIN`, and `test.sh` printed
+  `go version go1.27.2 linux/amd64; linux/amd64; C compiler: gcc; race: -race`. `./test.sh` ran
+  whole and unmodified from 23:01:07 to 23:25:27, 1460 s, and exited 0. Its summary holds 73 PASS
+  rows and no other row, no line of its log names a data race, and the tree was clean before and
+  after. It printed:
+
+```
+NARROWER THAN THE FULL RUN:
+  the loopback library's C consumer (sdk/cgo/ctest/message_abi_test.c) is a Windows program, windows.h and CreateThread: a Windows run builds and runs it
+
+VERDICT: PASS, narrower than the full run (above)
+```
+
+- **The fork's run 38320014750** of `fork-ci.yml`, in `Ryanmello07/urmessage`, was dispatched at
+  23:02:25 on 2026-10-12 for `393e864b` with all four legs, and finished `success` at 23:41:18.
+  GitHub files the run under the fork's `main`, `9ea66f34`, whose workflow it runs, so the commit
+  each leg tested is read from its checkout step. Each printed
+  `ref: 393e864b1e1947efc577d1085104cb968ce004d0` and
+  `HEAD is now at 393e864 mls: vector family 16 is installed in the manifest`.
+
+| leg | job | runner | Go | C compiler | summary | conclusion |
+|---|---|---|---|---|---|---|
+| `linux` | 115045592981 | ubuntu-24.04 | go1.27.2 | gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0 | 73 PASS, 0 FAIL | success |
+| `linux-newer-go` | 115045592863 | ubuntu-24.04 | go1.27.2: setup-go's `stable` | the same | 73 PASS, 0 FAIL | success |
+| `windows` | 115045592965 | windows-2022 | go1.27.2 | gcc.exe (x86_64-posix-seh-rev2, Built by MinGW-Builds project) 14.2.0 | 75 PASS, 0 FAIL | success |
+| `provenance` | 115045592782 | ubuntu-24.04 | go1.27.2 | gcc 13.3.0, not used | no `test.sh` | success |
+
+- **The three test legs** each printed `test.sh exited 0`, and no line of their logs names a data
+  race. `linux` and `linux-newer-go` ran with `core.autocrlf=false`, and each printed the same
+  narrowing line and verdict as `alt-2`. `windows` ran with `-race` in a `core.autocrlf=true`
+  clone, where `mls/GATES.md` is checked out with CRLF, and printed:
+
+```
+NARROWER THAN THE FULL RUN:
+  the C consumer's second pass, against a -race build of the loopback library, did not run: ThreadSanitizer could not map its shadow memory into the dll (ctest/run.sh); go test -race over sdk/cgo held the handle registry instead
+
+VERDICT: PASS, narrower than the full run (above)
+```
+
+- **`linux-newer-go` tested no newer compiler:** setup-go resolved `stable` as 1.27.2, the pin.
+- **The provenance leg** is R11's. The recorded tip `7a33917306ae` is named by the ref's
+  `docs/history/recorded-tip.txt`, and by nothing else there, and it is an ancestor of the ref,
+  10 commits before it. The tip's own `proof.py`, blob `213c17e0`, ran from outside the checkout,
+  and `verify_split.py`, `carried.py` and `proof.py` each exited 0.
+
+#### 4. The scan (R16)
+
+`bash scripts/vulncheck.sh` on `alt-2`, over the same tree right after `test.sh`, from 23:25:27
+to 23:26:00 on 2026-10-12, exited 0. Its header and its last line:
+
+```
+tree:     393e864b1e1947efc577d1085104cb968ce004d0
+tool:     golang.org/x/vuln/cmd/govulncheck@v1.9.0 under go1.27.2
+database: {"modified":"2026-10-08T22:31:09Z"}
+VERDICT: PASS (7 of 8 modules scanned, no finding, NARROWED: sdk/cgo/loopback.go.mod: the loopback harness's modfile: the composed module plus the message server it runs in process, and nothing built from it ships)
+```
+
+Its log has 8 module sections. Seven were scanned, and each says "No vulnerabilities found."; the
+five of them scanned at symbol level each say "Your code is affected by 0 vulnerabilities". The
+composed `sdk/cgo` module is one of the five, 10 Go files. The eighth, the loopback modfile, says
+"NOT SCANNED", by design. Below the reached level, those five list advisories in modules they
+require that their code does not call: 4 for the root module, 2 for `sdk/cgo`, and 1 each for
+`sdk`, `sdk/livepeer` and `sdk/liveprobe`.
+
+#### 5. The phase end, against the plan
+
+Measured by the S0 writer on this Windows host on 2026-10-12, from 22:38:48 to 22:50:43, in a
+fresh worktree at `393e864b`, tree `3f65ed87`, under go1.27.2 at below-normal priority, by the
+plan's own commands. Counted again for this entry, as the `--- PASS` and `--- FAIL` lines of
+each suite's `-v` log:
+
+| | the plan | the branch |
+|---|---|---|
+| `messagegroup` | 359 | 359 |
+| `sdk`, with `sdk/urmessage` | 308 | 308, and one SKIP: `TestStreamExclusionHelperProcess`, a helper process's entry point |
+| `sdk/cp3b` | 106 | 106 |
+| the harness, normal mode | 25 | 25, and `ok` |
+| the harness, strict mode, FAIL / PASS | 17 / 8 | 17 / 8 |
+| the root module with `mls` | 2522 | 2522 |
+| the probes' own tests, `sdk/liveprobe` and `sdk/livepeer` | 6 | 6 |
+
+- **The plan's column.** "Measured results", in its row "S0: family 16", gives the three suites,
+  strict mode's 17 and the root module. Task 27 Step 2 gives the harness's 25 in normal mode and
+  its 17 FAIL and 8 PASS in strict mode, which "Review dispositions" gives too. The plan prints no
+  count for the probes: their 6 is the lab's, in the verification summary that "Measured results"
+  cites, `lab-s0t1plan/out2/verify/summary.txt`, whose `s0` row for `probes` ends
+  `exit=0 pass=6 fail=0`.
+- **No suite has a `--- FAIL` line outside strict mode.** `gofmt` was clean over 400 files, and
+  its misformatted control was listed. Build and vet of the five modules were clean when run
+  again (part 6, the first point), and the layering gate's 8 tests passed.
+- **The RED report** is the strict run's 17 `ADVSIM` lines, which the pull request quotes (part
+  2). By the step each names: 8 that T1a closes, 6 that T1 closes, 2 that T2, the identity track,
+  closes, and 1, `S4-state-thief`, that T3, the healing track, closes at rest.
+- **The mutants.** S0's 8, HV1 to HV8, are the plan's Appendix B diffs, byte for byte. Each was
+  applied alone in a fresh worktree of `393e864b`, from 22:55:53 to 23:00:13, and each run has a
+  `--- FAIL` line for the test Appendix B names: `TestAdvSimVerdictRules` for HV1 to HV3, and a
+  test of its own for each of HV4 to HV8. HV7 and HV8 also fail four and five other tests. The
+  unmutated control passed 25 of 25, each named test among them.
+- **"See it fail."** Task 28's test laid over the harness's commit, and Task 30's pending list
+  alone laid over the scan's commit, each exit 1. From `--- FAIL` to the first `FAIL`, each
+  output equals its task's Step 2 block in the plan line for line, 12 lines and 3, with the
+  durations aside. Their "see it pass" commands print `ok`, and "covered 14 cases … 28
+  comparisons against 28 distinct published answers" and "10 families verified".
+
+#### 6. What differed from the plan or the check, and the lead's disposition of each
+
+The S0 writer's report gives seven points, and the lead's review of the branch, of 2026-10-12,
+disposes of each. None of them changes a commit of the branch, a count or a verdict.
+- **The Windows host refused two of the toolchain's executables, once each, in the first
+  phase-end run:** `compile.exe` while `sdk` was built ("Access is denied"), and `vet.exe` in the
+  `sdk/cp3b` run, whose test binary still printed `ok` with 106 PASS. The writer reports
+  Defender's real-time protection on. Run again on the same tree, build and vet were clean, and
+  `sdk/cp3b` exited 0 with 106 PASS. *Disposition: the host, not the tree; no action.*
+- **Task 29's first `test.sh` hunk differs from the lab's in two context lines,** and not only in
+  its line numbers, because `urnetwork/message`'s pull request 4 rewrapped that step. A three-way
+  apply gave it. *Expected, the second check's MINOR 1; no action.*
+- **`docs/RELEASING.md`'s line that R16 changed was replaced in place and not rewrapped.** It is
+  118 characters, line 74 at `393e864b`, in a file whose other lines are 84 at most. The writer's
+  report said 117; the lead's review said 118, which is what the file measures. *It renders the
+  same, and a rewrap would take a fifth commit, outside the plan's four and outside Task 29's
+  block; no action.*
+- **The script's usage comment names the default version, v1.9.0, in its example of another
+  version,** as the lab's text named v1.1.4 when that was the default: R16's "the `tool=` line
+  and the usage comment" was followed literally. *A NIT, not worth a commit; no action.*
+- **The plan's "see it fail" blocks begin with `exit status 1`,** which the captures record as
+  `# exit: 1`, and the durations differ. *Cosmetic; no action.*
+- **`linux-newer-go` ran go1.27.2,** the newest stable release that day, so it tested no newer
+  compiler. *Stated in the S0 pull request.*
+- **Two `##[error]` lines in the provenance leg,** from `carried.py`, on
+  `message_stream_adapter_test.go`: 46 lines set aside, and a conflict in one region. The same
+  two lines, word for word, are in the fork's green run 38290870884 on `main` `0bb2128f`, job
+  114950371139, so they are not the branch's. *No action.*
+
+The lead's review adds two notes of its own:
+- **The RED report's padding** (part 2). The plan's lines are not edited for it, and the pull
+  request quotes the branch's.
+- **A miss in the review, found by the Task 1 writer.** The review read the linter's seven passes
+  and its counts, with the plan as the S0 writer left it, and not its reporting lines: check 3c
+  named the plan token it reads in the branch name of Task 29 Step 4's inserted line. The lead's
+  one-line edit names that tree by its commit instead, and item 292 filed the plan with that
+  edit.
+
+**Not run:**
+- `./test.sh` on a Windows host of the lead's, none of which has a C compiler: by R15 the Windows
+  run is the fork's `windows` leg.
+- The registry mutations of Tasks 5 to 26, "zz-not-observed" and the change of Task 46: S0's
+  mutants are Appendix B's eight.
+- `MESSAGE_TEST_VULNCHECK=1 ./test.sh` as one run: the scan ran alone, right after `test.sh`, on
+  the same tree.
+- By the lead's review: the phase end on Windows, the eight mutants, the "see it fail" outputs and
+  the `alt-2` run were not run again. They are the S0 writer's measurements, and the review
+  accepted them without a second run.
+- For this entry: none of S0's runs was made again (part 1).
+
+#### 7. The status table
+
+`docs/plans/2026-10-05-hardening-program.md`, its "Status" table: three Status cells, as Task 31
+Step 4 words them. Nothing else in the file changes: its diff is 3 lines out and 3 in, the three
+rows.
+
+| row | before | after |
+|---|---|---|
+| S0.2 | design in review | landed for the join path (ledger item 293); the list under "Not in S0" in `2026-10-09-hardening-harness-and-join-seal.md` is what its own plan still owes |
+| S0.3 | design in review | pin file and scan landed; document fixes owed (ledger item 293) |
+| S0.4 | design in review | family 16 installed (ledger item 293) |
+
+#### 8. The gates
+
+Run on this entry's finished text, under go1.27.2, beside the four siblings at their pins:
+- `go test ./ -count=1 -run 'TestTheEditLogGate|TestThePlanLinter' -v`: the edit-log gate's six
+  tests and the linter's seven pass, and none fails.
+- `go test ./ -count=1`, the whole root package: `ok`.
+- **The linter reads the three cells.** Of its nine counts, one moves from the run on `main`
+  before this item: the ledger-reference class, 263 to 266, which is the cells' three citations
+  of this item, each resolved by its number. No line of either run names
+  `2026-10-05-hardening-program.md` or `2026-10-09-hardening-harness-and-join-seal.md`.
+- **The control:** the three cells with the ledger as it stood on `main`, without this item. The
+  linter then FAILS: check 3d, a fatal one, prints three findings, each naming the program plan
+  and the line of one cell, "cites ledger item 293, which SPEC-LEDGER.md does not carry". So a
+  finding against that file names it, and the 0 above is a reading and not a blind spot. The
+  ledger was put back after it, its sha256 checked.
+
+This commit changes a plan, so the edit-log gate's ledger arm holds it to this entry: it reads
+the commit once it exists, and the runs on the pushed head make that check.
+
+#### 9. What this does not do
+
+- It does not open this repository's pull request, and it touches neither
+  `urnetwork/message`'s pull request 5 nor any branch of that repository.
+- It makes none of S0's runs again (part 1).
+- It changes no spec and no code. The plan item 292 filed is unchanged; only the program plan's
+  three cells move.
+- It does not send the report to the owner, Task 31 Step 5, which is the lead's.
+- It does not edit item 292. Its open points on its pull request and on the status table are met
+  (item 293), and this commit adds no note to them.
+
+**Reviewed by:** pending: §6's diff review of this item, this entry and the three cells, made on
+this commit before this repository's pull request opens, and recorded in the commit after it,
+which is the lead's, as items 291's and 292's were.
 
 It cites no run of itself: the pull request's body cites the runs on its head.
