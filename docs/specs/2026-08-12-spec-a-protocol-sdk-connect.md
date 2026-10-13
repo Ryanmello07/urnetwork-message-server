@@ -112,6 +112,7 @@ Append-only. Newest last. One entry per commit that changes this spec. Every cha
 | 2026-10-02 | A-29 | **The message server's own endpoint (Spec B Revision 23) reaches this document in three places, and no API changes.** `write_key`'s delivery sentence, identical in MASTER §9.2 and Spec B §5.3, gains the endpoint's TLS session with its server-pinned hybrid key exchange. §10.1's transit sentence is qualified to the platform path and names the endpoint. `message_server_id`'s two schema comments say it addresses the platform path, and that an endpoint is addressed by URL and key pin. This lands in the same commit as Spec B Revision 23, Spec C Rev 9, MASTER, and the ledger §7 entry of 2026-10-02. |
 | 2026-10-02 | A-30 | **Delete for everyone has no time limit, by the owner's ruling of 2026-10-02, verbatim: "I think you should be able to delete your messages at any time".** §7.4's 24-hour bound from `SentAtMs`, and its receive-side refusal of an older tombstone, are struck. The placeholder stays, permanent, so a retraction is never silent. `delete_window_expired` is retired and never emitted, and `MessageProtocolLimits.DeleteForEveryoneWindowMs` is struck. `TestDeleteWindowIsEnforcedOnReceipt` becomes `TestAnOldLineIsDeletedLikeANewOne`, which `sdk` carries. Because there is no limit, the same-sender rule is tightened: a tombstone applies only when the sealing leaf's handle AND the sender identity both equal the target's. A newcomer on a refilled leaf inherits the handle (items 245 and 273, review H4), and `sdk` carries `TestANewcomerOnARefilledLeafCannotDeleteThePreviousOccupantsLines` for it. A record whose sender identity could not be determined neither retracts nor is retracted. Ledger item 211 is closed by the same ruling: there is no clock left to choose. MASTER §8.4.2, §12.1, §12.4 and §13, and Spec C Rev 10, are amended in the same commit. |
 | 2026-10-03 | A-31 | **Leaving is local and commits nothing, and its shape ships** (ledger 257's ruling 48, unpaid until now; ledger 273). §7.3's `LeaveGroup` gains the paragraph that says so: it closes the group and erases this device's copy, tells nobody, and leaves the leaf for an admin's `RemoveMember`. The owner refusal is stated exactly: this device is its identity's last leaf and another identity holds one. `sdk` ships it as `(*urmessage.Device).ForgetGroup` with `ErrOwnerMustTransfer` and `ErrForgetUnfinished`, and `cgo` as `urnet_message_device_forget_group` answering a `URNET_MESSAGE_FORGET_*` kind. An erase that stops part way is finished rather than lost: a durable mark, never restored, finished by the next restore or by leaving again (the diff review's H1). §7.4: both sides of the same-sender rule ask one predicate, so `DeleteForEveryone` refuses every tombstone that rule refuses for the line as this device holds it. MASTER §11 and §12.3, and Spec C Rev 11, are amended in the same commit. |
+| 2026-10-13 | A-32 | **§6's `GroupEngine` declares the bound door, `JoinFromWelcomeInto`** (ledger item 294; the hardening plan's Task 32, made ahead of its Task 34 in phase T1a, because the spec moves before the code it is the authority for). The block gains `JoinFromWelcomeInto(welcome []byte, ratchetTree []byte, groupId []byte) (GroupHandle, error)` below `JoinFromWelcome`, and a paragraph below the block says what it is: `JoinFromWelcome` with the group id its caller means to join, matched inside `connect/mls` ahead of the persist, so a Welcome for another group is refused before any epoch state is written and the key package goes back; an empty id is refused with `ErrEngineJoinGroupId`; and it authenticates nobody, exactly as the first door (open item MG-1). `JoinFromWelcome` keeps its meaning, and the handle is untouched. The paragraph also says what the block does not transcribe: `LoadGroup`, `RoleAt` and `CommitRemoveWithExtensions`, which the code declares as amendments. No wire byte, no other section and no other document changes. |
 
 ---
 
@@ -3325,6 +3326,7 @@ type GroupEngine interface {
     NewKeyPackage() (keyPackage []byte, err error)
     CreateGroup(groupId []byte, policy []byte, leafKeys []byte) (GroupHandle, error)
     JoinFromWelcome(welcome, ratchetTree []byte) (GroupHandle, error)
+    JoinFromWelcomeInto(welcome []byte, ratchetTree []byte, groupId []byte) (GroupHandle, error)
 }
 
 type GroupHandle interface {
@@ -3415,6 +3417,22 @@ type PendingEpoch    struct { Epoch uint64; MemberCount int; GroupContext []byte
 methods). The transcription above had been at twenty-six since 2026-09-17 and was missing
 `PairwiseExport` (item 228), `CommitAdd` (item 239), and the `ProtectBound` / `PeekSender` /
 five-result `Unprotect` trio that its own comment described; item 242's R1 and R2 added the rest.
+
+**Amended 2026-10-13 for the bound door** (ledger item 294, revision A-32). `JoinFromWelcomeInto`
+is `JoinFromWelcome` with the group id its caller means to join, and that id is matched inside
+`connect/mls`, against the group the Welcome describes, **ahead of the persist**: a Welcome for any
+other group is refused before any epoch state is written, and the key package the join took goes
+back to the store, as on every other refusal. An empty id is refused with `ErrEngineJoinGroupId`,
+because it is the one value that would turn the match off and make this door the unbound one. **It
+authenticates nobody**, exactly as the first door (open item MG-1): a group id is public, and a
+forged Welcome naming the id its target expects passes the match. What the match buys is that the
+id a caller judged, "is this a group I already hold?", is the id that gets written.
+`JoinFromWelcome` keeps its meaning. With this method the engine half is six methods, from five,
+and the handle's 35 are untouched, as `engine_test.go` counts them once the code lands. **The block
+above transcribes five of the six and 33 of the 35:** `LoadGroup` (open item J1-8), `RoleAt` and
+`CommitRemoveWithExtensions` are declared in the code, each as an amendment documented at its
+declaration, and are not written here. That drift predates this amendment, which does not close
+it (ledger item 294).
 
 Note what is **not** on this interface: no tree, no node, no secret tree, no HPKE, no
 `epoch_secret`, no `confirmation_key`, no `membership_key`, no ciphersuite internals. `EngineProcessed.Raw`
