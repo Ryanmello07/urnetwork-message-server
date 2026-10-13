@@ -13134,22 +13134,26 @@ repo and therefore the critical path — not this repository:
       lines, in the session's scratch as `hardening-plans/2026-10-09-S0-T1-plan.md`. After the S0
       writer re-cut Task 29, the lead's one-line edit of 2026-10-13 names the S0 tree in Task 29
       Step 4 by its commit, because this repository's plan linter read the branch's name as a plan
-      token. It is copied byte for byte, with ONE paragraph added: the day's linter run, under
-      Task 1 Step 2, below the lab's (R18). That paragraph is the only text that differs from the
-      lead's last edit. §7's entry gives the proof.
+      token. It is copied byte for byte, with ONE paragraph added: the day's linter run, under Task
+      1 Step 2, below the lab's (R18). That paragraph is the only text that differs from the lead's
+      last edit. §7's entry gives the proof. Where the plan says "beside this file", it means its
+      place in the session's scratch: the rulings files, the checks, the designs and the lab it
+      cites are in no repository, and this item states each ruling so that it can be read without
+      them. *(The last two sentences are added by this item's review.)*
     - **The owner's words it rests on.**
       - **The directive of 2026-10-05,** of 04:58, which item 280 quotes whole. It begins: "All of
         the above in best recommended order. Focus on improving security, update me with tests on
         each major success and finalize with me when all tasks are completed, use ledger system,
         ultracode and use simulation tests."
       - **The steer, verbatim: "goal is to keep it simple and similar to matrix".** It is the
-        owner's answer to line 11 of the identity design's fourth round. The lead's notes for that
-        round, begun at its launch on 2026-10-07, record it as given twice in that walk (the
-        session's scratch, `foundation-designs/round4/LEAD-NOTES.md`). The plan's architecture
-        names Matrix twice: the joiner's two secrets travel sealed to the key the joiner's own
-        device published, "the way Matrix sends room keys encrypted to a device's published keys",
-        and who the adder is stays outside the change, "as device verification is its own layer in
-        Matrix".
+        owner's answer to line 11 of the v3 model's E.2 defaults, which the owner walked in the
+        foundation designs' fourth round. The lead's notes for that round, begun at its launch on
+        2026-10-07, record it as given twice in that walk (the session's scratch,
+        `foundation-designs/round4/LEAD-NOTES.md`). *(Corrected by this item's review. It read "line
+        11 of the identity design's fourth round".)* The plan's architecture names Matrix twice: the
+        joiner's two secrets travel sealed to the key the joiner's own device published, "the way
+        Matrix sends room keys encrypted to a device's published keys", and who the adder is stays
+        outside the change, "as device verification is its own layer in Matrix".
       - **The alpha server is disposable.** On 2026-10-09 the owner wrote, as the plan's Variant row
         quotes it: "So far the alpha message-server we have up can be classified as disposible as
         we are in development". So the RESET variant is the plan's only one: invite version 3 only,
@@ -13174,6 +13178,12 @@ repo and therefore the critical path — not this repository:
         and goes back through a red team first.
       - The vulnerability scan is an opt-in step of `test.sh`, `MESSAGE_TEST_VULNCHECK=1`, off by
         default and run by hand before a release, since `urnetwork/message` has no CI service.
+    - **Three more of the lead's rulings,** which the plan cites as "the lead's ruling" with no id:
+      vector families 2, 9 and 8 are not in this plan, but in the testing track's own
+      state-machine-vectors plan, since each is a real runner and family 8 needs an independent
+      oracle ("Not in S0"); the live probe's four new steps are tasks of this plan; and the testing
+      design's document fixes, its 2.5.1 to 2.5.4, are listed only, for a separate small task of
+      this repository's writer's ("Not in S0"). *(Added by this item's review.)*
     - **The lead's rulings R6 to R14 of 2026-10-09,** in `LEAD-RULINGS-2026-10-09.md`, beside the
       plan in the session's scratch, a file last written at 13:29:27 that day. They continue the
       lead's series whose R1 to R5 are items 287 and 288. Each, in a sentence:
@@ -13203,8 +13213,9 @@ repo and therefore the critical path — not this repository:
         asks about one group id, the listing reports the damaged record and goes on, `Restore`
         restores the others, and `ForgetGroup` leaves the damaged group.
       - **R13.** The app's half of a refusal ships with the refusal: no app package is built on a
-        T1a library until the Windows app can leave a group that did not restore, and an
-        invitation whose join code is already gone gets a sentence of its own.
+        T1a library until the Windows app can offer to leave a group that did not restore, and an
+        invitation whose join code is already gone gets a sentence of its own. *(Corrected by this
+        item's review. It read "can leave", and the ruling's words are "can offer to leave".)*
       - **R14.** R10 becomes a T1a task, built and run in the lab, with the open item, the line of
         production prose that cites it and the planner's probe as a named test, and the plan's text
         follows the rulings by the edit lists of the two checks they answer. It leaves two
@@ -13220,9 +13231,12 @@ repo and therefore the critical path — not this repository:
         ThreadSanitizer's; any other narrowing, a second one or a FAIL stops the close, and the set
         of narrowings is held both ways.
       - **R16**, which amends R6: the scan's tool is `govulncheck` v1.9.0, because v1.1.4 panics
-        inside its own `go/ssa` when it reads go1.27's standard library for linux, so from S0 on the
-        scan is expected to pass, a red scan is a finding for the lead, and the runs the plan
-        records are made on `alt-2`.
+        inside its own `go/ssa` when it reads go1.27's standard library for linux. The toolchain
+        move has landed, as `urnetwork/message`'s `0bb2128f`, so R6's "expected to fail" is spent:
+        from S0 on the scan is expected to pass, a red scan is a finding for the lead, and the runs
+        the plan records are made on `alt-2`. *(Corrected by this item's review. It read "…for
+        linux, so from S0 on the scan is expected to pass", which gave the tool as the reason; R16
+        gives the move's landing.)*
       - **R17.** The plan's text follows urnetwork/message#3 and #4 and the second check's minor
         findings, and Task 29's code blocks are re-cut by the S0 writer from its own commit.
       - **R18.** One phase at a time, each cut from `main` after the one before it has merged, and
@@ -13271,7 +13285,11 @@ repo and therefore the critical path — not this repository:
       - 16, `urnetwork/message` has no CI service, and the owner's fork runs `fork-ci.yml` on
         request.
       - 17, the testing design's document fixes and the join seal design's spec edits are this
-        repository's, in three tasks of its writer's.
+        repository's. The spec edits are its writer's Tasks 32 and 41. The document fixes, the
+        testing design's 2.5.1 to 2.5.4, are listed only, by the lead's ruling, for a separate small
+        task of that writer's ("Not in S0"). *(Corrected by this item's review. It read "are this
+        repository's, in three tasks of its writer's": of those three tasks Task 1 files the plan,
+        and the plan gives the document fixes no task.)*
       - 18, `sdk/cp3b` may not import `syntax` or `x/crypto`, so the harness reads by grammar and
         spells `join_auth` a second time with the standard library's HMAC.
       - 19, "which line ships it" is moot: one repository, a fork branch, a pull request a phase.
@@ -13303,7 +13321,9 @@ repo and therefore the critical path — not this repository:
       the session's scratch, `hardening-plans/lab-s0t1plan/base/w`, with one commit per task that
       changes the tree, 21 in all. Each was checked out into a fresh worktree and built and tested
       under go1.26.5, the pin at the lab's base, on a host with no C compiler and so with no race
-      detector. The plan's "Measured results" count the `--- PASS` lines of a `-v` run:
+      detector. The plan's "Measured results" count the `--- PASS` lines of a `-v` run, and its
+      "Review dispositions" give the strict pairs, whose PASS half includes the harness's own three
+      tests *(this clause added by this item's review)*:
 
       | | `messagegroup` | `sdk` | `sdk/cp3b` | strict, FAIL / PASS | root module with `mls` |
       |---|---|---|---|---|---|
@@ -13338,7 +13358,10 @@ repo and therefore the critical path — not this repository:
     - **Open.**
       - **§6's diff review** of this item, its entry and the plan, the program's first gate:
         pending. It is made by a subagent on this commit before the pull request opens, and is
-        recorded in the commit after it, which is the lead's, as item 291's was.
+        recorded in the commit after it, which is the lead's, as item 291's was. *(Done on
+        2026-10-13 by an independent subagent, before this repository's pull request was opened. Its
+        two MINOR and five NIT findings are all taken, each where it stands, and it is recorded
+        under Reviewed by in §7's entry, in the commit that takes them.)*
       - **The pull request:** the lead opens it, and the owner merges it, with a merge commit,
         before the S0 pull request opens (R7, R18).
       - **The program plan's status table** does not move in this commit. Task 31 Step 4 moves
@@ -27069,15 +27092,18 @@ where the lab read 3274, which R18's correction of 2026-10-13 puts down to R17's
 - **The first control,** the plan as the S0 writer left it, `7d7d2d9e`, in the filed file's place:
   the run passes and prints one line naming the file, from check 3c, a reporting check:
   `2026-10-09-hardening-harness-and-join-seal.md:3706: 1 finding(s): names plan s0, for which
-  docs/plans/*.md holds no document`. It reads 2221 plan-token references, and nothing else in
-  its output differs from the run with the lead's edit. So a finding against this file names it,
-  and the 0 above is a reading and not a blind spot.
-- **The second control,** the lead's edit with one line added as its line 25, naming open item
-  W6-8, which no plan defines: the run FAILS, exit 1, with one `--- FAIL`,
-  `TestThePlanLinterChecksEveryCrossReferenceResolves`, whose fatal check 3b prints the one
-  finding `2026-10-09-hardening-harness-and-join-seal.md:25: names open item W6-8, which no plan
-  in this corpus defines`, and 956 open-item references. Nothing else in its output differs, so
-  it fails for its own reason. The plan was put back after it, its sha256 checked.
+  docs/plans/*.md holds no document`. It reads 2221 plan-token references, and nothing else in its
+  output differs from the run with the lead's edit but that check's own finding count, 4 where that
+  run gives 3. So a finding against this file names it, and the 0 above is a reading and not a blind
+  spot.
+- **The second control,** the lead's edit with one line added as its line 25, naming open item W6-8,
+  which no plan defines: the run FAILS, exit 1, with one `--- FAIL`,
+  `TestThePlanLinterChecksEveryCrossReferenceResolves`, whose fatal check 3b prints the one finding
+  `2026-10-09-hardening-harness-and-join-seal.md:25: names open item W6-8, which no plan in this
+  corpus defines`, and 956 open-item references. Nothing else in its output differs but that check's
+  own finding count and the lines that report the failure, so it fails for its own reason. The plan
+  was put back after it, its sha256 checked. *(Both controls are corrected by this item's review.
+  Each read "nothing else … differs", and each also moves its own check's finding count.)*
 - **The paragraph** gives seven of the nine counts, in the lab paragraph's own words. A script
   read its fourteen numbers out of the filed file and held them to the last two pairs: each
   count's first number to the run without the plan, and its second to the run with it. It held the
@@ -27107,8 +27133,34 @@ commit once it exists, and the runs on the pushed head make that check.
 - It holds none of the plan's lab numbers to a tree: they are the plan's evidence, and each phase
   measures its own on the day (the plan's Compiler row).
 
-**Reviewed by:** pending when this entry was committed. Its diff review, the program's gate 1, is
-made by a subagent on this commit before the pull request opens, and is recorded in the commit
-after it, which is the lead's, as item 291's was. §6 puts the review before the commit.
+**Reviewed by:** an independent subagent's diff review of 2026-10-13, the program's gate 1, made on
+this entry's commit before this repository's pull request was opened. *(When this entry was
+committed it read "pending", and named this review.)*
+
+**The review, 2026-10-13:** read-only, by a reviewer that wrote neither this entry nor its brief. It
+covers `83d746b5..ea3bb99e`, this item, this entry and the plan, each claim read against its source:
+the filed plan byte for byte against `d658ac3b`; the paragraph's numbers against its own run of the
+linter, which passes 7 of 7 with no output line naming the file, where a control document is named
+on 17 lines of the same output; every sha, time, count and quotation of the owner it could trace;
+the gates and the rest of the root package; the commit's identity and files; and the checkouts of
+both runs on the owner's fork. **Its verdict:** changes, with no BLOCKER and no MAJOR, and two MINOR
+and five NIT findings, all taken in this commit, each where it stands, with a note there that says
+what it read:
+- **MINOR, item 292's summary 17:** the testing design's document fixes are listed only, for a
+  separate task, and of the writer's three tasks Task 1 files the plan. The three rulings the plan
+  cites with no id are added beside the lead's answers of 2026-10-09.
+- **MINOR, R16's sentence:** the scan is expected to pass because the toolchain move has landed, and
+  not because of the tool.
+- **NIT, the lab's table:** its strict pairs are cited to "Review dispositions", and a strict run's
+  PASS count includes the harness's own three tests.
+- **NIT, R13:** "can offer to leave", the ruling's words.
+- **NIT, the steer:** line 11 of the v3 model's E.2 defaults, in the foundation designs' fourth
+  round.
+- **NIT, the two controls:** each also moves its own check's finding count.
+- **NIT, "beside this file":** the rulings, checks, designs and lab the plan cites are in no
+  repository, and this item states each ruling so that it can be read without them.
+
+The two gates this ledger answers to pass on the finished text: TestTheEditLogGate, 6 tests, and
+TestThePlanLinter, 7 tests, and so does the rest of the root package.
 
 It cites no run of itself: the pull request's body cites the runs on its head.
