@@ -13470,6 +13470,65 @@ repo and therefore the critical path — not this repository:
         independent subagent, before this repository's pull request was opened. Its findings are
         recorded under Reviewed by in §7's entry, in the commit that takes them.)*
 
+294. **SPEC A §6 DECLARES THE ENGINE'S BOUND DOOR, `JoinFromWelcomeInto`, AS REVISION A-32. IT IS
+    TASK 32 OF THE PLAN ITEM 292 FILED, MADE BEFORE THE CODE IT IS THE AUTHORITY FOR, AND ITS
+    PULL REQUEST IS PAIRED WITH PHASE T1a.** Times are UTC, on 2026-10-13.
+    - **Why it is a task, and why it is first.** Task 34 of
+      `docs/plans/2026-10-09-hardening-harness-and-join-seal.md` adds a sixth method to
+      `messagegroup.GroupEngine` in phase T1a. The program's third gate asks for a diff review and
+      a ledger entry for every spec change, in the same commit, and the spec moves before the code
+      it is the authority for. The lead ruled on 2026-10-09 that the interface change is acceptable
+      in T1a, which item 292 records: a held-group gate in the sdk alone was measured
+      insufficient, because the engine joins the group the Welcome names.
+    - **The edit,** as the plan's Task 32 Step 1 gives it. In
+      `docs/specs/2026-08-12-spec-a-protocol-sdk-connect.md`, §6's `GroupEngine` block gains, below
+      `JoinFromWelcome`,
+      `JoinFromWelcomeInto(welcome []byte, ratchetTree []byte, groupId []byte) (GroupHandle, error)`,
+      the signature Task 34 declares, and one paragraph below the block says:
+      - it is `JoinFromWelcome` with the group id its caller means to join, matched inside
+        `connect/mls` ahead of the persist, so a Welcome for any other group is refused before any
+        epoch state is written, and the key package the join took goes back to the store;
+      - an empty id is refused, with `ErrEngineJoinGroupId`;
+      - it authenticates nobody, exactly as the first door: open item MG-1 of
+        `messagegroup/OPENITEMS.md` in `urnetwork/message`;
+      - `JoinFromWelcome` keeps its meaning, and the handle is untouched.
+    - **The spec's own edit-log row:** §0.6 gains A-32, by its rule of one row per commit that
+      changes the spec.
+    - **What the plan's count says, and what the block holds.** Task 32 says "The block's count
+      goes from five methods to six; the handle's 35 are untouched." Those are the interface's
+      counts as `messagegroup`'s `TestTheEngineInterfacesAreExactlySectionSixsBlock` holds them
+      in `urnetwork/message` at `9cead7ae`, the merge of its pull request 5: 5 engine and 35
+      handle methods, which Task 34 moves to 6 and 35. The block in §6 held fewer before this
+      edit, 4 engine and 33 handle methods: `LoadGroup`, the engine's fifth (2026-09-18, open
+      item J1-8), and the handle's `RoleAt` and `CommitRemoveWithExtensions` are declared in the
+      code, each as an amendment documented at its declaration, and were never written into the
+      block. The block's own note of 2026-09-22 reads "5 engine + 33 handle", a count the test
+      held that day. So after this edit the block holds 5 engine and 33 handle methods, of the code's
+      6 and 35 at T1a. The paragraph says so, and names the three. This item does not widen Task
+      32's edit to transcribe them.
+    - **What it changes:** no wire byte, no section of Spec A but §6 and its edit log §0.6, and no
+      other document. No plan changes, and no code. *(Corrected by this item's review. It read "no
+      other section of Spec A", and §0.6 gains row A-32.)*
+    - **Item 293's open point on Task 32** is met by this item, but for its merge.
+    - **Open.**
+      - **§6's diff review** of this item, its entry and the spec edit: pending. It is made by a
+        subagent on this commit before this repository's pull request opens, and is recorded in
+        the commit after it, which is the lead's, as items 291's to 293's were. *(Done on 2026-10-13
+        by an independent subagent, before this repository's pull request was opened; recorded
+        under Reviewed by in §7's entry, in the commit that takes its findings.)*
+      - **The block's drift** (above): whether §6's block transcribes `LoadGroup`, `RoleAt` and
+        `CommitRemoveWithExtensions`, or keeps them as amendments the code documents, is for the
+        lead to rule. It is not done here. *(Ruled on 2026-10-13 by the lead, R19: Task 32 is not
+        widened. Task 41, the next change to Spec A, transcribes `LoadGroup`, `RoleAt` and
+        `CommitRemoveWithExtensions` into the block, in its own commit and with its own edit-log
+        row, and its writer checks the block against the code on the day: the block must hold every
+        method the code declares, 6 engine and 35 handle at T1a's close, or more if T1 adds any. The
+        plan's Task 41 does not yet say so; its writer's brief carries R19.)*
+      - **The pull request:** the lead opens it, paired with T1a, and the owner is told to merge it
+        before T1a's pull request to `urnetwork/message` (R7).
+      - **Task 34** writes the code, in T1a's branch, cut from `urnetwork/message`'s `main` now
+        that its pull request 5 has merged (R18).
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
@@ -27594,3 +27653,120 @@ the rest of the root package.
 
 **Reviewed by:** the lead; it is a mechanical payment of the gate's own rule, by the route that
 `92a27e1`'s entry established.
+
+### 2026-10-13 — Item 294: Spec A §6 declares the engine's bound door, `JoinFromWelcomeInto`, as revision A-32
+
+**Change:** this ledger, item 294 and this entry, and one spec,
+`docs/specs/2026-08-12-spec-a-protocol-sdk-connect.md`: §6's `GroupEngine` block gains one method,
+one paragraph follows the block, and §0.6 gains row A-32. No plan changes, and no code: no Go file,
+`go.mod`, `go.sum`, script or workflow changes. Times are UTC, on 2026-10-13.
+
+#### 1. What it was made on
+
+- **This repository's `main`,** `7eac17a0b66e`, the merge of its pull request 7, which GitHub
+  records as merged at 07:18:01. It was fetched again before this item's branch,
+  `spec/a-section6-bound-door`, was cut from it.
+- **`urnetwork/message`'s `main`,** `9cead7ae`, the merge of its pull request 5, S0, which GitHub
+  records as merged at 07:18:20. Its `messagegroup/engine.go` and `messagegroup/engine_test.go`,
+  as GitHub serves them at that commit, equal byte for byte the copies at `0bb2128f`, the
+  `message` pin this repository builds beside.
+- **The siblings,** each at the commit `scripts/siblings.txt` pins, and clean: `message`
+  `0bb2128f`, `connect` `847460bb`, `glog` `80a11b43` and `gvisor` `c0783dba`.
+- **The host:** a Windows machine, with `GOWORK=off`, `GOTOOLCHAIN=go1.27.2` and `GOPROXY=off`,
+  at below-normal priority. The script that ran the gates printed `go version go1.27.2
+  windows/amd64` first.
+
+#### 2. The edit, against the plan
+
+The plan's Task 32 Step 1, verbatim: "In `docs/specs/2026-08-12-spec-a-protocol-sdk-connect.md`,
+section 6, the `GroupEngine` block gains:
+`JoinFromWelcomeInto(welcome []byte, ratchetTree []byte, groupId []byte) (GroupHandle, error)`,
+with one paragraph: it is `JoinFromWelcome` with the group id its caller means to join, matched
+inside `mls` ahead of the persist; an empty id is refused (`ErrEngineJoinGroupId`); it
+authenticates nobody, exactly as the first door (MG-1). The block's count goes from five methods
+to six; the handle's 35 are untouched."
+
+- **The method** is written into the block in that spelling, which is also the spelling of Task
+  34's interface declaration, `messagegroup/engine.go`'s hunk in its Step 3. The block's other
+  lines write `welcome, ratchetTree []byte`; the plan's spelling is kept, as the one the gate of
+  Task 34 will compare. *(Corrected by this item's review. No gate reads §6's block:
+  `TestTheEngineInterfacesAreExactlySectionSixsBlock` compares `engine.go` with a transcription
+  held in `engine_test.go`, which is how the drift in part 3 went unseen. The plan's spelling is
+  kept because it is the spelling of Task 34's declaration.)*
+- **The paragraph** follows the block's note of 2026-09-22, and says each of the four things Step
+  1 lists, in the words of Task 34 where it has them: the match is against the group the Welcome
+  describes; a refused join leaves no epoch state and puts the key package back; the empty id is
+  the one value that would turn the match off, as Task 34's test of it says; and, from its doc
+  comment, "What the match buys is that the id a caller judged … is the id that gets written".
+- **The row A-32** is appended to §0.6, below A-31, in its table's shape.
+- **Its size:** the spec's diff adds 18 lines and removes none: the method, the paragraph's 15
+  lines and the blank line after it, and the row.
+
+#### 3. The count the plan states, measured
+
+"The block's count goes from five methods to six" is the interface's count, not the block's. A
+script of this entry's own read the method names out of §6's two interface blocks and out of the
+two interface declarations of `messagegroup/engine.go` at `9cead7ae`:
+
+| | §6's block, before | §6's block, after | the code at `9cead7ae` | the code after Task 34 |
+|---|---|---|---|---|
+| `GroupEngine` | 4 | 5 | 5 | 6 |
+| `GroupHandle` | 33 | 33 | 35 | 35 |
+
+The code holds three methods the block does not: `LoadGroup` on the engine, and `RoleAt` and
+`CommitRemoveWithExtensions` on the handle. The block holds none the code does not.
+`engine_test.go` asserts 5 and 35 at `9cead7ae`, and Task 34's Step 3 moves its literal to 6 and
+35. The last column is the plan's, not a measurement. The paragraph states the drift and names the
+three, and item 294 leaves it open for the lead. *(Ruled since, R19: Task 41 transcribes the
+three. See item 294.)*
+
+#### 4. The gates
+
+Run on this entry's finished text, under go1.27.2, beside the four siblings at their pins:
+- `go test ./ -count=1 -run 'TestTheEditLogGate|TestThePlanLinter' -v`: the edit-log gate's six
+  tests and the linter's seven pass, and none fails.
+- `go test ./ -count=1`, the whole root package: `ok`.
+- **The linter** prints the nine counts it printed on `main` before this item, unchanged, since
+  no plan changes: properties 371, plan-supplied tests 227, class-deriving properties 74, task
+  references 3304, open items 955, plan tokens 2220, ledger citations 266, Consumes entries 320
+  and qualified consumed names 15. No line of its output names
+  `2026-10-09-hardening-harness-and-join-seal.md` or `2026-10-05-hardening-program.md`, where the
+  same output names `2026-08-30-slice2-s1-sdk-surface.md` on lines of its own.
+
+This commit changes a spec, so the edit-log gate holds it to row A-32 in §0.6 and to this entry in
+§7: its history arms read the commit once it exists. The gates are run again on the committed
+history before the push, and a red one stops it.
+
+#### 5. What this does not do
+
+- It does not open the pull request, which the lead opens, paired with T1a.
+- It does not transcribe `LoadGroup`, `RoleAt` or `CommitRemoveWithExtensions` into the block
+  (part 3).
+- It changes no code, here or in `urnetwork/message`: Task 34 is T1a's.
+- It does not edit item 293, whose open point on Task 32 this item meets but for its merge.
+
+**Reviewed by:** an independent subagent's diff review of 2026-10-13, §6's, made on this entry's
+commit before this repository's pull request was opened. *(When this entry was committed it read
+"pending", and named this review.)*
+
+**The review, 2026-10-13:** read-only, by a reviewer that wrote neither this entry nor its brief.
+It covers `7eac17a0..4b21dd04`: the spec edit against Task 32 and Task 34's declaration, byte for
+byte; the method counts of the block before and after and of the code at `9cead7ae`; every sha,
+time and count of this item and entry; the gates and the whole root package on the committed
+history; the commit; and both runs on its head. **Its verdict:** changes, with no BLOCKER, one
+MAJOR, two MINOR and three NIT findings, none against the spec edit itself. Taken in this commit,
+ledger only, each where it stands, with a note:
+- **MAJOR, the lead's ruling on the block's drift was not in the record:** item 294's open point
+  and part 3 now carry R19, under which Task 41 transcribes the three methods.
+- **MINOR, the gate's claim:** no gate reads §6's block; part 2 now says so.
+- **MINOR, "no other section of Spec A":** §0.6 changes too; the item now says so.
+
+Not taken: the NITs. The three methods' declarations call themselves additions with a date and a
+ledger item, not all "amendments"; `connect/mls` is the house name of a path the split moved; and
+the review came after the commit, as for items 291 to 293. None changes what the item records, and
+editing Spec A for any would need its own §0.6 row. Spec A is not changed by this commit.
+
+The two gates this ledger answers to pass on the finished text: TestTheEditLogGate, 6 tests, and
+TestThePlanLinter, 7 tests, and so does the rest of the root package.
+
+It cites no run of itself: the pull request's body cites the runs on its head.
