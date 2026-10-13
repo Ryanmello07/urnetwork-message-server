@@ -13103,6 +13103,247 @@ repo and therefore the critical path — not this repository:
         `golang.org/x/crypto/openpgp` is unmaintained, which has no fix. This module never imports
         that package.
 
+292. **THE PLAN FOR THE JOIN SEAL AND THE TESTING TRACK'S HARNESS IS FILED: THREE PHASES, S0, T1a
+    AND T1, OF `urnetwork/message`, IN `docs/plans/2026-10-09-hardening-harness-and-join-seal.md`.
+    IT IS THE PLAN THE PROGRAM'S FIRST GATE ASKS FOR, FOR S1 AND FOR THE PART OF S0 THAT HAS A HOME
+    IN THAT REPOSITORY. THIS ITEM RECORDS THE OWNER'S WORDS AND THE LEAD'S RULINGS IT RESTS ON.**
+    Times are UTC.
+    - **What the plan is.** The execution plan for steps S0 and S1 of the hardening program
+      (`docs/plans/2026-10-05-hardening-program.md`), written by the lead's planner on 2026-10-09
+      from a lab that built and ran every commit it describes. It calls the join seal track T1, as
+      the track's design does, and its fast-tracked held-group gate T1a; the program calls the
+      track S1.
+      - **S0** adds an adversary simulation harness to `sdk/cp3b`: 22 scenarios, 17 of which report
+        a gap that is open on today's code, with what the adversary got. It also lands two quick
+        fixes, a pin file that names only what exists and a vulnerability scan as an opt-in step of
+        `test.sh`, and installs vector family 16.
+      - **T1a** closes 8 of the 17: an invitation can no longer replace a group the device holds as
+        a member, and a refused invitation no longer spends the joiner's one-use join code. It
+        changes no format.
+      - **T1** closes 6 more: an invitation carries no secret in the clear. Three stay open and
+        pinned: join-code substitution and the removed-group case, which are the identity track's,
+        and keys at rest, which is the healing track's.
+      - **Its size, as its "Counts" give it:** 59 tasks (31, 9 and 19), 21 commits to that
+        repository (4, 5 and 12), 74 new Go tests, 25 of them adversary scenarios, and 83 mutants,
+        each run and killed. Three tasks are this repository's writer's, Task 1, Task 32 and
+        Task 41, and two are the `urnetwork/message-windows` writer's, Task 39 and Task 58.
+      - **How it lands:** one pull request per phase to `urnetwork/message`, each from a branch cut
+        from that repository's `main` and pushed to the owner's fork `Ryanmello07/urmessage`, with
+        merge commits only, never rebased and never force-pushed.
+    - **What is filed.** The plan as the lead last edited it: sha256 `d658ac3b…81e6be86`, 16,464
+      lines, in the session's scratch as `hardening-plans/2026-10-09-S0-T1-plan.md`. After the S0
+      writer re-cut Task 29, the lead's one-line edit of 2026-10-13 names the S0 tree in Task 29
+      Step 4 by its commit, because this repository's plan linter read the branch's name as a plan
+      token. It is copied byte for byte, with ONE paragraph added: the day's linter run, under
+      Task 1 Step 2, below the lab's (R18). That paragraph is the only text that differs from the
+      lead's last edit. §7's entry gives the proof.
+    - **The owner's words it rests on.**
+      - **The directive of 2026-10-05,** of 04:58, which item 280 quotes whole. It begins: "All of
+        the above in best recommended order. Focus on improving security, update me with tests on
+        each major success and finalize with me when all tasks are completed, use ledger system,
+        ultracode and use simulation tests."
+      - **The steer, verbatim: "goal is to keep it simple and similar to matrix".** It is the
+        owner's answer to line 11 of the identity design's fourth round. The lead's notes for that
+        round, begun at its launch on 2026-10-07, record it as given twice in that walk (the
+        session's scratch, `foundation-designs/round4/LEAD-NOTES.md`). The plan's architecture
+        names Matrix twice: the joiner's two secrets travel sealed to the key the joiner's own
+        device published, "the way Matrix sends room keys encrypted to a device's published keys",
+        and who the adder is stays outside the change, "as device verification is its own layer in
+        Matrix".
+      - **The alpha server is disposable.** On 2026-10-09 the owner wrote, as the plan's Variant row
+        quotes it: "So far the alpha message-server we have up can be classified as disposible as
+        we are in development". So the RESET variant is the plan's only one: invite version 3 only,
+        with no version 2 reader, no mixed-version rules, no rekey sweep and no rollback runbook.
+        One rollback rule is kept, and the plan's Task 55 states it.
+    - **The lead's answers of 2026-10-09 to the plan's first draft,** whose report asked them as its
+      open questions 1 to 4 and 6 (the session's scratch, `hardening-plans/_planwf_plan0.md`). The
+      plan states each where it applies. Each, in a sentence:
+      - The `GroupEngine` interface gains a sixth method in T1a, `JoinFromWelcomeInto`, and three
+        `messagegroup` gates are amended for it, because a held-group gate in the sdk alone was
+        measured insufficient: the engine joins the group the Welcome names.
+      - The staging store of the two-phase join lives in `sdk/urmessage`, and not in `messagegroup`
+        as the design has it, for the cost to that package's gates that the lab measured there.
+      - The capability is unconditional: `sdk/go.mod` replaces `github.com/urnetwork/message` with
+        `../`, so a switch for it, and the tests of a mismatched pair, would have no subject.
+      - The sealed digest is kept: the joiner checks that the sealed secret reproduces the epoch's
+        digest, which refuses, inside the join's window, a member-made invitation that carries a
+        valid authenticator and a wrong secret.
+      - The four code points stand: `0x03`, the target JOINER; `0x04`, the payload
+        JOIN_SECRETS_V1; `0xF004`, the capability; and `0x0041`, HMAC-SHA-256. Any change to the
+        seal, the payload or the authenticator takes a new invite version and a new capability,
+        and goes back through a red team first.
+      - The vulnerability scan is an opt-in step of `test.sh`, `MESSAGE_TEST_VULNCHECK=1`, off by
+        default and run by hand before a release, since `urnetwork/message` has no CI service.
+    - **The lead's rulings R6 to R14 of 2026-10-09,** in `LEAD-RULINGS-2026-10-09.md`, beside the
+      plan in the session's scratch, a file last written at 13:29:27 that day. They continue the
+      lead's series whose R1 to R5 are items 287 and 288. Each, in a sentence:
+      - **R6.** The toolchain pin moves to go1.27.2 in one reviewed change of its own, three pull
+        requests in three repositories, and in `urnetwork/message` the order is the import's
+        follow-up, the pins switch, the toolchain move, and then S0, T1a and T1, one writer at a
+        time. Item 291 records the move, which merged there as `0bb2128f`.
+      - **R7.** One writer of this repository does the plan's three tasks here, Task 1, Task 32 and
+        Task 41 (the ruling's Task 39, before the plan's revision renumbered it), each as its own
+        small pull request paired with its phase, which the owner is told to merge first.
+      - **R8**, as R15 words it since: before a phase's pull request opens, `./test.sh` runs whole
+        and unmodified under the pin, on linux with gcc (`alt-2`) and on Windows, the fork's
+        `fork-ci.yml` runs on the branch head with all four legs, and a race report at T1a's close
+        is a finding, not noise.
+      - **R9.** Both of the plan's choices are confirmed: a group founded before T1 is refused at
+        `Restore` and at `Join` (`ErrGroupPredatesJoinSeal`) with nothing carried for
+        compatibility, and `ForgetGroup` of a group that did not restore leaves it without the
+        owner's question, since there is no live roster to ask it of.
+      - **R10.** The defect found while planning, a device removed and added back whose first
+        `Receive` also answers "a record ciphertext did not authenticate" for history it cannot
+        open, is filed as an open item by the T1a pull request and is not fixed there; the healing
+        track's plan takes it.
+      - **R11.** The import's proof is held at one recorded tip, the head of the pins switch, and at
+        every later tip the fourth leg checks that the recorded tip is an ancestor and that the
+        proof still passes at the recorded tip, so the plan adds no row to the import's manifest.
+      - **R12.** One group record that does not read must not wedge the device: the held-group gate
+        asks about one group id, the listing reports the damaged record and goes on, `Restore`
+        restores the others, and `ForgetGroup` leaves the damaged group.
+      - **R13.** The app's half of a refusal ships with the refusal: no app package is built on a
+        T1a library until the Windows app can leave a group that did not restore, and an
+        invitation whose join code is already gone gets a sentence of its own.
+      - **R14.** R10 becomes a T1a task, built and run in the lab, with the open item, the line of
+        production prose that cites it and the planner's probe as a named test, and the plan's text
+        follows the rulings by the edit lists of the two checks they answer. It leaves two
+        questions unruled for the pre-merge review: the read path during a join's window, and the
+        erase after a failed record write.
+    - **The lead's rulings R15 to R18 of 2026-10-12,** in `LEAD-RULINGS-2026-10-12.md`, beside the
+      first, a file last written at 03:13:36 on 2026-10-13, when the lead corrected R18. Each, in a
+      sentence:
+      - **R15**, which amends R8: the full run on `alt-2`, `linux` and `linux-newer-go` must print
+        `VERDICT: PASS, narrower than the full run (above)` with exactly one narrowing, the loopback
+        library's C consumer, which is a Windows program, and the run on `windows`, the workflow's
+        own Windows leg, `VERDICT: PASS` or the narrowed verdict with exactly one narrowing,
+        ThreadSanitizer's; any other narrowing, a second one or a FAIL stops the close, and the set
+        of narrowings is held both ways.
+      - **R16**, which amends R6: the scan's tool is `govulncheck` v1.9.0, because v1.1.4 panics
+        inside its own `go/ssa` when it reads go1.27's standard library for linux, so from S0 on the
+        scan is expected to pass, a red scan is a finding for the lead, and the runs the plan
+        records are made on `alt-2`.
+      - **R17.** The plan's text follows urnetwork/message#3 and #4 and the second check's minor
+        findings, and Task 29's code blocks are re-cut by the S0 writer from its own commit.
+      - **R18.** One phase at a time, each cut from `main` after the one before it has merged, and
+        no phase pull request to `urnetwork/message` opens before this plan's commit is on this
+        repository's `main`; this task waited for this repository's pull request 5, item 291, with
+        which an entry cut from the older `main` would have collided; and its last point, that this
+        task prints the day's linter run, had its count attribution corrected on 2026-10-13: of the
+        lab's counts, only the task references differ on the day, moved by R17's text.
+    - **The checks the rulings answer.** Every finding of each has a row, with its disposition, in
+      the plan's "Review dispositions":
+      - the two reviews of the plan's first form: 25 findings, 13 MAJOR, 9 MINOR and 3 NIT, and no
+        BLOCKER;
+      - the final check of 2026-10-09, by two checkers independent of each other and of the
+        planner: `_finalcheck_fidelity.md`, with no BLOCKER, 3 MAJOR, 8 MINOR and 6 NIT, and
+        `_finalcheck_grounding.md`, with 1 BLOCKER, 2 MAJOR and 6 MINOR. Both said FIX-FIRST, and
+        R11 to R14 answer them;
+      - the second check of 2026-10-12, `_revcheck2_report.md`, against `urnetwork/message` `main`
+        `0bb2128f` under go1.27.2: no BLOCKER, 2 MAJOR and 4 MINOR, and no finding in the code of
+        T1a or T1. R15 to R18 answer it.
+    - **What the plan adds to the design, and why,** item by item from its "Where the design and the
+      moved code disagree". The designs are `hardening-designs/T4-testing-FINAL.md` and
+      `hardening-designs/T1-join-seal-FINAL.md`, in the session's scratch.
+      - 1, the paths: every path in the designs is one of `urnetwork/message` now.
+      - 2, the held-group gate is not the sdk's alone: the engine binds the join to the
+        invitation's group id, which is the sixth method.
+      - 3, the gate has its own critical section: asked above the join's lock, two overlapping
+        joins both read "not held".
+      - 4, "ForgetGroup it first" named a remedy that did not exist for a group that does not
+        restore, and the plan makes it exist.
+      - 5, the staging store lives in `sdk/urmessage`.
+      - 6, the create-only probe lets only `ErrStateNotFound` mean absent.
+      - 7, the re-add rule is `epoch > RemovedEpoch`, with no new store method.
+      - 8, the removed-group exception is wider than a denial of service: it is pinned open as a
+        scenario, and no sentence of the plan says an invitation can never replace a group.
+      - 9, the capability is unconditional.
+      - 10, the adder validates on the wall clock.
+      - 11, `ParseInvite` keeps the code's order and its names, and a seal of the wrong shape is
+        answered with `ErrJoinSealShape`.
+      - 12, "every test keeps a version 2 arm that must breach" is impossible once nothing reads or
+        writes version 2, and three controls do its job.
+      - 13, the design's mutant table names scenarios as the kill for a public MAC key, and with the
+        sealed digest in place no scenario sees one.
+      - 14, the reset is no longer an assumption: a build operates only groups that require the
+        join seal, and a task lists what a reset is.
+      - 15, the live road needs no drift check: one digest value serves the hook and the record.
+      - 16, `urnetwork/message` has no CI service, and the owner's fork runs `fork-ci.yml` on
+        request.
+      - 17, the testing design's document fixes and the join seal design's spec edits are this
+        repository's, in three tasks of its writer's.
+      - 18, `sdk/cp3b` may not import `syntax` or `x/crypto`, so the harness reads by grammar and
+        spells `join_auth` a second time with the standard library's HMAC.
+      - 19, "which line ships it" is moot: one repository, a fork branch, a pull request a phase.
+      - 20, the `pq_secret` census follows a definition and not an assignment.
+      - 21, `sdk/cp3b`'s seam member opens the seal itself, a second spelling of the format.
+      - 22, the sizes: a founding invitation at version 3 is 4,667 octets, where today's is 3,440.
+      - 23, the C header's "the invite, which is secret in full" stays a safe instruction, so no
+        exported symbol changes and `urnetwork/message-windows` re-vendors nothing.
+      - 24, this repository imports only `message`, `protocol` and `syntax`, so none of its code
+        changes; its documents do.
+      - 25, of vector families 16, 2, 9 and 8, only 16 is a shim, and the other three are the
+        testing track's own plan.
+      - 26, an identity's second device has no sdk joiner, and is measured as far as it can be.
+      - 27, the gate asks the disk about one group (R12).
+      - 28, "a refused invitation costs nothing" is untrue of one whose join code is already gone,
+        which has a sentence of its own (R13).
+      - 29, a store names a group's directory by a hash of its id, so a damaged record is reported
+        by its directory, and the clause of R12 that asks for its group id is the one not met as
+        worded.
+    - **The join seal design's red team.** Round 1 is the design's own record: its revision 2,
+      `hardening-designs/T1-join-seal-FINAL.md`, was written after three lenses, the cryptographic,
+      the MLS state machine's, and compatibility and operations, found 24 findings, and its first
+      section dispositions every one. Round 2 was NOT run, although the design's status line asks
+      for it on the new mechanisms before any spec edit. By the lead's ruling of 2026-10-09 its
+      prompts 3 to 7 are the plan's Task 57, a pre-merge review at the end of T1; the plan answers
+      prompt 2 by measurement and prompt 1 in part, and prompts 8 to 10 are about what the reset
+      variant drops.
+    - **The lab's measured runs, by the commands the plan prints.** The lab is a git repository in
+      the session's scratch, `hardening-plans/lab-s0t1plan/base/w`, with one commit per task that
+      changes the tree, 21 in all. Each was checked out into a fresh worktree and built and tested
+      under go1.26.5, the pin at the lab's base, on a host with no C compiler and so with no race
+      detector. The plan's "Measured results" count the `--- PASS` lines of a `-v` run:
+
+      | | `messagegroup` | `sdk` | `sdk/cp3b` | strict, FAIL / PASS | root module with `mls` |
+      |---|---|---|---|---|---|
+      | the base, `4d365abf` | 359 | 308 | 81 | - | 2520 |
+      | the end of S0 | 359 | 308 | 106 | 17 / 8 | 2522 |
+      | the end of T1a | 361 | 321 | 114 | 9 / 17 | 2524 |
+      | the end of T1 | 362 | 339 | 119 | 3 / 25 | 2525 |
+
+      "Strict" is the harness run as `ADVSIM_STRICT=1 go -C sdk/cp3b test -count=1 -run TestAdvSim
+      -v ./...`, in which every open gap fails. Each of the 83 mutants was applied alone and killed
+      by the test its task names. The second check ran every phase end again on `0bb2128f` under
+      go1.27.2 and found the same counts, and ran `./test.sh` on `alt-2` at the T1 tip with `-race`
+      and `sdk/cgo`, with no data race. The plan's own rule stands over all of them: every number a
+      phase reports is measured again on the day, on its branch, under the compiler of the day.
+    - **The re-cut code (R17).** Task 29's three code blocks, the scan's script, the `test.sh` hunks
+      and the `docs/RELEASING.md` hunk, are the S0 branch's own diffs: `Ryanmello07/urmessage`
+      `hardening/s0-adversary-harness` at `393e864b1e19`, four commits on `urnetwork/message` `main`
+      `0bb2128f`, of which the scan's is `0ded4f4e235c`. Task 29 Step 4 prints the scan made on
+      `alt-2` on 2026-10-12 over that branch, `govulncheck` v1.9.0 under go1.27.2:
+      `VERDICT: PASS (7 of 8 modules scanned, no finding, …)`, the loopback modfile not scanned, by
+      design. S0's close and its runs are not recorded here: they are Task 31 Step 4's entry.
+    - **The day's linter run (R18's last point).** The plan's Task 1 Step 2 gains one paragraph,
+      "On the day.", below the lab's: the counts this repository's plan linter printed with the
+      plan in place at `83d746b529c1`, the commit this is filed on, under go1.27.2, and that no
+      check, fatal or reporting, prints a finding against the plan. It names no task, open item,
+      plan token, ledger item, ruling or pull request, so it cannot move the counts it reports.
+      §7's entry gives the run.
+    - **The program's first gate, and R18.** The gate asks for a track's plan to land, reviewed,
+      before any code of the track is written. S0's code was written in the lab this plan was made
+      from, and its branch is on the owner's fork before this filing; what R18 holds back is every
+      phase pull request to `urnetwork/message`, until this commit is on this repository's `main`.
+    - **Open.**
+      - **§6's diff review** of this item, its entry and the plan, the program's first gate:
+        pending. It is made by a subagent on this commit before the pull request opens, and is
+        recorded in the commit after it, which is the lead's, as item 291's was.
+      - **The pull request:** the lead opens it, and the owner merges it, with a merge commit,
+        before the S0 pull request opens (R7, R18).
+      - **The program plan's status table** does not move in this commit. Task 31 Step 4 moves
+        S0.2, S0.3 and S0.4 at S0's close, in its own ledger entry.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
@@ -26746,5 +26987,128 @@ each verified PINNED:
   `go test ./ -run TestTheEditLogGate`, 6 tests, and
   `go test ./ -run TestThePlanLinter`, 7 tests, pass, and so does the rest of the root
   package. This commit changes no spec and no plan, so the edit-log gate asks no entry of it.
+
+It cites no run of itself: the pull request's body cites the runs on its head.
+
+### 2026-10-13 — Item 292: the plan for the join seal and the testing track's harness, filed with the rulings it rests on
+
+**Change:** this ledger, item 292 and this entry, and one plan, new:
+`docs/plans/2026-10-09-hardening-harness-and-join-seal.md`. No spec changes, and no code: no Go
+file, `go.mod`, `go.sum`, script or workflow changes. Times are UTC, on 2026-10-13 unless a date is
+given.
+
+#### 1. What it was filed on
+
+- **This repository's `main`,** `83d746b529c1`, the merge of its pull request 5, which GitHub
+  records as merged at 02:22:29. Its tree, `3232d4f3`, is the tree of that pull request's head,
+  `d69114b1`, at which the lead's review of the S0 branch first ran the linter over the plan; the
+  lead's correction of R18 ran it at `83d746b529c1` itself.
+- **The siblings,** each checked out at the commit `scripts/siblings.txt` pins, and clean:
+  `message` `0bb2128f`, `connect` `847460bb`, `glog` `80a11b43` and `gvisor` `c0783dba`.
+- **The host:** a Windows machine, with `GOWORK=off`, `GOTOOLCHAIN=go1.27.2` and `GOPROXY=off`,
+  at below-normal priority. Each script that made the runs below printed go1.27.2 as its
+  `go version` first.
+
+#### 2. The plan, byte for byte
+
+- **The source** is `hardening-plans/2026-10-09-S0-T1-plan.md`, in the session's scratch: sha256
+  `d658ac3b797b574bb3656ed0d1c15afd2a2481d4e72a8dbe1473738481e6be86`, 16,464 lines and 925,301
+  octets, valid UTF-8, with no carriage return.
+- **The lead's one-line edit.** The source differs from the plan as the S0 writer left it, sha256
+  `7d7d2d9e…2ee2163d` and kept beside it as `2026-10-09-S0-T1-plan.7d7d2d9e.md`, in one line and
+  no other: a line diff of the two prints line 3706 alone, in Task 29 Step 4. That line names the
+  tree the `alt-2` scan read "(`393e864b1e19`, the head of the S0 branch on the owner's fork)",
+  where it named it by the branch, `hardening/s0-adversary-harness`, whose `s0` this repository's
+  plan linter reads as a plan token (§3, the first control).
+- **What is filed** is that text with two lines inserted after its line 382, the last line of
+  Task 1 Step 2's "Measured in the lab, …" paragraph: an empty line, which keeps the two
+  paragraphs apart, and the new paragraph, one line that begins `  **On the day.**`. The file is
+  16,466 lines and 925,857 octets, with no carriage return, sha256
+  `50ddb6c34b3c5957bbfd08ea1b772c8db6b8efcc571ec16afe12d41eb85abca5`.
+- **The proof,** a script of this entry's own: the filed file with those two lines taken out is
+  the source, byte for byte, and a line diff of the two finds those two lines and nothing else.
+  It also holds that the file is valid UTF-8 with no BOM, that the paragraph is its line 384 and
+  the only line that begins `  **On the day.**`, and that the lab paragraph above it is unchanged.
+  Its three controls each fail it: one character changed in line 3708, the lead's edited line as
+  it stands in the filed file; one carriage return added; and the source filed with no paragraph.
+- **Task 29's three code blocks,** in the filed file, equal the scan commit's diff as GitHub
+  serves it, `Ryanmello07/urmessage` `0ded4f4e235c`, byte for byte, once its `diff --git`,
+  `index` and `new file mode` lines are dropped: `scripts/vulncheck.sh` 182 lines, `test.sh` 35
+  and `docs/RELEASING.md` 22. The check's control, one character changed in the
+  `docs/RELEASING.md` block, fails.
+
+#### 3. The plan linter, on the day (R18)
+
+`go test ./ -run TestThePlanLinter -count=1 -v`, with this entry in place, in pairs: once with the
+plan out of `docs/plans` and once with it in. The first pair had the plan as the lead last edited
+it, at 03:21; the second had the filed file, with the day's paragraph, at 03:23; and a third was
+run on this entry's finished text. Each of the six runs exits 0, `ok`: all seven of the linter's
+tests pass and none fails. The three pairs print the same nine counts, each on a "reference(s)
+read" line:
+
+| class | without the plan | with it |
+|---|---|---|
+| the property class | 302 | 371 |
+| the plan-supplied-test class | 189 | 227 |
+| the class-deriving property class | 74 | 74 |
+| the task-reference class | 2646 | 3304 |
+| the open-item-reference class | 944 | 955 |
+| the plan-reference class | 2213 | 2220 |
+| the ledger-reference class | 257 | 263 |
+| the Consumes-entry class | 261 | 320 |
+| the qualified-consumed-name class | 15 | 15 |
+
+Of the seven counts the lab paragraph gives, only the task references differ from the lab's: 3304
+where the lab read 3274, which R18's correction of 2026-10-13 puts down to R17's text.
+
+- **No check, fatal or reporting, prints a finding against the plan.** No line of a run with it
+  names its file, and apart from the nine counts a run with it prints exactly the lines the run
+  without it prints, timings aside: the plan adds a finding to no check. The filter Task 1 Step 2
+  prints selects 17 lines of the run with the filed file: the seven `--- PASS` lines, the nine
+  counts and `ok`.
+- **The first control,** the plan as the S0 writer left it, `7d7d2d9e`, in the filed file's place:
+  the run passes and prints one line naming the file, from check 3c, a reporting check:
+  `2026-10-09-hardening-harness-and-join-seal.md:3706: 1 finding(s): names plan s0, for which
+  docs/plans/*.md holds no document`. It reads 2221 plan-token references, and nothing else in
+  its output differs from the run with the lead's edit. So a finding against this file names it,
+  and the 0 above is a reading and not a blind spot.
+- **The second control,** the lead's edit with one line added as its line 25, naming open item
+  W6-8, which no plan defines: the run FAILS, exit 1, with one `--- FAIL`,
+  `TestThePlanLinterChecksEveryCrossReferenceResolves`, whose fatal check 3b prints the one
+  finding `2026-10-09-hardening-harness-and-join-seal.md:25: names open item W6-8, which no plan
+  in this corpus defines`, and 956 open-item references. Nothing else in its output differs, so
+  it fails for its own reason. The plan was put back after it, its sha256 checked.
+- **The paragraph** gives seven of the nine counts, in the lab paragraph's own words. A script
+  read its fourteen numbers out of the filed file and held them to the last two pairs: each
+  count's first number to the run without the plan, and its second to the run with it. It held the
+  paragraph's commit to the `HEAD` the runs printed, its compiler to their `go version`, and its
+  seven passing tests to their seven `--- PASS` lines and `ok`. Its control, the paragraph with
+  one number changed, fails. The second pair prints exactly what the first printed, timings
+  aside, so the paragraph moves no count.
+
+#### 4. The gates
+
+Run on this entry's finished text, under go1.27.2, beside the four siblings at their pins:
+- `go test ./ -count=1 -run 'TestTheEditLogGate|TestThePlanLinter' -v`: the edit-log gate's six
+  tests and the linter's seven pass, and none fails.
+- `go test ./ -count=1`, the whole root package: `ok`.
+
+This commit changes a plan, so the edit-log gate holds it to this entry: its landed arm reads the
+commit once it exists, and the runs on the pushed head make that check.
+
+#### 5. What this does not do
+
+- It does not open the pull request.
+- It records neither S0's close nor its runs, which are Task 31 Step 4's entry, and it does not
+  move the program plan's status table, which that entry moves.
+- It changes no spec. Spec A's section 6 is Task 32's, and the sealed invite in MASTER and Spec A
+  is Task 41's, each in its own small pull request.
+- It changes no code, here or in `urnetwork/message`.
+- It holds none of the plan's lab numbers to a tree: they are the plan's evidence, and each phase
+  measures its own on the day (the plan's Compiler row).
+
+**Reviewed by:** pending when this entry was committed. Its diff review, the program's gate 1, is
+made by a subagent on this commit before the pull request opens, and is recorded in the commit
+after it, which is the lead's, as item 291's was. §6 puts the review before the commit.
 
 It cites no run of itself: the pull request's body cites the runs on its head.
