@@ -27563,3 +27563,34 @@ The two gates this ledger answers to pass on the finished text: TestTheEditLogGa
 TestThePlanLinter, 7 tests, and so does the rest of the root package.
 
 It cites no run of itself: the pull request's body cites the runs on its head.
+
+### 2026-10-13 — the edit-log entry `b54be74` owed: item 293's review moved one plan cell
+
+**Change:** this ledger, this entry only, and `editlog_test.go`, whose ledger backfill list gains
+`b54be74`. No spec, no plan and no code changes.
+
+`b54be74`, the lead's commit that recorded item 293's diff review, took that review's finding on
+the S0.2 Status cell of `docs/plans/2026-10-05-hardening-program.md`. It changed that one plan cell
+and appended no §7 entry. §7's rule is one entry per commit that changes a spec or a plan, so
+`TestTheEditLogGateHoldsEverySpecCommitToALedgerEntry` failed on it. This entry is the one it owed.
+Like `92a27e1`'s on 2026-10-02, it pays the debt late through the ledger arm's backfill route: the
+hash is listed in `editLogLedgerBackfilled`, and the gate asserts that §7 cites it, which this entry
+does.
+
+**What `b54be74` changed in the plan:** the S0.2 Status cell read "landed for the join path (ledger
+item 293); the list under "Not in S0" in `2026-10-09-hardening-harness-and-join-seal.md` is what its
+own plan still owes". It now reads "landed for the join path (ledger item 293); what it still owes
+is listed under "Not in S0" in `2026-10-09-hardening-harness-and-join-seal.md`, each item with the
+plan that takes it". The reason is in item 293's §7 entry, under its review: the old wording could
+be read as the join seal plan owing that list, and that plan owes none of it.
+
+**How it went unnoticed:** the lead ran the gates on the working tree before committing, where the
+history arm has nothing to read, and the push followed a command whose failure a pipe hid. The gates
+were run again on the committed history before this entry was pushed.
+
+**Gates, on this entry's commit, under go1.27.2:** TestTheEditLogGate, 6 tests, and
+TestThePlanLinter, 7 tests, pass with no line of the linter's output naming either plan, and so does
+the rest of the root package.
+
+**Reviewed by:** the lead; it is a mechanical payment of the gate's own rule, by the route that
+`92a27e1`'s entry established.
