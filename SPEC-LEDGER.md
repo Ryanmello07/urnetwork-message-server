@@ -13743,22 +13743,32 @@ repo and therefore the critical path — not this repository:
         requires `[0xf001 0xf002 0xf004]` (R1); a seal replayed from one epoch into another opens
         under the AEAD and is refused by `join_auth` (R7); and the sizes (R10).
       - **The plan's lab,** `hardening-plans/lab-s0t1plan/base/w`, one commit per task, measured
-        under go1.26.5 by the plan's "Test commands" (`go test -count=1 ./messagegroup/`,
-        `go -C sdk test -count=1 ./...`, `go -C sdk/cp3b test -count=1 ./...`, with
-        `ADVSIM_STRICT=1` for the strict count, and the root module with `mls` at the phase ends),
-        counting `--- PASS` lines: at the end of T1, `messagegroup` 362, `sdk` 339, `sdk/cp3b` 119,
-        3 scenarios failing in strict mode, and the root module with `mls` 2525. The plan's second
+        under go1.26.5 by the plan's "Measured results" runner, `v2/verify_all.sh`, without
+        `-race`: `go test -count=1 -v ./messagegroup/`, `go -C sdk test -count=1 -v ./...`,
+        `go -C sdk/cp3b test -count=1 -v ./...`, and the root module with `mls`,
+        `go test -count=1 -v ./...`, at the phase ends, each counted by the `--- PASS` lines of its
+        `-v` run; and "strict", the scenarios that FAIL with `ADVSIM_STRICT=1 go -C sdk/cp3b test
+        -count=1 -run TestAdvSim -v ./...`. At the end of T1, `messagegroup` 362, `sdk` 339,
+        `sdk/cp3b` 119, 3 scenarios failing in strict mode, and the root module with `mls` 2525.
+        *(Corrected by this item's review. It read "by the plan's "Test commands"", whose commands
+        carry `-race`; it gave the three commands without `-v`, under which no `--- PASS` line
+        prints; and it counted strict among `--- PASS` lines.)* The plan's second
         check ran every phase end again on `urnetwork/message` `0bb2128f` under go1.27.2 with the
         same counts. R22 holds T1's code writer to these on the day; a difference is a finding.
       - **Its sizes:** a founding invitation is 4,667 octets at version 3, where version 2's was
         3,440, and the seal is 1,253 (the plan's "Where the design and the moved code disagree",
         point 22).
-    - **Item 266's post-quantum paragraph is CLOSED for joins from invite version 3 on.** It said a
+    - **Item 266's post-quantum paragraph is CLOSED IN THE SPECS for joins from invite version 3
+      on, for its join half only.** It said a
       joiner gets the join epoch's `pq_secret` inside the pasted invitation, beside a `Welcome`
       whose HPKE is X25519, so a recorder of both pastes with a future quantum computer reads that
       epoch. From version 3 on, that secret reaches the joiner under X-Wing. Groups founded before
       it are neither joined nor restored by a build that writes it, and the design's companion
       rekey for them, T1b, is one of the parts the reset variant drops (the plan's Appendix A, A5).
+      The paragraph's other half stands: MLS and every Ed25519 signature are classical. No build
+      writes invite version 3 yet: the code that makes the join half true is T1's, unmerged, and
+      Task 57 may amend §7.3. *(Corrected by this item's review. It read "CLOSED for joins from
+      invite version 3 on", with no scope and ahead of the code.)*
     - **Sender anonymity against a paste observer is FILED AS NARROWED, not closed.** The design
       found it (its P2) and item 266 did not record it: `group_handle_key` maps every
       `sender_handle` to a leaf for the group's life, and version 2 pasted it in the clear. The
@@ -13771,8 +13781,10 @@ repo and therefore the critical path — not this repository:
       and the two secrets on every refusal: each is erased at every exit.
     - **MG-7 gains two code points.** Target `0x03` and payload `0x04` are ruled for the join seal
       alone. MG-7 is `messagegroup/OPENITEMS.md`'s, in `urnetwork/message`, and its subsection is
-      written by the plan's Task 53, in T1's pull request; the device wraps' values stay
-      provisional there.
+      to be written by the plan's Task 53, in T1's pull request, whose planned text still says
+      provisional (below, under the disagreements); the device wraps' values stay provisional
+      there. *(Corrected by this item's review. It read "its subsection is written by the plan's
+      Task 53".)*
     - **M1-54 is ruled and M1-55 is met, for the join seal alone** (Spec A §5.11 (7)): its envelope
       is version `0x01` only, refused at the paste otherwise and authenticated by `join_auth`, and
       every expectation of its open is the joiner's own.
@@ -13794,11 +13806,25 @@ repo and therefore the critical path — not this repository:
       plan's points 5 and 9); the plan's "Section 7's target table" is §7's `info` table, the only
       table there that names target classes; and the §6 block's `PendingEpoch` lacks the
       `RemovedLeaves` field the code declares, which is a field and not a method and is not closed
-      here. The code won in the spec at each.
+      here. The code won in the spec at each of those three. **And a fourth, where the ruling wins
+      and not the code:** the plan's Task 53 text (its line 13964, "Code points, still provisional,
+      now with two users"), and at the lab's `9ce2ee7` and at `hardening/t1-join-seal` `1208a4f`,
+      `sdk/urmessage/joinseal.go:53` ("provisional until MG-7 is ruled") and `:62` ("Proposed"),
+      `messagegroup/OPENITEMS.md:849` and `messagegroup/wrap.go:152` ("HAVE NO CODE POINT IN ANY
+      DOCUMENT"), still call `0x03`, `0x04` and `0x0041` provisional, proposed or unassigned. The
+      spec follows the lead's ruling of 2026-10-09 (the plan's line 8298): the four code points
+      stand. Those code lines are owed in T1's pull request, by one follow-up commit on the T1
+      branch after the T1 writer reports, and the lead hands them to the T1 writer (R23); the
+      plan's Task 53 text is history and is not edited, and T1's pull request says why its commit
+      differs from the lab's. *(Corrected by this item's review, which found the fourth. The
+      bullet read "The code won in the spec at each".)*
     - **Open.**
       - **§6's diff review** of this item, its entry and the two specs: pending. It is made by a
         subagent on this commit before this repository's pull request opens, and is recorded in the
-        commit after it, which is the lead's, as items 291's to 295's were.
+        commit after it, which is the lead's, as items 291's to 295's were. *(Done on 2026-10-14 by
+        an independent subagent, before this repository's pull request was opened; recorded under
+        Reviewed by in §7's entry, in the commit that takes its findings, which is the
+        message-server writer's by the lead's ruling R23.)*
       - **The pull request:** the lead opens it, paired with T1, and the owner is told to merge it
         before T1's pull request to `urnetwork/message` (R7, R22).
       - **Task 41 Step 4, Spec C,** after Task 58 hands over: a commit of its own (R22).
@@ -13806,6 +13832,9 @@ repo and therefore the critical path — not this repository:
         after T1's branch is on the fork. Its findings may amend §7.3.
       - **MG-7's subsection,** Task 53, in T1's pull request.
       - **The `PendingEpoch` field** above.
+      - **The code half of the review's F1** (R23): `joinseal.go:53` and `:62`, `OPENITEMS.md:849`
+        and `wrap.go:152` say the four code points stand, in one follow-up commit on T1's branch.
+        *(Added by this item's review.)*
 
 ## 6. Change process
 
@@ -28370,7 +28399,8 @@ UTC, on 2026-10-14.
   fetched again before this item's branch, `spec/t1-sealed-invite`, was cut from it.
 - **The code the specs must match,** read and never built or changed here:
   - `urnetwork/message` at `215a0696`, the merge of its pull request 6, T1a: `messagegroup/engine.go`,
-    `sdk/urmessage/errors.go`, `pqepoch.go`, `device.go`, read with `git show`;
+    `sdk/urmessage/errors.go` and `pqepoch.go`, read with `git show`; *(Corrected by this entry's
+    review. It listed `device.go` here too; `device.go` was read in the lab, below.)*
   - the lab's T1 tip, `9ce2ee7`, in `hardening-plans/lab-s0t1plan/base/w`: the twelve T1 commits,
     `joinseal.go`, `invite.go`, `errors.go`, `group.go`, `device.go`, `restore.go`, and the
     capability's lines in `mls` and `messagegroup`;
@@ -28453,6 +28483,13 @@ The brief's rule: the code wins in the spec, and each disagreement is recorded.
   `URmessage/v1/joinauth`, `0x03`, `0x04`, `0x0041`, `0xF004`, and `XwingCiphertextSize = 1120`,
   which gives the seal's 1,253 octets as 11 + 2 + 4 + 1,120 + 4 + 96 + 16 [c], and the preimage's
   181 as 21 + 2 + 2 + 36 + 8 + 4 + 3 × 36 [c].
+- **The code points' status, where the ruling and not the code wins** *(added by this entry's
+  review, its F1; the bullet above checked the values and not the words around them)*. Task 53's
+  MG-7 subsection in the plan (line 13964), and `joinseal.go:53` and `:62` at `9ce2ee7` and
+  `1208a4f`, still call `0x03`, `0x04` and `0x0041` provisional or proposed, and
+  `OPENITEMS.md:849` and `wrap.go:152` say the same. The spec follows the lead's ruling of
+  2026-10-09. Those lines are owed in T1's pull request, and the lead hands them to the T1 writer
+  (R23).
 
 #### 5. The gates
 
@@ -28463,8 +28500,10 @@ Run on this entry's finished text, under go1.27.2, beside the four siblings at t
 - **The linter** prints the nine counts it printed on `main` before this item, unchanged, since no
   plan changes: properties 371, plan-supplied tests 227, class-deriving properties 74, task
   references 3304, open items 955, plan tokens 2220, ledger citations 266, Consumes entries 320 and
-  qualified consumed names 15. No line of its output names either spec, this ledger, or
-  `2026-10-09-hardening-harness-and-join-seal.md`.
+  qualified consumed names 15. No finding of its output, a `<file>:<line>:` line, names either
+  spec, this ledger or `2026-10-09-hardening-harness-and-join-seal.md`; one fixed prose line of its
+  check 3 names `SPEC-LEDGER.md`, as it does on `main`. *(Corrected by this entry's review. It read
+  "No line of its output names either spec, this ledger, or …".)*
 
 This commit changes two specs, so the edit-log gate holds Spec A to row A-33 and this ledger to this
 entry; MASTER it holds to neither, by its disposition. The gates are run again on the committed
@@ -28478,7 +28517,117 @@ history before the push, and a red one stops it.
 - It does not edit items 294 or 295, whose open points on Task 41 item 296 meets.
 - It does not open the pull request, which the lead opens, paired with T1.
 
-**Reviewed by:** pending. §6's diff review is made by a subagent on this commit before this
-repository's pull request opens, and the lead records it in the commit after it.
+**Reviewed by:** an independent subagent's diff review of 2026-10-14, §6's, made on this entry's
+commit before this repository's pull request was opened. *(When this entry was committed it read
+"pending", and named this review.)*
+
+**The review, 2026-10-14:** read-only, by a reviewer that wrote neither this entry nor its brief.
+It covers `e75d4c3f..542501d3`: the two specs against Task 41 Steps 1 to 3 and the plan's Appendix
+A; every constant, label, error name and size against `hardening/t1-join-seal` `1208a4f`; §6's
+block, counted both ways by its own parser at `215a0696`, `9ce2ee7` and `1208a4f`; each ruling this
+item paraphrases; the lab's numbers and sizes; and the gates. It found correct: Steps 1 to 3 all
+present and nothing of Appendix A's dropped parts; every constant; the ten checks in the code's
+order; the twenty error names, each declared once; the block, 6 and 35, equal both ways at all
+three; and the security wording, but for F4 and F5. **Its verdict:** eight findings, one MAJOR and
+seven MINOR, the last of them a NIT, and none against §6's block or a constant. The lead ruled all
+eight taken (R23), in one follow-up commit by the message-server writer, each where it stands, with
+a note:
+- **F1, MAJOR, the code points' status:** the specs say the four code points stand, and the plan's
+  Task 53 text and T1's code still call them provisional, which nobody recorded. The spec is right,
+  by the ruling of 2026-10-09. Taken: a fourth disagreement in item 296 and in part 4, and the MG-7
+  bullet says Task 53's subsection is still to be written. The code half is the T1 writer's, later.
+- **F2, MINOR, item 266 marked closed ahead of the code:** taken. It is closed in the specs, for
+  its join half only; MLS and Ed25519 stay classical, T1 is unmerged, and Task 57 may amend §7.3.
+- **F3, MINOR, the lab's commands could not be reproduced as printed:** taken. Each command carries
+  `-v`, the strict count has its own command, and the runner is `v2/verify_all.sh`, without
+  `-race`.
+- **F4, MINOR, the static-key residual dropped the quantum adversary:** taken, in MASTER §7.3 and
+  §13: reading the join epoch needs its exporter, behind the X25519 `Welcome`, as well as the seal.
+- **F5, MINOR, the digest check claimed more than the joiner checks:** taken, in MASTER §7.3. The
+  joiner checks that the sealer held the epoch's storage exporter; that the sealed digest is the
+  published one is the adder's assertion (`ErrInviteDigestDrift` on the founding add).
+- **F6, MINOR, the window's refusals left out the abort failure:** taken, in Spec A §7.3 (A-34) and
+  MASTER §7.3. A refusal inside the window whose join code cannot be put back is
+  `ErrJoinCodeSpent`.
+- **F7, MINOR, MASTER §7 said "no exception" while §7.3 made one:** taken, with an amendment
+  pointer in the sentence.
+- **F8, MINOR/NIT, this entry's two imprecise sentences,** which its writer had flagged: taken, in
+  parts 1 and 5.
+
+Not changed: this entry's commit message, which no commit can change. The review notes that all
+eight were invisible to the gates: `editlog_test.go` asks that a row and an entry exist and
+dispositions MASTER, and the plan linter reads plans. No gate is added for them here.
+
+It cites no run of itself: the pull request's body cites the runs on its head.
+
+### 2026-10-14 — Item 296's diff review: its eight findings taken, in MASTER §7, §7.3 and §13, Spec A A-34 and item 296
+
+**Change:** this ledger (item 296, its entry, and this entry) and two specs:
+`docs/specs/2026-08-12-urmessage-protocol-design.md` (MASTER), in §0, §7, §7.3 and §13, and
+`docs/specs/2026-08-12-spec-a-protocol-sdk-connect.md` (Spec A), in §7.3, with row A-34 in §0.6.
+No plan changes, and no code. No rule, format, constant or code point changes: each edit narrows or
+completes a sentence, and each says what it read. Times are UTC, on 2026-10-14.
+
+#### 1. What it was made on
+
+- **`spec/t1-sealed-invite` at `542501d3`,** item 296's commit, with a clean tree and the fork's
+  branch head equal to it.
+- **The review** recorded in item 296's entry, and the lead's ruling R23, which takes all eight of
+  its findings and says what each fix is. Where the two differed, R23 was followed.
+- **The code F1, F5 and F6 rest on,** read again for this entry with `git show` only: at
+  `hardening/t1-join-seal` `1208a4f`, `sdk/urmessage/joinseal.go:53` and `:62`,
+  `messagegroup/OPENITEMS.md:849` and `messagegroup/wrap.go:152` (and the first three at the lab's
+  `9ce2ee7`, with `wrap.go:152` the same there); `joinseal.go`'s open, which compares the digest it
+  computes from its own storage exporter with the one sealed beside the secret; and `group.go`'s
+  `Device.Join`, whose deferred exit answers `ErrJoinCodeSpent`, "the join code could not be put
+  back", when putting it back fails.
+- **The plan's lab runner,** `v2/verify_all.sh`, for F3's commands, each of which it runs with `-v`
+  and none with `-race`.
+
+#### 2. The findings, and where each is taken
+
+| Finding | Where it is taken |
+|---|---|
+| F1, the code points' status | item 296: the MG-7 bullet, and a fourth disagreement; its entry, part 4; and an open point for the code half |
+| F2, item 266 | item 296's bullet: closed in the specs, for the join half only |
+| F3, the lab's commands | item 296's bullet on the plan's lab |
+| F4, the static-key residual | MASTER §7.3's first residual, and §13's "On joining" |
+| F5, the digest check | MASTER §7.3, "What `join_auth` says" |
+| F6, the window's abort failure | Spec A §7.3 (row A-34), and MASTER §7.3's checks paragraph |
+| F7, "no exception" | MASTER §7, the wrap-body grammar's sentence |
+| F8, the entry's two sentences | item 296's entry, parts 1 and 5 |
+
+Each correction is noted where it stands. MASTER §0 gains a paragraph, "Amendment to revision 9 —
+2026-10-14 (second pass of that date)", in the shape of its earlier same-day amendments, since
+MASTER has no per-commit log. Spec A §0.6 gains row A-34. Item 296's open point on its review is
+marked done, and its entry's "Reviewed by" names the review.
+
+**The plan line F1 cites.** The review gave Task 53's text as the plan's line 13962. The line that
+says "Code points, still provisional, now with two users" is 13964, two lines into the paragraph
+that starts at 13962; this entry and item 296 cite 13964.
+
+#### 3. The gates
+
+Run on this entry's finished text, under go1.27.2, beside the four siblings at their pins, and run
+again on the committed history before the push:
+- `go test ./ -count=1 -run 'TestTheEditLogGate|TestThePlanLinter' -v`: the edit-log gate's six
+  tests and the linter's seven pass, and none fails.
+- `go test ./ -count=1`, the whole root package: `ok`.
+- **The linter** prints the nine counts it printed on `main` before item 296, unchanged, since no
+  plan changes. No finding of its output, a `<file>:<line>:` line, names either spec, this ledger or
+  the hardening plan.
+
+This commit changes two specs, so the edit-log gate holds Spec A to row A-34 and this ledger to this
+entry; MASTER it holds to neither, by its disposition.
+
+#### 4. What this does not do
+
+- It changes no code. The code half of F1, `joinseal.go:53` and `:62`, `OPENITEMS.md:849` and
+  `wrap.go:152`, is one follow-up commit on T1's branch, after the T1 writer reports (R23).
+- It does not edit the plan: Task 53's text is history (R23).
+- It does not write Spec C, run Task 57, or open the pull request.
+
+**Reviewed by:** pending. The lead reads this commit's diff before this repository's pull request
+opens.
 
 It cites no run of itself: the pull request's body cites the runs on its head.

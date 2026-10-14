@@ -523,6 +523,19 @@ history kept. *(4)* §8 and §8.4.5 stop saying `group_handle_key` is delivered 
 joined nor restored by a build that writes it: the reset is the compatibility story, because the
 owner ruled the alpha disposable. Ledger item **296**; Spec A revision A-33 is the same commit.
 
+**Amendment to revision 9 — 2026-10-14 (second pass of that date) — §7, §7.3 and §13: the diff
+review of the amendment above, its findings taken.** Not a new revision, and no rule, format or code
+point changes: five sentences are made exact, each corrected in place with a note that says what it
+read. *(1)* §7's *"All three wrap bodies take one grammar … with no exception for any of them"* gains
+a pointer to the join seal, the named exception §7.3 made. *(2)* §7.3's static-key residual, and
+§13's "On joining" with it, need a quantum computer as well as the seed and the paste: the join
+epoch's keys take its exporter, which is behind the X25519 `Welcome`. *(3)* §7.3's "What `join_auth`
+says" claimed the digest check proves the sealed secret is the one the epoch's published keys come
+from; the joiner checks that whoever sealed it held the epoch's storage exporter, and that the sealed
+digest is the published one is the adder's assertion. *(4)* §7.3's window: a refusal whose join code
+cannot be put back says the join code is spent. Ledger item **296** records the review; Spec A
+revision A-34 is the same commit.
+
 ## 1. Purpose and product target
 
 URmessage is a private messenger built on the URnetwork mesh. It reuses URnetwork's transport and
@@ -930,7 +943,9 @@ ML-KEM halves; §5.2 and §5.3 read accordingly.
 **The wrap body: what is around `hybrid_ct`, what is inside `aead_ct`, and what the signature covers.
 RULED 2026-09-09, as composite `C3`.** `hybrid_ct` is the middle of a wrap body and not the whole of
 it. **All three wrap bodies take one grammar** — the `pq_secret` device wrap, the `eph_root` device
-wrap and the recovery wrap, with no exception for any of them:
+wrap and the recovery wrap, with no exception for any of them *(amended 2026-10-14, second pass of
+that date: a fourth wrap body, the join seal, travels in no record and is a named exception to the
+`aead_ct` line below, §7.3)*:
 
 ```
 wrap_envelope = u8(wrap_format_version = 0x01) ‖ u8(target_type) ‖ u8(payload_type)
@@ -1246,7 +1261,9 @@ failure clears the staged commit, so nothing was submitted and the add can be ma
 **The joiner's checks, in order.** Nothing is written before the last row. Every refusal from row 4 on
 is made inside the join's window: the join code goes back, and the refusal says the join code is not
 spent. The one exception is the first refusal of row 4, an invitation no join code of this device
-was made for, where there is no join code for that sentence to be true of.
+was made for, where there is no join code for that sentence to be true of. If the join code cannot be
+put back, the refusal says instead that it is spent. *(Corrected 2026-10-14 by ledger item 296's
+review; the paragraph said nothing of a join code that cannot be put back.)*
 
 | # | Check |
 |---|---|
@@ -1272,13 +1289,19 @@ holds an authenticator key and not one octet of the two secrets.
 
 **What `join_auth` says, and what it does not.** It says the seal was made by a member of the epoch
 the joiner's `Welcome` opened, for this leaf, this `Welcome` and this tree; the digest check adds that
-the sealed secret is the one that epoch's published keys come from. It says nothing about **who** that
-member is.
+whoever sealed it also held that epoch's storage exporter. That the sealed digest is the one the
+epoch's commit publishes is the adder's own assertion, which the joiner does not see at the join: the
+adder seals the digest its own commit publishes, and on the founding add refuses to publish any other
+(`ErrInviteDigestDrift`, Spec A §7.3). It holds for an honest adder, not for any member. It says
+nothing about **who** that member is. *(Corrected 2026-10-14 by ledger item 296's review; it read
+"the digest check adds that the sealed secret is the one that epoch's published keys come from".)*
 
 **Residuals,** stated in §13 too:
 
 - **The seal is to a static key.** A thief of the joiner's device seed who also recorded the paste
-  opens the seal and reads the join epoch.
+  opens the seal; with a quantum computer to break the `Welcome` as well, it reads the join epoch,
+  whose keys take that epoch's exporter as well as its `pq_secret`. *(Corrected 2026-10-14 by ledger
+  item 296's review; it read "opens the seal and reads the join epoch".)*
 - **The invitation still shows the group's id and its ratchet tree**, so who is in the group, and
   the join code shows its credential. The lifetime `group_handle_key` no longer crosses, but an
   observer of one paste who also holds the server's rows still links that paste's joiner, and the
@@ -3503,8 +3526,10 @@ re-added, and recovered.
 **On joining.** An invitation carries no secret in the clear: the two values a new device needs are
 sealed to a key only that device holds (§7.3). Three things it does not give, and they are said
 here so nobody assumes otherwise. **The seal is to a key the device keeps**, so someone who steals
-that device's keys and also kept a copy of the invitation can read what was said from the moment the
-device joined until the group's keys next changed. **An invitation still shows the group's id and who
+that device's keys, also kept a copy of the invitation, and can later break today's classical
+encryption, can read what was said from the moment the device joined until the group's keys next
+changed *(corrected 2026-10-14, ledger item 296's review: it named no need to break today's
+encryption)*. **An invitation still shows the group's id and who
 is in it**, so someone who sees one invitation in transit and also holds the server's records can
 still pick out which messages the device that joined, and the group's founder, send; the change
 narrows what that person learns and does not close it.
