@@ -13529,6 +13529,150 @@ repo and therefore the critical path — not this repository:
       - **Task 34** writes the code, in T1a's branch, cut from `urnetwork/message`'s `main` now
         that its pull request 5 has merged (R18).
 
+295. **T1a OF THE HARDENING PLAN IS CLOSED. ITS FIVE COMMITS ARE `urnetwork/message`'S PULL
+    REQUEST 6, AT `73669fe1185b`, WHICH MERGES AFTER THIS ITEM. ITS FULL RUNS GIVE THE VERDICTS R15
+    ALLOWS AND NO OTHER, AND NO RACE REPORT; ITS SCAN PASSES; EVERY PHASE-END COUNT THE PLAN
+    PRINTS EQUALS THE PLAN'S; AND ALL 35 OF ITS MUTANTS ARE KILLED. NO APP PACKAGE IS BUILT ON IT
+    BEFORE TASK 39 IS DONE (R13), AND ITS MECHANISMS ARE REVIEWED AT TASK 57, AFTER IT MERGES.**
+    Times are UTC, on 2026-10-13. *(The title's "the plan prints" is added by this item's review.)*
+    - **What closes.** Task 40 of the plan item 292 filed,
+      `docs/plans/2026-10-09-hardening-harness-and-join-seal.md`, closes phase T1a in five steps:
+      the full run on both hosts, the fork's workflow with all four legs, the pull request, this
+      repository's ledger entry, and the report to the owner. The first three are done, and this
+      item records them. It is the fourth, Task 40 Step 4, which is this repository's writer's
+      (R7). The fifth is the lead's, and is not recorded here. Task 40 moves no row of the
+      program's status table, and this item moves none: no plan changes.
+    - **The pull request.** `urnetwork/message`'s pull request 6, "T1a of the hardening plan: an
+      invitation cannot replace a held group, and a refusal costs nothing", from the branch
+      `hardening/t1a-held-group-gate` of `Ryanmello07/urmessage` at
+      `73669fe1185b27097d0675782f9b1f8a0ba6a7c4`, to `main`. It was opened at 08:33:18, after this
+      repository's pull request 8, Task 32 (item 294), merged as `232c4b1cdafc` at 07:51:41, which
+      R7 asks to come first. Its base is `main` `9cead7ae`, the merge of pull request 5 (S0) at
+      07:18:20, which had not moved when this item was written. Its five commits are each authored
+      and committed by Ryanmello07, and each one's patch-id equals that of the lab commit its task
+      was cut from:
+      - `161fd5c83038`, "urmessage: an invite into a group this device holds is refused, under one
+        admission mutex, and one record that does not read costs one group", Task 33;
+      - `24353f94c147`, "messagegroup: JoinFromWelcomeInto joins a welcome only into the group the
+        caller names", Task 34;
+      - `cef10b595758`, "urmessage: the join is bound to the group the invite names", Task 35;
+      - `289225791acd`, "urmessage: a join reaches the store only after every check, and a refusal
+        puts the join code back", Task 36;
+      - `73669fe1185b`, "messagegroup, cp3b: open item MG-8, a re-added device answers an
+        authentication failure for history it cannot open", Task 37.
+
+      Against `9cead7ae` they change 24 files, with 2768 lines added and 77 removed, and none under
+      `docs/history`, as Task 40 Step 2 requires. They add 23 Go tests and remove none, one of them
+      a scenario, as the plan's "Counts" says. The body carries what Task 40 Step 3 asks: the two
+      verdict lines, the fork's run with its four legs, the kills of Task 38, and the open item it
+      files.
+    - **It merges after this item.** Task 40 Step 4 and R7 put this repository's pull request for
+      the close first: the owner is told to merge it first, and then `urnetwork/message`'s pull
+      request 6, each with a merge commit.
+    - **The verdicts.** R15, the lead's ruling of 2026-10-12 that amends R8, verbatim:
+      - "`alt-2`, `linux` and `linux-newer-go`:
+        `VERDICT: PASS, narrower than the full run (above)`, with EXACTLY ONE narrowing, the
+        C-consumer line above."
+      - "`windows`: `VERDICT: PASS`, or the narrowed verdict with EXACTLY ONE narrowing, the
+        ThreadSanitizer line above."
+      - ("Above" is R15's own text. §7's entry, part 3, prints both lines.)
+      - "Any other narrowing, a second narrowing, or a FAIL stops the close and is a finding for
+        the lead."
+
+      Every run gave the narrowed verdict with exactly the one narrowing R15 allows it, held both
+      ways, and none has a FAIL row or a line that names a data race. R8 says a race report at
+      T1a's close is a finding and not noise: T1a puts `Device.admitMutex` on the join path and a
+      mutex inside the stage, and these runs are the race detector's first look at both. It
+      reported nothing.
+      - **`alt-2`,** `./test.sh` whole and unmodified on a fresh clone at `73669fe1`, from 07:52:00
+        to 08:16:42: 73 PASS and 0 FAIL in 1482 s, under go1.27.2, with gcc 13.3.0 and `-race`.
+      - **The fork's run 38365404475** of `fork-ci.yml`, on `73669fe1`, all four legs `success`:
+        `linux` 73 PASS and `linux-newer-go` 73 PASS, with gcc 13.3.0; `windows` 75 PASS, in a
+        `core.autocrlf=true` clone with MinGW-w64 gcc 14.2.0; and `provenance`, at whose recorded
+        tip the import's proof passes.
+    - **The scan (R16).** `bash scripts/vulncheck.sh` on `alt-2`, over the same tree right after
+      `test.sh`, with `govulncheck` v1.9.0 under go1.27.2:
+      `VERDICT: PASS (7 of 8 modules scanned, no finding, …)`. The eighth is the loopback modfile,
+      which is not scanned, by design.
+    - **The phase end,** measured on Windows under go1.27.2 at `73669fe1`, equals the plan's
+      "Measured results" in its row "T1a: the open item": `messagegroup` 361, `sdk` 321 and
+      `sdk/cp3b` 114; 9 FAIL in strict mode; and the root module with `mls` 2524. Strict mode
+      passes the other 17. Normal mode passes 26, S0's 25 and the one new scenario, and the probes'
+      own tests are 6, as at S0: the plan prints neither count at T1a (§7's entry, part 5).
+      *(Corrected by this item's review, which found the two counts run on from "equals the
+      plan's".)*
+      - **The RED report** is the strict run's 9 `state=open` lines, which the pull request quotes
+        byte for byte: 6 gaps that T1 closes, 2 that the identity track closes, and 1, keys at
+        rest, that the healing track closes. The 8 of S0's RED report that T1a was to close now
+        print CLOSED: `S7a` to `S7f`, `S3-refusal-spends-join-code` and
+        `S3-late-refusal-spends-join-code`.
+      - **The 35 kills of Task 38.** Each of T1a's 35 mutants, the plan's Appendix B diffs byte for
+        byte, was applied alone to a fresh worktree of `73669fe1`, and each was killed by the test
+        "Mutation proofs" names for it: 22 stated in Task 33 (`MJ25`, `MJ25b`, `MJ25c`, `MJ35`,
+        `MJ38`, `MJ42`, `MJ37`, `MJ36`, `MJ36b`, `MJ53`, `MJ53b`, `MJ53c`, `MJ54`, `MJ54b`,
+        `MJ55`, `MJ55b`, `MJ55c`, `MJ56`, `MJ66`, `MJ59`, `MJ57`, `MJ58`), 2 in Task 34 (`MJ26`,
+        `MJ26c`), 1 in Task 35 (`MJ26b`), 9 in Task 36 (`MJ27`, `MJ27b`, `MJ31`, `MJ28`, `MJ28b`,
+        `MJ39`, `MJ40`, `MJ41`, `MJ60`) and 1 in Task 37 (`MJ61`). The unmutated control passed
+        every named test. §7's entry, part 5, has the table.
+      - **The "see it fail" outputs** of Tasks 33 to 37 equal the plan's, line for line once
+        durations and random ids are set aside (§7's entry, part 5).
+    - **The residual T1a leaves, by name: `S7g-removed-group-second-founder`.** A device that was
+      removed from a group can be taken into a different group under the same id by a second
+      founder's invitation, above the removal: the held-group gate honours a re-add, and an
+      invitation does not yet say who made it. It stays red on purpose, `state=open` in the
+      registry and closed by T2, the identity track. It is the ninth line of the RED report. (The
+      registry's own `residual` state is `S2b-first-appearance-link`'s, and is unchanged.)
+    - **The open item it files: `MG-8` of `messagegroup/OPENITEMS.md`** (Task 37; R10, as R14 made
+      it a task). A device removed from a group and added back reads what is sent after it comes
+      back, but its first `Receive` also answers "a record ciphertext did not authenticate" for
+      history it cannot open: nothing was tampered with, and the tampering signal fires. The row is
+      filed with its reproduction,
+      `TestADeviceAddedBackAnswersAnAuthenticationFailureForHistoryItCannotOpen`, which holds it
+      as it is, with two controls, and it is not fixed. THE HEALING TRACK'S PLAN TAKES IT.
+    - **R12, as applied** (Task 33). The gate and the disk's answer ask about ONE group id; the
+      store's list tolerates a record that does not read and reports it as damaged; `Restore` goes
+      on past such a record and reports it among the groups that did not restore, a deliberate
+      change to how restore behaved before; and `ForgetGroup` leaves such a group. The control
+      scenario `S7-c2-unreadable-record-costs-one-group` passes as a CONTROL in the strict run. Its
+      mutants are among the 35 kills, the two the final check found alive among them: `MJ54`, a
+      store that cannot answer read as "not held", and `MJ54b`, a founding that finds the disk
+      unreadable and founds anyway. F5's forced-order tests for `Restore` and `CreateGroup` under
+      the admission mutex kill `MJ57` and `MJ58`.
+    - **R13, as applied, and open.** F7 is in T1a: an invitation whose join code is already gone
+      has its own sentence, without the window's prefix (Task 36; mutant `MJ60`). F4 IS NOT DONE:
+      Task 39, the `message-windows` app's leave action for a group that is not live, is not done
+      at this item. UNTIL IT IS, `message-windows` MUST NOT MOVE ITS `message` PIN TO A T1a COMMIT,
+      AND NO APP PACKAGE MAY BE BUILT ON A T1a LIBRARY. The pull request's body says so.
+    - **T1a's mechanisms are reviewed AFTER they merge** (Task 40; the final check's F15). The
+      removed-group exception, the admission mutex and `ForgetGroup` without the owner's question
+      are reviewed at Task 57, the pre-merge review at the end of T1, after this merge. "Merged" is
+      not "reviewed".
+    - **What differed** from the plan or the check: four points of the T1a writer's, each checked
+      by this item against the writer's files (§7's entry, part 6). None of them changes a commit
+      of the branch, a count or a verdict.
+    - **Item 294's open points:** Task 34 wrote the code in T1a's branch (`24353f94`), and this
+      repository's pull request 8 merged before T1a's opened. Its point on the block's drift is
+      R19's, and stays open below.
+    - **Open.**
+      - **The merge of `urnetwork/message`'s pull request 6,** by the owner, with a merge commit,
+        after this repository's pull request for this item has merged (Task 40 Step 4, R7).
+      - **Task 39 (R13),** the `message-windows` writer's: the leave action, its two sentences
+        with their screenshots, and only then the pin. Until it is done, no app package is built on
+        a T1a library.
+      - **Task 41 (R19),** this repository's next change to Spec A: it transcribes `LoadGroup`,
+        `RoleAt` and `CommitRemoveWithExtensions` into §6's block (item 294), in its own commit
+        with its own edit-log row. The code at `73669fe1` declares 6 engine and 35 handle methods,
+        which `messagegroup`'s `TestTheEngineInterfacesAreExactlySectionSixsBlock` holds there.
+      - **T1,** the next phase: its branch is cut from `urnetwork/message`'s `main` after pull
+        request 6 has merged, and not before (R18).
+      - **Task 57,** the review of T1a's mechanisms, after this merge (above).
+      - **`MG-8`,** for the healing track's plan.
+      - **§6's diff review** of this item and its entry: pending. It is made on this commit before
+        this repository's pull request opens, and is recorded in the commit after it, which is the
+        lead's, as items 291's to 294's were. *(Done on 2026-10-13 by an independent subagent,
+        before this repository's pull request was opened; recorded under Reviewed by in §7's
+        entry.)*
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
@@ -27765,6 +27909,313 @@ Not taken: the NITs. The three methods' declarations call themselves additions w
 ledger item, not all "amendments"; `connect/mls` is the house name of a path the split moved; and
 the review came after the commit, as for items 291 to 293. None changes what the item records, and
 editing Spec A for any would need its own §0.6 row. Spec A is not changed by this commit.
+
+The two gates this ledger answers to pass on the finished text: TestTheEditLogGate, 6 tests, and
+TestThePlanLinter, 7 tests, and so does the rest of the root package.
+
+It cites no run of itself: the pull request's body cites the runs on its head.
+
+### 2026-10-13 — Item 295: T1a is closed, its pull request is urnetwork/message#6
+
+**Change:** this ledger, item 295 and this entry. No spec, no plan and no code changes: Task 40
+moves no row of the program's status table, and no Go file, `go.mod`, `go.sum`, script or
+workflow changes. Times are UTC, on 2026-10-13.
+
+#### 1. What it was made on, and where each number comes from
+
+- **This repository's `main`,** `232c4b1cdafc`, the merge of its pull request 8, which GitHub
+  records as merged at 07:51:41. It was fetched again before this item's branch,
+  `ledger/t1a-close`, was cut from it.
+- **The siblings,** each at the commit `scripts/siblings.txt` pins, and clean: `message`
+  `0bb2128f`, `connect` `847460bb`, `glog` `80a11b43` and `gvisor` `c0783dba`.
+- **The host:** a Windows machine, with `GOWORK=off`, `GOTOOLCHAIN=go1.27.2` and `GOPROXY=off`,
+  at below-normal priority. The script that ran the gates printed `go version go1.27.2
+  windows/amd64` first.
+- **No run of T1a was made again for this item.** Each number below is read off its run's own
+  output, by scripts of this entry's own, each with a control that must fail:
+  - the four job logs of the fork's run, fetched from GitHub's jobs API,
+    `gh api repos/Ryanmello07/urmessage/actions/jobs/<id>/logs`, which equal byte for byte the
+    copies the T1a writer saved;
+  - the `alt-2` logs, the Windows phase-end logs, the mutants' logs and the "see it fail"
+    captures, as the T1a writer saved them in the session's scratch (`t1aexec/out/`);
+  - the pull request, its commits and its comparison with `main`, as GitHub serves them, and the
+    same commits in a local clone, beside the lab's chain;
+  - the plan, on this `main`.
+- **One thing of T1a's was run for this entry, and it writes nothing** *("of T1a's" added by this
+  entry's review; the gates of part 8 and the checking scripts also ran)*: `git apply --check -v`
+  of each of
+  the 35 mutant diffs, in a clone of this entry's own at `73669fe1` and at the lab's T1 tip
+  `9ce2ee7` (part 6).
+
+#### 2. The pull request
+
+- **`urnetwork/message`'s pull request 6,** opened at 08:33:18 from the branch
+  `hardening/t1a-held-group-gate` of `Ryanmello07/urmessage` to `main`. Its head is
+  `73669fe1185b`, which is also the head of the fork's branch. R7 puts the spec change of Task 32
+  first: this repository's pull request 8 merged it at 07:51:41.
+- **Its five commits,** on `main` `9cead7ae`. Author and committer are both
+  `Ryanmello07 <67509637+Ryanmello07@users.noreply.github.com>` on each. `git patch-id --stable`
+  of each equals that of its lab commit.
+
+| commit | subject | the plan's task | the lab's commit |
+|---|---|---|---|
+| `161fd5c83038` | urmessage: an invite into a group this device holds is refused, under one admission mutex, and one record that does not read costs one group | 33 | `e1b3566` |
+| `24353f94c147` | messagegroup: JoinFromWelcomeInto joins a welcome only into the group the caller names | 34 | `54d5b4c` |
+| `cef10b595758` | urmessage: the join is bound to the group the invite names | 35 | `1576d0e` |
+| `289225791acd` | urmessage: a join reaches the store only after every check, and a refusal puts the join code back | 36 | `34141fa` |
+| `73669fe1185b` | messagegroup, cp3b: open item MG-8, a re-added device answers an authentication failure for history it cannot open | 37 | `ee0802f` |
+
+- **What it changes:** 24 files, with 2768 lines added and 77 removed: `messagegroup`'s engine,
+  its errors, `OPENITEMS.md` and three test files; thirteen files of `sdk/urmessage`, five of
+  them tests; and four test files of `sdk/cp3b` and its registry,
+  `testdata/advsim/known-gaps.json`. No file under `docs/history` changes, as Task 40 Step 2
+  requires. The diff adds 23 `func Test` lines to `_test.go` files and removes none: the plan's
+  "Counts" gives T1a 23 new tests, one of them a scenario.
+- **Its body** carries what Task 40 Step 3 asks: the two verdict lines, run 38365404475 with its
+  four legs, the kills of Task 38, and the open item `MG-8`. Its 9 `ADVSIM` lines are the strict
+  run's `state=open` lines, byte for byte.
+
+#### 3. The full runs (R8, as R15 words it)
+
+R15 asks the close's record to print every line under `NARROWER THAN THE FULL RUN:` from each
+run, and holds the printed set to the allowed set both ways: equal, and not merely contained. A
+script read each run's summary rows, its narrowings, its verdict and its `DATA RACE` lines out of
+the run's own log. Its three controls, a run with a second narrowing, one with a FAIL row and one
+with a `DATA RACE` line, are each refused.
+
+- **`alt-2`,** run by the T1a writer. The host is `urmessage-alt-2`, Linux 6.8.0-106-generic with
+  6 CPUs, and its compiler is gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0. The tree was a fresh
+  clone of the owner's fork at `73669fe1`, tree `8e4792bb`, with `core.autocrlf=false`, `test.sh`
+  at mode 100755, and caches of its own under the run's directory. The host's go1.26.5 ran
+  go1.27.2, which `test.sh` forces with `GOTOOLCHAIN`, and
+  `test.sh` printed `go version go1.27.2 linux/amd64; linux/amd64; C compiler: gcc; race: -race`.
+  `./test.sh` ran whole and unmodified from 07:52:00 to 08:16:42, 1482 s, and exited 0. Its
+  summary holds 73 PASS rows and no other row, no line of its log names a data race, and the tree
+  was clean before and after. It printed:
+
+```
+NARROWER THAN THE FULL RUN:
+  the loopback library's C consumer (sdk/cgo/ctest/message_abi_test.c) is a Windows program, windows.h and CreateThread: a Windows run builds and runs it
+
+VERDICT: PASS, narrower than the full run (above)
+```
+
+- **The fork's run 38365404475** of `fork-ci.yml`, in `Ryanmello07/urmessage`, was dispatched at
+  07:51:48 for `73669fe1` with all four legs, and finished `success` at 08:30:56. GitHub files the
+  run under the fork's `main`, `9ea66f34`, whose workflow it runs, so the commit each leg tested is
+  read from its checkout step. Each printed `ref: 73669fe1185b27097d0675782f9b1f8a0ba6a7c4` and
+  `HEAD is now at 73669fe messagegroup, cp3b: open item MG-8, a re-added device answers an
+  authentication failure for history it cannot open`.
+
+| leg | job | runner | Go | C compiler | summary | conclusion |
+|---|---|---|---|---|---|---|
+| `linux` | 115189216441 | ubuntu-24.04 | go1.27.2 | gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0 | 73 PASS, 0 FAIL | success |
+| `linux-newer-go` | 115189216144 | ubuntu-24.04 | go1.27.2: setup-go's `stable` | the same | 73 PASS, 0 FAIL | success |
+| `windows` | 115189216417 | windows-2022 | go1.27.2 | gcc.exe (x86_64-posix-seh-rev2, Built by MinGW-Builds project) 14.2.0 | 75 PASS, 0 FAIL | success |
+| `provenance` | 115189216356 | ubuntu-24.04 | go1.27.2 | gcc 13.3.0, not used | no `test.sh` | success |
+
+- **The three test legs** each printed `test.sh exited 0`, and no line of their logs names a data
+  race. `linux` and `linux-newer-go` ran with `core.autocrlf=false`, and each printed the same
+  narrowing line and verdict as `alt-2`. `windows` ran with `-race` in a `core.autocrlf=true`
+  clone, where `mls/GATES.md` is checked out with CRLF, and printed:
+
+```
+NARROWER THAN THE FULL RUN:
+  the C consumer's second pass, against a -race build of the loopback library, did not run: ThreadSanitizer could not map its shadow memory into the dll (ctest/run.sh); go test -race over sdk/cgo held the handle registry instead
+
+VERDICT: PASS, narrower than the full run (above)
+```
+
+- **`linux-newer-go` tested no newer compiler:** setup-go resolved `stable` as 1.27.2, the pin.
+- **The provenance leg** is R11's. The recorded tip `7a33917306ae` is named by the ref's
+  `docs/history/recorded-tip.txt`, and by nothing else there, and it is an ancestor of the ref,
+  16 commits before it. The tip's own `proof.py`, blob `213c17e0`, ran from outside the checkout,
+  and `verify_split.py`, `carried.py` and `proof.py` each exited 0. Its two `##[error]` lines, from
+  `carried.py` on `message_stream_adapter_test.go`, are the same two lines, byte for byte, as in
+  the fork's green run 38290870884 on `main` `0bb2128f`, job 114950371139, as at S0 (item 293).
+
+#### 4. The scan (R16)
+
+`bash scripts/vulncheck.sh` on `alt-2`, over the same tree right after `test.sh`, from 08:16:42
+to 08:17:14, exited 0. Its header and its last line:
+
+```
+tree:     73669fe1185b27097d0675782f9b1f8a0ba6a7c4
+tool:     golang.org/x/vuln/cmd/govulncheck@v1.9.0 under go1.27.2
+database: {"modified":"2026-10-08T22:31:09Z"}
+VERDICT: PASS (7 of 8 modules scanned, no finding, NARROWED: sdk/cgo/loopback.go.mod: the loopback harness's modfile: the composed module plus the message server it runs in process, and nothing built from it ships)
+```
+
+Seven module sections say "No vulnerabilities found.", and the five of them scanned at symbol
+level each say "Your code is affected by 0 vulnerabilities". The eighth, the loopback modfile,
+says "NOT SCANNED", by design.
+
+#### 5. The phase end, against the plan
+
+Measured by the T1a writer on this Windows host from 07:25:38 to 07:30:20, in a tree at
+`73669fe1`, tree `8e4792bb`, clean before and after, under go1.27.2 at below-normal priority, by
+the plan's own commands. Counted again for this entry, as the `--- PASS` and `--- FAIL` lines of
+each suite's `-v` log:
+
+| | the plan | the branch |
+|---|---|---|
+| `messagegroup` | 361 | 361 |
+| `sdk`, with `sdk/urmessage` | 321 | 321, and one SKIP: `TestStreamExclusionHelperProcess`, a helper process's entry point |
+| `sdk/cp3b` | 114 | 114 |
+| the harness, strict mode, FAIL | 9 | 9, and 17 PASS |
+| the harness, normal mode | | 26, and `ok` |
+| the root module with `mls` | 2524 | 2524 |
+| the probes' own tests, `sdk/liveprobe` and `sdk/livepeer` | | 6 |
+
+- **The plan's column** is "Measured results", its row "T1a: the open item". The plan prints no
+  count for normal mode or the probes at T1a. Normal mode's 26 is S0's 25 and the one scenario
+  "Counts" gives T1a, `S7-c2-unreadable-record-costs-one-group`; the strict run prints 23 `ADVSIM`
+  lines, S0's 22 and that one. The probes' 6 equal S0's.
+- **No suite has a `--- FAIL` line outside strict mode.** `gofmt` was clean over 409 files, and
+  its misformatted control was listed. Build and vet of the five modules were clean, and the
+  layering gate's 8 tests passed.
+- **The RED report** is the strict run's 9 `state=open` lines of its 23, which the pull request
+  quotes (part 2): 6 that T1 closes, 2 that T2 closes, and 1, `S4-state-thief`, that T3 closes.
+  Of the other 14, 8 are CLOSED, 5 are controls and 1 is the registry's residual.
+- **Task 38: the 35 mutants.** Each is the plan's Appendix B diff, byte for byte. Each was applied
+  alone with plain `git apply` to a fresh worktree of `73669fe1`, changed only the file it names,
+  and the three suites ran: `messagegroup`, `sdk/urmessage` and the whole of `sdk/cp3b`. Two
+  batches ran side by side, from 07:31:00 to 07:50:02 and to 07:48:08. The unmutated control
+  passed 697 tests, every named test among them, and none failed. "Also" counts the other
+  top-level tests that failed, against the plan's "Also".
+
+| mutant | task | killed by | also, the plan | also, the branch |
+|---|---|---|---|---|
+| `MJ25` | 33 | `TestAdvSimAnInvitationAtAnEpochTheVictimHoldsNoStateForReplacesNothing` | 12 | 12 |
+| `MJ25b` | 33 | `TestAdvSimAnInvitationOverAGroupOnDiskAtAnEpochItHoldsNoStateForReplacesNothing` | 5 | 5 |
+| `MJ25c` | 33 | `TestAReaddBelowTheRemovalIsRefusedAndTheRealReaddStillJoins` | 3 | 3 |
+| `MJ35` | 33 | `TestTwoJoinsIntoOneGroupIdThatOverlapAdmitExactlyOne` | 2 | 2 |
+| `MJ38` | 33 | `TestAMapEntryIsReplacedOnlyByTheJoinThatJudgedIt` | 0 | 0 |
+| `MJ42` | 33 | `TestNoGroupIsFoundedUnderAnIdThisDeviceHolds` | 2 | 2 |
+| `MJ37` | 33 | `TestAReaddBelowTheRemovalIsRefusedAndTheRealReaddStillJoins` | 0 | 0 |
+| `MJ36` | 33 | `TestAdvSimAGroupThatDoesNotRestoreIsLeftAndJoinedAgain` | 1 | 1 |
+| `MJ36b` | 33 | `TestForgetGroupOverAGroupOnTheDiskAnswersByWhatRestoreSaid` | 1 | 1 |
+| `MJ53` | 33 | `TestAdvSimOneRecordThatDoesNotReadCostsItsOwnGroupAndNoOther` | 4 | 4 |
+| `MJ53b` | 33 | `TestAdvSimOneRecordThatDoesNotReadCostsItsOwnGroupAndNoOther` | 1 | 1 |
+| `MJ53c` | 33 | `TestForgetGroupLeavesAGroupWhoseRecordDoesNotReadAndThatGroupAlone` | 0 | 0 |
+| `MJ54` | 33 | `TestAdvSimOneRecordThatDoesNotReadCostsItsOwnGroupAndNoOther` | 1 | 1 |
+| `MJ54b` | 33 | `TestAdvSimOneRecordThatDoesNotReadCostsItsOwnGroupAndNoOther` | 1 | 1 |
+| `MJ55` | 33 | `TestAdvSimOneRecordThatDoesNotReadCostsItsOwnGroupAndNoOther` | 1 | 1 |
+| `MJ55b` | 33 | `TestAdvSimOneRecordThatDoesNotReadCostsItsOwnGroupAndNoOther` | 0 | 0 |
+| `MJ55c` | 33 | `TestAdvSimOneRecordThatDoesNotReadCostsItsOwnGroupAndNoOther` | 0 | 1 side by side, 0 alone (part 6) |
+| `MJ56` | 33 | `TestAdvSimOneRecordThatDoesNotReadCostsItsOwnGroupAndNoOther` | 1 | 1 |
+| `MJ66` | 33 | `TestAdvSimOneRecordThatDoesNotReadCostsItsOwnGroupAndNoOther` | 0 | 0 |
+| `MJ59` | 33 | `TestOneRecordThatDoesNotReadIsReportedByTheListAndAnsweredOnlyForItsOwnGroup` | 0 | 0 |
+| `MJ57` | 33 | `TestARestoreThatOverlapsAJoinWaitsForIt` | 0 | 0 |
+| `MJ58` | 33 | `TestAFoundingThatOverlapsAJoinWaitsForItAndFindsTheGroupHeld` | 0 | 0 |
+| `MJ26` | 34 | `TestAdvSimAFreshIdOverAHeldGroupsWelcomeReplacesNothing` | 4 | 4 |
+| `MJ26b` | 35 | `TestProductionJoinsOnlyThroughTheBoundDoor` | 3 | 3 |
+| `MJ27` | 36 | `TestAStagedJoinReachesTheStoreOnlyAtCommitAndNeverOverAStateAlreadyThere` | 2 | 2 |
+| `MJ27b` | 36 | `TestACommitOverAStoreThatCannotAnswerIsRefused` | 0 | 0 |
+| `MJ31` | 36 | `TestTheCreateOnlyProbeLeavesTheStoresOwnArrayAlone` | 0 | 0 |
+| `MJ28` | 36 | `TestAdvSimAnInvitationRefusedAfterTheEngineJoinedDoesNotSpendTheJoinCode` | 7 | 7 |
+| `MJ28b` | 36 | `TestAnAbortedJoinPutsTheJoinCodeBack` | 3 | 3 |
+| `MJ39` | 36 | `TestEveryRefusalInsideTheJoinWindowSaysTheJoinCodeIsNotSpent` | 0 | 0 |
+| `MJ26c` | 34 | `TestJoinFromWelcomeIntoRefusesAnEmptyGroupId` | 0 | 0 |
+| `MJ40` | 36 | `TestARefusalThatCannotPutTheJoinCodeBackSaysItIsSpent` | 1 | 1 |
+| `MJ41` | 36 | `TestAJoinWhoseRecordCannotBeWrittenSaysTheJoinCodeIsSpent` | 1 | 1 |
+| `MJ60` | 36 | `TestEveryRefusalInsideTheJoinWindowSaysTheJoinCodeIsNotSpent` | 0 | 0 |
+| `MJ61` | 37 | `TestADeviceAddedBackAnswersAnAuthenticationFailureForHistoryItCannotOpen` | 1 | 1 |
+
+  The script that read this table out of the plan and the runs' results refuses a run whose
+  killer is not the plan's, and a mutant the runs do not hold.
+- **"See it fail."** Each commit's tests were laid over the commit before it. For each of Tasks
+  33 to 37, the output, rendered by the plan generator's own rule (part 6), equals its task's
+  block in the plan line for line, 26, 9, 22, 22 and 12 lines, with the durations and the random
+  64-hex ids aside; a control that changes one line of the plan's block fails each. The blocks of
+  Tasks 33, 35 and 36 that run the harness with the registry of the commit before match too, 6, 2
+  and 1 lines, both ways, and so does Task 33's control line at its commit. Task 37's "see it
+  pass" holds the register at 8 rows, `MG-1` to `MG-8`, each cited by production source, and the
+  reproduction passes with its two controls.
+
+#### 6. What differed from the plan or the check
+
+The T1a writer gives four points. This entry checked each against the writer's files; none of
+them changes a commit of the branch, a count or a verdict.
+- **`MJ55c`'s "also" was 1 in the run side by side, where the plan says 0.** The other test that
+  failed is `TestTheConnectBudgetBoundsTheCallWhateverTheAttemptTimeout`, a timing test in
+  `sdk/urmessage/device_connect_test.go`, while two batches of the three suites ran at once. Run
+  again alone, from 07:50:25 to 07:51:10, `MJ55c` was killed by the same test with "also" 0, as
+  the plan says. The kill held in both runs.
+- **13 of the 35 diffs applied at an offset,** with plain `git apply` and no fuzz: `MJ25`, `MJ35`,
+  `MJ42`, `MJ37`, `MJ58`, `MJ26b`, `MJ39`, `MJ40` and `MJ60` at -5 lines, `MJ55` and `MJ59` at -1,
+  `MJ41` at -24 and `MJ61` at -111. Appendix B cuts all 35 against the T1 tree, and says each also
+  applies to the T1a tree. Checked for this entry: at the lab's T1 tip `9ce2ee7` all 35 apply
+  with no offset.
+- **The "see it fail" outputs were compared through the plan generator's rendering rule:** each
+  command and exit line kept, blank lines and "copied N file(s) of state" lines dropped, the first
+  10 lines after each command and then `...`, long lines cut, and a space before a leading `#`.
+  The writer's rule is the lab generator's `red()` (`gen2/part_mid.py`), line for line. It masks
+  the 64-hex ids too, which are random per run, where S0's comparison set aside only durations.
+- **`linux-newer-go` ran go1.27.2,** the newest stable release that day, so it tested no newer
+  compiler. The pull request says so.
+
+**Not run:**
+- `./test.sh` on a Windows host of the lead's, none of which has a C compiler: by R15 the Windows
+  run is the fork's `windows` leg.
+- For this entry: none of T1a's runs was made again (part 1).
+- Whether `/root/t1aclose` was removed from `alt-2` at the end is not in the writer's saved
+  output, and this entry did not log in to `alt-2` to look.
+
+#### 7. The status table
+
+Task 40 moves no row of `docs/plans/2026-10-05-hardening-program.md`'s "Status" table, and this
+entry moves none. The table has no T1a row: T1a is part of S1, whose row this phase does not
+close.
+
+#### 8. The gates
+
+Run on the committed history of this entry, under go1.27.2, beside the four siblings at their
+pins, before the push:
+- `go test ./ -count=1 -run 'TestTheEditLogGate|TestThePlanLinter' -v`: the edit-log gate's six
+  tests and the linter's seven pass, and none fails.
+- `go test ./ -count=1`, the whole root package: `ok`.
+- **The linter** prints the nine counts it printed on `main` before this item, unchanged, since no
+  plan changes: properties 371, plan-supplied tests 227, class-deriving properties 74, task
+  references 3304, open-item references 955, plan references 2220, ledger references 266,
+  Consumes entries 320 and qualified consumed names 15 *(the three labels corrected by this
+  entry's review: each class counts references)*. No line of its output names
+  `2026-10-09-hardening-harness-and-join-seal.md` or `2026-10-05-hardening-program.md`, where the
+  same output names `2026-08-30-slice2-s1-sdk-surface.md` on 17 lines of its own.
+
+#### 9. What this does not do
+
+- It does not open this repository's pull request, and it touches neither `urnetwork/message`'s
+  pull request 6 nor any branch of that repository.
+- It makes none of T1a's runs again (part 1).
+- It changes no spec, no plan and no code.
+- It does not send the report to the owner, Task 40 Step 5, which is the lead's, and which says
+  whether Task 39 is done.
+- It does not edit item 294. Its open points on Task 34 and on its pull request are met (item
+  295); its point on the block's drift is R19's, Task 41.
+
+**Reviewed by:** an independent subagent's diff review of 2026-10-13, §6's, made on this entry's
+commit before this repository's pull request was opened. *(When this entry was committed it read
+"pending", and named this review.)*
+
+**The review, 2026-10-13:** read-only, by a reviewer that wrote neither this entry nor its brief.
+It covers `232c4b1c..44f456d4`, each claim read against its source: pull request 6 and its five
+commits' patch-ids against the lab; the four job logs of fork run 38365404475, fetched again; the
+`alt-2` logs and the scan; the phase-end counts; the 35 mutants, their table against the plan's
+and Appendix B's diffs applied again at `73669fe1` and at the lab's T1 tip; the "see it fail"
+comparisons; the rulings; the gates and the whole root package; the commit; and both runs on its
+head. **Its verdict:** changes, with no BLOCKER and no MAJOR, one MINOR and four NIT findings,
+none of which touches a plan or a spec. Taken in this commit, each where it stands, with a note:
+- **MINOR, the title:** every phase-end count THE PLAN PRINTS equals the plan's; normal mode's 26
+  and the probes' 6 have no plan value, as part 5 says.
+- **NIT, part 1:** one thing of T1a's was run, not one thing in all.
+- **NIT, part 8:** three of the linter's classes count references, and are now named so.
+
+Not taken: an optional sentence on the vulnerabilities govulncheck lists in required modules the
+code does not call (4, 2, 1, 1 and 1, none a finding of the script's); and the commit message's
+"four legs, each with exactly the one narrowing R15 allows", which the provenance leg, running no
+`test.sh`, does not print. The item and this entry word it correctly, and no commit can change
+the message.
 
 The two gates this ledger answers to pass on the finished text: TestTheEditLogGate, 6 tests, and
 TestThePlanLinter, 7 tests, and so does the rest of the root package.
