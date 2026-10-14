@@ -113,6 +113,8 @@ Append-only. Newest last. One entry per commit that changes this spec. Every cha
 | 2026-10-02 | A-30 | **Delete for everyone has no time limit, by the owner's ruling of 2026-10-02, verbatim: "I think you should be able to delete your messages at any time".** §7.4's 24-hour bound from `SentAtMs`, and its receive-side refusal of an older tombstone, are struck. The placeholder stays, permanent, so a retraction is never silent. `delete_window_expired` is retired and never emitted, and `MessageProtocolLimits.DeleteForEveryoneWindowMs` is struck. `TestDeleteWindowIsEnforcedOnReceipt` becomes `TestAnOldLineIsDeletedLikeANewOne`, which `sdk` carries. Because there is no limit, the same-sender rule is tightened: a tombstone applies only when the sealing leaf's handle AND the sender identity both equal the target's. A newcomer on a refilled leaf inherits the handle (items 245 and 273, review H4), and `sdk` carries `TestANewcomerOnARefilledLeafCannotDeleteThePreviousOccupantsLines` for it. A record whose sender identity could not be determined neither retracts nor is retracted. Ledger item 211 is closed by the same ruling: there is no clock left to choose. MASTER §8.4.2, §12.1, §12.4 and §13, and Spec C Rev 10, are amended in the same commit. |
 | 2026-10-03 | A-31 | **Leaving is local and commits nothing, and its shape ships** (ledger 257's ruling 48, unpaid until now; ledger 273). §7.3's `LeaveGroup` gains the paragraph that says so: it closes the group and erases this device's copy, tells nobody, and leaves the leaf for an admin's `RemoveMember`. The owner refusal is stated exactly: this device is its identity's last leaf and another identity holds one. `sdk` ships it as `(*urmessage.Device).ForgetGroup` with `ErrOwnerMustTransfer` and `ErrForgetUnfinished`, and `cgo` as `urnet_message_device_forget_group` answering a `URNET_MESSAGE_FORGET_*` kind. An erase that stops part way is finished rather than lost: a durable mark, never restored, finished by the next restore or by leaving again (the diff review's H1). §7.4: both sides of the same-sender rule ask one predicate, so `DeleteForEveryone` refuses every tombstone that rule refuses for the line as this device holds it. MASTER §11 and §12.3, and Spec C Rev 11, are amended in the same commit. |
 | 2026-10-13 | A-32 | **§6's `GroupEngine` declares the bound door, `JoinFromWelcomeInto`** (ledger item 294; the hardening plan's Task 32, made ahead of its Task 34 in phase T1a, because the spec moves before the code it is the authority for). The block gains `JoinFromWelcomeInto(welcome []byte, ratchetTree []byte, groupId []byte) (GroupHandle, error)` below `JoinFromWelcome`, and a paragraph below the block says what it is: `JoinFromWelcome` with the group id its caller means to join, matched inside `connect/mls` ahead of the persist, so a Welcome for another group is refused before any epoch state is written and the key package goes back; an empty id is refused with `ErrEngineJoinGroupId`; and it authenticates nobody, exactly as the first door (open item MG-1). `JoinFromWelcome` keeps its meaning, and the handle is untouched. The paragraph also says what the block does not transcribe: `LoadGroup`, `RoleAt` and `CommitRemoveWithExtensions`, which the code declares as amendments. No wire byte, no other section and no other document changes. |
+| 2026-10-14 | A-33 | **The join delivery is sealed: invite version 3, and §6's block is the code's** (ledger item 296; the hardening plan's Task 41 Steps 1 to 3, made ahead of the code of its phase T1, because the spec moves before the code it is the authority for; MASTER gains §7.3 in the same commit). §3.1 gains `urmessage_join_seal` (0xF004): capability-only, listed by every leaf, required by every group, and refused as a group-context extension. §5.7: a joiner derives its joining epoch's `read_key` from that epoch's exporter and the `pq_secret` its invitation's `join_seal` carries, and takes `group_handle_key` from the same seal, not from the `Welcome`. §5.11 gains clause (7): (4)'s signature rule is scoped to records; M1-54 is ruled for the join seal alone; M1-55 is met for it; and its order is verify → open → honour. §6's block transcribes `LoadGroup`, `RoleAt` and `CommitRemoveWithExtensions`, which closes the drift A-32 named (ledger item 294; the lead's ruling R19): it holds the code's 6 engine and 35 handle methods at `urnetwork/message` `215a0696`, and §6's "thirty-three" becomes thirty-five. §7.3 gains the join that ships: invite version 3, the errors, the seedless refusal, the held-group gate and its one exception, one unreadable record costing one group, the one refusal inside the window that does not say the join code is not spent, and that only a group requiring the join seal is joined or restored. §7.3a: every path that produces a `Welcome` delivers the seal and `join_auth`, made before anything of the epoch is submitted. No server rule and no record changes. |
+| 2026-10-14 | A-34 | **Item 296's diff review: its one finding against this spec is taken** (ledger item 296; the lead's ruling R23). §7.3's bullet "The join's window, and its one sentence" gains the case it left out: a refusal inside the window whose join code could not be put back is `ErrJoinCodeSpent`, and does not begin with `ErrJoinRefused`'s sentence, as `Device.Join`'s deferred exit answers when putting the join code back fails. MASTER §0, §7, §7.3 and §13 are corrected in the same commit. No wire byte, no server rule, no record and no other section of this spec changes. |
 
 ---
 
@@ -350,6 +352,7 @@ silent skip.
 | Extensions, group context | `required_capabilities` (0x0003), `ratchet_tree` (0x0002), `urmessage_group_policy` (0xF001) | `profile.go:allowedGroupExtensions` |
 | Extensions, leaf node | `urmessage_leaf_keys` (0xF002) | `leaf_node.go` |
 | Extensions, group context | `urmessage_owner_successor` (0xF003) — **accepted and validated in v1** | `profile.go:allowedGroupExtensions`, validated per §3.4 |
+| Capability only | `urmessage_join_seal` (0xF004), added 2026-10-14 (A-33; MASTER §7.3) — listed in every key package's and every leaf's capabilities and **required** by every group's `required_capabilities`; carried as an extension by nothing, and **refused as a group-context extension** | `mls/extension.go`; `mls/group.go:v1Capabilities`; `messagegroup/engine.go:engineCapabilities`, `engineRequiredCapabilities`; `mls/validate_commit.go:groupExtensionProfile` |
 | Lifetime enforcement on KeyPackages | yes, ±1h clock skew tolerance | `key_package.go:Validate` |
 | Max group size | **500 members, hard.** A commit whose resulting membership exceeds it is refused at construction and rejected on receipt | `commit.go:checkGroupSize`, `ErrGroupSizeExceeded` |
 | Max devices per identity | **10 leaves per identity in one group**, hard, same enforcement on both sides | `commit.go:checkDeviceCount`, `ErrDeviceLimitExceeded` |
@@ -1881,7 +1884,8 @@ func VerifyWriteAuth(writeKey []byte, serverNonce []byte, record *Record) bool  
 
 // read_key[n] = HKDF-Expand(storage_root[n], "read/v1", 32), one per epoch.
 // Every member derives it from epoch state it already holds; a joining member
-// receives its joining epoch's key in the Welcome alongside group_handle_key.
+// derives its joining epoch's key from that epoch's exporter and the pq_secret
+// its invitation's join_seal carries, beside group_handle_key (MASTER §7.3; A-33).
 // The server installs each epoch's key from that epoch's EpochAttachment and
 // RETAINS it for the window it advertises as read_key_window_seconds — 90 days
 // on a stock server, surfaced as MessageServerInfo.ReadKeyWindowMs — which is
@@ -1968,8 +1972,11 @@ authorized by the Ed25519 recovery proof below and never by a read key.
 condition.
 
 A group's read key for epoch *n* reaches the server inside `EpochAttachment.read_key` on the commit
-that opens epoch *n*, and reaches a joining member in the `Welcome` alongside `group_handle_key`
-(MASTER §8). Every later epoch's key is derived locally from that epoch's `storage_root`.
+that opens epoch *n*. A joining member derives it: the `pq_secret[n]` it needs reaches it in its
+invitation's `join_seal`, with `group_handle_key`, sealed to the X-Wing key its own leaf publishes, and
+neither is in the `Welcome` (MASTER §7.3; amended 2026-10-14, A-33, where this read *"reaches a joining
+member in the `Welcome` alongside `group_handle_key` (MASTER §8)"*). Every later epoch's key is
+derived locally from that epoch's `storage_root`.
 
 **The recovery proof.** A seed-only restorer holds no group key at all — neither `write_key` nor
 `read_key` — so `RecoveryFetch` is authorized asymmetrically:
@@ -2919,6 +2926,39 @@ instantiation rather than a general discipline gap, and 143 now carries it.
 > A1's two positions on the shared `env_key[k]` root are what separate the two device-wrap records,
 > and that root carries no class, so the 2026-09-13 reversal does not reach it.)*
 
+**(7) THE JOIN SEAL — ADDED 2026-10-14 (A-33, ledger item 296). It is a wrap body that travels in no
+record, and four sentences of this section are scoped or ruled for it alone.** MASTER §7.3 carries its
+formats and the joiner's checks; this clause carries what it does to (4), (5) and (6).
+
+- **(4)'s signature rule is scoped to RECORDS.** *"Every wrap body is signed under the publisher's
+  `identity` key"* is a rule about the three wrap bodies that travel as records, and
+  `wrapsig_preimage` describes a record: its `sender_handle`, `stream_index`, class, bucket and
+  attachment. The join seal travels in an invitation, carries no signature, and its `aead_ct` is
+  `join_secrets_v1` alone, a named exception to MASTER §7's grammar. `join_auth`, a MAC under
+  `MLS-Exporter("URmessage/v1/joinkey", u32(joiner_leaf), 32)` at the join epoch, stands in for the
+  signature, and (4)'s *"MUST NOT honour an unverified one"* is met in a stronger form: nothing of the
+  seal is even opened before `join_auth` verifies.
+- **M1-54 is ruled, for the join seal alone.** The seal's envelope version is `0x01` and only `0x01`.
+  A seal whose envelope is not exactly `0x01, 0x03, 0x04` with content epoch 0 is refused AT THE PASTE,
+  with `ErrJoinSealShape`, before a join code is touched or a key is read. And the version octet is
+  authenticated, because `join_auth` covers `H(join_seal)`. The device-wrap and recovery-wrap envelopes
+  are untouched: M1-54 stays open for them.
+- **M1-55 is met, for the join seal,** because every expectation is the joiner's own. The open derives
+  its key from the joiner's own group id, its own leaf (`target_id = u32(own leaf)`), the constant
+  content epoch 0 and the constants `0x03` and `0x04`, and it copies nothing from the body. The
+  envelope is checked against those constants at the paste and is never the authority.
+- **The order is verify → open → honour**, which is stricter than (6) residual 2's open → verify →
+  honour for a device wrap. A device wrap's signature is inside its AEAD, so nothing can reach it before
+  the open; the join seal's MAC is outside the seal, over the octets received, so it is checked first:
+  `join_auth` (`ErrJoinSealUnauthenticated`), then the open (`ErrJoinSealUnreadable`), then the payload
+  (96 octets, neither secret all zero, and the secret reproduces the sealed digest at this epoch:
+  `ErrJoinSealUnreadable`, `ErrJoinSealWrongEpoch`). Only then is anything installed. *Honour* is (6)
+  residual 2's word: installing `pq_secret` into the session.
+- **What the AEAD binds, and what only the MAC does.** The seal's `info` carries content epoch 0, so
+  the AEAD does not bind the join epoch, and a seal made at one epoch opens under the AEAD at another.
+  `join_auth`'s key is the exporter at the join epoch and its preimage carries `u64(e)`, so it refuses
+  such a seal, and the sealed digest would refuse it again.
+
 **The `env_key` caching obligation, which is now live and is the accepted cost of (1).**
 
 Measured against `connect/mls` before this was written, because the option this ruling adopts claimed
@@ -3309,7 +3349,7 @@ Gate 5 (§4.5). The interface is declared at each consumer (A3); Go's structural
 `connect/mls` adapter satisfy both without an import edge.
 
 **It is declared in `connect/messagegroup` and not in `connect/message`.** §12.1 gives the message
-server *"no MLS type"*, and `GroupHandle` is thirty-three of them; an interface over an MLS group in
+server *"no MLS type"*, and `GroupHandle` is thirty-five of them; an interface over an MLS group in
 the package that binary links is the thing §2.2's split exists to prevent. `EngineProcessed` and the
 `connect/mls` adapter are in the same package as the interface, and that is forced rather than tidy:
 `stagedRef` is unexported, so only a member of the package that declares `EngineProcessed` can
@@ -3325,6 +3365,9 @@ type GroupEngine interface {
     Suite() uint16
     NewKeyPackage() (keyPackage []byte, err error)
     CreateGroup(groupId []byte, policy []byte, leafKeys []byte) (GroupHandle, error)
+    // open item J1-8: reopens a group this device belongs to, at the epoch the caller's own
+    // record names; there is no default epoch, and the epoch it answers at is checked.
+    LoadGroup(groupId []byte, epoch uint64) (GroupHandle, error)
     JoinFromWelcome(welcome, ratchetTree []byte) (GroupHandle, error)
     JoinFromWelcomeInto(welcome []byte, ratchetTree []byte, groupId []byte) (GroupHandle, error)
 }
@@ -3335,6 +3378,9 @@ type GroupHandle interface {
     OwnLeafIndex() uint32
     MemberCount() int
     MemberAt(i int) (leafIndex uint32, identityPub []byte, leafKeys []byte, err error)
+    // item 242 R4: MemberAt's snapshot keyed by LEAF, with connect/mls's Role.String();
+    // a leaf no member stands at is an error, never a zero value.
+    RoleAt(leaf uint32) (identityPub []byte, role string, err error)
 
     // the two named secrets of MASTER §8.2, and the exporter. nothing else.
     Export(label string, context []byte, length int) ([]byte, error)
@@ -3361,6 +3407,9 @@ type GroupHandle interface {
     CommitContextExtensions(extensions []ExtensionBytes) (commit, welcome, ratchetTree []byte, err error)
     CommitPolicy(policy []byte) (commit, welcome, ratchetTree []byte, err error)
     CommitRemove(leaves []uint32) (commit, welcome, ratchetTree []byte, err error)
+    // item 257 ruling 51: the arm a removal ships on, the Remove and the policy that drops
+    // the identity in one commit; Remove first, the GroupContextExtensions last.
+    CommitRemoveWithExtensions(leaves []uint32, extensions []ExtensionBytes) (commit, welcome, ratchetTree []byte, err error)
 
     // item 242 R2: reads off the STAGED value, so a committer can seal and submit the epoch
     // announcement while the group is still at n and merge only on REASON_OK (MASTER §9.3).
@@ -3433,6 +3482,17 @@ above transcribes five of the six and 33 of the 35:** `LoadGroup` (open item J1-
 `CommitRemoveWithExtensions` are declared in the code, each as an amendment documented at its
 declaration, and are not written here. That drift predates this amendment, which does not close
 it (ledger item 294).
+
+**Amended 2026-10-14: the block is the code's** (ledger item 296, revision A-33; the lead's ruling
+R19). `LoadGroup` (open item J1-8, 2026-09-18), `RoleAt` (item 242's R4, 2026-09-22) and
+`CommitRemoveWithExtensions` (item 257's ruling 51, 2026-09-25) are transcribed above, each in the
+signature `messagegroup/engine.go` declares at `urnetwork/message` `215a0696`. The block now holds
+**6 engine and 35 handle methods**, the set that file declares there and that `engine_test.go`'s
+`TestTheEngineInterfacesAreExactlySectionSixsBlock` holds it to, and the paragraph above, which says
+the block transcribes five of six and 33 of 35, is its history. The join seal adds no method to
+either interface: its engine half is the capability (§3.1), and the rest is the sdk's (§7.3). One
+field still lags: the `PendingEpoch` line carries no `RemovedLeaves`, which the code declares (item
+257's ruling 51). It is a field and not a method, and is not closed here.
 
 Note what is **not** on this interface: no tree, no node, no secret tree, no HPKE, no
 `epoch_secret`, no `confirmation_key`, no `membership_key`, no ciphersuite internals. `EngineProcessed.Raw`
@@ -4029,6 +4089,63 @@ Role strings are `"owner"`, `"admin"`, `"member"`, `"observer"` (MASTER §11). S
 int enum because gomobile enums are ints in Java/Swift with no name, and a mis-set role is a
 security-relevant bug.
 
+**The join that ships: invite version 3** (added 2026-10-14, A-33, ledger item 296; MASTER §7.3 is
+the normative format and the joiner's ten checks). The shipped surface is `sdk/urmessage`'s
+`Device.KeyPackage`, `Group.AddMember` and `Group.AddMemberAndPublish`, `Invite`, `ParseInvite` and
+`Device.Join`, with `cgo`'s exports over them; the `MessageClient` methods above are the product
+surface that stands over them.
+
+- **Invite version 3, and nothing else.** `InviteVersion` is `0x0003`. `Invite` has five fields,
+  `GroupId`, `Welcome`, `RatchetTree`, `JoinSeal` and `JoinAuth`, and none is a secret in the clear.
+  `ParseInvite` reads the version first and refuses any other, version 2 included, with
+  `ErrInviteVersion`: there is no version 2 reader, because reading one would be installing two
+  secrets whoever pasted it chose. A checksum that does not hold is `ErrInviteDamaged`. A seal that is
+  not exactly 1,253 octets, an authenticator that is not 32, or an envelope that is not the four
+  constants is `ErrJoinSealShape`, at the paste.
+- **The adder refuses a join code three ways, each before a commit is staged,** so the group is where
+  it was: `ErrKeyPackageInvalid` (it does not decode, is not a key package this suite admits on the
+  wall clock, has expired, or publishes no X-Wing key); `ErrJoinerCannotOpenSealedInvite` (it does not
+  list 0xF004); and `ErrJoinerAlreadyHasALeaf` (its identity or its signature key already has a leaf in
+  this group, most often from an invitation that was never opened, and the remedy is to remove that
+  entry and then add the new join code). The seal is made off the staged commit, before anything is
+  submitted: on a live add, inside the publish, over the rotated `pq_secret` and the digest the commit
+  record will carry; on the founding add, before the merge. The founding add then refuses to publish
+  epoch one under any digest but the one it sealed: `ErrInviteDigestDrift`.
+- **A device with no X-Wing seed publishes no join code.** `Device.KeyPackage` refuses with
+  `ErrNoDeviceWrapKey`: every join code lists 0xF004, which promises that a seal to its leaf opens, and
+  a seedless device cannot keep that promise.
+- **The held-group gate, and its one exception.** `Device.Join` refuses an invitation into a group this
+  device holds as a member, in memory or as a record on its disk, before the join code is touched:
+  `ErrGroupAlreadyHeld`, with nothing written and the join code not spent. The gate and the join run
+  under one admission mutex. The one join over a held id that is honoured is the re-add of a device a
+  commit removed, and it must stand above the removal's epoch (`ErrReaddStale`). That exception is
+  wider than a denial of service: a second founder's invitation above the removal takes the removed
+  device into a different group under the same id, and it stays open for the identity track (ledger
+  item 295). The engine binds the join to the invitation's group id through `JoinFromWelcomeInto`
+  (§6), and the joined state is committed create-only (`ErrJoinWouldOverwrite`).
+- **One group record that does not read costs its own group and no other** (the lead's ruling R12).
+  The gate asks the disk about one group id, so such a record refuses only an invitation into its own
+  group (`ErrGroupAlreadyHeld`, carrying `ErrGroupRecordDamaged`). `Device.Restore` goes on past it and
+  reports it among the groups that did not restore, and `ForgetGroup` leaves it, as it leaves any group
+  that did not restore, without the owner's question: there is no live roster to ask it of.
+- **The join's window, and its one sentence.** Every refusal `Device.Join` makes after it takes the
+  join code and before anything reaches the store puts the join code back, and begins with
+  `ErrJoinRefused`'s sentence, *"this invite was refused before anything was written, and the join
+  code is not spent"*, because the C ABI carries sentences and not types. **One refusal inside the
+  window does not carry it** (the lead's ruling R13): `ErrNoJoinCodeForInvite`, an invitation that no
+  join code this device can read was made for. There is no join code for "not spent" to be true of,
+  and the remedy is a new join code. A failure after the commit is `ErrJoinCodeSpent`, and so is a
+  refusal inside the window whose join code could not be put back: it says the join code is spent,
+  and does not begin with `ErrJoinRefused`'s sentence. *(Corrected 2026-10-14, A-34, by ledger item
+  296's review; the bullet ended at "A failure after the commit is `ErrJoinCodeSpent`".)*
+- **The seal's own refusals,** inside the window and in this order: `ErrJoinSealUnauthenticated`,
+  `ErrJoinSealUnreadable` and `ErrJoinSealWrongEpoch` (§5.11 (7)).
+- **Only a group that requires the join seal is joined or restored.** A group whose context does not
+  list 0xF004 in `required_capabilities` was founded by a build that sent its secrets in the clear.
+  `Device.Join` refuses it inside the window, and `Device.Restore` inside `ErrRestore`, both as
+  `ErrGroupPredatesJoinSeal`. Such a group is left with `ForgetGroup` and founded again, and nothing is
+  carried for compatibility: the owner ruled the alpha disposable on 2026-10-09.
+
 ### 7.3a Invite links and join requests
 
 An invite link is **an invitation a member has already made**, not a public door. This is what
@@ -4104,6 +4221,13 @@ exists to avoid. A redeemer learns the group exists and who invited them, and no
 **Rate limits.** Redemption of a reusable address is rate-limited per redeeming client and per
 address; a burned one-time link is refused with a typed error rather than silently producing a
 request that no one will approve.
+
+**Every path that produces a `Welcome` delivers the seal** (added 2026-10-14, A-33). Whatever carries
+the invitation, a link's redemption included, the `Welcome` reaches the joiner only inside an
+invitation at version 3, with `join_seal` and `join_auth` (MASTER §7.3), and the adder makes both off
+the staged commit **before anything of the epoch is submitted**: on a live add, inside the publish
+and ahead of the first wrap; on the founding add, before the merge. No path hands a joiner
+`pq_secret` or `group_handle_key` in the clear, and a path that cannot seal does not add.
 
 An invite link needs someone already inside the group. Two people who have never met and are not in a
 group together cannot reach each other with one, which is why §7.3b exists.
