@@ -508,6 +508,21 @@ moves an octet, and Spec B is untouched.** The content **KIND** is deliberately 
 the next ruling; ledger open item **198** carries it, and items **199**–**207** carry the rest of what
 this leaves open.
 
+**Amendment to revision 9 — 2026-10-14 — a new §7.3, the join delivery: the invitation stops carrying
+the join secrets in the clear.** Not a new revision: no record, no wrap the server stores and no
+server rule changes, and it is made ahead of the code it is the authority for (phase T1 of the
+hardening plan, in `urnetwork/message`). *(1)* **§7.3 is new.** The two secrets a joiner needs, the
+join epoch's `pq_secret` and `group_handle_key`, travel in `join_seal`, a §7 wrap body sealed under
+X-Wing to the key the joiner's own leaf publishes, beside `join_auth`, a MAC under a key only members
+of the joined epoch can derive; the invitation goes to version `0x0003`, and nothing reads version
+`0x0002`. *(2)* §7's target classes become three, and the join seal's code points are assigned:
+target `0x03`, payload `0x04`, capability `0xF004` and `alg_id` `0x0041` (§7.1). *(3)* §7's sentence
+that `pq_secret` *"arrived under X-Wing"* was false of the join epoch until now; it is amended and its
+history kept. *(4)* §8 and §8.4.5 stop saying `group_handle_key` is delivered in the `Welcome`. *(5)*
+§13 and §15 gain what this does not close. A group founded before invite version `0x0003` is neither
+joined nor restored by a build that writes it: the reset is the compatibility story, because the
+owner ruled the alpha disposable. Ledger item **296**; Spec A revision A-33 is the same commit.
+
 ## 1. Purpose and product target
 
 URmessage is a private messenger built on the URnetwork mesh. It reuses URnetwork's transport and
@@ -1019,7 +1034,7 @@ deliberately rather than pasted:
 | `"URmessage/v1/wrap"` | kept | domain separation from every other HKDF label in this document |
 | `LP(group_id)` | kept | a wrap of one group never opens under another group's key |
 | `u64(epoch)` | kept | the epoch whose secrets the wrap carries — Spec A §5.11 calls it the **content** epoch, and it is deliberately not the record's own `epoch` field |
-| `u8(target_type)` | **new** | separates target *classes* under one key schedule. This design has exactly two — an active device leaf, and a member's `RECOVERY_PUB` — and naming them is **not** assigning them octets; which byte each takes is one of the three gaps below |
+| `u8(target_type)` | **new** | separates target *classes* under one key schedule. This design has **three** since §7.3 — an active device leaf, a member's `RECOVERY_PUB`, and a JOINER, the leaf a `Welcome` is installing — and naming a class is **not** assigning it an octet: the joiner's is `0x03` (§7.3), and which byte each of the other two takes is one of the three gaps below. *(Amended 2026-10-14; it read "exactly two".)* |
 | `LP(target_id)` | kept | the recipient; one member's wrap never opens under another's key |
 | `u8(payload_type)` | **new** | separates payload *kinds* sent to one target at one epoch — which ruling 3 of 2026-09-13 turns into a live case rather than a hypothetical, because a device leaf now receives **two** wrap records at one epoch |
 | `u16(alg_id)` | **new** | M-15's anti-downgrade half. The same two octets `hybrid_ct` carries are now inside the key, so flipping them on the wire yields a different `wrap_key` and the AEAD fails, instead of the field being one that nothing checks |
@@ -1073,6 +1088,13 @@ ruling and this amendment makes none.**
   `info` carries **the same two octets `hybrid_ct` carries**, whichever they turn out to be, and the
   block above says that rather than picking a number.
 
+**For one class the three are filled (amended 2026-10-14, §7.3).** The join seal is the one wrap
+body whose `target_id`, `target_type` and `payload_type` are written down: `target_id =
+u32(joiner_leaf)`, the four big-endian octets of the leaf the `Welcome` installs the joiner at;
+`target_type = 0x03`, JOINER; and `payload_type = 0x04`, `join_secrets_v1`. Its `hybrid_ct` carries
+`alg_id` `0x0014`, X-Wing. The device-wrap and recovery-wrap classes are untouched by that, and the
+bullets above stand for them.
+
 **So the block is normative modulo those three**, and a second implementation cannot build a wrap from
 it alone. What it does settle is the shape — Extract-then-Expand, 56 octets, **nine** elements — so
 that when the three are ruled the derivation does not move underneath them.
@@ -1083,6 +1105,13 @@ X-Wing values carry the same material, so the adopted list is nine. MASTER's pre
 had four. The five that are new are the ones the table marks so.
 
 Harvesting today's classical MLS handshake is insufficient, because `pq_secret` arrived under X-Wing.
+*(**Amended 2026-10-14 (§7.3), and the sentence's history is kept.** Until invite version `0x0003`
+it was false of one epoch per join: the epoch a member joined at, whose `pq_secret` reached the joiner
+in the pasted invitation as plain octets, beside a `Welcome` whose HPKE is X25519 alone. A recorder of
+the paste with a future quantum computer reads that epoch, and for a two-person chat that never
+commits again that is the whole chat (ledger item 266). From invite version `0x0003` on the sentence
+is true of every epoch, the join epoch included: that epoch's secret reaches the joiner inside
+`join_seal`, under X-Wing to the key the joiner's own leaf publishes.)*
 Transit is already hybrid — `connect/transfer_encrypt.go:378` leads with `X25519MLKEM768`, and a server's
 own endpoint pins its TLS 1.3 key exchange to it (Spec B §4.1, Revision 23).
 
@@ -1110,9 +1139,16 @@ inside the signed bytes so it cannot be stripped or downgraded.
 | `0x0014` | **X-Wing (X25519 + ML-KEM-768)** — v1 wrap KEM |
 | `0x0021` | XChaCha20-Poly1305 |
 | `0x0031` | HKDF-SHA-256 |
+| `0x0041` | HMAC-SHA-256 — `join_auth` (§7.3) |
 
 Reserved, not implemented in v1: `0x0002` ML-DSA-87; `0x0012` ML-KEM-1024; `0x0013` hybrid
 X25519 + ML-KEM-1024, for the Level 5 revisit described above.
+
+**`0x0041` is the first MAC this table registers** (2026-10-14, for `join_auth`, which carries it
+inside its own preimage, §7.3). The three MACs this document defined before it, `write_auth` and
+`req_auth` (§9.2) and `head_commit` (§8.4.2), carry no `alg_id`, and the sentence above this table is
+not true of them. This registration does not give them one: each is fixed by its own label, and
+giving one an identifier is a wire change nobody has asked for.
 
 ### 7.2 Implementation guardrails
 
@@ -1134,6 +1170,125 @@ X-Wing MUST be implemented exactly as specified in the draft, including its doma
 and the ordering of inputs to the combiner. It MUST be validated against the draft's test vectors
 before use; a "roughly equivalent" combiner forfeits the security proof that is the entire reason for
 choosing it.
+
+### 7.3 The join delivery: a sealed invite
+
+*Added 2026-10-14 (ledger item 296; Spec A A-33), ahead of the code of the hardening plan's phase T1
+in `urnetwork/message`, which it is the authority for.* A member who adds a device hands that device an
+**invitation**: everything it needs to join, carried by the two people over a channel they choose.
+Until this section the invitation, version `0x0002`, carried the join epoch's `pq_secret` and the
+group's `group_handle_key` as two plain fields beside a `Welcome` whose HPKE is X25519 alone. A
+recorder of the paste who later holds a quantum computer therefore read the join epoch, and a
+classical observer of the paste who also holds the server's rows held the group's one lifetime value,
+which maps every `sender_handle` to a leaf for the life of the group (§8; ledger item 266). From
+version `0x0003` on, no secret crosses in the clear.
+
+```
+join_secrets_v1 = pq_secret[e] (32) ‖ group_handle_key (32) ‖ epoch_keys_digest[e] (32)    96 octets
+join_seal       = a wrap body (§7) over join_secrets_v1:
+                    wrap_envelope    = u8(0x01) ‖ u8(target_type = 0x03 JOINER)
+                                       ‖ u8(payload_type = 0x04 JOIN_SECRETS_V1)
+                                       ‖ u64(content_epoch = 0)
+                    hybrid_ct        = u16(0x0014) ‖ LP(ct_xwing) ‖ LP(aead_ct)
+                    aead_ct          = AEAD(wrap_key, wrap_nonce, join_secrets_v1)
+                    target_id        = u32(joiner_leaf)
+                    target_xwing_pub = the X-Wing key of the joiner leaf's urmessage_leaf_keys
+                                                                                        1,253 octets
+join_key        = MLS-Exporter("URmessage/v1/joinkey", u32(joiner_leaf), 32)   at the join epoch e
+join_auth       = HMAC-SHA-256(join_key, preimage)                                         32 octets
+preimage        = "URmessage/v1/joinauth" ‖ u16(alg_id = 0x0041) ‖ u16(invite_version = 0x0003)
+                  ‖ LP(group_id) ‖ u64(e) ‖ u32(joiner_leaf) ‖ LP(H(welcome))
+                  ‖ LP(H(ratchet_tree)) ‖ LP(H(join_seal))                                 181 octets
+invite v3       = u16(0x0003) ‖ LP(group_id) ‖ LP(welcome) ‖ LP(ratchet_tree)
+                  ‖ LP(join_seal) ‖ LP(join_auth) ‖ H(every octet before)
+```
+
+`epoch_keys_digest[e]` is `H(epoch_keys)` of epoch `e`, the digest the commit opening `e` publishes
+in its kind-`0x0005` attachment (§8.3), and the joiner recomputes it from its own exporter and the
+sealed `pq_secret`. The `info` of the seal's wrap key is §7's nine-element `info` with `u64(0)` for
+the epoch, as the envelope carries. The `H` that closes the invitation is a checksum against damage
+and is not an authentication: anybody who can change an invitation can recompute it.
+
+- **`join_secrets_v1` is a NAMED EXCEPTION to §7's wrap-body grammar.** `aead_ct`'s plaintext is
+  the 96 octets alone: no `LP(identity_pub)` and no `sig`. `join_auth` stands in for the signature:
+  `wrapsig_preimage` describes a record, and this body travels in an invitation and in no record; and a
+  joiner could anchor a signer's key in nothing it holds (open item MG-1 of
+  `messagegroup/OPENITEMS.md` in `urnetwork/message`). Being in no record, it carries no `LP32`
+  prefix and no padding to a rung (§8.2): its length is fixed, exactly 1,253 octets.
+- **`content_epoch` is the constant 0,** so the epoch a member joined at is not in the clear. The
+  AEAD therefore does not bind the join epoch, and `join_auth` does: its key is the exporter at `e`
+  and its preimage carries `u64(e)`, so a seal made at one epoch and pasted into an invitation for
+  another is refused, and the sealed digest refuses it again.
+- **The code points.** Target `0x03` JOINER, payload `0x04` `join_secrets_v1`, capability `0xF004`
+  and `alg_id` `0x0041` HMAC-SHA-256 stand by the lead's ruling of 2026-10-09 (ledger item 292).
+  `0xF004` names exactly invitation version `0x0003` with `join_secrets_v1`: any change to the seal,
+  its payload or its authenticator takes a new invitation version and a new capability, and goes back
+  through a red team first. The device wraps' octets are their code's provisional values (target
+  `0x01`; payloads `0x01` for `pq_secret` and `0x02` for `eph_root`) and are not ruled here; target
+  `0x02` and payload `0x03` are left for the recovery wrap.
+
+**The capability, and the rule that every group requires it.** `urmessage_join_seal` (`0xF004`) is
+capability-only: every key package and every leaf lists it, every group's `required_capabilities`
+requires it, and no extension of that type is ever carried, in a leaf or in a group context (a group
+context carrying one is refused). Because a group requires it, MLS itself refuses an `Add` of a join
+code that does not list it, and the adder refuses such a join code before it stages anything. A
+device with no X-Wing seed publishes no join code: the capability promises that a seal to its leaf
+opens. **Only a group that requires the join seal is joined or restored.** A group whose context
+does not was founded by a build that sent its secrets in the clear, and its `group_handle_key` has
+already crossed a paste; it is left and founded again, and nothing is carried for compatibility.
+
+**The adder** judges the join code before it stages anything, then seals off the staged commit,
+**before anything of the epoch is submitted**: the leaf is the one leaf of the tree the commit returns
+whose leaf node is the join code's; `join_key` is read off the staged epoch's exporter; and the seal
+is over the `pq_secret[e]` and `epoch_keys_digest[e]` the epoch is about to be published with. A
+failure clears the staged commit, so nothing was submitted and the add can be made again.
+
+**The joiner's checks, in order.** Nothing is written before the last row. Every refusal from row 4 on
+is made inside the join's window: the join code goes back, and the refusal says the join code is not
+spent. The one exception is the first refusal of row 4, an invitation no join code of this device
+was made for, where there is no join code for that sentence to be true of.
+
+| # | Check |
+|---|---|
+| 1 | the version is `0x0003`; the checksum holds; five fields and nothing after |
+| 2 | the group id is 32 octets; a `Welcome` and a tree are present; the seal is exactly 1,253 octets and the authenticator exactly 32; the envelope is the four constants |
+| 3 | the device does not hold this group as a member, in memory or on its disk; a record of it that does not read is a held group, and a store that cannot answer for it is a refusal |
+| 4 | the `Welcome` is for a join code this device holds, and describes the group the invitation names |
+| 5 | a re-add stands above the epoch of the removal |
+| 6 | the group requires the join seal |
+| 7 | VERIFY `join_auth`, under this epoch's own exporter, over the octets received |
+| 8 | OPEN the seal to this device's own X-Wing key |
+| 9 | CHECK the payload: 96 octets, neither secret all zero, and the secret reproduces the sealed digest at this epoch |
+| 10 | commit the joined state create-only, write the group's record, and hold the group |
+
+**The order is verify → open → honour**, which is stricter than a device wrap's (Spec A §5.11 (6),
+residual 2): a device wrap's signature is inside its AEAD and cannot be reached before the open,
+and this MAC is outside the seal.
+
+**Confidentiality rests on X-Wing alone** (ledger item 251's ruling 36: a post-quantum gate cannot be
+discharged by a carrier whose confidentiality rests on the MLS exporter). The exporter keys
+`join_auth` and nothing else, so a party who breaks the classical `Welcome` and derives `join_key`
+holds an authenticator key and not one octet of the two secrets.
+
+**What `join_auth` says, and what it does not.** It says the seal was made by a member of the epoch
+the joiner's `Welcome` opened, for this leaf, this `Welcome` and this tree; the digest check adds that
+the sealed secret is the one that epoch's published keys come from. It says nothing about **who** that
+member is.
+
+**Residuals,** stated in §13 too:
+
+- **The seal is to a static key.** A thief of the joiner's device seed who also recorded the paste
+  opens the seal and reads the join epoch.
+- **The invitation still shows the group's id and its ratchet tree**, so who is in the group, and
+  the join code shows its credential. The lifetime `group_handle_key` no longer crosses, but an
+  observer of one paste who also holds the server's rows still links that paste's joiner, and the
+  founder, to their handles. **Sender anonymity against a paste observer is NARROWED, not closed.**
+- **A join authenticates nobody** (MG-1). Whoever controls the channel can substitute a join code on
+  the way out or an invitation on the way back, and the joiner then joins a real group that is not the
+  one it meant.
+- **The seal never carries ephemeral material.** An archived invitation plus a later seed theft would
+  reopen every key of the join epoch's ephemeral class; how a joiner receives `eph_root` at its join
+  epoch is ledger item 185's, under that constraint.
 
 ## 8. Storage layer
 
@@ -1363,14 +1518,18 @@ read_key[n]      = HKDF-Expand(storage_root[n], "read/v1", 32)     one per epoch
 ```
 
 `group_handle_key` is what makes `sender_handle` and `wrap_target_handle` survive an epoch change.
-It is delivered to a joining member in its `Welcome` alongside the group-context extension, and is
+It is delivered to a joining member in its invitation's `join_seal`, sealed to the X-Wing key the
+joiner's own leaf publishes, and not in its `Welcome` (§7.3; until 2026-10-14 this read *"in its
+`Welcome` alongside the group-context extension"*, and the invitation carried it in the clear beside
+the `Welcome`). It is
 not derivable from any later epoch's `storage_root`. A member that does not hold it cannot compute
 its own handle and therefore cannot write.
 
 `read_key[n]` is what authorizes reads (§9.2). Every member derives it from the epoch state it
-already holds, so it needs no separate delivery except at join, where the `Welcome` carries the
-joining epoch's key. Each commit's `EpochAttachment` delivers to the server the read key of the
-epoch that commit opens. **The server retains every read key it has installed for 90 days from
+already holds, so it needs no separate delivery except at join, where the joiner derives the
+joining epoch's key from that epoch's exporter and the `pq_secret` its `join_seal` carries (§7.3).
+Each commit's `EpochAttachment` delivers to the server the read key of the epoch that commit opens.
+**The server retains every read key it has installed for 90 days from
 installation** and accepts a read authenticated under any retained key, so a member that was
 offline across many commits still authenticates with the newest key it holds and catches up. A
 member removed at epoch *n* keeps metadata access only until epoch *n*'s key falls out of that
@@ -2405,8 +2564,9 @@ without the first half of this ruling, which is why the two were ruled together.
 **It is KEYED, and `group_handle_key` is the key.** All three inputs are visible to the message
 server, so an unkeyed id would be computable by the server for every record it stores, handing it a
 join key between any id that ever appears anywhere and the record it names. `group_handle_key` is the
-group's one lifetime value: §8 fixes it at creation, never rotates it, and delivers it in the
-`Welcome`, so **every member already holds it and no new distribution is needed** — and a member who
+group's one lifetime value: §8 fixes it at creation, never rotates it, and delivers it to a joiner
+in its invitation's `join_seal` (§7.3; it read *"in the `Welcome`"* until 2026-10-14), so **every
+member already holds it and no new distribution is needed** — and a member who
 does not hold it *"cannot compute its own handle and therefore cannot write"*, so it was already the
 floor for participation. Using it rather than `storage_root[n]` is what makes an id **stable across
 epochs**, which a reply to a message from four commits ago requires.
@@ -3340,6 +3500,18 @@ lost. Deliberate, and revisited in V2.
 **Deliberately short of SimpleX.** Durable identities and a searchable directory, so you can be found,
 re-added, and recovered.
 
+**On joining.** An invitation carries no secret in the clear: the two values a new device needs are
+sealed to a key only that device holds (§7.3). Three things it does not give, and they are said
+here so nobody assumes otherwise. **The seal is to a key the device keeps**, so someone who steals
+that device's keys and also kept a copy of the invitation can read what was said from the moment the
+device joined until the group's keys next changed. **An invitation still shows the group's id and who
+is in it**, so someone who sees one invitation in transit and also holds the server's records can
+still pick out which messages the device that joined, and the group's founder, send; the change
+narrows what that person learns and does not close it.
+**And a join proves nobody's identity**: whoever controls the channel the invitation travels over can
+swap it for another, and the device then joins a real group that is not the one meant (ledger item
+296).
+
 **On verification.** Nobody is verified by default and there is no badge. You are warned loudly when a
 contact's key changes from one you have seen before, and never silently switched.
 
@@ -3472,3 +3644,14 @@ lead time lands on the critical path to general availability instead of running 
    rather than assumed. The accepted risk, restated so it is not rediscovered: audit firms book
    months out, so a "yes" at slice 5 puts the lead time on the critical path to general availability
    rather than in parallel with the build.
+8. **Rotation of `group_handle_key` — OPEN (2026-10-14, ledger item 296).** §8 fixes it for the life
+   of the group, and every invitation made before §7.3 carried it in the clear, so for those groups
+   the lifetime half of sender anonymity is gone for good. Only founding the group again restores it
+   today; a rotation would be a new key schedule rule and a wire change.
+9. **Sealing the `Welcome` and the tree as well — OPEN (2026-10-14, ledger item 296).** §7.3 seals
+   the secrets and leaves the group id, the tree and the join code's credential in the clear. Sealing
+   them as well would not close the per-paste link on its own (§7.3's residuals), because the join
+   code still shows its credential and the order in which handles first appear still tells.
+10. **A one-time X-Wing key per join code — OPEN (2026-10-14, ledger item 296).** §7.3's seal is to
+    the leaf's static key (§13). A key minted for one join code and destroyed at the join would give
+    the seal forward secrecy against a later seed theft, at about 1,216 more octets per join code.
