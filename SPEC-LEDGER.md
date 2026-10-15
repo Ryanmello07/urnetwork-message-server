@@ -29491,3 +29491,121 @@ this repository's pull request opens, and the lead records it in the commit afte
 291's to 296's were.
 
 It cites no run of itself: the pull request's body cites the runs on its head.
+
+### 2026-10-15 — Spec C §9.11, row 12: the alpha's join dialog as built (Task 41 Step 4)
+
+**Change:** one spec, `docs/specs/2026-08-12-spec-c-windows-client-ui.md`: a new §9.11, "Joining by
+pasted codes: the alpha's join dialog, what each refusal says, and the leave it offers", and row 12
+of its edit log in §0.6; and this ledger, this entry only. No other spec, no plan and no code
+changes. No ledger item is added, and items 296 and 297 are not edited in this commit: the lead
+directed that item 297 is not changed now, and that the diff review of its commit, with R46's
+corrections, goes into one later commit. Times are UTC, on 2026-10-15.
+
+#### 1. What it was made on
+
+- **`ledger/t1-close` at `20fc48db`,** item 297, on this repository's `main` `9466fafe`, with a
+  clean tree.
+- **The app, read only,** in a bare clone of this entry's own of `Ryanmello07/urmessage-windows`,
+  with `urnetwork/message-windows`' `main` fetched beside it:
+  - `main` `39fd495137d2`, the merge of `urnetwork/message-windows`' pull request 6, Task 39, whose
+    head was `e052a21b`, at 05:22:14 on 2026-10-14. It is that repository's `main` today;
+  - `feat/task58-join-seal-copy` at `d72c88e71109ed8ca208385eef6aff9aafe7064c`, Task 58's final head
+    as the lead named it, eleven commits on `39fd4951`, which is its ancestor. Its `composition.txt`
+    pins `urnetwork/message` at `e4eb247d4840874bfe13ba8a5bf4df015d97f63c`, and FIX 6c, the one
+    change between that pin and T1's pull request head `c7501a19`, changed no library sentence
+    (R44).
+- **The records:** the hand-over of Task 58's writer for `d72c88e7`; Task 39's report, and the body
+  of its pull request as it merged; and the rulings they cite, R13, R17, R20, R21, R24, R25, R27 to
+  R30, R32 to R35, R37, R40 and R43.
+- **The runs §9.11 cites,** each read from GitHub and each `success` unless said: Task 58's
+  screenshot run 38773842697 (`ci/task58-shots-v6`, `6cd943b8`), its founder's-line run 38810289732
+  (`ci/task58-a13-shots`, `bb0980b2`) and its `--diagnose` run 38810305821 (`ci/task58-head` at
+  `d72c88e7`); its mutant runs 38773948875 (`ci/task58-mutants-v6`, `543cc65b`) and 38773959920
+  (`ci/task58-mshots-v6`, `fd61cf10`); and Task 39's screenshot run 38495641611
+  (`ci/task39-shots-v2`), its `--diagnose` run 38495393778 (`ci/task39-head` at `e052a21b`), and its
+  two mutant runs 38495738977 and 38495802665, which failed as they had to, M3 on the transient leg
+  and M1 and M2 in `--diagnose`.
+
+#### 2. How §9.11 was checked against the app
+
+- **The copy, both ways.** A script of this entry's own read every string literal of
+  `Live/RefusalCopy.h`, `Live/HeldGroupRules.h`, `Live/LiveMesh.cpp` and `MainWindow.xaml.cpp` at
+  `d72c88e7`, and of `Live/HeldGroupRules.h`, `Live/LiveMesh.cpp` and `MainWindow.xaml.cpp` at
+  `39fd4951`, leaving comments out and joining adjacent literals. Of §9.11's 75 quoted spans, 51 are
+  found there verbatim, a span with a `<placeholder>` piece by piece. The other 14 distinct spans
+  were read one by one, and none is copy a person is shown: eleven are names of `--diagnose` lines,
+  each found as a line label in `Startup.cpp` at `d72c88e7`; one is the phrase "Then open URmessage
+  again", quoted as a phrase at the head of a sentence; and "erase anyway" and "has not joined yet"
+  name an open item and a mark. (A twelfth `--diagnose` name, "held leave", is also a word pair in
+  one of the app's log lines, so the script finds it.) In the other direction, every copy constant
+  the app declares in `RefusalCopy.h` and `HeldGroupRules.h`, 32 of them, appears in §9.11; the four
+  library sentences `HeldGroupRules.h` declares in order to match them are set aside by name, since
+  no person is shown them. The script's control, one sentence with one character changed, is not
+  found.
+- **The screenshots.** Every image §9.11 names under `<leg>/` exists in the lead's copy of run
+  38773842697 (`task58/run7/shots/`), the founder's line in the copy of run 38810289732
+  (`task58/run8/shots/as-built/`), and Task 39's images in the copy of run 38495641611
+  (`task39/shots-v2/`). Four were opened and looked at for this entry:
+  `joiner/joiner-3-no-join-code-other-device.png`, with the corrected paste label, the
+  `ErrNoJoinCodeForInvite` row and its button; the founder's image from run 38810289732, with
+  "paste it above" under the box; `held/held-C1-held-intro.png`, with the held intro, Task 39's row
+  and `[ Leave the old copy ]`; and Task 39's `transient-C2-after-leave.png`, where the press's
+  restore brought the group back with the founder's earlier line.
+- **What the app's source settled beyond the hand-over:** no invitations screen, invite link or join
+  request exists in its source at `d72c88e7`, so the alpha builds none of screens 23 and 28; the
+  dialog's title is "Join a group" and its buttons `[ Join ]`, `[ Not now ]` and, on the founder's
+  road, `[ Done ]`; and the join code's label carries an em dash, `—` in the source. Task 39's
+  guard sentence, its fallback and its status line while leaving are the same at `d72c88e7` as at
+  `39fd4951`.
+
+#### 3. Where each ruling sits in §9.11
+
+| ruling | where §9.11 records it |
+|---|---|
+| R13, with R17 | "The R13 rule": `ErrNoJoinCodeForInvite` never gets a row that says the join code is still good. And the pin, under "How the copy is held": no app package is built on T1's merge commit without the app's half |
+| R25 Q1 | the adder's row for `ErrJoinerAlreadyHasALeaf`, in the scoped form, and "What is not shipped": the "has not joined yet" mark is NOT shipped, and why |
+| R25 Q2 | `[ Make a new join code ]`, on two rows and no other, pressed by the person |
+| R25 Q3 and Q4 | the intro "This device is connected." while a group is held, and the restore road's row for a group that predates the seal |
+| R25 Q5, with R34 A2 | the rows for a file not read just now, which end "then open URmessage again", on the join, restore and leave roads |
+| R28, with R29 and R32 | "R28's leave road" and the leave road's table: a restore-first that could not read a file, or could not run, stops before `forget_group` and erases nothing |
+| R40 A10, A11 and A12 | the row for a leave mark that names another group; the paste label, corrected; and the log line and the copy check |
+| R43 A13 | the founding road's first row, "paste it above" |
+| R35 A7 and A8, R37 A9 | the unproven row's second cause, and the founding road's two `group_open` rows |
+| R20 and R21 | Task 39's leave: the id read off the invitation, the restore first on every press, the rejoin, and the unfinished erase |
+| R27, R34 A1 to A4 | the stable parts; the store's row, asked after every class; the unproven row's words; the map of stable parts, both ways |
+
+#### 4. The gates
+
+Run on the committed history of this entry, under go1.27.2, beside the four siblings at their
+pins, before the push:
+- `go test ./ -count=1 -run 'TestTheEditLogGate|TestThePlanLinter' -v`: the edit-log gate's six
+  tests and the linter's seven pass, and none fails.
+- `go test ./ -count=1`, the whole root package: `ok`.
+- **The linter** prints the nine counts it printed at `20fc48db`, unchanged, since no plan changes:
+  properties 371, plan-supplied tests 227, class-deriving properties 74, task references 3304,
+  open-item references 955, plan references 2220, ledger references 269, Consumes entries 320 and
+  qualified consumed names 15. No finding of its output, a `<file>:<line>:` line, names Spec C,
+  this ledger or a plan.
+- **The control:** §9.11 in the working tree without row 12. The edit-log gate's pending arm then
+  fails, with "has UNCOMMITTED changes and the working tree adds no entry to its log", naming Spec
+  C. So the row is read, and the green run above is a reading and not a blind spot. Row 12 was put
+  back after it, the spec's sha256 checked.
+
+This commit changes a spec, so the edit-log gate holds Spec C to row 12 and this ledger to this
+entry, on the committed history.
+
+#### 5. What this does not do
+
+- It changes no code, here or in the app, which is the `message-windows` writer's.
+- It does not edit items 296 and 297. Their open point on Spec C is met by this commit, and is
+  marked in the later commit that takes item 297's review (R46), as the lead directed.
+- It does not move Spec C's header revision line or its §0.1 state rows, which rows 7 to 11 did not
+  move either.
+- It specifies no new screen. §9.11 records what the alpha builds, as §12's paragraph on the
+  alpha's leave does (row 11); screens 1 to 32 of the v1 design stand.
+- It does not open this repository's pull request.
+
+**Reviewed by:** pending. §6's diff review of this commit is made by an independent subagent before
+this repository's pull request opens, and is recorded in a later commit.
+
+It cites no run of itself: the pull request's body cites the runs on its head.
