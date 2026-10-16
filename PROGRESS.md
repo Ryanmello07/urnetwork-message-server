@@ -2028,3 +2028,37 @@ empty database, `messagectl migrate`, and `/readyz` naming exactly what a bare b
   remaining set being `ordinal_credential` and `connect_client_attached` and nothing else.
 - Twenty-six mutations applied one at a time, each reverted.
 - Postgres was running; the pgx store contract executed rather than skipping.
+
+---
+
+## 2026-10-15 — the join seal's phase T1 is closed: an invitation carries no secret in the clear, and the store erases a group's files only for a true reason
+
+**What landed.** Phase T1 of the hardening plan,
+`docs/plans/2026-10-09-hardening-harness-and-join-seal.md`, in `urnetwork/message`: its pull
+request 7, 55 commits on `main` `215a0696`, at `c7501a195d5c`, which merges after this
+repository's pull request for ledger item 297. An invitation is now at
+version 3. The join secret and the group's handle key travel sealed to the joining device's X-Wing
+key, with an authenticator the joiner checks before anything is written, so a bad invitation costs
+nothing, and a group founded before this build is refused by name. The pre-merge red team and six
+review rounds after it then held the store's erase to its subject: the library erases a group's
+files only for a reason it can name, true of every file the erase takes when it takes it. The spec
+it implements merged first, as this repository's pull request 10 (ledger item 296), and the alpha
+server's store was reset for it on 2026-10-14.
+
+**Evidence** (ledger item 297 and its §7 entry hold each run, read off the run's own log):
+
+- `alt-2`, `./test.sh` whole at `c7501a19`: `VERDICT: PASS, narrower than the full run (above)`,
+  with the C consumer's line its one narrowing; 73 PASS, 0 FAIL, no data race, in 1540 s. The scan,
+  `govulncheck` v1.9.0 under go1.27.2: `VERDICT: PASS (7 of 8 modules scanned, no finding, …)`.
+- The fork's run 38775345519: all four legs green, each checked out at `c7501a19`.
+- The phase end: `messagegroup` 362, `sdk` 379, `sdk/cp3b` 143 and the root module 2525. Strict
+  mode: 3 FAIL, the three gaps the identity and healing tracks own; it was 17 at S0 and 9 after
+  T1a.
+- 137 of 137 mutants killed, each by the test that names it; the unmutated control passed 2577 with
+  none failing.
+- The live probe against the alpha server after its reset, built from `c7501a19`:
+  `=== 17 STEPS, 1686 ASSERTIONS, ALL HELD ===`.
+
+**Still owed.** The app's half in `urnetwork/message-windows` (the plan's Task 58) and its pin; Spec
+C (Task 41 Step 4); the report to the owner; and the store track, whose first item is "erase
+anyway" (open item `MG-15` of `messagegroup/OPENITEMS.md`).
