@@ -315,3 +315,39 @@ So MASTER's revision number says so.
   - the 21 export names.
 
   The library's tasks read these from item 300.
+
+## R65. On Tasks 9 and 10 (`d9ffec64` and `41699987` on identity/i1, 2026-10-16)
+
+**Read:** W-lib's report.
+- **Task 9:**
+  - its constants match registry item 299;
+  - alt-2 is green;
+  - fork-ci 38920058374 is green on 4 legs, with the checkout proven;
+  - MI2 to MI5 are killed, and the credential-follow probe sees its mechanism.
+- **Task 10:**
+  - alt-2 is green;
+  - fork-ci 38932900121 is green on 4 legs;
+  - MI6 to MI12 are killed;
+  - the known answers were computed outside Go, with each outside primitive first reproducing its RFC vectors.
+
+**The seven choices:**
+1. **NFKD as a generated fold table, without golang.org/x/text: ACCEPTED in principle.** The generator is committed, so that the repository can rebuild the table.
+   - It goes under `messagegroup/testdata/nfkdgen/`, with a go.mod of its own, which leaves the root module and its gates untouched.
+   - The table's header names the generator's path and the Unicode version.
+   - The independent review checks the table against a second NFKD, and names any code point where Unicode versions differ.
+2. **The draw through `mls.NewCryptoProvider`: ACCEPTED.**
+3. **The positions as a second result: ACCEPTED.**
+4. **`WithPhraseKeys` erases IRK's seed before the ceremony runs: HELD for the review.**
+   - IskCert(g) is signed by IRK (PLAN:148), and the phrase change's form-1 step needs a signature too.
+   - W-lib answers, in its Task 11 report, how Tasks 12, 31, 32, 42 and 43 get those signatures under this contract: inside WithPhraseKeys before the erase, or by an argument.
+   - The review holds that answer against Spec A A-36 §6 to §8 (`c2b598a0`). If the contract cannot serve those tasks, it changes now, before Task 12.
+5. **The census in messagegroup: ACCEPTED.** PLAN's gate table is corrected at the next plan refile.
+6. **The gate rows go to the review, row by row:** subject and scope, reason, control.
+7. **The spellings the gates forced. The RULE from here on: no code is spelled around a gate.**
+   - Where a gate's subject is not the code's subject, the code keeps its natural spelling. The gate gets a scoped exemption row with its reason and a control, as item 6's rows do.
+   - `%16` for the UUIDv8 octets goes back to `& 0x0F`, with a row in record_test.go's reserved-spellings gate scoped to the UUID function.
+   - The tokenizer's tables stay only if they are the better design, and the gate's comment says so. Otherwise they get the same treatment.
+   - `.gitattributes`: ACCEPTED.
+   - This retrofit comes with the review's fix commit. Task 11 follows the rule from its start.
+
+**Task 11 starts now.** Its normative sources for formats and labels are items 299 and 300 and Spec A A-36 (`c2b598a0`), with R64's note on §6's seam methods. The review of Tasks 8 to 10 runs alongside it, read-only, in its own clones.

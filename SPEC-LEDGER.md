@@ -14168,7 +14168,8 @@ repo and therefore the critical path — not this repository:
     refile, the commit after Task 3's on `specs/identity-phase1`, which files R62's addendum and
     R63 as well: R48 to R63 are filed, R63's sentence is below, and each annotation says it is
     the refile's.)* *(Annotated again by the R64 refile, after Task 4's commit: it files R64 and
-    SCOPE's corrected E2, so R48 to R64 are filed, and R64's sentence is below.)*
+    SCOPE's corrected E2, so R48 to R64 are filed, and R64's sentence is below.)* *(And by the R65
+    refile, after Task 5's commit: R48 to R65 are filed, and R65's sentence is below.)*
     - **What the plan is.** The implementation plan of the identity layer's first phase, written
       by the lead's planning round and revised in place three times: by its finalizer, for the red
       team dated 2026-10-15; by its reviser, for the owner's answer that the phrase change is built
@@ -14253,7 +14254,8 @@ repo and therefore the critical path — not this repository:
     - **The lead's rulings R48 to R62,** in `docs/plans/identity-phase1/LEAD-RULINGS-I1.md`, filed
       beside the plan. They continue the series whose R33 to R47 items 295 to 297 cite. Each, in a
       sentence *(the heading read "R48 to R61", and R62's sentence is added by its refiling)*
-      *(and R63's by the E1 and E4 refile, and R64's by the R64 refile)*:
+      *(and R63's by the E1 and E4 refile, and R64's by the R64 refile)* *(and R65's by the R65
+      refile)*:
       - **R48.** The bases: this repository's `main` is `37dd710f`, which carries T1's ledger close;
         the library's is `c7949cfd`; the app's is `badf2e2c` until urnetwork/message-windows#7
         merges, then `main`; and the S3 branch is the lead's dispatch to the app's one writer. The
@@ -14338,6 +14340,13 @@ repo and therefore the critical path — not this repository:
         in Task 5; the library's Tasks 12, 13 and 42 transcribe Spec A §6's four seam methods, or
         amend §6 first with a ledger entry; and the library's tasks read item 300's values from
         item 300.
+      - **R65.** On the library's Tasks 9 and 10 *(added by the R65 refile)*: both are read as
+        reported; of Task 10's seven choices, a generated NFKD table is accepted in principle,
+        the draw through the crypto provider, the positions as a second result and the census
+        are accepted, the erase of the identity key's seed inside `WithPhraseKeys` is held for
+        the review, the gates' rows go to the review row by row, and from here on no code is
+        spelled around a gate; and Task 11 starts, with items 299 and 300 and Spec A's A-36 as
+        its normative sources for formats and labels.
     - **The rows X1 to X14,** SCOPE's departures from M5's identity step, the owner's decisions
       and the first design, as ruled:
       - **X1,** taken: no security delay in I1, so a removal acts at once, with the delay to come
@@ -31418,5 +31427,65 @@ names a local folder, as it has since its first revision; and `cmd/message-serve
 
 The two gates this ledger answers to pass on the finished text: TestTheEditLogGate, 6 tests, and
 TestThePlanLinter, 7 tests, and so does the rest of the root package (§3).
+
+It cites no run of itself: the pull request's body cites the runs on its head.
+
+### 2026-10-16 — The lead's R65, refiled in LRI
+
+**Change:** one of the six files item 298 filed is refiled from the lead's source:
+`LEAD-RULINGS-I1.md` in `docs/plans/identity-phase1/`, which gains R65. The other five are
+unchanged, byte for byte. Item 298 is annotated where it stands, with R65's sentence. No spec and
+no code changes.
+
+#### 1. Why
+
+The lead appended R65, its ruling on the library's Tasks 9 and 10, to LRI after the R64 refile had
+been made. The lead directs that LRI be refiled at whatever its hash is when the commit is made,
+and that the hash be recorded here, since its rulings keep appending.
+
+#### 2. The source, and the refiling
+
+- **The source,** as the lead's scratch folder held it at 17:29: LRI `ad74213c…`, of 351 lines,
+  where the R64 refile's source had 315. The other five are the R64 refile's sources, each at the
+  prefix the lead gave: the plan `90d090e7…`, SCOPE `7f5ce2bf…`, FOR-OWNER `526ddd86…`, REDTEAM
+  `b265796d…` and REDTEAM-TASK2 `a30bee9d…`.
+- **What changed in it:** R65 is appended, of 36 lines, and nothing else changes.
+- **The refiling.** Each file takes the same 21 edits as before, LRI its two, by the same edit list,
+  and no legend changes. The filed copy of LRI: `59e5ec8c…`, of 353 lines.
+- **The proof.** Each of the six filed files, reversed through its recorded edits, gives its source
+  byte for byte, and a line diff of source and filed copy touches only the lines the edits name;
+  the proof's three controls each fail it. LRI holds no local path, by a search whose planted
+  control fired in the same run.
+
+#### 3. The ledger
+
+- **Item 298, annotated where it stands:** its heading's note; its rulings' bullet's note, which
+  gains a note for R65 beside the one for R63 and R64; and R65's sentence.
+
+#### 4. The gates
+
+Run on the committed history of this entry, under go1.27.2, beside the four siblings at their pins,
+before the push:
+- `go test ./ -count=1 -run 'TestTheEditLogGate|TestThePlanLinter' -v`: the edit-log gate's six
+  tests and the linter's seven pass, and none fails. The linter reads only `docs/plans/*.md`, so it
+  prints the previous entry's counts. The gate's ledger arm prints 74 of 97, where Task 5's commit
+  left 73 of 96, since this commit changes a file under `docs/plans/` and appends this entry.
+- `go test ./ -count=1`, the whole root package: `ok`.
+
+#### 5. What this does not do
+
+- It changes no spec and no code, and no word of the lead's text but by the recorded edits.
+- It does not open a pull request: this branch's opens once the plan's has merged.
+
+**Reviewed by:** Task 5's subagent reviewer, resumed for this change and made before this commit,
+read-only, on the change uncommitted, by its sha256 at its start and at its end, which were the
+same: LRI `59e5ec8c…` and this ledger `e2604b89…`, the state before its findings were taken. It
+checked the filed LRI forward from the lead's source, with controls; that R65 is the source's only
+change; the ledger's diff; the two gates and the root package; and the added lines for local paths
+and secrets, with controls that fired. The refile holds. It made 3 findings, all NIT, and **all
+three are taken in this commit:** the rulings' bullet's note for R63 and R64 is kept as it read,
+with R65's beside it; R65's sentence says that the NFKD table is accepted in principle, and that
+items 299 and 300 and A-36 are Task 11's normative sources for formats and labels; and §2 above
+says that 315 lines were the R64 refile's source.
 
 It cites no run of itself: the pull request's body cites the runs on its head.
