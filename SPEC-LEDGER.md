@@ -14167,7 +14167,8 @@ repo and therefore the critical path — not this repository:
     other amendment carries its own note.)* *(Annotated where it stands by the E1 and E4
     refile, the commit after Task 3's on `specs/identity-phase1`, which files R62's addendum and
     R63 as well: R48 to R63 are filed, R63's sentence is below, and each annotation says it is
-    the refile's.)*
+    the refile's.)* *(Annotated again by the R64 refile, after Task 4's commit: it files R64 and
+    SCOPE's corrected E2, so R48 to R64 are filed, and R64's sentence is below.)*
     - **What the plan is.** The implementation plan of the identity layer's first phase, written
       by the lead's planning round and revised in place three times: by its finalizer, for the red
       team dated 2026-10-15; by its reviser, for the owner's answer that the phrase change is built
@@ -14252,7 +14253,7 @@ repo and therefore the critical path — not this repository:
     - **The lead's rulings R48 to R62,** in `docs/plans/identity-phase1/LEAD-RULINGS-I1.md`, filed
       beside the plan. They continue the series whose R33 to R47 items 295 to 297 cite. Each, in a
       sentence *(the heading read "R48 to R61", and R62's sentence is added by its refiling)*
-      *(and R63's by the E1 and E4 refile)*:
+      *(and R63's by the E1 and E4 refile, and R64's by the R64 refile)*:
       - **R48.** The bases: this repository's `main` is `37dd710f`, which carries T1's ledger close;
         the library's is `c7949cfd`; the app's is `badf2e2c` until urnetwork/message-windows#7
         merges, then `main`; and the S3 branch is the lead's dispatch to the app's one writer. The
@@ -14332,6 +14333,11 @@ repo and therefore the critical path — not this repository:
         force is an amendment, which answers item 141's question from here on (item 299); and R's
         block of content kinds stays at 0x38 to 0x3F, with round 4's 0x2F, 0x30 and 0x33 to 0x36
         held for the phases that build their features.
+      - **R64.** On Task 4 *(added by the R64 refile)*: Task 4 is accepted; SCOPE E2 is corrected
+        for Task 4's review, its F3, as MASTER §9.8 was in Task 4's commit and as Spec B states it
+        in Task 5; the library's Tasks 12, 13 and 42 transcribe Spec A §6's four seam methods, or
+        amend §6 first with a ledger entry; and the library's tasks read item 300's values from
+        item 300.
     - **The rows X1 to X14,** SCOPE's departures from M5's identity step, the owner's decisions
       and the first design, as ruled:
       - **X1,** taken: no security delay in I1, so a removal acts at once, with the delay to come
@@ -14671,9 +14677,9 @@ repo and therefore the critical path — not this repository:
     - **Open.**
       - **The seam's four methods** are designed ahead of the code. The library's Tasks 12, 13 and
         42 transcribe them, or amend §6 first, with its own log row.
-      - **For the lead:** SCOPE E2's "The server never reads the deposit" is false of a server that
-        finds the code, as MASTER §9.8's sentence was (Task 4's review, its F3). It is the lead's
-        text, so this filing changes no word of it.
+      - *(For the lead until R64: SCOPE E2's "The server never reads the deposit" was false of a
+        server that finds the code, as MASTER §9.8's sentence was (Task 4's review, its F3). The
+        lead corrected it in the source, by R64, and the R64 refile, the next commit, files it.)*
       - **The pull request** opens once the owner has merged the plan's (R62).
       - **Next:** Task 5, Spec B for I1, which consumes this §5.14.
 
@@ -31136,5 +31142,70 @@ read-only, and nothing was written there.
 
 The two gates this ledger answers to pass on the finished text: TestTheEditLogGate, 6 tests, and
 TestThePlanLinter, 7 tests, and so does the rest of the root package (§3).
+
+It cites no run of itself: the pull request's body cites the runs on its head.
+
+### 2026-10-16 — The lead's R64: SCOPE's E2 corrected, refiled with LRI's R64
+
+**Change:** two of the six files item 298 filed are refiled from the lead's sources: `SCOPE.md`
+and `LEAD-RULINGS-I1.md` in `docs/plans/identity-phase1/`. The plan, `FOR-OWNER.md`, `REDTEAM.md`
+and `REDTEAM-TASK2.md` are unchanged, byte for byte. Item 298 is annotated where it stands, and item
+300 is amended in place, each change with a note. No spec and no code changes.
+
+#### 1. Why
+
+- **SCOPE E2.** Task 4's review (item 300, its F3) found that SCOPE E2's "The server never reads
+  the deposit" is false of a server that finds the 60-bit link code. Such a server holds
+  `card_key`, can answer Open with a card of its own, is deposited to, and reads the existing
+  device's leaf before the emoji differ. Task 4's commit corrected MASTER §9.8's matching sentence.
+  SCOPE is the lead's text, and the lead corrected it in the source, by its ruling R64.
+- **R64.** The lead's ruling on Task 4, appended to LRI. Task 4 is accepted, and SCOPE E2 is
+  corrected. The library's Tasks 12, 13 and 42 transcribe Spec A §6's four seam methods, or amend
+  §6 first with a ledger entry, and the library's tasks read item 300's values from item 300. The
+  lead directs this refile, with its own entry, and that Task 5's review cover it.
+
+#### 2. The sources, and the refiling
+
+- **The sources,** as the lead's scratch folder held them at 16:33, each checked against the
+  prefix the lead gave: SCOPE `7f5ce2bf…` and LRI `b2c9e87f…`. The plan `90d090e7…`, REDTEAM-TASK2
+  `a30bee9d…`, FOR-OWNER `526ddd86…` and REDTEAM `b265796d…` are as the previous refile filed them,
+  and the lead's copies from before R64 equal that refile's sources.
+- **What changed in them.** SCOPE's E2 row now reads: "The server reads neither the card nor the
+  deposit unless it finds the code, by a search of about 60 bits [a] or a leak. A server that finds
+  it can answer Open with a card of its own, so that the deposit is made to it and it reads that
+  device's leaf; the emoji still differ then, so the link grants nothing (E3) [c; REDTEAM L2; Task
+  4's review F3, LRI R64]." SCOPE keeps its 361 lines. LRI gains R64, of 21 lines, and grows from
+  294 lines to 315.
+- **The refiling.** Each file takes the same 21 edits as before, by the same edit list, and no
+  legend changes. The filed copies: SCOPE `1907dd6d…`, of 363 lines, and LRI `8ac45baf…`, of 317.
+- **The proof.** Each of the six filed files, reversed through its recorded edits, gives its source
+  byte for byte, and a line diff of source and filed copy touches only the lines the edits name;
+  the proof's three controls each fail it. No filed file holds a local path, by a search whose
+  planted control fired in the same run.
+
+#### 3. The ledger
+
+- **Item 298, annotated where it stands:** its heading's note, and its rulings' bullet, which gains
+  R64's sentence.
+- **Item 300, amended in place,** since it has not landed: its Open bullet for the lead now says
+  that the lead corrected SCOPE E2, by R64, and that this commit files it.
+
+#### 4. The gates
+
+Run on the committed history of this entry, under go1.27.2, beside the four siblings at their pins,
+before the push:
+- `go test ./ -count=1 -run 'TestTheEditLogGate|TestThePlanLinter' -v`: the edit-log gate's six
+  tests and the linter's seven pass, and none fails. The linter reads only `docs/plans/*.md`, so it
+  prints the previous entry's counts. The gate's ledger arm prints 72 of 95, where Task 4's commit
+  left 71 of 94, since this commit changes two files under `docs/plans/` and appends this entry.
+- `go test ./ -count=1`, the whole root package: `ok`.
+
+#### 5. What this does not do
+
+- It changes no spec and no code, and no word of the lead's text but by the recorded edits.
+- It does not open a pull request: this branch's opens once the plan's has merged.
+
+**Reviewed by:** pending, by the lead's direction. Task 5's subagent diff review covers this commit
+as well as Task 5's, and Task 5's entry, for item 301, records what it finds here.
 
 It cites no run of itself: the pull request's body cites the runs on its head.

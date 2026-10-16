@@ -294,3 +294,24 @@ So MASTER's revision number says so.
 - If R's plan needs more than 8 kinds, it asks the lead, with D2 v2.1's count. That is before W-lib's Task 24.
 
 **Start now:** W-lib checks Task 9's constants against item 299, commits Task 9, and starts Task 10. W-srv goes on to CI, then the E1 and E4 refile, then Tasks 4 and 5.
+
+## R64. On Task 4 (Spec A A-36, ledger item 300, `c2b598a0`, 2026-10-16)
+
+**Read:** W-srv's Task 4 report. The resumed reviewer found 28: 0 BLOCKER, 3 MAJOR, 7 MINOR and 18 NIT, all taken. The E1/E4 refile `7596be1d` holds.
+
+- **SCOPE E2 is corrected (the review's F3).** It said that the server never reads the deposit. That is false of a server that finds the 60-bit link code.
+  - Such a server holds card_key, answers Open with a card of its own, and is deposited to. It then reads that device's leaf before the emoji differ.
+  - E2 now says this, and that the link grants nothing, since the emoji differ (E3).
+  - MASTER §9.8 was corrected the same way in Task 4's commit, and Spec B states it in Task 5.
+  - W-srv refiles SCOPE as a small commit with its edit-log entry. Task 5's review covers it.
+- **Spec A §6 designs the seam's four methods ahead of the code:** NewBoundKeyPackage, CreateBoundGroup, CommitOwnLeaf (with patch, removeLeaves and contextExtensions) and LeafAt.
+  - W-lib's Tasks 12, 13 and 42 transcribe them as §6 has them.
+  - If code needs a different shape, the task amends §6 first, with a ledger entry, and never diverges silently.
+- **Item 300 freezes, beyond item 299:**
+  - the list's fourth label, URmessage/v1/device-amendment;
+  - the link box's labels and sizes: a card of 4,124 octets and a deposit of 17,526;
+  - the emoji label, URmessage/v1/link-sas-emoji;
+  - the store's names: state/identity, state/identity-heads and state/phrase-key;
+  - the 21 export names.
+
+  The library's tasks read these from item 300.
