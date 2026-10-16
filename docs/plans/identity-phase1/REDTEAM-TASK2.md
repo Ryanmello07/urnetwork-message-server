@@ -133,7 +133,7 @@ The alarm's second reason reads this device's own-signature log, store kind 12 (
 
 ## 4. What I read
 
-- **Whole [m]:** PLAN (1,494), SCOPE (358), FOR-OWNER (73), REDTEAM (443); LRI R48-R57; LR R33-R47; OD; M5; D2 §2.0-§2.11 (D2:1-461).
+- **Whole [m]:** PLAN (1,494), SCOPE (358), FOR-OWNER (73), REDTEAM (443); LRI R48-R57; LR R33-R47 [lead, LRI R62: LR is R34 to R47]; OD; M5; D2 §2.0-§2.11 (D2:1-461).
 - **At the cited lines [m]:** F1 §2.0-§2.6 (:329-627) and §2.7-§2.12 (:629-763), above all the succession §2.11 (:722-746) and VerifyLeafBinding (:463-473) and the rules table (:530-570); F3 §2.1 by reference through SCOPE; V4 B.5 (:299-360) and F.0 (:982-1166), above all the step and formats (:987-1058) and W4/the rank rule (:317-318, :1064); T1/T2 by reference through PLAN and D2; OWN A28-A31 through the citations.
 - **Code, read only [m], lib in a clone whose tree equals `lib@c7949cfd` (the task's lib pin):** `sdk/urmessage/roles.go:1-276` (R6c at :200-214), `rolescommit.go:195-254` (the pre-commit committer leaf at :236-243), `mls/group.go:1215-1230` (the permanent halt) and `:3628-3651` (the leaf-lifetime check), `sdk/urmessage/erasegate_test.go:19-60` (the authority allow-list). I did not read or write the app workspace REDTEAM read.
 - **Not done.** Nothing was built, run or launched; no size was measured; the cost of forging a rival successor is [c] (it is one Ed25519 signature with the leaked first phrase). I did not read Spec A/B/C, MB, or the lib code the link ceremony and self-group records live in beyond the lines above.

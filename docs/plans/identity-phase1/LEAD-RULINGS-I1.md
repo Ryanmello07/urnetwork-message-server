@@ -1,10 +1,10 @@
 # Lead rulings: identity phase 1 (I1), and its interface to IDs and requests (R)
 
-**Filed copy.** These rulings are filed in `urnetwork/message-server` as `docs/plans/identity-phase1/LEAD-RULINGS-I1.md`, in the folder beside the plan, and the ledger entry that files them lists every change made in filing them. `identity-phase1/PLAN.md` and `PLAN.md` are the plan, filed as `docs/plans/2026-10-16-identity-layer-one-account.md`: the 1,545 lines R61 read, with two lines of legend added at its top. The plan has had 45 tasks since its revision of 2026-10-16; the head's "41 tasks" is its count when these rulings began. `SCOPE.md`, `FOR-OWNER.md`, `REDTEAM.md` and `REDTEAM-TASK2.md` are filed in this folder. A local path is replaced by a label: `srv@<sha>` is `urnetwork/message-server` at that commit. The lead's scratch folder is in no repository: it holds every `scratchpad/...` path, and the designs and rulings named here by a relative path or a short name, such as D2 and LR.
+**Filed copy.** These rulings are filed in `urnetwork/message-server` as `docs/plans/identity-phase1/LEAD-RULINGS-I1.md`, in the folder beside the plan, and the ledger entry that files them lists every change made in filing them. `identity-phase1/PLAN.md` and `PLAN.md` are the plan, filed as `docs/plans/2026-10-16-identity-layer-one-account.md`: the plan as R62 left it, of 1,548 lines where R61 read 1,545, with two lines of legend added at its top. `SCOPE.md`, `FOR-OWNER.md`, `REDTEAM.md` and `REDTEAM-TASK2.md` are filed in this folder. A local path is replaced by a label: `srv@<sha>` is `urnetwork/message-server` at that commit. The lead's scratch folder is in no repository: it holds every `scratchpad/...` path, and the designs and rulings named here by a relative path or a short name, such as D2 and LR.
 
-**Date:** 2026-10-16 (UTC). **Writer:** the lead. These rulings continue LR's numbering (`scratchpad/hardening-plans/LEAD-RULINGS-2026-10-15.md`, R33 to R47).
+**Date:** 2026-10-16 (UTC). **Writer:** the lead. These rulings continue LR's numbering (`scratchpad/hardening-plans/LEAD-RULINGS-2026-10-15.md`, R34 to R47; R33 is in `LEAD-RULINGS-2026-10-14.md`).
 
-**Read with:** `identity-phase1/PLAN.md` (41 tasks) and `SCOPE.md`; `accounts-requests/DESIGN-v2.md` (D2). PLAN's Task 1 files this file in `message-server` beside the plan. Every writer reads it before starting a task, and again before finishing one.
+**Read with:** `identity-phase1/PLAN.md` (45 tasks) and `SCOPE.md`; `accounts-requests/DESIGN-v2.md` (D2). PLAN's Task 1 files this file in `message-server` beside the plan. Every writer reads it before starting a task, and again before finishing one.
 
 **Owner's questions.** The rulings below marked **owner** wait on the owner's answer. The rest stand now.
 
@@ -220,3 +220,50 @@
   - W-srv: Task 1, then Tasks 3, 4 and 5.
   - W-app: pause the list at a clean commit, then Task 6. Slice 0 adds the phrase-change screen (Task 45's), labelled demo, if its copy is settled in SCOPE K1 to K9.
   - W-lib: Task 8 now. Tasks 9 and 10 once Task 1's review holds.
+
+## R62. On Task 1's filing and Task 8 (2026-10-16)
+
+**Read:**
+- W-srv's Task 1 report: `070c7393` on the fork's `plans/identity-phase1`, from `37dd710f`. Its review found 0 BLOCKER, 0 MAJOR, 9 MINOR and 10 NIT, and all 7 of Task 2's dispositions HOLD.
+- W-lib's Task 8 report: `aacda6ea` on the fork's `identity/i1`, from `03192c2b`. The four entries are RED on `main` for their stated reasons, each with its control. alt-2 is green, and so is fork-ci 38897051890, whose four job logs each check out `aacda6e` [m].
+
+**Task 1's review holds, so R61's one check is done.** The four findings it left for the lead are fixed in the sources:
+- **D1:** PLAN's T2-H2 row now says what the owner's copy has said since R61. It no longer says "a change does not undo a leak".
+- **D2:** Task 43's held case has one home, P15's single test `TestNoDeviceLeavesItsAccountHoldingAPhraseSecret`, as Task 30 and the T2-H1 row already said. One promise has one enforcer.
+  - `TestAChangeThatLostItsRaceIsRebuiltOrVoid` keeps the races, without the hold.
+  - MI117 is killed by Task 43's case of the P15 test.
+- **D15:** LR is R34 to R47, and LRI's head is fixed. REDTEAM-TASK2's line keeps its text, since it is the red team's record, and carries a lead's note.
+- **D16:** PLAN's L3 row says that the phrase change is offered only where a change can help.
+- W-srv files these as a second commit on the same branch, with its edit-log entry, before the plan's PR opens. The filed plan's legend drops its note of D1.
+
+**D5: P2 had not reached the owner.** FOR-OWNER.md was never sent as a file, and the chat named only four of M8's five departures. The lead now sends FOR-OWNER.md and names P2 in the message: ending the account on its last computer erases the phrase's key and marks the account ended, and the rest of the old folder is not wiped. Task 1's M8 line is true from that message.
+
+**Store kinds, as W-srv asked.**
+- Task 3 freezes the kinds as Task 12 and P3 have them:
+  - 11, the identity record;
+  - 12, the heads, which hold the own-signature log;
+  - 13, the phrase key.
+- SCOPE C7's "kinds 11 and 12" for the heads was stale, and is corrected. F1's heads are one record (F1:603).
+
+**Task 8 is accepted as reported.**
+- **c2.** This tree has no list, so the removal control is the bare removal.
+  - Task 26 signs the base that drops the phone before the removal, and PLAN Task 26 says so.
+  - If it does not, R8-SIB refuses the control and the test fails as FAIL(HARNESS). The gap cannot pass in silence.
+- **c4.** The bound-package control adds Carol's real key package, which Task 12 binds with no edit.
+  - Task 12 adds the assertion that this package carries 0xF005 naming Carol.
+  - Task 12 also gives the seam members bound leaves, since every group it founds requires 0xF005.
+  - Task 13 builds the stranger's package without 0xF005 on purpose, and asserts so before the add.
+  - PLAN Tasks 12 and 13 say so.
+- **The three edits beyond the brief's letter are confirmed:**
+  - the comment citations of MG-16 and MG-17, which the register's gate requires;
+  - the owner lines of MG-11 and MG-12, by X4 and Step 3;
+  - `roles_test.go`'s three lines, in which the seam member keeps its join seal's group_handle_key for `publishRotated`.
+- MG-17, read from the code, and MG-16, whose reproduction is owed with Task 32, stand as filed.
+
+**Start now:**
+- **W-srv:** the second commit; then Task 3, pushed and reported at once; then Tasks 4 and 5, on a branch cut from the plan branch's head. Their PR opens once the plan's PR has merged.
+- **W-lib:** Task 9 now.
+  - Its two code points are already fixed by SCOPE and D2.
+  - It commits only once Task 3's registry is pushed and its constants match the registry.
+  - Task 10 starts when the registry is pushed, as P8 says.
+- **The lead** opens the plan's PR after the second commit.
