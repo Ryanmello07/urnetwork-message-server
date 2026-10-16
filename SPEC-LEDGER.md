@@ -13841,8 +13841,9 @@ repo and therefore the critical path — not this repository:
     PATCH-ID, AND 43 MORE, FROM THE RULING ON THE CODE POINTS AND FROM THE REVIEWS. ITS FULL RUNS
     GIVE THE VERDICTS R15 ALLOWS AND NO OTHER, AND NO RACE REPORT; ITS SCAN PASSES; ALL 137 OF ITS
     MUTANTS ARE KILLED; THE LIVE PROBE HOLDS ITS 17 STEPS ON THE ALPHA SERVER AFTER THE RESET; AND
-    THE LAST REVIEW IS CLEAN FOR THE CLASS THE BUDGET FIXES IN T1. THE PROGRAM'S S1 ROW MOVES.**
-    Times are UTC, on 2026-10-15 unless a date is given.
+    THE LAST REVIEW IS CLEAN FOR THE CLASS THE BUDGET FIXES IN T1, BY THE LEAD'S RULING R45. THE
+    PROGRAM'S S1 ROW MOVES.** Times are UTC, on 2026-10-15 unless a date is given. *(The title's "by
+    the lead's ruling R45" is added by this item's review, its F3.)*
     - **What closes.** Task 59 of the plan item 292 filed,
       `docs/plans/2026-10-09-hardening-harness-and-join-seal.md`, closes phase T1 in seven steps:
       the full run on both hosts, the fork's workflow with all four legs, the pull request, the
@@ -13859,11 +13860,14 @@ repo and therefore the critical path — not this repository:
       09:59:12 on 2026-10-14, which R7 and R22 ask to come first. Its base is `main` `215a0696`,
       the merge of pull request 6 (T1a), which had not moved when this item was written. Against
       it the 55 commits change 253 files, with 10,911 lines added and 470 removed: 176 of the files
-      are the corpus Task 42 adds under `mls/testdata/corpus/`, and none is under `docs/history`,
-      as Task 59 Step 2 requires. Each commit is authored and committed by Ryanmello07, with both
-      trailers and one parent. Its body carries what Task 59 Step 3 asks: the two verdict lines,
-      the fork's run with its four legs, the scan's verdict, the kills of Task 54 and the live
-      transcript of Task 56.
+      are seeds of the corpus under `mls/testdata/corpus/`, which Task 42 regenerates, and none of
+      them is added; none of the 253 is under `docs/history`, as Task 59 Step 2 requires. Each
+      commit is authored and committed by Ryanmello07, with both trailers and one parent. Its body
+      carries what Task 59 Step 3 asks: the two verdict lines, the fork's run with its four legs,
+      the scan's verdict, the kills of Task 54, and the live transcript of Task 56, its step lines
+      and its last line. *(Corrected by this item's review, its F5 and F7. It read "176 of the files
+      are the corpus Task 42 adds" and "the live transcript of Task 56"; the lead has since
+      corrected pull request 7's body the same way.)*
     - **The commits** (§7's entry, part 2, has each one):
       - **the plan's twelve,** Tasks 42 to 53, `3ca09d94` to `1208a4f1`. Each one's
         `git patch-id --stable` equals that of its lab commit, `21b7685` to `9ce2ee7`, measured
@@ -13946,16 +13950,18 @@ repo and therefore the critical path — not this repository:
         failed at step 1 on the transport, with the URnetwork exits' TLS handshakes timing out:
         `t1-v1` at 11:59:47, where B's Hello got no response in 1m0s, and `t1-v2` at 12:01:05,
         "FAIL: A hello: message transport: request 1 abandoned: context deadline exceeded". The
-        pre-T1 control, `liveprobe-tc127-136442f0`, then passed over a fresh directory at 12:02:20,
-        `13 STEPS, 1668 ASSERTIONS, ALL HELD`, with 8 Hello retries: the server and the route
-        worked, and the exits were slow. `t1-v3` at 12:07:04 printed
+        pre-T1 control, `liveprobe-tc127-136442f0` (sha256 `136442f0…8cfc`, R46), then passed over
+        a fresh directory at 12:02:20, `13 STEPS, 1668 ASSERTIONS, ALL HELD`, with 8 Hello retries:
+        the server and the route worked, and the exits were slow. `t1-v3` at 12:07:04 printed
         `=== 17 STEPS, 1686 ASSERTIONS, ALL HELD ===`. Then `t1-e0d16ea-v1` at 14:13:10, with the
         probe built from `e0d16eac` (`dcdbe513…`): the same last line.
       - **On 2026-10-15, on each head the fixes reached,** each
         `=== 17 STEPS, 1686 ASSERTIONS, ALL HELD ===` with no panic and no retry: `fdc1b0aa`
-        (`dfe839f3…`, at 08:48:08, a run whose file no ruling cites); `93cc0afb` (`05bd6bd1…`,
+        (`dfe839f3…`, at 08:48:08, the lead's run on FIX 4's head, R46); `93cc0afb` (`05bd6bd1…`,
         11:37:05, R35); `9df6fca8` (`44c6a851…`, 14:41:09, R38); `e4eb247d` (`8d0d1a4e…`,
         16:52:28, R41); and `c7501a19` (`1dc98e8d…`, 21:29:31, R44), pull request 7's head.
+        *(Corrected by R46. The `fdc1b0aa` run read "a run whose file no ruling cites", and the
+        control's sha256 above is R46's.)*
       - **Filed as a follow-up, outside T1:** the T1-era probe, of `urnetwork/message`'s lineage,
         makes no Hello retry, where the pre-T1 probe retried and survived the slow exits. Giving it
         the Hello backoff is a change of its own.
@@ -13969,35 +13975,54 @@ repo and therefore the critical path — not this repository:
         `MG-9` to `MG-12`.
       - **Then six review rounds, and two add-ons to the sixth,** each by the same fresh,
         read-only reviewer, each reproducing what it found with real file moves, holds and denies
-        and no injected error, and each answered by a ruling: round 1, V1 to V4 (R26); round 2,
-        W1 and W2 (R29), beside the app's runner case (R30) and the runner's deny that did not
-        take (R31); round 3, X1 to X3 and a file that is only absent read as proof (R33); round 4,
-        Y1 to Y3 (R34); round 5, Z1 to Z3 and L2 (R36); round 6, its W1, ACCEPTED and filed (R39),
-        beside FIX 6's own F1 and the reparse point, which FIX 6b fixed (R38); the first add-on,
-        its Y1, a false remedy after a case-only rename, fixed in FIX 6c (R42); and the second
-        add-on, which found that Y1 closed and its Y2, ACCEPTED and filed (R45). Its verdict at
-        `c7501a19`: CLEAN for the fixed-in-T1 class.
-      - **THE ERASE PROMISE LEAKED SIX TIMES BEFORE IT WAS HELD AT ITS SUBJECT.** The promise: the
-        library erases a group's files without the owner's question only for a true reason. It
-        leaked on the record file (the red team's F1), on an epoch-state file (round 1's V1), on a
-        listing that dropped its error code (round 2's W1), with a stale note and a refused
-        permission counted as proof (R30), on a file that was only absent (R33), on authorities
-        whose premise another function had read or a later event had made false (round 4's Y1 and
-        Y2), and on a single store file put back (round 5's Z1 and Z2). Each fix moved the rule
-        toward its subject, until it was stated there: the library erases a group's files only for
-        a reason it can NAME, and that reason must be TRUE OF EVERY FILE THE ERASE TAKES, AT THE
-        MOMENT IT TAKES IT: a fact the store wrote that nothing has since made false, or what it
-        read at one of its own names and found wrong (R34, R35). A source gate holds that every
-        erase names an authority: 44 sites, 0 unlisted. That each authority is TRUE is held by a
-        table: its rows are the five authorities (the leave mark, a fresh proven verdict, the
-        creation mark, a failed admission, the epoch window); its columns are seven moves another
-        program can make (the record moved away; an epoch state moved away; the creation mark's
-        removal held; a stray file left in the folder; the whole folder moved away and put back; a
-        deny on adding files to the folder; one store file put back); and each cell is a test with
-        real moves, holds and denies, or the reason the cell cannot arise. One cell of it was then
-        found false by FIX 6's writer, a stray in `sent/` read as proof (FIX 6's F1), and FIX 6b
-        fixed it, with the rule that nothing Go reports as irregular confirms a wrong type (R38).
-        The two add-on reviews after FIX 6b found no erase without a true reason.
+        and no injected error, but for V2, V3, V4, X3, L2 and L3, which it read from the code, and
+        each answered by a ruling: round 1, V1 to V4 (R26); round 2, W1 and W2 (R29), beside the
+        app's runner case (R30) and the runner's deny that did not take (R31); round 3, X1 to X3
+        and a file that is only absent read as proof (R33); round 4, Y1 to Y3 (R34); round 5, Z1 to
+        Z3, L2 and L3 (R36); round 6, its W1, ACCEPTED and filed (R39), beside FIX 6's own F1 and
+        the reparse point, which FIX 6b fixed (R38); the first add-on, its Y1, a false remedy after
+        a case-only rename, fixed in FIX 6c (R42); and the second add-on, which found that Y1 closed
+        and its Y2. The add-on graded Y2 a false sentence from one action on one store item, inside
+        the class the budget fixes in T1, and gave its verdict as "FINDINGS (1)". The lead ruled Y2
+        outside that class, ACCEPTED it and filed it, and ruled the last round CLEAN for the
+        fixed-in-T1 class at `c7501a19` (R45). *(Corrected by this item's review, its F2 and F3. The
+        bullet said that every finding was reproduced, and gave R45's ruling as the add-on's
+        verdict.)*
+      - **THE ERASE PROMISE LEAKED SEVEN TIMES BEFORE IT WAS HELD AT ITS SUBJECT** (R46). The
+        promise: the library erases a group's files without the owner's question only for a true
+        reason. It leaked:
+        - on the record file (the red team's F1);
+        - on an epoch-state file (round 1's V1);
+        - on a listing that dropped its error code (round 2's W1), with the app's runner case in
+          the same round, a stale note and a refused permission counted as proof (R30);
+        - on a file that was only absent (round 3, R33);
+        - on authorities whose premise another function had read or a later event had made false
+          (round 4's Y1 and Y2);
+        - on a single store file put back (round 5's Z1 and Z2);
+        - and on a stray file in `sent/` read as proof, so that the owner's group was erased
+          without the question (FIX 6's own F1, R38).
+
+        Each fix moved the rule toward its subject, until it was stated there: the library erases a
+        group's files only for a reason it can NAME, and that reason must be TRUE OF EVERY FILE THE
+        ERASE TAKES, AT THE MOMENT IT TAKES IT: a fact the store wrote that nothing has since made
+        false, or what it read at one of its own names and found wrong (R34, R35). A source gate
+        holds that every erase names an authority: 44 sites, 0 unlisted. That each authority is
+        TRUE is held by a table: its rows are the five authorities (the leave mark, a fresh proven
+        verdict, the creation mark, a failed admission, the epoch window); its columns are seven
+        moves another program can make (the record moved away; an epoch state moved away; the
+        creation mark's removal held; a stray file left in the folder; the whole folder moved away
+        and put back; a deny on adding files to the folder; one store file put back); and each cell
+        is a test with real moves, holds and denies, the reason the cell cannot arise, or a residual
+        accepted into MG-15. The accepted cells are (a)7, a finished leave's file put back (W1,
+        R39); (b)4, a stray of the wrong type at one of the store's own names, which a leave takes
+        unasked (R35); (a)5, (b)5 and (c)5, a folder replaced inside one call (R35); (d)5, a whole
+        folder put back while a join is in flight (R34); and (d)7, a single `meta` put back during a
+        join (L3, R36). The seventh leak was a cell of that table found false by FIX 6's writer, and
+        FIX 6b closed it, with the rule that nothing Go reports as irregular confirms a wrong type
+        (R38). The two add-on reviews after FIX 6b found no erase without a true reason.
+        *(Corrected by R46 and by this item's review, its F4. The heading read "SIX TIMES"; the list
+        counted R30 apart from round 2's W1 and left out FIX 6's F1; and each cell was said to be "a
+        test … or the reason the cell cannot arise".)*
       - **T1a's mechanisms were reviewed after they had merged** (Task 57; item 295). The
         removed-group exception, the admission mutex and `ForgetGroup` without the owner's question
         were on `main` from pull request 6 on, and the red team's F1, F2, F3 and F6, and F4's
@@ -14087,29 +14112,43 @@ repo and therefore the critical path — not this repository:
       cell says "landed" of what pull request 7 carries: until it merges, after this item, the
       table is one merge ahead of `urnetwork/message`'s `main`, as item 293's cells were.
     - **`PROGRESS.md`** gains one entry at its end, newest last, by its own convention.
-    - **Item 296's open points:** Task 57 has run (above). MG-7's subsection, written by Task 53
-      (`1208a4f`), and the code half of its review's F1, `7c41197` (R23), are met, but for pull
-      request 7's merge. Its points on Spec C and on `PendingEpoch`'s `RemovedLeaves` field stay
-      open.
+    - **Item 296's open points:** Task 57 has run (above), and ITS FINDINGS DID AMEND SPEC A §7.3,
+      as item 296 said they might. §7.3's R12 bullet said that `ForgetGroup` leaves any group that
+      did not restore without the owner's question, and T1 replaced that rule after it leaked three
+      times. The commit that takes this item's review amends the bullet to the rule T1 ships, with
+      Spec A's row A-35: a group is left without the question only on a fresh verdict that its
+      data is proven permanently damaged, and a read that failed for a transient or unproven reason
+      is refused by its class, "so nothing was left" (R26, R29, R30, R33 and R34). MG-7's
+      subsection, written by Task 53 (`1208a4f`), and the code half of its review's F1, `7c41197`
+      (R23), are met, but for pull request 7's merge. Spec C, Task 41 Step 4, is met by `01c13a64`
+      (§9.11 and its row 12). The point on `PendingEpoch`'s `RemovedLeaves` field stays open.
+      *(Corrected by this item's review, its F1. The bullet read "Task 57 has run (above)", and left
+      Spec A §7.3 as it stood.)*
     - **Item 295's open points:** Task 39 is done, as `urnetwork/message-windows`' pull request 6,
       merged as `39fd495137d2` at 05:22:14 on 2026-10-14; T1 is this item; and Task 57 has run.
       `MG-8` stays open, for the healing track.
     - **What differed** from the records this item was written from: four points, each in §7's
-      entry, part 11. The one that touches pull request 7's body: it says the reviewer "ran six
+      entry, part 11. The one that touched pull request 7's body: it said the reviewer "ran six
       rounds and three add-ons", and the record holds six rounds and two add-ons, which is what
-      this item says. None of the four changes a commit of the branch, a count or a verdict.
+      this item says. The lead corrected the body before this repository's pull request opened.
+      None of the four changes a commit of the branch, a count or a verdict. *(Corrected by R46.)*
     - **Open.**
       - **The merge of `urnetwork/message`'s pull request 7,** by the owner, with a merge commit,
         after this repository's pull request for this item has merged (Task 59 Step 6, R7).
       - **Task 41 Step 4, Spec C,** a commit of its own on this branch, written from the app's
-        copy as shipped, when the lead names Task 58's final head.
+        copy as shipped, when the lead names Task 58's final head. *(Done in `01c13a64`, Spec C
+        §9.11 and its row 12, from Task 58's `d72c88e7`, which the lead named.)*
       - **Task 58's pull request,** with its pin; the pending mark, as a later change.
       - **Task 59 Steps 5 and 7,** the T1 package's notes and the report to the owner: the lead's.
       - **The store track's plan,** with "erase anyway" first, Y2 and R41's stream-store refusal;
         `MG-8` to `MG-15`, each for its track; and the probe's Hello retry.
       - **§6's diff review** of this item, its entry, the S1 cell and the `PROGRESS.md` entry:
         pending. It is made on this commit before this repository's pull request opens, and is
-        recorded in the commit after it, which is the lead's, as items 291's to 296's were.
+        recorded in the commit after it, which is the lead's, as items 291's to 296's were. *(Done
+        on 2026-10-16 by an independent subagent, before this repository's pull request was
+        opened, over this commit and `01c13a64`; recorded under Reviewed by in §7's entry, in the
+        commit that takes its findings, which is the message-server writer's by the lead's rulings
+        R46 and R47.)*
 
 ## 6. Change process
 
@@ -28926,8 +28965,11 @@ changes. Times are UTC, on 2026-10-15 unless a date is given.
   first.
 - **No run of T1 was made again for this item.** Each number below is read off its run's own
   output, by scripts of this entry's own, each with a control that must fail:
-  - pull request 7, its commits and its body, as GitHub serves them. The body equals, byte for
-    byte, the copy the lead opened it with;
+  - pull request 7, its commits and its body, as GitHub serves them. When this entry was written
+    the body equalled, byte for byte, the copy the lead opened it with. The lead has since
+    corrected it in three places (R46, R47), as the commit that takes this entry's review records:
+    "two add-ons", "a seventh leak", and the corpus seeds "which Task 42 regenerates", with the
+    probe's 17 step lines added. *(Corrected by R46's first point.)*;
   - the 55 commits, in a bare clone of this entry's own of `Ryanmello07/urmessage`, beside the
     lab's chain, `lab-s0t1plan/base/w`, read with `git log`, `git show` and `git patch-id` only;
   - the four job logs of the fork's run, fetched from GitHub's jobs API,
@@ -28952,8 +28994,11 @@ changes. Times are UTC, on 2026-10-15 unless a date is given.
 - **Its 55 commits.** Author and committer are both
   `Ryanmello07 <67509637+Ryanmello07@users.noreply.github.com>` on each, each carries both
   trailers, and each has one parent. Against `215a0696` they change 253 files, with 10,911 lines
-  added and 470 removed: 176 under `mls/testdata/corpus/`, and none under `docs/history`, in a
-  `go.mod` or a `go.sum`, in `scripts/siblings.txt` or in `mls/pins_test.go`. They add 89
+  added and 470 removed: 176 of them seeds under `mls/testdata/corpus/`, which Task 42
+  regenerates, each changed and none added (`git diff --name-status` gives the 176 as `M`, and the
+  whole diff as 32 `A` and 221 `M`); and none under `docs/history`, in a `go.mod` or a `go.sum`, in
+  `scripts/siblings.txt` or in `mls/pins_test.go`. *(The seeds' status is added by this entry's
+  review, its F5.)* They add 89
   `func Test` lines to `_test.go` files and remove 1: the plan's twelve add 24, the number the
   plan's "Counts" gives T1, and the commits after them add 65 and remove the 1, which is a rename
   (part 5).
@@ -29153,9 +29198,11 @@ ADVSIM S7g-removed-group-second-founder state=open     expect=[record-replaced r
   as the writer saved it, and printed the difference of its PASS set from the round before, both
   ways. Each run's tree is the round's head, read from its own `run.txt`, and each count equals the
   run's own summary; a control that names the wrong tree is refused. Against `1208a4f`, the head
-  adds 41 names to `sdk` and removes 1, the plan's own
+  adds 41 names to `sdk` and removes 1,
   `TestASentCopyMovedUnderAnotherIndexOrBesideAStrangerIsRefused`, which FIX 6b renamed: so 40 new
-  tests. `sdk/cp3b` adds 24 and removes none.
+  tests. That test predates the plan: it has been on `main` since `4788064` (2026-09-15), and it is
+  one of the 339 the plan counts. `sdk/cp3b` adds 24 and removes none. *(Corrected by this entry's
+  review, its F6. It read "the plan's own", here and in FIX 6b's names below.)*
 
 | round | its head | `sdk` | `sdk/cp3b` |
 |---|---|---|---|
@@ -29230,7 +29277,7 @@ ADVSIM S7g-removed-group-second-founder state=open     expect=[record-replaced r
     `TestAStrayFolderInTheGroupsRootIsNoLeaveUnderWay`,
     `TestAStrayFolderInTheGroupsRootIsNoRecordAndNoDamage`,
     `TestAStrayFolderInTheGroupsRootIsNothingTheSweepDecidesOn` and
-    `TestAnIrregularTypeNeverConfirmsAWrongTypeCode`, with the plan's
+    `TestAnIrregularTypeNeverConfirmsAWrongTypeCode`, with the older
     `TestASentCopyMovedUnderAnotherIndexOrBesideAStrangerIsRefused` renamed
     `TestASentCopyMovedUnderAnotherIndexIsRefusedAndAStrangerBesideItIsSkipped`. `sdk/cp3b`:
     `TestAStrayInTheSentFolderIsNoVerdictAndTheOwnerIsStillAsked`.
@@ -29285,10 +29332,10 @@ ADVSIM S7g-removed-group-second-founder state=open     expect=[record-replaced r
 |---|---|---|---|
 | `t1-v1` | 2026-10-14 11:59:47 | `09018b10`, `672d5a3c44c3729a5c3f0f86ef075cd191ca6f59371196c41d8e8dd9ac8ae909` | FAIL at step 1: B's Hello got no response in 1m0s, the exits' TLS handshakes timing out; rc 1 after about 63 s |
 | `t1-v2` | 2026-10-14 12:01:05 | the same | `FAIL: A hello: message transport: request 1 abandoned: context deadline exceeded`; rc 1 after about 61 s |
-| `control-pre-t1-v1` | 2026-10-14 12:02:20 | `liveprobe-tc127-136442f0`, the pre-T1 probe, green on 2026-10-11; its record gives no sha256 | `13 STEPS, 1668 ASSERTIONS, ALL HELD`, with 8 Hello retry lines |
+| `control-pre-t1-v1` | 2026-10-14 12:02:20 | `liveprobe-tc127-136442f0`, the pre-T1 probe, green on 2026-10-11: `136442f0bbf49194b16db5032ea93962317370a8d077d2b00b1cc24cf4358cfc`, which the lead took on the alpha box, where it was built on 2026-10-11 (R46) | `13 STEPS, 1668 ASSERTIONS, ALL HELD`, with 8 Hello retry lines |
 | `t1-v3` | 2026-10-14 12:07:04 | `09018b10`, `672d5a3c…` as above | `=== 17 STEPS, 1686 ASSERTIONS, ALL HELD ===`, in about 110 s |
 | `t1-e0d16ea-v1` | 2026-10-14 14:13:10 | `e0d16eac`, `dcdbe51373bcf37dfeb2fe1381ada183ff531bde4c1c9a370e070e47636aa173` | the same, in about 65 s |
-| `t1-fdc1b0a-v1` | 08:48:08 | `fdc1b0aa`, `dfe839f3d7e3435d4c7ec3c75d14e71c761ee359613604d93b449fa125646878` | the same, in about 64 s |
+| `t1-fdc1b0a-v1` | 08:48:08 | `fdc1b0aa`, `dfe839f3d7e3435d4c7ec3c75d14e71c761ee359613604d93b449fa125646878` | the same, in about 64 s (the lead's, R46) |
 | `t1-93cc0af-v1` | 11:37:05 | `93cc0afb`, `05bd6bd1d6b1c15f3c225af73aac7df83824d6e392e6e33172d8caf00e9ad716` | the same, in about 76 s (R35) |
 | `t1-9df6fca-v1` | 14:41:09 | `9df6fca8`, `44c6a8519f89cc1e46da7cb1c45e530b385b75691e7c6bda62a87a7ae2ed08d9` | the same, in about 92 s (R38) |
 | `t1-e4eb247-v1` | 16:52:28 | `e4eb247d`, `8d0d1a4e17761f50979bac5b3db4cf63fdf206f38bb20cfa5c55a4b329f7bb40` | the same, in about 102 s (R41) |
@@ -29329,7 +29376,8 @@ ADVSIM S7g-removed-group-second-founder state=open     expect=[record-replaced r
   authenticator, so none needs a new invite version or capability.
 - **The review rounds after it,** each by the same fresh, read-only reviewer, which wrote none of
   the code, on its own clone, reproducing what it found with real file moves, holds and denies and
-  no injected error:
+  no injected error, but for V2, V3, V4, X3, L2 and L3, which it read from the code *(added by
+  this entry's review, its F2)*:
 
 | review | at | what it found | how it was closed |
 |---|---|---|---|
@@ -29341,17 +29389,21 @@ ADVSIM S7g-removed-group-second-founder state=open     expect=[record-replaced r
 | round 6 | `93cc0af..9df6fca` | W1 (MINOR): one store file of a finished leave, put back, strands the group id | R39: ACCEPTED, the budget's scope made exact, filed in `MG-15` |
 | FIX 6's writer | `93cc0af` | F1: a stray in the owner's `sent/` read as proof, and her leave took the group unasked; and a reparse point read as a wrong type | R38: FIX 6b |
 | the first add-on | `9df6fca..e4eb247` | Y1 (NIT): a case-only rename of a group's folder made the join's remedy false | R42: FIX 6c |
-| the second add-on | `8d68cbb`, `c7501a1` | Y1 closed; Y2 (NIT): a link at one group folder's name makes the same remedy false, and nothing is erased | R45: ACCEPTED, filed; CLEAN for the fixed-in-T1 class |
+| the second add-on | `8d68cbb`, `c7501a1` | Y1 closed; Y2 (NIT): a link at one group folder's name makes the same remedy false, and nothing is erased. Its verdict was "FINDINGS (1)", and it graded Y2 inside the class the budget fixes in T1 | R45: Y2 ruled outside that class, ACCEPTED and filed, and the round ruled CLEAN for the fixed-in-T1 class |
 
-- **The six leaks, and where the rule ended.** Item 297 says it plainly: the erase promise leaked
-  six times before it was held at its subject. Each ruling after a leak moved the rule toward its
-  subject. R26 made one classifier; R29 made the erase fail-closed; R30 made the proof a fact about
-  the data, fresh at the erase; R33 made an absence no proof and made every erase name its
-  authority; R34 said that the authority must be true of every file the erase takes, and made the
-  table hold it; and R36 gave each authority a kept fact that one file put back cannot fake, and
-  gave the table its seventh column. The source gate holds that every erase names an authority, 44
-  sites and 0 unlisted at `c7501a19`; the table holds that each one is true, cell by cell, against
-  seven moves.
+- **The seven leaks, and where the rule ended.** Item 297 says it plainly: the erase promise
+  leaked seven times before it was held at its subject (R46). Each ruling after a leak moved the
+  rule toward its subject. R26 made one classifier; R29 made the erase fail-closed; R30 made the
+  proof a fact about the data, fresh at the erase; R33 made an absence no proof and made every
+  erase name its authority; R34 said that the authority must be true of every file the erase
+  takes, and made the table hold it; R36 gave each authority a kept fact that one file put back
+  cannot fake, and gave the table its seventh column; and R38 made every listing that feeds a
+  verdict skip a name the store did not write, and made nothing Go reports as irregular confirm a
+  wrong type. The source gate holds that every erase names an authority, 44 sites and 0 unlisted
+  at `c7501a19`; the table holds, cell by cell against seven moves, that each one is true, or names
+  the residual accepted into MG-15 (item 297). *(Corrected by R46 and by this entry's review, its
+  F4. It read "six leaks", its chain stopped at R36, and it said that every cell holds the
+  authority true.)*
 - **T1a's mechanisms, reviewed after they merged.** Task 57's rule, which item 295 recorded: a
   finding here against the removed-group exception, the admission mutex or `ForgetGroup` without
   the owner's question is a change to `main`, not to a branch. Those findings (the red team's F1,
@@ -29452,17 +29504,19 @@ commit once it exists, and the runs on the committed history make that check.
 #### 11. What differed
 
 Four points, from the records this entry was written from. None changes a commit of the branch, a
-count or a verdict.
-- **A live probe run that no ruling cites.** `t1-fdc1b0a-v1`, at 08:48:08 on the head of FIX 4, is
-  in the lead's run files with its binary, and in no ruling and not in pull request 7's body. It is
-  a run of Task 56, so part 6 records it.
-- **Pull request 7's body says the reviewer "ran six rounds and three add-ons".** The record, in the
-  session's scratch, holds six review rounds, `_t1fix_review.md` to `_t1fix6_review.md`, and two
-  add-ons, `_t1fix6b_review.md` and `_t1fix6c_review.md`, which is what R38 to R45 and the lead's
-  brief for this item say. This entry says two. The body is the lead's to correct.
-- **The pre-T1 control's probe is named and not hashed.** Its record gives
-  `liveprobe-tc127-136442f0` and no sha256, and its binary is not among the session's files; part 6
-  names it as its record does.
+count or a verdict. *(The first three are brought up to date by R46, in the commit that takes this
+entry's review.)*
+- **A live probe run that no ruling cited.** `t1-fdc1b0a-v1`, at 08:48:08 on the head of FIX 4, is
+  in the lead's run files with its binary, and was in no ruling and not in pull request 7's body.
+  It is a run of Task 56, so part 6 records it. R46 has since recorded it as the lead's.
+- **Pull request 7's body said the reviewer "ran six rounds and three add-ons".** The record, in
+  the session's scratch, holds six review rounds, `_t1fix_review.md` to `_t1fix6_review.md`, and
+  two add-ons, `_t1fix6b_review.md` and `_t1fix6c_review.md`, which is what R38 to R45 and the
+  lead's brief for this item say. This entry says two. The lead corrected the body before this
+  repository's pull request opened (R46; part 1).
+- **The pre-T1 control's probe was named and not hashed.** Its record gave
+  `liveprobe-tc127-136442f0` and no sha256, and its binary is not among the session's files. The
+  lead has since hashed it on the alpha box, `136442f0…8cfc`, which part 6 gives in full (R46).
 - **FIX 3's phase end.** The writer's main phase-end directory for FIX 3 is at `9c0a111`; its run at
   the round's head, `907109f`, is `phase-r31`, which part 5 reads. The one test between the two,
   `TestEveryRestoreRedecidesTheNoteItLeaves`, is `05e8e6c`'s.
@@ -29486,9 +29540,48 @@ count or a verdict.
 - It does not edit items 295 and 296. Their open points that T1 meets are met by item 297, which
   says which.
 
-**Reviewed by:** pending. §6's diff review is made by an independent subagent on this commit before
-this repository's pull request opens, and the lead records it in the commit after it, as items
-291's to 296's were.
+**Reviewed by:** an independent subagent's diff review of 2026-10-16, §6's, made on this entry's
+commit and on `01c13a64` before this repository's pull request was opened. *(When this entry was
+committed it read "pending", and named this review, which the lead was to record; R46 and R47 gave
+the recording to the message-server writer.)*
+
+**The review, 2026-10-16:** read-only, by a reviewer that wrote neither this entry, its brief nor
+the T1 code. It covers `9466fafe..01c13a64`, each claim read against its source: the 55 commits of
+the T1 branch in a clone of its own, with their identity, trailers, parents, diff and test lines,
+and the plan's twelve's patch-ids against the lab's chain; the four job logs of fork run
+38775345519, fetched again and equal to the writer's copies; the other runs, the pull requests and
+the rulings R6 to R46; the per-round PASS sets, the mutants' index against their results, and the
+probe binaries, each by a script of its own with a control; and a search for secrets, which found
+none. **Its verdict:** thirteen findings, none a BLOCKER: on this commit one MAJOR, four MINOR and
+two NIT, and on `01c13a64` four MINOR and two NIT, which that commit's entry records. It confirmed
+R46's four corrections, and it found every other number and run of both diffs equal to its run's
+own log. The lead ruled all thirteen taken (R47), in one commit by the message-server writer, each
+where it stands, with a note:
+- **F1, MAJOR, Spec A §7.3:** its R12 bullet still said that `ForgetGroup` leaves any group that
+  did not restore without the owner's question, the rule T1 replaced, and item 297 closed item
+  296's open point with "Task 57 has run". Taken: Spec A A-35 amends the bullet to the rule T1
+  ships, and item 297 says that Task 57's findings did amend §7.3, and where. The two specs now
+  agree.
+- **F2, MINOR, "each reproducing what it found":** V2, V3, V4, X3, L2 and L3 were read from the
+  code. Taken, in item 297 and in part 7.
+- **F3, MINOR, "CLEAN for the fixed-in-T1 class":** that is R45's ruling. The second add-on's own
+  verdict was "FINDINGS (1)", and it graded Y2 inside the class. Taken, in item 297's title and its
+  review bullet, and in part 7's table.
+- **F4, MINOR, the table's cells:** some are residuals accepted into MG-15, not tests or reasons.
+  Taken, in item 297, which names the accepted cells, and in part 7.
+- **F5, MINOR, "the corpus Task 42 adds":** the 176 are seeds Task 42 regenerates, and none is
+  added. Taken, in item 297 and in part 2. The lead corrected pull request 7's body the same way.
+- **F6, NIT, "the plan's own" renamed test:** it has been on `main` since `4788064`, before the
+  plan. Taken, in part 5.
+- **F7, NIT, "the live transcript":** the body carried the last line; the lead has since added the
+  17 step lines, and item 297 says "its step lines and its last line". Taken.
+- **R46's four points,** known corrections that the review confirmed: the body's "three add-ons",
+  corrected before this repository's pull request opened (item 297's "what differed", parts 1 and
+  11); the `fdc1b0aa` run, the lead's (item 297's Task 56 bullet, parts 6 and 11); THE LEAK COUNT,
+  SEVEN, with FIX 6's own F1 the seventh (item 297's heading and list, and part 7); and the pre-T1
+  control's sha256 (item 297, parts 6 and 11).
+
+Not changed: this entry's commit message, which says "six leaks" and which no commit can change.
 
 It cites no run of itself: the pull request's body cites the runs on its head.
 
@@ -29499,7 +29592,10 @@ pasted codes: the alpha's join dialog, what each refusal says, and the leave it 
 of its edit log in §0.6; and this ledger, this entry only. No other spec, no plan and no code
 changes. No ledger item is added, and items 296 and 297 are not edited in this commit: the lead
 directed that item 297 is not changed now, and that the diff review of its commit, with R46's
-corrections, goes into one later commit. Times are UTC, on 2026-10-15.
+corrections, goes into one later commit. R47 rules that order, its G6: this commit was written
+before the review commit, on the lead's message of 2026-10-15, and the review-taking commit
+follows both, which is R46's intent. Times are UTC, on 2026-10-15. *(The ruling is added by this
+entry's review, its G6.)*
 
 #### 1. What it was made on
 
@@ -29538,10 +29634,11 @@ corrections, goes into one later commit. Times are UTC, on 2026-10-15.
   again", quoted as a phrase at the head of a sentence; and "erase anyway" and "has not joined yet"
   name an open item and a mark. (A twelfth `--diagnose` name, "held leave", is also a word pair in
   one of the app's log lines, so the script finds it.) In the other direction, every copy constant
-  the app declares in `RefusalCopy.h` and `HeldGroupRules.h`, 32 of them, appears in §9.11; the four
-  library sentences `HeldGroupRules.h` declares in order to match them are set aside by name, since
-  no person is shown them. The script's control, one sentence with one character changed, is not
-  found.
+  the app declares in `RefusalCopy.h` and `HeldGroupRules.h`, 28 of them, appears in §9.11; the
+  library sentences `HeldGroupRules.h` declares in order to match them, two at each commit, are set
+  aside by name, since no person is shown them. The script's control, one sentence with one
+  character changed, is not found. *(Corrected by this entry's review, its G3. It read "32 of
+  them": the script counted `HeldGroupRules.h`'s four copy constants once at each commit.)*
 - **The screenshots.** Every image §9.11 names under `<leg>/` exists in the lead's copy of run
   38773842697 (`task58/run7/shots/`), the founder's line in the copy of run 38810289732
   (`task58/run8/shots/as-built/`), and Task 39's images in the copy of run 38495641611
@@ -29585,7 +29682,9 @@ pins, before the push:
   properties 371, plan-supplied tests 227, class-deriving properties 74, task references 3304,
   open-item references 955, plan references 2220, ledger references 269, Consumes entries 320 and
   qualified consumed names 15. No finding of its output, a `<file>:<line>:` line, names Spec C,
-  this ledger or a plan.
+  this ledger, `PROGRESS.md` or either hardening plan; the same output names 13 other plans, in
+  234 reporting lines, as it does at `20fc48db`. *(Corrected by this entry's review, its G4. It
+  read "names Spec C, this ledger or a plan".)*
 - **The control:** §9.11 in the working tree without row 12. The edit-log gate's pending arm then
   fails, with "has UNCOMMITTED changes and the working tree adds no entry to its log", naming Spec
   C. So the row is read, and the green run above is a reading and not a blind spot. Row 12 was put
@@ -29605,7 +29704,136 @@ entry, on the committed history.
   alpha's leave does (row 11); screens 1 to 32 of the v1 design stand.
 - It does not open this repository's pull request.
 
-**Reviewed by:** pending. §6's diff review of this commit is made by an independent subagent before
-this repository's pull request opens, and is recorded in a later commit.
+**Reviewed by:** the independent subagent's diff review of 2026-10-16, §6's, made on this entry's
+commit, with `20fc48db`, before this repository's pull request was opened. *(When this entry was
+committed it read "pending".)*
+
+**The review, 2026-10-16,** recorded under item 297's entry above, read §9.11 against the
+hand-over and against the app at `d72c88e7` row by row, with a copy check of its own, both ways and
+with controls, and with every image and the nine app runs. It found six things in this commit, four
+MINOR and two NIT, and the lead ruled all six taken (R47), each where it stands, with a note:
+- **G1, MINOR:** Task 39's `--diagnose` run printed 123 lines, not 124 (job 115629890461). Taken,
+  in §9.11, with Spec C row 13.
+- **G2, MINOR:** §14.1 says nothing of sentences, and §14.2's first requirement on A says the
+  opposite. Taken, in §9.11, with Spec C row 13: it cites Spec A §7.3, the plan's Task 58 and
+  `RefusalCopy.h`, and it says that the alpha departs from that requirement, with typed reasons a
+  follow-up.
+- **G3, MINOR:** 28 copy constants, not 32. Taken, in part 2.
+- **G4, MINOR:** the linter's output names 13 other plans. Taken, in part 4: the sentence names the
+  set the grep checked.
+- **G5, NIT:** `6cd943b8` is Task 58's head before A13 plus one CI-only commit, and no Task 58 pull
+  request is open. Taken, in §9.11, with Spec C row 13.
+- **G6, NIT:** the order of the two commits was in no ruling. R47 rules it, and this entry's first
+  paragraph says so.
+
+It cites no run of itself: the pull request's body cites the runs on its head.
+
+### 2026-10-16 — The diff review of item 297 and Spec C §9.11: its thirteen findings taken, in Spec A A-35, Spec C row 13, item 297 and both entries
+
+**Change:** this ledger (item 297, its §7 entry, the §7 entry of Spec C §9.11, and this entry),
+and two specs: `docs/specs/2026-08-12-spec-a-protocol-sdk-connect.md` (Spec A), in §7.3, with row
+A-35 in §0.6; and `docs/specs/2026-08-12-spec-c-windows-client-ui.md` (Spec C), in §9.11, with row
+13 in §0.6. No plan changes, and no code. No rule, format or constant of the library changes:
+Spec A's amendment states the rule the T1 code already ships. Times are UTC, on 2026-10-16.
+
+#### 1. What it was made on
+
+- **`ledger/t1-close` at `01c13a64`,** Spec C §9.11, on `20fc48db`, item 297, with a clean tree
+  and the fork's branch head equal to it.
+- **The review,** `item297-review/_review.md` in the session's scratch, with its notes, and the
+  lead's rulings R46 and R47, which take its thirteen findings and R46's four corrections and say
+  what each fix is. Where the review and R47 differed, R47 was followed.
+- **What the findings rest on, read again for this entry:**
+  - F1: `sdk/urmessage/forget.go` and `heldgroup.go` at `c7501a19`, with `git show`: "A GROUP
+    WHOSE READ FAILED FOR A REASON NOT PROVEN PERMANENT IS NOT LEFT", the fresh verdict at the
+    leave, and the gate's answer for each class of read;
+  - F5: `git diff --name-status 215a0696 c7501a19` gives the 176 corpus seeds as `M`, and the
+    whole diff as 32 `A` and 221 `M`;
+  - F6: `git log -S` finds the renamed test added by `4788064` on 2026-09-15, an ancestor of
+    `main` `215a0696`;
+  - G1: Task 39's job 115629890461 prints "diagnostic lines: 123   PASS: 101   FAIL: 0";
+  - G3: the copy constants counted by name: 30 distinct, two of them library sentences, so 28;
+  - G4: the linter's output at `01c13a64`, as at `20fc48db`, has 234 reporting lines naming 13
+    other plans, and none naming Spec C, this ledger, `PROGRESS.md` or either hardening plan;
+  - G5: `6cd943b8`'s parent is `87e47927`, and neither `urnetwork/message-windows` nor the fork
+    has an open pull request;
+  - R46's first point: pull request 7's body, fetched again at its update of 02:03:51, against the
+    copy it was opened with (part 2).
+
+#### 2. The findings, and where each is taken
+
+| Finding | Where it is taken |
+|---|---|
+| F1, Spec A §7.3's R12 bullet | Spec A §7.3, with row A-35; item 297's bullet on item 296's open points; item 297's entry, "The review" |
+| F2, rounds read from the code | item 297's review bullet; its entry, part 7 |
+| F3, the add-on's verdict and R45's ruling | item 297's title and review bullet; its entry, part 7's table |
+| F4, the table's accepted cells | item 297's leak bullet, which names them; its entry, part 7 |
+| F5, the corpus seeds | item 297's pull request bullet; its entry, part 2 |
+| F6, the renamed test predates the plan | item 297's entry, part 5 |
+| F7, the transcript's step lines | item 297's pull request bullet |
+| R46's first point, the body corrected | item 297's "what differed"; its entry, parts 1 and 11 |
+| R46's second point, the `fdc1b0aa` run | item 297's Task 56 bullet; its entry, parts 6 and 11 |
+| R46's third point, SEVEN leaks | item 297's leak bullet, its heading and its list; its entry, part 7 |
+| R46's fourth point, the control's sha256 | item 297's Task 56 bullet; its entry, parts 6 and 11 |
+| G1, 123 lines | Spec C §9.11, with row 13 |
+| G2, the bridge's sentences, and §14.2's first requirement | Spec C §9.11, with row 13 |
+| G3, 28 copy constants | the entry of Spec C §9.11, part 2 |
+| G4, the linter's other plans | the entry of Spec C §9.11, part 4 |
+| G5, `6cd943b8` | Spec C §9.11, with row 13 |
+| G6, the order of the two commits | the entry of Spec C §9.11, its first paragraph (R47) |
+
+Each correction is noted where it stands. Item 297's open point on its review is marked done, and
+"Reviewed by" in both entries names the review.
+
+**Pull request 7's body, fetched again.** At its update of 02:03:51 it differs from the copy it was
+opened with in three places, with four changes, as R46 and R47 say: "a seventh leak" for "one more
+case"; "two add-ons" for "three add-ons"; "176 of the files are seeds of the corpus …, which Task
+42 regenerates; none is added or removed" for "… the corpus … that Task 42 adds"; and the live
+probe's paragraph, which gains the binary's sha256 and the transcript's 17 step lines. The copy it
+was opened with is byte for byte the one item 297's entry compared.
+
+#### 3. Spec A §7.3's amendment
+
+§7.3's R12 bullet ended: "`Device.Restore` goes on past it and reports it among the groups that did
+not restore, and `ForgetGroup` leaves it, as it leaves any group that did not restore, without the
+owner's question: there is no live roster to ask it of." That was T1a's rule, which the hardening
+plan's Task 57 found fail-open: it leaked three times. The bullet now says the rule T1 ships, read
+from `forget.go` and `heldgroup.go` at `c7501a19`:
+- a record the store read and found wrong is proven permanent damage, and the gate refuses it as
+  held;
+- any other failed read is refused by its class, `ErrGroupRecordNotReadNow` or
+  `ErrGroupReadUnproven`, and so is a group the last Restore could not read;
+- `ForgetGroup` leaves a group without the owner's question only on a fresh verdict that its data
+  is proven permanently damaged, and a fresh transient or unproven failure is refused "so nothing
+  was left";
+- every erase names an authority true of every file it takes.
+
+Spec C §9.11 says the same of the app (row 12), so the two specs agree.
+
+#### 4. The gates
+
+Run on the committed history of this entry, under go1.27.2, beside the four siblings at their
+pins, before the push:
+- `go test ./ -count=1 -run 'TestTheEditLogGate|TestThePlanLinter' -v`: the edit-log gate's six
+  tests and the linter's seven pass, and none fails.
+- `go test ./ -count=1`, the whole root package: `ok`.
+- **The linter** prints the nine counts it printed at `20fc48db` and `01c13a64`, unchanged, since
+  no plan changes. No finding of its output names Spec A, Spec C, this ledger, `PROGRESS.md` or
+  either hardening plan.
+- **The control:** Spec A's amendment in the working tree without row A-35. The edit-log gate's
+  pending arm then fails, naming Spec A. Row A-35 was put back after it, the spec's sha256 checked.
+
+This commit changes two specs, so the edit-log gate holds Spec A to row A-35, Spec C to row 13,
+and this ledger to this entry.
+
+#### 5. What this does not do
+
+- It changes no code and no plan. No library rule changes: Spec A now says what the T1 code does.
+- It does not edit items 295 and 296: item 297 says which of their open points are met.
+- It cannot change the messages of `20fc48db` and `01c13a64`. The first says "six leaks".
+- It does not open this repository's pull request, which the lead opens (R47).
+
+**Reviewed by:** pending. The lead reads this commit's diff before this repository's pull request
+opens.
 
 It cites no run of itself: the pull request's body cites the runs on its head.

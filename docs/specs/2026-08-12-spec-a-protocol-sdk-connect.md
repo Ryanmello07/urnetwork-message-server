@@ -115,6 +115,7 @@ Append-only. Newest last. One entry per commit that changes this spec. Every cha
 | 2026-10-13 | A-32 | **§6's `GroupEngine` declares the bound door, `JoinFromWelcomeInto`** (ledger item 294; the hardening plan's Task 32, made ahead of its Task 34 in phase T1a, because the spec moves before the code it is the authority for). The block gains `JoinFromWelcomeInto(welcome []byte, ratchetTree []byte, groupId []byte) (GroupHandle, error)` below `JoinFromWelcome`, and a paragraph below the block says what it is: `JoinFromWelcome` with the group id its caller means to join, matched inside `connect/mls` ahead of the persist, so a Welcome for another group is refused before any epoch state is written and the key package goes back; an empty id is refused with `ErrEngineJoinGroupId`; and it authenticates nobody, exactly as the first door (open item MG-1). `JoinFromWelcome` keeps its meaning, and the handle is untouched. The paragraph also says what the block does not transcribe: `LoadGroup`, `RoleAt` and `CommitRemoveWithExtensions`, which the code declares as amendments. No wire byte, no other section and no other document changes. |
 | 2026-10-14 | A-33 | **The join delivery is sealed: invite version 3, and §6's block is the code's** (ledger item 296; the hardening plan's Task 41 Steps 1 to 3, made ahead of the code of its phase T1, because the spec moves before the code it is the authority for; MASTER gains §7.3 in the same commit). §3.1 gains `urmessage_join_seal` (0xF004): capability-only, listed by every leaf, required by every group, and refused as a group-context extension. §5.7: a joiner derives its joining epoch's `read_key` from that epoch's exporter and the `pq_secret` its invitation's `join_seal` carries, and takes `group_handle_key` from the same seal, not from the `Welcome`. §5.11 gains clause (7): (4)'s signature rule is scoped to records; M1-54 is ruled for the join seal alone; M1-55 is met for it; and its order is verify → open → honour. §6's block transcribes `LoadGroup`, `RoleAt` and `CommitRemoveWithExtensions`, which closes the drift A-32 named (ledger item 294; the lead's ruling R19): it holds the code's 6 engine and 35 handle methods at `urnetwork/message` `215a0696`, and §6's "thirty-three" becomes thirty-five. §7.3 gains the join that ships: invite version 3, the errors, the seedless refusal, the held-group gate and its one exception, one unreadable record costing one group, the one refusal inside the window that does not say the join code is not spent, and that only a group requiring the join seal is joined or restored. §7.3a: every path that produces a `Welcome` delivers the seal and `join_auth`, made before anything of the epoch is submitted. No server rule and no record changes. |
 | 2026-10-14 | A-34 | **Item 296's diff review: its one finding against this spec is taken** (ledger item 296; the lead's ruling R23). §7.3's bullet "The join's window, and its one sentence" gains the case it left out: a refusal inside the window whose join code could not be put back is `ErrJoinCodeSpent`, and does not begin with `ErrJoinRefused`'s sentence, as `Device.Join`'s deferred exit answers when putting the join code back fails. MASTER §0, §7, §7.3 and §13 are corrected in the same commit. No wire byte, no server rule, no record and no other section of this spec changes. |
+| 2026-10-16 | A-35 | **§7.3's R12 bullet states the leave rule T1 ships** (ledger item 297's review, its F1; the lead's ruling R47). It said that `ForgetGroup` leaves any group that did not restore without the owner's question, which is the rule the hardening plan's Task 57 found fail-open and T1 replaced (the lead's rulings R26, R29, R30, R33 and R34). It now says that a record the store read and found wrong is refused at the gate as held, and any other failed read by its class (`ErrGroupRecordNotReadNow`, `ErrGroupReadUnproven`); that `ForgetGroup` leaves a group without the question only on a fresh verdict that its data is proven permanently damaged, and refuses a fresh transient or unproven failure "so nothing was left"; and that every erase names an authority true of every file it takes. It is what `forget.go` and `heldgroup.go` do at `urnetwork/message` `c7501a19`, and what Spec C §9.11 says of the app (row 12), so the two specs agree. Spec C row 13 is in the same commit. No wire byte, no server rule, no record and no other section of this spec changes. |
 
 ---
 
@@ -4123,11 +4124,29 @@ surface that stands over them.
   device into a different group under the same id, and it stays open for the identity track (ledger
   item 295). The engine binds the join to the invitation's group id through `JoinFromWelcomeInto`
   (§6), and the joined state is committed create-only (`ErrJoinWouldOverwrite`).
-- **One group record that does not read costs its own group and no other** (the lead's ruling R12).
-  The gate asks the disk about one group id, so such a record refuses only an invitation into its own
-  group (`ErrGroupAlreadyHeld`, carrying `ErrGroupRecordDamaged`). `Device.Restore` goes on past it and
-  reports it among the groups that did not restore, and `ForgetGroup` leaves it, as it leaves any group
-  that did not restore, without the owner's question: there is no live roster to ask it of.
+- **One group record that does not read costs its own group and no other** (the lead's ruling R12),
+  **and a group is left without the owner's question only on fresh proof that its data is damaged**
+  (the hardening plan's Task 57, its F1; the lead's rulings R26, R29, R30, R33 and R34; ledger item
+  297). The gate asks the disk about one group id, so such a record refuses only an invitation into
+  its own group. A record the store read and found wrong, in its bytes or in an entry of a type the
+  store never writes at its name, is proven permanent damage, and the gate refuses it as held
+  (`ErrGroupAlreadyHeld`, carrying `ErrGroupRecordDamaged`). A record the store could not read for
+  any other reason is refused by that read's class, "whether this device already holds group …
+  could not be read": `ErrGroupRecordNotReadNow` for a file another process held for a moment, and
+  `ErrGroupReadUnproven` for a permission refused, the medium, a file that is only absent, or a
+  failure this build cannot classify. So is a group the last Restore could not read.
+  `Device.Restore` goes on past each, and notes only proven damage as a group that will not come
+  back. `ForgetGroup` leaves a group without the owner's question ONLY on a FRESH verdict that its
+  data is proven permanently damaged, when there is no live roster to ask the question of: its own
+  read of the record, or a restore of that one group that it tries again, at the leave, under the
+  admission mutex. A fresh success rebuilds the group, and its leave is the ordinary one, which asks
+  the owner's question (`ErrOwnerMustTransfer`) and, if refused, changes nothing. A fresh transient
+  or unproven failure is refused with that class's sentence, "so nothing was left". Every erase of a
+  group's files names an authority, and that authority must be true of every file the erase takes,
+  at the moment it takes it. *(Amended 2026-10-16, A-35, by ledger item 297's review, its F1. The
+  bullet's end read "`ForgetGroup` leaves it, as it leaves any group that did not restore, without
+  the owner's question: there is no live roster to ask it of", which is the rule T1 replaced after
+  it leaked three times.)*
 - **The join's window, and its one sentence.** Every refusal `Device.Join` makes after it takes the
   join code and before anything reaches the store puts the join code back, and begins with
   `ErrJoinRefused`'s sentence, *"this invite was refused before anything was written, and the join
