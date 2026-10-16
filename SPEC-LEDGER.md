@@ -2220,7 +2220,11 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      owner ruled them on 2026-09-13 and when M-15 was adopted, and MASTER was the last of four
      documents to be told. Whether that warrants **revision 10** is **not decided here**: a bump moves
      the parent pin and the baseline row of both Spec A and Spec B, and no ruling covers that. **Filed
-     for the owner.**
+     for the owner.** *(Answered 2026-10-16 by the lead's ruling R63, as item 299 records: an edit
+     that changes a rule, whether a wire format, what a member or the server checks, or a guarantee
+     that a user reads, is a new revision, and one that only brings text into line with rules
+     already in force is an amendment. MASTER's Revision 10, item 299's, is the first made under
+     it, and the amendments already made stand as written.)*
 
      *The item as filed, kept, because an item that vanishes is an item somebody files again:*
 
@@ -14159,7 +14163,10 @@ repo and therefore the critical path — not this repository:
     THE TRACK'S CODE. THIS ITEM RECORDS THE OWNER'S WORDS AND THE LEAD'S RULINGS IT RESTS ON.**
     Times are UTC, on 2026-10-16 unless a date is given. *(Amended in place by the second commit
     on this branch, which refiles R62's corrections. The heading read "R48 TO R61", and each
-    other amendment carries its own note.)*
+    other amendment carries its own note.)* *(Annotated where it stands by the E1 and E4
+    refile, the commit after Task 3's on `specs/identity-phase1`, which files R62's addendum and
+    R63 as well: R48 to R63 are filed, R63's sentence is below, and each annotation says it is
+    the refile's.)*
     - **What the plan is.** The implementation plan of the identity layer's first phase, written
       by the lead's planning round and revised in place three times: by its finalizer, for the red
       team dated 2026-10-15; by its reviser, for the owner's answer that the phrase change is built
@@ -14243,7 +14250,8 @@ repo and therefore the critical path — not this repository:
         it, off by default (Recommended)"**. Both shape R, not I1.
     - **The lead's rulings R48 to R62,** in `docs/plans/identity-phase1/LEAD-RULINGS-I1.md`, filed
       beside the plan. They continue the series whose R33 to R47 items 295 to 297 cite. Each, in a
-      sentence *(the heading read "R48 to R61", and R62's sentence is added by its refiling)*:
+      sentence *(the heading read "R48 to R61", and R62's sentence is added by its refiling)*
+      *(and R63's by the E1 and E4 refile)*:
       - **R48.** The bases: this repository's `main` is `37dd710f`, which carries T1's ledger close;
         the library's is `c7949cfd`; the app's is `badf2e2c` until urnetwork/message-windows#7
         merges, then `main`; and the S3 branch is the lead's dispatch to the app's one writer. The
@@ -14313,7 +14321,16 @@ repo and therefore the critical path — not this repository:
         to match; Task 8 is accepted as reported, with its forward costs written into the plan's
         Tasks 12, 13 and 26; and this repository's writer files the second commit, then pushes
         and reports Task 3 at once, then does Tasks 4 and 5 on a branch cut from this branch's
-        head, their pull request after the plan's.
+        head, their pull request after the plan's. *(R62's addendum, filed by the E1 and E4
+        refile, fixes in the sources the two findings of the second commit's review that were in
+        the lead's text, E1 and E4.)*
+      - **R63.** On Task 3's registry *(added by the E1 and E4 refile)*: MASTER's revision is 10,
+        not an amendment to revision 9, since I1 changes rules a revision-9 member cannot follow,
+        and Tasks 4, 5 and 40 move their specs' parent pins and baseline rows to it; an edit that
+        changes a rule is a new revision, and one that only brings text into line with rules in
+        force is an amendment, which answers item 141's question from here on (item 299); and R's
+        block of content kinds stays at 0x38 to 0x3F, with round 4's 0x2F, 0x30 and 0x33 to 0x36
+        held for the phases that build their features.
     - **The rows X1 to X14,** SCOPE's departures from M5's identity step, the owner's decisions
       and the first design, as ruled:
       - **X1,** taken: no security delay in I1, so a removal acts at once, with the delay to come
@@ -14415,13 +14432,15 @@ repo and therefore the critical path — not this repository:
       - *(R62's refiling takes off this list the four findings it named for the lead in the plan's
         and the rulings' own text, D1, D2, D15 and D16. R62 fixed each in the sources, D15 at
         LRI's head and at REDTEAM-TASK2's §4, and the second commit refiles them; §7's second
-        entry gives each.)*
+        entry gives each.)* *(D15 is done: R62's addendum gives REDTEAM-TASK2's Subject line the
+        same lead's note, E1, and the E1 and E4 refile files it. That refile's entry gives it.)*
       - **Two findings of the second commit's review in the lead's text, for the lead** (§7's
         second entry, its E1 and E4). REDTEAM-TASK2's Subject line still gives LR as R33 to R47,
         with no lead's note, since R62's note landed on its §4 line only. And the plan's T2-H2 row
         quotes the owner's copy as "your devices refuse the old paper", where FOR-OWNER says "your
         computers". This filing changes no word of either. *(This bullet is added by R62's
-        refiling.)*
+        refiling.)* *(Neither is open now: the lead fixed both in the sources, in R62's addendum,
+        and the E1 and E4 refile files them; its entry gives each.)*
       - **The pull request:** the lead opens it.
       - **Next:** Tasks 3, 4 and 5, MASTER, Spec A and Spec B for I1, one commit each, each after
         its own diff review, on a branch of their own cut from this branch's head after R62's
@@ -14527,9 +14546,14 @@ repo and therefore the critical path — not this repository:
       amendments to revision 9 because no rule changed, and item 141 filed for the owner whether a
       change that does change rules warrants revision 10, since a revision moves each child spec's
       parent pin and baseline row. This one changes the format of every leaf and what the server
-      stores and checks, as revision 9's rendezvous did, so it is Revision 10 (Open). These lines
-      name MASTER's revision 9, and each says truly which revision its document follows until it
-      moves:
+      stores and checks, as revision 9's rendezvous did, so it is Revision 10, as the lead's ruling
+      R63 confirms *(it read "Revision 10 (Open)" until the E1 and E4 refile)*. R63's rule
+      answers item 141's question from here on, by the ledger's own rules, and item 141 carries a
+      note of it: an edit that changes a rule, whether a wire format, what a member or the server
+      checks, or a guarantee that a user reads, is a new revision, and one that only brings text
+      into line with rules already in force is an amendment; the amendments already made stand
+      as written. These lines name MASTER's revision 9, and each says truly which revision its
+      document follows until it moves:
       - Spec A's normative parent, its :8, and its baseline row, :25, which Task 4's commit moves;
       - Spec B's normative parent, its :4, and its baseline row, :18, which Task 5's commit moves;
       - Spec C's parent, its :7, and its baseline row, :17, which Task 40 moves when it writes Spec
@@ -14544,13 +14568,15 @@ repo and therefore the critical path — not this repository:
     - **Open.**
       - **The library waits on this registry** (R62; P8): its Task 9 commits only once this is
         pushed and its constants match the table above, and its Task 10 starts then.
-      - **Revision 10, or an amendment to revision 9** (item 141; Task 3's review, F17), for the
-        lead. If the lead rules it an amendment, MASTER's header and §0's block take that form where
-        they stand, and none of the lines above moves.
-      - **R's block of content kinds** (Task 3's review, F15), for the lead. It is eight kinds,
-        0x38 to 0x3F, so that round 4's numbers keep their meanings for the phases that inherit
-        them. Releasing those numbers would give R 0x30 to 0x3F; the lead may rule so, by a spec
-        change of its own, before the library's Task 24 lands.
+      - *(Two questions for the lead stood here, and the lead's ruling R63 answers both, so the E1
+        and E4 refile takes them off this list. **Revision 10, or an amendment to revision 9**
+        (item 141; Task 3's review, F17): Revision 10 stands, by R63's rule, which the bullet on
+        why it is a revision now states. **R's block of content kinds** (Task 3's review, F15): it
+        stays at the eight kinds 0x38 to 0x3F; round 4's 0x2F, 0x30 and 0x33 to 0x36 stay
+        unassigned, held for the phases that build the server's delay, QR linking and history
+        transfer, each of which assigns or releases them in a registry edit of its own; and if
+        R's plan needs more than eight kinds, it asks the lead, with D2 v2.1's count, before the
+        library's Task 24.)*
       - **The pull request** opens once the owner has merged the plan's (R62).
 
 ## 6. Change process
@@ -30815,5 +30841,79 @@ rows were true; ID1 and DID1 were verbatim. It made 26 findings: no BLOCKER, 4 M
 
 The two gates this ledger answers to pass on the finished text: TestTheEditLogGate, 6 tests, and
 TestThePlanLinter, 7 tests, and so does the rest of the root package (§4).
+
+It cites no run of itself: the pull request's body cites the runs on its head.
+
+### 2026-10-16 — Item 298's E1 and E4, fixed by the lead, refiled with R62's addendum and R63
+
+**Change:** three of the six files item 298 filed are refiled from the lead's sources: the plan,
+and `REDTEAM-TASK2.md` and `LEAD-RULINGS-I1.md` in `docs/plans/identity-phase1/`. `SCOPE.md`,
+`FOR-OWNER.md` and `REDTEAM.md` are unchanged, byte for byte. Item 298 and item 141 are annotated
+where they stand, and item 299 is amended in place, each change with a note. No spec and no code
+changes.
+
+#### 1. Why
+
+- **E1 and E4.** The review of the second commit on `plans/identity-phase1`, `abb09c62` (item
+  298's second entry), left two findings in the lead's text. E1: REDTEAM-TASK2's Subject line still
+  gave LR as R33 to R47, with no lead's note, so D15 was fixed in part. E4: the plan's T2-H2 row
+  quoted the owner's copy as "your devices refuse the old paper", where FOR-OWNER says "your
+  computers". After the plan's pull request opened at `abb09c62`, the lead fixed both in the
+  sources, in an addendum to R62, and directed this refile, one small commit after Task 3's.
+- **R63.** The lead then ruled on the two questions Task 3 left (item 299), in a ruling appended to
+  LRI: MASTER's Revision 10 stands, which answers item 141's question from here on, and R's block
+  of content kinds stays at 0x38 to 0x3F. The lead directs that this commit files LRI at that hash.
+
+#### 2. The sources, and the refiling
+
+- **The sources,** as the lead's scratch folder held them at 14:56, each checked against the prefix
+  the lead gave: the plan `90d090e7…`, REDTEAM-TASK2 `a30bee9d…` and LRI `604a658a…`. SCOPE
+  `26e7ebc0…`, FOR-OWNER `526ddd86…` and REDTEAM `b265796d…` are as the second commit filed them.
+- **What changed in them.** The plan's T2-H2 row now quotes each as it reads: "The slice-4 report
+  says "your devices refuse the old paper", and the owner's copy "your computers refuse the old
+  paper"; since LRI R61 both also say where…". REDTEAM-TASK2's Subject line now reads "`LR`
+  R33-R47 [lead, LRI R62: LR is R34 to R47]". LRI gains R62's addendum, of six lines, and R63, of
+  21, and grows from 267 lines to 294.
+- **The refiling.** Each file takes the same 21 edits as before, by the same edit list, and no
+  legend changes: the plan is still of 1,548 lines, and LRI's legend, "the plan as R62 left it",
+  holds, since E4 is in R62's addendum and moves no line. E1's line, REDTEAM-TASK2's :5, also
+  carries one of the path edits, on another part of the line, which still applies exactly once.
+  The filed copies: the plan `07803171…`, of 1,550 lines; REDTEAM-TASK2 `48818a89…`, of 139; and
+  LRI `748461c3…`, of 296.
+- **The proof.** Each of the six filed files, reversed through its recorded edits, gives its source
+  byte for byte, and a line diff of source and filed copy touches only the lines the edits name;
+  the proof's three controls each fail it. No filed file holds a local path, by a search whose
+  planted control fired in the same run.
+
+#### 3. The ledger
+
+- **Item 298, annotated where it stands:** its heading; its rulings' bullet, which gains R63's
+  sentence; R62's sentence, which gains its addendum; the note that R62 fixed D15 at two of its
+  places, which now says D15 is done; and its Open bullet for E1 and E4, which now says both are
+  fixed and filed here.
+- **Item 299, amended in place,** since it has not landed: its bullet on why it is a revision, which
+  now records R63's rule, and its Open list, from which the two questions for the lead come off,
+  each with R63's answer.
+- **Item 141, annotated where it stands:** its residual "Filed for the owner." gains a note that
+  R63 answers it, as item 299 records, so that a reader of the question finds its answer there.
+
+#### 4. The gates
+
+Run on the committed history of this entry, under go1.27.2, beside the four siblings at their pins,
+before the push:
+- `go test ./ -count=1 -run 'TestTheEditLogGate|TestThePlanLinter' -v`: the edit-log gate's six
+  tests and the linter's seven pass, and none fails. The linter prints the previous entry's counts,
+  since no change here adds or removes a reference, and no finding of it is against a file this
+  commit touches. The gate's ledger arm prints 70 of 93, where Task 3's commit left 69 of 92: this
+  commit changes a plan and appends this entry.
+- `go test ./ -count=1`, the whole root package: `ok`.
+
+#### 5. What this does not do
+
+- It changes no spec and no code, and no word of the lead's text but by the recorded edits.
+- It does not open a pull request: this branch's opens once the plan's has merged.
+
+**Reviewed by:** pending, by the lead's direction. Task 4's subagent diff review covers this commit
+as well as Task 4's, and Task 4's entry, for item 300, records what it finds here.
 
 It cites no run of itself: the pull request's body cites the runs on its head.

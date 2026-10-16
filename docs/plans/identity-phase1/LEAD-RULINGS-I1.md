@@ -267,3 +267,30 @@
   - It commits only once Task 3's registry is pushed and its constants match the registry.
   - Task 10 starts when the registry is pushed, as P8 says.
 - **The lead** opens the plan's PR after the second commit.
+
+**Addendum, after the second filing (abb09c62).** Its review left two findings in the lead's text, and both are now fixed in the sources:
+- **E1:** REDTEAM-TASK2's Subject line (:5) still read R33-R47 with no note. The patch matched only :134's form. It now carries the same lead's note.
+- **E4:** PLAN's T2-H2 row quoted the owner's copy as "your devices refuse the old paper". The owner's copy says "your computers", and the slice-4 report says "your devices". The row now quotes each as it reads.
+
+The plan's PR opens at abb09c62. W-srv refiles PLAN, REDTEAM-TASK2 and this file on specs/identity-phase1, as one small commit after Task 3's, with its edit-log entry.
+
+## R63. On Task 3's registry (ledger item 299, `7741c70a` on specs/identity-phase1, 2026-10-16)
+
+**Read:** W-srv's Task 3 report. The review found 26: 0 BLOCKER, 4 MAJOR, 13 MINOR and 9 NIT, all taken. MASTER grows from 3,682 to 4,021 lines, in 20 edits. The registry's values are as PLAN and D2 have them, with two changes from the review: kind 11 no longer holds the key number, and R's block of content kinds is now 0x38 to 0x3F. The commit touches MASTER and SPEC-LEDGER.md only [m].
+
+**Revision 10, not an amendment to revision 9.** I1 changes rules that a revision-9 member cannot follow:
+- every leaf carries 0xF005, and every group requires it;
+- a device is added through the link box;
+- what the server checks changes.
+
+So MASTER's revision number says so.
+- Tasks 4, 5 and 40 move their parent pins and baseline rows to revision 10. They edit those specs anyway.
+- This answers item 141's question from here on. An edit that changes a rule is a new revision: a wire format, what a member or the server checks, or a guarantee that a user reads. An edit that only brings text into line with rules already in force is an amendment.
+- The amendments already made stand as written.
+
+**F15, R's block, stays 8 kinds, at 0x38 to 0x3F.**
+- Round 4's numbers 0x2F, 0x30 and 0x33 to 0x36 stay unassigned. They are held for the phases that build their features: the server's delay, QR linking and history transfer.
+- Each of those phases assigns or releases them in its own registry edit. Nothing else takes them meanwhile.
+- If R's plan needs more than 8 kinds, it asks the lead, with D2 v2.1's count. That is before W-lib's Task 24.
+
+**Start now:** W-lib checks Task 9's constants against item 299, commits Task 9, and starts Task 10. W-srv goes on to CI, then the E1 and E4 refile, then Tasks 4 and 5.
