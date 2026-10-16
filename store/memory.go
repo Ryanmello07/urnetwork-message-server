@@ -2,8 +2,10 @@ package store
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/sha256"
+	"slices"
 	"sync"
 	"time"
 
@@ -1427,4 +1429,75 @@ func (self *MemoryStore) LiveLinkBoxes(ctx context.Context, now time.Time) (uint
 		}
 	}
 	return live, nil
+}
+
+var _ LinkBoxSweeper = (*MemoryStore)(nil)
+
+// Q19 under the one mutex, which stands in for the transaction and its row locks: nothing here
+// waits, so there is nothing to skip, and no batch answers Skipped. The order is the database's
+// with its ties broken, oldest first by `prune_after` or `reclaim_after`, then by the row's key.
+func (self *MemoryStore) SweepLinkBoxes(ctx context.Context, now time.Time, bounds LinkBoxSweepBounds) (*LinkBoxesSwept, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	bounds = bounds.orDefault()
+	now = linkBoxTime(now)
+	self.boxMutex.Lock()
+	defer self.boxMutex.Unlock()
+	swept := &LinkBoxesSwept{}
+
+	// the first statement: the deposits at or past prune_after
+	due := []*memoryLinkDepositRow{}
+	for _, deposits := range self.deposits {
+		for _, deposit := range deposits {
+			if !now.Before(deposit.PruneAfter) {
+				due = append(due, deposit)
+			}
+		}
+	}
+	slices.SortFunc(due, func(a *memoryLinkDepositRow, b *memoryLinkDepositRow) int {
+		return cmp.Or(a.PruneAfter.Compare(b.PruneAfter), bytes.Compare(a.RendezvousId, b.RendezvousId),
+			cmp.Compare(a.DepositId, b.DepositId))
+	})
+	if uint32(len(due)) > bounds.Deposits {
+		due = due[:bounds.Deposits]
+	}
+	touched := map[string]bool{}
+	for _, deposit := range due {
+		key := string(deposit.RendezvousId)
+		self.deposits[key] = slices.DeleteFunc(self.deposits[key], func(row *memoryLinkDepositRow) bool { return row == deposit })
+		if len(self.deposits[key]) == 0 {
+			delete(self.deposits, key)
+		}
+		touched[key] = true
+		swept.Deposits += 1
+	}
+	// deposit_count, recomputed for every box the first statement touched
+	for key := range touched {
+		if row, found := self.boxes[key]; found {
+			row.DepositCount = int32(len(self.deposits[key]))
+		}
+	}
+
+	// the second statement: the boxes at or past reclaim_after, each with what it still holds
+	reclaimable := []*memoryLinkBoxRow{}
+	for _, row := range self.boxes {
+		if !now.Before(row.ReclaimAfter) {
+			reclaimable = append(reclaimable, row)
+		}
+	}
+	slices.SortFunc(reclaimable, func(a *memoryLinkBoxRow, b *memoryLinkBoxRow) int {
+		return cmp.Or(a.ReclaimAfter.Compare(b.ReclaimAfter), bytes.Compare(a.RendezvousId, b.RendezvousId))
+	})
+	if uint32(len(reclaimable)) > bounds.Boxes {
+		reclaimable = reclaimable[:bounds.Boxes]
+	}
+	for _, row := range reclaimable {
+		key := string(row.RendezvousId)
+		delete(self.boxes, key)
+		// 014's ON DELETE CASCADE
+		delete(self.deposits, key)
+		swept.Boxes += 1
+	}
+	return swept, nil
 }

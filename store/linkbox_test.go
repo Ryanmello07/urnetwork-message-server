@@ -378,3 +378,43 @@ func pgxLinkBoxDump(t *testing.T, store *PgxStore) linkBoxDump {
 	}
 	return dump
 }
+
+// §7.4's LOCK (the identity plan's Task 20): a batch that finds another sweeper holding the lock on
+// its schema does nothing and answers Skipped, and the same batch once the lock is released sweeps.
+// PostgreSQL only, since the memory store has no second sweeper to meet. The control is the batch
+// after the release, which reclaims the box the skipped one left.
+func TestASweepBatchSkipsWhileAnotherSweeperHoldsTheLock(t *testing.T) {
+	store := pgxTestStore(t, DefaultLimits())
+	ctx := context.Background()
+	registration := linkBoxRegistration(0x10)
+	if registered, err := store.RegisterLinkBox(ctx, registration, linkBoxAt(0), linkBoxTtl); err != nil || registered.Reason != protocol.Reason_REASON_OK {
+		t.Fatalf("RegisterLinkBox: %v (%v)", registered, err)
+	}
+
+	holder, err := store.pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	defer holder.Rollback(ctx)
+	var held bool
+	if err := holder.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock($1, hashtext(current_schema()))`,
+		linkBoxSweepAdvisoryLock).Scan(&held); err != nil || !held {
+		t.Fatalf("the other sweeper could not take the lock: %v, %v", held, err)
+	}
+
+	swept, err := store.SweepLinkBoxes(ctx, linkBoxAt(600), LinkBoxSweepBounds{})
+	if err != nil || *swept != (LinkBoxesSwept{Skipped: true}) {
+		t.Fatalf("a batch while another sweeper held the lock answered %+v (%v), want Skipped and nothing else", swept, err)
+	}
+	if _, err := store.LinkBox(ctx, registration.RendezvousId); err != nil {
+		t.Fatalf("a skipped batch deleted the expired box: %v", err)
+	}
+
+	if err := holder.Rollback(ctx); err != nil {
+		t.Fatalf("Rollback: %v", err)
+	}
+	swept, err = store.SweepLinkBoxes(ctx, linkBoxAt(600), LinkBoxSweepBounds{})
+	if err != nil || *swept != (LinkBoxesSwept{Boxes: 1}) {
+		t.Fatalf("the control, the batch after the lock was released, answered %+v (%v), want the expired box", swept, err)
+	}
+}

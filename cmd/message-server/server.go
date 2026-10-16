@@ -18,6 +18,7 @@ import (
 	"github.com/urnetwork/message-server/endpoint"
 	"github.com/urnetwork/message-server/peer"
 	"github.com/urnetwork/message-server/store"
+	"github.com/urnetwork/message-server/sweep"
 	"github.com/urnetwork/message/message"
 	"github.com/urnetwork/message/protocol"
 )
@@ -49,6 +50,10 @@ type server struct {
 
 	// §4.3.5's subscriptions, which the handler registers and the peer pushes to.
 	subscriptions *api.Subscriptions
+
+	// §7.4's five-minute loop, as far as this build has one: the reclaim of §4.3.11's link boxes
+	// over the store above. Built with it, and started last in [newServer].
+	sweep *sweep.Job
 
 	// The server's own TLS endpoint, when message.yml configures one (ledger 268).
 	endpoint         *endpoint.Endpoint
@@ -144,6 +149,11 @@ func newServer(ctx context.Context, deploy deployment, loaded configuration, log
 
 	self.clockSlack = clockSlack
 	self.records = store.NewPgxStore(pool, limitsOf(loaded), keys)
+	self.sweep, err = sweep.New(sweep.Config{LinkBoxes: self.records, Log: log})
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
 
 	connections, err := peer.NewConnections(rand.Reader, time.Now, time.Hour)
 	if err != nil {
@@ -247,6 +257,10 @@ func newServer(ctx context.Context, deploy deployment, loaded configuration, log
 			go self.serveEndpoint()
 		}
 	}
+
+	// the sweep starts last, when nothing after it can fail, so that no failed start leaves it
+	// running over a pool the failure closed
+	self.sweep.Start()
 
 	self.attached = self.attachment.attached
 	self.ready = &readiness{
@@ -679,6 +693,10 @@ func (self *server) Close() {
 	self.closeEndpoint()
 	if self.attachment != nil {
 		self.attachment.Close()
+	}
+	// the sweep before the pool: a batch in flight needs a connection, and Close waits for it
+	if self.sweep != nil {
+		self.sweep.Close()
 	}
 	if self.pool != nil {
 		self.pool.Close()

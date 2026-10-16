@@ -297,7 +297,7 @@ func limitsOf(loaded configuration) store.Limits {
 // readiness endpoint prints this list, so "I set it and nothing happened" is answered by the
 // server rather than by a bisect.
 var configurationNotWired = []api.NotBuilt{
-	{Section: "§5.3", What: "read_key_window_seconds is loaded and ADVERTISED in Capabilities, and nothing retires a key on it: there is no sweep, so the number a client is told is a promise this build does not keep", Owner: "sweep"},
+	{Section: "§5.3", What: "read_key_window_seconds is loaded and ADVERTISED in Capabilities, and nothing retires a key on it: the one sweep this build runs reclaims link boxes and nothing else (§7.4), so the number a client is told is a promise this build does not keep", Owner: "sweep"},
 	{Section: "§4.3.11", What: "rendezvous_ttl_seconds, rendezvous_deposit_ttl_seconds and rendezvous_mailbox_depth are the contact card's, kind 0, which no build of I1 serves: they are loaded and nothing reads them", Owner: "api"},
 	{Section: "§13.39", What: "card_tombstone_seconds is loaded and nothing tombstones a retired id", Owner: "sweep"},
 	{Section: "§11.5", What: "diagnostic_session_max_minutes is loaded and no diagnostic session can be opened", Owner: "api"},

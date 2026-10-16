@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -9,6 +11,7 @@ import (
 
 	"github.com/urnetwork/message-server/api"
 	"github.com/urnetwork/message-server/store"
+	"github.com/urnetwork/message/protocol"
 )
 
 // THIS BUILD SERVES NO KIND-4 ARM, AND ITS READINESS SAYS WHY (§4.3.11; LRI R70 and its addendum),
@@ -93,5 +96,69 @@ func TestThisBuildServesNoKindFourArmAndItsReadinessSaysWhy(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// THE SERVER SWEEPS EXPIRED LINK BOXES FROM ITS OWN STORE (§7.4; the identity plan's Task 20), on
+// the wiring newServer does: its job holds the PgxStore the server opened, a pass over it deletes a
+// box past its expiry, and Close stops the job before it closes the pool. The control is a live box,
+// which the pass leaves standing.
+func TestTheServerSweepsExpiredLinkBoxesFromItsOwnStore(t *testing.T) {
+	dsn := freshSchemaDsn(t)
+	ctx := context.Background()
+	migration, err := store.NewPgxPool(ctx, dsn)
+	if err != nil {
+		t.Fatalf("a pool for the migration job: %v", err)
+	}
+	err = store.Migrate(ctx, migration)
+	migration.Close()
+	if err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+
+	loaded := defaultConfiguration()
+	loaded.operatorHost = "ur.network"
+	loaded.hostingJurisdiction = "US"
+	built, err := newServer(ctx, deployment{
+		ordinal:       "0",
+		healthAddress: "127.0.0.1:0",
+		dsn:           dsn,
+		kek:           make([]byte, kekBytes),
+		serverId:      make([]byte, serverIdBytes),
+	}, loaded, discardLog())
+	if err != nil {
+		t.Fatalf("newServer: %v", err)
+	}
+	defer built.Close()
+	if built.sweep == nil {
+		t.Fatal("newServer built no sweep job")
+	}
+
+	register := func(seed byte, at time.Time) []byte {
+		id := bytes.Repeat([]byte{seed}, store.RendezvousIdBytes)
+		registered, err := built.records.RegisterLinkBox(ctx, &store.LinkBoxRegistration{
+			RendezvousId:     id,
+			DepositVerifyPub: bytes.Repeat([]byte{seed + 1}, store.VerifyPubBytes),
+			CollectVerifyPub: bytes.Repeat([]byte{seed + 2}, store.VerifyPubBytes),
+			PublicCt:         bytes.Repeat([]byte{seed + 3}, store.LinkCardBytes),
+		}, at, api.DefaultLinkBoxTtl)
+		if err != nil || registered.Reason != protocol.Reason_REASON_OK {
+			t.Fatalf("RegisterLinkBox: %v (%v)", registered, err)
+		}
+		return id
+	}
+	now := time.Now()
+	expired := register(0x10, now.Add(-2*api.DefaultLinkBoxTtl))
+	live := register(0x20, now)
+
+	totals, err := built.sweep.Pass(ctx)
+	if err != nil || totals.Boxes != 1 {
+		t.Fatalf("a pass of the server's sweep answered %+v (%v), want the one expired box", totals, err)
+	}
+	if _, err := built.records.LinkBox(ctx, expired); !errors.Is(err, store.ErrLinkBoxUnknown) {
+		t.Fatalf("the expired box was not reclaimed from the server's store: %v", err)
+	}
+	if _, err := built.records.LinkBox(ctx, live); err != nil {
+		t.Fatalf("the control, a live box, did not survive the pass: %v", err)
 	}
 }

@@ -98,6 +98,7 @@ func RunContract(t *testing.T, newStore func(Limits) Store) {
 	t.Run("TheLiveBoxCounterCountsLiveBoxesOnly", func(t *testing.T) { contractLinkBoxLiveCount(t, newStore, seen) })
 	t.Run("ALinkBoxIsCopiedAtTheStoreBoundary", func(t *testing.T) { contractLinkBoxDefensiveCopy(t, newStore, seen) })
 	t.Run("ConcurrentArmsAtOneLinkBox", func(t *testing.T) { contractLinkBoxConcurrency(t, newStore, seen) })
+	t.Run("TheSweepReclaimsWhatHasExpiredAndNothingElse", func(t *testing.T) { contractLinkBoxSweep(t, newStore, seen) })
 	t.Run("AnErrorIsForTheCallerAndNeverForTheClient", func(t *testing.T) { contractCallerErrors(t, newStore, seen) })
 }
 

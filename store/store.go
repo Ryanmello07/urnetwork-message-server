@@ -602,7 +602,7 @@ type FetchRequest struct {
 	//
 	// WHAT IT BUYS. MASTER §9.2 and Spec B §5.3 used to promise that a member removed at epoch
 	// n keeps metadata access "until epoch n's read key ages out, and no longer" — a window
-	// resting on a 90-day sweep that does not exist (`sweep/doc.go` holds no code). The ceiling
+	// resting on a 90-day sweep that does not exist (the one sweep `sweep` runs reclaims link boxes and nothing else). The ceiling
 	// delivers the strictly tighter "nothing above epoch n, ever", on the day it ships and with
 	// no sweep. Ruling 30 is LANDED as of 2026-09-22: both documents now publish the ceiling and
 	// keep the 90 days as the storage rule it always was.
@@ -930,6 +930,65 @@ type LinkBoxes interface {
 	// cap counts. An error is the count unreadable, and the api layer refuses on it: the cap fails
 	// closed.
 	LiveLinkBoxes(ctx context.Context, now time.Time) (uint64, error)
+}
+
+// §7.4's reclaim of §4.3.11's rendezvous state, the identity plan's Task 20: Q19's two
+// statements, in one transaction, the deposits first.
+//
+// It is an interface of its own, beside [LinkBoxes] and not inside it, because no request reaches
+// it: the api layer holds a [LinkBoxes] and makes each of its writes from the arm that owns it,
+// and this is the sweep's, which runs on a timer and answers nobody. Both implementations keep
+// one, and [RunContract] holds each to it.
+type LinkBoxSweeper interface {
+	// One batch of Q19 at `now`, under `bounds` (a zero bound takes §7.4's):
+	//   - the deposits whose `prune_after` is at or before `now`, oldest first, at most
+	//     bounds.Deposits of them;
+	//   - `deposit_count` recomputed, in the same transaction, for every box that deleted a deposit;
+	//   - the boxes whose `reclaim_after` is at or before `now`, oldest first, at most bounds.Boxes,
+	//     each with whatever deposits it still held, as 014's ON DELETE CASCADE deletes them.
+	//
+	// It decides nothing an arm answers: every arm answers a box past its expiry as an unknown one
+	// whether or not this has run (§4.3.11). What it changes is the space, and Register, the one
+	// arm the sweep's timing reaches: an id whose row it deleted can be registered again.
+	//
+	// The time is a parameter, as for every [LinkBoxes] method and for their reason: Q19 compares
+	// `now()` in the database, and every time this package writes for a link box comes from the
+	// caller's clock, which §10.1's clock_skew precondition holds to the database's.
+	//
+	// The PgxStore takes §7.4's advisory lock for the batch, scoped to the transaction and to the
+	// schema it sweeps, and answers Skipped, having done nothing, when another sweeper holds it.
+	SweepLinkBoxes(ctx context.Context, now time.Time, bounds LinkBoxSweepBounds) (*LinkBoxesSwept, error)
+}
+
+// Q19's two LIMITs.
+type LinkBoxSweepBounds struct {
+	Deposits uint32
+	Boxes    uint32
+}
+
+// §7.4's bounds, as it prints them: `LIMIT 1000` on the deposits and `LIMIT 500` on the boxes.
+var DefaultLinkBoxSweepBounds = LinkBoxSweepBounds{Deposits: 1000, Boxes: 500}
+
+// The bounds a batch runs under: each zero taken as §7.4's.
+func (self LinkBoxSweepBounds) orDefault() LinkBoxSweepBounds {
+	if self.Deposits == 0 {
+		self.Deposits = DefaultLinkBoxSweepBounds.Deposits
+	}
+	if self.Boxes == 0 {
+		self.Boxes = DefaultLinkBoxSweepBounds.Boxes
+	}
+	return self
+}
+
+// What one batch did.
+type LinkBoxesSwept struct {
+	// The deposits Q19's first statement deleted. A box's deposits that its own delete took with it
+	// are not among them.
+	Deposits uint32
+	// The boxes Q19's second statement deleted.
+	Boxes uint32
+	// Another sweeper held the lock, and this batch did nothing.
+	Skipped bool
 }
 
 // The errors a caller of [LinkBoxes] can be answered, beside the shape errors it shares with

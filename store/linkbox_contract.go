@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"reflect"
 	"slices"
@@ -721,4 +722,125 @@ func describeCollected(collected *LinkBoxCollected) string {
 	return fmt.Sprintf("{%v, deposits %v, pending %d, refused %d, expires %s, complete %v}",
 		collected.Reason, deposits, collected.PendingCount, collected.RefusedCount,
 		collected.ExpireTime.Format(time.RFC3339Nano), collected.Complete)
+}
+
+// ── §7.4's Q19, the identity plan's Task 20 ─────────────────────────────────────────────────
+
+// The sweeper of the store the contract was handed. Both implementations keep one, so a Store that
+// keeps none fails here by name.
+func linkBoxSweeperOf(t *testing.T, store Store) LinkBoxSweeper {
+	t.Helper()
+	sweeper, keeps := store.(LinkBoxSweeper)
+	if !keeps {
+		t.Fatalf("%T is a Store and sweeps no link boxes; RunContract holds every implementation to §7.4's Q19 as well", store)
+	}
+	return sweeper
+}
+
+func sweepLinkBoxes(t *testing.T, sweeper LinkBoxSweeper, now time.Time, bounds LinkBoxSweepBounds) LinkBoxesSwept {
+	t.Helper()
+	swept, err := sweeper.SweepLinkBoxes(context.Background(), now, bounds)
+	if err != nil {
+		t.Fatalf("SweepLinkBoxes: %v", err)
+	}
+	if swept.Skipped {
+		t.Fatal("a batch was skipped: another sweeper held the lock on this store's schema, and nothing else sweeps it in this scenario")
+	}
+	return *swept
+}
+
+// Which of the named boxes still have a row, and each one's deposit count.
+func standingLinkBoxes(t *testing.T, boxes LinkBoxes, ids map[string][]byte) map[string]uint32 {
+	t.Helper()
+	standing := map[string]uint32{}
+	for name, id := range ids {
+		box, err := boxes.LinkBox(context.Background(), id)
+		if errors.Is(err, ErrLinkBoxUnknown) {
+			continue
+		}
+		if err != nil {
+			t.Fatalf("LinkBox: %v", err)
+		}
+		standing[name] = box.DepositCount
+	}
+	return standing
+}
+
+// §7.4's Q19 RECLAIMS WHAT HAS EXPIRED AND NOTHING ELSE, oldest first, within its bounds, the
+// deposits before the boxes, with each touched box's deposit count recomputed. The boxes are each
+// registered for 600 seconds, and a kind-4 box is reclaimed at its expiry, retired or not:
+//   - A, registered at 0 s, with two deposits;
+//   - C, registered at 1 s and retired at 2 s, a tombstone until 601 s;
+//   - D, registered at 2 s, with one deposit;
+//   - B, registered at 300 s, with one deposit, live throughout.
+//
+// The control is the batch a second before the first expiry, which takes nothing, and B, which
+// keeps its deposit to the end.
+func contractLinkBoxSweep(t *testing.T, newStore func(Limits) Store, seen *recorder) {
+	store := newStore(DefaultLimits())
+	boxes, sweeper := linkBoxesOf(t, store), linkBoxSweeperOf(t, store)
+	seeds := map[string]byte{"A": 0x10, "C": 0x30, "D": 0x50, "B": 0x70}
+	registeredAt := map[string]int{"A": 0, "C": 1, "D": 2, "B": 300}
+	ids := map[string][]byte{}
+	for name, seed := range seeds {
+		registration := linkBoxRegistration(seed)
+		if registered := registerLinkBox(t, boxes, seen, registration, linkBoxAt(registeredAt[name])); registered.Reason != protocol.Reason_REASON_OK {
+			t.Fatalf("registering box %s answered %v", name, registered.Reason)
+		}
+		ids[name] = registration.RendezvousId
+	}
+	for _, deposit := range []struct {
+		box  string
+		seed byte
+		at   int
+	}{{"A", 0x91, 10}, {"A", 0x92, 11}, {"D", 0x93, 12}, {"B", 0x94, 310}} {
+		if deposited := depositLinkBox(t, boxes, seen, ids[deposit.box], deposit.seed, linkBoxAt(deposit.at)); deposited.Reason != protocol.Reason_REASON_OK {
+			t.Fatalf("a deposit into box %s answered %v", deposit.box, deposited.Reason)
+		}
+	}
+	if retired := retireLinkBox(t, boxes, seen, ids["C"], linkBoxAt(2)); retired.Reason != protocol.Reason_REASON_OK {
+		t.Fatalf("retiring box C answered %v", retired.Reason)
+	}
+
+	for _, step := range []struct {
+		what     string
+		at       int
+		bounds   LinkBoxSweepBounds
+		swept    LinkBoxesSwept
+		standing map[string]uint32
+	}{
+		{"a second before the first expiry, nothing",
+			599, LinkBoxSweepBounds{}, LinkBoxesSwept{},
+			map[string]uint32{"A": 2, "C": 0, "D": 1, "B": 1}},
+		{"at A's expiry, its two deposits and then A",
+			600, LinkBoxSweepBounds{}, LinkBoxesSwept{Deposits: 2, Boxes: 1},
+			map[string]uint32{"C": 0, "D": 1, "B": 1}},
+		{"at D's expiry, bounded to one of each: D's deposit, then the oldest box, C's tombstone; D stands with its count recomputed",
+			602, LinkBoxSweepBounds{Deposits: 1, Boxes: 1}, LinkBoxesSwept{Deposits: 1, Boxes: 1},
+			map[string]uint32{"D": 0, "B": 1}},
+		{"the batch after it, D",
+			602, LinkBoxSweepBounds{}, LinkBoxesSwept{Boxes: 1},
+			map[string]uint32{"B": 1}},
+		{"and the batch after that, nothing",
+			602, LinkBoxSweepBounds{}, LinkBoxesSwept{},
+			map[string]uint32{"B": 1}},
+	} {
+		if swept := sweepLinkBoxes(t, sweeper, linkBoxAt(step.at), step.bounds); swept != step.swept {
+			t.Fatalf("%s: the batch at %d s answered %+v, want %+v", step.what, step.at, swept, step.swept)
+		}
+		if standing := standingLinkBoxes(t, boxes, ids); !reflect.DeepEqual(standing, step.standing) {
+			t.Fatalf("%s: after the batch at %d s the boxes standing, with their deposit counts, are %v, want %v",
+				step.what, step.at, standing, step.standing)
+		}
+	}
+
+	// B is live, and kept its deposit
+	collected := collectLinkBox(t, boxes, seen, &LinkBoxCollectRequest{RendezvousId: ids["B"]}, linkBoxAt(602))
+	if collected.Reason != protocol.Reason_REASON_OK || !slices.Equal(depositIdsOf(collected), []uint64{1}) {
+		t.Fatalf("the live box B, after every batch, collected %s, want its one deposit", describeCollected(collected))
+	}
+	// and an id the sweep reclaimed registers again: Register is the one arm its timing reaches
+	if registered := registerLinkBox(t, boxes, seen, linkBoxRegistration(seeds["A"]), linkBoxAt(602)); registered.Reason != protocol.Reason_REASON_OK {
+		t.Fatalf("a registration at an id the sweep reclaimed answered %v, want a new box", registered.Reason)
+	}
 }

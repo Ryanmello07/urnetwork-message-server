@@ -2207,3 +2207,90 @@ func (self *PgxStore) LiveLinkBoxes(ctx context.Context, now time.Time) (uint64,
 	}
 	return uint64(live), nil
 }
+
+var _ LinkBoxSweeper = (*PgxStore)(nil)
+
+// §7.4's advisory lock for Q19: "pg_try_advisory_lock(<constant>) ... Failure to acquire means
+// another instance is sweeping; skip this tick." It is the two-key form, held for the batch's
+// transaction: the first key is this constant, the ASCII of "urlk", and the second is the hash of
+// the schema the batch sweeps, so that the lock covers the tables it protects and no more. Two
+// replicas of one deployment take the same lock; two deployments in one database, or two schemas of
+// this package's own suite, do not skip each other.
+const linkBoxSweepAdvisoryLock int32 = 0x75726c6b
+
+// Q19, as §7.4 prints it, with `now()` taken from the caller as every link box time is.
+func (self *PgxStore) SweepLinkBoxes(ctx context.Context, now time.Time, bounds LinkBoxSweepBounds) (*LinkBoxesSwept, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	bounds = bounds.orDefault()
+	now = linkBoxTime(now)
+
+	transaction, err := self.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer transaction.Rollback(context.WithoutCancel(ctx))
+
+	var locked bool
+	if err := transaction.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock($1, hashtext(current_schema()))`,
+		linkBoxSweepAdvisoryLock).Scan(&locked); err != nil {
+		return nil, err
+	}
+	if !locked {
+		return &LinkBoxesSwept{Skipped: true}, nil
+	}
+
+	// the deposit delete runs first, "because the foreign key cascades and doing it in the other
+	// order makes the second statement do the first one's work under a wider lock" (§7.4)
+	rows, err := transaction.Query(ctx, `
+        DELETE FROM message_rendezvous_deposit
+         WHERE ctid IN (SELECT ctid FROM message_rendezvous_deposit
+                         WHERE prune_after <= $1 ORDER BY prune_after
+                           FOR UPDATE SKIP LOCKED LIMIT $2)
+        RETURNING rendezvous_id`, now, int64(bounds.Deposits))
+	if err != nil {
+		return nil, err
+	}
+	touched := [][]byte{}
+	for rows.Next() {
+		var rendezvousId []byte
+		if err := rows.Scan(&rendezvousId); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		touched = append(touched, rendezvousId)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	swept := &LinkBoxesSwept{Deposits: uint32(len(touched))}
+
+	// "deposit_count is recomputed for every rendezvous the first statement touched, in the same
+	// transaction" (§7.4)
+	if len(touched) != 0 {
+		if _, err := transaction.Exec(ctx, `
+            UPDATE message_rendezvous AS box
+               SET deposit_count = (SELECT count(*) FROM message_rendezvous_deposit AS deposit
+                                     WHERE deposit.rendezvous_id = box.rendezvous_id)
+             WHERE box.rendezvous_id = ANY($1)`, touched); err != nil {
+			return nil, err
+		}
+	}
+
+	reclaimed, err := transaction.Exec(ctx, `
+        DELETE FROM message_rendezvous
+         WHERE ctid IN (SELECT ctid FROM message_rendezvous
+                         WHERE reclaim_after <= $1 ORDER BY reclaim_after
+                           FOR UPDATE SKIP LOCKED LIMIT $2)`, now, int64(bounds.Boxes))
+	if err != nil {
+		return nil, err
+	}
+	swept.Boxes = uint32(reclaimed.RowsAffected())
+
+	if err := transaction.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return swept, nil
+}

@@ -1055,3 +1055,67 @@ func TestEveryLinkBoxWriteThisPackageCanMakeIsMadeByItsOwnArm(t *testing.T) {
 		t.Fatalf("store.LinkBoxes declares %v and this package never calls them", unused)
 	}
 }
+
+// ── Task 20: a box past its expiry, before the sweep and after it ───────────────────────────
+
+// A BOX PAST ITS TTL OPENS, DEPOSITS AND COLLECTS AS AN UNKNOWN ONE WOULD, WHETHER OR NOT THE SWEEP
+// HAS RUN (the identity plan's Task 20, Property 1; §4.3.11, §7.4). A box is registered, takes a
+// deposit, and the clock moves to its expiry. Before the sweep its row still stands, and Open,
+// Deposit, Collect and Retire answer it exactly as they answer an id never registered; then Q19
+// runs at the same instant and reclaims it, and they answer it so again. Register is the one arm the
+// sweep's timing reaches (§4.3.11): it refuses the id while the expired row stands, and registers a
+// new box there once the sweep has reclaimed it. The control is the box while it is live, which
+// Open answers with its card. MR10, expiry decided by the sweep alone, is killed by the case before
+// the sweep.
+func TestABoxPastItsTtlAnswersAsAnUnknownOneBeforeTheSweepAndAfterIt(t *testing.T) {
+	ctx := context.Background()
+	fixture := newRendezvousFixture(t, nil)
+	expiring := fixture.mustRegister(t, 0x10)
+	if reason, _ := fixture.deposit(t, expiring, linkBytes(store.LinkDepositBytes, 0x11)); reason != protocol.Reason_REASON_OK {
+		t.Fatalf("a deposit into a live box answered %v", reason)
+	}
+	unknown := linkBytes(store.RendezvousIdBytes, 0xEE)
+
+	// THE CONTROL: live, the box is not answered as an unknown id is
+	if reason, response, err := fixture.handler.RendezvousOpen(ctx, fixture.conn, &protocol.RendezvousOpenRequest{RendezvousId: expiring}); err != nil || reason != protocol.Reason_REASON_OK || response == nil {
+		t.Fatalf("the control: Open on the live box answered %v (%v), want its card", reason, err)
+	}
+	fixture.pads()
+
+	// to the microsecond of its expiry, which is past it: a box is live strictly before expire_time
+	fixture.clock.advance(DefaultLinkBoxTtl)
+
+	for _, stage := range []string{"before the sweep", "after the sweep"} {
+		if stage == "after the sweep" {
+			swept, err := fixture.boxes.SweepLinkBoxes(ctx, fixture.clock.now(), store.LinkBoxSweepBounds{})
+			if err != nil || *swept != (store.LinkBoxesSwept{Deposits: 1, Boxes: 1}) {
+				t.Fatalf("the sweep at the box's expiry answered %+v (%v), want its one deposit and the box", swept, err)
+			}
+			if _, err := fixture.boxes.LinkBox(ctx, expiring); !errors.Is(err, store.ErrLinkBoxUnknown) {
+				t.Fatalf("after the sweep the box's row still stands: %v", err)
+			}
+		} else if _, err := fixture.boxes.LinkBox(ctx, expiring); err != nil {
+			t.Fatalf("before the sweep the expired box's row must stand, or this case measures nothing: %v", err)
+		}
+
+		expired, never := fixture.answers(t, expiring), fixture.answers(t, unknown)
+		if !reflect.DeepEqual(expired, never) {
+			t.Fatalf("%s, a box past its expiry was answered %v, and an id never registered %v", stage, expired, never)
+		}
+		for arm, answer := range expired {
+			if answer.reason != protocol.Reason_REASON_CARD_RETIRED || answer.body {
+				t.Fatalf("%s, %s on a box past its expiry answered %v with a body %v, want REASON_CARD_RETIRED and none", stage, arm, answer.reason, answer.body)
+			}
+		}
+
+		reason, _ := fixture.register(t, linkRegister(0x10))
+		fixture.pads()
+		want := protocol.Reason_REASON_REJECTED
+		if stage == "after the sweep" {
+			want = protocol.Reason_REASON_OK
+		}
+		if reason != want {
+			t.Fatalf("%s, a registration at the expired box's id answered %v, want %v: Register is the one arm the sweep's timing reaches", stage, reason, want)
+		}
+	}
+}
