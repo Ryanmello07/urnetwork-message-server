@@ -1891,3 +1891,316 @@ func durableColumn(seconds *uint32) *int32 {
 	}
 	return ptr(int32(*seconds))
 }
+
+// ── §4.3.11's kind 4, the link box: 013 and 014 ─────────────────────────────────────────────
+
+var _ LinkBoxes = (*PgxStore)(nil)
+
+// Q17's columns, in the order [linkBoxOf] scans them.
+const linkBoxColumns = `deposit_verify_pub, collect_verify_pub, public_ct, next_deposit_id, deposit_count,
+               refused_count, register_time, expire_time, retired_time, reclaim_after`
+
+// §3.3's Q17, on the pool for the read path, or inside a transaction with the row's lock, which is
+// how every arm that writes serialises against the others at one id.
+func linkBoxOf(ctx context.Context, q queryer, rendezvousId []byte, forUpdate bool) (*LinkBox, error) {
+	query := `SELECT ` + linkBoxColumns + ` FROM message_rendezvous WHERE rendezvous_id = $1`
+	if forUpdate {
+		query += ` FOR UPDATE`
+	}
+	box := &LinkBox{RendezvousId: bytes.Clone(rendezvousId)}
+	var nextDepositId, refusedCount int64
+	var depositCount int32
+	err := q.QueryRow(ctx, query, rendezvousId).Scan(&box.DepositVerifyPub, &box.CollectVerifyPub,
+		&box.PublicCt, &nextDepositId, &depositCount, &refusedCount, &box.RegisterTime,
+		&box.ExpireTime, &box.RetiredTime, &box.ReclaimAfter)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrLinkBoxUnknown
+	}
+	if err != nil {
+		return nil, err
+	}
+	box.DepositsTaken = uint64(nextDepositId - 1)
+	box.DepositCount = uint32(depositCount)
+	box.RefusedCount = uint64(refusedCount)
+	box.RegisterTime = box.RegisterTime.UTC()
+	box.ExpireTime = box.ExpireTime.UTC()
+	box.ReclaimAfter = box.ReclaimAfter.UTC()
+	if box.RetiredTime != nil {
+		retired := box.RetiredTime.UTC()
+		box.RetiredTime = &retired
+	}
+	return box, nil
+}
+
+// A deposit id a caller named, as 014's `bigint` column compares it. Deposit ids start at 1 and a
+// box takes two, so a request naming one past the column's range names every deposit there is.
+func linkBoxDepositIdColumn(depositId uint64) int64 {
+	if depositId > math.MaxInt64 {
+		return math.MaxInt64
+	}
+	return int64(depositId)
+}
+
+// The insert, or nothing. `ON CONFLICT (rendezvous_id) DO NOTHING` makes two registrations at one
+// id one row and one answer each, with no unique_violation raised to either: the loser reads the
+// row that stands, and is this registration's own retry only if that row is live and holds the
+// same three values.
+func (self *PgxStore) RegisterLinkBox(ctx context.Context, registration *LinkBoxRegistration, now time.Time, ttl time.Duration) (*LinkBoxRegistered, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := validateLinkBoxRegistration(registration, ttl); err != nil {
+		return nil, err
+	}
+	now = linkBoxTime(now)
+	expire := linkBoxTime(now.Add(ttl))
+
+	var inserted bool
+	err := self.pool.QueryRow(ctx, `
+        INSERT INTO message_rendezvous (rendezvous_id, kind, deposit_verify_pub, collect_verify_pub,
+                                        card_xwing_pub, public_ct, alg_id, next_deposit_id,
+                                        deposit_count, refused_count, register_time, refresh_time,
+                                        expire_time, retired_time, reclaim_after)
+             VALUES ($1, $2, $3, $4, NULL, $5, $6, 1, 0, 0, $7, $7, $8, NULL, $8)
+        ON CONFLICT (rendezvous_id) DO NOTHING
+          RETURNING true`,
+		registration.RendezvousId, int16(LinkBoxKind), registration.DepositVerifyPub,
+		registration.CollectVerifyPub, registration.PublicCt, int32(LinkBoxAlgId), now, expire).
+		Scan(&inserted)
+	if err == nil {
+		return &LinkBoxRegistered{Reason: protocol.Reason_REASON_OK, ExpireTime: expire}, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, err
+	}
+	box, err := linkBoxOf(ctx, self.pool, registration.RendezvousId, false)
+	if errors.Is(err, ErrLinkBoxUnknown) {
+		// the sweep reclaimed the row between the insert and this read, which it does only to a
+		// row past its expiry, and that is a row Register refuses
+		return &LinkBoxRegistered{Reason: protocol.Reason_REASON_REJECTED}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if box.Live(now) && sameLinkBoxRegistration(box, registration) {
+		return &LinkBoxRegistered{Reason: protocol.Reason_REASON_OK, ExpireTime: box.ExpireTime, MailboxDepth: box.DepositCount}, nil
+	}
+	return &LinkBoxRegistered{Reason: protocol.Reason_REASON_REJECTED}, nil
+}
+
+func (self *PgxStore) LinkBox(ctx context.Context, rendezvousId []byte) (*LinkBox, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := checkLength(rendezvousId, RendezvousIdBytes); err != nil {
+		return nil, err
+	}
+	return linkBoxOf(ctx, self.pool, rendezvousId, false)
+}
+
+// One transaction, under the box's row lock: the box is live, the octets are not a deposit already
+// standing, the box has taken fewer than two, and only then the insert.
+func (self *PgxStore) DepositLinkBox(ctx context.Context, rendezvousId []byte, depositCt []byte, depositHash []byte, now time.Time) (*LinkBoxDeposited, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := validateLinkBoxDeposit(rendezvousId, depositCt, depositHash); err != nil {
+		return nil, err
+	}
+	now = linkBoxTime(now)
+
+	transaction, err := self.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer transaction.Rollback(context.WithoutCancel(ctx))
+
+	box, err := linkBoxOf(ctx, transaction, rendezvousId, true)
+	if errors.Is(err, ErrLinkBoxUnknown) {
+		return &LinkBoxDeposited{Reason: protocol.Reason_REASON_CARD_RETIRED}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if !box.Live(now) {
+		return &LinkBoxDeposited{Reason: protocol.Reason_REASON_CARD_RETIRED}, nil
+	}
+
+	var standing int64
+	err = transaction.QueryRow(ctx, `
+        SELECT deposit_id FROM message_rendezvous_deposit
+         WHERE rendezvous_id = $1 AND deposit_hash = $2`, rendezvousId, depositHash).Scan(&standing)
+	if err == nil {
+		return &LinkBoxDeposited{Reason: protocol.Reason_REASON_OK, DepositId: uint64(standing)}, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, err
+	}
+
+	if box.DepositsTaken >= LinkBoxDeposits {
+		if _, err := transaction.Exec(ctx, `
+            UPDATE message_rendezvous SET refused_count = refused_count + 1
+             WHERE rendezvous_id = $1`, rendezvousId); err != nil {
+			return nil, err
+		}
+		if err := transaction.Commit(ctx); err != nil {
+			return nil, err
+		}
+		return &LinkBoxDeposited{Reason: protocol.Reason_REASON_CARD_RATE_LIMITED}, nil
+	}
+
+	depositId := int64(box.DepositsTaken + 1)
+	if _, err := transaction.Exec(ctx, `
+        INSERT INTO message_rendezvous_deposit (rendezvous_id, deposit_id, deposit_hash, deposit_ct,
+                                                create_time, prune_after)
+             VALUES ($1, $2, $3, $4, $5, $6)`,
+		rendezvousId, depositId, depositHash, depositCt, now, box.ExpireTime); err != nil {
+		return nil, err
+	}
+	if _, err := transaction.Exec(ctx, `
+        UPDATE message_rendezvous SET next_deposit_id = next_deposit_id + 1,
+                                      deposit_count = deposit_count + 1
+         WHERE rendezvous_id = $1`, rendezvousId); err != nil {
+		return nil, err
+	}
+	if err := transaction.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return &LinkBoxDeposited{Reason: protocol.Reason_REASON_OK, DepositId: uint64(depositId)}, nil
+}
+
+// One transaction, under the box's row lock: the delete through the acknowledgement, the read of
+// what stands after it, and the count and the zeroed refusals written back.
+func (self *PgxStore) CollectLinkBox(ctx context.Context, request *LinkBoxCollectRequest, now time.Time) (*LinkBoxCollected, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if request == nil {
+		return nil, ErrIdentifierShape
+	}
+	if err := checkLength(request.RendezvousId, RendezvousIdBytes); err != nil {
+		return nil, err
+	}
+	now = linkBoxTime(now)
+
+	transaction, err := self.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer transaction.Rollback(context.WithoutCancel(ctx))
+
+	box, err := linkBoxOf(ctx, transaction, request.RendezvousId, true)
+	if errors.Is(err, ErrLinkBoxUnknown) {
+		return &LinkBoxCollected{Reason: protocol.Reason_REASON_CARD_RETIRED}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if !box.Live(now) {
+		return &LinkBoxCollected{Reason: protocol.Reason_REASON_CARD_RETIRED}, nil
+	}
+
+	if _, err := transaction.Exec(ctx, `
+        DELETE FROM message_rendezvous_deposit
+         WHERE rendezvous_id = $1 AND deposit_id <= $2`,
+		request.RendezvousId, linkBoxDepositIdColumn(request.AckThroughDepositId)); err != nil {
+		return nil, err
+	}
+	rows, err := transaction.Query(ctx, `
+        SELECT deposit_id, deposit_ct, create_time FROM message_rendezvous_deposit
+         WHERE rendezvous_id = $1 ORDER BY deposit_id`, request.RendezvousId)
+	if err != nil {
+		return nil, err
+	}
+	standing := []*LinkBoxDeposit{}
+	for rows.Next() {
+		var depositId int64
+		deposit := &LinkBoxDeposit{}
+		if err := rows.Scan(&depositId, &deposit.DepositCt, &deposit.CreateTime); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		deposit.DepositId = uint64(depositId)
+		deposit.CreateTime = deposit.CreateTime.UTC()
+		standing = append(standing, deposit)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	if _, err := transaction.Exec(ctx, `
+        UPDATE message_rendezvous SET deposit_count = $2, refused_count = 0
+         WHERE rendezvous_id = $1`, request.RendezvousId, int32(len(standing))); err != nil {
+		return nil, err
+	}
+	if err := transaction.Commit(ctx); err != nil {
+		return nil, err
+	}
+	returned, complete := linkBoxDepositsAfter(standing, request.SinceDepositId, request.Limit)
+	return &LinkBoxCollected{
+		Reason:       protocol.Reason_REASON_OK,
+		Deposits:     returned,
+		PendingCount: uint32(len(standing)),
+		RefusedCount: box.RefusedCount,
+		ExpireTime:   box.ExpireTime,
+		Complete:     complete,
+	}, nil
+}
+
+// One transaction, under the box's row lock: every deposit deleted, and the tombstone stamped.
+// `reclaim_after` is left where Register put it, at the box's expiry.
+func (self *PgxStore) RetireLinkBox(ctx context.Context, rendezvousId []byte, now time.Time) (*LinkBoxRetired, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := checkLength(rendezvousId, RendezvousIdBytes); err != nil {
+		return nil, err
+	}
+	now = linkBoxTime(now)
+
+	transaction, err := self.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer transaction.Rollback(context.WithoutCancel(ctx))
+
+	box, err := linkBoxOf(ctx, transaction, rendezvousId, true)
+	if errors.Is(err, ErrLinkBoxUnknown) {
+		return &LinkBoxRetired{Reason: protocol.Reason_REASON_CARD_RETIRED}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if !box.Live(now) {
+		return &LinkBoxRetired{Reason: protocol.Reason_REASON_CARD_RETIRED}, nil
+	}
+	discarded, err := transaction.Exec(ctx, `
+        DELETE FROM message_rendezvous_deposit WHERE rendezvous_id = $1`, rendezvousId)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := transaction.Exec(ctx, `
+        UPDATE message_rendezvous SET retired_time = $2, deposit_count = 0
+         WHERE rendezvous_id = $1`, rendezvousId, now); err != nil {
+		return nil, err
+	}
+	if err := transaction.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return &LinkBoxRetired{Reason: protocol.Reason_REASON_OK, DiscardedDeposits: uint32(discarded.RowsAffected())}, nil
+}
+
+// §3.3's Q20, over 013's partial index `message_rendezvous_live`.
+func (self *PgxStore) LiveLinkBoxes(ctx context.Context, now time.Time) (uint64, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	var live int64
+	if err := self.pool.QueryRow(ctx, `
+        SELECT count(*) FROM message_rendezvous
+         WHERE retired_time IS NULL AND expire_time > $1`, linkBoxTime(now)).Scan(&live); err != nil {
+		return 0, err
+	}
+	return uint64(live), nil
+}

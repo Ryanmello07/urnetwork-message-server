@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"time"
@@ -747,6 +748,266 @@ type Store interface {
 	// §7.5. A closed group answers [ErrGroupUnavailable] everywhere afterwards, exactly as an
 	// unknown one does.
 	CloseGroup(ctx context.Context, groupId []byte) error
+}
+
+// ── §4.3.11's kind 4, the link box (Spec B revision 25; the identity plan's Task 18) ──────────
+//
+// One device's addition, carried on the five rendezvous arms: Register, Open, Deposit, Collect
+// and Retire. The server holds no code and derives nothing; the id, the two keys, the card and
+// the deposit are Spec A §5.14's, and every arm's signature is verified by the api layer, against
+// the keys [LinkBoxes.LinkBox] reads, before any method below is called (Spec B §5.1.2: no
+// transaction opens before check 7 has passed). What is here is the storage of 013 and 014: one
+// row a box, and at most two deposits over its life.
+
+// The link box's exact lengths, which 013 and 014 CHECK. Each is a length a CALLER hands the
+// store a value for, which is what a constant ending in `Bytes` means in this package, so each
+// joins the class [assertEveryDeclaredShapeIsDamaged] derives and owes a scenario that hands the
+// store a value one octet off.
+const (
+	// 013: `CHECK (octet_length(rendezvous_id) = 32)`. Spec A §5.14 derives it from the code.
+	RendezvousIdBytes = 32
+	// 014: `CHECK (octet_length(deposit_hash) = 32)`: H(deposit_ct), the idempotency key.
+	DepositHashBytes = 32
+	// 013's `message_rendezvous_link_box`: the sealed card Open returns, exactly (Spec A §5.14).
+	LinkCardBytes = 4124
+	// 014's `message_rendezvous_deposit_size`: one deposit, exactly (Spec A §5.14).
+	LinkDepositBytes = 17526
+)
+
+// What 013 holds a link box to beyond its lengths. The store writes these and takes none of them
+// from a caller: it keeps link boxes and nothing else, so 013's CHECKs are its to meet and no
+// caller's to get wrong.
+const (
+	// 013's `message_rendezvous_kind`: `kind = 4`, the one kind I1 serves.
+	LinkBoxKind = 4
+	// 013's `message_rendezvous_link_box`: `alg_id = 20`, which is 0x0014.
+	LinkBoxAlgId = 0x0014
+	// 013's `message_rendezvous_link_box_deposits` and 014's `message_rendezvous_deposit_id`: two
+	// deposits over a box's LIFE, and not two waiting (ledger item 301). A box serves one
+	// addition, so two leave one retry, and nothing needs a third.
+	LinkBoxDeposits = 2
+)
+
+// A link box's registration, as §4.3.11's Register hands it over once `register_auth` has
+// verified under the CollectVerifyPub it carries.
+type LinkBoxRegistration struct {
+	RendezvousId     []byte // H("URmessage/v1/link" || code), Spec A §5.14
+	DepositVerifyPub []byte // derived from the code; every holder of the code signs under it
+	CollectVerifyPub []byte // the new device's own; pinned here, and never re-read from a request
+	PublicCt         []byte // the sealed card, exactly LinkCardBytes
+}
+
+// A link box as §3.3's Q17 reads it: the keys every arm verifies its signature against, and the
+// card Open returns.
+type LinkBox struct {
+	RendezvousId     []byte
+	DepositVerifyPub []byte
+	CollectVerifyPub []byte
+	PublicCt         []byte
+	DepositCount     uint32 // deposits waiting, uncollected
+	DepositsTaken    uint64 // deposits over the box's life, which is next_deposit_id − 1
+	RefusedCount     uint64 // deposits refused since the last collect
+	RegisterTime     time.Time
+	ExpireTime       time.Time  // RegisterTime and the TTL, fixed at registration
+	RetiredTime      *time.Time // nil while the box is not retired
+	ReclaimAfter     time.Time  // when §7.4's sweep deletes the row: the expiry, retired or not
+}
+
+// Whether a box is live at `now`: not retired, and not past its expiry. §4.3.11: "every arm
+// decides expiry by expire_time, whether or not the sweep has run", so this is the reading every
+// arm takes, and the store's own methods below take the same one inside their transactions.
+func (self *LinkBox) Live(now time.Time) bool {
+	return self.RetiredTime == nil && linkBoxTime(now).Before(self.ExpireTime)
+}
+
+// What Register answers. REASON_OK carries the box's own expiry and depth; REASON_REJECTED, for
+// any other row at the id, carries nothing beside it.
+type LinkBoxRegistered struct {
+	Reason       protocol.Reason
+	ExpireTime   time.Time
+	MailboxDepth uint32
+}
+
+// What Deposit answers. REASON_OK carries the deposit's id: the one assigned, or, on a replay of
+// the same octets, the one already standing. REASON_CARD_RETIRED and REASON_CARD_RATE_LIMITED
+// carry nothing beside them.
+type LinkBoxDeposited struct {
+	Reason    protocol.Reason
+	DepositId uint64
+}
+
+// §4.3.11's Collect, as the store takes it.
+type LinkBoxCollectRequest struct {
+	RendezvousId        []byte
+	SinceDepositId      uint64 // exclusive; 0 is "from the first"
+	AckThroughDepositId uint64 // every deposit through this id is deleted; 0 deletes none
+	Limit               uint32 // 0 = every deposit after SinceDepositId
+}
+
+// One deposit, as Collect returns it.
+type LinkBoxDeposit struct {
+	DepositId  uint64
+	DepositCt  []byte
+	CreateTime time.Time
+}
+
+// What Collect answers. REASON_CARD_RETIRED carries nothing beside it.
+type LinkBoxCollected struct {
+	Reason       protocol.Reason
+	Deposits     []*LinkBoxDeposit
+	PendingCount uint32    // deposits waiting once the acknowledgement's delete is done
+	RefusedCount uint64    // deposits refused since the previous collect; this one zeroes it
+	ExpireTime   time.Time // the box's, fixed at registration: a collect refreshes nothing
+	Complete     bool      // every deposit after SinceDepositId is in Deposits
+}
+
+// What Retire answers. REASON_CARD_RETIRED carries nothing beside it.
+type LinkBoxRetired struct {
+	Reason            protocol.Reason
+	DiscardedDeposits uint32
+}
+
+// The link boxes of §4.3.11's kind 4, in 013's `message_rendezvous` and 014's
+// `message_rendezvous_deposit`.
+//
+// It is an interface of its own, beside [Store] and not inside it, because a link box belongs to
+// no group: [Store]'s methods are §6.1's transaction and the paths that read what it wrote, and
+// [RunContract]'s availability scenario holds every one of them to §4.5's answer for an unknown or
+// a closed group, which a rendezvous id does not have. Both implementations keep link boxes, and
+// RunContract holds each to these methods as well.
+//
+// THE TIME IS A PARAMETER, and it is the one place this package takes it from a caller. Kind 4 is
+// decided by the clock on every arm: a box lives ten minutes from its registration, is never kept
+// alive, and is answered as an unknown one once its expiry has passed, whether or not the sweep
+// has run. Taken from the caller, those answers are the same in both implementations for the same
+// `now`, and the contract can hold both to them; taken from each implementation's own clock, the
+// one that matters most could be tested against one of them only. Every time is truncated to the
+// microsecond and taken in UTC (§3.1), because a `timestamp` column holds no finer a time and a
+// store that compared at the nanosecond would answer a `now` differently from the row it wrote.
+//
+// What the api layer does, and this interface leaves to it: the shape checks of §5.1.2, the
+// signatures, the reject floor, the one answer for every box a caller may not use, and the cap on
+// live boxes, which it reads through [LinkBoxes.LiveLinkBoxes] and enforces before it registers.
+// The count and the insert are two steps, so registrations in flight together may pass the cap by
+// their number (§3.3, Q20).
+//
+// Every method is safe for concurrent use.
+type LinkBoxes interface {
+	// §4.3.11's Register, after `register_auth` has verified. An id with no row is inserted, with
+	// `expire_time = reclaim_after = now + ttl`. A live box at the id with the same three values
+	// answers REASON_OK and changes nothing, since a link box is not kept alive. Any other row at
+	// the id answers REASON_REJECTED: another key or another card, a retired box, or one past its
+	// expiry that the sweep has not reclaimed.
+	RegisterLinkBox(ctx context.Context, registration *LinkBoxRegistration, now time.Time, ttl time.Duration) (*LinkBoxRegistered, error)
+
+	// §3.3's Q17: the row at the id, retired or past its expiry or not, for the api layer to verify
+	// a signature against and to decide [LinkBox.Live] on. Open returns its card. A rendezvous id
+	// with no row answers [ErrLinkBoxUnknown].
+	LinkBox(ctx context.Context, rendezvousId []byte) (*LinkBox, error)
+
+	// §4.3.11's Deposit, after `deposit_auth` has verified. Idempotent on `deposit_hash`: the same
+	// octets again answer the deposit already standing, and are one deposit. A third deposit over
+	// the box's life answers REASON_CARD_RATE_LIMITED and counts in `refused_count`. A box that is
+	// unknown, retired or past its expiry answers REASON_CARD_RETIRED and changes nothing.
+	DepositLinkBox(ctx context.Context, rendezvousId []byte, depositCt []byte, depositHash []byte, now time.Time) (*LinkBoxDeposited, error)
+
+	// §4.3.11's Collect, after `collect_auth` has verified: delete exactly through the
+	// acknowledgement, then return the deposits after `SinceDepositId`, the count still waiting,
+	// and `refused_count`, which it zeroes. It refreshes nothing. A box that is unknown, retired
+	// or past its expiry answers REASON_CARD_RETIRED and changes nothing.
+	CollectLinkBox(ctx context.Context, request *LinkBoxCollectRequest, now time.Time) (*LinkBoxCollected, error)
+
+	// §4.3.11's Retire, after `retire_auth` has verified: delete every deposit, stamp
+	// `retired_time`, and keep the row as a tombstone until `reclaim_after`. A box that is unknown,
+	// already retired or past its expiry answers REASON_CARD_RETIRED and changes nothing.
+	RetireLinkBox(ctx context.Context, rendezvousId []byte, now time.Time) (*LinkBoxRetired, error)
+
+	// §3.3's Q20: the live boxes, those not retired and not past their expiry at `now`, which the
+	// cap counts. An error is the count unreadable, and the api layer refuses on it: the cap fails
+	// closed.
+	LiveLinkBoxes(ctx context.Context, now time.Time) (uint64, error)
+}
+
+// The errors a caller of [LinkBoxes] can be answered, beside the shape errors it shares with
+// [Store]. Like those, none of them is a client's answer.
+var (
+	// 013 and 014 CHECK a link box's card and each deposit at exactly [LinkCardBytes] and
+	// [LinkDepositBytes]. Not [ErrIdentifierShape]: a card and a deposit are not identifiers, and
+	// an operator reading that an identifier is the wrong length is sent to the wrong field.
+	ErrLinkBoxShape = errors.New("store: a link box's card or deposit is not the exact length 013 and 014 CHECK")
+
+	// A TTL that is not positive, which would register a box already past its expiry: every arm
+	// would answer it as unknown, and it would hold its id until the sweep. It is the
+	// configuration's to refuse (`link_box_ttl_seconds`); this is the store refusing it too.
+	ErrLinkBoxTtl = errors.New("store: a link box's TTL is not positive")
+
+	// Q17 found no row at that rendezvous id. Only [LinkBoxes.LinkBox] answers it; every other
+	// method answers an unknown box with REASON_CARD_RETIRED, as it answers a retired one.
+	ErrLinkBoxUnknown = errors.New("store: no link box at that rendezvous id")
+)
+
+// Every time a [LinkBoxes] method reads or writes: UTC, at the microsecond a `timestamp` holds.
+func linkBoxTime(now time.Time) time.Time {
+	return now.UTC().Truncate(time.Microsecond)
+}
+
+// The shape checks every [LinkBoxes] method makes before it reads anything.
+func validateLinkBoxRegistration(registration *LinkBoxRegistration, ttl time.Duration) error {
+	if registration == nil {
+		return ErrIdentifierShape
+	}
+	if err := checkLength(registration.RendezvousId, RendezvousIdBytes); err != nil {
+		return err
+	}
+	if err := checkLength(registration.DepositVerifyPub, VerifyPubBytes); err != nil {
+		return err
+	}
+	if err := checkLength(registration.CollectVerifyPub, VerifyPubBytes); err != nil {
+		return err
+	}
+	if len(registration.PublicCt) != LinkCardBytes {
+		return ErrLinkBoxShape
+	}
+	if ttl <= 0 {
+		return ErrLinkBoxTtl
+	}
+	return nil
+}
+
+func validateLinkBoxDeposit(rendezvousId []byte, depositCt []byte, depositHash []byte) error {
+	if err := checkLength(rendezvousId, RendezvousIdBytes); err != nil {
+		return err
+	}
+	if err := checkLength(depositHash, DepositHashBytes); err != nil {
+		return err
+	}
+	if len(depositCt) != LinkDepositBytes {
+		return ErrLinkBoxShape
+	}
+	return nil
+}
+
+// Whether an existing row is the same registration: the two keys and the card, all three. A
+// registration that matched on one key and not the other is not the box a caller registered.
+func sameLinkBoxRegistration(box *LinkBox, registration *LinkBoxRegistration) bool {
+	return bytes.Equal(box.DepositVerifyPub, registration.DepositVerifyPub) &&
+		bytes.Equal(box.CollectVerifyPub, registration.CollectVerifyPub) &&
+		bytes.Equal(box.PublicCt, registration.PublicCt)
+}
+
+// The deposits a collect returns: those after `since`, in id order, at most `limit` of them, with
+// whether that is every one of them.
+func linkBoxDepositsAfter(standing []*LinkBoxDeposit, since uint64, limit uint32) ([]*LinkBoxDeposit, bool) {
+	after := []*LinkBoxDeposit{}
+	for _, deposit := range standing {
+		if since < deposit.DepositId {
+			after = append(after, deposit)
+		}
+	}
+	if limit != 0 && uint32(len(after)) > limit {
+		return after[:limit], false
+	}
+	return after, true
 }
 
 // The retention arithmetic of §6.1 step (6) and §7.3, as a function of the attachment and the

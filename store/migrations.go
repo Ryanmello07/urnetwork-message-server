@@ -15,16 +15,21 @@ import (
 //
 // # Which of §3.2's fourteen tables are here
 //
-// Eight: the ones a method of [Store] reads or writes. §3.2 also defines `message_blob`,
-// `message_group_usage`, `message_kt_gossip`, `message_diagnostic_session`,
-// `message_rendezvous` and `message_rendezvous_deposit`, and every one of them belongs to a
-// subsystem this interface does not reach — the blob lifecycle of §8, the sweep's soft rollups
-// of §7.4, the gossip cache of §9.5, §11.5's diagnostic sessions and §4.3.11's rendezvous.
+// Ten: the ones a method of [Store] or of [LinkBoxes] reads or writes. §3.2 also defines
+// `message_blob`, `message_group_usage`, `message_kt_gossip` and `message_diagnostic_session`,
+// and every one of them belongs to a subsystem neither interface reaches — the blob lifecycle
+// of §8, the sweep's soft rollups of §7.4, the gossip cache of §9.5 and §11.5's diagnostic
+// sessions.
 // Creating them now would ship schema that nothing in this module reads, writes or tests, and
 // the list is append-only precisely so each one can arrive with the code that uses it.
 //
 // `message_recovery` is the eighth, and it arrived with [Store.Submit]: §6.1 step (6c) writes it
 // inside the submit transaction, so it could not land with the half that had no Submit.
+//
+// `message_rendezvous` and `message_rendezvous_deposit` are the ninth and tenth, and they
+// arrived with [LinkBoxes], as 013 and 014. §3.2 designed them as an 011 that never landed: the
+// 011 and 012 below are other migrations, and a landed migration is never edited, so they are
+// appended after 012 (Spec B revision 25; ledger item 301).
 //
 // # Append-only, and how that is held
 //
@@ -476,6 +481,79 @@ ALTER TABLE message_record
     ADD CONSTRAINT message_record_attachment_keys_digest
         CHECK (attachment_epoch_keys_digest IS NULL
                OR octet_length(attachment_epoch_keys_digest) = 32);
+`),
+
+	// ── 013  message_rendezvous, as it lands (Spec B §3.2, revision 25; §4.3.11's kind 4) ────
+	//
+	// §3.2's 013 block, verbatim: the designed table with `kind` and `public_ct`, for the link box,
+	// the one kind I1 serves. Each check that is kind 4's is NAMED, so that the requests phase
+	// widens it by a migration of its own rather than by editing this one, and the live boxes the
+	// cap counts (Q20) have a partial index of their own.
+	//
+	// It is a plain SQL migration because every index here is created with the table it is on,
+	// in the same transaction, on a relation that holds no rows; 011's note on an index built
+	// over a populated table does not reach a table this migration creates.
+	newSqlMigration("013 message_rendezvous", `
+CREATE TABLE message_rendezvous (
+    rendezvous_id       bytea     NOT NULL,   -- 32 B; kind 4: H("URmessage/v1/link" || code)
+    kind                smallint  NOT NULL,   -- 4, the link box (Spec A §5.14)
+    deposit_verify_pub  bytea     NOT NULL,   -- 32 B Ed25519, derived from the code
+    collect_verify_pub  bytea     NOT NULL,   -- 32 B Ed25519, the new device's own; pinned
+    card_xwing_pub      bytea     NULL,       -- the contact card's; NULL for kind 4
+    public_ct           bytea     NULL,       -- kind 4: the sealed card, returned by Open
+    alg_id              int       NOT NULL,   -- kind 4: 0x0014
+    next_deposit_id     bigint    NOT NULL DEFAULT 1,
+    deposit_count       int       NOT NULL DEFAULT 0,
+    refused_count       bigint    NOT NULL DEFAULT 0,
+    register_time       timestamp NOT NULL DEFAULT now(),
+    refresh_time        timestamp NOT NULL DEFAULT now(),
+    expire_time         timestamp NOT NULL,   -- kind 4: register_time + link_box_ttl_seconds,
+                                              -- never refreshed
+    retired_time        timestamp NULL,
+    reclaim_after       timestamp NOT NULL,   -- kind 4: expire_time, retired or not
+
+    PRIMARY KEY (rendezvous_id),
+    CONSTRAINT message_rendezvous_kind CHECK (kind = 4),
+    CONSTRAINT message_rendezvous_link_box
+        CHECK (card_xwing_pub IS NULL AND public_ct IS NOT NULL
+               AND octet_length(public_ct) = 4124 AND alg_id = 20),
+    CONSTRAINT message_rendezvous_link_box_deposits
+        CHECK (next_deposit_id <= 3 AND deposit_count <= 2),
+    CHECK (octet_length(rendezvous_id) = 32),
+    CHECK (octet_length(deposit_verify_pub) = 32),
+    CHECK (octet_length(collect_verify_pub) = 32),
+    CHECK (1 <= next_deposit_id),
+    CHECK (0 <= deposit_count)
+);
+CREATE INDEX message_rendezvous_reclaim ON message_rendezvous (reclaim_after);
+CREATE INDEX message_rendezvous_live ON message_rendezvous (expire_time)
+    WHERE retired_time IS NULL;               -- the live boxes the cap counts (Q20)
+ALTER TABLE message_rendezvous ALTER COLUMN public_ct SET STORAGE EXTERNAL;
+`),
+
+	// ── 014  message_rendezvous_deposit, as it lands (Spec B §3.2, revision 25) ──────────────
+	//
+	// §3.2's 014 block, verbatim. Its rows hold no depositor, and §3.2 says that absence is the
+	// design: a `client_id` here would make the mailbox a durable record of who contacted whom.
+	// TestTheLinkBoxHoldsNoDepositor holds both tables to §3.2's columns, in both stores.
+	newSqlMigration("014 message_rendezvous_deposit", `
+CREATE TABLE message_rendezvous_deposit (
+    rendezvous_id bytea     NOT NULL,
+    deposit_id    bigint    NOT NULL,   -- per-rendezvous, monotonic, 1-based
+    deposit_hash  bytea     NOT NULL,   -- 32 B, H(deposit_ct); the idempotency key
+    deposit_ct    bytea     NOT NULL,   -- kind 4: EXACTLY 17526 B
+    create_time   timestamp NOT NULL DEFAULT now(),
+    prune_after   timestamp NOT NULL,   -- kind 4: the box's expire_time
+
+    PRIMARY KEY (rendezvous_id, deposit_id),
+    UNIQUE (rendezvous_id, deposit_hash),
+    FOREIGN KEY (rendezvous_id) REFERENCES message_rendezvous (rendezvous_id) ON DELETE CASCADE,
+    CHECK (octet_length(deposit_hash) = 32),
+    CONSTRAINT message_rendezvous_deposit_size CHECK (octet_length(deposit_ct) = 17526),
+    CONSTRAINT message_rendezvous_deposit_id CHECK (deposit_id <= 2)
+);
+CREATE INDEX message_rendezvous_deposit_prune ON message_rendezvous_deposit (prune_after);
+ALTER TABLE message_rendezvous_deposit ALTER COLUMN deposit_ct SET STORAGE EXTERNAL;
 `),
 }
 

@@ -40,6 +40,13 @@ type MemoryStore struct {
 
 	mutex  sync.RWMutex
 	groups map[string]*memoryGroup
+
+	// §4.3.11's link boxes: 013's rows by rendezvous id, and 014's by rendezvous id in
+	// deposit_id order. One mutex for both stands in for each box's `SELECT … FOR UPDATE`: every
+	// method takes it once, holds it for the whole of its arm, and waits on nothing inside it.
+	boxMutex sync.Mutex
+	boxes    map[string]*memoryLinkBoxRow
+	deposits map[string][]*memoryLinkDepositRow
 }
 
 var _ Store = (*MemoryStore)(nil)
@@ -47,9 +54,11 @@ var _ Store = (*MemoryStore)(nil)
 // A store holding nothing, with the limits of §7.3 to evaluate step (6) against.
 func NewMemoryStore(limits Limits) *MemoryStore {
 	return &MemoryStore{
-		limits: limits,
-		now:    func() time.Time { return time.Now().UTC() },
-		groups: map[string]*memoryGroup{},
+		limits:   limits,
+		now:      func() time.Time { return time.Now().UTC() },
+		groups:   map[string]*memoryGroup{},
+		boxes:    map[string]*memoryLinkBoxRow{},
+		deposits: map[string][]*memoryLinkDepositRow{},
 	}
 }
 
@@ -1176,4 +1185,243 @@ func cloneAttachment(attachment *Attachment) *Attachment {
 		copied.EpochComplete = &marker
 	}
 	return copied
+}
+
+// ── §4.3.11's kind 4, the link box ───────────────────────────────────────────────────────────
+
+var _ LinkBoxes = (*MemoryStore)(nil)
+
+// One row of 013's `message_rendezvous`, column for column, each field typed as the column's
+// own Go type and tagged with its name. Every field is a column: TestTheLinkBoxHoldsNoDepositor
+// holds this type's tags and the table's columns to one list, so a field added here that is not
+// one of 013's columns fails it by name.
+type memoryLinkBoxRow struct {
+	RendezvousId     []byte     `column:"rendezvous_id"`
+	Kind             int16      `column:"kind"`
+	DepositVerifyPub []byte     `column:"deposit_verify_pub"`
+	CollectVerifyPub []byte     `column:"collect_verify_pub"`
+	CardXwingPub     []byte     `column:"card_xwing_pub"`
+	PublicCt         []byte     `column:"public_ct"`
+	AlgId            int32      `column:"alg_id"`
+	NextDepositId    int64      `column:"next_deposit_id"`
+	DepositCount     int32      `column:"deposit_count"`
+	RefusedCount     int64      `column:"refused_count"`
+	RegisterTime     time.Time  `column:"register_time"`
+	RefreshTime      time.Time  `column:"refresh_time"`
+	ExpireTime       time.Time  `column:"expire_time"`
+	RetiredTime      *time.Time `column:"retired_time"`
+	ReclaimAfter     time.Time  `column:"reclaim_after"`
+}
+
+// One row of 014's `message_rendezvous_deposit`, on the same terms.
+type memoryLinkDepositRow struct {
+	RendezvousId []byte    `column:"rendezvous_id"`
+	DepositId    int64     `column:"deposit_id"`
+	DepositHash  []byte    `column:"deposit_hash"`
+	DepositCt    []byte    `column:"deposit_ct"`
+	CreateTime   time.Time `column:"create_time"`
+	PruneAfter   time.Time `column:"prune_after"`
+}
+
+// The row as Q17 reads it, by copy.
+func (self *memoryLinkBoxRow) linkBox() *LinkBox {
+	box := &LinkBox{
+		RendezvousId:     bytes.Clone(self.RendezvousId),
+		DepositVerifyPub: bytes.Clone(self.DepositVerifyPub),
+		CollectVerifyPub: bytes.Clone(self.CollectVerifyPub),
+		PublicCt:         bytes.Clone(self.PublicCt),
+		DepositCount:     uint32(self.DepositCount),
+		DepositsTaken:    uint64(self.NextDepositId - 1),
+		RefusedCount:     uint64(self.RefusedCount),
+		RegisterTime:     self.RegisterTime,
+		ExpireTime:       self.ExpireTime,
+		ReclaimAfter:     self.ReclaimAfter,
+	}
+	if self.RetiredTime != nil {
+		retired := *self.RetiredTime
+		box.RetiredTime = &retired
+	}
+	return box
+}
+
+// The row at a rendezvous id, if it stands and is live at `now`. Called with boxMutex held.
+func (self *MemoryStore) liveLinkBox(rendezvousId []byte, now time.Time) (*memoryLinkBoxRow, bool) {
+	row, found := self.boxes[string(rendezvousId)]
+	if !found || !row.linkBox().Live(now) {
+		return nil, false
+	}
+	return row, true
+}
+
+func (self *MemoryStore) RegisterLinkBox(ctx context.Context, registration *LinkBoxRegistration, now time.Time, ttl time.Duration) (*LinkBoxRegistered, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := validateLinkBoxRegistration(registration, ttl); err != nil {
+		return nil, err
+	}
+	now = linkBoxTime(now)
+	self.boxMutex.Lock()
+	defer self.boxMutex.Unlock()
+
+	if row, found := self.boxes[string(registration.RendezvousId)]; found {
+		box := row.linkBox()
+		if box.Live(now) && sameLinkBoxRegistration(box, registration) {
+			return &LinkBoxRegistered{Reason: protocol.Reason_REASON_OK, ExpireTime: box.ExpireTime, MailboxDepth: box.DepositCount}, nil
+		}
+		return &LinkBoxRegistered{Reason: protocol.Reason_REASON_REJECTED}, nil
+	}
+	expire := linkBoxTime(now.Add(ttl))
+	self.boxes[string(registration.RendezvousId)] = &memoryLinkBoxRow{
+		RendezvousId:     bytes.Clone(registration.RendezvousId),
+		Kind:             LinkBoxKind,
+		DepositVerifyPub: bytes.Clone(registration.DepositVerifyPub),
+		CollectVerifyPub: bytes.Clone(registration.CollectVerifyPub),
+		PublicCt:         bytes.Clone(registration.PublicCt),
+		AlgId:            LinkBoxAlgId,
+		NextDepositId:    1,
+		RegisterTime:     now,
+		RefreshTime:      now,
+		ExpireTime:       expire,
+		ReclaimAfter:     expire,
+	}
+	return &LinkBoxRegistered{Reason: protocol.Reason_REASON_OK, ExpireTime: expire}, nil
+}
+
+func (self *MemoryStore) LinkBox(ctx context.Context, rendezvousId []byte) (*LinkBox, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := checkLength(rendezvousId, RendezvousIdBytes); err != nil {
+		return nil, err
+	}
+	self.boxMutex.Lock()
+	defer self.boxMutex.Unlock()
+	row, found := self.boxes[string(rendezvousId)]
+	if !found {
+		return nil, ErrLinkBoxUnknown
+	}
+	return row.linkBox(), nil
+}
+
+func (self *MemoryStore) DepositLinkBox(ctx context.Context, rendezvousId []byte, depositCt []byte, depositHash []byte, now time.Time) (*LinkBoxDeposited, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := validateLinkBoxDeposit(rendezvousId, depositCt, depositHash); err != nil {
+		return nil, err
+	}
+	now = linkBoxTime(now)
+	self.boxMutex.Lock()
+	defer self.boxMutex.Unlock()
+
+	row, live := self.liveLinkBox(rendezvousId, now)
+	if !live {
+		return &LinkBoxDeposited{Reason: protocol.Reason_REASON_CARD_RETIRED}, nil
+	}
+	key := string(rendezvousId)
+	for _, deposit := range self.deposits[key] {
+		if bytes.Equal(deposit.DepositHash, depositHash) {
+			return &LinkBoxDeposited{Reason: protocol.Reason_REASON_OK, DepositId: uint64(deposit.DepositId)}, nil
+		}
+	}
+	if uint64(row.NextDepositId-1) >= LinkBoxDeposits {
+		row.RefusedCount++
+		return &LinkBoxDeposited{Reason: protocol.Reason_REASON_CARD_RATE_LIMITED}, nil
+	}
+	depositId := row.NextDepositId
+	self.deposits[key] = append(self.deposits[key], &memoryLinkDepositRow{
+		RendezvousId: bytes.Clone(rendezvousId),
+		DepositId:    depositId,
+		DepositHash:  bytes.Clone(depositHash),
+		DepositCt:    bytes.Clone(depositCt),
+		CreateTime:   now,
+		PruneAfter:   row.ExpireTime,
+	})
+	row.NextDepositId++
+	row.DepositCount++
+	return &LinkBoxDeposited{Reason: protocol.Reason_REASON_OK, DepositId: uint64(depositId)}, nil
+}
+
+func (self *MemoryStore) CollectLinkBox(ctx context.Context, request *LinkBoxCollectRequest, now time.Time) (*LinkBoxCollected, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if request == nil {
+		return nil, ErrIdentifierShape
+	}
+	if err := checkLength(request.RendezvousId, RendezvousIdBytes); err != nil {
+		return nil, err
+	}
+	now = linkBoxTime(now)
+	self.boxMutex.Lock()
+	defer self.boxMutex.Unlock()
+
+	row, live := self.liveLinkBox(request.RendezvousId, now)
+	if !live {
+		return &LinkBoxCollected{Reason: protocol.Reason_REASON_CARD_RETIRED}, nil
+	}
+	key := string(request.RendezvousId)
+	kept := []*memoryLinkDepositRow{}
+	for _, deposit := range self.deposits[key] {
+		if uint64(deposit.DepositId) > request.AckThroughDepositId {
+			kept = append(kept, deposit)
+		}
+	}
+	self.deposits[key] = kept
+	standing := []*LinkBoxDeposit{}
+	for _, deposit := range kept {
+		standing = append(standing, &LinkBoxDeposit{DepositId: uint64(deposit.DepositId), DepositCt: bytes.Clone(deposit.DepositCt), CreateTime: deposit.CreateTime})
+	}
+	returned, complete := linkBoxDepositsAfter(standing, request.SinceDepositId, request.Limit)
+	refused := uint64(row.RefusedCount)
+	row.RefusedCount = 0
+	row.DepositCount = int32(len(kept))
+	return &LinkBoxCollected{
+		Reason:       protocol.Reason_REASON_OK,
+		Deposits:     returned,
+		PendingCount: uint32(len(kept)),
+		RefusedCount: refused,
+		ExpireTime:   row.ExpireTime,
+		Complete:     complete,
+	}, nil
+}
+
+func (self *MemoryStore) RetireLinkBox(ctx context.Context, rendezvousId []byte, now time.Time) (*LinkBoxRetired, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := checkLength(rendezvousId, RendezvousIdBytes); err != nil {
+		return nil, err
+	}
+	now = linkBoxTime(now)
+	self.boxMutex.Lock()
+	defer self.boxMutex.Unlock()
+
+	row, live := self.liveLinkBox(rendezvousId, now)
+	if !live {
+		return &LinkBoxRetired{Reason: protocol.Reason_REASON_CARD_RETIRED}, nil
+	}
+	key := string(rendezvousId)
+	discarded := len(self.deposits[key])
+	delete(self.deposits, key)
+	row.RetiredTime = &now
+	row.DepositCount = 0
+	return &LinkBoxRetired{Reason: protocol.Reason_REASON_OK, DiscardedDeposits: uint32(discarded)}, nil
+}
+
+func (self *MemoryStore) LiveLinkBoxes(ctx context.Context, now time.Time) (uint64, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	now = linkBoxTime(now)
+	self.boxMutex.Lock()
+	defer self.boxMutex.Unlock()
+	live := uint64(0)
+	for _, row := range self.boxes {
+		if row.linkBox().Live(now) {
+			live++
+		}
+	}
+	return live, nil
 }

@@ -90,6 +90,14 @@ func RunContract(t *testing.T, newStore func(Limits) Store) {
 	t.Run("ACommitRacingOrdinaryWritesAtTheSameEpoch", func(t *testing.T) { contractConcurrentCommitAndWrite(t, newStore, seen) })
 	t.Run("AReaderConcurrentWithAWriter", func(t *testing.T) { contractConcurrentReader(t, newStore, seen) })
 	t.Run("ARetryArrivingWhileTheOriginalIsInFlight", func(t *testing.T) { contractConcurrentRetry(t, newStore, seen) })
+	// §4.3.11's kind 4, the link box, which both implementations keep ([LinkBoxes])
+	t.Run("ALinkBoxIsRegisteredOnceUnderOneKeyAndOneCard", func(t *testing.T) { contractLinkBoxRegister(t, newStore, seen) })
+	t.Run("ALinkBoxTakesTwoDepositsOverItsLife", func(t *testing.T) { contractLinkBoxDeposits(t, newStore, seen) })
+	t.Run("CollectDeletesThroughItsAcknowledgementAndRetireKeepsATombstone", func(t *testing.T) { contractLinkBoxCollectAndRetire(t, newStore, seen) })
+	t.Run("ABoxNoArmMayUseIsOneAnswerInTheStore", func(t *testing.T) { contractLinkBoxOneAnswer(t, newStore, seen) })
+	t.Run("TheLiveBoxCounterCountsLiveBoxesOnly", func(t *testing.T) { contractLinkBoxLiveCount(t, newStore, seen) })
+	t.Run("ALinkBoxIsCopiedAtTheStoreBoundary", func(t *testing.T) { contractLinkBoxDefensiveCopy(t, newStore, seen) })
+	t.Run("ConcurrentArmsAtOneLinkBox", func(t *testing.T) { contractLinkBoxConcurrency(t, newStore, seen) })
 	t.Run("AnErrorIsForTheCallerAndNeverForTheClient", func(t *testing.T) { contractCallerErrors(t, newStore, seen) })
 }
 
@@ -240,6 +248,12 @@ func contractCallerErrors(t *testing.T, newStore func(Limits) Store, seen *recor
 	for name := range malformedEpochAttachments {
 		scenarios[name] = true
 	}
+	// §4.3.11's link box: its shapes belong to no record and no request of §6.1, and they are
+	// counted here for the same derived gate
+	linkBoxShapes := linkBoxShapeScenarios(newStore, seen)
+	for name := range linkBoxShapes {
+		scenarios[name] = true
+	}
 	assertEveryDeclaredShapeIsDamaged(t, scenarios)
 
 	for name, current := range damage {
@@ -251,6 +265,12 @@ func contractCallerErrors(t *testing.T, newStore func(Limits) Store, seen *recor
 		})
 	}
 	for name, scenario := range requestShapes {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			scenario(t)
+		})
+	}
+	for name, scenario := range linkBoxShapes {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			scenario(t)
@@ -343,6 +363,11 @@ func assertEveryDeclaredShapeIsDamaged(t *testing.T, scenarios map[string]bool) 
 		// no caller ever hands one over and there is no wrong length for one to have. The empty
 		// string is the damage this shape can actually take, and ARecordWithNoHeadAtAll is it
 		"HeadHashBytes": "",
+		// §4.3.11's link box: 013's and 014's exact lengths
+		"RendezvousIdBytes": "ARendezvousIdOfTheWrongLength",
+		"DepositHashBytes":  "ADepositHashOfTheWrongLength",
+		"LinkCardBytes":     "ALinkCardOfTheWrongLength",
+		"LinkDepositBytes":  "ALinkDepositOfTheWrongLength",
 	}
 
 	declared := lengthShapesDeclared(t)
