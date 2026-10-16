@@ -52,7 +52,17 @@
 # syntax/ and protocol/, differ in protocol/message.proto and protocol/message.pb.go alone, and
 # go.mod and go.sum not at all. Before this module's pull request is ready, the line moves back
 # to https://github.com/urnetwork/message.git at the commit I1's library pull request merges as.
-message https://github.com/Ryanmello07/urmessage.git e8eaad66c270d7cc98a15a20c94e93a2da3ca9f9
+#
+# Moved again for the identity plan's Task 19, its verify step (the lead's ruling R70), by R69's
+# procedure: to 48204f2b on the same branch, W-lib's commit for the lead's ruling R72, on top of
+# the plan's Task 7b (9cac060b). Task 7b publishes Spec A §12.1's A-1 rendezvous surface in kind
+# 4's form: the five preimages, the five verifiers the arms call, and the link code's derivations.
+# 48204f2b makes the verifiers refuse the seven small-order keys first, and publishes that rule as
+# RendezvousKeyIsAcceptable, which Register's check 3 is to call (R73). Between e8eaad66 and
+# 48204f2b the files this module builds from differ under message/ alone: rendezvous.go is new,
+# errors.go gains its two sentinels, and doc.go says where it is. protocol/, syntax/, go.mod and
+# go.sum do not differ.
+message https://github.com/Ryanmello07/urmessage.git 48204f2b7f9817a40a630cf2d260ac38810281f1
 #
 # connect: the transport, from AFTER messaging left it. A connect whose protocol package still
 # registers message.proto registers it beside message/protocol's copy, and every test binary that

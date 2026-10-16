@@ -43,8 +43,9 @@
 # such a pin, so a run against a commit the upstream repository does not hold yet says so each time.
 #
 # ONE IS LISTED TODAY: the owner's fork of urnetwork/message, for the identity layer's first phase
-# (the lead's ruling R69). Its Task 7 commit, the protocol this module's link box is built on, exists
-# only on that fork until I1's library pull request merges. This module's pull request merges only
+# (the lead's ruling R69). Its commits for the link box, the protocol (the plan's Task 7) and the
+# verifiers its arms are checked with (Task 7b, and R72's small-order rule), exist only on that
+# fork until I1's library pull request merges. This module's pull request merges only
 # after that one has, and before it is ready a commit moves the pin back to urnetwork at the merged
 # commit and deletes the line below. No other source is listed this way without a ruling.
 #
