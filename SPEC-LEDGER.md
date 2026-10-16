@@ -14683,6 +14683,94 @@ repo and therefore the critical path — not this repository:
       - **The pull request** opens once the owner has merged the plan's (R62).
       - **Next:** Task 5, Spec B for I1, which consumes this §5.14.
 
+301. **SPEC B GAINS THE IDENTITY LAYER'S FIRST PHASE, AS ITS REVISION 25: THE LINK BOX, KIND 4,
+    SERVED ON THE FIVE RENDEZVOUS ARMS, AND ITS TWO TABLES AS APPENDED MIGRATIONS. ITS PARENT PIN
+    MOVES TO MASTER'S REVISION 10.** It is the plan's Task 5 (item 298), of 2026-10-16, after Spec
+    A's A-36 (item 300), whose §5.14 it consumes, and by the lead's ruling R63 it moves Spec B's
+    parent pin and baseline row to revision 10.
+    - **What Spec B says now,** section by section, each under its revision 25, which its edit log
+      records:
+      - **The header and the state table:** the normative parent is MASTER's revision 10, and its
+        baseline row says so, each keeping what it read.
+      - **§3.2 and §3.3:** the designed migration 011, which never landed, kept as the design with
+        a note; the two tables as they land, the appended migrations 013 and 014, with `kind` and
+        `public_ct`, named checks for kind 4, and a partial index over the live boxes; Q17 reading
+        the new columns, a note on Q18, and Q20, the count of live boxes.
+      - **§4.3.1:** Capabilities 26, `rendezvous_deposit_sizes`, and 29, `rendezvous_kinds`, with
+        27 and 28 kept for R's; and the four card values, which no build of I1 serves.
+      - **§4.3.11:** the identity plan's Task 7 fields in the proto, with notes where kind 4 changes
+        a comment; and kind 4: Register's one rule, Open, Deposit, Collect and Retire as kind 4 has
+        them, one answer on the four arms after Register for every box the caller may not use, and
+        what kind 4 does not stop, in MASTER §9.8's and SCOPE E2's terms.
+      - **§4.5, §4.7, §5.1.2 and §7.4:** notes on the two codes kind 4 widens; the rendezvous limits
+        bind kind 4 where §5.1's check 4 is built, and the cap alone binds at the server's own
+        endpoint; the shape check takes kind 4's sizes; and the sweep reclaims kind 4's rows, which
+        every arm already answers as unknown ones.
+      - **§10.2:** the link box's two keys, and `reject_floor_ms`.
+      - **§11.1, §11.2 and decision B11:** `deposit_hash`, a link box's card and its two pinned
+        keys, never logged, and unprintable types for them.
+      - **§12.1:** a note on row A-18, and the A-1 surface restating Spec A's A-36 lines.
+      - **§13:** tests 42 to 51, the acceptance tests of the plan's Tasks 18 to 20; and a note on
+        open item 10's sizing.
+    - **What this item freezes beyond items 299 and 300.** Each is frozen from this commit, and
+      changing one is a spec change with its own entry. Where the From column says "this item",
+      the choice is this item's, made within the bound its source sets.
+
+      | What | Frozen value | From |
+      |---|---|---|
+      | The migrations | 013 `message_rendezvous` and 014 `message_rendezvous_deposit`, appended after 012, with `kind` and `public_ct`; the designed 011 never lands | the plan's Tasks 5 and 18; `store/migrations.go` |
+      | Kind 4's named checks | `message_rendezvous_kind` (kind 4); `message_rendezvous_link_box` (no `card_xwing_pub`, a card present and of 4,124 octets, `alg_id` 0x0014); `message_rendezvous_link_box_deposits` (at most two over a box's life); `message_rendezvous_deposit_size` (17,526 octets); `message_rendezvous_deposit_id` (deposit ids at most 2) | this item, so that R widens each by a migration of its own |
+      | Capabilities 26 and 29 | `rendezvous_deposit_sizes`, in I1 `[17526]`; `rendezvous_kinds`, a bit per kind, in I1 16, the link box alone; both leave kind 4 out while it is not served; 27 and 28 kept for R's | the plan's Task 7; the design for IDs and requests numbers them |
+      | The link box's limits | a TTL of 600 seconds, never refreshed; at most 2 deposits over its life, a number 013 holds; a cap on live boxes, 10,000 [a], that fails closed, counted by Q20, which registrations in flight together may pass | the plan's Task 5 [a]; SCOPE S1's depth of 2, taken over a box's life; this item for the cap's number |
+      | Its answers | Register: the same key and card, `REASON_OK`, changing nothing; any other row at the id, `REASON_REJECTED`; no row and the cap full or its count unreadable, `REASON_CARD_RATE_LIMITED`; any kind but 4, `REASON_REJECTED`. Open, Deposit, Collect and Retire: an unknown, retired, expired or unauthorized box, `REASON_CARD_RETIRED`, one size, padded to the floor; a third deposit, `REASON_CARD_RATE_LIMITED` | the plan's Tasks 5 and 19; this item for the codes |
+      | The configuration | `link_box_ttl_seconds` and `link_box_live_cap`; `reject_floor_ms`, 0 by default, which serves no kind-4 arm, and where kind 4 is served at least its slowest refusal path as measured, 25 ms [a] as the api tests use | this item, within the plan's "behind a non-zero reject floor" |
+      | The acceptance tests | §13's 42 to 51 | the plan's Tasks 18 to 20; this item for test 51 |
+
+    - **Choices the plan left open, made here.**
+      - **A link box is not kept alive.** The card's registration refreshes on a repeat and on
+        every collect; a link box's TTL is fixed at registration, so that a box lives 10 minutes,
+        as the plan has it, and no client can hold one open.
+      - **Register has one rule of its own,** checked before the cap, and it answers a holder of the
+        id whether a box stands there. Only a holder of the code has the id, and Open already
+        answers that holder, so §4.3.11 states it among what kind 4 does not stop.
+      - **An unauthorized request answers as an unknown box does,** on the four arms after Register.
+        The card's design answered a failed signature with §4.5's merged `REASON_REJECTED` and an
+        unknown id with `REASON_CARD_RETIRED`, which would tell a prober that an id exists, and the
+        design for IDs and requests keeps that for its kinds. Kind 4 answers all four alike, as the
+        plan's Task 19 Property 2 states; R, which extends these handlers, keeps this for kind 4 or
+        changes it with an entry of its own.
+      - **Two deposits over a box's life, not two waiting.** SCOPE S1 says a depth of 2, and the
+        plan's Task 19 counts against the box's depth. A box serves one addition, so two deposits
+        leave one retry, and nothing needs a third. The count is a number 013 holds, not a key.
+      - **The tombstone lasts until the box's expiry,** not the card's tombstone time: every offer
+        makes a new code, so no device asks for a link box's id again.
+      - **The floor's key and its rule.** The server has `api.Config.RejectFloor` and no key that
+        sets it, so it pads nothing today. `reject_floor_ms` is that key. It defaults to 0, which
+        serves no kind-4 arm, and where kind 4 is served it must cover the slowest of the refusals
+        it pads; test 51 holds the first half.
+      - **The checks are named,** and the live boxes have a partial index, so that R widens the
+        checks and counts the boxes without editing 013.
+    - **What it does not do.** No code: the plan's Tasks 18 to 20 build it, on this writer's branch
+      of the server, after the library's Task 7 lands the proto. Spec A and Spec C are untouched
+      here. No build of I1 serves the contact card, kind 0, or R's kinds 1 to 3. Spec B's header,
+      which names its revision 6, and its state row for this spec, which names revision 6 too, are
+      left as they stand, as every revision since 6 has left them.
+    - **Open.**
+      - **The library's Task 7** starts the day Tasks 4 and 5 have landed, and the server's Task 18
+        consumes its commit (the plan).
+      - **The deploy sets `reject_floor_ms`,** at least the slowest refusal path it measures, and
+        Task 20's deploy note says so; until it does, no kind-4 arm is served.
+      - **Test 51 is this item's, not the plan's.** The plan's Task 19 gains its property and two
+        mutants: a kind-0 registration accepted, and kind 4 served at a zero floor.
+      - **Owed to Spec A, by a later edit of its own:** its out-table row A-18 says nothing of kind
+        4, which Spec B's A-18 now notes; and its A-1 block lacks ruling 27's seven names, which
+        Spec B's block has, against A-1's "restated character-for-character" (Task 5's review, its
+        F9 and F10). Neither is this commit's, which changes Spec B alone.
+      - **The filed SCOPE's legend** still says that R61 and R62 came after the rulings its Inputs
+        name, while its E2 now cites R64. The next refile of SCOPE corrects the legend (Task 5's
+        review, its E2).
+      - **The pull request** opens once the owner has merged the plan's (R62).
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
@@ -31207,5 +31295,128 @@ before the push:
 
 **Reviewed by:** pending, by the lead's direction. Task 5's subagent diff review covers this commit
 as well as Task 5's, and Task 5's entry, for item 301, records what it finds here.
+
+It cites no run of itself: the pull request's body cites the runs on its head.
+
+### 2026-10-16 — Item 301: Spec B's revision 25, the link box
+
+**Change:** Spec B, `docs/specs/2026-08-12-spec-b-message-server-operator.md`, takes its revision
+25 in thirty-one places, its edit log's entry among them. This ledger gains item 301 and this
+entry. No other spec, no plan and no code changes.
+
+#### 1. What it was made on
+
+- **The branch** `specs/identity-phase1`, at `dd2d1c5a`, the R64 refile (the previous entry), after
+  Task 4's `c2b598a0`. Spec B there is Spec B at this repository's `main` `37dd710f`: no commit of
+  either branch has touched it.
+- **The sources:** the plan's Tasks 5, 7 and 18 to 21; SCOPE's E1 to E7 and S1; LRI R63 and R64;
+  MASTER's Revision 10, §5.4 and §9.8; Spec A's A-36, §5.14 and §12.1; the design for IDs and
+  requests, its §2.4, §2.5 and §3.1, and its first version's §3.1; and this repository's own
+  `store/migrations.go`, `api/api.go`, `endpoint/endpoint.go` and `cmd/message-server/config.go`.
+- **The siblings,** each at the commit `scripts/siblings.txt` pins, and clean; **the host,** as
+  the previous entries.
+
+#### 2. The thirty-one edits
+
+Made by a script of this entry's own, each old text asserted to occur exactly once, or a line found
+by a prefix that occurs once, and nothing else of Spec B changes: the script, applied to the branch
+head's Spec B, gives this commit's file byte for byte. Spec B grows from 4,260 lines to 4,442. Each
+addition says it is revision 25's, except the A-1 lines of §12.1, which restate Spec A's and so say
+A-36; and each overtaken sentence is kept, with a note.
+- **The parent pin, and the state table's baseline row:** revision 10, by R63.
+- **The edit log:** revision 25's entry.
+- **Decision B11, and open item 10:** notes, on the unprintable types and on kind 4's sizing.
+- **§3.2, two places:** a note on the designed migration 011; and the tables as they land, 013
+  and 014.
+- **§3.3, three places:** Q17 and Q18 notes, and the new Q20, the count of live boxes.
+- **§4.3.1, two places:** Capabilities 26 and 29; and a note on the card's four values.
+- **§4.3.11, eight places:** Task 7's fields in the registration, in Open's answer and in Deposit's;
+  notes where kind 4 changes the comments of the registration and its answer, of Open's answer, of
+  the deposit and of Collect and its answer; and kind 4, the link box.
+- **§4.5:** a note on the two codes kind 4 widens.
+- **§4.7:** the rendezvous limits and kind 4.
+- **§5.1.2, two places:** kind 4's shape; and what bounds its registrations.
+- **§7.4:** the sweep and kind 4.
+- **§10.2:** the link box's keys, and `reject_floor_ms`.
+- **§11.1 and §11.2, two places:** `deposit_hash`, the card and the box's keys, never logged, and
+  unprintable.
+- **§12.1, two places:** a note on row A-18; and the A-1 surface, restating Spec A's A-36 lines.
+- **§13:** tests 42 to 51.
+
+#### 3. The gates
+
+Run on the committed history of this entry, under go1.27.2, beside the four siblings at their pins,
+before the push:
+- `go test ./ -count=1 -run 'TestTheEditLogGate|TestThePlanLinter' -v`: the edit-log gate's six
+  tests and the linter's seven pass, and none fails. No plan changes, so the linter prints the
+  previous entry's counts. The gate's ledger arm prints 73 of 96, where the previous commit left
+  72 of 95, since this commit changes Spec B and appends this entry; and Spec B's own log holds an
+  entry for it, revision 25.
+- `go test ./ -count=1`, the whole root package: `ok`.
+
+#### 4. What this does not do
+
+- It changes no code: the plan's Tasks 18 to 20 build the link box at the server.
+- It changes no other spec. What Spec A owes, its out-table's A-18 and ruling 27's names in its A-1
+  block, is item 301's Open.
+- It does not open the pull request, which the lead opens once the owner has merged the plan's.
+
+**Reviewed by:** an independent subagent's diff review of 2026-10-16, made before this commit, as
+the plan's Task 5 Step 2 directs. By the lead's direction (R64) the same review covered the R64
+refile, `dd2d1c5a`, which the previous entry left pending. It was read-only on every repository, by
+a reviewer that wrote none of these files or entries, and it worked on the change uncommitted, by
+its sha256 at its start and at its end, which were the same: Spec B `b44acd26…` and this ledger
+`15a7fcb4…`, the state before its findings were taken. It read the plan, SCOPE, LRI R62 to R64,
+Spec B's every touched section, Spec A's §5.14 and §12.1, MASTER §5.4 and §9.8, items 298 to 301,
+the design for IDs and requests at §3.1, and the server code the text cites. It replayed the Spec B
+script byte for byte, checked the refile forward from the lead's sources with controls, ran the
+gates and the root package, and searched both changes' added lines for local paths and secrets,
+with controls that fired. It applied the landed migrations and 013 and 014 to a throwaway
+PostgreSQL cluster it made in its own notes folder, probed each check, then stopped the cluster
+and deleted it. It disclosed that it read a memory note holding a local connection string, and did
+not use, copy or print it.
+
+**Its verdict.** All ten of Task 5's Step 1 items are present, and the R64 refile holds. It made 24
+findings: no BLOCKER, 3 MAJOR, 9 MINOR and 12 NIT. **All 22 of Part 1 are taken in this commit,
+each where it stands; of Part 2's two, E1 needs no fix and E2 is carried to the next refile:**
+- **MAJOR F1:** 013's link-box check let a box with no card in, since a check passes on NULL, as its
+  probe showed. The check now requires the card.
+- **MAJOR F2:** Register now has one rule of its own, checked before the cap, and the single answer
+  is scoped to Open, Deposit, Collect and Retire. What Register tells a holder of the id is stated,
+  and tests 46 and 47 follow.
+- **MAJOR F3:** the cap holds all linking for as long as a client keeps registering, not for ten
+  minutes; and since §5.1's check 4 is not built, and the server's own endpoint mints a `client_id`
+  per TLS session, the cap alone binds registrations there. §4.3.11, §4.7 and §5.1.2 say so.
+- **MINOR F4:** the server-finds-the-code case names what the leaf gives and the emoji's odds, as
+  MASTER §9.8 and Spec A §5.14 do.
+- **MINOR F5:** the floor must cover the slowest refusal path, defaults to 0, which serves no kind-4
+  arm, and has a deploy value; Capabilities 26 and 29 leave kind 4 out while it is unserved.
+- **MINOR F6:** notes where kind 4 changes the card's proto comments, Q18 and §4.5's two codes.
+- **MINOR F7:** two deposits over a box's life, and a tombstone until its expiry, are recorded as
+  choices; a third deposit's answer is stated; the count is a number 013 holds, not a key.
+- **MINOR F8:** "live" is defined, Q20 counts the live boxes, and a cap passed by registrations in
+  flight is stated.
+- **MINOR F9 and F10:** Spec A's out-table row and ruling 27's names in its A-1 block are owed by
+  Spec A, in item 301's Open; Spec B's A-19 row is folded into a note on A-18.
+- **MINOR F11:** B11 and §11.2 add `DepositHash` and the box's card and keys to the unprintable
+  types.
+- **MINOR F12:** test 51 is item 301's, and item 301's Open gives the plan's Task 19 its property
+  and two mutants.
+- **NIT F13 to F22:** the card is stored external; the prose says the card's KEM key is absent, as
+  NULL; deposit ids are held to 2; the shape check's sizes are I1's, not a kind's; the wording of
+  "as unknown ones" and of the registration's bound is fixed; this entry says the A-1 lines say
+  A-36; the A-1 comment is Spec A's, character for character; the registration's fields 8 to 10
+  and Collect's 6 are kept for R; open item 10 gains kind 4's sizing; and item 301 says its
+  unauthorized answer departs from the design's.
+- **Part 2, NIT E1:** "Task 4 is accepted" is the lead's word, in its message on R64; no fix.
+  **NIT E2:** the filed SCOPE's legend predates R64's citation in its E2; carried to the next
+  refile of SCOPE, in item 301's Open.
+
+Two things it found outside this change, which this commit leaves as they stand: Spec B's line 25
+names a local folder, as it has since its first revision; and `cmd/message-server/config.go` cites
+§4.3.7 for the rendezvous keys, which are §4.3.11's.
+
+The two gates this ledger answers to pass on the finished text: TestTheEditLogGate, 6 tests, and
+TestThePlanLinter, 7 tests, and so does the rest of the root package (§3).
 
 It cites no run of itself: the pull request's body cites the runs on its head.
