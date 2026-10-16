@@ -117,6 +117,7 @@ Append-only. Newest last. One entry per commit that changes this spec. Every cha
 | 2026-10-14 | A-34 | **Item 296's diff review: its one finding against this spec is taken** (ledger item 296; the lead's ruling R23). §7.3's bullet "The join's window, and its one sentence" gains the case it left out: a refusal inside the window whose join code could not be put back is `ErrJoinCodeSpent`, and does not begin with `ErrJoinRefused`'s sentence, as `Device.Join`'s deferred exit answers when putting the join code back fails. MASTER §0, §7, §7.3 and §13 are corrected in the same commit. No wire byte, no server rule, no record and no other section of this spec changes. |
 | 2026-10-16 | A-35 | **§7.3's R12 bullet states the leave rule T1 ships** (ledger item 297's review, its F1; the lead's ruling R47). It said that `ForgetGroup` leaves any group that did not restore without the owner's question, which is the rule the hardening plan's Task 57 found fail-open and T1 replaced (the lead's rulings R26, R29, R30, R33 and R34). It now says that a record the store read and found wrong is refused at the gate as held, and any other failed read by its class (`ErrGroupRecordNotReadNow`, `ErrGroupReadUnproven`); that `ForgetGroup` leaves a group without the question only on a fresh verdict that its data is proven permanently damaged, and refuses a fresh transient or unproven failure "so nothing was left"; and that every erase names an authority true of every file it takes. It is what `forget.go` and `heldgroup.go` do at `urnetwork/message` `c7501a19`, and what Spec C §9.11 says of the app (row 12), so the two specs agree. Spec C row 13 is in the same commit. No wire byte, no server rule, no record and no other section of this spec changes. |
 | 2026-10-16 | A-36 | **The identity layer's first phase, I1: MASTER's Revision 10 brought into this spec** (ledger item 300; the identity plan's Task 4; the lead's ruling R63). §3.1 gains the rows of `urmessage_identity` (0xF005) and `urmessage_group_purpose` (0xF006). §3.4 gains the required capabilities, which A-33's 0xF004 had already left short, and the identity extensions: their field sets, the binding check's order, the list's version and the chain's check. §5.14 gains the link box, kind 4: the code's derivations, the sealed card, the 17,526-octet deposit, the registration's `kind` and card in its preimage, and what a server that finds the code can do. §6 gains four methods, so the interface is 8 engine and 37 handle methods, which the block takes when the code lands. §7.2 and §7.5 gain the identity calls, the phrase change's and the device calls as they ship, and say which designed calls they overtake; four overtaken sentences elsewhere, in §7.2's reasons, §7.2.1, §8.6 and §12.2's C11, gain notes. §7.3 states the erase authorities, with (a)L, (a)E, (f), (f)P, (g) and (i) new. §8.1 gains store kinds 11 to 13 and their names; a new §9.3a lists the exports that ship for I1; §12.1 gains the link box's two sizes and the registration's two fields. The parent pin and the baseline row move to revision 10. |
+| 2026-10-16 | A-37 | **Two notes owed since Spec B's revision 25; ruling 27's stale comments corrected; and the phrase's fold and its in-memory residual stated** (ledger item 301's Open; Task 5's review, its F9 and F10; this edit's review, its F2, F4 and F6; the lead's rulings R66 and R68, R68's from the review of the identity plan's Tasks 8 to 10, its findings L1-2, L1-5, L3-6 and L3-7). §12.1's A-1 block takes ruling 27's names, which Spec B's copy carries and this copy never took, and the block's lead line and a note after it say that the two copies now differ only where each cites a section. Two of ruling 27's comments, stale since 2026-09-23, are corrected in both copies, and `ErrEpochKeysDigestPresence`, which no function on this surface returns, leaves both under A-9's rule. §5.11's paragraph on the two doors says that check 3's serves all six kinds, and its measurement of the stale-peer split is dated. The out-table's row A-18 gains the link box's note, as Spec B's row A-18 has. §7.2 names the phrase's fold, NFKD at Unicode 17.0.0 with white space as Unicode's White_Space property gives it, as MASTER §5.1 now does, and a new §8.4a states what an erase of the phrase's secrets does not reach, measured, which MASTER §5.2 now points to. |
 
 ---
 
@@ -2369,12 +2370,15 @@ with the real kind `0x0001` attachment as the positive control in the same test
 **stale server** refuses loudly at Spec B §5.1 check 3 instead of installing an epoch whose keys it was
 never handed, while a **stale receiver** follows the commit correctly, because no receive path in
 `connect` or `sdk` reads a single field of an `EpochAttachment`: it hashes the octets and nothing
-more.
+more. *(A-37: measured on the record layer as it stood before 2026-09-23, when it widened check
+3's door to kind `0x0005`, after ruling 33 put the epoch keys on the request. A stale server's
+record layer predates that, and the test is now `TestARecordCarriesAKindADoorRefusesByName`.)*
 
 **`connect/message` has two doors, and which kinds each serves is one map per door.**
-`EncodeServerAttachment` / `ParseServerAttachment` are §5.1 check 3's door and serve the five kinds
-above; `EncodeEpochDigestAttachment` / `ParseEpochDigestAttachment` are the sixth kind's door and
-serve only it. The codec, the body table and the well-formedness check are **one** set of code
+`EncodeServerAttachment` / `ParseServerAttachment` are §5.1 check 3's door and serve all six kinds
+above *(A-37: since the record layer widened this door on 2026-09-23, after ruling 33 put the epoch
+keys on the request; this read "serve the five kinds above")*; `EncodeEpochDigestAttachment` / `ParseEpochDigestAttachment` are the sixth
+kind's door and serve only it, refusing the other five by name. The codec, the body table and the well-formedness check are **one** set of code
 behind both, so the two doors cannot come to disagree about what an attachment is.
 `NewEpochDigestAttachment` is how a committer builds one: it reads the epoch **once**, from the body
 it is building, so an attachment whose `epoch` field and whose digest's `opens_epoch` disagree is
@@ -3871,8 +3875,13 @@ over nothing.
 - **`Device.ConfirmWords(words)`,** with all 25 typed back, makes the identity: key number 1, the
   first base naming this device as a phrase device, the account ID's salt, and the self group,
   founded with 0xF006 `{1, root}`. It stores the identity record, the heads and the phrase key
-  (§8.1) before it founds the self group. Input is normalized as MASTER §5.1 says; a wrong word is
-  named by its position and nothing is corrected.
+  (§8.1) before it founds the self group. Input is normalized as MASTER §5.1 says: NFKD at Unicode
+  17.0.0, held to the toolchain's `unicode.Version`, lowercased, with white space as Unicode's
+  White_Space property gives it separating the words *(A-37)*. `messagegroup` folds one code point
+  at a time by a table generated from that edition's NFKD, and the table's header states the rule
+  it was generated by, so that any implementation can regenerate it; moving to another edition is
+  a deliberate change with its own vectors, as §7.4a says of the reactions' edition. A wrong word
+  is named by its position and nothing is corrected.
 - **`Device.Identity()`** answers the account ID, of 36 characters; this device's ID, of 19; the
   devices with their marks; whether this device is a phrase device; the notices; the alarm; and the
   number of phrase changes. Until an identity exists, every call that needs one answers
@@ -5850,6 +5859,32 @@ decrypt it, and that the expired row's `sender_handle` is sixteen zero bytes in 
 and in the WAL (§8.3a). That single test is the difference between the feature working and the
 feature being a UI label.
 
+### 8.4a What an erase does not reach: a phrase's secrets in memory
+
+*(A-37; the lead's ruling R68, from the review of the identity plan's Tasks 8 to 10, its findings
+L1-2 and L3-6.)* MASTER §5.2 says that the words, `S`, `master_key`, `isk_root` and IRK's private
+half exist only while a ceremony runs, and are erased at its end. `messagegroup` is to erase every
+copy of them its own source keeps, and its phrase-secret census to hold that dataflow (the identity
+plan's Task 10), once R68's fix round lands: the same review found the census blind inside
+package-local callees, its L1-1, and the words' slice the caller's to clear, its L1-6. **No erase
+reaches the copies the package does not make, and Go cannot promise zeroed memory.** Those copies
+are Argon2id's 256 MiB of working memory, which is a function of P34; the SHA-256, BLAKE2b
+and HMAC states and pads, which are not byte slices the package can reach; the buffers of
+`crypto/hkdf` and `crypto/ed25519`; and the runtime's own stack frames, moved arrays and freed
+heap. A typed word is a Go string, and is not erased at all.
+
+**Measured** by that review, on the library at `41699987` (the identity plan's Task 10, on its
+branch `identity/i1`), with a scan of the process's committed memory after one ceremony and the
+phrase's erase: copies of P34, `S`, `master_key` (in the two HMAC pads it is XORed into), IRK's
+seed, `isk_root` and `isk_seed[g]` remained, and every one of them survived `runtime.GC()` and
+`debug.FreeOSMemory()`. A key number the ceremony never derived was found nowhere, which is the
+scan's control.
+
+So whoever can read the process's memory after a ceremony, or a crash dump, page file or
+hibernation file written from it, may recover `isk_root`, and with it mint the next key number,
+which MASTER §5.2 says no device keeps the means to do. The erase is the best the language allows,
+and this is what it leaves.
+
 ### 8.6 The PIN, and what it actually protects
 
 A PIN is **optional** and, when set, is a genuine second factor rather than a screen the UI puts in
@@ -6350,7 +6385,7 @@ it**. `github.com/urnetwork/connect/messagegroup` holds the key schedule, both r
 session, the sealer, X-Wing, the wraps and the MLS adapter, and Spec B §2.2's allow list does not
 carry it, so a server that reached for one of them fails the message server's own dependency gate by
 name rather than by review. This table is the single published version of that surface and is
-restated character-for-character in Spec B §12.1 (A-1):
+restated character-for-character in Spec B §12.1 (A-1) *(A-37: but for two section cites, as the note after the block says)*:
 
 ```go
 // ── records ────────────────────────────────────────────────────────────────
@@ -6388,6 +6423,23 @@ func ClassIsPrunable(c RetentionClass) bool
 func ParseServerAttachment(b []byte) (*ServerAttachment, error)
 func EncodeServerAttachment(a *ServerAttachment) ([]byte, error)
 
+// the sixth kind's own door, and the server's half of ruling 27. Added 2026-09-22
+// under A-9's rule. Since the record layer widened it on 2026-09-23, after ruling 33
+// put the epoch keys on the request, check 3's door, ParseServerAttachment, serves
+// kind 0x0005 with the other five, and the door below serves 0x0005 alone and
+// refuses the other five by name.
+// The two doors share one codec, one body table and one well-formedness check, so
+// they cannot disagree about what an attachment is. CheckEpochKeysDigest is the ONLY
+// way the server is permitted to answer "are these the two keys this digest is
+// over" -- a local recomputation of the preimage is the second implementation A-1
+// forbids, and it would also be choosing, unsupervised, which of the three epochs
+// live at that call site goes into it. The epoch is the attachment's own and is
+// deliberately not a parameter; the group IS a parameter, because the body has no
+// home for one and must not get one (see §5.4's epoch_keys block).
+func ParseEpochDigestAttachment(b []byte) (*EpochDigestAttachment, error)
+func CheckEpochKeysDigest(groupId [32]byte, d *EpochDigestAttachment,
+                          writeKey []byte, readKey []byte) error
+
 // ── contact rendezvous (§5.14) ─────────────────────────────────────────────
 func RendezvousId(token []byte) [32]byte
 func DepositVerifyKey(token []byte) ([]byte, error)                            // Ed25519 public
@@ -6411,15 +6463,19 @@ func LinkDepositBytes() int                                                    /
 // ── exported types ─────────────────────────────────────────────────────────
 type Record, RecordHeader, RetentionClass, SizeBucket,
      ServerAttachment, EpochAttachment, RecoveryTag, WrapTag, EpochComplete,
-     ServerAttachmentKind,
+     EpochDigestAttachment, ServerAttachmentKind,
      RendezvousRegistration, RendezvousCollectParams
 
 // and the discriminator's five values. Added 2026-08-26: without them a server held to
 // this surface can tell an EpochAttachment from a RecoveryTag only by testing the four
 // body pointers for nil, never by the discriminator §5.11 itself defines — and §5.1
-// check 3 requires exactly that discrimination on every submit.
+// check 3 requires exactly that discrimination on every submit. A SIXTH was added
+// 2026-09-22 by ruling 27, and it is needed for the same reason and one more: §5.1
+// check 3's "an epoch attachment of either kind iff is_commit" is a disjunction over
+// two of these constants, and a server that could not name the sixth would write the
+// clause on the first alone — which ADMITS a 0x0005 attachment on a non-commit record.
 const AttachmentNone, AttachmentEpoch, AttachmentRecovery,
-      AttachmentWrap, AttachmentComplete ServerAttachmentKind
+      AttachmentWrap, AttachmentComplete, AttachmentEpochDigest ServerAttachmentKind
 
 // ── refusals ───────────────────────────────────────────────────────────────
 // Sentinels, wrapped with %w at each site that has a value worth naming, so
@@ -6447,7 +6503,29 @@ var ErrServerAttachmentNoneEncoded error // an encoded kind 0x0000 arrived; an a
 var ErrServerAttachmentFieldLength error // a field is not the exact width §5.11 gives it
 var ErrServerAttachmentAlgId       error // an alg_id the kind does not name
 var ErrExpectedWrapCountZero       error // an EpochAttachment expecting no wraps at all
+
+// ruling 27's, added 2026-09-22 under the same A-9 rule. ErrEpochKeysDigestMismatch
+// is the one the server acts on at §5.1 check 3, and it is a REFUSAL of the
+// submission: the record is well formed and does not bind the keys its submitter
+// sent. ErrServerAttachmentKindNotServed is this server's own defect rather than a
+// client's: since check 3's door was widened to kind 0x0005 on 2026-09-23, it is
+// reached only at the sixth kind's door, handed one of the five kinds that door does
+// not serve. CheckEpochKeysDigest answers an error and not a bool so that a mismatch
+// and a malformed key stay apart -- answering "no" to a key the server failed to
+// look up would report an attacker where there is a bug. Ruling 27's third,
+// ErrEpochKeysDigestPresence, is not on this surface: only NewEpochDigestAttachment
+// returns it, a committer's constructor this surface does not hold, and A-9's rule
+// keeps a sentinel no published function can return off this block.
+var ErrServerAttachmentKindNotServed error // a kind this DOOR does not serve. It is
+                                           // NOT ErrServerAttachmentKindUnknown: the
+                                           // octets are a well-formed attachment of a
+                                           // kind the package defines, and the refusal
+                                           // names which of the two doors answered
+var ErrEpochKeysDigestMismatch       error // the two keys handed beside a record are
+                                           // not the ones its digest is over
 ```
+
+*(A-37: ruling 27's names, `ParseEpochDigestAttachment` and `CheckEpochKeysDigest` with the comment on the sixth kind's door, the type `EpochDigestAttachment`, the constant `AttachmentEpochDigest` with the comment on the sixth kind, and the errors `ErrServerAttachmentKindNotServed` and `ErrEpochKeysDigestMismatch` with their comment, are restated in the block above from Spec B §12.1's copy, which carried them where this copy did not. Two of those comments had gone stale against the code since 2026-09-23, when the record layer widened check 3's door to kind `0x0005` after ruling 33 put the epoch keys on the request, and both copies are corrected together: the door's comment said that `ParseServerAttachment` refuses that kind, and the errors' comment gave `ErrServerAttachmentKindNotServed` as check 3's refusal, where the code's is `ErrEpochKeysDigestMismatch`. Spec B's copy also listed `ErrEpochKeysDigestPresence`, which only `NewEpochDigestAttachment` returns, a committer's constructor this surface does not hold, so A-9's rule keeps it off both copies. `message/attachment.go` and `message/errors.go` at `urnetwork/message` `0bb2128f` declare each name in the block so, and state the facts from which the corrected comments follow. The two copies now differ only in how each cites a section: the rendezvous header's and §5.9's.)*
 
 The server gets verifiers and no signers, and no function that opens a deposit — a sealing or
 opening function on this surface would be a decryption capability in the process that holds the
@@ -6591,7 +6669,7 @@ consumes, with owners and slices:
 | A-15 | The delivery-receipt record: `EPH(bucket 0)`, never persisted, fanned out on the transient channel exactly as read receipts are | §7.4 | A6 |
 | A-16 | The reaction body encoding: `LP(emoji_utf8)`, one extended grapheme cluster, validated against a pinned Unicode version on both sides | §5.1, §7.4a | A6 |
 | A-17 | The two-sentinel `durable_ttl_seconds` encoding, and the rule that the server applies its own advertised default on the unset sentinel | §5.11 | A6 |
-| A-18 | The contact-card encoding, the rendezvous derivations, the sealed deposit at its exact length, and the five rendezvous signature preimages with their verifiers | §5.14 | A6 |
+| A-18 | The contact-card encoding, the rendezvous derivations, the sealed deposit at its exact length, and the five rendezvous signature preimages with their verifiers *(A-37: and the link box's, kind 4: its registration, with `kind` and its card inside the preimage, and its two sizes, `LinkCardBytes` and `LinkDepositBytes`; §5.14 and §12.1, A-36.)* | §5.14 | A6 |
 
 ### 12.2 To the Windows messaging client (Spec C)
 

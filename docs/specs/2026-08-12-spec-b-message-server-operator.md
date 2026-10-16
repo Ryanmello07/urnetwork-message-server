@@ -22,7 +22,7 @@ Notation follows the master spec: `LP(x)` = 32-bit **big-endian** length prefix 
 | Branch for protocol code | `beta/message` on the `connect` and `sdk` forks (not yet created) |
 | Blocking on | Nothing. The `server_attachment` amendment is **RULED and adopted** (§5.4) and is applied in MASTER §8/§8.3/§9.2 and Spec A §5.1/§5.11 |
 
-Verified against the checked-out trees at `C:\Users\ryanm\Downloads\claude_sandbox_message\{server,connect,sdk}`:
+Verified against checked-out trees of `server`, `connect` and `sdk`, in local clones, which the paths below begin with *(revision 26: this line named the clones' folder on the writer's machine; the repository's history keeps it)*:
 
 - `server/go.mod` is `github.com/urnetwork/server`, Go 1.26.5, with `jackc/pgx/v5 v5.10.0`, `redis/go-redis/v9 v9.22.0`, `minio/minio-go/v7 v7.2.1`, `prometheus/client_golang v1.24.1`.
 - `server/db.go` exposes `Db`/`Tx`/`MaintenanceDb`/`MaintenanceTx`/`ReplicaDb`, `WithPgResult`, `RaisePgResult`, `BatchInTx`, and the `PgConn`/`PgTx`/`PgResult` aliases. Pools are configured from vault resource `pg.yml` and config resource `db.yml`.
@@ -740,6 +740,21 @@ change, as A-1 requires; and §13 gains tests 42 to 51, the acceptance tests of 
 to 20. Notes mark what kind 4 changes in the card's own text: its proto comments, Q18, §4.5's two
 codes, B11, §11.2 and open item 10. The parent pin and the baseline row move to revision 10. No
 landed migration is edited.
+
+**Revision 26 — 2026-10-16 — a local folder's path neutralized, ruling 27's stale comments
+corrected, and row A-18's note moved** (the lead's rulings R66 and R68, R68's on this revision's
+review, its F2; the review's F7). The line that says what this spec was verified against named,
+from this spec's first revision, the folder on the writer's machine that held the three
+checked-out trees. It now names the trees and not the folder; the repository's history keeps the
+old line, and nothing rewrites it. Since 2026-09-23, when the record layer widened check 3's door
+after ruling 33 put the epoch keys on the request, its `ParseServerAttachment` serves kind
+`0x0005` with the other five, so §5.1 check 3's sentence on the two doors is corrected, with a note keeping what it
+read; §5.4's measurement of the stale-peer split is dated; and in §12.1's A-1 block the door's
+comment is corrected, the errors' comment names `ErrEpochKeysDigestMismatch` as check 3's refusal,
+and `ErrEpochKeysDigestPresence`, which only `NewEpochDigestAttachment` returns, leaves the block
+under A-9's rule, as it leaves Spec A's copy in A-37. §12.1's row A-18 had revision 25's note in
+its third column, which says why the item must come from Spec A; the note moves, unchanged, to the
+second, which names the item. Nothing else changes.
 
 ---
 
@@ -2527,7 +2542,7 @@ Order matters for denial of service, not just correctness. Nothing that costs a 
 |---|---|---|---|
 | 1 | Frame decodes; fragment reassembly within `max_request_bytes` | CPU, bounded | `REASON_OVERSIZE`, free buffer |
 | 2 | Connection is authenticated at the connect layer (`ByJwt` validated by the platform; §4.3 master). The `server_nonce` is **not** carried in the request — the server knows its own connection's nonce and looks it up from the connection, never from the request | memory | `REASON_REJECTED` |
-| 3 | **Static shape.** `octet_length(sender_handle)==16`, `body_hash`==32, `retention_class` and `size_bucket` in range, **`eph_window` is zero unless the retention-class wire byte is 17..21, and for 17..21 it is within ONE window of the window this record's own arrival stamp falls in — `floor(create_time_ms / (eph_bucket_seconds[b] × 1000))` — in either direction, else `REASON_REJECTED` (§7.1, Spec A requirement S19, added revision 20; **no carve-out for a wrap record, and the `eph_root` device wrap is `EPH(5)` with an unruled window — ledger open item 185, §7.1**)**, `expire_at` parses, `ct_head` ≤ head cap, and **`octet_length(ct_body)` is exactly `size_bucket_bytes[b] + 16`** (the AEAD tag) — equality, not a range, because §9.5 pads into buckets. `size_bucket == 5` requires `ct_body` absent and a 32-byte `blob_id` present in the parsed header; any other `size_bucket` requires `blob_id` absent. Both are read from `message.ParseRecord`, never from the request's projection alone. And `server_attachment` parses — via `message.ParseServerAttachment` for the five kinds §5.11 defines, and via `message.ParseEpochDigestAttachment` for kind `0x0005` alone, which is that kind's own door because the first one refuses it by name (`ErrServerAttachmentKindNotServed`) — and is well-formed for its record kind. **AMENDED 2026-09-22 BY RULING 27 (§5.4): a commit may carry kind `0x0001` `EpochAttachment` OR kind `0x0005` `EpochDigest`, on the dated acceptance window §5.4 states, and the clauses below are written per kind.** **An epoch attachment of EITHER kind iff `is_commit`** — stated as the disjunction and never as `0x0001` alone, because `(kind == AttachmentEpoch) != is_commit` **ADMITS a `0x0005` attachment on a NON-commit record**: `0x0005` is not `AttachmentEpoch`, so `false != false` passes, and an iff written on one kind silently becomes a one-way implication the day a sixth kind exists. **Common to both kinds:** `epoch == current_epoch + 1`, known `alg_id`, retention fields in range — both `durable_ttl_seconds` sentinels, `0` and `4294967295`, are legal values here and are resolved at §6.1 step (6), never refused — a 32-byte `group_context_hash`, and `expected_wrap_count > 0`. **Kind `0x0001` additionally:** `write_key` exactly 32 bytes, `read_key` exactly 32 bytes — **different in every epoch, and therefore never compared against a previously installed one**. **Kind `0x0005` additionally:** `epoch_keys_digest` exactly 32 bytes; the request carries an `epoch_keys` delivery positionally ALIGNED with this record (§4.3.3, §4.3.2), holding two 32-byte keys; and `H(epoch_keys)` recomputed over those two keys, this request's own verified `group_id` and **the attachment's own `epoch` field** equals the digest the attachment carries. That recomputation is `message.CheckEpochKeysDigest` and is **never** a local rebuild of the preimage (§12.1 A-1, A-2), which is also why the epoch is the attachment's rather than a parameter: three epochs are live at that call site — the record header's, the attachment's, and this server's own `current_epoch + 1` — and a wrong choice among them type checks. The comparison is constant-time and a mismatch is `REASON_REJECTED`. **That comparison is I6 satisfied by EQUALITY WITH THE ACCEPTANCE PATH and not by a new authenticator:** `LP(H(server_attachment))` is already inside the `write_auth` preimage check 7 verifies, so the MAC covers the attachment, the attachment covers the digest, and the digest covers the keys — altering either key fails the comparison and altering the digest fails check 7. `RecoveryTag` with a 16-byte handle and a 32-byte Ed25519 pub; `WrapTag` with a 16-byte target; `EpochComplete` with a matching `wrap_count`. Every projection field of `Record` equals the corresponding field of `ParseRecord(record_bytes)` (§4.3.3) — and neither epoch key is a projection field, nor could be: a key is by construction not implied by a projection of `record_bytes`, which is the whole of why ruling 33 puts them on the request. **Three of the clauses above are the SERVER's and not the parser's, stated 2026-08-26 because the list reads as though `message.ParseServerAttachment` answers all of them and it can answer none of these three:** `epoch == current_epoch + 1` and `EpochComplete` matching its epoch's `expected_wrap_count` both need group state the attachment does not carry, and **an epoch attachment of either kind iff `is_commit`** needs the record header beside the attachment. `connect/message` validates every clause that is a property of the attachment's own bytes and deliberately makes none of these three — a codec that reached for `current_epoch` would be a codec with a database. The server makes them here, in check 3, from state it already holds; none costs a read. **Under kind `0x0005` there is a FOURTH clause that is the server's, and it is the digest comparison** — `connect/message` computes and compares it, but only the server holds the request the keys arrived on, so only the server can call it | CPU | `REASON_OVERSIZE` / `REASON_REJECTED` |
+| 3 | **Static shape.** `octet_length(sender_handle)==16`, `body_hash`==32, `retention_class` and `size_bucket` in range, **`eph_window` is zero unless the retention-class wire byte is 17..21, and for 17..21 it is within ONE window of the window this record's own arrival stamp falls in — `floor(create_time_ms / (eph_bucket_seconds[b] × 1000))` — in either direction, else `REASON_REJECTED` (§7.1, Spec A requirement S19, added revision 20; **no carve-out for a wrap record, and the `eph_root` device wrap is `EPH(5)` with an unruled window — ledger open item 185, §7.1**)**, `expire_at` parses, `ct_head` ≤ head cap, and **`octet_length(ct_body)` is exactly `size_bucket_bytes[b] + 16`** (the AEAD tag) — equality, not a range, because §9.5 pads into buckets. `size_bucket == 5` requires `ct_body` absent and a 32-byte `blob_id` present in the parsed header; any other `size_bucket` requires `blob_id` absent. Both are read from `message.ParseRecord`, never from the request's projection alone. And `server_attachment` parses — via `message.ParseServerAttachment`, which serves all six kinds §5.11 defines *(revision 26: since the record layer widened this door to kind `0x0005` on 2026-09-23, after ruling 33 put the epoch keys on the request; this read "for the five kinds §5.11 defines, and via `message.ParseEpochDigestAttachment` for kind `0x0005` alone, which is that kind's own door because the first one refuses it by name (`ErrServerAttachmentKindNotServed`)")* — and is well-formed for its record kind. **AMENDED 2026-09-22 BY RULING 27 (§5.4): a commit may carry kind `0x0001` `EpochAttachment` OR kind `0x0005` `EpochDigest`, on the dated acceptance window §5.4 states, and the clauses below are written per kind.** **An epoch attachment of EITHER kind iff `is_commit`** — stated as the disjunction and never as `0x0001` alone, because `(kind == AttachmentEpoch) != is_commit` **ADMITS a `0x0005` attachment on a NON-commit record**: `0x0005` is not `AttachmentEpoch`, so `false != false` passes, and an iff written on one kind silently becomes a one-way implication the day a sixth kind exists. **Common to both kinds:** `epoch == current_epoch + 1`, known `alg_id`, retention fields in range — both `durable_ttl_seconds` sentinels, `0` and `4294967295`, are legal values here and are resolved at §6.1 step (6), never refused — a 32-byte `group_context_hash`, and `expected_wrap_count > 0`. **Kind `0x0001` additionally:** `write_key` exactly 32 bytes, `read_key` exactly 32 bytes — **different in every epoch, and therefore never compared against a previously installed one**. **Kind `0x0005` additionally:** `epoch_keys_digest` exactly 32 bytes; the request carries an `epoch_keys` delivery positionally ALIGNED with this record (§4.3.3, §4.3.2), holding two 32-byte keys; and `H(epoch_keys)` recomputed over those two keys, this request's own verified `group_id` and **the attachment's own `epoch` field** equals the digest the attachment carries. That recomputation is `message.CheckEpochKeysDigest` and is **never** a local rebuild of the preimage (§12.1 A-1, A-2), which is also why the epoch is the attachment's rather than a parameter: three epochs are live at that call site — the record header's, the attachment's, and this server's own `current_epoch + 1` — and a wrong choice among them type checks. The comparison is constant-time and a mismatch is `REASON_REJECTED`. **That comparison is I6 satisfied by EQUALITY WITH THE ACCEPTANCE PATH and not by a new authenticator:** `LP(H(server_attachment))` is already inside the `write_auth` preimage check 7 verifies, so the MAC covers the attachment, the attachment covers the digest, and the digest covers the keys — altering either key fails the comparison and altering the digest fails check 7. `RecoveryTag` with a 16-byte handle and a 32-byte Ed25519 pub; `WrapTag` with a 16-byte target; `EpochComplete` with a matching `wrap_count`. Every projection field of `Record` equals the corresponding field of `ParseRecord(record_bytes)` (§4.3.3) — and neither epoch key is a projection field, nor could be: a key is by construction not implied by a projection of `record_bytes`, which is the whole of why ruling 33 puts them on the request. **Three of the clauses above are the SERVER's and not the parser's, stated 2026-08-26 because the list reads as though `message.ParseServerAttachment` answers all of them and it can answer none of these three:** `epoch == current_epoch + 1` and `EpochComplete` matching its epoch's `expected_wrap_count` both need group state the attachment does not carry, and **an epoch attachment of either kind iff `is_commit`** needs the record header beside the attachment. `connect/message` validates every clause that is a property of the attachment's own bytes and deliberately makes none of these three — a codec that reached for `current_epoch` would be a codec with a database. The server makes them here, in check 3, from state it already holds; none costs a read. **Under kind `0x0005` there is a FOURTH clause that is the server's, and it is the digest comparison** — `connect/message` computes and compares it, but only the server holds the request the keys arrived on, so only the server can call it | CPU | `REASON_OVERSIZE` / `REASON_REJECTED` |
 | 4 | **Rate limits** (§4.7), including the §9.6 quarantine check | Redis / DB | `REASON_RATE_LIMITED` |
 | 5 | **Known-group filter.** An in-memory cuckoo filter of every `group_id`. An unknown group is rejected here with **no database read**. See the insert path below — the timer is a backstop only | memory | `REASON_REJECTED` |
 | 6 | **Epoch key lookup.** In-process LRU keyed `(group_id, epoch)`; miss reads `message_epoch` once, unwraps under the `kek_id` in the row, caches. Negative results cached 5 s with jitter. The **current** epoch's key and one briefly-retired predecessor both resolve (§5.3) | memory / 1 read | `REASON_REJECTED` |
@@ -2850,7 +2865,10 @@ every kind §5.11's door DOES serve going through the identical record round tri
 ACCEPTED as the positive control in the same test — and a **stale receiver**
 follows the commit correctly, because no receive path in `connect` or `sdk` reads a single field of
 an epoch attachment: it hashes the octets and nothing more. That property is what makes the window
-a rollout rather than a flag day.
+a rollout rather than a flag day. *(Revision 26: measured on the record layer as it stood before
+2026-09-23, when it widened check 3's door to kind `0x0005`, after ruling 33 put the epoch keys on
+the request. A stale server's record layer predates that, and the test is now
+`TestARecordCarriesAKindADoorRefusesByName`.)*
 
 `server_attachment` is **zero-length** for ordinary records, and a zero-length attachment and an `AttachmentNone` attachment MUST encode identically, or `H(server_attachment)` differs between client and server for every ordinary record.
 
@@ -4181,7 +4199,7 @@ Metric: `message_diagnostic_sessions_active` (gauge). Acceptance test 31 (§13) 
 | A-15 | The `EPH(0)` delivery-receipt record | §4.3.3, §7.6 — indistinguishable from any other transient, which is the point |
 | A-16 | The reaction body encoding | §4.3.3 — opaque inside `ct_body`; nothing here validates it |
 | A-17 | The two-sentinel `durable_ttl_seconds` encoding | §5.4, §6.1 step (6), §7.1, §7.3 branch on it directly |
-| A-18 | The contact-card encoding, the rendezvous derivations, the sealed deposit at its exact length, and the five rendezvous signature preimages with their verifiers | §4.3.11 has no authenticator without them, and by **I6** the server may act on nothing it cannot verify. The server links the verifiers and never a signer, and gets no function that opens a deposit *(Revision 25: and the link box's, kind 4: its registration, with `kind` and its card inside the preimage, and its two sizes, `LinkCardBytes` and `LinkDepositBytes`; Spec A §5.14 and §12.1, A-36.)* |
+| A-18 | The contact-card encoding, the rendezvous derivations, the sealed deposit at its exact length, and the five rendezvous signature preimages with their verifiers *(Revision 25: and the link box's, kind 4: its registration, with `kind` and its card inside the preimage, and its two sizes, `LinkCardBytes` and `LinkDepositBytes`; Spec A §5.14 and §12.1, A-36.)* | §4.3.11 has no authenticator without them, and by **I6** the server may act on nothing it cannot verify. The server links the verifiers and never a signer, and gets no function that opens a deposit |
 
 The A-1 surface, in full:
 
@@ -4222,16 +4240,18 @@ func ParseServerAttachment(b []byte) (*ServerAttachment, error)
 func EncodeServerAttachment(a *ServerAttachment) ([]byte, error)
 
 // the sixth kind's own door, and the server's half of ruling 27. Added 2026-09-22
-// under A-9's rule. ParseServerAttachment refuses kind 0x0005 by name, so a server
-// that must accept it reaches for the door below; the two doors share one codec,
-// one body table and one well-formedness check, so they cannot disagree about what
-// an attachment is. CheckEpochKeysDigest is the ONLY way the server is permitted
-// to answer "are these the two keys this digest is over" -- a local recomputation
-// of the preimage is the second implementation A-1 forbids, and it would also be
-// choosing, unsupervised, which of the three epochs live at that call site goes
-// into it. The epoch is the attachment's own and is deliberately not a parameter;
-// the group IS a parameter, because the body has no home for one and must not get
-// one (see §5.4's epoch_keys block).
+// under A-9's rule. Since the record layer widened it on 2026-09-23, after ruling 33
+// put the epoch keys on the request, check 3's door, ParseServerAttachment, serves
+// kind 0x0005 with the other five, and the door below serves 0x0005 alone and
+// refuses the other five by name.
+// The two doors share one codec, one body table and one well-formedness check, so
+// they cannot disagree about what an attachment is. CheckEpochKeysDigest is the ONLY
+// way the server is permitted to answer "are these the two keys this digest is
+// over" -- a local recomputation of the preimage is the second implementation A-1
+// forbids, and it would also be choosing, unsupervised, which of the three epochs
+// live at that call site goes into it. The epoch is the attachment's own and is
+// deliberately not a parameter; the group IS a parameter, because the body has no
+// home for one and must not get one (see §5.4's epoch_keys block).
 func ParseEpochDigestAttachment(b []byte) (*EpochDigestAttachment, error)
 func CheckEpochKeysDigest(groupId [32]byte, d *EpochDigestAttachment,
                           writeKey []byte, readKey []byte) error
@@ -4300,12 +4320,18 @@ var ErrServerAttachmentFieldLength error // a field is not the exact width §5.1
 var ErrServerAttachmentAlgId       error // an alg_id the kind does not name
 var ErrExpectedWrapCountZero       error // an EpochAttachment expecting no wraps at all
 
-// ruling 27's, added 2026-09-22 under the same A-9 rule. The first is the one the
-// server acts on at §5.1 check 3 and it is a REFUSAL of the submission; the second
-// and third are this server's own defects rather than a client's, and telling them
-// apart is why CheckEpochKeysDigest answers an error and not a bool -- answering
-// "no" to a key the server failed to look up would report an attacker where there
-// is a bug.
+// ruling 27's, added 2026-09-22 under the same A-9 rule. ErrEpochKeysDigestMismatch
+// is the one the server acts on at §5.1 check 3, and it is a REFUSAL of the
+// submission: the record is well formed and does not bind the keys its submitter
+// sent. ErrServerAttachmentKindNotServed is this server's own defect rather than a
+// client's: since check 3's door was widened to kind 0x0005 on 2026-09-23, it is
+// reached only at the sixth kind's door, handed one of the five kinds that door does
+// not serve. CheckEpochKeysDigest answers an error and not a bool so that a mismatch
+// and a malformed key stay apart -- answering "no" to a key the server failed to
+// look up would report an attacker where there is a bug. Ruling 27's third,
+// ErrEpochKeysDigestPresence, is not on this surface: only NewEpochDigestAttachment
+// returns it, a committer's constructor this surface does not hold, and A-9's rule
+// keeps a sentinel no published function can return off this block.
 var ErrServerAttachmentKindNotServed error // a kind this DOOR does not serve. It is
                                            // NOT ErrServerAttachmentKindUnknown: the
                                            // octets are a well-formed attachment of a
@@ -4313,9 +4339,11 @@ var ErrServerAttachmentKindNotServed error // a kind this DOOR does not serve. I
                                            // names which of the two doors answered
 var ErrEpochKeysDigestMismatch       error // the two keys handed beside a record are
                                            // not the ones its digest is over
-var ErrEpochKeysDigestPresence       error // NewEpochDigestAttachment was handed a body
-                                           // whose digest was already filled in
 ```
+
+*(Revision 26: two of ruling 27's comments in the block above, stale since 2026-09-23, are corrected,
+and `ErrEpochKeysDigestPresence`, which only `NewEpochDigestAttachment` returns, leaves it under
+A-9's rule, as it leaves Spec A's copy in A-37.)*
 
 The server may use **only** this surface. It gets no decryption function, no key-schedule function, and no MLS type. The rendezvous group is **verifiers only**: no signer and no function that opens a deposit, because a sealing or opening function on this surface would be a decryption capability in the process that holds the mailbox. A test in the message-server repo asserts the allowlist.
 

@@ -561,6 +561,18 @@ a note where it stands, and the old texts of §5.2's tree and §5.4's steps are 
 the new ones. Ledger item **299** records the revision and its registry; Spec A and Spec B follow
 in commits of their own.
 
+**Amendment to revision 10 — 2026-10-16 — §5.1 and §5.2: the phrase's fold named, and the erase's
+residual pointed to.** Not a new revision: no format, code point or key changes, and the fold
+named is the one the library's single implementation already makes and its tests already hold.
+*(1)* **§5.1** names the normalization exactly: NFKD at Unicode 17.0.0, the edition of the pinned
+toolchain's `unicode` package, with white space as Unicode's White_Space property gives it. Its
+text named neither, so a second implementation could read exotic input differently, though no
+phrase the library makes is affected, since every word is `a` to `z`. *(2)* **§5.2**'s "erased at
+its end" is qualified: the erase is the best the language allows, and what it does not reach,
+measured, is stated in Spec A §8.4a. Both come from the review of the identity plan's Tasks 8 to
+10, its findings L1-2, L1-5, L3-6 and L3-7, and the lead's ruling R68. Spec A's A-37 is the same
+commit, and the ledger's §7 entry for it records both.
+
 ## 1. Purpose and product target
 
 URmessage is a private messenger built on the URnetwork mesh. It reuses URnetwork's transport and
@@ -733,7 +745,10 @@ phrase = the 275 bits P ‖ CS8, as 25 × 11-bit indices, most significant bit f
 ```
 
 The phrase is shown once when it is made, typed back in full, and **never stored**. Input is
-normalized: NFKD, lowercase, whitespace collapsed. A word not in the list is named by its position,
+normalized: NFKD at Unicode 17.0.0, the edition of the pinned toolchain's `unicode` package, which
+the library's tests hold its fold to; lowercase; and white space, as Unicode's White_Space property
+gives it, collapsed *(amendment of 2026-10-16: this read "NFKD, lowercase, whitespace
+collapsed")*. A word not in the list is named by its position,
 and a checksum that fails says that one or more words are wrong. **Nothing is ever corrected:** there
 is no search for a likely word, so a wrong word is never guessed into a right one. About one
 single-word slip in 256 passes the checksum, and the words check of §5.5 refuses it before it
@@ -758,7 +773,9 @@ master_key
 
 **Only `isk_seed[g]` is ever kept**, and only on a **phrase device**, for the current identity key
 and key number g. The words, `S`, `master_key`, `isk_root` and IRK's private half exist only while a
-ceremony runs, and are erased at its end. A phrase device that removes itself, or ends its identity,
+ceremony runs, and are erased at its end, as far as the language allows: what an erase does not
+reach, with its measured scope, is stated in Spec A §8.4a *(amendment of 2026-10-16)*. A phrase
+device that removes itself, or ends its identity,
 erases `isk_seed[g]` first, and does neither while that erase fails (§5.5). No device keeps
 `isk_root`, so a device that holds `isk_seed[g]` cannot mint key number g+1. IRK and ISK_g open no
 group, decrypt nothing and appear in no wrap, so they are not group-usable secrets, and **I3** holds.

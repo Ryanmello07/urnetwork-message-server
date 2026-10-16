@@ -14169,14 +14169,22 @@ repo and therefore the critical path — not this repository:
     R63 as well: R48 to R63 are filed, R63's sentence is below, and each annotation says it is
     the refile's.)* *(Annotated again by the R64 refile, after Task 4's commit: it files R64 and
     SCOPE's corrected E2, so R48 to R64 are filed, and R64's sentence is below.)* *(And by the R65
-    refile, after Task 5's commit: R48 to R65 are filed, and R65's sentence is below.)*
+    refile, after Task 5's commit: R48 to R65 are filed, and R65's sentence is below.)* *(And
+    by the R66 commit, after the R65 refile: R48 to R69 are filed, R66 with its addendum, and
+    the sentences of R66 to R69 are below.)*
     - **What the plan is.** The implementation plan of the identity layer's first phase, written
       by the lead's planning round and revised in place three times: by its finalizer, for the red
       team dated 2026-10-15; by its reviser, for the owner's answer that the phrase change is built
       in phase 1; and by Task 2's finalizer, for Task 2's red team. The lead then corrected its
       slice-4 report and the note to the owner (R61), and then four findings of Task 1's review in
       it, in LRI and in REDTEAM-TASK2, with SCOPE's store kinds and Task 8's forward costs in the
-      plan's Tasks 12, 13 and 26 (R62). *(The last clause is added by R62's refiling.)*
+      plan's Tasks 12, 13 and 26 (R62). *(The last clause is added by R62's refiling.)* *(The
+      R66 commit refiles it as R66, its addendum and R68 revised it. From R66: Task 19 gains
+      Property 6, Spec B's test 51, with its mutants MR11 and MR12; Task 20's deploy note names
+      `reject_floor_ms`; the gate table puts the phrase-secret census in `messagegroup`; and the
+      counts move to 143 mutants. From R68, the review of the library's Tasks 8 to 10: Task 10's
+      Property 1, Task 12's three duties, Task 14's single-word check, Task 26's scene, and the
+      gate and promise tables.)*
       - **The owner's order** is the identity layer, then IDs and requests (the plan calls that
         build R), then finding people by their URnetwork name (OWN:485, quoted below).
       - **What I1 builds:** a 25-word recovery phrase and the identity key made from it; a key and
@@ -14189,7 +14197,8 @@ repo and therefore the critical path — not this repository:
       - **Its size, as its Counts give it:** 45 tasks, with ids 1 to 45, 6b and 38b, of which 35
         and 37 are retired; 26 commits to `urnetwork/message`, 10 to this repository and 5 to
         `urnetwork/message-windows`; 17 adversary scenarios; and 141 mutants, 116 of the library,
-        10 of the server and 15 of the app.
+        10 of the server and 15 of the app. *(143 since R66, which gives the server MR11 and
+        MR12: 116, 12 and 15. Annotated by the R66 commit.)*
       - **Five slices:** 0, an optional preview of the screens with made-up data; then 1 to 4, each
         ending in a session with the owner: 1, "Your ID" on one device; 2, a second device by code
         and emoji; 3, remove, lock out and make a phrase device; 4, the phrase change. The plan
@@ -14255,7 +14264,7 @@ repo and therefore the critical path — not this repository:
       beside the plan. They continue the series whose R33 to R47 items 295 to 297 cite. Each, in a
       sentence *(the heading read "R48 to R61", and R62's sentence is added by its refiling)*
       *(and R63's by the E1 and E4 refile, and R64's by the R64 refile)* *(and R65's by the R65
-      refile)*:
+      refile)* *(and R66's to R69's by the R66 commit)*:
       - **R48.** The bases: this repository's `main` is `37dd710f`, which carries T1's ledger close;
         the library's is `c7949cfd`; the app's is `badf2e2c` until urnetwork/message-windows#7
         merges, then `main`; and the S3 branch is the lead's dispatch to the app's one writer. The
@@ -14347,6 +14356,49 @@ repo and therefore the critical path — not this repository:
         the review, the gates' rows go to the review row by row, and from here on no code is
         spelled around a gate; and Task 11 starts, with items 299 and 300 and Spec A's A-36 as
         its normative sources for formats and labels.
+      - **R66.** On Task 5 and the server's open items *(added by the R66 commit)*: it reads
+        the six commits of Tasks 3 to 5 and the three refiles, each green with its checkout
+        proven and every review finding taken; the plan's Task 19 gains Property 6, Spec B's
+        test 51, that no rendezvous kind but 4 is served, and no arm while the reject floor is
+        zero (the plan's Property 6 says "no kind-4 arm", from the R66 commit's review, its
+        L2), with MR11 and MR12, so that slice 2 holds 40 mutants and the plan 143; Task 20's
+        deploy note says that the deploy sets `reject_floor_ms`; the gate table puts the
+        phrase-secret census in `messagegroup`; this repository's writer makes one small commit
+        before the specs' pull request, with Spec A's two owed notes, Spec B's line 25
+        neutralized, SCOPE's legend and the refile of the plan and LRI, and leaves the wrong
+        section cite at `config.go:282`, and at :176 and :179, to Task 19, which edits those
+        lines; the library does Task 7 right after its Task 11, and the server's Task 18 may
+        start its storage now, tests first, and commits the pin first, the day Task 7 is
+        pushed; and the specs' pull request opens once message-server#12 merges. Its addendum,
+        on this writer's note, makes the plan's two count lines give the server 12 mutants, and
+        widens MR11 to drop the kind check, so that kind 0, the proto's default, is served as
+        well as kinds 1 to 3.
+      - **R67.** The conversation list's live run, restated *(added by the R66 commit)*: no JWT
+        goes into GitHub, as a secret or otherwise; the app and livepeer both run on the
+        runner by the direct route, with no account, the rig relaying the codes and the
+        invitations between them both ways, and nothing runs or is staged on the alpha's box;
+        the app's pin is T1's tree or a descendant whose protocol packages are unchanged, which
+        the rig checks and prints; the rig's logs print digests, never a code or an invitation
+        whole; and the list still lands with R.
+      - **R68.** On the independent review of the library's Tasks 8 to 10 *(added by the R66
+        commit)*: no BLOCKER, with every known answer recomputed by an implementation
+        independent of the writer's, and four MAJOR findings among the rest; R65's item 4 is
+        answered, since `messagegroup` gains signing methods on `*PhraseKeys`, so that no
+        private half leaves the package, and `WithPhraseKeys` takes a set of key numbers;
+        W-lib's fix round comes before Task 12; the plan's Tasks 10, 12, 14 and 26 and its gate
+        and promise tables are amended; this repository's writer amends Spec A §7.2 and §8 and
+        MASTER §5.1 and §5.2, naming the phrase's fold and stating what an erase of its secrets
+        does not reach; and the stale A-1 comments that the R66 commit's review found, its F2,
+        are corrected in that commit, in both specs, with `ErrEpochKeysDigestPresence` off both
+        blocks, and `api/epochkeys.go`'s comment carried to Task 19.
+      - **R69.** The server pins the library's fork through `scripts/siblings.sh`'s own
+        exception *(added by the R66 commit)*: Task 7's commit exists only on the fork
+        `Ryanmello07/urmessage`, so Task 18's pin commit lists that exact URL as a review
+        source, moves the self-test's case for it from refused to listed, and pins `message`
+        there at `e8eaad66`; the server's pull request may open while the pin is a fork,
+        saying in its first line that it merges only after I1's library pull request has;
+        before it is ready, a commit moves the line back to `urnetwork` at the merged commit
+        and deletes the review source; and no other source is added this way without a ruling.
     - **The rows X1 to X14,** SCOPE's departures from M5's identity step, the owner's decisions
       and the first design, as ruled:
       - **X1,** taken: no security delay in I1, so a removal acts at once, with the delay to come
@@ -14476,12 +14528,18 @@ repo and therefore the critical path — not this repository:
         keys under file permissions only, until the second phase.
       - **§5.1:** the recovery phrase, 25 words of the BIP-39 English list holding 267 random bits
         and an 8-bit checksum; typed back in full, never stored, never repaired: a wrong word is
-        named and nothing is corrected. It replaces the 24-word mnemonic.
+        named and nothing is corrected. It replaces the 24-word mnemonic. *(The amendment to
+        revision 10, in the R66 commit, names the input's fold: NFKD at Unicode 17.0.0, held to
+        the toolchain's `unicode` package, with white space as Unicode's White_Space property
+        gives it (R68).)*
       - **§5.2:** one Argon2id stretch, then `master_key`, the identity key IRK, `isk_root` and the
         phrase's key ISK_g for each key number g; only `isk_seed[g]` is kept, on phrase devices
         only; the account ID and the device ID, over the root; neither the recovery keys nor
         `card_root` derived in I1; and the tree as it read before, kept whole beneath the new one,
         so that every sentence citing `rk_xwing`, the KT log or the seed keeps its referent.
+        *(The same amendment qualifies the erase of the words, `S`, `master_key`, `isk_root`
+        and IRK's private half as the best the language allows, and points to Spec A §8.4a,
+        which states what it does not reach, measured (R68).)*
       - **§5.3:** `urmessage_identity` (0xF005) on every leaf but a link group's profile-1 leaf,
         carrying the certificate, the device list and the chain; `urmessage_group_purpose` (0xF006)
         in a system group's context, naming the root in a self group and the current key in a link
@@ -14766,19 +14824,30 @@ repo and therefore the critical path — not this repository:
       left as they stand, as every revision since 6 has left them.
     - **Open.**
       - **The library's Task 7** starts the day Tasks 4 and 5 have landed, and the server's Task 18
-        consumes its commit (the plan).
+        consumes its commit (the plan). *(R66 orders it: right after the library's Task 11 and
+        before its Task 12. Annotated by the R66 commit, as are the five notes below.)*
       - **The deploy sets `reject_floor_ms`,** at least the slowest refusal path it measures, and
-        Task 20's deploy note says so; until it does, no kind-4 arm is served.
+        Task 20's deploy note says so; until it does, no kind-4 arm is served. *(R66 writes it
+        into Task 20's Step 4.)*
       - **Test 51 is this item's, not the plan's.** The plan's Task 19 gains its property and two
-        mutants: a kind-0 registration accepted, and kind 4 served at a zero floor.
+        mutants: a kind-0 registration accepted, and kind 4 served at a zero floor. *(R66 and its
+        addendum give it to Task 19 as Property 6, with MR11, the kind check dropped, so that
+        kind 0 or kinds 1 to 3 are served as kind 4 is, and MR12, the arms served at a zero
+        floor, both killed by `TestOnlyKindFourIsServedAndNothingWithAZeroFloor`.)*
       - **Owed to Spec A, by a later edit of its own:** its out-table row A-18 says nothing of kind
         4, which Spec B's A-18 now notes; and its A-1 block lacks ruling 27's seven names, which
         Spec B's block has, against A-1's "restated character-for-character" (Task 5's review, its
-        F9 and F10). Neither is this commit's, which changes Spec B alone.
+        F9 and F10). Neither is this commit's, which changes Spec B alone. *(Both are paid by
+        Spec A's A-37, in the R66 commit: row A-18 gains the link box's note, and the A-1 block
+        takes ruling 27's names, so that it differs from Spec B's copy only where each cites a
+        section. Two of ruling 27's comments, stale since 2026-09-23, are corrected in both
+        copies there, and `ErrEpochKeysDigestPresence` leaves both, by the lead's ruling on that
+        commit's review, its F2 (R68).)*
       - **The filed SCOPE's legend** still says that R61 and R62 came after the rulings its Inputs
         name, while its E2 now cites R64. The next refile of SCOPE corrects the legend (Task 5's
-        review, its E2).
-      - **The pull request** opens once the owner has merged the plan's (R62).
+        review, its E2). *(Corrected by the R66 commit, which names R64 there.)*
+      - **The pull request** opens once the owner has merged the plan's (R62). *(That is
+        message-server#12, R66 says.)*
 
 ## 6. Change process
 
@@ -31487,5 +31556,230 @@ three are taken in this commit:** the rulings' bullet's note for R63 and R64 is 
 with R65's beside it; R65's sentence says that the NFKD table is accepted in principle, and that
 items 299 and 300 and A-36 are Task 11's normative sources for formats and labels; and §2 above
 says that 315 lines were the R64 refile's source.
+
+It cites no run of itself: the pull request's body cites the runs on its head.
+
+### 2026-10-16 — The lead's R66 and R68: Spec A's A-37, Spec B's revision 26, MASTER's amendment, and three files refiled
+
+**Change:** Spec A gains its row A-37, Spec B its revision 26, and MASTER an amendment to revision
+10, each directed by the lead's rulings R66 and R68 before this branch's pull request opens. Three of
+the six files item 298 filed are refiled from the lead's sources: the plan, as R66, its addendum and
+R68 revised it; `LEAD-RULINGS-I1.md`, which gains R66 with its addendum, R67, R68 and R69; and
+`SCOPE.md`, whose source is unchanged and whose legend now names R64. The other three are unchanged,
+byte for byte. Items 298, 299 and 301 are annotated where they stand. No code changes.
+
+#### 1. Why
+
+R66 reads Task 5 and the three refiles before it, and directs one small commit on this branch:
+- Spec A's two notes owed since Spec B's revision 25, which item 301's Open records from Task 5's
+  review, its F9 and F10: its out-table's row A-18 says nothing of kind 4, and its A-1 block lacks
+  ruling 27's names, which Spec B's copy has, against A-1's "restated character-for-character";
+- Spec B's line 25, which has named a local user folder since the spec's first revision,
+  neutralized in the current text, with no rewrite of history;
+- the filed SCOPE's legend, which named R61 and R62 alone among the rulings after its Inputs,
+  while its E2 cites R64 (item 301's Open; Task 5's review, its E2);
+- and the refile of the plan and LRI at whatever their hashes are when the commit is made.
+
+Two more came while it was made. This commit's own review found ruling 27's comments in both A-1
+blocks stale against the code, its F2, and the lead ruled them corrected here, in both copies
+together, and not carried; R68's closing section records that ruling. And R68, on the independent
+review of the library's Tasks 8 to 10, directs a spec amendment from that review's findings L1-2,
+L1-5, L3-6 and L3-7, which the lead put in this same commit: the phrase's fold named in MASTER §5.1
+and Spec A §7.2, and what an erase of the phrase's secrets does not reach stated in Spec A §8, with
+MASTER §5.2 pointing to it.
+
+#### 2. The specs
+
+- **Spec A, A-37.**
+  - **§12.1's A-1 block takes ruling 27's names** from Spec B §12.1's copy, where the door, the
+    constant and the errors are marked as added on 2026-09-22 under ruling 27: `ParseEpochDigestAttachment`
+    and `CheckEpochKeysDigest`, after the comment on the sixth kind's door; the type
+    `EpochDigestAttachment`, among the exported types; the constant `AttachmentEpochDigest`, after
+    five lines on the sixth kind; and the errors `ErrServerAttachmentKindNotServed` and
+    `ErrEpochKeysDigestMismatch`, with their comment, at the block's end.
+  - **Ruling 27's stale comments, corrected in both copies.** They are staleness from before I1.
+    Ruling 33, of 2026-09-22, put the epoch keys on the request, and on 2026-09-23 the record layer
+    widened check 3's door, `ParseServerAttachment`, to kind `0x0005`: it serves that kind with the
+    other five (`message/errors.go:124-130` and `message/attachment.go:252-262`, at
+    `urnetwork/message` `0bb2128f`, the commit `scripts/siblings.txt` pins).
+    - The door's comment said that check 3's door refuses `0x0005` by name. It now says that the
+      door serves it, and that the sixth kind's door serves `0x0005` alone.
+    - The errors' comment gave the first of its three, `ErrServerAttachmentKindNotServed`, as check
+      3's refusal. The code's one refusal is `ErrEpochKeysDigestMismatch` (`errors.go:181-200`),
+      and the comment now names it.
+    - `ErrEpochKeysDigestPresence` is returned only by `NewEpochDigestAttachment`
+      (`attachment.go:485-489`), a committer's constructor that neither block holds. A-9's rule
+      gives a line to a sentinel a published function can return, and none to one that no
+      published function returns, so it leaves both blocks.
+  - **The two copies, compared.** One script copies Spec B's lines into the same places, and the
+    next two apply the corrections to both copies and compare them line by line. They are 135
+    lines of Go each, and differ in two lines alone, where each cites a section in its own terms:
+    the rendezvous header's `(§5.14)` against `(§4.3.11, Spec A §5.14)`, and `§5.9` against
+    `Spec A §5.9`. `message/attachment.go` and `message/errors.go` declare each name in the block
+    so. The block's lead line, which says the copies are character for character, gains a note
+    that says this, and a note after the block says what it took and what it corrected.
+  - **§5.11.** Its paragraph on the two doors said that check 3's serves "the five kinds above". It
+    now says all six, with a note keeping what it read. Its measurement of the stale-peer split keeps
+    its text, and gains a note dating it before the widening and naming the test as it is now,
+    `TestARecordCarriesAKindADoorRefusesByName` (`message/attachment_test.go:3093`).
+  - **§7.2 names the phrase's fold** (R68; L1-5 and L3-7): NFKD at Unicode 17.0.0, held to the
+    toolchain's `unicode.Version`, with white space as Unicode's White_Space property gives it.
+    That is the header of `messagegroup/phrase_nfkd.go` on the library at `41699987`, made
+    normative. `messagegroup/phrase_test.go:352` holds the table's edition to `unicode.Version`.
+  - **A new §8.4a states what an erase of the phrase's secrets does not reach** (R68; L1-2 and
+    L3-6). These are the copies the runtime and the primitives make, measured by that review on the
+    library at `41699987`, and all of them survive `runtime.GC()` and `debug.FreeOSMemory()`; the
+    scan's control is a key number never derived. It also says what the library's own erase and its
+    census are to cover once R68's fix round lands, since the same review found the census blind
+    inside package-local callees, its L1-1, and the words' slice the caller's to clear, its L1-6.
+    The census, `messagegroup/phrasesecretgate_test.go`, and the plan's promise table already cited
+    "Spec A §8" for this residual, which §8 did not state.
+  - The out-table's row A-18 gains the link box's note, in the words of Spec B's row A-18, and the
+    log gains row A-37.
+- **Spec B, revision 26.**
+  - Line 25 named the folder on the writer's machine that held the three trees the spec was
+    verified against. It now names the trees, `server`, `connect` and `sdk`, as local clones, which
+    the paths below it begin with, and a note says what it named. The repository's history keeps
+    the old line, and nothing rewrites it.
+  - §5.1 check 3's sentence on the two doors is corrected, with a note keeping what it read. §5.4's
+    measurement of the stale-peer split gains the dating note. §12.1's A-1 block takes the same
+    corrections as Spec A's, and a note after it says so.
+  - §12.1's row A-18 had revision 25's note in its third column, which says why the item must come
+    from Spec A. The note moves, unchanged, to the second, which names the item (this commit's
+    review, its F7).
+  - The edit log gains revision 26.
+- **MASTER, an amendment to revision 10.** §5.1's normalization names the fold, as Spec A §7.2
+  does. §5.2's "erased at its end" is qualified, and points to Spec A §8.4a. §0 records the
+  amendment. It is not a new revision, by R63's rule: no format, code point or key changes, and the
+  fold named is the one the library's single implementation already makes.
+- **The search.** None of the three specs holds a local path, by a search whose planted control
+  fired in the same run. The same search over Spec B as this branch's head has it finds line 25 and
+  no other line.
+
+#### 3. The sources, and the refiling
+
+- **The sources,** as the lead's scratch folder held them at 18:49:
+  - the plan `135d7a67…`, of 1,552 lines, where the R65 refile's source, `90d090e7…`, had 1,548;
+  - LRI `d872223a…`, of 489 lines, where `ad74213c…` had 351;
+  - SCOPE `7f5ce2bf…`, FOR-OWNER `526ddd86…`, REDTEAM `b265796d…` and REDTEAM-TASK2 `a30bee9d…`, the
+    R65 refile's sources.
+- **What changed in them.**
+  - **In the plan,** R66's edits, each marked R66: Task 19's Property 6, the test in its Step 1, and
+    its mutants MR11 and MR12; Task 20's deploy note on `reject_floor_ms`; the mutation table's Task
+    19 row; the gate table's census row; the count table's slice-2 and total mutants, 40 and 143; and
+    the counts' paragraph.
+  - Then the addendum's: the Size line's server mutants, 12, and the counts' paragraph's breakdown
+    of 143; and MR11, widened to drop the kind check, so that kind 0 is served as well as kinds 1
+    to 3.
+  - Then the lead's corrections on this commit's review: Property 6 says "no kind-4 arm", its L2;
+    and Task 2's "What else" line notes the 143, its L3.
+  - Then R68's, each marked R68: the promise table's residual; Task 10's Property 1; Task 12's three
+    duties; Task 14's single-word check; Task 26's scene; and the gate table's census row.
+  - **In LRI,** R66 with its addendum, R67, R68 and R69 are appended, and nothing before them
+    changes. R66 names all three `config.go` lines for Task 19, which is this commit's review's L1.
+- **The refiling.** Each file takes the same edits as before, by the same edit list, but for three
+  legends and one path edit more, 22 edits in all:
+  - the plan's legend names R65, R66 and R68 beside R61 and R62, the rulings after its Inputs that
+    its text cites;
+  - SCOPE's names R64 beside R61 and R62;
+  - LRI's names the plan as R68 left it, of 1,552 lines where R61 read 1,545. It says that a `PLAN:`
+    line in LRI is of the plan its ruling read, without the legend. So R65's `:148` is line 148 of
+    the plan as filed. R66's addendum's `:1395` and `:1488` are lines 1,396 and 1,489, since R68
+    added a line after line 493. Each is two lines further down in the filed copy. It also says that
+    `identity-phase1/review-t8-t10/FINDINGS.md`, which R68 cites, is in the lead's scratch folder and
+    not filed. Each line claim was checked against the source and the filed copy.
+  - R68 names a local clone's path, which takes the filing's label: "the review's local clone of
+    `urnetwork/message-server`". The edits remove 17 local paths where they removed 16. R69 names
+    none.
+
+  The filed copies: the plan `ff7a1080…`, of 1,554 lines, where it was `07803171…`, of 1,550;
+  SCOPE `e5f3247f…`, of 363, where it was `1907dd6d…`; and LRI `082de056…`, of 491, where it was
+  `59e5ec8c…`, of 353.
+- **The proof.** Each of the six filed files, reversed through its recorded edits, gives its source
+  byte for byte, and a line diff of source and filed copy touches only the lines the edits name;
+  the proof's three controls each fail it. None of the six holds a local path, by a search whose
+  planted control fired in the same run.
+
+#### 4. The plan linter
+
+The plan changes, so the linter's counts move. On this commit's tree the property class reads 494,
+where the R65 refile's read 493: Property 6 is the new one. The task-reference class reads 3,801,
+where it read 3,790. The other seven counts do not move. All seven of the linter's tests pass, and
+no line of its output names the plan.
+
+#### 5. The ledger
+
+- **Item 298, annotated where it stands:**
+  - its heading's notes;
+  - "What the plan is", with the revisions of R66, its addendum and R68;
+  - its size, with 143 mutants, 12 of them the server's;
+  - its rulings' bullet's notes;
+  - and the sentences of R66, R67, R68 and R69.
+- **Item 299, annotated where it stands:** its §5.1 and §5.2 bullets, with the amendment to
+  revision 10.
+- **Item 301, annotated where it stands,** at six bullets of its Open:
+  - Task 7's order;
+  - the deploy's floor, now in Task 20's note;
+  - test 51, now Task 19's Property 6;
+  - the two notes owed to Spec A, paid by A-37;
+  - SCOPE's legend, corrected here;
+  - and the pull request, which follows #12's.
+
+#### 6. The gates
+
+Run on the committed history of this entry, under go1.27.2, beside the four siblings at their pins,
+before the push:
+- `go test ./ -count=1 -run 'TestTheEditLogGate|TestThePlanLinter' -v`: the edit-log gate's six
+  tests and the linter's seven pass, and none fails. The gate reads Spec A's newest entry as row
+  A-37 and Spec B's as revision 26. Its ledger arm prints 75 of 98, where the R65 refile left 74
+  of 97, since this commit changes two specs and a plan and appends this entry. MASTER is not a
+  document the gate holds, so its amendment moves no count.
+- `go test ./ -count=1`, the whole root package: `ok`.
+
+#### 7. What this does not do
+
+- It changes no code, and no word of the lead's text but by the recorded edits.
+- No rule, format or code point changes in any spec. The corrections bring text into line with the
+  code, and the fold and the residual are stated as the library has them.
+- It does not rewrite history: Spec B's old line 25 stays in this repository's history, as R66
+  directs.
+- It leaves two things to the plan's Task 19, the next commit that touches them (R66; R68):
+  - `cmd/message-server/config.go`'s wrong section cite, `§4.3.7` where §4.3.11 is meant, at :176,
+    :179 and :282;
+  - `api/epochkeys.go:18-25`'s comment, which says the same stale thing of check 3's door.
+- It does not open a pull request: this branch's opens once message-server#12 merges (R66).
+
+**Reviewed by:** Task 5's subagent reviewer, resumed for this change, in two passes before this
+commit. Both were read-only, each on the change uncommitted and by its sha256 at its start and at
+its end, which were the same each time.
+- **The first pass,** on six files (the ledger at `bd566fce…`), checked Spec A's A-1 block against
+  Spec B's, line by line and with a control, and against the library at `0bb2128f`; Spec B's line
+  25; the refile, forward from the lead's sources, with controls; every claim of the ledger; the two
+  gates and the root package; and the added lines for local paths and secrets, with a planted
+  control. It made 7 findings, 0 BLOCKER, 0 MAJOR, 2 MINOR and 5 NIT, and 3 NIT in the lead's
+  text, and all are taken:
+  - F1, this paragraph and the closing line;
+  - F2, ruling 27's comments stale against the code in both blocks, which the lead ruled corrected
+    in this commit (R68), and which it corrects;
+  - F3, F4 and F6, in this entry and in Spec A's lead line and note;
+  - F5, the three `config.go` lines, in §7 above;
+  - F7, Spec B's row A-18, in revision 26;
+  - L1 to L3, the lead's, which the lead fixed in the sources before this refile.
+- **The second pass,** on seven files (the ledger at `f55294c5…`), checked the F2 corrections against
+  the code at `0bb2128f`, the R68 amendment against `messagegroup` at `41699987`, the refile from
+  LRI `0989c0d2…`, and the rest again. It made 6 findings, 0 BLOCKER, 1 MAJOR, 1 MINOR and 4 NIT,
+  and all are taken in this commit:
+  - F8, MAJOR: LRI moved during the pass, when the lead appended R69, so it is refiled here at
+    `d872223a…`, and item 298 is brought to R69;
+  - F9: §8.4a stated the library's erase and its census as they will be after R68's fix round, and
+    now says so;
+  - F10: ruling 33 is of 2026-09-22, and the record layer widened its door on 2026-09-23, which
+    every note and both blocks now say;
+  - F11, the A-37 note's claim of the code; F12, revision 26's citation of R68; and F13, item 298's
+    quotation of R66.
+
+  Its three notes on the lead's text are the lead's: LRI's R66 still says "no arm" where the plan
+  now says "no kind-4 arm"; R67 files the alpha's address a third time, as R59 and R60 already
+  have; and R69 came after the pass's snapshot.
 
 It cites no run of itself: the pull request's body cites the runs on its head.
