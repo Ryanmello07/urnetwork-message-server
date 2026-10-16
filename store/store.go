@@ -3,6 +3,7 @@ package store
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"time"
 
@@ -766,8 +767,6 @@ type Store interface {
 const (
 	// 013: `CHECK (octet_length(rendezvous_id) = 32)`. Spec A §5.14 derives it from the code.
 	RendezvousIdBytes = 32
-	// 014: `CHECK (octet_length(deposit_hash) = 32)`: H(deposit_ct), the idempotency key.
-	DepositHashBytes = 32
 	// 013's `message_rendezvous_link_box`: the sealed card Open returns, exactly (Spec A §5.14).
 	LinkCardBytes = 4124
 	// 014's `message_rendezvous_deposit_size`: one deposit, exactly (Spec A §5.14).
@@ -828,12 +827,16 @@ type LinkBoxRegistered struct {
 	MailboxDepth uint32
 }
 
-// What Deposit answers. REASON_OK carries the deposit's id: the one assigned, or, on a replay of
-// the same octets, the one already standing. REASON_CARD_RETIRED and REASON_CARD_RATE_LIMITED
-// carry nothing beside them.
+// What Deposit answers. REASON_OK carries the deposit's id, the one assigned or, on a replay of
+// the same octets, the one already standing; its `deposit_hash`, which the store computes and
+// the Deposit response returns (§4.3.11, revision 25); and the deposits the box holds waiting
+// once it is taken, which the push to a subscribed collector carries. REASON_CARD_RETIRED and
+// REASON_CARD_RATE_LIMITED carry nothing beside them.
 type LinkBoxDeposited struct {
-	Reason    protocol.Reason
-	DepositId uint64
+	Reason       protocol.Reason
+	DepositId    uint64
+	DepositHash  []byte
+	PendingCount uint32
 }
 
 // §4.3.11's Collect, as the store takes it.
@@ -905,11 +908,12 @@ type LinkBoxes interface {
 	// with no row answers [ErrLinkBoxUnknown].
 	LinkBox(ctx context.Context, rendezvousId []byte) (*LinkBox, error)
 
-	// §4.3.11's Deposit, after `deposit_auth` has verified. Idempotent on `deposit_hash`: the same
-	// octets again answer the deposit already standing, and are one deposit. A third deposit over
-	// the box's life answers REASON_CARD_RATE_LIMITED and counts in `refused_count`. A box that is
+	// §4.3.11's Deposit, after `deposit_auth` has verified. Idempotent on `deposit_hash`, which the
+	// store computes from the octets, SHA-256, as it computes `head_hash` (§6.3): the same octets
+	// again answer the deposit already standing, and are one deposit. A third deposit over the
+	// box's life answers REASON_CARD_RATE_LIMITED and counts in `refused_count`. A box that is
 	// unknown, retired or past its expiry answers REASON_CARD_RETIRED and changes nothing.
-	DepositLinkBox(ctx context.Context, rendezvousId []byte, depositCt []byte, depositHash []byte, now time.Time) (*LinkBoxDeposited, error)
+	DepositLinkBox(ctx context.Context, rendezvousId []byte, depositCt []byte, now time.Time) (*LinkBoxDeposited, error)
 
 	// §4.3.11's Collect, after `collect_auth` has verified: delete exactly through the
 	// acknowledgement, then return the deposits after `SinceDepositId`, the count still waiting,
@@ -974,17 +978,21 @@ func validateLinkBoxRegistration(registration *LinkBoxRegistration, ttl time.Dur
 	return nil
 }
 
-func validateLinkBoxDeposit(rendezvousId []byte, depositCt []byte, depositHash []byte) error {
+func validateLinkBoxDeposit(rendezvousId []byte, depositCt []byte) error {
 	if err := checkLength(rendezvousId, RendezvousIdBytes); err != nil {
-		return err
-	}
-	if err := checkLength(depositHash, DepositHashBytes); err != nil {
 		return err
 	}
 	if len(depositCt) != LinkDepositBytes {
 		return ErrLinkBoxShape
 	}
 	return nil
+}
+
+// H(deposit_ct), 014's `deposit_hash` and the idempotency key: SHA-256, as §3.2 gives it, computed
+// here and in no other place, so that the two stores cannot hash a deposit differently.
+func linkBoxDepositHash(depositCt []byte) []byte {
+	digest := sha256.Sum256(depositCt)
+	return digest[:]
 }
 
 // Whether an existing row is the same registration: the two keys and the card, all three. A

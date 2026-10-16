@@ -39,6 +39,13 @@ type configuration struct {
 	// platform at all and is reached only at its own endpoint, which must then be configured: it
 	// is the setting that makes the message server a separate server rather than a platform client.
 	platformAttachment string
+
+	// §4.3.11's kind 4, the link box (spec B Revision 25): how long a box lives from its
+	// registration, how many may be live at once, and §4.5's reject floor, which kind 4 is not
+	// served without. None of the three is advertised.
+	linkBoxTtlSeconds int64
+	linkBoxLiveCap    int64
+	rejectFloorMs     int64
 }
 
 // The defaults of spec B §10.2, verbatim.
@@ -55,6 +62,9 @@ func defaultConfiguration() configuration {
 		cardTombstoneSeconds:        7776000,
 		diagnosticSessionMaxMinutes: 60,
 		platformAttachment:          "on",
+		linkBoxTtlSeconds:           600,
+		linkBoxLiveCap:              10000,
+		rejectFloorMs:               0,
 	}
 }
 
@@ -173,10 +183,10 @@ func settings() []setting {
 			"0 means no fleet cap, and stores NULL rather than a clamp (§7.3)",
 			func(c *configuration) *int64 { return &c.durableTtlMaxSeconds }),
 		numberSetting("rendezvous_ttl_seconds",
-			"§4.3.7",
+			"the contact card's, kind 0 (§4.3.11)",
 			func(c *configuration) *int64 { return &c.rendezvousTtlSeconds }),
 		numberSetting("rendezvous_deposit_ttl_seconds",
-			"7 days (§4.3.7)",
+			"7 days, the contact card's, kind 0 (§4.3.11)",
 			func(c *configuration) *int64 { return &c.rendezvousDepositTtlSeconds }),
 		numberSetting("rendezvous_mailbox_depth",
 			"the 17th uncollected deposit is refused (§13.38)",
@@ -200,6 +210,15 @@ func settings() []setting {
 			"on: hold a session on operator_host's platform (§9.1). off: hold none; the server is reached only at its own endpoint, which must be configured (Revision 23)",
 			platformAttachmentValues,
 			func(c *configuration) *string { return &c.platformAttachment }),
+		numberSetting("link_box_ttl_seconds",
+			"10 minutes: a link box lives this long from its registration and is never kept alive; 0 takes the default (§4.3.11)",
+			func(c *configuration) *int64 { return &c.linkBoxTtlSeconds }),
+		numberSetting("link_box_live_cap",
+			"live link boxes; a registration past it, or when their count cannot be read, is refused; 0 takes the default (§4.3.11, Q20)",
+			func(c *configuration) *int64 { return &c.linkBoxLiveCap }),
+		numberSetting("reject_floor_ms",
+			"§4.5's floor on the reject path; 0 pads nothing and serves no kind-4 arm, and a deploy that serves one sets at least its slowest refusal path, as measured (§4.3.11)",
+			func(c *configuration) *int64 { return &c.rejectFloorMs }),
 	}
 }
 
@@ -279,7 +298,7 @@ func limitsOf(loaded configuration) store.Limits {
 // server rather than by a bisect.
 var configurationNotWired = []api.NotBuilt{
 	{Section: "§5.3", What: "read_key_window_seconds is loaded and ADVERTISED in Capabilities, and nothing retires a key on it: there is no sweep, so the number a client is told is a promise this build does not keep", Owner: "sweep"},
-	{Section: "§4.3.7", What: "rendezvous_ttl_seconds, rendezvous_deposit_ttl_seconds and rendezvous_mailbox_depth are loaded and no rendezvous arm is served", Owner: "api"},
+	{Section: "§4.3.11", What: "rendezvous_ttl_seconds, rendezvous_deposit_ttl_seconds and rendezvous_mailbox_depth are the contact card's, kind 0, which no build of I1 serves: they are loaded and nothing reads them", Owner: "api"},
 	{Section: "§13.39", What: "card_tombstone_seconds is loaded and nothing tombstones a retired id", Owner: "sweep"},
 	{Section: "§11.5", What: "diagnostic_session_max_minutes is loaded and no diagnostic session can be opened", Owner: "api"},
 	{Section: "§7.3", What: "the media TTL pair and durable_retention_min_seconds are not §10.2 keys, so the media clamp runs on store.DefaultLimits and cannot be configured", Owner: "store"},

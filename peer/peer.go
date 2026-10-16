@@ -39,6 +39,14 @@ type Handler interface {
 	Fetch(ctx context.Context, conn *api.Connection, request *messageprotocol.FetchRequest) (messageprotocol.Reason, *messageprotocol.FetchResponse, error)
 	Subscribe(ctx context.Context, conn *api.Connection, request *messageprotocol.SubscribeRequest) (messageprotocol.Reason, *messageprotocol.SubscribeResponse, error)
 	Unsubscribe(ctx context.Context, conn *api.Connection, request *messageprotocol.UnsubscribeRequest) (messageprotocol.Reason, error)
+	RendezvousRegister(ctx context.Context, conn *api.Connection, request *messageprotocol.RendezvousRegisterRequest) (messageprotocol.Reason, *messageprotocol.RendezvousRegisterResponse, error)
+	RendezvousOpen(ctx context.Context, conn *api.Connection, request *messageprotocol.RendezvousOpenRequest) (messageprotocol.Reason, *messageprotocol.RendezvousOpenResponse, error)
+	RendezvousDeposit(ctx context.Context, conn *api.Connection, request *messageprotocol.RendezvousDepositRequest) (messageprotocol.Reason, *messageprotocol.RendezvousDepositResponse, error)
+	RendezvousCollect(ctx context.Context, conn *api.Connection, request *messageprotocol.RendezvousCollectRequest) (messageprotocol.Reason, *messageprotocol.RendezvousCollectResponse, error)
+	RendezvousRetire(ctx context.Context, conn *api.Connection, request *messageprotocol.RendezvousRetireRequest) (messageprotocol.Reason, *messageprotocol.RendezvousRetireResponse, error)
+	// Whether §4.3.11's five arms are served: the route table holds them only when it answers
+	// true (see api.Handler.RendezvousServed)
+	RendezvousServed() bool
 	NotBuilt() []api.NotBuilt
 }
 
@@ -828,7 +836,7 @@ func (self *Peer) answer(ctx context.Context, arrived *inbound, request *message
 // answer REASON_INTERNAL on both instead of quietly serving one arm's request with the other
 // arm's handler, which is a bug that reads as a passing test.
 func (self *Peer) buildRoutes() map[protoreflect.FullName]route {
-	return map[protoreflect.FullName]route{
+	routes := map[protoreflect.FullName]route{
 		nameOf(&messageprotocol.HelloRequest{}): {
 			name:     "hello",
 			pipeline: false,
@@ -916,6 +924,97 @@ func (self *Peer) buildRoutes() map[protoreflect.FullName]route {
 				}
 				reason, err := self.handler.Unsubscribe(ctx, arrived.connection.ApiConnection(), request)
 				return reason, nil, err
+			},
+		},
+	}
+	// §4.3.11's five arms, routed only when the handler serves them: a link box store, the
+	// library's verifiers and a reject floor above zero (api.Handler.RendezvousServed). An arm
+	// left out is one [Peer.unservedArms] derives and answers REASON_INTERNAL, which is how
+	// Spec B §4.3.11 says a server that does not serve kind 4 answers it
+	if self.handler.RendezvousServed() {
+		for arm, served := range self.rendezvousRoutes() {
+			routes[arm] = served
+		}
+	}
+	return routes
+}
+
+// The five rendezvous arms, each to its handler.
+func (self *Peer) rendezvousRoutes() map[protoreflect.FullName]route {
+	return map[protoreflect.FullName]route{
+		nameOf(&messageprotocol.RendezvousRegisterRequest{}): {
+			name:     "rendezvous_register",
+			pipeline: true,
+			run: func(ctx context.Context, arrived *inbound, body proto.Message) (messageprotocol.Reason, proto.Message, error) {
+				request, ok := body.(*messageprotocol.RendezvousRegisterRequest)
+				if !ok {
+					return messageprotocol.Reason_REASON_INTERNAL, nil, ErrWrongArm
+				}
+				reason, answered, err := self.handler.RendezvousRegister(ctx, arrived.connection.ApiConnection(), request)
+				if answered == nil {
+					return reason, nil, err
+				}
+				return reason, answered, err
+			},
+		},
+		nameOf(&messageprotocol.RendezvousOpenRequest{}): {
+			name:     "rendezvous_open",
+			pipeline: true,
+			run: func(ctx context.Context, arrived *inbound, body proto.Message) (messageprotocol.Reason, proto.Message, error) {
+				request, ok := body.(*messageprotocol.RendezvousOpenRequest)
+				if !ok {
+					return messageprotocol.Reason_REASON_INTERNAL, nil, ErrWrongArm
+				}
+				reason, answered, err := self.handler.RendezvousOpen(ctx, arrived.connection.ApiConnection(), request)
+				if answered == nil {
+					return reason, nil, err
+				}
+				return reason, answered, err
+			},
+		},
+		nameOf(&messageprotocol.RendezvousDepositRequest{}): {
+			name:     "rendezvous_deposit",
+			pipeline: true,
+			run: func(ctx context.Context, arrived *inbound, body proto.Message) (messageprotocol.Reason, proto.Message, error) {
+				request, ok := body.(*messageprotocol.RendezvousDepositRequest)
+				if !ok {
+					return messageprotocol.Reason_REASON_INTERNAL, nil, ErrWrongArm
+				}
+				reason, answered, err := self.handler.RendezvousDeposit(ctx, arrived.connection.ApiConnection(), request)
+				if answered == nil {
+					return reason, nil, err
+				}
+				return reason, answered, err
+			},
+		},
+		nameOf(&messageprotocol.RendezvousCollectRequest{}): {
+			name:     "rendezvous_collect",
+			pipeline: true,
+			run: func(ctx context.Context, arrived *inbound, body proto.Message) (messageprotocol.Reason, proto.Message, error) {
+				request, ok := body.(*messageprotocol.RendezvousCollectRequest)
+				if !ok {
+					return messageprotocol.Reason_REASON_INTERNAL, nil, ErrWrongArm
+				}
+				reason, answered, err := self.handler.RendezvousCollect(ctx, arrived.connection.ApiConnection(), request)
+				if answered == nil {
+					return reason, nil, err
+				}
+				return reason, answered, err
+			},
+		},
+		nameOf(&messageprotocol.RendezvousRetireRequest{}): {
+			name:     "rendezvous_retire",
+			pipeline: true,
+			run: func(ctx context.Context, arrived *inbound, body proto.Message) (messageprotocol.Reason, proto.Message, error) {
+				request, ok := body.(*messageprotocol.RendezvousRetireRequest)
+				if !ok {
+					return messageprotocol.Reason_REASON_INTERNAL, nil, ErrWrongArm
+				}
+				reason, answered, err := self.handler.RendezvousRetire(ctx, arrived.connection.ApiConnection(), request)
+				if answered == nil {
+					return reason, nil, err
+				}
+				return reason, answered, err
 			},
 		},
 	}

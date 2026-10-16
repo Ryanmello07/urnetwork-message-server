@@ -187,6 +187,12 @@ func newServer(ctx context.Context, deploy deployment, loaded configuration, log
 		KnownGroups:   api.NewStoreKnownGroups(self.records),
 		Front:         checks,
 		Subscriptions: self.subscriptions,
+		// §4.5's floor, which every refusal pads to and without which kind 4 is not served
+		RejectFloor: time.Duration(loaded.rejectFloorMs) * time.Millisecond,
+		// §4.3.11's kind 4: the same store keeps the link boxes, in 013 and 014
+		LinkBoxes:      self.records,
+		LinkBoxTtl:     time.Duration(loaded.linkBoxTtlSeconds) * time.Second,
+		LinkBoxLiveCap: uint64(loaded.linkBoxLiveCap),
 	})
 	if err != nil {
 		pool.Close()
@@ -309,7 +315,26 @@ func (self *server) capabilities() *protocol.Capabilities {
 		ReadKeyWindowSeconds:       uint32(self.config.readKeyWindowSeconds),
 		EphBucketSeconds:           ephBucketLadder(),
 		SizeBucketBytes:            sizeBucketLadder(),
+		RendezvousDepositSizes:     self.rendezvousDepositSizes(),
+		RendezvousKinds:            self.rendezvousKinds(),
 	}
+}
+
+// §4.3.1's `rendezvous_deposit_sizes` and `rendezvous_kinds` (Capabilities 26 and 29), read off
+// the handler, which is what decides whether kind 4 is served: none, while it is not (§4.3.11),
+// and none from a server that has no handler at all.
+func (self *server) rendezvousDepositSizes() []uint32 {
+	if self.handler == nil {
+		return nil
+	}
+	return self.handler.RendezvousDepositSizes()
+}
+
+func (self *server) rendezvousKinds() uint32 {
+	if self.handler == nil {
+		return 0
+	}
+	return self.handler.RendezvousKinds()
 }
 
 // §4.3.1's `size_bucket_bytes`, walked out of the record layer rather than written down here.

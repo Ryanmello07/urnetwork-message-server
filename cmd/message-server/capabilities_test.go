@@ -78,6 +78,11 @@ func TestEverySpecB102SettingSpecB431AdvertisesReachesTheAdvertisement(t *testin
 		"platform_attachment",
 		"endpoint_tls_certificate_file",
 		"endpoint_tls_private_key_file",
+		// §10.2 revision 25: the link box's two limits and §4.5's floor, "none of them advertised";
+		// whether kind 4 is served is, as Capabilities 26 and 29, which the handler decides
+		"link_box_ttl_seconds",
+		"link_box_live_cap",
+		"reject_floor_ms",
 	}
 
 	for _, item := range settings() {

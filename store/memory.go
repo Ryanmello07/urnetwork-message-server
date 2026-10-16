@@ -1304,13 +1304,14 @@ func (self *MemoryStore) LinkBox(ctx context.Context, rendezvousId []byte) (*Lin
 	return row.linkBox(), nil
 }
 
-func (self *MemoryStore) DepositLinkBox(ctx context.Context, rendezvousId []byte, depositCt []byte, depositHash []byte, now time.Time) (*LinkBoxDeposited, error) {
+func (self *MemoryStore) DepositLinkBox(ctx context.Context, rendezvousId []byte, depositCt []byte, now time.Time) (*LinkBoxDeposited, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := validateLinkBoxDeposit(rendezvousId, depositCt, depositHash); err != nil {
+	if err := validateLinkBoxDeposit(rendezvousId, depositCt); err != nil {
 		return nil, err
 	}
+	depositHash := linkBoxDepositHash(depositCt)
 	now = linkBoxTime(now)
 	self.boxMutex.Lock()
 	defer self.boxMutex.Unlock()
@@ -1322,7 +1323,8 @@ func (self *MemoryStore) DepositLinkBox(ctx context.Context, rendezvousId []byte
 	key := string(rendezvousId)
 	for _, deposit := range self.deposits[key] {
 		if bytes.Equal(deposit.DepositHash, depositHash) {
-			return &LinkBoxDeposited{Reason: protocol.Reason_REASON_OK, DepositId: uint64(deposit.DepositId)}, nil
+			return &LinkBoxDeposited{Reason: protocol.Reason_REASON_OK, DepositId: uint64(deposit.DepositId),
+				DepositHash: bytes.Clone(deposit.DepositHash), PendingCount: uint32(row.DepositCount)}, nil
 		}
 	}
 	if uint64(row.NextDepositId-1) >= LinkBoxDeposits {
@@ -1340,7 +1342,8 @@ func (self *MemoryStore) DepositLinkBox(ctx context.Context, rendezvousId []byte
 	})
 	row.NextDepositId++
 	row.DepositCount++
-	return &LinkBoxDeposited{Reason: protocol.Reason_REASON_OK, DepositId: uint64(depositId)}, nil
+	return &LinkBoxDeposited{Reason: protocol.Reason_REASON_OK, DepositId: uint64(depositId), DepositHash: depositHash,
+		PendingCount: uint32(row.DepositCount)}, nil
 }
 
 func (self *MemoryStore) CollectLinkBox(ctx context.Context, request *LinkBoxCollectRequest, now time.Time) (*LinkBoxCollected, error) {

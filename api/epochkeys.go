@@ -13,16 +13,21 @@ import (
 // §5.1 check 3's `0x0005` arm: the two doors an attachment can come through, the alignment rule
 // §4.3.3 gives the delivery beside it, and the digest comparison that binds the two together.
 //
-// ── WHY THERE ARE TWO DOORS AND NOT A WIDER ONE ────────────────────────────────────────────
+// ── THE TWO DOORS, AND WHICH ONE A 0x0005 ATTACHMENT COMES THROUGH NOW ────────────────────
 //
-// `message.ParseServerAttachment` serves the five kinds Spec A §5.11 defines and refuses kind
-// `0x0005` BY NAME with `ErrServerAttachmentKindNotServed`. That refusal is not an obstacle to
-// route around; it is the interlock ruling 27 bought. A server built from a record layer
-// that has not been widened cannot be talked into installing an epoch whose keys it was never
-// handed, whatever a client sends it. `message.ParseEpochDigestAttachment` is the sixth kind's
-// own door, and this server opens it DELIBERATELY, once, here — which is what makes "this build
-// accepts `0x0005`" one decision in one place rather than a flag whose effect is spread over a
-// parse, a gate and an install.
+// `message.ParseServerAttachment` is §5.1 check 3's door. Until 2026-09-23 it served the five
+// kinds Spec A §5.11 then defined and refused kind `0x0005` BY NAME with
+// `ErrServerAttachmentKindNotServed`: the interlock ruling 27 bought, so that a server built from
+// a record layer that had not been widened could not be talked into installing an epoch whose
+// keys it was never handed, whatever a client sent it. On that date, after ruling 33 put the
+// epoch keys on the request, the record layer widened the door, and it now serves all six kinds:
+// against the library this build pins, a `0x0005` attachment comes through it, and the
+// fall-through below to `message.ParseEpochDigestAttachment`, the sixth kind's own door, is not
+// reached. It is kept for a record layer that has not been widened, which still refuses by name;
+// the interlock is that older layer's, and a server built from one still opens the second door
+// DELIBERATELY, once, here. (Corrected for the identity plan's Task 19, LRI R68: this read that
+// the first door refuses `0x0005`, as Spec A's and Spec B's A-1 comments did until A-37 and
+// revision 26.)
 //
 // Both doors run the same codec, the same body table and the same well-formedness check inside
 // the record layer, so nothing here re-derives a field width, an `alg_id` or

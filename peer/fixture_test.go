@@ -373,6 +373,10 @@ type recordingHandler struct {
 	onSubmit      func(conn *api.Connection, request *messageprotocol.SubmitRequest) (messageprotocol.Reason, *messageprotocol.SubmitResponse, error)
 	onFetch       func(conn *api.Connection, request *messageprotocol.FetchRequest) (messageprotocol.Reason, *messageprotocol.FetchResponse, error)
 	onCreateGroup func(conn *api.Connection, request *messageprotocol.CreateGroupRequest) (messageprotocol.Reason, *messageprotocol.CreateGroupResponse, error)
+
+	// What api.Handler.RendezvousServed answers. False unless a test sets it, as it is false
+	// in every wiring of this build (LRI R70)
+	rendezvousServed bool
 }
 
 var _ Handler = (*recordingHandler)(nil)
@@ -469,6 +473,80 @@ func (self *recordingHandler) Unsubscribe(ctx context.Context, conn *api.Connect
 
 func (self *recordingHandler) NotBuilt() []api.NotBuilt {
 	return self.notBuilt
+}
+
+func (self *recordingHandler) RendezvousServed() bool {
+	return self.rendezvousServed
+}
+
+// The op byte of a rendezvous arm, read off the request oneof's descriptor, as api's opOf reads it.
+func rendezvousOp(request proto.Message) (uint8, error) {
+	for _, field := range bodyArmsOf((&messageprotocol.MessageServerRequest{}).ProtoReflect().Descriptor()) {
+		if field.Message().FullName() == request.ProtoReflect().Descriptor().FullName() {
+			return uint8(field.Number()), nil
+		}
+	}
+	return 0, ErrWrongArm
+}
+
+func (self *recordingHandler) RendezvousRegister(ctx context.Context, conn *api.Connection, request *messageprotocol.RendezvousRegisterRequest) (messageprotocol.Reason, *messageprotocol.RendezvousRegisterResponse, error) {
+	op, err := rendezvousOp(request)
+	if err != nil {
+		return messageprotocol.Reason_REASON_INTERNAL, nil, err
+	}
+	if reason := self.frontChecks(ctx, conn, op); reason != messageprotocol.Reason_REASON_OK {
+		return reason, nil, nil
+	}
+	self.record("rendezvous_register", conn, uint64(len(request.GetRendezvousId())))
+	return messageprotocol.Reason_REASON_OK, &messageprotocol.RendezvousRegisterResponse{}, nil
+}
+
+func (self *recordingHandler) RendezvousOpen(ctx context.Context, conn *api.Connection, request *messageprotocol.RendezvousOpenRequest) (messageprotocol.Reason, *messageprotocol.RendezvousOpenResponse, error) {
+	op, err := rendezvousOp(request)
+	if err != nil {
+		return messageprotocol.Reason_REASON_INTERNAL, nil, err
+	}
+	if reason := self.frontChecks(ctx, conn, op); reason != messageprotocol.Reason_REASON_OK {
+		return reason, nil, nil
+	}
+	self.record("rendezvous_open", conn, uint64(len(request.GetRendezvousId())))
+	return messageprotocol.Reason_REASON_OK, &messageprotocol.RendezvousOpenResponse{}, nil
+}
+
+func (self *recordingHandler) RendezvousDeposit(ctx context.Context, conn *api.Connection, request *messageprotocol.RendezvousDepositRequest) (messageprotocol.Reason, *messageprotocol.RendezvousDepositResponse, error) {
+	op, err := rendezvousOp(request)
+	if err != nil {
+		return messageprotocol.Reason_REASON_INTERNAL, nil, err
+	}
+	if reason := self.frontChecks(ctx, conn, op); reason != messageprotocol.Reason_REASON_OK {
+		return reason, nil, nil
+	}
+	self.record("rendezvous_deposit", conn, uint64(len(request.GetRendezvousId())))
+	return messageprotocol.Reason_REASON_OK, &messageprotocol.RendezvousDepositResponse{}, nil
+}
+
+func (self *recordingHandler) RendezvousCollect(ctx context.Context, conn *api.Connection, request *messageprotocol.RendezvousCollectRequest) (messageprotocol.Reason, *messageprotocol.RendezvousCollectResponse, error) {
+	op, err := rendezvousOp(request)
+	if err != nil {
+		return messageprotocol.Reason_REASON_INTERNAL, nil, err
+	}
+	if reason := self.frontChecks(ctx, conn, op); reason != messageprotocol.Reason_REASON_OK {
+		return reason, nil, nil
+	}
+	self.record("rendezvous_collect", conn, uint64(len(request.GetRendezvousId())))
+	return messageprotocol.Reason_REASON_OK, &messageprotocol.RendezvousCollectResponse{}, nil
+}
+
+func (self *recordingHandler) RendezvousRetire(ctx context.Context, conn *api.Connection, request *messageprotocol.RendezvousRetireRequest) (messageprotocol.Reason, *messageprotocol.RendezvousRetireResponse, error) {
+	op, err := rendezvousOp(request)
+	if err != nil {
+		return messageprotocol.Reason_REASON_INTERNAL, nil, err
+	}
+	if reason := self.frontChecks(ctx, conn, op); reason != messageprotocol.Reason_REASON_OK {
+		return reason, nil, nil
+	}
+	self.record("rendezvous_retire", conn, uint64(len(request.GetRendezvousId())))
+	return messageprotocol.Reason_REASON_OK, &messageprotocol.RendezvousRetireResponse{}, nil
 }
 
 // Every response the client has received for one `request_id`, in the order its frames arrived,

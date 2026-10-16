@@ -2000,13 +2000,14 @@ func (self *PgxStore) LinkBox(ctx context.Context, rendezvousId []byte) (*LinkBo
 
 // One transaction, under the box's row lock: the box is live, the octets are not a deposit already
 // standing, the box has taken fewer than two, and only then the insert.
-func (self *PgxStore) DepositLinkBox(ctx context.Context, rendezvousId []byte, depositCt []byte, depositHash []byte, now time.Time) (*LinkBoxDeposited, error) {
+func (self *PgxStore) DepositLinkBox(ctx context.Context, rendezvousId []byte, depositCt []byte, now time.Time) (*LinkBoxDeposited, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := validateLinkBoxDeposit(rendezvousId, depositCt, depositHash); err != nil {
+	if err := validateLinkBoxDeposit(rendezvousId, depositCt); err != nil {
 		return nil, err
 	}
+	depositHash := linkBoxDepositHash(depositCt)
 	now = linkBoxTime(now)
 
 	transaction, err := self.pool.Begin(ctx)
@@ -2031,7 +2032,8 @@ func (self *PgxStore) DepositLinkBox(ctx context.Context, rendezvousId []byte, d
         SELECT deposit_id FROM message_rendezvous_deposit
          WHERE rendezvous_id = $1 AND deposit_hash = $2`, rendezvousId, depositHash).Scan(&standing)
 	if err == nil {
-		return &LinkBoxDeposited{Reason: protocol.Reason_REASON_OK, DepositId: uint64(standing)}, nil
+		return &LinkBoxDeposited{Reason: protocol.Reason_REASON_OK, DepositId: uint64(standing), DepositHash: depositHash,
+			PendingCount: box.DepositCount}, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return nil, err
@@ -2066,7 +2068,8 @@ func (self *PgxStore) DepositLinkBox(ctx context.Context, rendezvousId []byte, d
 	if err := transaction.Commit(ctx); err != nil {
 		return nil, err
 	}
-	return &LinkBoxDeposited{Reason: protocol.Reason_REASON_OK, DepositId: uint64(depositId)}, nil
+	return &LinkBoxDeposited{Reason: protocol.Reason_REASON_OK, DepositId: uint64(depositId), DepositHash: depositHash,
+		PendingCount: box.DepositCount + 1}, nil
 }
 
 // One transaction, under the box's row lock: the delete through the acknowledgement, the read of

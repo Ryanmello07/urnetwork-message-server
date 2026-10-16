@@ -383,6 +383,14 @@ type Config struct {
 	// §4.3.5's subscription registry (subscribe.go). Nil serves no Subscribe and pushes nothing,
 	// and [Handler.NotBuilt] says so.
 	Subscriptions *Subscriptions
+
+	// §4.3.11's kind 4, the link box (rendezvous.go). Nil serves no rendezvous arm, and
+	// [Handler.NotBuilt] says so.
+	LinkBoxes store.LinkBoxes
+
+	// §10.2's `link_box_ttl_seconds` and `link_box_live_cap`. Zero takes the defaults.
+	LinkBoxTtl     time.Duration
+	LinkBoxLiveCap uint64
 }
 
 // The request handlers of §4.3, with the check order of §5.1 in front of them.
@@ -400,6 +408,13 @@ type Handler struct {
 	sleep       func(time.Duration)
 
 	subscriptions *Subscriptions
+
+	linkBoxes      store.LinkBoxes
+	linkBoxTtl     time.Duration
+	linkBoxLiveCap uint64
+	// [rendezvousVerifiersPinned], which a test in this package may set to run the arms' other
+	// checks; see rendezvous.go
+	verifiersPinned bool
 }
 
 func New(config Config) (*Handler, error) {
@@ -423,6 +438,10 @@ func New(config Config) (*Handler, error) {
 		now:                 config.Now,
 		sleep:               config.Sleep,
 		subscriptions:       config.Subscriptions,
+		linkBoxes:           config.LinkBoxes,
+		linkBoxTtl:          config.LinkBoxTtl,
+		linkBoxLiveCap:      config.LinkBoxLiveCap,
+		verifiersPinned:     rendezvousVerifiersPinned,
 	}
 	if handler.maxCtHeadBytes == 0 {
 		handler.maxCtHeadBytes = DefaultMaxCtHeadBytes
@@ -432,6 +451,12 @@ func New(config Config) (*Handler, error) {
 	}
 	if handler.maxRecordsPerFetch == 0 {
 		handler.maxRecordsPerFetch = DefaultMaxRecordsPerFetch
+	}
+	if handler.linkBoxTtl == 0 {
+		handler.linkBoxTtl = DefaultLinkBoxTtl
+	}
+	if handler.linkBoxLiveCap == 0 {
+		handler.linkBoxLiveCap = DefaultLinkBoxLiveCap
 	}
 	if handler.now == nil {
 		handler.now = time.Now
@@ -469,6 +494,8 @@ func (self *Handler) NotBuilt() []NotBuilt {
 	} else {
 		notBuilt = append(notBuilt, notificationOnlyPush)
 	}
+	// §4.3.11's five arms: what they are not served for, or what the served arms run without
+	notBuilt = append(notBuilt, self.rendezvousNotBuilt()...)
 	return notBuilt
 }
 

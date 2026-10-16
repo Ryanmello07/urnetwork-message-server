@@ -75,11 +75,14 @@ type Subscriptions struct {
 	byKey        map[subscriptionKey]*subscription
 	byConnection map[string]map[string]bool
 	ready        map[subscriptionKey]bool
-	signal       chan struct{}
-	closed       chan struct{}
-	closeOnce    sync.Once
-	pushed       uint64
-	dropped      uint64
+	// §4.3.11's subscriptions, one per (connection, rendezvous id), and the ones owed a push
+	rendezvous      map[rendezvousKey]*rendezvousSubscription
+	rendezvousReady map[rendezvousKey]bool
+	signal          chan struct{}
+	closed          chan struct{}
+	closeOnce       sync.Once
+	pushed          uint64
+	dropped         uint64
 }
 
 func NewSubscriptions() *Subscriptions {
@@ -88,6 +91,8 @@ func NewSubscriptions() *Subscriptions {
 		byKey:            map[subscriptionKey]*subscription{},
 		byConnection:     map[string]map[string]bool{},
 		ready:            map[subscriptionKey]bool{},
+		rendezvous:       map[rendezvousKey]*rendezvousSubscription{},
+		rendezvousReady:  map[rendezvousKey]bool{},
 		signal:           make(chan struct{}, 1),
 		closed:           make(chan struct{}),
 	}
@@ -206,6 +211,7 @@ func (self *Subscriptions) deliver() {
 			return
 		case <-self.signal:
 		}
+		self.deliverRendezvous()
 		for {
 			self.mutex.Lock()
 			pusher := self.pusher

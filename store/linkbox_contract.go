@@ -58,8 +58,8 @@ func linkBoxRegistration(seed byte) *LinkBoxRegistration {
 	}
 }
 
-// A deposit and its hash. The store does not hash a deposit, and is not asked to check one; the
-// hash is the SHA-256 of the octets anyway, so that a fixture is what a caller would hand over.
+// A deposit, and the hash the store is to compute for it: SHA-256 of the octets, computed here
+// independently of [linkBoxDepositHash], so that the two can disagree.
 func linkBoxDeposit(seed byte) ([]byte, []byte) {
 	depositCt := testBytes(LinkDepositBytes, seed)
 	depositHash := sha256.Sum256(depositCt)
@@ -79,11 +79,18 @@ func registerLinkBox(t *testing.T, boxes LinkBoxes, seen *recorder, registration
 func depositLinkBox(t *testing.T, boxes LinkBoxes, seen *recorder, rendezvousId []byte, seed byte, now time.Time) *LinkBoxDeposited {
 	t.Helper()
 	depositCt, depositHash := linkBoxDeposit(seed)
-	deposited, err := boxes.DepositLinkBox(context.Background(), rendezvousId, depositCt, depositHash, now)
+	deposited, err := boxes.DepositLinkBox(context.Background(), rendezvousId, depositCt, now)
 	if err != nil {
 		t.Fatalf("DepositLinkBox: %v", err)
 	}
 	seen.observe(deposited.Reason)
+	// the hash is the octets', on every answer that names a deposit, and on no other
+	if deposited.Reason == protocol.Reason_REASON_OK && !slices.Equal(deposited.DepositHash, depositHash) {
+		t.Fatalf("a deposit was answered deposit_hash %x, and the SHA-256 of its octets is %x", deposited.DepositHash, depositHash)
+	}
+	if deposited.Reason != protocol.Reason_REASON_OK && deposited.DepositHash != nil {
+		t.Fatalf("a deposit refused %v was answered a deposit_hash; a refusal carries nothing beside its reason", deposited.Reason)
+	}
 	return deposited
 }
 
@@ -221,9 +228,11 @@ func contractLinkBoxDeposits(t *testing.T, newStore func(Limits) Store, seen *re
 	registerLinkBox(t, boxes, seen, registration, linkBoxEpoch)
 	id := registration.RendezvousId
 
+	_, firstHash := linkBoxDeposit(0x61)
+	_, secondHash := linkBoxDeposit(0x62)
 	for index, want := range []*LinkBoxDeposited{
-		{Reason: protocol.Reason_REASON_OK, DepositId: 1},
-		{Reason: protocol.Reason_REASON_OK, DepositId: 2},
+		{Reason: protocol.Reason_REASON_OK, DepositId: 1, DepositHash: firstHash, PendingCount: 1},
+		{Reason: protocol.Reason_REASON_OK, DepositId: 2, DepositHash: secondHash, PendingCount: 2},
 		// the third, of different octets: two over the box's life, and nothing beside the reason
 		{Reason: protocol.Reason_REASON_CARD_RATE_LIMITED},
 	} {
@@ -239,7 +248,7 @@ func contractLinkBoxDeposits(t *testing.T, newStore func(Limits) Store, seen *re
 
 	// a replay of the first deposit's octets is that deposit, even though the box takes no more
 	replay := depositLinkBox(t, boxes, seen, id, 0x61, linkBoxAt(20))
-	if want := (&LinkBoxDeposited{Reason: protocol.Reason_REASON_OK, DepositId: 1}); !reflect.DeepEqual(replay, want) {
+	if want := (&LinkBoxDeposited{Reason: protocol.Reason_REASON_OK, DepositId: 1, DepositHash: firstHash, PendingCount: 2}); !reflect.DeepEqual(replay, want) {
 		t.Fatalf("a replay of deposit 1's octets answered %+v, want %+v", replay, want)
 	}
 	if after := lookUpLinkBox(t, boxes, id); !reflect.DeepEqual(after, box) {
@@ -323,7 +332,8 @@ func contractLinkBoxCollectAndRetire(t *testing.T, newStore func(Limits) Store, 
 
 	// the same octets again are the deposit already standing, and one deposit
 	replay := depositLinkBox(t, boxes, seen, id, 0x22, linkBoxAt(50))
-	if want := (&LinkBoxDeposited{Reason: protocol.Reason_REASON_OK, DepositId: 2}); !reflect.DeepEqual(replay, want) {
+	_, secondHash := linkBoxDeposit(0x22)
+	if want := (&LinkBoxDeposited{Reason: protocol.Reason_REASON_OK, DepositId: 2, DepositHash: secondHash, PendingCount: 1}); !reflect.DeepEqual(replay, want) {
 		t.Fatalf("a deposit retried with the same octets answered %+v, want %+v", replay, want)
 	}
 	if once := collectLinkBox(t, boxes, seen, &LinkBoxCollectRequest{RendezvousId: id}, linkBoxAt(51)); !slices.Equal(depositIdsOf(once), []uint64{2}) || once.PendingCount != 1 {
@@ -478,12 +488,13 @@ func contractLinkBoxDefensiveCopy(t *testing.T, newStore func(Limits) Store, see
 		t.Fatal("overwriting a registration's slices, or a lookup's, after the call reached the stored box")
 	}
 
-	depositCt, depositHash := linkBoxDeposit(0x68)
-	if _, err := boxes.DepositLinkBox(ctx, id, depositCt, depositHash, linkBoxAt(10)); err != nil {
+	depositCt, _ := linkBoxDeposit(0x68)
+	deposited, err := boxes.DepositLinkBox(ctx, id, depositCt, linkBoxAt(10))
+	if err != nil {
 		t.Fatalf("DepositLinkBox: %v", err)
 	}
 	clear(depositCt)
-	clear(depositHash)
+	clear(deposited.DepositHash)
 	collected := collectLinkBox(t, boxes, seen, &LinkBoxCollectRequest{RendezvousId: id}, linkBoxAt(20))
 	original, _ := linkBoxDeposit(0x68)
 	if len(collected.Deposits) != 1 || !slices.Equal(collected.Deposits[0].DepositCt, original) {
@@ -493,7 +504,7 @@ func contractLinkBoxDefensiveCopy(t *testing.T, newStore func(Limits) Store, see
 	if again := collectLinkBox(t, boxes, seen, &LinkBoxCollectRequest{RendezvousId: id}, linkBoxAt(21)); !slices.Equal(again.Deposits[0].DepositCt, original) {
 		t.Fatal("overwriting a collected deposit's octets reached the stored deposit")
 	}
-	// and the replay is still found by its hash, which the caller's overwrite did not reach
+	// and the replay is still found by its hash, which overwriting the answered hash did not reach
 	if replay := depositLinkBox(t, boxes, seen, id, 0x68, linkBoxAt(30)); replay.DepositId != 1 {
 		t.Fatalf("a replay after the caller overwrote its own hash answered deposit %d, want 1", replay.DepositId)
 	}
@@ -554,8 +565,8 @@ func contractLinkBoxConcurrency(t *testing.T, newStore func(Limits) Store, seen 
 		group.Add(1)
 		go func() {
 			defer group.Done()
-			depositCt, depositHash := linkBoxDeposit(0x75)
-			deposited, err := boxes.DepositLinkBox(ctx, same.RendezvousId, depositCt, depositHash, linkBoxAt(10))
+			depositCt, _ := linkBoxDeposit(0x75)
+			deposited, err := boxes.DepositLinkBox(ctx, same.RendezvousId, depositCt, linkBoxAt(10))
 			if err != nil {
 				t.Errorf("DepositLinkBox: %v", err)
 				return
@@ -582,8 +593,8 @@ func contractLinkBoxConcurrency(t *testing.T, newStore func(Limits) Store, seen 
 		group.Add(1)
 		go func() {
 			defer group.Done()
-			depositCt, depositHash := linkBoxDeposit(byte(0xD0 + index))
-			deposited, err := boxes.DepositLinkBox(ctx, full.RendezvousId, depositCt, depositHash, linkBoxAt(10))
+			depositCt, _ := linkBoxDeposit(byte(0xD0 + index))
+			deposited, err := boxes.DepositLinkBox(ctx, full.RendezvousId, depositCt, linkBoxAt(10))
 			if err != nil {
 				t.Errorf("DepositLinkBox: %v", err)
 				return
@@ -633,11 +644,11 @@ func linkBoxShapeScenarios(newStore func(Limits) Store, seen *recorder) map[stri
 			t.Fatalf("a refused registration left %d live boxes", count)
 		}
 	}
-	depositRefused := func(t *testing.T, boxes LinkBoxes, depositCt []byte, depositHash []byte, want error) {
+	depositRefused := func(t *testing.T, boxes LinkBoxes, depositCt []byte, want error) {
 		t.Helper()
 		registration := linkBoxRegistration(0x30)
 		registerLinkBox(t, boxes, seen, registration, linkBoxEpoch)
-		deposited, err := boxes.DepositLinkBox(ctx, registration.RendezvousId, depositCt, depositHash, linkBoxAt(10))
+		deposited, err := boxes.DepositLinkBox(ctx, registration.RendezvousId, depositCt, linkBoxAt(10))
 		wantError(t, seen, err, want)
 		if deposited != nil {
 			t.Fatal("DepositLinkBox answered an error and a result")
@@ -656,8 +667,8 @@ func linkBoxShapeScenarios(newStore func(Limits) Store, seen *recorder) map[stri
 			wantError(t, seen, err, ErrIdentifierShape)
 			_, err = boxes.RetireLinkBox(ctx, nil, linkBoxEpoch)
 			wantError(t, seen, err, ErrIdentifierShape)
-			depositCt, depositHash := linkBoxDeposit(0x30)
-			_, err = boxes.DepositLinkBox(ctx, testBytes(RendezvousIdBytes-1, 0x30), depositCt, depositHash, linkBoxEpoch)
+			depositCt, _ := linkBoxDeposit(0x30)
+			_, err = boxes.DepositLinkBox(ctx, testBytes(RendezvousIdBytes-1, 0x30), depositCt, linkBoxEpoch)
 			wantError(t, seen, err, ErrIdentifierShape)
 			_, err = boxes.CollectLinkBox(ctx, nil, linkBoxEpoch)
 			wantError(t, seen, err, ErrIdentifierShape)
@@ -674,14 +685,8 @@ func linkBoxShapeScenarios(newStore func(Limits) Store, seen *recorder) map[stri
 		},
 		"ALinkDepositOfTheWrongLength": func(t *testing.T) {
 			boxes := linkBoxesOf(t, newStore(DefaultLimits()))
-			_, depositHash := linkBoxDeposit(0x34)
-			depositRefused(t, boxes, testBytes(LinkDepositBytes-1, 0x34), depositHash, ErrLinkBoxShape)
-			depositRefused(t, boxes, testBytes(LinkDepositBytes+1, 0x34), depositHash, ErrLinkBoxShape)
-		},
-		"ADepositHashOfTheWrongLength": func(t *testing.T) {
-			boxes := linkBoxesOf(t, newStore(DefaultLimits()))
-			depositCt, _ := linkBoxDeposit(0x35)
-			depositRefused(t, boxes, depositCt, testBytes(DepositHashBytes-1, 0x35), ErrIdentifierShape)
+			depositRefused(t, boxes, testBytes(LinkDepositBytes-1, 0x34), ErrLinkBoxShape)
+			depositRefused(t, boxes, testBytes(LinkDepositBytes+1, 0x34), ErrLinkBoxShape)
 		},
 		"ALinkBoxTtlThatIsNotPositive": func(t *testing.T) {
 			boxes := linkBoxesOf(t, newStore(DefaultLimits()))

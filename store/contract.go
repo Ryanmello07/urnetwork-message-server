@@ -365,7 +365,6 @@ func assertEveryDeclaredShapeIsDamaged(t *testing.T, scenarios map[string]bool) 
 		"HeadHashBytes": "",
 		// §4.3.11's link box: 013's and 014's exact lengths
 		"RendezvousIdBytes": "ARendezvousIdOfTheWrongLength",
-		"DepositHashBytes":  "ADepositHashOfTheWrongLength",
 		"LinkCardBytes":     "ALinkCardOfTheWrongLength",
 		"LinkDepositBytes":  "ALinkDepositOfTheWrongLength",
 	}
