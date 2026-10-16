@@ -5,7 +5,7 @@
 **Date:** 2026-08-12
 **Revision:** A-6 (the contact card gets the transport it was specified without: §5.14 owns the card encoding, the seedphrase-derived capability generations, the sealed 5238-byte deposit and the five rendezvous signature preimages, and S18 and A-18 require the server to carry it; the card's `State`, `Generation` and expiry become part of the SDK contract and the card is per identity rather than per device; auto-accept degrades to manual review under load; `succession_floor_too_short` and `card_not_live` join `GroupResult.Reason`; §5.7's recovery pin is scoped per group; §7.3b is scheduled in slice A7)
 **Status:** Design, owner rulings applied
-**Normative parent:** `docs/specs/2026-08-12-urmessage-protocol-design.md` (revision 9), hereafter **MASTER**
+**Normative parent:** `docs/specs/2026-08-12-urmessage-protocol-design.md` (revision 10, from A-36; revision 9 before it), hereafter **MASTER**
 **Ledger:** `SPEC-LEDGER.md`
 **Siblings:** Spec B (message server), Spec C (Windows messaging client)
 
@@ -22,7 +22,7 @@ section and specifies the **Go types, package boundaries, and test obligations**
 
 | Item | State |
 |---|---|
-| MASTER protocol design | Revision 9, owner rulings applied |
+| MASTER protocol design | Revision **10**, the identity layer's first phase (ledger item 299), from A-36 *(was "Revision 9, owner rulings applied"; the lead's ruling R63 moves this row with this spec's I1 edits)* |
 | This spec | Revision **A-27**, owner rulings applied. A-27 is 2026-09-15's two rulings: `ct_body` becomes a real MLS `PrivateMessage` for an application record, and `message_id` is defined. |
 | Code | **`connect` `beta/message` at `33932e0`** — `mls/`, `message/` and `messagegroup/` are m1 wave 0 and wave 1 plus ruling **A1**; 217 Go files, 7,631 tests passing, nine-platform `CGO_ENABLED=0` build green. **`sdk` holds no messaging code**, so every external leg — the durable `StreamIndexReserver` of §5.6 and §8.2 among them — is still unbuilt. Corrected 2026-09-07; this row read *"None. `beta/message` branches not yet cut"* for five weeks after they were. |
 | Go toolchain | 1.26.5, verified on the build host (`go version` → `go1.26.5`) |
@@ -116,6 +116,7 @@ Append-only. Newest last. One entry per commit that changes this spec. Every cha
 | 2026-10-14 | A-33 | **The join delivery is sealed: invite version 3, and §6's block is the code's** (ledger item 296; the hardening plan's Task 41 Steps 1 to 3, made ahead of the code of its phase T1, because the spec moves before the code it is the authority for; MASTER gains §7.3 in the same commit). §3.1 gains `urmessage_join_seal` (0xF004): capability-only, listed by every leaf, required by every group, and refused as a group-context extension. §5.7: a joiner derives its joining epoch's `read_key` from that epoch's exporter and the `pq_secret` its invitation's `join_seal` carries, and takes `group_handle_key` from the same seal, not from the `Welcome`. §5.11 gains clause (7): (4)'s signature rule is scoped to records; M1-54 is ruled for the join seal alone; M1-55 is met for it; and its order is verify → open → honour. §6's block transcribes `LoadGroup`, `RoleAt` and `CommitRemoveWithExtensions`, which closes the drift A-32 named (ledger item 294; the lead's ruling R19): it holds the code's 6 engine and 35 handle methods at `urnetwork/message` `215a0696`, and §6's "thirty-three" becomes thirty-five. §7.3 gains the join that ships: invite version 3, the errors, the seedless refusal, the held-group gate and its one exception, one unreadable record costing one group, the one refusal inside the window that does not say the join code is not spent, and that only a group requiring the join seal is joined or restored. §7.3a: every path that produces a `Welcome` delivers the seal and `join_auth`, made before anything of the epoch is submitted. No server rule and no record changes. |
 | 2026-10-14 | A-34 | **Item 296's diff review: its one finding against this spec is taken** (ledger item 296; the lead's ruling R23). §7.3's bullet "The join's window, and its one sentence" gains the case it left out: a refusal inside the window whose join code could not be put back is `ErrJoinCodeSpent`, and does not begin with `ErrJoinRefused`'s sentence, as `Device.Join`'s deferred exit answers when putting the join code back fails. MASTER §0, §7, §7.3 and §13 are corrected in the same commit. No wire byte, no server rule, no record and no other section of this spec changes. |
 | 2026-10-16 | A-35 | **§7.3's R12 bullet states the leave rule T1 ships** (ledger item 297's review, its F1; the lead's ruling R47). It said that `ForgetGroup` leaves any group that did not restore without the owner's question, which is the rule the hardening plan's Task 57 found fail-open and T1 replaced (the lead's rulings R26, R29, R30, R33 and R34). It now says that a record the store read and found wrong is refused at the gate as held, and any other failed read by its class (`ErrGroupRecordNotReadNow`, `ErrGroupReadUnproven`); that `ForgetGroup` leaves a group without the question only on a fresh verdict that its data is proven permanently damaged, and refuses a fresh transient or unproven failure "so nothing was left"; and that every erase names an authority true of every file it takes. It is what `forget.go` and `heldgroup.go` do at `urnetwork/message` `c7501a19`, and what Spec C §9.11 says of the app (row 12), so the two specs agree. Spec C row 13 is in the same commit. No wire byte, no server rule, no record and no other section of this spec changes. |
+| 2026-10-16 | A-36 | **The identity layer's first phase, I1: MASTER's Revision 10 brought into this spec** (ledger item 300; the identity plan's Task 4; the lead's ruling R63). §3.1 gains the rows of `urmessage_identity` (0xF005) and `urmessage_group_purpose` (0xF006). §3.4 gains the required capabilities, which A-33's 0xF004 had already left short, and the identity extensions: their field sets, the binding check's order, the list's version and the chain's check. §5.14 gains the link box, kind 4: the code's derivations, the sealed card, the 17,526-octet deposit, the registration's `kind` and card in its preimage, and what a server that finds the code can do. §6 gains four methods, so the interface is 8 engine and 37 handle methods, which the block takes when the code lands. §7.2 and §7.5 gain the identity calls, the phrase change's and the device calls as they ship, and say which designed calls they overtake; four overtaken sentences elsewhere, in §7.2's reasons, §7.2.1, §8.6 and §12.2's C11, gain notes. §7.3 states the erase authorities, with (a)L, (a)E, (f), (f)P, (g) and (i) new. §8.1 gains store kinds 11 to 13 and their names; a new §9.3a lists the exports that ship for I1; §12.1 gains the link box's two sizes and the registration's two fields. The parent pin and the baseline row move to revision 10. |
 
 ---
 
@@ -354,6 +355,8 @@ silent skip.
 | Extensions, leaf node | `urmessage_leaf_keys` (0xF002) | `leaf_node.go` |
 | Extensions, group context | `urmessage_owner_successor` (0xF003) — **accepted and validated in v1** | `profile.go:allowedGroupExtensions`, validated per §3.4 |
 | Capability only | `urmessage_join_seal` (0xF004), added 2026-10-14 (A-33; MASTER §7.3) — listed in every key package's and every leaf's capabilities and **required** by every group's `required_capabilities`; carried as an extension by nothing, and **refused as a group-context extension** | `mls/extension.go`; `mls/group.go:v1Capabilities`; `messagegroup/engine.go:engineCapabilities`, `engineRequiredCapabilities`; `mls/validate_commit.go:groupExtensionProfile` |
+| Extensions, leaf node | `urmessage_identity` (0xF005), added by A-36 (MASTER §5.3, Revision 10): the leaf's certificate, device list and chain. Carried by every leaf but a link group's profile-1 leaf; listed in every key package's and every leaf's capabilities; **required** by every group; kept by every Update; **refused as a group-context extension**. mls carries its body opaque and checks none of its sizes | `mls/extension.go`; `mls/validate_commit.go`; `messagegroup/engine.go`'s `engineCapabilities` and `engineRequiredCapabilities`; the binding is `messagegroup.VerifyLeafBinding` (§3.4) |
+| Extensions, group context | `urmessage_group_purpose` (0xF006), added by A-36: `{version = 1, purpose, identity_root}`, in a system group's context only, purpose 1 a self group and 2 a link group. Listed in every leaf's capabilities; **required** by every system group; **refused as a leaf extension** | `mls/extension.go`; `mls/leaf_node.go`; `messagegroup/engine.go`'s `engineCapabilities`, and a system group's founding (§6) |
 | Lifetime enforcement on KeyPackages | yes, ±1h clock skew tolerance | `key_package.go:Validate` |
 | Max group size | **500 members, hard.** A commit whose resulting membership exceeds it is refused at construction and rejected on receipt | `commit.go:checkGroupSize`, `ErrGroupSizeExceeded` |
 | Max devices per identity | **10 leaves per identity in one group**, hard, same enforcement on both sides | `commit.go:checkDeviceCount`, `ErrDeviceLimitExceeded` |
@@ -567,8 +570,11 @@ type OwnerSuccessorExtension struct {
 }
 ```
 
-`RequiredCapabilities` for a v1 group is fixed:
-`extension_types = [0xF001, 0xF002]`, `proposal_types = []`, `credential_types = [basic]`.
+`RequiredCapabilities` for a v1 group is fixed: `extension_types = [0xF001, 0xF002, 0xF004, 0xF005]`
+for a conversation and `[0xF001, 0xF002, 0xF004, 0xF005, 0xF006]` for a system group,
+`proposal_types = []`, `credential_types = [basic]`. *(A-36. It read
+`extension_types = [0xF001, 0xF002]`, which A-33's 0xF004 had already left short; MASTER §6,
+Revision 10, adds 0xF005 to every group and 0xF006 to a system group.)*
 This means a client that does not understand `urmessage_leaf_keys` cannot be added — which is exactly
 right, since a member with no X-Wing key cannot receive the epoch wrap and would silently lose
 history at the next commit. `urmessage_owner_successor` is deliberately **not** in
@@ -611,6 +617,52 @@ whole value of the rule is that it survives a client someone has modified: one c
 could otherwise strip the entire admin set including the owner in a single commit, and the removed
 owner's keys are gone from the very next epoch, so there is no undo by construction (MASTER §11).
 `TestAdminCannotRemoveAdmin` asserts the construction refusal and the receipt rejection separately.
+
+**The identity extensions** (A-36; MASTER §5.3 and §11, Revision 10). `urmessage_identity` (0xF005)
+version 1 holds three things: the certificate `IskCert(g)`, by which the identity key certifies
+ISK_g; the device list, a **base** signed by ISK_g and by the device that made it, then at most 16
+**amendments**, each an addition or a self-removal signed by a listed device's key; and the
+**chain**, the form-1 steps from the root to the leaf's identity key, at most 4. It is at most 6,144
+octets. `urmessage_group_purpose` (0xF006) version 1 is `{version, purpose, identity_root}`, where
+`identity_root` is the root in a self group and the current identity key in a link group.
+
+- **Their field sets** are the identity plan's Task 11's: F1 §2.2's formats, less `added_at_ms`,
+  `added_by`, `not_after_ms`, `RetiredLegacy` and the predecessor's form 2, with M5's base and
+  amendments for the one list. In I1 the certificate carries no backup fingerprint, since I1
+  derives no backup key; the list carries no pending removals and no `rejoin`; the chain of form-1
+  steps stands where M5 has one predecessor (SCOPE X12); and no 16-octet device id stands
+  anywhere, since an entry and an amendment name a device by its key, whose ID is derived (SCOPE
+  X6; MASTER §5.2). An entry has two flags, *phrase device* and *being removed* (SCOPE C1), and I1
+  never sets the second. The first base under a key number is base 1, and each later one the one
+  before plus one; a random first number is open item MG-16's fix to come. The library's Task 11
+  fixes the octets with known answers, and Task 40 brings those to this spec, in §5.14 and §8.
+- **Every signature is Ed25519 over `LP(label) ‖ encode(tbs)`**, under one of four labels:
+  `URmessage/v1/isk-cert`, by the identity key; `URmessage/v1/device-list`, by ISK_g over a base;
+  `URmessage/v1/device-list-author`, by a base's author; and `URmessage/v1/device-amendment`, by an
+  amendment's author. A step is `Ed25519(old key, LP("URmessage/v1/identity-succession") ‖ LP(next
+  key))`. Every such preimage begins with the octet 0x00 and no MLS `SignContent` does, so a device
+  key signs in two domains that never meet.
+- **`messagegroup.VerifyLeafBinding` checks a leaf in this order,** and the first failure is the
+  answer: (1) 0xF005 is at most 6,144 octets; (2) the certificate's identity key is the leaf's
+  credential, and its signature holds; (3) the chain verifies from the root to that key; (4) the
+  list names that key and key number, and the signatures over the base and every amendment hold;
+  (5) the list is well formed: sorted, unique, 1 to 10 devices, at most 16 amendments, known flags
+  only; (6) the leaf's signature key is in the list; (7) no identity key of the chain is the ISK or
+  the signature key.
+- **`VerifyIdentityChain(root, chain, key)` is pure,** and a stranger can run it with no store: each
+  step's old key is the root or the step before's next key, each is form 1 and signed by its old
+  key, and the last next key is `key`; an empty chain verifies only when `root` is `key`. A form-2
+  step is refused.
+- **A list's version is `(step, g, base, count)`,** compared in that order, where `step` counts the
+  chain's steps. `VerifyDeviceList` takes a list under a later key of one root's chain over every
+  list under an earlier key, a higher g over a lower one, and on one base only a chain of
+  amendments that extends the stored one. Anything else is a fork, two chains that part at one step
+  included, and two lists of one identity at one version with different octets are refused.
+- **The binding rules over these are MASTER §11's** and `sdk/urmessage`'s, and run on the sending
+  side over the would-be tree as on every receiving side. The move in place (R6s) answers
+  `ErrSuccessionInvalid` and `ErrSuccessionRoleConflict`; a second successor of one key answers
+  `ErrSuccessionConflict`, at a commit and at the Add and Join doors; and R8-SIB answers
+  `ErrSiblingNotRevoked`. These are the identity layer's, not the owner succession's above.
 
 ### 3.5 The state store
 
@@ -3342,6 +3394,104 @@ Tests: `TestRendezvousIdIsTokenDerived`, `TestDepositIsExactly5238Bytes`,
 `TestDepositSigProvesOnlyTokenPossession`, `TestCollectKeyIsNotDerivableFromToken`,
 `TestCardGenerationsAreUnlinkable`, `TestRotateCollectsBeforeRetiring`.
 
+#### The link box, kind 4 (A-36; MASTER §5.4 and §9.8, Revision 10)
+
+The link box carries one device's addition (MASTER §5.4), on the same five arms as the card above,
+told apart by `kind = 4` in the registration. It is the only kind I1 serves: no build of I1 serves
+the card above, nor the inbox, the join box and the reply box of the design for IDs and requests,
+kinds 1 to 3. The new device (N) makes the code, and the existing device (E) types it.
+
+**The code, and what it derives:**
+
+```
+code_octets   = 60 bits from crypto/rand, the only source, as a u64 with its 4 high bits zero
+code          = the 60 bits as 12 characters of Crockford's base32, most significant first; read back
+                case-insensitively, with separators dropped, I and L read as 1 and O as 0
+                [a: the length; Spec C draws the groups]
+ikm_l         = HKDF-Extract(salt = "URmessage/v1/link", ikm = code_octets)
+rendezvous_id = H("URmessage/v1/link" ‖ code_octets)                                       [32 B]
+deposit_sig   = Ed25519 from HKDF-Expand(ikm_l, "depsig/v1", 32)
+                // its public half is deposit_verify_pub: Open and Deposit
+card_key      = HKDF-Expand(ikm_l, "cardkey/v1", 32)                // seals the card
+collect_sig   = Ed25519 from 32 octets of crypto/rand, on N only
+                // its public half is collect_verify_pub: Register, Collect and Retire
+link_kem      = XWing.KeyGen(32 octets of crypto/rand), on N only
+                // the deposit's KEM key, whose public half is in the card
+```
+
+Whoever holds the code can open the box and deposit into it, and nothing the code derives collects
+or retires it. Every secret above lives only in memory: in N's link session, and in E's for what the
+code derives, and it goes with the session.
+
+**The card** is the registration's `public_ct`, exactly 4,124 octets:
+
+```
+n_N       = 32 octets of crypto/rand, N's nonce
+commit_n  = SHA-256(LP("URmessage/v1/link-commit") ‖ LP(n_N) ‖ LP(KeyPackageRef_N))        F1 §2.2
+card      = u8(version = 0x01) ‖ LP(key_package) ‖ LP(commit_n) ‖ LP(device_name)
+            ‖ u16(alg_id) ‖ LP(link_kem_pub)
+            // key_package: N's one profile-1 key package; device_name: UTF-8, at most 64 octets
+public_ct = nonce[12] ‖ AEAD(card_key, nonce, aad = "URmessage/v1/aad/linkcard" ‖ LP(rendezvous_id),
+                             u32(len(card)) ‖ card ‖ zeros, to 4,096 octets)
+            // nonce: 12 octets of crypto/rand
+            // 12 + 4,096 + 16 = 4,124 octets, an equality the server asserts
+```
+
+Every `alg_id` here, the card's, the registration's and the deposit's, is 0x0014, X-Wing. E refuses
+a card that `card_key` does not open, or whose version or lengths do not parse. **The deposit's KEM
+key is the one inside the card, never anything Open returns beside it** (the design for IDs and
+requests, its IB2), so a key the server returns beside the card is never used.
+
+**What a server that finds the code can do** (MASTER §9.8). It holds `card_key`, so it reads the
+card, with N's name, and it can answer Open with a card of its own: its own key package, its own
+`commit_n` and its own KEM key. E cannot tell, so it deposits to the server, which joins E's link
+group and reads `n_E` and E's leaf: the identity key, its certificate, the device list, and so
+every device's key and ID, and the chain. The emoji then differ, except with probability 2^-42 a
+session, and nothing is granted. The server gets no grant, no salt and no self group, it can
+neither collect nor retire N's box, and it reads no deposit sealed to N's own KEM key.
+
+**The deposit**, exactly 17,526 octets, is E's invitation sealed again (that design's §2.5 form, at
+its bucket M):
+
+```
+body           = the invitation into the link group, version 3, as §7.3 encodes it
+(ct_xwing, ss) = XWing.Encapsulate(link_kem_pub)
+deposit_key    = HKDF-Expand(ss, "URmessage/v1/linkdeposit" ‖ LP(rendezvous_id), 32)
+deposit_ct     = u16(alg_id) ‖ LP(ct_xwing) ‖ AEAD(deposit_key, nonce = 0,
+                   aad = "URmessage/v1/aad/linkdeposit" ‖ LP(rendezvous_id),
+                   u32(len(body)) ‖ body ‖ zeros, to 16,384 octets)
+                 // 2 + 1,124 + 16,400 = 17,526 octets, an equality the server asserts
+```
+
+Every encapsulation yields a fresh `deposit_key`, so the zero nonce uses no key twice (**I7**). The
+invitation inside is sealed to N's leaf as every invitation is (§7.3), and the deposit seals it again
+to the card's key.
+
+**The five preimages** are the card's above, with one change: the registration carries `kind` and
+`public_ct`, and its preimage appends both, so that no registration is replayed under another kind
+or with another card.
+
+```
+register_auth = Ed25519(collect_sig_sk, "URmessage/v1/rzvregister" ‖ LP(server_nonce)
+                  ‖ LP(rendezvous_id) ‖ LP(deposit_verify_pub) ‖ LP(collect_verify_pub)
+                  ‖ LP(card_xwing_pub) ‖ u16(alg_id) ‖ u32(kind) ‖ LP(public_ct))
+                  // kind 4: card_xwing_pub is empty, because the KEM key is inside the card
+```
+
+`open_auth`, `deposit_auth`, `collect_auth` and `retire_auth` keep the card's forms, under
+`deposit_sig` and `collect_sig` as above. A registration with `kind` 0 has the card's form, which
+ends at `u16(alg_id)`; no build of I1 serves it, and the server refuses it (Spec B §4.3.11).
+
+**Sessions** (that design's IB3). Open and Deposit into a box that is not this device's own run on a
+fresh endpoint session, opened for that one box and closed after it; Register, Collect and Retire
+of N's own box run on N's own session. A box lives 10 minutes [a] and takes at most 2 deposits.
+The server's checks and limits, and what they do not stop, are Spec B §4.3.11 and MASTER §9.8.
+
+Tests: `TestTheDepositIsSealedToTheKeyInsideTheCard`,
+`TestOpenAndDepositIntoAnotherDevicesBoxRunOnAFreshSession` and
+`TestTheLinkCodesDerivationsAreTheKnownAnswers`, the library's Task 21; the scenario
+`I1-server-swaps-the-link-card`, its Task 22.
+
 ---
 
 ## 6. The narrow swappable interface
@@ -3494,6 +3644,45 @@ the block transcribes five of six and 33 of 35, is its history. The join seal ad
 either interface: its engine half is the capability (§3.1), and the rest is the sdk's (§7.3). One
 field still lags: the `PendingEpoch` line carries no `RemovedLeaves`, which the code declares (item
 257's ruling 51). It is a field and not a method, and is not closed here.
+
+**Amended 2026-10-16 for the identity layer** (A-36, ledger item 300; MASTER §5.3 and §11, Revision
+10). I1 adds four methods. They are designed here ahead of the code, and the library's Tasks 12, 13
+and 42 transcribe them, with `engine_test.go`'s list; a writer who needs another shape amends this
+paragraph first, with its own log row.
+- **`NewBoundKeyPackage(leafExtensions []ExtensionBytes) (keyPackage []byte, err error)`,** on the
+  engine: a key package whose leaf carries `urmessage_leaf_keys` and then exactly `leafExtensions`,
+  in order; the identity layer passes 0xF005. `NewKeyPackage` stays, for the one profile-1 key
+  package that a device with no identity makes for a link (§5.14).
+- **`CreateBoundGroup(groupId []byte, policy []byte, leafKeys []byte,
+  leafExtensions []ExtensionBytes, contextExtensions []ExtensionBytes) (GroupHandle, error)`,** on
+  the engine: a founding whose founder's leaf carries `leafExtensions` after `urmessage_leaf_keys`,
+  and whose context carries `contextExtensions` beside 0x0003 and 0xF001. The engine requires
+  0xF004 and 0xF005 of every group it founds by this door, and 0xF006 as well when the context
+  carries it, as a system group's does (§3.4). `CreateGroup` stays, and founds no group of I1.
+- **`CommitOwnLeaf(patch OwnLeafPatch, removeLeaves []uint32, contextExtensions []ExtensionBytes)
+  (commit, welcome, ratchetTree []byte, err error)`,** on the handle: a commit with a path that
+  removes `removeLeaves` and patches the committer's own leaf, as mls's `CommitOptions.OwnLeafPatch`
+  does, before that leaf is signed and the tree is hashed. A nil `contextExtensions` changes no
+  extension of the context; any other is the full post-commit list, as `CommitContextExtensions`
+  takes it, with the Removes first and the GroupContextExtensions last, as in
+  `CommitRemoveWithExtensions`. It brings a new list into a tree, with the leaves that list no
+  longer names removed in the same commit (R8-CUR), and it makes the move in place (R6s), whose
+  commit re-encodes the policy where it names the old key (the identity plan's Task 42).
+- **`LeafAt(leaf uint32) (*LeafView, error)`,** on the handle: a leaf's credential, signature key and
+  extensions, as the current tree holds them, which the binding rules read. A leaf no member stands
+  at is an error.
+
+```go
+type OwnLeafPatch struct { Credential []byte; Extensions []ExtensionBytes } // nil Credential: kept;
+                                                                            // extensions set by type
+type LeafView     struct { Credential []byte; SignatureKey []byte; Extensions []ExtensionBytes }
+```
+
+`ProcessedMember` gains `SignatureKey []byte` and `Extensions []ExtensionBytes`, the staged tree's,
+so that the receiving side runs the binding rules before `ApplyCommit`. With these the interface is
+**8 engine and 37 handle methods**, the block's 6 and 35 and these four. The block above stays the
+code's, at 6 and 35, until the library's Tasks 12, 13 and 42 land the four and the two fields, and
+then takes them, as A-33 made it.
 
 Note what is **not** on this interface: no tree, no node, no secret tree, no HPKE, no
 `epoch_secret`, no `confirmation_key`, no `membership_key`, no ciphersuite internals. `EngineProcessed.Raw`
@@ -3668,6 +3857,40 @@ func (self *MessageClient) RegisterPushChannel(uri string) error
 func (self *MessageClient) UnregisterPushChannel() error
 ```
 
+**The identity layer's first phase, as it ships** (A-36; MASTER §5.1, §5.2 and §5.5, Revision 10).
+The shipped surface is `sdk/urmessage`'s `Device`, with `cgo`'s exports over it (§9.3a); the
+`MessageClient` calls above are the product surface that stands over them, and in I1 several stand
+over nothing.
+- **Overtaken in I1:** `GenerateMessageSeedphrase` and `ValidateMessageSeedphrase`, of 24 BIP39
+  words; `CreateIdentity(phrase)`; `RestoreIdentity`; `RevealSeedphrase`; `MarkPhraseConfirmed` and
+  `PhraseConfirmedAtMs`. The phrase is 25 words, made by the library and never passed in, never
+  stored and so never revealed, and no device restores from it in I1. `IdentitySafetyDigits` and
+  `IdentityShortFingerprint` come with IDs and requests (MASTER §15). `RemoveIdentity` is
+  `Device.EndIdentity` (§7.5).
+- **`Device.CreateIdentity()`** answers the 25 words once, and makes nothing.
+- **`Device.ConfirmWords(words)`,** with all 25 typed back, makes the identity: key number 1, the
+  first base naming this device as a phrase device, the account ID's salt, and the self group,
+  founded with 0xF006 `{1, root}`. It stores the identity record, the heads and the phrase key
+  (§8.1) before it founds the self group. Input is normalized as MASTER §5.1 says; a wrong word is
+  named by its position and nothing is corrected.
+- **`Device.Identity()`** answers the account ID, of 36 characters; this device's ID, of 19; the
+  devices with their marks; whether this device is a phrase device; the notices; the alarm; and the
+  number of phrase changes. Until an identity exists, every call that needs one answers
+  `ErrNoIdentity`, `Device.KeyPackage` among them; `CreateIdentity`, `ConfirmWords` and
+  `OfferLink` do not need one. `Groups` and `Restore` answer conversations only, never a system
+  group.
+- **The phrase change** (MASTER §5.5). `Device.ChangePhrase(oldWords)` checks the old words and
+  answers the new ones once. `Device.ConfirmNewWords(words)`, with all 25 typed back, stores the
+  move before anything is sent: the new identity key, the step, `IskCert(1)` under the new key, and
+  the new key's first base, naming every device as it stood, with this device the only phrase
+  device. Then it sends it, in the self group first. A crash after that store resumes the change
+  with no words. A change that lost a race is rebuilt on the newest list, or is void, and a void
+  change's new key is erased under authority (i)
+  (§7.3).
+- **Every act that takes the words checks them first,** against the identity's current key and its
+  certificate. Words of another identity, or with a slipped word, change nothing; words of a key the
+  chain has retired are refused as a recovery phrase this account no longer uses.
+
 **The `settings_json` schema.** `MessageClientSettings` and the JSON `urmsg_client_open` takes are the
 same shape:
 
@@ -3740,6 +3963,7 @@ type SyncState struct {
 //   "observer"                role is OBSERVER
 //   "no_leaf_after_restore"   seed-only restore; no MLS leaf in this group
 //   "phrase_not_confirmed"    PhraseConfirmedAtMs() == 0 and C-1's gate applies
+//                             (A-36: overtaken in I1, which stores no phrase; §7.2)
 //   "store_unavailable"       the local store could not be opened
 //   "group_closed"            the server has closed the group
 //   "epoch_incomplete"        the epoch's wrap set has not landed yet (§5.11, epoch
@@ -3912,7 +4136,9 @@ requires confirmation, then calls `CreateIdentity(phrase)`; `CreateIdentity` der
 the **256-bit BIP39 entropy** under DPAPI context `"seed_entropy"` alongside the derived children, and
 discards the words. `RevealSeedphrase()` reconstructs the words from that entropy. `RemoveIdentity()`
 deletes the entropy, the derived children, and the whole local store; after it, the words are the only
-way back.
+way back. *(A-36: overtaken in I1. The phrase is never stored, so no entropy is sealed and nothing
+reveals the words; the identity calls that ship are §7.2's, and `RemoveIdentity` is
+`Device.EndIdentity` (§7.5).)*
 
 ### 7.3 Groups
 
@@ -4147,6 +4373,29 @@ surface that stands over them.
   bullet's end read "`ForgetGroup` leaves it, as it leaves any group that did not restore, without
   the owner's question: there is no live roster to ask it of", which is the rule T1 replaced after
   it leaked three times.)*
+- **The erase authorities, with I1's** (A-36; the identity plan's authority table, after LR R34
+  item 10 and R36). Every erase of a group's files, or of one of the identity's records, names one
+  of these, and it must be true of everything the erase takes, at the moment it takes it: **(a)** a
+  leave mark already written; **(b)** a fresh proven-permanent verdict at the person's leave, with
+  the mark written first; **(c)** the store's own `pending` mark; **(d)** a failed admission
+  erasing what it wrote itself; **(e)** the epoch window. I1 adds callers of (a): **(a)L**, a link
+  group, left when its session ends, and **(a)E**, each conversation and the self group, left when
+  the person ends the identity on an only device. It adds three authorities, (f), (g) and (i), and a
+  second premise of (f), (f)P:
+  - **(f),** the phrase key record, erased when this device holds a verified certificate for a key
+    number higher than the record's own; a lock-out's target does it before it shows itself
+    removed;
+  - **(f)P,** (f)'s second premise: the phrase key record of a retired identity key, erased when
+    this device holds a verified step past that key, its own at a change or a sibling's from its
+    self group;
+  - **(g),** the phrase key record, erased on this device's own command, before a phrase device's
+    signed self-removal is sent or its identity is marked ended; neither goes ahead until the erase
+    has succeeded;
+  - **(i),** a phrase change's own new key record, erased when the change is void before anything of
+    it was sent.
+
+  So no device leaves its account holding a phrase secret. The library's erase gate lists every
+  site under its label, and the authority table holds each label against every adversary's move.
 - **The join's window, and its one sentence.** Every refusal `Device.Join` makes after it takes the
   join code and before anything reaches the store puts the join code back, and begins with
   `ErrJoinRefused`'s sentence, *"this invite was refused before anything was written, and the join
@@ -4779,6 +5028,56 @@ one of its own. It carries the number and not the token: the token derives from 
 generation, and shipping the smaller value is what keeps a linked device from holding a capability
 it could not have re-derived anyway.
 
+**The identity layer's first phase, as it ships** (A-36; MASTER §5.4, §5.5 and §11, Revision 10).
+The designed calls above are overtaken in I1: the QR, the 40-bit pairing code, the six digits, and
+`RemoveDevice` across every group. The provisioning bundle is not built, since a new device starts
+with no history (MASTER §5.4), and nothing of the card is derived in I1. The shipped calls are
+`sdk/urmessage`'s.
+- **Adding a device.** `Device.OfferLink()`, on the new device (N), registers the link box (§5.14)
+  and answers a `LinkSession` that shows its code. `Device.EnterLinkCode(code)`, on an existing
+  device (E), opens the card and answers E's `LinkSession`. E starts nothing unless its list has a
+  place, 10 devices and 16 waiting changes, and otherwise ends with "Remove a device first" or "This
+  device can add no more until ⟨phrase device⟩ is opened". E founds the link group with 0xF006
+  `{2, IRK}`, adds N, deposits the invitation, and reveals `n_E` at epoch 1. N joins, reads `n_E`,
+  and only then reveals `n_N`; E checks `n_N` against `commit_n` (§5.14), and refuses one that does
+  not match.
+- **The emoji.** A session shows seven of the 64 emoji of the Matrix specification's `m.sas.v1`
+  list, vendored and pinned by SHA-256, indexed in its order by the first 42 bits, most significant
+  first and six to an emoji, of the link group's `Export("URmessage/v1/link-sas-emoji",
+  LP(group_id) ‖ u64(1) ‖ LP(KeyPackageRef_N) ‖ LP(n_E) ‖ LP(n_N), 32)` at epoch 1. That is F1
+  §2.2's SAS input, under the label of round 4's F1, which turned its digits into emoji. Each side
+  confirms a match or a mismatch, or cancels. Three mismatches burn the session, E opens at most
+  five sessions an hour, a session ends after 10 minutes [a], and a commit at epoch 1 or later ends
+  it. Its endings are one screen: timed out, cancelled, no match, and E's two above.
+- **The grant.** After both matches, E commits an addition, or a base if E is a phrase device, to
+  the self group, and only then posts the grant. N takes it only after its own match, and only if
+  the list names N's key under the certificate; it then rebuilds its engine with the identity key
+  as its credential. E adds N to the self group and to E's own conversations at once, and each
+  other device of the person adds N where it is the next time it runs. Both leave the link group
+  under authority (a)L (§7.3), and N retires its box.
+- **Your own devices bring a device in.** `Device.Maintain()` adds a device the list names to the
+  conversations this device is in, and removes a leaf the list no longer names: the lowest leaf
+  acts first, and the others after ten minutes (MASTER §11).
+- **Removing.** `Device.RemoveThisDevice()` is the device's own signed self-removal; a phrase device
+  first erases its phrase key under authority (g), and does nothing else while that erase fails. On
+  an only device the act is `Device.EndIdentity()`: the phrase key, if this device holds one, is
+  erased under (g); the identity record is marked ended; each conversation and the self group are
+  left, under (a)E; and the ended identity answers every call with `ErrIdentityEnded`.
+  `Device.RemoveDevices(targets, words)` removes other devices: a phrase device needs no words, and
+  any other gives them and becomes a phrase device. `Device.LockOut(words, keep)` removes a phrase
+  device: it mints key number g+1, stores its seed and its certificate before anything is sent, and
+  signs the first base under it, naming `keep`. It may name no target, which is the lock-out the
+  notice of a phrase device's self-removal offers. `Device.MakePhraseDevice(words)` makes this
+  device a phrase device. A removal acts at once: I1 has no security delay.
+- **What a device is told.** A device the newest list no longer names answers
+  `ErrRemovedFromAccount`, saying when and by which device. Each device's notices say "⟨device⟩ was
+  added / removed on ⟨date⟩ by ⟨device⟩", and an added device's notice offers Remove. The alarm has
+  two reasons: a list this device cannot explain, and a change signed with this device's key that
+  it did not make, read from its own-signature log.
+- **One person, several devices.** `Message.Mine` is a line this device sealed, and
+  `Message.FromMe` one that any device of the identity sealed, under any key of its chain. A record
+  from before this device joined answers `not_a_member_yet`.
+
 ### 7.6 Verification — MASTER §10, SSH-style TOFU
 
 ```go
@@ -5362,6 +5661,17 @@ Redemption is rate-limited at the operator; `"rate_limited"` carries a retry hin
 | Fetch attestations covering the high-water range | SQLite `attestation` | no | superseded by a wider covering attestation |
 | **Server-advertised limits, pin state, `capability_version`** | SQLite `server_info` | no (public data), integrity-MAC'd | never; refreshed on `CapabilityChange` |
 | `server_nonce` | memory only | — | reconnect |
+| **The identity record**, store kind 11 (A-36): the root, the chain, the current identity key and the account ID's salt, and its ended mark | `state/identity` | under file permissions only in alpha builds (MASTER **I2**, Revision 10) | never: an ended identity keeps it, marked, and the app opens a fresh folder |
+| **The heads**, store kind 12: for every root seen, the newest list; this device's own-signature log; the remembered phrase-device marks | `state/identity-heads` | as above | never |
+| **The phrase key**, store kind 13: `isk_seed[g]`, naming its identity key and its key number, on a phrase device only | `state/phrase-key` | as above | under authority (f), (f)P, (g) or (i) only (§7.3) |
+
+*(A-36.)* The built store keeps the three records in its data directory, `state/`, beside `device`,
+`priv/`, `kp/` and `group/`, under the names in the table, each defined once (the identity plan's
+Task 12, which asks for names and leaves them to this spec). In I1 the
+first three rows of the table are overtaken and kept as designed: the phrase is never stored, so
+there is no entropy and no `phrase_confirmed_at`; no `master_key` child is kept but `isk_seed[g]`, in
+the phrase key's row; and `recovery_root` and `recovery_sig_seed` are not derived (MASTER §5.2,
+Revision 10).
 
 Path layout under `MessageClientSettings.StorageDir`:
 
@@ -5567,6 +5877,7 @@ Wrong PIN:         typed error, exponential delay after 5 consecutive failures
                    paper, and a device-wiping counter would destroy more than it defends.
 Forgetting it:     local history is lost and the store is re-created empty. The
                    seedphrase still restores from the server (§7.2 RestoreIdentity).
+                   (A-36: not in I1, where no device restores from the phrase.)
                    The client states this before the PIN is set, not after.
 ```
 
@@ -5715,6 +6026,29 @@ uint64_t urmsg_client_add_message_listener(uint64_t client, const char* group_id
                                            urmsg_message_changed_cb cb, void* user_data);
 bool     urmsg_client_identity_public_key(uint64_t client, uint8_t* out, int32_t* inout_len);
 ```
+
+### 9.3a The exports that ship for I1
+
+*(A-36; MASTER Revision 10.)* The C ABI above is the designed one. What ships is `sdk/cgo`'s
+`urnet_message_*` exports over `sdk/urmessage` (§7.2, §7.5), and I1 adds 21:
+- **The identity:** `urnet_message_device_identity`, whose JSON holds the account ID, the device
+  ID, the devices with their marks, the phrase mark, the notices, the alarm, the number of phrase
+  changes and the removed state; `urnet_message_device_create_identity`, which answers the words
+  once; `urnet_message_device_confirm_words`; and `urnet_message_device_check_word`, which answers
+  whether one typed word is in the list.
+- **The link:** `urnet_message_link_offer`, on the new device; `urnet_message_link_enter_code`, on
+  the existing one; `urnet_message_link_state`, `urnet_message_link_emoji`,
+  `urnet_message_link_confirm` and `urnet_message_link_cancel`.
+- **The devices:** `urnet_message_device_devices`, `urnet_message_device_rename`,
+  `urnet_message_device_notices` and `urnet_message_device_maintain`.
+- **Removing:** `urnet_message_device_remove_this`, `urnet_message_device_remove_devices`, which
+  takes the words where they are needed, `urnet_message_device_lock_out`,
+  `urnet_message_device_make_phrase_device` and `urnet_message_device_alarm`.
+- **The phrase change:** `urnet_message_device_change_phrase`, which answers the new words once,
+  and `urnet_message_device_confirm_new_words`.
+
+The member JSON gains `device_id` and `identity`, the leaf's root; the message JSON gains `from_me`;
+and the group lists leave out system groups.
 
 ### 9.4 Memory ownership — the whole table, because this is where cgo bugs live
 
@@ -6068,6 +6402,11 @@ func VerifyRendezvousCollect(collectVerifyPub []byte, serverNonce []byte,
 func VerifyRendezvousRetire(collectVerifyPub []byte, serverNonce []byte,
                             rendezvousId []byte, sig []byte) bool
 func RendezvousDepositBytes() int                                              // 5238, exactly
+func LinkCardBytes() int                                                       // 4124, exactly
+func LinkDepositBytes() int                                                    // 17526, exactly
+// A-36: the two sizes above are the link box's, kind 4. RendezvousRegistration gains Kind and
+// PublicCt, and a Kind of 4 appends u32(kind) ‖ LP(public_ct) to the register preimage (§5.14);
+// a Kind of 0 is the card's form.
 
 // ── exported types ─────────────────────────────────────────────────────────
 type Record, RecordHeader, RetentionClass, SizeBucket,
@@ -6274,7 +6613,7 @@ wrapper over the C ABI, using `nlohmann/json` exactly as the VPN client's wrappe
 | C8 | Render the required UI language of MASTER §12.4 verbatim for disappearing, delete-for-everyone, and the durable default. Never say "gone forever" for the durable class. |
 | C9 | Render `Kind == "gap"` entries visibly, with the reason. Do not hide them. |
 | C10 | Treat `KeyChangeWarning` as **blocking** — the SSH changed-host-key shape (MASTER §10.2). No verified badge (§7.6). |
-| C11 | Never persist the seedphrase **words**. A persists the 256-bit entropy in the sealed keyfile and returns the words only through `RevealSeedphrase()`. C holds them for the life of the §6.2 protected screen and writes them to no file, no `prefs.json`, no clipboard history, and no log. |
+| C11 | Never persist the seedphrase **words**. A persists the 256-bit entropy in the sealed keyfile and returns the words only through `RevealSeedphrase()`. C holds them for the life of the §6.2 protected screen and writes them to no file, no `prefs.json`, no clipboard history, and no log. *(A-36: in I1 nothing of the phrase is stored, its entropy included, and the words are shown once when made, then typed back (§7.2); C's half stands.)* |
 | C12 | No administrator tunnel, no privileged service, no WFP, no wintun, no LocalSystem, no mTLS loopback RPC. This app forwards message traffic only. |
 | C13 | Render `Sealer.Description()` verbatim in a Security screen. It is lint-checked like the MASTER §12.4 strings. |
 | C14 | On any event with `Dropped > 0`, discard the in-memory window for that group and re-read via `History()`. Never merge a post-drop event. |

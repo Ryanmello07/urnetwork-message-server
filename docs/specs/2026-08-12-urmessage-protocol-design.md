@@ -3365,8 +3365,12 @@ A box lives 10 minutes and takes at most 2 deposits, and a global cap on live bo
 An unknown and a retired box are answered alike. **What it does not stop** is stated rather than
 implied: the endpoint authenticates no client, so one client can fill the cap and stop all linking
 until boxes expire; and a server that finds a code, by a search of its about 60 bits or by a leak,
-reads that box's card, which holds a device name, though never the deposit, and the emoji still
-hold then. The wire messages and the server's checks are Spec B §4.3.11; the derivations and the
+reads that box's card, which holds a device name. It can also answer Open with a card of its own:
+the existing device then deposits to it, and the server joins the link group and reads that
+device's leaf, with the identity's keys and devices, before the emoji differ and nothing is
+granted. *(Corrected by Spec A's A-36 review, ledger item 300: it read "reads that box's card,
+which holds a device name, though never the deposit, and the emoji still hold then".)* The wire
+messages and the server's checks are Spec B §4.3.11; the derivations and the
 encodings are Spec A §5.14.
 
 ## 10. Identity verification
