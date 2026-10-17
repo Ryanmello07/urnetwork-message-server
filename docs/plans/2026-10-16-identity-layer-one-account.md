@@ -1,6 +1,6 @@
 # Identity, phase 1: one ID for your account, and an ID for each device
 
-**Filed copy.** This plan is filed in `urnetwork/message-server` as `docs/plans/2026-10-16-identity-layer-one-account.md`, and the ledger entry that files it lists every change made in filing it. `PLAN.md`, in its companions, is this file. They are filed beside it, in `docs/plans/identity-phase1/`: `SCOPE.md`, `FOR-OWNER.md`, `REDTEAM.md`, `REDTEAM-TASK2.md` and `LEAD-RULINGS-I1.md` (LRI). `identity-phase1/<name>`, or a companion named alone, is the file in that folder. Local paths are replaced by labels. `lib@<sha>`, `srv@<sha>` and `app@<sha>` are `urnetwork/message`, `urnetwork/message-server` and `urnetwork/message-windows` at that commit, as read in a local clone, and `app:` paths are under `app/src/App`. The owner's review file (OWN) is the owner's decisions review of 2026-10-05, in no repository. The lead's scratch folder is in no repository either: it holds every `scratchpad/...` path, and the designs, reviews and rulings that this plan's Inputs and SCOPE's place there or name by a relative path, such as OD, M5, F1, D2 and LR. Its head and Inputs name LRI R48 to R60, the rulings it was written to; R61, R62, R65, R66 and R68 came after, and the text cites each where it changed it. R61 takes X11 to X14 and P12 to P15 as planned, which the table under "What the lead ruled" still marks new and open. `app@a832482` is the head of urnetwork/message-windows#8, open when this plan was filed.
+**Filed copy.** This plan is filed in `urnetwork/message-server` as `docs/plans/2026-10-16-identity-layer-one-account.md`, and the ledger entry that files it lists every change made in filing it. `PLAN.md`, in its companions, is this file. They are filed beside it, in `docs/plans/identity-phase1/`: `SCOPE.md`, `FOR-OWNER.md`, `REDTEAM.md`, `REDTEAM-TASK2.md` and `LEAD-RULINGS-I1.md` (LRI). `identity-phase1/<name>`, or a companion named alone, is the file in that folder. Local paths are replaced by labels. `lib@<sha>`, `srv@<sha>` and `app@<sha>` are `urnetwork/message`, `urnetwork/message-server` and `urnetwork/message-windows` at that commit, as read in a local clone, and `app:` paths are under `app/src/App`. The owner's review file (OWN) is the owner's decisions review of 2026-10-05, in no repository. The lead's scratch folder is in no repository either: it holds every `scratchpad/...` path, and the designs, reviews and rulings that this plan's Inputs and SCOPE's place there or name by a relative path, such as OD, M5, F1, D2 and LR. Its head and Inputs name LRI R48 to R60, the rulings it was written to; R61, R62, R65, R66, R68 and R70 came after, and the text cites each where it changed it. R61 takes X11 to X14 and P12 to P15 as planned, which the table under "What the lead ruled" still marks new and open. `app@a832482` is the head of urnetwork/message-windows#8, open when this plan was filed.
 
 **Writers:** the planner of the identity-phase-1 round; then the finalizer, who applied the red team's fixes in place; then the reviser, who brought the phrase change into I1 for the owner's answer of 2026-10-16 and applied the lead's rulings R48 to R57; then Task 2's finalizer, who applied Task 2's dispositions in place. **Date:** 2026-10-16. **Status:** an implementation plan. The lead has ruled on it (`LRI` R48 to R60). Its design has had its one pass (LRI R53): `REDTEAM`'s 24 findings are dispositioned in "Review dispositions", and Task 2's 7 (`REDTEAM-TASK2`) in "Task 2 dispositions". One check of Task 2's dispositions follows, then Task 1 files the plan (LRI R57). Nothing was built or run for it, and no repository, server, spec or ledger was changed. **Declined actions:** none.
 
@@ -43,7 +43,7 @@
 | Variant | **RESET**, the only one (OD:32, :110-114). No legacy mode, no upgrade step, no compatibility with build 03 (SCOPE §6). |
 | Lab | **None.** HP was cut from a lab that built every commit (HP:22); this plan was not. Its sizes, times and counts are [c] or [a]. Every number a report quotes is measured on the day. |
 | Writers | One per repository (program gate 4, `srv:docs/plans/2026-10-05-hardening-program.md:113-115` [m]; REDTEAM L6): **W-lib**, **W-srv**, **W-app**. Red-teamers and reviewers are read-only, and are none of the three. |
-| Tasks | 45, with ids 1 to 45, 6b and 38b; 35 and 37 are retired. Before code, 7; slice 1, 11; slice 2, 12; slice 3, 8; slice 4, 7. |
+| Tasks | 46, with ids 1 to 45, 6b, 7b and 38b; 35 and 37 are retired. Before code, 7; slice 1, 12 (7b since LRI R70); slice 2, 12; slice 3, 8; slice 4, 7. |
 
 ## Goal
 
@@ -338,6 +338,23 @@ Nothing is renumbered or removed.
 - [ ] **Step 3: the mutations.**
   1. `MI1`: an existing field is renumbered to make room. Property 1 must fail. Killed by the append-only check.
 - [ ] **Step 4: commit, push to the fork, and send W-srv the commit,** which Task 18 consumes.
+
+### Task 7b: message: the rendezvous preimages and verifiers (W-lib; LRI R70)
+
+- Consumes: Spec A A-37's §5.14 and its A-1 rendezvous section (§12.1); Spec B revision 26's §12.1; item 300's labels and sizes
+- Produces, in the `message` package, exactly the A-1 rendezvous surface in kind 4's form: `RendezvousRegistration` and `RendezvousCollectParams`; `RendezvousRegisterPreimage` and the other preimages §5.14 names; `VerifyRendezvousRegister`, `VerifyRendezvousOpen`, `VerifyRendezvousDeposit`, `VerifyRendezvousCollect` and `VerifyRendezvousRetire`; `RendezvousId`; `DepositVerifyKey`; `LinkCardBytes` and `LinkDepositBytes`
+
+**Why.** Task 19 verifies all five signatures through these functions, and A-1 forbids the server building a preimage (`srv:api/second_implementation_test.go`). No task built them: Task 7 is the proto only, and Task 21 is the client. W-srv found the gap (LRI R70).
+
+- **Property 1.** Each verifier accepts exactly the preimage §5.14 defines, under its label and for kind 4. It refuses another label, another kind (kind 0 included), another box id and another key.
+- **Property 2.** `RendezvousId`, `DepositVerifyKey` and each preimage are their known answers. `LinkCardBytes` and `LinkDepositBytes` are item 300's 4,124 and 17,526.
+
+- [ ] **Step 1: tests first:** `TestEveryRendezvousVerifierAcceptsOnlyItsOwnPreimage`; `TestTheRendezvousValuesAreTheKnownAnswers`. If `message` holds a gate over the A-1 surface, it gains the section.
+- [ ] **Step 2: see them fail; the code.**
+- [ ] **Step 3: the mutations.**
+  1. `MI122`: a verifier ignores the kind, so a kind-0 or kind-1 preimage verifies as kind 4. Property 1 must fail. Killed by `TestEveryRendezvousVerifierAcceptsOnlyItsOwnPreimage`.
+  2. `MI123`: a preimage omits its label. Property 2 must fail. Killed by `TestTheRendezvousValuesAreTheKnownAnswers`.
+- [ ] **Step 4: commit, push to the fork, and send W-srv the commit,** which Task 19's verify step pins.
 
 ### Task 8: The harness first: four scenarios RED on `main` (W-lib)
 
@@ -636,7 +653,7 @@ The owner's session 2 ends this slice (SCOPE §8 steps 4 to 7, and 11). The serv
 ### Task 18: The server's library pin, and the link box's storage (W-srv)
 
 - Consumes: Task 7's commit, pushed; Spec B §3.2 as Task 5 left it; `store/contract.go`, `memory.go` and `pgx.go`
-- Produces: `scripts/siblings.txt`'s `message` line at Task 7, in a commit of its own; two appended migrations; the store's register, open, deposit, collect, retire and live-box counter, in both stores; the contract tests
+- Produces: `scripts/siblings.txt`'s `message` line at Task 7, in a commit of its own; two appended migrations; the store's register, open, deposit, collect, retire and live-box counter, in both stores; the deposit's `deposit_hash`, computed by the store from `deposit_ct` as Spec A §5.14 defines it and returned, since `api` may not hash (LRI R70); the contract tests
 
 **Behaviour.** After the pin moves, `scripts/siblings.sh --verify` and the whole suite pass, and `cmd/message-server/schema_test.go` still finds exactly one copy of the schema.
 
@@ -655,7 +672,7 @@ The owner's session 2 ends this slice (SCOPE §8 steps 4 to 7, and 11). The serv
 
 ### Task 19: Arms 20 to 24, served for the link box (W-srv)
 
-- Consumes: Task 18; the route table (`peer/peer.go:830` [m]) and the unserved-arms list derived from it (:405-430 [m]); Spec B §4.3.11 and its check order (:2409 [m])
+- Consumes: Task 18; Task 7b's commit, pinned before the verify step lands (until then every arm answers as unserved, and the readiness names why; LRI R70); the route table (`peer/peer.go:830` [m]) and the unserved-arms list derived from it (:405-430 [m]); Spec B §4.3.11 and its check order (:2409 [m])
 - Produces, in `peer/peer.go`, a new `api/rendezvous.go` [a] and `cmd/message-server/config.go`: five routes, with their handlers; Capabilities 26 and 29; a push on each deposit; `configurationNotWired`'s rendezvous entry narrowed (`cmd/message-server/config.go:282` [m])
 
 **Behaviour.**
@@ -1395,7 +1412,7 @@ This task changes no code and states no property. Its one commit is W-srv's ledg
 - **The red team's fixes** add about ten tests and twelve mutants inside existing tasks, and no task. They cost about one agent-day each in slices 2 and 3 [a]. In slice 1, L1's earlier start pays for them [a]. Task 2's add three tests, two `--diagnose` cases, four cases in existing tests and eight mutants, also inside existing tasks [c].
 - **What keeps it fast:** the server is built alongside the library from Task 7 on; the app builds against each slice's header while the library finishes; Slice 0; slice 4's library work starting while slice 3 closes; and the budget, with one review and two fix rounds a slice.
 - **What would slow it:** a red-team finding against X2, which moves slice 2, or against the phrase change (Task 2's prompt 10), which moves slice 4; Argon2id taking more than about 2 seconds on the owner's computers [a], which changes the parameters and every known answer; and the owner merging slowly, which makes the slices stack.
-- **Size [c].** 45 tasks: 26 commits to lib, 10 to srv and 5 to app; Task 6b's commits land with R. About 165 new tests, 17 scenarios, and 116 library, 12 server and 15 app mutants (12 server since LRI R66). Production code [a]: about 6,000 new Go lines in lib, about 1,500 in srv, and about 3,300 C++ lines in the app.
+- **Size [c].** 46 tasks since LRI R70's Task 7b: 27 commits to lib, 10 to srv and 5 to app; Task 6b's commits land with R. About 165 new tests, 17 scenarios, and 118 library, 12 server and 15 app mutants (12 server since LRI R66, 118 library since LRI R70). Production code [a]: about 6,000 new Go lines in lib, about 1,500 in srv, and about 3,300 C++ lines in the app.
 
 # Mutation proofs
 
@@ -1404,7 +1421,7 @@ Every mutant is stated in its task, with the Property it must fail and the test 
 | Task | Mutants | Task | Mutants | Task | Mutants |
 |---|---|---|---|---|---|
 | 6 | MA1 to MA2 | 18 | MR1 to MR3 | 30, 31, 33 | MI60 to MI65; MI71, MI72; MI87, MI88; MI115 |
-| 7 | MI1 | 19 | MR4 to MR9; MR11, MR12 | 32 | MI66 to MI70; MI89, MI90, MI94; MI116 |
+| 7, 7b | MI1; MI122, MI123 | 19 | MR4 to MR9; MR11, MR12 | 32 | MI66 to MI70; MI89, MI90, MI94; MI116 |
 | 9 | MI2 to MI5 | 20 | MR10 | 34 | MI73 to MI75 |
 | 10 | MI6 to MI12 | 21 | MI38 to MI40 | 36 | MI78 |
 | 11 | MI13 to MI20; MI91 to MI93; MI121 | 22 | MI41 to MI44; MI83, MI84 | 38 | MA8 to MA9 |
@@ -1481,14 +1498,14 @@ These are plain text, sent by the lead at each slice's close. Every number is me
 
 | | Phase 0 | Slice 1 | Slice 2 | Slice 3 | Slice 4 | All |
 |---|---|---|---|---|---|---|
-| Tasks | 7 | 11 | 12 | 8 | 7 | 45 |
-| Commits to lib [c] | 0 | 9 | 8 | 6 | 3 | 26 |
+| Tasks | 7 | 12 | 12 | 8 | 7 | 46 |
+| Commits to lib [c] | 0 | 10 | 8 | 6 | 3 | 27 |
 | Commits to srv [c] | 4 | 0 | 4 | 0 | 2 | 10 |
 | Commits to app [c] | 1 | 1 | 1 | 1 | 1 | 5 |
 | Scenarios | 0 | 7 | 3 | 3 | 4 | 17 |
-| Mutants | 2 | 47 | 40 | 26 | 28 | 143 |
+| Mutants | 2 | 49 | 40 | 26 | 28 | 145 |
 
-The commits count one per code task, plus the two pin commits; Task 6b's land with R. srv's slice 4 holds Task 40 and the ledger's close. The scenarios are counted where they land. LRI R66 adds MR11 and MR12 to Task 19, so slice 2 holds 40 mutants and the plan 143. The mutant row was 2 / 43 / 38 / 27 = 110 after the red team's fixes [c]. Slice 1 gains MI91 to MI93. Slice 3 gains MI94 and loses MI76, MI77, MI79 and MI80. Slice 4 is MI95 to MI114 and MA12 to MA14. That made 133. Task 2's dispositions add MI121 to slice 1, MI115 and MI116 to slice 3, and MI117 to MI120 and MA15 to slice 4: 141. By repository: 116 library, 10 server and 15 app. LRI R66's MR11 and MR12 make it 143: 116 library, 12 server and 15 app.
+The commits count one per code task, plus the two pin commits; Task 6b's land with R. srv's slice 4 holds Task 40 and the ledger's close. The scenarios are counted where they land. LRI R66 adds MR11 and MR12 to Task 19, so slice 2 holds 40 mutants and the plan 143. LRI R70 adds Task 7b, with MI122 and MI123, so slice 1 holds 12 tasks and 49 mutants, and the plan 46 tasks and 145 mutants. The mutant row was 2 / 43 / 38 / 27 = 110 after the red team's fixes [c]. Slice 1 gains MI91 to MI93. Slice 3 gains MI94 and loses MI76, MI77, MI79 and MI80. Slice 4 is MI95 to MI114 and MA12 to MA14. That made 133. Task 2's dispositions add MI121 to slice 1, MI115 and MI116 to slice 3, and MI117 to MI120 and MA15 to slice 4: 141. By repository: 116 library, 10 server and 15 app. LRI R66's MR11 and MR12 make it 143: 116 library, 12 server and 15 app.
 
 # Review dispositions
 
@@ -1551,4 +1568,4 @@ The commits count one per code task, plus the two pin commits; Task 6b's land wi
 | T2-L2 | LOW | **Fixed** | Task 42: the alias runs before every rule, R8-CUR and R8-SIB included (F1:551 [m]); a sibling case; MI119 | Task 42 |
 | T2-L3 | LOW | **Holds** | A put-back gives a false positive only, which Task 34's sentence names (PLAN:81, :1022); a copy cannot write the original's log [c]. P7 is decided | P7 |
 
-**What else.** 45 tasks; 141 mutants (116 library, 10 server, 15 app; 143, with 12 server, since LRI R66), MI115 to MI121 and MA15 new, none reused; 17 scenarios; about 165 tests [c]. Slices 3 and 4 move about a day. No MG id is new, and MG-18 stays Task 43's. Declined actions: none.
+**What else.** 45 tasks; 141 mutants (116 library, 10 server, 15 app; 143, with 12 server, since LRI R66; 46 tasks and 145, with 118 library, since LRI R70), MI115 to MI121 and MA15 new, none reused; 17 scenarios; about 165 tests [c]. Slices 3 and 4 move about a day. No MG id is new, and MG-18 stays Task 43's. Declined actions: none.

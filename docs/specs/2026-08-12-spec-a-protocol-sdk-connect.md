@@ -118,6 +118,7 @@ Append-only. Newest last. One entry per commit that changes this spec. Every cha
 | 2026-10-16 | A-35 | **§7.3's R12 bullet states the leave rule T1 ships** (ledger item 297's review, its F1; the lead's ruling R47). It said that `ForgetGroup` leaves any group that did not restore without the owner's question, which is the rule the hardening plan's Task 57 found fail-open and T1 replaced (the lead's rulings R26, R29, R30, R33 and R34). It now says that a record the store read and found wrong is refused at the gate as held, and any other failed read by its class (`ErrGroupRecordNotReadNow`, `ErrGroupReadUnproven`); that `ForgetGroup` leaves a group without the question only on a fresh verdict that its data is proven permanently damaged, and refuses a fresh transient or unproven failure "so nothing was left"; and that every erase names an authority true of every file it takes. It is what `forget.go` and `heldgroup.go` do at `urnetwork/message` `c7501a19`, and what Spec C §9.11 says of the app (row 12), so the two specs agree. Spec C row 13 is in the same commit. No wire byte, no server rule, no record and no other section of this spec changes. |
 | 2026-10-16 | A-36 | **The identity layer's first phase, I1: MASTER's Revision 10 brought into this spec** (ledger item 300; the identity plan's Task 4; the lead's ruling R63). §3.1 gains the rows of `urmessage_identity` (0xF005) and `urmessage_group_purpose` (0xF006). §3.4 gains the required capabilities, which A-33's 0xF004 had already left short, and the identity extensions: their field sets, the binding check's order, the list's version and the chain's check. §5.14 gains the link box, kind 4: the code's derivations, the sealed card, the 17,526-octet deposit, the registration's `kind` and card in its preimage, and what a server that finds the code can do. §6 gains four methods, so the interface is 8 engine and 37 handle methods, which the block takes when the code lands. §7.2 and §7.5 gain the identity calls, the phrase change's and the device calls as they ship, and say which designed calls they overtake; four overtaken sentences elsewhere, in §7.2's reasons, §7.2.1, §8.6 and §12.2's C11, gain notes. §7.3 states the erase authorities, with (a)L, (a)E, (f), (f)P, (g) and (i) new. §8.1 gains store kinds 11 to 13 and their names; a new §9.3a lists the exports that ship for I1; §12.1 gains the link box's two sizes and the registration's two fields. The parent pin and the baseline row move to revision 10. |
 | 2026-10-16 | A-37 | **Two notes owed since Spec B's revision 25; ruling 27's stale comments corrected; and the phrase's fold and its in-memory residual stated** (ledger item 301's Open; Task 5's review, its F9 and F10; this edit's review, its F2, F4 and F6; the lead's rulings R66 and R68, R68's from the review of the identity plan's Tasks 8 to 10, its findings L1-2, L1-5, L3-6 and L3-7). §12.1's A-1 block takes ruling 27's names, which Spec B's copy carries and this copy never took, and the block's lead line and a note after it say that the two copies now differ only where each cites a section. Two of ruling 27's comments, stale since 2026-09-23, are corrected in both copies, and `ErrEpochKeysDigestPresence`, which no function on this surface returns, leaves both under A-9's rule. §5.11's paragraph on the two doors says that check 3's serves all six kinds, and its measurement of the stale-peer split is dated. The out-table's row A-18 gains the link box's note, as Spec B's row A-18 has. §7.2 names the phrase's fold, NFKD at Unicode 17.0.0 with white space as Unicode's White_Space property gives it, as MASTER §5.1 now does, and a new §8.4a states what an erase of the phrase's secrets does not reach, measured, which MASTER §5.2 now points to. |
+| 2026-10-16 | A-38 | **The rendezvous's small-order key rule, `RendezvousKeyIsAcceptable`** (the lead's rulings R72 and R73; the identity plan's Task 19, its verify step). Under a public key of small order, `crypto/ed25519` accepts signatures that need no secret, so the library's five rendezvous verifiers refuse such a key, and a key of any width but 32 octets, before any signature, and the library publishes the rule. §5.14 gains the paragraph that says so, and that the server's Register calls it at check 3 on both keys, so that no box is stored under a key no holder could use. §12.1's A-1 block gains `RendezvousKeyIsAcceptable` with its comment, in both copies alike, with a note after the block and one in its lead line, and row A-18 gains its note. No wire byte, record, label or other section of this spec changes. |
 
 ---
 
@@ -3486,6 +3487,17 @@ register_auth = Ed25519(collect_sig_sk, "URmessage/v1/rzvregister" ‖ LP(server
 `deposit_sig` and `collect_sig` as above. A registration with `kind` 0 has the card's form, which
 ends at `u16(alg_id)`; no build of I1 serves it, and the server refuses it (Spec B §4.3.11).
 
+**No key of small order** (A-38; the lead's ruling R72). Under a public key of small order,
+`crypto/ed25519` accepts signatures that need no secret: under the neutral point, R = the
+neutral point and S = 0 verify for every message, and under the other points of small order for
+some messages. A box pinned under such a key could be used by anyone. The five verifiers
+therefore refuse a public key that is not 32 octets, or whose encoding, with its sign bit
+cleared, is one of the seven of small order, before any signature; the seven are the ones
+`messagegroup` refuses for the identity layer. The rule is published as
+`RendezvousKeyIsAcceptable` (§12.1, A-1), and the server's Register calls it at check 3 on both
+keys, so that no box is stored under a key no holder could use (Spec B §4.3.11; the lead's
+ruling R73).
+
 **Sessions** (that design's IB3). Open and Deposit into a box that is not this device's own run on a
 fresh endpoint session, opened for that one box and closed after it; Register, Collect and Retire
 of N's own box run on N's own session. A box lives 10 minutes [a] and takes at most 2 deposits.
@@ -6385,7 +6397,7 @@ it**. `github.com/urnetwork/connect/messagegroup` holds the key schedule, both r
 session, the sealer, X-Wing, the wraps and the MLS adapter, and Spec B §2.2's allow list does not
 carry it, so a server that reached for one of them fails the message server's own dependency gate by
 name rather than by review. This table is the single published version of that surface and is
-restated character-for-character in Spec B §12.1 (A-1) *(A-37: but for two section cites, as the note after the block says)*:
+restated character-for-character in Spec B §12.1 (A-1) *(A-37: but for two section cites, as the note after the block says)* *(A-38: and the two cites of A-38's comment)*:
 
 ```go
 // ── records ────────────────────────────────────────────────────────────────
@@ -6453,12 +6465,17 @@ func VerifyRendezvousCollect(collectVerifyPub []byte, serverNonce []byte,
                              c *RendezvousCollectParams, sig []byte) bool
 func VerifyRendezvousRetire(collectVerifyPub []byte, serverNonce []byte,
                             rendezvousId []byte, sig []byte) bool
+func RendezvousKeyIsAcceptable(pub []byte) bool                                // A-38
 func RendezvousDepositBytes() int                                              // 5238, exactly
 func LinkCardBytes() int                                                       // 4124, exactly
 func LinkDepositBytes() int                                                    // 17526, exactly
 // A-36: the two sizes above are the link box's, kind 4. RendezvousRegistration gains Kind and
 // PublicCt, and a Kind of 4 appends u32(kind) ‖ LP(public_ct) to the register preimage (§5.14);
 // a Kind of 0 is the card's form.
+// A-38: RendezvousKeyIsAcceptable is the rule the five verifiers apply before any
+// signature: true only for a key of 32 octets whose encoding, sign bit cleared, is none
+// of the seven of small order (§5.14). The server's Register applies it at check 3, to
+// both keys (Spec B §4.3.11).
 
 // ── exported types ─────────────────────────────────────────────────────────
 type Record, RecordHeader, RetentionClass, SizeBucket,
@@ -6526,6 +6543,12 @@ var ErrEpochKeysDigestMismatch       error // the two keys handed beside a recor
 ```
 
 *(A-37: ruling 27's names, `ParseEpochDigestAttachment` and `CheckEpochKeysDigest` with the comment on the sixth kind's door, the type `EpochDigestAttachment`, the constant `AttachmentEpochDigest` with the comment on the sixth kind, and the errors `ErrServerAttachmentKindNotServed` and `ErrEpochKeysDigestMismatch` with their comment, are restated in the block above from Spec B §12.1's copy, which carried them where this copy did not. Two of those comments had gone stale against the code since 2026-09-23, when the record layer widened check 3's door to kind `0x0005` after ruling 33 put the epoch keys on the request, and both copies are corrected together: the door's comment said that `ParseServerAttachment` refuses that kind, and the errors' comment gave `ErrServerAttachmentKindNotServed` as check 3's refusal, where the code's is `ErrEpochKeysDigestMismatch`. Spec B's copy also listed `ErrEpochKeysDigestPresence`, which only `NewEpochDigestAttachment` returns, a committer's constructor this surface does not hold, so A-9's rule keeps it off both copies. `message/attachment.go` and `message/errors.go` at `urnetwork/message` `0bb2128f` declare each name in the block so, and state the facts from which the corrected comments follow. The two copies now differ only in how each cites a section: the rendezvous header's and §5.9's.)*
+
+*(A-38: `RendezvousKeyIsAcceptable` and its comment are added to both copies alike, from the
+library's commit for the lead's ruling R72, which declares it so; its comment cites §5.14 and
+Spec B §4.3.11 here, and the same sections in Spec B's own terms there. So the two copies now
+differ in four section cites, in three places: the rendezvous header's, this comment's two, and
+§5.9's.)*
 
 The server gets verifiers and no signers, and no function that opens a deposit — a sealing or
 opening function on this surface would be a decryption capability in the process that holds the
@@ -6669,7 +6692,7 @@ consumes, with owners and slices:
 | A-15 | The delivery-receipt record: `EPH(bucket 0)`, never persisted, fanned out on the transient channel exactly as read receipts are | §7.4 | A6 |
 | A-16 | The reaction body encoding: `LP(emoji_utf8)`, one extended grapheme cluster, validated against a pinned Unicode version on both sides | §5.1, §7.4a | A6 |
 | A-17 | The two-sentinel `durable_ttl_seconds` encoding, and the rule that the server applies its own advertised default on the unset sentinel | §5.11 | A6 |
-| A-18 | The contact-card encoding, the rendezvous derivations, the sealed deposit at its exact length, and the five rendezvous signature preimages with their verifiers *(A-37: and the link box's, kind 4: its registration, with `kind` and its card inside the preimage, and its two sizes, `LinkCardBytes` and `LinkDepositBytes`; §5.14 and §12.1, A-36.)* | §5.14 | A6 |
+| A-18 | The contact-card encoding, the rendezvous derivations, the sealed deposit at its exact length, and the five rendezvous signature preimages with their verifiers *(A-37: and the link box's, kind 4: its registration, with `kind` and its card inside the preimage, and its two sizes, `LinkCardBytes` and `LinkDepositBytes`; §5.14 and §12.1, A-36.)* *(A-38: and the small-order key rule, `RendezvousKeyIsAcceptable`, which every verifier applies before any signature and the server's Register calls at check 3; §5.14, the lead's rulings R72 and R73.)* | §5.14 | A6 |
 
 ### 12.2 To the Windows messaging client (Spec C)
 

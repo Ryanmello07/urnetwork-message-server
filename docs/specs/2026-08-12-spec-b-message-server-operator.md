@@ -756,6 +756,20 @@ under A-9's rule, as it leaves Spec A's copy in A-37. §12.1's row A-18 had revi
 its third column, which says why the item must come from Spec A; the note moves, unchanged, to the
 second, which names the item. Nothing else changes.
 
+**Revision 27 — 2026-10-16 — Register refuses a key of small order and holds the `alg_id` as a
+u32, and §7.4 states the sweep's three accepted departures** (the lead's rulings R72 and R73; the
+identity plan's Tasks 19 and 20). §4.3.11's Register, and §5.1.2's check 3 with it, compare the
+`alg_id` with 0x0014 as the u32 the request carries, so that a value above 0xFFFF is refused and
+never truncated to the preimage's u16; and they refuse a deposit key or a collect key that the
+library's `RendezvousKeyIsAcceptable` rejects, a key of small order or not 32 octets, answering
+`REASON_REJECTED` and storing nothing. §7.4 states the three ways kind 4's reclaim, as built,
+departs from its text: the advisory lock is the two-key form, scoped to the schema; `now` is the
+caller's; and PostgreSQL may abort the recount, or a Collect or a Retire still running at its
+box's expiry, and either retry is harmless. It also says that the gauges, the counter and
+`messagectl sweep-now` are not built in I1. §12.1's A-1 block gains `RendezvousKeyIsAcceptable`
+as Spec A's A-38 adds it, with a note, and row A-18 gains its note. No wire field, reason code,
+table, query or migration changes.
+
 ---
 
 ## 1. Scope
@@ -2348,8 +2362,14 @@ its card and its deposit are Spec A §5.14's: the server holds no code and deriv
 
 - **Register** verifies `register_auth`, in its kinded form, against the `collect_verify_pub` in
   the request. `kind` must be 4, `card_xwing_pub` absent (an empty field, stored as NULL),
-  `alg_id` 0x0014, and `octet_length(public_ct)` exactly 4,124, as an equality. Then, in this
-  order:
+  `alg_id` 0x0014, and `octet_length(public_ct)` exactly 4,124, as an equality. *(Revision 27:
+  the `alg_id` is compared as the u32 the request carries, so that a value above 0xFFFF is
+  refused and never truncated to the preimage's u16, where 0x10014 would verify as 0x0014; and
+  neither `deposit_verify_pub` nor `collect_verify_pub` may be a key that
+  `RendezvousKeyIsAcceptable` rejects, one of small order or not 32 octets (Spec A §5.14; the
+  lead's rulings R72 and R73). These are check 3's, and a registration that fails one is answered
+  `REASON_REJECTED`, padded, and stores nothing, so that no box stands under a key no holder
+  could use.)* Then, in this order:
   - a live box at the id, under the same key and with the same card, answers `REASON_OK` and
     changes nothing, since a link box is not kept alive;
   - any other row at the id answers `REASON_REJECTED`: another key or another card, a retired box,
@@ -2584,7 +2604,7 @@ Before this, `FetchRequest` and `SubscribeRequest` carried no authenticator at a
 
 #### 5.1.2 The rendezvous path
 
-§4.3.11's five operations are the only ones a party with no group key may issue, so the check order matters more here than anywhere else. Checks 1, 2 and 4 apply unchanged. Check 3 becomes a static shape check on the operation's own fields — 32-byte id, 32-byte public keys, 1216-byte `card_xwing_pub`, and `octet_length(deposit_ct)` **exactly** `rendezvous_deposit_bytes`. *(Revision 25: in I1 every `deposit_ct` is exactly 17,526 octets, since kind 4 is the one kind served, and a Register of kind 4 carries no `card_xwing_pub` and a `public_ct` of exactly 4,124.)* Check 5 becomes a **known-rendezvous cuckoo filter**, refreshed and inserted into by the same Redis channel and 60-second backstop timer as the known-group filter, so a deposit against a guessed id is refused with no database read at all. Check 6 becomes the `message_rendezvous` row lookup of Q17, served from an in-process LRU with negative results cached 5 s with jitter. Check 7 becomes the Ed25519 verification named for that operation. **No transaction is opened and no row is allocated before check 7 has passed**, and a party who holds no token can therefore force neither a row lock nor a WAL byte, which is the same property §5.1 gives the submit path.
+§4.3.11's five operations are the only ones a party with no group key may issue, so the check order matters more here than anywhere else. Checks 1, 2 and 4 apply unchanged. Check 3 becomes a static shape check on the operation's own fields — 32-byte id, 32-byte public keys, 1216-byte `card_xwing_pub`, and `octet_length(deposit_ct)` **exactly** `rendezvous_deposit_bytes`. *(Revision 25: in I1 every `deposit_ct` is exactly 17,526 octets, since kind 4 is the one kind served, and a Register of kind 4 carries no `card_xwing_pub` and a `public_ct` of exactly 4,124.)* *(Revision 27: at Register, the `alg_id` is held to 0x0014 as the u32 the request carries, and neither public key may be one that `RendezvousKeyIsAcceptable` rejects; §4.3.11.)* Check 5 becomes a **known-rendezvous cuckoo filter**, refreshed and inserted into by the same Redis channel and 60-second backstop timer as the known-group filter, so a deposit against a guessed id is refused with no database read at all. Check 6 becomes the `message_rendezvous` row lookup of Q17, served from an in-process LRU with negative results cached 5 s with jitter. Check 7 becomes the Ed25519 verification named for that operation. **No transaction is opened and no row is allocated before check 7 has passed**, and a party who holds no token can therefore force neither a row lock nor a WAL byte, which is the same property §5.1 gives the submit path.
 
 Registration is the one operation whose signature is verified against a key in the request rather than a key the server holds, and it is therefore the one operation an unauthenticated party can make the server act on. What bounds it is the 20/day per-`client_id` limit and the fact that the id is the hash of a 16-byte CSPRNG value that has not been published, exactly as `CreateGroup` is bounded. *(Revision 25: a link box's id is the hash of a 60-bit code. Where check 4 is built and a `client_id` names a platform client, that limit and §4.3.11's cap on live boxes bound its registrations; at the server's own endpoint, where a `client_id` names one TLS session, the cap alone does.)* That is written here rather than left to be inferred.
 
@@ -3527,6 +3547,22 @@ The deposit delete runs first, because the foreign key cascades and doing it in 
 *(Revision 25.)* The same two statements reclaim kind 4's rows, whose `reclaim_after` is their
 `expire_time`, ten minutes [a] after registration, and whose deposits prune with the box. The sweep
 only reclaims space: every arm already answers an expired box as an unknown one (§4.3.11).
+
+*(Revision 27.)* As built for kind 4 (the identity plan's Task 20), the reclaim departs from the
+text above in three ways, each accepted by the lead's ruling R73. **The lock is the two-key
+form, scoped to the schema:** a batch takes `pg_try_advisory_xact_lock(<constant>,
+hashtext(current_schema()))` in its own transaction, and answers that it skipped when another
+sweeper holds it, so two replicas of one deployment take the same lock, and two deployments in
+one database, or a suite's parallel schemas, do not skip each other. **`now` is the caller's,** as
+for every link box method, rather than `now()` in the database: every time the server writes for
+a link box comes from its own clock, which `/readyz` holds to the database's (§3.1). **The
+recount can meet an arm:** it updates the boxes the deposit delete touched, after that delete
+has taken its row locks, while a Collect or a Retire locks its box first and then deletes its
+deposits, so one still running at its box's expiry can meet the recount in a lock-order
+inversion. PostgreSQL aborts one of the two, and either retry is harmless: the box is past its
+expiry, and the next pass sweeps again. The gauges and the counter above, and `messagectl
+sweep-now` below, are not built in I1: the lead's ruling R73 carries them to the server's later
+phases.
 - `messagectl sweep-now --until-clean` runs the sweep to completion synchronously. It is required after every restore (§10.4).
 
 Three further loops, all outside the commit transaction.
@@ -4199,7 +4235,7 @@ Metric: `message_diagnostic_sessions_active` (gauge). Acceptance test 31 (§13) 
 | A-15 | The `EPH(0)` delivery-receipt record | §4.3.3, §7.6 — indistinguishable from any other transient, which is the point |
 | A-16 | The reaction body encoding | §4.3.3 — opaque inside `ct_body`; nothing here validates it |
 | A-17 | The two-sentinel `durable_ttl_seconds` encoding | §5.4, §6.1 step (6), §7.1, §7.3 branch on it directly |
-| A-18 | The contact-card encoding, the rendezvous derivations, the sealed deposit at its exact length, and the five rendezvous signature preimages with their verifiers *(Revision 25: and the link box's, kind 4: its registration, with `kind` and its card inside the preimage, and its two sizes, `LinkCardBytes` and `LinkDepositBytes`; Spec A §5.14 and §12.1, A-36.)* | §4.3.11 has no authenticator without them, and by **I6** the server may act on nothing it cannot verify. The server links the verifiers and never a signer, and gets no function that opens a deposit |
+| A-18 | The contact-card encoding, the rendezvous derivations, the sealed deposit at its exact length, and the five rendezvous signature preimages with their verifiers *(Revision 25: and the link box's, kind 4: its registration, with `kind` and its card inside the preimage, and its two sizes, `LinkCardBytes` and `LinkDepositBytes`; Spec A §5.14 and §12.1, A-36.)* *(Revision 27: and the small-order key rule, `RendezvousKeyIsAcceptable`, which every verifier applies before any signature and Register calls at check 3; Spec A §5.14, the lead's rulings R72 and R73.)* | §4.3.11 has no authenticator without them, and by **I6** the server may act on nothing it cannot verify. The server links the verifiers and never a signer, and gets no function that opens a deposit |
 
 The A-1 surface, in full:
 
@@ -4269,12 +4305,17 @@ func VerifyRendezvousCollect(collectVerifyPub []byte, serverNonce []byte,
                              c *RendezvousCollectParams, sig []byte) bool
 func VerifyRendezvousRetire(collectVerifyPub []byte, serverNonce []byte,
                             rendezvousId []byte, sig []byte) bool
+func RendezvousKeyIsAcceptable(pub []byte) bool                                // A-38
 func RendezvousDepositBytes() int                                              // 5238, exactly
 func LinkCardBytes() int                                                       // 4124, exactly
 func LinkDepositBytes() int                                                    // 17526, exactly
 // A-36: the two sizes above are the link box's, kind 4. RendezvousRegistration gains Kind and
 // PublicCt, and a Kind of 4 appends u32(kind) ‖ LP(public_ct) to the register preimage (§5.14);
 // a Kind of 0 is the card's form.
+// A-38: RendezvousKeyIsAcceptable is the rule the five verifiers apply before any
+// signature: true only for a key of 32 octets whose encoding, sign bit cleared, is none
+// of the seven of small order (Spec A §5.14). The server's Register applies it at check 3, to
+// both keys (§4.3.11).
 
 // ── exported types ─────────────────────────────────────────────────────────
 type Record, RecordHeader, RetentionClass, SizeBucket,
@@ -4344,6 +4385,9 @@ var ErrEpochKeysDigestMismatch       error // the two keys handed beside a recor
 *(Revision 26: two of ruling 27's comments in the block above, stale since 2026-09-23, are corrected,
 and `ErrEpochKeysDigestPresence`, which only `NewEpochDigestAttachment` returns, leaves it under
 A-9's rule, as it leaves Spec A's copy in A-37.)*
+
+*(Revision 27: `RendezvousKeyIsAcceptable` and its comment are added to the block above as Spec
+A's A-38 adds them to its copy, each copy citing the sections in its own terms.)*
 
 The server may use **only** this surface. It gets no decryption function, no key-schedule function, and no MLS type. The rendezvous group is **verifiers only**: no signer and no function that opens a deposit, because a sealing or opening function on this surface would be a decryption capability in the process that holds the mailbox. A test in the message-server repo asserts the allowlist.
 

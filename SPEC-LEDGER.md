@@ -14171,7 +14171,8 @@ repo and therefore the critical path — not this repository:
     SCOPE's corrected E2, so R48 to R64 are filed, and R64's sentence is below.)* *(And by the R65
     refile, after Task 5's commit: R48 to R65 are filed, and R65's sentence is below.)* *(And
     by the R66 commit, after the R65 refile: R48 to R69 are filed, R66 with its addendum, and
-    the sentences of R66 to R69 are below.)*
+    the sentences of R66 to R69 are below.)* *(And by the R73 commit, after the R66 commit: R48
+    to R73 are filed, R70 with its addendum, and the sentences of R70 to R73 are below.)*
     - **What the plan is.** The implementation plan of the identity layer's first phase, written
       by the lead's planning round and revised in place three times: by its finalizer, for the red
       team dated 2026-10-15; by its reviser, for the owner's answer that the phrase change is built
@@ -14184,7 +14185,10 @@ repo and therefore the critical path — not this repository:
       `reject_floor_ms`; the gate table puts the phrase-secret census in `messagegroup`; and the
       counts move to 143 mutants. From R68, the review of the library's Tasks 8 to 10: Task 10's
       Property 1, Task 12's three duties, Task 14's single-word check, Task 26's scene, and the
-      gate and promise tables.)*
+      gate and promise tables.)* *(The R73 commit refiles it as R70 revised it: Task 7b, the
+      library's, its rendezvous preimages and verifiers, with MI122 and MI123; Task 18's store
+      computes `deposit_hash`; Task 19 consumes Task 7b's commit before its verify step; and the
+      counts move to 46 tasks and 145 mutants.)*
       - **The owner's order** is the identity layer, then IDs and requests (the plan calls that
         build R), then finding people by their URnetwork name (OWN:485, quoted below).
       - **What I1 builds:** a 25-word recovery phrase and the identity key made from it; a key and
@@ -14198,7 +14202,9 @@ repo and therefore the critical path — not this repository:
         and 37 are retired; 26 commits to `urnetwork/message`, 10 to this repository and 5 to
         `urnetwork/message-windows`; 17 adversary scenarios; and 141 mutants, 116 of the library,
         10 of the server and 15 of the app. *(143 since R66, which gives the server MR11 and
-        MR12: 116, 12 and 15. Annotated by the R66 commit.)*
+        MR12: 116, 12 and 15. Annotated by the R66 commit.)* *(46 tasks and 145 mutants since
+        R70, whose Task 7b, with MI122 and MI123, gives the library 27 commits and 118 mutants:
+        118, 12 and 15. Annotated by the R73 commit.)*
       - **Five slices:** 0, an optional preview of the screens with made-up data; then 1 to 4, each
         ending in a session with the owner: 1, "Your ID" on one device; 2, a second device by code
         and emoji; 3, remove, lock out and make a phrase device; 4, the phrase change. The plan
@@ -14264,7 +14270,8 @@ repo and therefore the critical path — not this repository:
       beside the plan. They continue the series whose R33 to R47 items 295 to 297 cite. Each, in a
       sentence *(the heading read "R48 to R61", and R62's sentence is added by its refiling)*
       *(and R63's by the E1 and E4 refile, and R64's by the R64 refile)* *(and R65's by the R65
-      refile)* *(and R66's to R69's by the R66 commit)*:
+      refile)* *(and R66's to R69's by the R66 commit)* *(and R70's to R73's by the R73
+      commit)*:
       - **R48.** The bases: this repository's `main` is `37dd710f`, which carries T1's ledger close;
         the library's is `c7949cfd`; the app's is `badf2e2c` until urnetwork/message-windows#7
         merges, then `main`; and the S3 branch is the lead's dispatch to the app's one writer. The
@@ -14399,6 +14406,47 @@ repo and therefore the critical path — not this repository:
         saying in its first line that it merges only after I1's library pull request has;
         before it is ready, a commit moves the line back to `urnetwork` at the merged commit
         and deletes the review source; and no other source is added this way without a ruling.
+      - **R70.** The rendezvous verifiers, a gap no task filled *(added by the R73 commit)*: the A-1
+        rendezvous surface Spec A §12.1 and Spec B §12.1 name existed nowhere in `message`, so a new
+        Task 7b gives the library's writer its preimages and five verifiers in kind 4's form, with
+        MI122 and MI123, after R68's fix round and before Task 12, and the plan moves to 46 tasks
+        and 145 mutants; this repository's writer builds all of Tasks 19 and 20 that verifies
+        nothing, every arm answered as unserved and the readiness naming why until the verifiers are
+        pinned, and lands the verify step in a commit of its own, with MR6; the store computes
+        `deposit_hash`; the pin moves to Task 7b by R69's procedure; and its addendum takes the
+        writer's shape for an unserved box: the arms routed only with a link box store, the
+        verifiers and a floor above zero, and otherwise answered REASON_INTERNAL with no store call,
+        kind 4 left out of Capabilities and NotBuilt naming what is missing.
+      - **R71.** The conversation list's live run, and the app's next work *(added by the R73
+        commit)*: the R67 run passed twice, both parties on one runner by the direct route with no
+        account; a receive report drawn in a conversation names the store's root as the app's data
+        folder, never an absolute path; several livepeers may run at once, since no account is in
+        the run, each with its own state folder; the owner's refused leave is the library's rule,
+        and its road waits for R's transfer; and while message-windows#8 and #9 wait, the app's
+        writer ports the icon font's fallback to Segoe MDL2 Assets in a small pull request of its
+        own.
+      - **R72.** On the library's Tasks 11, 7 and 7b and R68's fix round *(added by the R73
+        commit)*: every commit is green with its checkout proven and every planned mutant killed;
+        R65's item 4 is closed, since `messagegroup` signs and no private half leaves it; four of
+        Task 7b's five decisions are confirmed, so only kind 4's form is built,
+        `RendezvousDepositBytes` is left out, the sizes, the `alg_id` and `card_xwing_pub` are the
+        server's checks, and an `alg_id` above 0xFFFF is refused and never truncated; the fifth is
+        ruled the other way, so the five verifiers refuse a key of small order, in a small commit
+        the server pins instead of `9cac060b`, with Spec A §5.14 gaining the sentence; a test holds
+        every go.mod in the library to a row of its vulnerability check; the plan's Tasks 31 and 33
+        are to carry, at its next refile, the stored-seed signer that a phrase device without its
+        words needs; R68's commits are reviewed with slice 1's library review; and the library's
+        mutants run two at a time while memory is short.
+      - **R73.** On Tasks 19 and 20 without the verify step *(added by the R73 commit)*: both are
+        accepted, since their mutant kills show the tests bite, though tests first was skipped, and
+        the plan's order stands from the verify step on; Register's check 3 refuses a collect key or
+        a deposit key of small order through the library's predicate, with a mutant that drops the
+        call; the sweep's three departures from Spec B §7.4, the two-key lock scoped to the schema,
+        `now` from the caller, and a recount and a Collect of which PostgreSQL may abort one, are
+        accepted, and §7.4 states them; §7.4's gauges and counter, and `messagectl sweep-now`, are a
+        residual for the server's later phases, not I1's; the deploy note is received and nothing is
+        deployed, the lead telling the owner first; and the writers run one package at a time while
+        memory is short.
     - **The rows X1 to X14,** SCOPE's departures from M5's identity step, the owner's decisions
       and the first design, as ruled:
       - **X1,** taken: no security delay in I1, so a removal acts at once, with the delay to come
@@ -31781,5 +31829,213 @@ its end, which were the same each time.
   Its three notes on the lead's text are the lead's: LRI's R66 still says "no arm" where the plan
   now says "no kind-4 arm"; R67 files the alpha's address a third time, as R59 and R60 already
   have; and R69 came after the pass's snapshot.
+
+It cites no run of itself: the pull request's body cites the runs on its head.
+
+### 2026-10-16 — The lead's R72 and R73: Spec A's A-38, Spec B's revision 27, and the plan and LRI refiled
+
+**Change:** Spec A gains its row A-38 and Spec B its revision 27, each directed by the lead's
+rulings R72 and R73. Both specs gain the rendezvous's small-order key rule, which the library's
+five verifiers apply and the server's Register calls at check 3. Spec B also gains the `alg_id`
+held as a u32, and the sweep's three accepted departures from §7.4. Two of the six files item 298
+filed are refiled from the lead's sources: the plan, as R70 revised it, and `LEAD-RULINGS-I1.md`,
+which gains R70 with its addendum, R71, R72 and R73, and R66's sentence as the lead corrected it.
+The other four are unchanged, byte for byte. Item 298 is annotated where it stands. No code
+changes.
+
+#### 1. Why
+
+- **R72**, on the library's Tasks 11, 7 and 7b, confirms four of Task 7b's five decisions and rules
+  the fifth the other way. Two of its rulings reach the specs:
+  - the server refuses an `alg_id` above 0xFFFF, and never truncates it to the preimage's u16;
+  - the five rendezvous verifiers refuse a key of small order. Under such a key `crypto/ed25519`
+    accepts signatures that need no secret, so a box registered under one could be collected or
+    retired by anyone.
+
+  The library's commit for R72, `48204f2b` on its fork, makes the verifiers refuse the seven
+  small-order encodings first, and publishes the rule as `RendezvousKeyIsAcceptable`. R72 has Spec A
+  §5.14 gain the sentence at this branch's next commit.
+- **R73**, on the server's Tasks 19 and 20:
+  - Register's check 3 refuses a collect key or a deposit key of small order through that
+    predicate, so that no unusable box is stored;
+  - the sweep's three departures from Spec B §7.4 are accepted, and §7.4 is to state them.
+- **The lead's directive for this commit:** Spec A §5.14 and §12.1; Spec B's copy of the block,
+  which mirrors A-1's; Spec B §7.4; Spec B §4.3.11's check 3 and its `alg_id`; and the refile of the
+  plan and LRI at their hashes when the commit is made.
+
+#### 2. The specs
+
+- **Spec A, A-38.**
+  - **§5.14** gains a paragraph after the one on the four preimages that keep the card's forms. It
+    says:
+    - why a key of small order verifies nothing. Under the neutral point, R = the neutral point
+      and S = 0 verify for every message, and under the other points of small order for some
+      messages;
+    - that the five verifiers refuse a public key that is not 32 octets, or whose encoding, with
+      its sign bit cleared, is one of the seven of small order, before any signature. The seven are
+      the ones `messagegroup` refuses for the identity layer;
+    - that the rule is published as `RendezvousKeyIsAcceptable`;
+    - that the server's Register calls it at check 3 on both keys (Spec B §4.3.11).
+  - **§12.1's A-1 block** gains `func RendezvousKeyIsAcceptable(pub []byte) bool` after the five
+    verifiers, and a four-line comment after the A-36 comment. `message/rendezvous.go` at
+    `48204f2b` declares it so. It is true only for a key of 32 octets whose encoding, sign bit
+    cleared, is none of the seven small-order encodings, each compared in constant time. Any other
+    width answers false, and nothing in it panics.
+  - **Notes.** The block's lead line gains a note: A-38's comment adds two section cites to A-37's
+    two. A note after the block says that the name and its comment are added to both copies alike,
+    each citing the sections in its own terms, so the copies now differ in four cites, in three
+    places. Row A-18 gains its note, and the change table gains row A-38.
+- **Spec B, revision 27.**
+  - **§4.3.11's Register** gains two of check 3's rules:
+    - the `alg_id` is compared with 0x0014 as the u32 the request carries, so that a value above
+      0xFFFF is refused and never truncated to the preimage's u16, where 0x10014 would verify as
+      0x0014;
+    - neither key may be one that `RendezvousKeyIsAcceptable` rejects.
+
+    A registration that fails either is answered `REASON_REJECTED`, padded, and stores nothing.
+  - **§5.1.2's check 3** gains the same, in a note.
+  - **§7.4** gains a paragraph after its revision-25 note on kind 4's rows. The reclaim as built
+    (the plan's Task 20) departs from §7.4's text in three ways, each accepted by R73:
+    - **The lock** is `pg_try_advisory_xact_lock`'s two-key form, a constant and the hash of the
+      current schema, held for the batch's transaction. Two replicas of one deployment take one
+      lock, and two deployments in one database, or a suite's parallel schemas, do not skip each
+      other.
+    - **`now` is the caller's**, as for every link box method, which `/readyz` holds to the
+      database's (§3.1).
+    - **The recount can meet an arm.** The recount of `deposit_count` takes the boxes' row locks
+      after the deposit delete has taken the deposits'. A Collect or a Retire takes its box's lock
+      first, then its deposits'. So one still running at its box's expiry can meet the recount in
+      a lock-order inversion, and PostgreSQL aborts one of the two. Either retry is harmless. R73
+      names a Collect; the paragraph names the Retire too, which takes the same order (this
+      commit's review, its F6).
+
+    The paragraph also says that §7.4's gauges and counter, and `messagectl sweep-now`, are not
+    built in I1 (R73).
+  - **§12.1's copy of the A-1 block** gains the same line and comment, citing the sections in Spec
+    B's terms, with a note. Row A-18 gains its note.
+  - **The edit log** gains revision 27.
+- **The two blocks, compared.** Their rendezvous sections differ, line for line, in their headers'
+  cites and in the two cites of the A-38 comment, and in nothing else. With §5.9's, which was
+  already there, the copies differ in four cites in three places, as Spec A's lead line and its
+  A-38 note now say.
+
+#### 3. The sources, and the refiling
+
+- **The sources,** as the lead's scratch folder held them when this commit was made:
+  - the plan `1b3875d8…`, of 1,569 lines, where the R66 commit's source, `135d7a67…`, had 1,552;
+  - LRI `103d62fb…`, of 618 lines, where `d872223a…` had 489.
+
+  SCOPE, FOR-OWNER, REDTEAM and REDTEAM-TASK2 are the R66 commit's sources, unchanged, and are not
+  refiled.
+- **What changed in them.**
+  - **In the plan,** R70's edits:
+    - the Tasks row, 46 tasks, with 7b;
+    - Task 7b itself, seventeen lines after the plan's line 339;
+    - Task 18's `deposit_hash`;
+    - Task 19's Consumes, with Task 7b's commit;
+    - the Size line, the mutation table's Task 7 row, with MI122 and MI123, and the count table and
+      its paragraph: 46 tasks, 27 library commits and 145 mutants;
+    - and the "What else" line's note.
+  - **In LRI,** R70 with its addendum, R71, R72 and R73 are appended. R66's sentence on Property 6
+    now says "no kind-4 arm", where it said "no arm", which the R66 commit's second review noted.
+- **The refiling.** Each file takes the same edits as before, by the same edit list, with two
+  legends brought up to the plan as R70 left it: 7 edits in all.
+  - **The plan's legend** names R70 beside R61, R62, R65, R66 and R68.
+  - **LRI's legend** names the plan as R70 left it, of 1,569 lines, where R61 read 1,545 and R68
+    left 1,552. R65's `PLAN:148` is still line 148, and line 150 of the filed copy. R66's
+    addendum's `:1395` and `:1488` became lines 1,396 and 1,489 when R68 added a line after its line
+    493. They are lines 1,413 and 1,506 since R70 added seventeen after its line 339, and 1,415 and
+    1,508 of the filed copy. Each line claim was checked against the source and the filed copy.
+  - **The local paths:** the sources hold the same six as before, four in the plan and two in LRI,
+    and the edits remove them. R70 to R73 name none.
+
+  The filed copies: the plan `78324dee…`, of 1,571 lines, where it was `ff7a1080…`, of 1,554; LRI
+  `74873221…`, of 620, where it was `082de056…`, of 491.
+- **The proof.** Each of the two, reversed through its recorded edits, gives its source byte for
+  byte, and a line diff of source and filed copy touches only the lines the edits name. The proof's
+  three controls each fail it. Neither filed file holds a local path, by a search of each whole
+  file whose planted control fired in the same run. The lines this commit adds hold no local path,
+  user profile, address, key or token, by a second search whose controls fired.
+
+#### 4. The plan linter
+
+The plan changes, so the linter's counts move. On this commit's tree the property class reads 496,
+where the R66 commit's read 494: Task 7b's two properties are the new ones. The task-reference
+class reads 3,809, where it read 3,801, and the Consumes-entry class 366, where it read 365. The
+other six counts do not move. All seven of the linter's tests pass, and no line of its output
+names the plan.
+
+#### 5. The ledger
+
+- **Item 298, annotated where it stands:**
+  - its heading's notes;
+  - "What the plan is", with R70's revisions;
+  - its size, with 46 tasks and 145 mutants, 118 of them the library's;
+  - its rulings' bullet's notes;
+  - the sentences of R70, R71, R72 and R73.
+
+#### 6. The gates
+
+Run on the committed history of this entry, under go1.27.2, beside the four siblings at their pins,
+before the push:
+- `go test ./ -count=1 -run 'TestTheEditLogGate|TestThePlanLinter' -v`: the edit-log gate's six
+  tests and the linter's seven pass, and none fails. The gate reads Spec A's newest entry as row
+  A-38 and Spec B's as revision 27. Its ledger arm prints 76 of 99, where the R66 commit left 75 of
+  98, since this commit changes two specs and two plans and appends this entry.
+- `go test ./ -count=1`, the whole root package: `ok`.
+
+#### 7. What this does not do
+
+- It changes no code, and no word of the lead's text but by the recorded edits.
+- No wire byte, reason code, record, label, table, query or migration changes. The small-order rule
+  is the library's, at `48204f2b`. The server's verify step on `identity/i1-srv`, at `0864540c`,
+  calls it at check 3, and compares the `alg_id` as a u32 there. §7.4's departures are what the
+  plan's Task 20 built on that branch, at `1bff5904`.
+- **The plan does not yet carry R72's change to its Tasks 31 and 33**, the stored-seed signer that a
+  phrase device without its words needs. R72 says the plan carries it at its next refile, which
+  this is, and the lead's source, `1b3875d8…`, has no word of it. The plan is filed as the source
+  stands, since this commit changes none of the lead's words; the source is the lead's to amend,
+  and the refile after that carries it (this commit's review, its F1).
+- §12.1's two blocks still name `RendezvousDepositBytes`, the card's deposit size. R72 leaves it out
+  of the library, since kind 0 is not served. The blocks publish the designed surface, kind 0's
+  included, and this commit leaves that line as it stands.
+- Spec A §2's layout still says that `rendezvous.go` holds §12.1's nine rendezvous functions. The
+  A-1 section listed eleven before this commit and lists twelve now. The count is older than this
+  commit, and it is left as it stands (the review's F14).
+- On `identity/i1-srv`, at `0864540c`, the server's second-implementation gate calls
+  `RendezvousKeyIsAcceptable` "an export beyond A-1's block". A-38 makes that stale. The next
+  commit on that branch corrects it (the review's F15).
+- §7.4's gauges and counter, and `messagectl sweep-now`, are not built in I1 (R73). §7.4 now says
+  so, and this commit builds neither.
+- It does not open a pull request: this branch's opens once message-server#12 merges (R66).
+
+**Reviewed by:** one subagent reviewer, read-only, on the change uncommitted and by its sha256 at
+its start and at its end, which were the same. It checked:
+- the specs against the library at `48204f2b` and the server at `0864540c` and `1bff5904`;
+- the two blocks line by line;
+- the refile, by re-applying the edit list, and every legend line claim;
+- every claim of this entry;
+- the two gates, in one run;
+- the added lines for local paths and secrets, with a planted control.
+
+It made 15 findings: 0 BLOCKER, 1 MAJOR, 7 MINOR and 7 NIT. All are taken in this commit, but F1,
+F14 and F15, which are recorded above:
+- **F1, MAJOR:** R72's change to the plan's Tasks 31 and 33 is not in the lead's source. It is
+  recorded above, and the lead decides. Item 298's R72 sentence no longer says the plan gains it,
+  but that the plan is to carry it at its next refile.
+- **F2:** a small-order key's forgery holds for every message only under the neutral point, so
+  §5.14, row A-38 and this entry now say so.
+- **F3:** Spec A's lead line on the block and the A-38 note now count the cites.
+- **F4:** §7.4's three departures are prose, so that no list absorbs `messagectl sweep-now`. The
+  paragraph says that the gauges, the counter and that command are not built in I1.
+- **F5:** the clock check is §3.1's, not §10.1's.
+- **F6:** the Retire takes the Collect's lock order, so §7.4 names both.
+- **F7:** R72 confirms four decisions and rules the fifth the other way.
+- **F8:** the `alg_id` comparison is the server's, not the library's.
+- **F9:** the comment is four lines.
+- **F10:** the specs cite the lead's rulings by name, not as LRI.
+- **F11:** R71's and R73's sentences keep their qualifiers.
+- **F12:** "before any signature", not "first".
+- **F13:** a search of each whole filed file, with its planted control, now backs §3's claim.
 
 It cites no run of itself: the pull request's body cites the runs on its head.

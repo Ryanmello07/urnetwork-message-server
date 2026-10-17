@@ -1,6 +1,6 @@
 # Lead rulings: identity phase 1 (I1), and its interface to IDs and requests (R)
 
-**Filed copy.** These rulings are filed in `urnetwork/message-server` as `docs/plans/identity-phase1/LEAD-RULINGS-I1.md`, in the folder beside the plan, and the ledger entry that files them lists every change made in filing them. `identity-phase1/PLAN.md` and `PLAN.md` are the plan, filed as `docs/plans/2026-10-16-identity-layer-one-account.md`: the plan as R68 left it, of 1,552 lines where R61 read 1,545, with two lines of legend added at its top. A `PLAN:` line here is of the plan its ruling read, without that legend. R65's `PLAN:148` is line 148 of the plan as filed, and line 150 of the filed copy. R66's addendum's `:1395` and `:1488` are of the plan as R66 left it; R68 added a line after its line 493, so they are lines 1,396 and 1,489 of the plan as filed, and 1,398 and 1,491 of the filed copy. `identity-phase1/review-t8-t10/FINDINGS.md`, which R68 cites, is the findings file of the library's review, in the lead's scratch folder and not filed. `SCOPE.md`, `FOR-OWNER.md`, `REDTEAM.md` and `REDTEAM-TASK2.md` are filed in this folder. A local path is replaced by a label: `srv@<sha>` is `urnetwork/message-server` at that commit. The lead's scratch folder is in no repository: it holds every `scratchpad/...` path, and the designs and rulings named here by a relative path or a short name, such as D2 and LR.
+**Filed copy.** These rulings are filed in `urnetwork/message-server` as `docs/plans/identity-phase1/LEAD-RULINGS-I1.md`, in the folder beside the plan, and the ledger entry that files them lists every change made in filing them. `identity-phase1/PLAN.md` and `PLAN.md` are the plan, filed as `docs/plans/2026-10-16-identity-layer-one-account.md`: the plan as R70 left it, of 1,569 lines, where R61 read 1,545 and R68 left 1,552, with two lines of legend added at its top. A `PLAN:` line here is of the plan its ruling read, without that legend. R65's `PLAN:148` is line 148 of the plan as filed, and line 150 of the filed copy. R66's addendum's `:1395` and `:1488` are of the plan as R66 left it; R68 added a line after its line 493, and R70 seventeen after its line 339, so they are lines 1,413 and 1,506 of the plan as filed, and 1,415 and 1,508 of the filed copy. `identity-phase1/review-t8-t10/FINDINGS.md`, which R68 cites, is the findings file of the library's review, in the lead's scratch folder and not filed. `SCOPE.md`, `FOR-OWNER.md`, `REDTEAM.md` and `REDTEAM-TASK2.md` are filed in this folder. A local path is replaced by a label: `srv@<sha>` is `urnetwork/message-server` at that commit. The lead's scratch folder is in no repository: it holds every `scratchpad/...` path, and the designs and rulings named here by a relative path or a short name, such as D2 and LR.
 
 **Date:** 2026-10-16 (UTC). **Writer:** the lead. These rulings continue LR's numbering (`scratchpad/hardening-plans/LEAD-RULINGS-2026-10-15.md`, R34 to R47; R33 is in `LEAD-RULINGS-2026-10-14.md`).
 
@@ -363,7 +363,7 @@ So MASTER's revision number says so.
 All of them were taken, with no BLOCKER anywhere.
 
 **PLAN is amended, each change marked R66:**
-- **Task 19 gains Property 6:** no rendezvous kind but 4 is served, and no arm is served while the reject floor is zero. This is Spec B's test 51, which W-srv wrote in Task 5. Its mutants are MR11 and MR12, and its test is `TestOnlyKindFourIsServedAndNothingWithAZeroFloor`. Slice 2 now holds 40 mutants, and the plan 143.
+- **Task 19 gains Property 6:** no rendezvous kind but 4 is served, and no kind-4 arm is served while the reject floor is zero. This is Spec B's test 51, which W-srv wrote in Task 5. Its mutants are MR11 and MR12, and its test is `TestOnlyKindFourIsServedAndNothingWithAZeroFloor`. Slice 2 now holds 40 mutants, and the plan 143.
 - **Task 20's deploy note** says that the deploy sets `reject_floor_ms`, since its default of 0 serves no kind-4 arm.
 - **The gate table** puts the phrase-secret census in `messagegroup` (R65 item 5). A task that holds a phrase secret in `sdk/urmessage` adds that package's row.
 
@@ -489,3 +489,132 @@ All of them were taken, with no BLOCKER anywhere.
 - The server branch's PR may open while the pin is a fork. It says, in its first line, that it merges only after I1's library PR has merged.
 - Before it is ready, a commit moves the line back to urnetwork at the merged commit and deletes the review source, as the script says.
 - No other source is ever added this way without a ruling.
+
+## R70. The rendezvous verifiers: a gap no task filled (2026-10-16)
+
+**Read:** W-srv's blocker on Task 19, checked by grep and by the fork's contents listing.
+- Spec A §12.1 and Spec B §12.1 name the A-1 rendezvous surface: the registration and collect types, the preimages, the five verifiers, `RendezvousId`, `DepositVerifyKey` and the two sizes.
+- None of it exists in `message`, at `e8eaad66` or on main.
+- Task 7 is the proto only, and Task 21 is the client. A-1 forbids the server building a preimage, and `api` may not reach crypto or encoding, so it cannot hash either.
+
+**Ruled:**
+- **(a) Task 7b is NEW (W-lib):** `message`'s rendezvous preimages and verifiers, exactly the A-1 surface in kind 4's form.
+  - It has two properties, and mutants MI122 and MI123.
+  - It runs after W-lib's R68 fix round, and before Task 12. It is small, and the server's verify step waits on it. Slice 1's own path does not.
+  - PLAN gains the task, and the counts move to 46 tasks and 145 mutants.
+- **(b) W-srv builds everything in Tasks 19 and 20 that does not verify:**
+  - the config keys;
+  - Capabilities 26 and 29, leaving kind 4 out while it is unserved;
+  - the LinkBoxes field, with its holder tests, and a nil LinkBoxes failing closed;
+  - the cap, failing closed; the kind check; the floor; the one answer; the logging gate;
+  - the five routes, with every arm answered as unserved until the verifiers are pinned, and the readiness naming why;
+  - the cites and the stale comment;
+  - Task 20's sweep.
+
+  The verify step lands in a commit of its own once Task 7b is pinned, with MR6, Open without `open_auth`, killed then.
+- **(c) Task 18 is adjusted:** the store computes `deposit_hash` from `deposit_ct` as Spec A §5.14 defines it, and returns it. The Deposit response carries it.
+- **The fork pin moves** to Task 7b's commit, by R69's procedure, in a commit of its own.
+
+**Addendum: the shape of an unserved link box (W-srv's proposal, taken).**
+- The arms are served only when LinkBoxes is wired, the verifier is wired and `reject_floor_ms` is above zero.
+- If any of the three is missing:
+  - the peer does not route the five arms, which `peer.unservedArms` then derives and answers with REASON_INTERNAL;
+  - a handler method called directly answers REASON_INTERNAL with no store call;
+  - `api.NotBuilt` names what is missing;
+  - Capabilities 26 and 29 leave kind 4 out.
+- This replaces the lead's first idea, which was "answer as an unknown box". That idea fights Spec B §4.3.11 ("as every unserved arm is answered") and the nil-Subscriptions precedent. It would also hide the gap from /readyz, and a server with no store would look alive and empty.
+- **Control:** the same request answers REASON_INTERNAL with nil LinkBoxes and no store call, and CARD_RETIRED with an empty LinkBoxes.
+- The cap's fail-closed case stays as planned: CARD_RATE_LIMITED on a read error (MR8).
+- §5.14's H is SHA-256 (Spec A:8, MASTER:11), so (c) holds.
+
+## R71. On the list's live run, and W-app's next work while #8 and #9 wait (2026-10-16)
+
+**Read:** W-app's report. The R67 live run, with both parties on one runner, the DIRECT route and no account, passed twice with 106 checks and 0 failures (38949957455 at `50f17eac`; 38955292704 at `cba38d14`). The library pin was checked and printed as T1's `c7949cfd`. Codes and invitations went through files, and the logs printed digests only. Proven, with shots:
+- the founder road and the join road;
+- a join beside open conversations;
+- sending in every conversation, both ways;
+- two live conversations beside a notice row;
+- a leave;
+- a restart that restores both.
+
+livepeer cannot remove a member, so the removed conversation is proven by the hermetic legs only. The two R67 fixes are in (`4fa5e91b`, `cba38d14`), with their diagnose lines, mutants and the new listerr leg, whose control fails exactly the fix checks.
+
+**Rulings:**
+- **The receive report drawn in a conversation** keeps the library's own sentence. It never draws an absolute path under the user's profile: the drawn text shows the store's root as "the app's data folder", and the log keeps the full sentence. This comes with its diagnose line and a control, as one small commit on the list.
+- **One livepeer at a time** was more caution than the rule asks. With no account in the run, there is nothing to collide, so several peers may run at once on the runner, each with its own state folder. No re-run is needed.
+- **The owner's leave refused** (ErrOwnerMustTransfer) is the library's rule, and is correct. A test of the owner's road waits for a transfer, which belongs to R.
+- **While #8 and #9 wait, W-app ports urnetwork/windows#12 to message-windows:** the icon font falls back to Segoe MDL2 Assets wherever the app names Segoe Fluent Icons. Today the app names Segoe Fluent Icons alone (App.xaml's `UrIconFontFamily`, and four sources), so every icon is an empty box on Windows 10 and on Server 2022, as the runners' shots show.
+  - It is a small PR from main: `fix/icon-fallback`.
+  - It gets a diagnose line naming every glyph code point the app uses and the family it resolves to.
+  - Its shots on windows-2022 (no Fluent font) show icons drawn, and windows-2025's are unchanged.
+  - The lead opens it after one read-only review.
+
+## R72. On W-lib's Tasks 11, 7 and 7b and the R68 fix round (head `9cac060b`, 2026-10-16)
+
+**Read:** W-lib's final report. Every commit was pushed to the fork, with alt-2's test.sh and fork-ci green and the checkout proven:
+- Task 11 `db348392` (fork-ci 38945873384);
+- Task 7 `e8eaad66` (38946856356);
+- the R68 round: `73f09fcd`, `32555865`, `51815a7b`, `51bc1a0c` (38962389303) and `a6ea6f3e`;
+- Task 7b `9cac060b` (38977073547).
+
+Every planned mutant was killed. R68's census mutation table kills every row except V5b, which survives by design and is killed by four known-answer tests. The two census engines are held identical by a test.
+
+**R65 item 4 is closed.** messagegroup signs, and no private half leaves it. The methods are SignIskCert, SignIdentityStep, SignBase and SignBaseAuthor, DeriveIdentityKeyed, PhraseKey, PhraseKeySeed and KeyNumbers. WithPhraseKeys takes the set of key numbers.
+
+**Task 7b's five decisions:**
+1. Only kind 4's form is built: CONFIRMED.
+2. RendezvousDepositBytes is left out: CONFIRMED, since kind 0 is not served.
+3. The sizes, alg_id and card_xwing_pub are the server's checks (Spec B §4.3.11): CONFIRMED. W-srv is told.
+4. AlgId is a u16, and the server refuses any alg_id above 0xFFFF and never truncates: CONFIRMED. W-srv is told, with a mutant.
+5. **Small-order keys are REFUSED.** The five rendezvous verifiers refuse a small-order public key, as identityVerify already does.
+   - Without the check, Go accepts R = identity, S = 0 under such a key, so a box registered with one could be collected or retired by anyone.
+   - Only the registrant chooses that key, but the library's own rule already refuses these keys, and the check costs one call.
+   - It is a small commit before Task 12, with mutant MI124 (the check dropped, killed by a verifier test with an identity-point key).
+   - W-srv pins that commit rather than 9cac060b.
+   - Spec A §5.14 gains the sentence at the next specs-branch commit.
+
+**Also ruled:**
+- **vulncheck's rows:** a test holds every go.mod in the repository to a row in scripts/vulncheck.sh, with a control. test.sh then catches what alt-2 caught (a6ea6f3e). It goes in the same small commit.
+- **Tasks 31 and 33** add the stored-seed signer that a phrase device without its words needs: ISK_g from the kind-13 record's PhraseKeySeed(g), inside messagegroup, with no private half out. PLAN's Tasks 31 and 33 carry this at the next refile.
+- **The R68 commits get no separate delta review.** They are reviewed with slice 1's library review, after Task 14, and their mutation evidence stands until then.
+- **Task 12 starts after the small commit,** with R64 (Spec A §6's seam methods, transcribed) and R68's three additions: the mls staged-leaf accessor, the engine's capabilities naming 0xF005 and 0xF006, and the sdk/urmessage phrase-secret census.
+- **Memory pressure:** the machine reaped an ssh session and crashed one compile while three writers ran heavy builds. W-lib's mutants now run two at a time. Each writer keeps its parallel jobs modest.
+
+## R73. On Tasks 19 and 20 without the verify step (`85abf77c` and `1bff5904` on identity/i1-srv, 2026-10-16)
+
+**Read:** W-srv's report. Both commits are on the fork, with gates.yml and fork-ci green and the checkout proven (38978403508 and 38978406044; 38980524727 and 38980525514).
+- MR4, MR5, MR7 to MR12 and MR10 are killed, plus guards beside them. MR6 waits for the verify step.
+- R70's unserved shape is built, with its control.
+- The store computes deposit_hash.
+- W-srv stopped at the pin as R72 asked, and reverted its uncommitted pin of 9cac060b.
+
+**Rulings:**
+- **Tests first was skipped** in both tasks. The code came first, then the tests were shown failing against stubbed arms (Task 19), or not at all (Task 20). The mutant kills are evidence that the tests bite, so both commits are ACCEPTED. The plan's order stands for the verify step and after: tests first, seen failing for their stated reasons.
+- **Small-order keys at Register (W-srv's question): REFUSED.** W-lib exports the library's small-order predicate in its R72 commit. Check 3 calls it, so a small-order collect key or deposit key is refused at Register (REJECTED), and no unusable box is stored. A mutant drops the call.
+- **The sweep's three departures from Spec B §7.4 are ACCEPTED:**
+  - the advisory lock is the two-key form, scoped to the schema, so that two deployments in one database, or the suite's parallel schemas, do not skip each other;
+  - `now` comes from the caller, like every LinkBoxes method;
+  - PostgreSQL may abort one of a recount and a Collect still running at a box's expiry, and either retry is harmless.
+
+  Spec B §7.4 states all three at the next specs-branch commit.
+- **Not built and not planned:** §7.4's gauges and counter, since the metrics package has no code, and `messagectl sweep-now`. They are carried as a residual to the server's later phases, and are not in I1.
+- **The deploy note is RECEIVED, and nothing is deployed.**
+  - The deploy goes with slice 2's owner session, and the lead tells the owner first (R55).
+  - It is message-server and messagectl from the verify commit: Go 1.27.2, linux/amd64, CGO_ENABLED=0.
+  - The migrations are 013 and 014. The alpha's database is wiped, then `messagectl migrate` runs.
+  - `reject_floor_ms` is set from the slowest refusal path, measured on the box.
+  - What changes beyond the link box, and the owner hears all of it:
+    - every refusal on every arm is padded to the floor;
+    - the sweep job runs;
+    - there are two new keys with defaults;
+    - Capabilities and readiness gain kind 4.
+- **The verify step** waits for W-lib's R72 commit:
+  - check 7 on all five arms through the library's verifiers only;
+  - alg_id held to 0x0014 as the u32;
+  - the small-order check at Register;
+  - the signed tests in cmd/message-server/linkbox_test.go, since api's second-implementation gate bars signing in api;
+  - a static gate: each arm calls its own verifier once, before any write, and never a preimage builder;
+  - MR6 killed.
+
+  Then the lead runs the server's slice review of Tasks 18 to 20.
+- **Memory:** WindowsTerminal held about 61.5 GB of committed memory while the writers ran, and two parallel suites failed to allocate. The writers run one package at a time while that lasts. The lead tells the owner.
