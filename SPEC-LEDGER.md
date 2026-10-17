@@ -14150,6 +14150,285 @@ repo and therefore the critical path — not this repository:
         commit that takes its findings, which is the message-server writer's by the lead's rulings
         R46 and R47.)*
 
+298. **THE PLAN FOR THE IDENTITY LAYER'S FIRST PHASE, I1, IS FILED: ONE ID FOR A WHOLE ACCOUNT AND
+    AN ID FOR EACH DEVICE, IN `docs/plans/2026-10-16-identity-layer-one-account.md`. ITS SCOPE, ITS
+    NOTE TO THE OWNER, ITS TWO RED TEAMS AND THE LEAD'S RULINGS R48 TO R62 ARE FILED BESIDE IT, IN
+    `docs/plans/identity-phase1/`. IT IS THE PLAN THE PROGRAM'S FIRST GATE ASKS FOR BEFORE ANY OF
+    THE TRACK'S CODE. THIS ITEM RECORDS THE OWNER'S WORDS AND THE LEAD'S RULINGS IT RESTS ON.**
+    Times are UTC, on 2026-10-16 unless a date is given. *(Amended in place by the second commit
+    on this branch, which refiles R62's corrections. The heading read "R48 TO R61", and each
+    other amendment carries its own note.)*
+    - **What the plan is.** The implementation plan of the identity layer's first phase, written
+      by the lead's planning round and revised in place three times: by its finalizer, for the red
+      team dated 2026-10-15; by its reviser, for the owner's answer that the phrase change is built
+      in phase 1; and by Task 2's finalizer, for Task 2's red team. The lead then corrected its
+      slice-4 report and the note to the owner (R61), and then four findings of Task 1's review in
+      it, in LRI and in REDTEAM-TASK2, with SCOPE's store kinds and Task 8's forward costs in the
+      plan's Tasks 12, 13 and 26 (R62). *(The last clause is added by R62's refiling.)*
+      - **The owner's order** is the identity layer, then IDs and requests (the plan calls that
+        build R), then finding people by their URnetwork name (OWN:485, quoted below).
+      - **What I1 builds:** a 25-word recovery phrase and the identity key made from it; a key and
+        an ID for each device; a device list signed by the phrase's key or by one of your devices,
+        carried in every leaf of every group and checked by every member; the self group, your
+        devices' own group; adding a device by a short code the server carries and seven emoji;
+        removing a device, with the phrase as the second factor; locking out a phrase device by a
+        new key number; changing the phrase with the old one, which keeps "Your ID"; and Settings,
+        Account, with "Your ID" and Devices.
+      - **Its size, as its Counts give it:** 45 tasks, with ids 1 to 45, 6b and 38b, of which 35
+        and 37 are retired; 26 commits to `urnetwork/message`, 10 to this repository and 5 to
+        `urnetwork/message-windows`; 17 adversary scenarios; and 141 mutants, 116 of the library,
+        10 of the server and 15 of the app.
+      - **Five slices:** 0, an optional preview of the screens with made-up data; then 1 to 4, each
+        ending in a session with the owner: 1, "Your ID" on one device; 2, a second device by code
+        and emoji; 3, remove, lock out and make a phrase device; 4, the phrase change. The plan
+        estimates them ready about day 5 to 6, 12 to 14, 21 to 24, 28 to 33 and 33 to 38, in
+        agent-days counted from the lead's rulings of 2026-10-16.
+      - **This repository's writer's tasks:** Task 1, this filing; Tasks 3, 4 and 5, MASTER,
+        Spec A and Spec B for I1; Tasks 18 to 20, the link box served on arms 20 to 24; Task 40,
+        Spec C from the app as shipped and Spec A's known answers; and Task 41's ledger close.
+      - **How it lands:** one pull request per repository per slice, each slice shipped to the
+        owner from its branch heads before its pull requests merge. Each slice branch is cut from
+        `main` once the slice before it has merged, or stacks on it and says so; merge commits only,
+        never rebased and never force-pushed. RESET is its only variant: the alpha is reset, and
+        nothing of build 03 is read or migrated.
+    - **What is filed.** The six files as they stood in the lead's scratch folder when this
+      filing copied them, at 11:27, each with a legend at its top that names where its companions
+      are filed and what its labels mean, its local paths replaced by those labels, and three
+      references to the companions made to resolve here. Four of them were refiled by the second
+      commit, from their sources as R62 corrected them, copied at 12:51; FOR-OWNER and REDTEAM are
+      as first filed. §7's two entries list every edit and give the proofs. *(The second sentence
+      is added, and the third read "§7's entry lists every edit and gives the proof", by R62's
+      refiling.)* Where a file names a design, a review or a rulings file that is not filed here,
+      that file is in the lead's scratch folder, in no repository, as for item 292; the owner's
+      review file (OWN) is in the owner's own folder, in no repository either. The rulings R48 to
+      R62 are filed, so each is read whole in `LEAD-RULINGS-I1.md`, and this item states each in a
+      sentence *(it read "R48 to R61")*; R33 to R47, which items 295 to 297 cite, are in the
+      lead's scratch folder, R34 to R47 in LR and R33 in the rulings file of 2026-10-14 *(the
+      last clause is added by R62's refiling; review D15)*.
+    - **The owner's words it rests on, verbatim.**
+      - **The order,** 2026-10-16 (OWN:485): "IDs, Requests but first the identity layer. One ID
+        for a whole account and device IDs, makes most sense. Then URnetwork SSO account to lookup
+        users via their urnetwork network username which is a human layer"
+      - **After the first live test of build 03,** 2026-10-16 (OWN:451), which the server-carried
+        link code answers: "Lastly I wanna mention good job on the protocol work but the UI and
+        user friendlyness is very bad, joining / sending someone an encrypted string that long is
+        highly unreasonable. Luckily I wanna add/match urnetwork username accounts via sso to this
+        to make it even simplier but thats optional- ideally you want to have a user have a UUID
+        and inviting and joining groups become easy just like matrix- via message requests or group
+        join requests (on the user's side to accept or decline)"
+      - **The four answers of 2026-10-16** (OWN:523-529; LRI R56). The first two, each to the
+        question as R56 words it:
+        1. "You said changing the recovery phrase ships with the identity layer. May it land in
+           phase 2, right after phase 1?" **"No, in phase 1".**
+        2. "Until phase 2, may keys on disk be protected only by file permissions, as in build 03?
+           This is for alpha test builds only." **"Yes, alpha only (Recommended)".**
+
+        The other two, which the owner asked to talk about further:
+        3. On dropping the reusable last-resort invite key that item 69 expected: "Talk about this
+           further- we don't realistically want normal users to run out of keys... Unless it's for
+           a theoretical "run out" based on non normal use them via normal use it should never run
+           out"
+        4. On whether "Accept invitations first" also hides strangers' requests: "Talk about this
+           further-want it to be similar to matrix, realistically spam won't be an issue with long
+           uuids to start a chat with someone unless they were already in a group chat"
+
+        The two defaults offered to flip were not flipped: leave on this computer only (P1), and at
+        most 10 computers (X5) (OWN:529).
+      - **After the discussion** (OWN:531-533; LRI R58), to the questions as R58 words them: "How
+        should invite keys work so that normal use never runs out?" **"Bigger stock + fallback
+        key"**; and "Requests will work like Matrix: anyone with your ID can send one, and nothing
+        filters it. Should 'Accept invitations first' stay as an optional privacy setting?" **"Keep
+        it, off by default (Recommended)"**. Both shape R, not I1.
+    - **The lead's rulings R48 to R62,** in `docs/plans/identity-phase1/LEAD-RULINGS-I1.md`, filed
+      beside the plan. They continue the series whose R33 to R47 items 295 to 297 cite. Each, in a
+      sentence *(the heading read "R48 to R61", and R62's sentence is added by its refiling)*:
+      - **R48.** The bases: this repository's `main` is `37dd710f`, which carries T1's ledger close;
+        the library's is `c7949cfd`; the app's is `badf2e2c` until urnetwork/message-windows#7
+        merges, then `main`; and the S3 branch is the lead's dispatch to the app's one writer. The
+        plan already named `37dd710f` in its Base row and Task 1 when this filing copied it, so the
+        correction R48 asks of Task 1 had been made (§7's entry).
+      - **R49.** Of SCOPE's departures, X1, X2, X4, X6, X7, X9 and X10 are taken; X3 and X8 go to
+        the owner, as each departs from a line the owner accepted; X5 is a default the owner may
+        flip.
+      - **R50.** Of the lead rows: P1, identity-wide leave cut to I2, goes to the owner, and Task 37
+        is not built unless the owner says no; P2 to P4, P7, P8 and P10 are taken; P5's Slice 0 is
+        built; P6 keeps the build-03 folder with no authority to erase it; P9, a phrase device that
+        removes itself or ends its identity erases its phrase key first, is taken under budget class
+        (iv); and P11 is FLIPPED, so the app's writer builds the conversation list during I1, app
+        only, to land with R's first app slice.
+      - **R51.** The interface to R, row by row against SCOPE §5.1: the words-scoped hooks also run
+        at the first setup's word confirmation, before the words are erased, and no hook is
+        registered in I1 (IL8); the self group's records keep the server's delivery order, so R
+        carries any "first in order" inside a self-group commit (IL10); and I1 does not build T1b's
+        `Group.Rekey` (IL13).
+      - **R52.** The 90-day leaf: a joiner checks every leaf's lifetime against its clock, so a
+        conversation holding a key-package leaf past 90 days refuses new joiners. I1 accepts and
+        states it, as SCOPE's risk R16 and the library's open item MG-17, since the alpha is reset
+        every slice; R ends every join with `Group.Rekey`.
+      - **R53.** Task 2 runs prompts 1 to 9 as written, with H4's reveal order in prompt 3 and P9's
+        authority (g) in prompt 7. The 2026-10-15 red team and Task 2 together are the design's ONE
+        pass, one check of Task 2's dispositions follows, and a third round on one promise comes to
+        the lead.
+      - **R54.** D2's defaults decided by the lead's principles stand, each one the owner may flip,
+        and one leaves item 70's one-time links unbuilt; Q6 and Q7 go to the owner; and D2's
+        interface copy uses no pronoun for an inviter.
+      - **R55.** The order once the owner answers, whose steps 1 to 3 R57 replaces; and the alpha's
+        link-box deploy in slice 2 is a major change to the server, which the lead tells the owner
+        of before it.
+      - **R56.** The owner's four answers, quoted above: X3 is FLIPPED by the owner, so the phrase
+        change, M5's PC1 to PC5, is built in I1, gets Task 2's prompt 10, runs the hooks, and
+        needs the chain's pure verifier; X8 stands for alpha test builds only, with sealed keys and
+        the Windows Hello prompt in I2, before any build that is not an alpha; Q6 and Q7 stay open
+        for R and do not block I1.
+      - **R57.** The order, revised: one workflow revises the plan, the scope and the note for the
+        phrase change and then runs Task 2's red team and its dispositions, BEFORE Task 1, so the
+        plan filed here carries them; the app's writer builds the conversation list meanwhile;
+        then this repository's Task 1 and Tasks 3 to 5, and the library's Tasks 8 to 10.
+      - **R58.** The owner's two answers after the discussion, quoted above: D2 becomes v2.1, with
+        100 one-time keys per device topped up at every run, 50 claims a day, ONE fallback key
+        package per device served only when the stock is empty and replaced at the next run, and
+        no stranger filter; "Accept invitations first" stays a privacy setting, off by default; R's
+        own red team covers the change.
+      - **R59.** The app writer's conversation-list design is accepted, with its findings F1 and F2
+        first, as their own small pull request (F1: live builds named rows from the made-up world);
+        no JWT leaves the alpha's box or this machine for its live run; and the list pauses for
+        Task 6.
+      - **R60.** The list's live run may use the continuous integration's placeholder credential
+        file, which the direct route never reads; and the inspector rail's clipped conversation id,
+        S5, is fixed inside the list work by S3's fit.
+      - **R61.** On the phrase-change revision and Task 2's red team: X11 to X14, P12 to P15, the
+        new authorities (f)P and (i) and the open item MG-18 are taken as planned; the lead
+        corrected the note to the owner and the slice-4 report, which now say that a replaced phrase
+        counts in a conversation until one of your devices in it has run since the change, counts
+        for good in a conversation none of your devices is in any more, and that a change cannot
+        undo a use the alarm reports; and the one check of Task 2's dispositions is Task 1's diff
+        review, which this item records below.
+      - **R62.** On Task 1's filing and Task 8: Task 1's review holds, so R61's one check is done;
+        the four findings it left for the lead, D1, D2, D15 and D16, are fixed in the sources and
+        refiled here; P2 had not reached the owner, and the lead sends the note with P2 named;
+        Task 3 freezes the store kinds as Task 12 and P3 have them, 11 the identity record, 12 the
+        heads, which hold the own-signature log, and 13 the phrase key, and SCOPE C7 is corrected
+        to match; Task 8 is accepted as reported, with its forward costs written into the plan's
+        Tasks 12, 13 and 26; and this repository's writer files the second commit, then pushes
+        and reports Task 3 at once, then does Tasks 4 and 5 on a branch cut from this branch's
+        head, their pull request after the plan's.
+    - **The rows X1 to X14,** SCOPE's departures from M5's identity step, the owner's decisions
+      and the first design, as ruled:
+      - **X1,** taken: no security delay in I1, so a removal acts at once, with the delay to come
+        with the server part (OD:99).
+      - **X2,** taken: the server carries the link code, in a sealed link box on arms 20 to 24.
+      - **X3,** FLIPPED by the owner: the phrase change with the old phrase is built in I1, as
+        slice 4.
+      - **X4,** taken: T2's labels and safety numbers move to R.
+      - **X5,** a default not flipped: at most 10 devices, the conversations' own limit.
+      - **X6,** taken: the device ID is derived from the root and the device key, as D2's DID1.
+      - **X7, X9 and X10,** taken: names stay per device; the emoji always run, after a typed code,
+        with no QR; the removed screen points to a device still on the account.
+      - **X8,** the owner's "Yes, alpha only": keys under file permissions only, and no Windows
+        Hello prompt, until I2, in alpha test builds only.
+      - **X11 to X14,** taken (R61): the phrase change has no server part; every leaf carries the
+        chain of steps from the root, at most 4; the self group moves in place at a change; and the
+        change is one action on Settings, Account.
+    - **The rows P1 to P15,** the plan's own calls, as ruled:
+      - **P1** stands (the owner kept the default): leave is per device, and identity-wide leave
+        is I2's.
+      - **P2:** ending an identity, and a removed device, add no whole-store erase.
+      - **P3:** the phrase key is its own store record, erased only under (f), (f)P, (g) or (i).
+      - **P4:** the link deposit is 17,526 octets, and the card has a fixed size.
+      - **P5:** Slice 0 is built.
+      - **P6:** the build-03 folder is kept, and READ-ME-FIRST says how to delete it by hand.
+      - **P7:** the alarm's second reason reads this device's own-signature log, and its sentence
+        names the false positive a put-back can cause.
+      - **P8:** the account ID is D2's ID1 and the device ID its DID1, frozen in Task 3's registry
+        before any known answer is written.
+      - **P9:** a phrase device that removes itself or ends its identity erases its phrase key
+        first, under (g), and its other devices offer a lock-out that names no device.
+      - **P10:** Task 35 moves to R, and the words-scoped hooks stay in I1.
+      - **P11,** FLIPPED by the lead: the conversation list is built during I1, as Task 6b.
+      - **P12** (R61): 10 concepts, with "Account login" not counted, since I1 has no login.
+      - **P13** (R61): the phrase change is slice 4, with a session of its own.
+      - **P14** (R61): the root stays the first phrase's key across a change, so "Your ID" stays,
+        and its cost is stated: every earlier key counts for good where its step is not seen.
+      - **P15** (R61): no device leaves its account holding a phrase secret; the act waits for the
+        erase, and a failed erase sends nothing.
+    - **THE BUDGET,** set before any code, so that review rounds cannot grow the design (LR R36,
+      R39; R53):
+      - one red-team pass, which REDTEAM's and Task 2's are together, and one check of its
+        dispositions; then one independent code review a slice, and at most two fix rounds;
+      - fixed in I1: a finding made by ONE action of one adversary, or by ordinary software, in
+        which the code (i) erases without a true reason, (ii) says something false, (iii) accepts
+        what the list or the ceremony forbids, or (iv) lets a phrase secret go where its disposition
+        does not allow it;
+      - filed, not fixed: a finding that needs two or more coordinated actions, and a liveness or
+        hygiene cost of a correct refusal; SCOPE's accepted risks R1 to R17 are stated rather than
+        found; filings go in the library's open items from MG-16 on, and a state-store file's to
+        the store track, as Task 2's T2-H1 residual does (SCOPE R17);
+      - sizes: at most 14 surfaces and 10 concepts, 10 devices, 16 changes waiting on one base and
+        4 steps in a chain; and the smallest fix first, with a fix that adds a mechanism going to
+        the lead.
+    - **SCOPE,** filed beside the plan: the exact feature list (A1 to S4 and K1 to K9), what is
+      built today, the departures X1 to X14, what is deferred and to which phase, the interface I1
+      hands to R, the reset, the accepted risks R1 to R17, the owner's seventeen steps by hand,
+      and the build order and gates.
+    - **The two red teams, and their dispositions,** both filed beside the plan. Each finding has
+      a row in the plan's "Review dispositions" or "Task 2 dispositions".
+      - **REDTEAM, dated 2026-10-15,** read-only, over the plan of 1,189 lines and the scope of
+        318: no CRITICAL, 4 HIGH, 13 MEDIUM and 7 LOW. H1 to H4 are fixed: the sending side runs
+        the receivers' rules, so a device never publishes a commit its own rules refuse; a phrase
+        device erases its key before it removes itself or ends its identity; one helper checks the
+        words against the identity; and the new device reveals only after it has read the other's
+        nonce. M1 to M10 and M12 are fixed, M6 in part, with its rest filed as MG-16; M11 and M13
+        are the lead's P10 and P11. L1 to L7 are fixed, L4 in part, and L7 by leaving the heads'
+        accessor to R in writing.
+      - **Task 2, 2026-10-16,** read-only, prompts 1 to 10: no CRITICAL, 2 HIGH, 2 MEDIUM and 3
+        LOW. T2-H1 is fixed as P15. T2-H2 is fixed in its false remedy and its owner copy, and its
+        design question became P14, keep the root and state its cost, which R61 took. T2-M1, T2-L1
+        and T2-L2 are fixed, T2-M2 is stated, and T2-L3 holds.
+    - **The note to the owner, before slice 1** (REDTEAM M8). M8 asked that five departures from
+      lines the owner had accepted reach the owner before slice 1, as defaults to flip: X3, X5, the
+      phrase's key unsealed until I2, P1 and P2. The owner's review file records four of them
+      reaching the owner on 2026-10-16: X3 and the unsealed keys as questions in the lead's summary,
+      with D2's two, and P1 and X5 as defaults offered to flip and not flipped (OWN:507-529; LRI
+      R56). P2, that an ended identity is marked ended and not erased, had not reached the owner,
+      and the note itself had not been sent as a file (R62). The lead sent the note to the owner as
+      a file at 12:50, naming P2 in the message: ending the account on its last computer erases the
+      phrase's key and marks it ended, and the rest of the old folder is not wiped (the lead's
+      record; R62). So all five reached the owner before slice 1. The filed note is its revision
+      after the owner's answers, and asks nothing more. *(Amended by R62's refiling. In place of
+      P2's sending, it read: "It does not record P2, that an ended identity is marked ended and
+      not erased, which is among the filed note's defaults (its 'Ending the account on its last
+      computer'); whether P2 reached the owner is the lead's to confirm.")*
+    - **The check of Task 2's dispositions** (R53, R61), made inside this item's diff review: all
+      seven HOLD, T2-H1, T2-H2 as R61 corrected it, T2-M1, T2-M2, T2-L1, T2-L2 and T2-L3, each
+      with its evidence at the filed plan's, SCOPE's and the note's lines. Its "What else" counts
+      hold too: 141 mutant ids, each defined once, 116 of the library, 10 of the server and 15 of
+      the app, MI115 to MI121 and MA15 new and no retired id reused, 17 scenarios and 45 tasks.
+      No disposition goes to the lead, and there is no third round.
+    - **Open.**
+      - **§6's diff review** of this item, its entry and the six files, which is also the one
+        check of Task 2's dispositions: made before this commit, and recorded under Reviewed by in
+        §7's entry, with every finding in this filing's own text taken. *(That is the first
+        commit's review. The second commit's is recorded under Reviewed by in §7's second
+        entry.)*
+      - *(R62's refiling takes off this list the four findings it named for the lead in the plan's
+        and the rulings' own text, D1, D2, D15 and D16. R62 fixed each in the sources, D15 at
+        LRI's head and at REDTEAM-TASK2's §4, and the second commit refiles them; §7's second
+        entry gives each.)*
+      - **Two findings of the second commit's review in the lead's text, for the lead** (§7's
+        second entry, its E1 and E4). REDTEAM-TASK2's Subject line still gives LR as R33 to R47,
+        with no lead's note, since R62's note landed on its §4 line only. And the plan's T2-H2 row
+        quotes the owner's copy as "your devices refuse the old paper", where FOR-OWNER says "your
+        computers". This filing changes no word of either. *(This bullet is added by R62's
+        refiling.)*
+      - **The pull request:** the lead opens it.
+      - **Next:** Tasks 3, 4 and 5, MASTER, Spec A and Spec B for I1, one commit each, each after
+        its own diff review, on a branch of their own cut from this branch's head after R62's
+        refiling (R62), which the lead's brief names `specs/identity-phase1`, with their pull
+        request once the plan's has merged. The registry of Task 3 freezes D2's ID1 and DID1
+        before the library writes their known answers (P8), and the store kinds as R62 has them.
+        *(It read "Next on this branch", before R62.)*
+      - **The program plan's status table** has no row for this track, so nothing in it moves.
+
 ## 6. Change process
 
 Every change to a spec or plan follows this, without exception:
@@ -29835,5 +30114,443 @@ and this ledger to this entry.
 
 **Reviewed by:** pending. The lead reads this commit's diff before this repository's pull request
 opens.
+
+It cites no run of itself: the pull request's body cites the runs on its head.
+
+### 2026-10-16 — Item 298: the plan for the identity layer's first phase, filed with its scope, its note to the owner, its two red teams and the lead's rulings R48 to R61
+
+**Change:** this ledger, item 298 and this entry; one plan, new,
+`docs/plans/2026-10-16-identity-layer-one-account.md`; and beside it a new folder,
+`docs/plans/identity-phase1/`, with five files: `SCOPE.md`, `FOR-OWNER.md`, `REDTEAM.md`,
+`REDTEAM-TASK2.md` and `LEAD-RULINGS-I1.md`. No spec changes, and no code: no Go file, `go.mod`,
+`go.sum`, script or workflow changes. Times are UTC, on 2026-10-16.
+
+#### 1. What it was filed on
+
+- **This repository's `main`,** `37dd710f`, the merge of its pull request 11, which GitHub records
+  as merged at 03:08:05. Its tree is the tree of that pull request's head, `1ed811af`: the diff of
+  the two is empty. The branch is `plans/identity-phase1`, cut from it.
+- **The siblings,** each checked out at the commit `scripts/siblings.txt` pins, and clean:
+  `message` `0bb2128f`, `connect` `847460bb`, `glog` `80a11b43` and `gvisor` `c0783dba`.
+- **The host:** a Windows machine, with `GOWORK=off`, `GOTOOLCHAIN=go1.27.2` and `GOPROXY=off`, at
+  below-normal priority. Each run below printed go1.27.2 as its `go version`.
+
+#### 2. The six files, byte for byte
+
+- **The sources** are the six files of `identity-phase1/` in the lead's scratch folder, copied at
+  11:27 and hashed then. They were last written between 06:09 and 11:16, and they were hashed
+  again before this commit, unchanged.
+
+  | source | sha256 | lines | octets |
+  |---|---|---|---|
+  | `PLAN.md` | `e7c2fdb9719c2cc3a416304f980c2157c844d4275f12dbaeab9f6c0b0d7d73a4` | 1,545 | 192,334 |
+  | `SCOPE.md` | `54211f1490de7f1dd283714a6f6b2f77f7cd9e3742bedfece9b05e152a241635` | 361 | 57,586 |
+  | `FOR-OWNER.md` | `526ddd863b298ad09bf40cf97b8070a1e2ebc1c345c5cff90f6100fd97545a79` | 79 | 8,059 |
+  | `REDTEAM.md` | `b265796d5fdf8ce37117b1ed4efc640d01ec12c485898b78bbd79f6745c0d802` | 443 | 36,151 |
+  | `REDTEAM-TASK2.md` | `3f818988f01f39b278bbf242989eaa4ed55d878e05a7a6f7841df892592330f2` | 137 | 26,507 |
+  | `LEAD-RULINGS-I1.md` | `f4273fd1d5d6faf03bfba7c964b0e854ede5243b1f6d4b405a698ea2f2ba69df` | 220 | 18,402 |
+
+- **Where each is filed.** The plan is `docs/plans/2026-10-16-identity-layer-one-account.md`. Its
+  name carries no `-p<n>-`, `-s<n>-` or `-m<n>-` segment, which this repository's plan linter would
+  read as a plan token (the plan's Task 1 Step 1). The other five keep their names, in
+  `docs/plans/identity-phase1/`: the folder the plan's own references name, `identity-phase1/`,
+  beside the plan. So every `identity-phase1/<name>` in the plan resolves from where it is filed.
+- **What differs: 21 edits, of three kinds, and nothing else.** Every line number below is the
+  source's; in the filed copy each is two higher.
+  - **A legend at the top of each file,** inserted after its title: one paragraph and a blank line.
+    It says where the file and its companions are filed and that every change made in filing it is
+    listed here; and, where the file uses them, what each label means and that the lead's scratch
+    folder and the owner's review file are in no repository. The plan's and SCOPE's legends also
+    say that LRI R61 was written after their last revision, and what it overtook: the plan's table
+    still marks X11 to X14 and P12 to P15 new and open, SCOPE's §3 still gives X11 to X14, P14 and
+    P15 as new, and the plan's T2-H2 row in "Task 2 dispositions" still describes the owner's copy
+    as it was before R61 corrected it. Both say that `app@a832482` is the head of
+    urnetwork/message-windows#8, open when they were filed. LRI's legend says that the plan now has
+    45 tasks (below). The two lines are the whole of each file's growth.
+  - **The 16 local paths, replaced by labels in 12 edits.** `lib@<sha>`, `srv@<sha>` and
+    `app@<sha>` name `urnetwork/message`, `urnetwork/message-server` and
+    `urnetwork/message-windows` at that commit.
+    - The plan: line 18, the change log's row 10, where srv and app were read, becomes
+      `srv@37dd710f` and `app@a832482`; line 30, the three clones its Inputs read, becomes
+      `lib@c7501a19`, `srv@37dd710f` and `app@a832482`, under `app/src/App`.
+    - SCOPE: line 8, the owner's review file, becomes "the owner's review file (OWN) of
+      2026-10-05"; line 9 becomes the same three labels as the plan's line 30; and line 10, where
+      the first round read srv, becomes `srv@20fc48db`.
+    - REDTEAM: lines 10 to 12, its three clones, become `lib@c7501a19`, `srv@20fc48db` and
+      `app@badf2e2c`.
+    - REDTEAM-TASK2: lines 5 and 136, its library clone, become "lib in a clone whose tree equals
+      `lib@c7949cfd`". Line 136's other path is a workspace the review says it did not read or
+      write, the one that holds REDTEAM's app clone. It becomes "the app workspace REDTEAM read",
+      the one label outside the four the lead's brief lists, since the review read no commit there.
+    - LRI: line 14, where R48 says the plan had read srv, becomes `srv@20fc48db`.
+  - **Three references to the companions, made to resolve where they are filed.**
+    - The plan's line 27 named SCOPE by its place in the lead's scratch folder. It now names
+      `identity-phase1/SCOPE.md`.
+    - SCOPE's line 3 said that REDTEAM's dispositions are the plan's "last section". They were,
+      until Task 2's dispositions were added after them. It now names "Review dispositions".
+    - FOR-OWNER's line 3 said that the plan and SCOPE are "in this folder". The plan is filed beside
+      the folder, so it now reads "PLAN.md, the plan, and SCOPE.md, which is in this folder".
+  - **The other names.** Every other reference to a companion, by `identity-phase1/<name>` or by
+    the name alone, resolves through the legend of the file it is in. REDTEAM and REDTEAM-TASK2,
+    and the plan's own "Task 2 dispositions", give line numbers into the plan, SCOPE and FOR-OWNER
+    as their reviews read them, before those files were revised in place. The two reviews' legends
+    say so, and the plan's section says it of itself.
+  - **What the filing does not change.** No other word of the six. No text was changed for the
+    linter (§3). Four findings of the review in the plan's, LRI's and REDTEAM-TASK2's own text are
+    left as written, for the lead (item 298, Open). R48 asks Task 1 to correct the plan's Base row
+    and Task 1, which it says read the older srv commit and say "not yet on main". The plan this
+    filing copied already names `37dd710f` in both, so no edit was needed, and its other mentions
+    of `20fc48db` say what the first round read. LRI's head still gives the plan "41 tasks", its
+    count when the rulings began; LRI's legend says that the plan now has 45.
+- **The complement, printed and held both ways** by this entry's filing script. A search for a
+  drive-letter path, a letter and a colon before either slash and not after another letter (so the
+  `wss://` address in LRI is not one), finds 16 in the sources: 4 in the plan, 5 in SCOPE, 3 in
+  REDTEAM, 3 in REDTEAM-TASK2, 1 in LRI and none in FOR-OWNER. Each lies inside exactly one path
+  edit's old text, each path edit holds at least one, no other edit holds one, and no edit's new
+  text carries one.
+- **The search the lead's brief names,** `E:/` or `C:/` in any case, over the six filed files:
+  none in each. Its control in the same query, SCOPE's source, matches on its lines 8 to 10, which
+  hold both forms. A wider search, in any case, adding the backslash form, the `/c/` and `/e/`
+  forms, the account name, AppData, Downloads and the sandbox folder's name, finds none in the six
+  either, and the same control matches the same three lines. Its account-name needle is written so
+  that it does not match `Ryanmello07`, the GitHub owner the plan's rule on outside repositories
+  names, which is not a path. Spec B §13 item 28's four double-encoding runs: none.
+- **The proof,** a second script of this entry's own. Each filed file, with its edits reversed
+  newest first and each edit's new text found exactly once, is its source byte for byte. A line diff
+  of the two touches exactly the source lines the edits name. Each filed file is two lines longer
+  than its source, with the legend as its line 3 and line 4 blank, and each is valid UTF-8 with no
+  BOM and no carriage return. Its three controls each fail it for their own reasons: one character
+  changed in the plan's last section, so the reversal does not give the source; one carriage return
+  added; and the plan's source filed with no edit, so an edit's new text is not found.
+
+  | filed as | sha256 | lines | octets |
+  |---|---|---|---|
+  | `docs/plans/2026-10-16-identity-layer-one-account.md` | `0cff1245847c8d78d487a9c8fd89765ce3d77694879e6c591496f384dbb7e1ee` | 1,547 | 193,772 |
+  | `docs/plans/identity-phase1/SCOPE.md` | `faf76764490b69ba57d2dec93aeeaad0bf25ea35c03b84ba857f51addc3aba14` | 363 | 58,802 |
+  | `docs/plans/identity-phase1/FOR-OWNER.md` | `e5f80dea552c75239c757a4d4a956ebf0b7f0330d4b900754461abce72b3af66` | 81 | 8,562 |
+  | `docs/plans/identity-phase1/REDTEAM.md` | `c3acd9ea8d1bb6d04d3c2b9049c1ff043dd2c55a716adbb35fbecbc5a9cca38e` | 445 | 37,086 |
+  | `docs/plans/identity-phase1/REDTEAM-TASK2.md` | `28076894f0cfb7aa8647de6cf7c7aa56f5854d9ef1e4ca68f0db97bbd1d8f493` | 139 | 27,449 |
+  | `docs/plans/identity-phase1/LEAD-RULINGS-I1.md` | `b12f887bf741d95247e4aac7328ff5db5451bed7bbd185e5cfc032889a464c7c` | 222 | 19,296 |
+
+#### 3. The plan linter, on the day
+
+`go test -count=1 -run TestThePlanLinter -v ./`, the plan's Task 1 Step 2, over three trees: this
+repository's `main` alone; `main` with the plan's source, unedited, under the plan's filed name; and
+`main` with the six filed files and this entry. Each exits 0, `ok`: all seven of the linter's tests
+pass and none fails. They print these nine counts:
+
+| class | `main` | the plan's source | the filed files |
+|---|---|---|---|
+| the property class | 371 | 493 | 493 |
+| the plan-supplied-test class | 227 | 227 | 227 |
+| the class-deriving property class | 74 | 74 | 74 |
+| the task-reference class | 3304 | 3784 | 3784 |
+| the open-item-reference class | 955 | 955 | 955 |
+| the plan-reference class | 2220 | 2220 | 2220 |
+| the ledger-reference class | 269 | 269 | 269 |
+| the Consumes-entry class | 320 | 365 | 365 |
+| the qualified-consumed-name class | 15 | 15 | 15 |
+
+- **No check, fatal or reporting, prints a finding against the plan.** No line of either run with
+  it names any of the six files, and apart from the counts each prints exactly the lines the run on
+  `main` prints, timings aside. So the linter asked for no change to the plan's text (its Task 1
+  Step 2), and the legend moves no count. The plan cites no open item of the forms the linter reads
+  (its `MG-` ids are the library's open items, which the linter does not read), no plan token and no
+  ledger item: those three counts do not move.
+- **What the linter reads.** Its corpus is `docs/plans/*.md`, which Go's glob does not take into a
+  folder. It reads the plan, and not its five companions, which are not plans. The edit-log gate
+  names the same pattern as a git pathspec, whose `*` crosses `/`, so it holds the companions too:
+  a later commit that changes one owes a §7 entry. Both were checked: the pathspec lists all six
+  files, and the glob lists the plan alone.
+- **The control.** The filed plan with one line added after its line 4, naming the open item
+  W7-9, which no plan in `docs/plans` defines or names, and which this ledger names only here: the
+  run FAILS, exit 1, with one `--- FAIL`, `TestThePlanLinterChecksEveryCrossReferenceResolves`,
+  whose fatal check 3b prints the one finding `2026-10-16-identity-layer-one-account.md:5: names
+  open item W7-9, which no plan in this corpus defines`, over 956 open-item references. The plan
+  was put back after it, its sha256 checked. So a finding against this file names it, and the 0
+  above is a reading, not a blind spot.
+
+#### 4. The gates
+
+Run on the committed history of this entry, under go1.27.2, beside the four siblings at their pins,
+before the push:
+- `go test ./ -count=1 -run 'TestTheEditLogGate|TestThePlanLinter' -v`: the edit-log gate's six
+  tests and the linter's seven pass, and none fails.
+- `go test ./ -count=1`, the whole root package: `ok`.
+- **The edit-log gate reads this commit and finds its entry.** Its ledger arm prints that 67 of 90
+  spec-or-plan commits appended a §7 entry at `main`, and 68 of 91 on this commit.
+
+This commit changes a plan, so the edit-log gate holds it to this entry.
+
+#### 5. What this does not do
+
+- It changes no spec. MASTER, Spec A and Spec B for I1 are the plan's Tasks 3, 4 and 5, each its
+  own commit on this branch, each after its own diff review. *(R62 and the lead's brief moved
+  them to a branch of their own, `specs/identity-phase1`: the next entry.)*
+- It changes no code, here or in `urnetwork/message` or `urnetwork/message-windows`.
+- It holds none of the plan's estimates to a measurement: the plan marks each, and each slice
+  measures its own on the day.
+- It does not open the pull request, which the lead opens.
+- It does not move the program plan's status table, which has no row for this track.
+
+**Reviewed by:** an independent subagent's diff review of 2026-10-16, made before this commit,
+which is also the one check of Task 2's dispositions (R61). It was read-only, by a reviewer that
+wrote none of the six files, this item or this entry. It covered this commit's seven files,
+uncommitted, by their sha256 at its start and at its end, which were the same. That was the state
+before its findings were taken: the plan, SCOPE and this ledger then hashed `f2201e6b…`,
+`deaca6cd…` and `6c15aae9…`, and the other four files have not changed since. It read each claim
+against its source:
+- the six filed files against their sources, every edit applied forward and every line diff read;
+- the owner's eight quotations against OWN :451, :485, :524-527 and :532-533, and against LRI R56
+  and R58, with the four questions as R56 and R58 word them;
+- each ruling's sentence against LRI; the rows X1 to X14 and P1 to P15 against the plan's table
+  and LRI; both red teams' counts and dispositions against the plan's two sections;
+- every hash, size and line count; the merge of pull request 11 on GitHub; each label's commit;
+- the linter and the edit-log gate, both of which it ran, and the pathspec and the glob.
+
+**Its verdict.** All seven of Task 2's dispositions HOLD: T2-H1; T2-H2, as R61 corrected it; T2-M1;
+T2-M2; T2-L1; T2-L2; and T2-L3, each with its evidence at the filed copies' lines. The section's
+"What else" counts hold as well. No disposition goes to the lead, and there is no third round. It
+made 19 findings: no BLOCKER, no MAJOR, 9 MINOR and 10 NIT.
+- **Taken in this commit, each where it stands:**
+  - **MINOR D3:** slice 0 is an optional preview and ends in no session; item 298 says so.
+  - **MINOR D4:** in the budget, SCOPE's R1 to R17 are stated rather than found, and a
+    state-store file's filing goes to the store track.
+  - **MINOR D5:** of M8's five departures, the owner's review file records four reaching the owner;
+    item 298 says so, and that whether P2 reached the owner is the lead's to confirm. *(R62: P2
+    had not reached the owner; the lead sent the note at 12:50, naming P2, and item 298 now says
+    so.)*
+  - **MINOR D6:** the plan's and SCOPE's legends say that LRI R61 came after their last revision,
+    and what it overtook.
+  - **MINOR D7:** OWN is in the owner's own folder, not the lead's scratch folder.
+  - **MINOR D8:** the plan cites no open item of the forms the linter reads; its `MG-` ids are the
+    library's.
+  - **MINOR D9:** the control's W7-9 is named by no plan, and by this ledger only in this entry.
+  - **NIT D10:** the account-name needle, and the one name it is written not to match.
+  - **NIT D11:** the legends' contents, as they differ from file to file.
+  - **NIT D12:** the edits' line numbers are the sources'.
+  - **NIT D13:** §3's third run is made with this entry in the tree.
+  - **NIT D14:** SCOPE's legend names LR as rulings it cites without defining.
+  - **NIT D17:** `app@a832482` is the head of urnetwork/message-windows#8.
+  - **NIT D18:** the lead's own correction (R61) is named beside the plan's three revisions.
+- **Not taken here, for the lead,** since each is in the plan's, LRI's or REDTEAM-TASK2's own text,
+  which this filing does not change. Item 298 names each under Open:
+  - **MINOR D1:** the T2-H2 row's stale clause, which the plan's legend notes;
+  - **MINOR D2:** two homes for Task 43's held-erase case;
+  - **NIT D15:** LR given as R33 to R47;
+  - **NIT D16:** REDTEAM L3's row without "where a change can help".
+
+  *(R62 fixed all four in the sources, D15 in part, the next entry refiles them, and item 298's
+  Open list no longer lists them as open.)*
+- **NIT D19, no change needed:** the plan cites §6 at `SPEC-LEDGER.md:14153`, which is true at
+  `srv@37dd710f`, the commit it names. This commit moves §6 below item 298.
+- **One slip, reported by the reviewer:** it wrote the seven files' sha256 list for a moment to a
+  temporary folder outside its notes folder, and removed it at once. It held only those hashes.
+
+The two gates this ledger answers to pass on the finished text: TestTheEditLogGate, 6 tests, and
+TestThePlanLinter, 7 tests, and so does the rest of the root package (§4).
+
+It cites no run of itself: the pull request's body cites the runs on its head.
+
+### 2026-10-16 — Item 298 refiled: the lead's R62 corrections to the plan, SCOPE, LRI and REDTEAM-TASK2, and the note to the owner sent with P2
+
+**Change:** this ledger, with item 298 amended where it stands, the previous entry annotated at
+three sentences, and this entry; and four of the six files item 298 filed, refiled from their
+sources as the lead's ruling R62 corrected them: the plan, and `SCOPE.md`, `LEAD-RULINGS-I1.md` and
+`REDTEAM-TASK2.md` in `docs/plans/identity-phase1/`. `FOR-OWNER.md` and `REDTEAM.md` are unchanged,
+byte for byte. No spec changes, and no code: no Go file, `go.mod`, `go.sum`, script or workflow
+changes. Times are UTC, on 2026-10-16.
+
+#### 1. Why: R62
+
+- **The four findings Task 1's review left for the lead are fixed in the sources, D15 in part**
+  (R62; the previous entry, under Reviewed by):
+  - **D1:** the plan's T2-H2 row in "Task 2 dispositions" now says what the owner's copy has said
+    since R61, where a replaced phrase still counts and that a change cannot undo a use the alarm
+    reports, and no longer "a change does not undo a leak".
+  - **D2:** Task 43's held-erase case has one home, P15's one test,
+    `TestNoDeviceLeavesItsAccountHoldingAPhraseSecret`, as Task 30 and the T2-H1 row already said.
+    `TestAChangeThatLostItsRaceIsRebuiltOrVoid` keeps the races without the hold, and MI117 is
+    killed by Task 43's case of the P15 test.
+  - **D15:** LRI's head gives LR as R34 to R47, with R33 in the rulings file of 2026-10-14.
+    REDTEAM-TASK2's §4 line keeps the red team's text, since it is the red team's record, and
+    carries a lead's note. Its Subject line, which gives LR the same way, carries none: R62's patch
+    matched the §4 line's form only (this commit's review, E1). That line is left as the red team
+    and the lead left it, for the lead, so D15 is fixed in part.
+  - **D16:** the plan's row for REDTEAM's L3 says that the phrase change is offered only where a
+    change can help.
+- **R62 also:**
+  - corrects SCOPE C7's store kinds to the plan's Task 12 and P3: 11 the identity record; 12 the
+    heads, one record, which hold the own-signature log; and 13 the phrase key;
+  - writes Task 8's forward costs, which R62 accepts, into the plan's Tasks 12, 13 and 26;
+  - gives LRI's head the plan's 45 tasks, where it read 41;
+  - and is itself appended to LRI.
+- **D5, answered.** P2 had not reached the owner: the note had not been sent as a file, and the
+  lead's chat had named four of M8's five departures (R62). The lead sent `FOR-OWNER.md` to the
+  owner as a file at 12:50, naming P2 in the message: ending the account on its last computer
+  erases the phrase's key and marks it ended, and the rest of the old folder is not wiped. That is
+  the lead's record. Item 298's M8 line is amended to say so.
+
+#### 2. What changed in the sources
+
+- **The lead edited the four sources at 12:48 and 12:49** (R62), and kept the copies from before in
+  a folder of their own, `identity-phase1-pre-r62/`, in the lead's scratch folder. Each copy from
+  before is byte-identical to this filing's first snapshot (the previous entry's first table), so
+  the diff of each pair is exactly R62's.
+
+  | source, after R62 | sha256 | lines | octets |
+  |---|---|---|---|
+  | `PLAN.md` | `d74827b91b4cff73d3da0314a322777016925665ed0b1df46cb0e6b80f8b441e` | 1,548 | 193,652 |
+  | `SCOPE.md` | `26e7ebc0e32f111cb77c3627dc29d15c7cfbf726d9af956b9e2c0a3de764cbf4` | 361 | 57,695 |
+  | `LEAD-RULINGS-I1.md` | `2eb21cd238deafe82a36a3a312b2f7142412c3c8b63f0701ce5202ce616c4c57` | 267 | 22,271 |
+  | `REDTEAM-TASK2.md` | `a42632404a6d080823c8114f99228ff93e39bc824d3c6447a96b136bb54250dd` | 137 | 26,541 |
+
+- **The plan: eight edits,** at these lines of its new source:
+  - Task 12 gains a bullet, at 494: Task 8's forward costs, the seam member's leaves bound with
+    0xF005, and the control's assertion that Carol's key package names Carol;
+  - Task 13 gains a bullet, at 542: the stranger's key package built without 0xF005 on purpose,
+    which is asserted before the add;
+  - Task 26's Step 1 gains a sentence, at 841: Task 8's removal control gets the base that drops
+    the phone, signed before the removal;
+  - D2, three edits: Task 43's races test, at 1192, drops "the last also with its new key record
+    held"; a new bullet, at 1193, gives Task 43's case of P15's test; and MI117's killer, at 1210,
+    becomes that case;
+  - D16, the L3 row, at 1518; and D1, the T2-H2 row, at 1541.
+
+  So the plan grows from 1,545 lines to 1,548.
+- **SCOPE:** C7, at its line 83.
+- **LRI:** its line 3 (D15) and its line 5 (45 tasks), and R62 appended after its line 220. It grows
+  from 220 lines to 267.
+- **REDTEAM-TASK2:** its line 134 gains the lead's note, "[lead, LRI R62: LR is R34 to R47]".
+- **FOR-OWNER and REDTEAM:** unchanged, and their sources hash as before.
+
+#### 3. The refiling, byte for byte
+
+- **The new sources** were copied at 12:51 and hashed then, and they were hashed again before this
+  commit, unchanged.
+- **The same 21 edits as the first filing** (the previous entry, §2), applied by the same script to
+  the new sources. Each edit's old text still occurs exactly once. The 16 local paths, 4 in the
+  plan, 5 in SCOPE, 3 in REDTEAM, 3 in REDTEAM-TASK2, 1 in LRI and none in FOR-OWNER, are still held
+  both ways by the 12 path edits, and no other edit holds one. The edits' source lines are
+  unchanged too, since R62 edits no line an edit touches.
+- **Three legends change, because R62 made a sentence of each false or stale:**
+  - the plan's drops its note of D1, which is fixed, and "LRI R61 was written after this plan's last
+    revision", since R62 revised the plan after R61. It keeps that R61 takes X11 to X14 and P12 to
+    P15 as planned, which the table under "What the lead ruled" still marks new and open;
+  - SCOPE's drops "LRI R61 was written after this scope's last revision", likewise, and keeps the
+    rest;
+  - the plan's and SCOPE's both gain one clause, which says that their head and Inputs name LRI R48
+    to R60, the rulings they were written to, and that R61 and R62 came after (this commit's review,
+    E8);
+  - LRI's says that the plan is the one R62 left, of 1,548 lines where R61 read 1,545, and drops its
+    sentence on the head's "41 tasks", which now reads 45.
+
+  The legends of FOR-OWNER, REDTEAM and REDTEAM-TASK2 are as first filed.
+- **What changed from the first commit's copies,** by a line diff of each pair: in the plan, SCOPE
+  and LRI, the legend's line and R62's lines, each two lines lower than in its source; and in
+  REDTEAM-TASK2, R62's one line. FOR-OWNER and REDTEAM are byte-identical to the first commit's
+  copies.
+- **The search the lead's brief names,** `E:/` or `C:/` in any case, over the six files: none in
+  each. Its control in the same query, SCOPE's new source, matches on its lines 8 to 10. The
+  previous entry's wider search finds none in the six either, with the same control. Spec B §13
+  item 28's four double-encoding runs: none.
+- **The proof,** the previous entry's script, run on the new sources. Each filed file, with its
+  edits reversed newest first, is its new source byte for byte. A line diff of the two touches
+  exactly the source lines the edits name. Each is two lines longer than its source, with the legend
+  as its line 3 and line 4 blank, and each is valid UTF-8 with no BOM and no carriage return. Its
+  three controls each fail it, each for its own reason.
+
+  | filed as | sha256 | lines | octets |
+  |---|---|---|---|
+  | `docs/plans/2026-10-16-identity-layer-one-account.md` | `5dd9ba38d2004c9c75923ae5f19df46657b2c76f018341c1b06c7f382457e99d` | 1,550 | 195,014 |
+  | `docs/plans/identity-phase1/SCOPE.md` | `d3a410af57cb741e021be148bd9e6d8d7b485ff056de7fc4f5dfdb443d62cc7d` | 363 | 58,945 |
+  | `docs/plans/identity-phase1/FOR-OWNER.md`, unchanged | `e5f80dea552c75239c757a4d4a956ebf0b7f0330d4b900754461abce72b3af66` | 81 | 8,562 |
+  | `docs/plans/identity-phase1/REDTEAM.md`, unchanged | `c3acd9ea8d1bb6d04d3c2b9049c1ff043dd2c55a716adbb35fbecbc5a9cca38e` | 445 | 37,086 |
+  | `docs/plans/identity-phase1/REDTEAM-TASK2.md` | `3182e6303e3bc9cd63dd1eea4563e2a5916878b50435a959888d238e44de1c42` | 139 | 27,483 |
+  | `docs/plans/identity-phase1/LEAD-RULINGS-I1.md` | `a54a6a692c282eff58c935ec0f670d2cf3e7f3a97bc93a715800bfaba9d1e245` | 269 | 23,080 |
+
+#### 4. Item 298, amended where it stands
+
+Item 298 is on no `main` yet, so it is amended in place, each change with a note saying what it
+read, as items 292 and 297 were before they landed. It changes in ten places:
+- the heading, which now names R48 to R62, with a note beside its first line;
+- "What the plan is", which adds R62's corrections and Task 8's forward costs;
+- "What is filed", which adds the refiling, §7's two entries, R48 to R62, and where R33 and R34 to
+  R47 are;
+- the rulings list's heading, and a sentence for R62;
+- the note to the owner, which gives P2's sending at 12:50 and so answers D5;
+- Open's review bullet, which says that it is the first commit's;
+- Open, which no longer lists the four findings for the lead as open, and says D15 is fixed in
+  part;
+- Open, which gains this commit's review's two findings in the lead's text, E1 and E4;
+- and Open's next step, which puts Tasks 3 to 5 on a branch of their own, cut from this branch's
+  head, which the lead's brief names `specs/identity-phase1`.
+
+The previous entry is left as written, as all of §7 is, and annotated at the three forward-looking
+sentences R62 overtook: Tasks 3 to 5's branch; D5; and the four findings left for the lead. Its
+other statements are about the first commit, and stay true of it.
+
+#### 5. The plan linter, and the gates
+
+- **The plan linter,** `go test -count=1 -run TestThePlanLinter -v ./`, over the refiled files: exit
+  0, all seven tests pass. Its counts are the previous entry's, but for the task-reference class:
+  3790, where the first filing read 3784. R62's edits add those six references: "Task 8's" in
+  Tasks 12, 13 and 26; Task 43's new line, which names itself and Task 30; and MI117's new killer,
+  "Task 43's case". No line of its output names any of the six files. Apart from the counts, it
+  prints exactly the lines the run on `main` prints, timings aside; against the first filing's run,
+  only the task-reference count differs.
+- **The control** of the previous entry, run again on the refiled plan: W7-9 planted as its line 5
+  makes the run FAIL, exit 1, with one `--- FAIL`,
+  `TestThePlanLinterChecksEveryCrossReferenceResolves`, and the one finding of check 3b,
+  `2026-10-16-identity-layer-one-account.md:5: names open item W7-9, which no plan in this corpus
+  defines`, over 956 open-item references. The plan was put back after it, its sha256 checked.
+- **The gates,** run on the committed history of this entry, under go1.27.2, beside the four
+  siblings at their pins, before the push:
+  - `go test ./ -count=1 -run 'TestTheEditLogGate|TestThePlanLinter' -v`: the edit-log gate's six
+    tests and the linter's seven pass, and none fails;
+  - `go test ./ -count=1`, the whole root package: `ok`;
+  - the edit-log gate's ledger arm prints that 69 of 92 spec-or-plan commits appended a §7 entry,
+    where the previous commit read 68 of 91.
+
+This commit changes a plan, so the edit-log gate holds it to this entry.
+
+#### 6. What this does not do
+
+- It changes no spec and no code. Task 3, MASTER for I1, is the next commit, on a branch of its own
+  cut from this commit, which the lead's brief names `specs/identity-phase1`.
+- It changes no word of the lead's corrections: each is filed as R62 left it.
+- It does not open the pull request, which the lead opens from this commit.
+
+**Reviewed by:** an independent subagent's diff review of 2026-10-16 of this commit alone, made
+before it, as the lead directed. It was read-only, by a reviewer that wrote none of these files or
+this entry. It covered this commit's five changed files, uncommitted, and the two unchanged ones,
+by their sha256 at its start and at its end, which were the same. That was the state before its
+findings were taken: the plan, SCOPE and this ledger then hashed `8ad90b7d…`, `224bd143…` and
+`cdf45ee4…`, and the other four files have not changed since. It read R61 and R62 whole, the
+sources before and after R62, item 298 and both entries; replayed the 21 edits forward on the new
+sources; and ran the linter and the edit-log gate.
+
+**Its verdict.** All 13 of R62's edits landed as written, each byte-identical to the lead's new
+source, and no filing edit touches one; nothing else changed; and three of the four fixes are right.
+D1, D2 and D16 answer their findings. D15 is fixed at LRI's head and at REDTEAM-TASK2's §4 line, and
+not at its Subject line. The store kinds agree everywhere. It made 8 findings: no BLOCKER, no MAJOR,
+2 MINOR and 6 NIT.
+- **Taken in this commit, each where it stands:**
+  - **MINOR E2:** §5's sentence on the linter's output, which now says "apart from the counts".
+  - **NIT E3:** the branch's name is the lead's brief's, not R62's, which names no branch.
+  - **NIT E5:** item 298's review bullet says that it is the first commit's.
+  - **NIT E6:** item 298's Open list no longer lists the four as open, and the annotations are
+    "the three forward-looking sentences".
+  - **NIT E7:** "What the plan is" names Task 8's forward costs.
+  - **NIT E8:** the plan's and SCOPE's legends say why their head and Inputs name LRI R48 to R60.
+- **Not taken here, for the lead,** since each is in the lead's or the red team's own text, which
+  this filing does not change. Item 298 names both under Open:
+  - **MINOR E1:** REDTEAM-TASK2's Subject line still gives LR as R33 to R47, with no lead's note, so
+    D15 is fixed in part;
+  - **NIT E4:** the plan's T2-H2 row quotes the owner's copy as "your devices refuse the old paper",
+    where FOR-OWNER says "your computers".
+
+The two gates this ledger answers to pass on the finished text: TestTheEditLogGate, 6 tests, and
+TestThePlanLinter, 7 tests, and so does the rest of the root package (§5).
 
 It cites no run of itself: the pull request's body cites the runs on its head.
