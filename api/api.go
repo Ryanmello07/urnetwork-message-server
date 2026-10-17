@@ -412,9 +412,6 @@ type Handler struct {
 	linkBoxes      store.LinkBoxes
 	linkBoxTtl     time.Duration
 	linkBoxLiveCap uint64
-	// [rendezvousVerifiersPinned], which a test in this package may set to run the arms' other
-	// checks; see rendezvous.go
-	verifiersPinned bool
 }
 
 func New(config Config) (*Handler, error) {
@@ -441,7 +438,6 @@ func New(config Config) (*Handler, error) {
 		linkBoxes:           config.LinkBoxes,
 		linkBoxTtl:          config.LinkBoxTtl,
 		linkBoxLiveCap:      config.LinkBoxLiveCap,
-		verifiersPinned:     rendezvousVerifiersPinned,
 	}
 	if handler.maxCtHeadBytes == 0 {
 		handler.maxCtHeadBytes = DefaultMaxCtHeadBytes

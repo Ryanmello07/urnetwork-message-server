@@ -14,26 +14,26 @@ import (
 	"github.com/urnetwork/message/protocol"
 )
 
-// THIS BUILD SERVES NO KIND-4 ARM, AND ITS READINESS SAYS WHY (§4.3.11; LRI R70 and its addendum),
-// asked of the wiring [newServer] does and of nothing built beside it. The store newServer opens is
-// the handler's link box store, and the floor is the configured `reject_floor_ms`. The library this
-// build pins publishes no rendezvous verifier, so at every floor the handler serves none of the five
-// arms, Capabilities 26 and 29 leave kind 4 out, and the not-built list names the verifiers; at the
-// default floor of zero it names the floor too. It never says the link box store is missing, since
-// newServer wires it, and the control shows the search below would find that line if it were there.
-func TestThisBuildServesNoKindFourArmAndItsReadinessSaysWhy(t *testing.T) {
+// KIND 4 IS SERVED ABOVE A ZERO FLOOR, AND THE READINESS SAYS WHY WHEN IT IS NOT (§4.3.11; LRI R70
+// and its addendum), asked of the wiring [newServer] does and of nothing built beside it. The store
+// newServer opens is the handler's link box store, and the floor is the configured `reject_floor_ms`.
+// At the default of zero the handler serves none of the five arms, Capabilities 26 and 29 leave kind
+// 4 out, and the not-built list names the floor; at 25 ms it serves them, advertises kind 4 and its
+// one deposit size, and names neither. It never says the link box store is missing, since newServer
+// wires it, and the control shows the search below would find that line if it were there.
+func TestKindFourIsServedAboveAZeroFloorAndTheReadinessSaysWhyNot(t *testing.T) {
 	dsn := freshSchemaDsn(t)
 	const (
-		verifiers = "publishes none of the five rendezvous verifiers"
-		floor     = "reject_floor_ms is zero"
-		unwired   = "no link box store is configured"
+		floor   = "reject_floor_ms is zero"
+		unwired = "no link box store is configured"
 	)
 	says := func(lines []api.NotBuilt, what string) bool {
 		return slices.ContainsFunc(lines, func(line api.NotBuilt) bool { return strings.Contains(line.What, what) })
 	}
 
-	// THE CONTROL for the one absence asserted below: a handler built with no link box store says
-	// so in these words, so a list without them is a measurement and not a line since reworded
+	// THE CONTROLS for the absences asserted below. A handler built with no link box store says so in
+	// these words, so a list without them is a measurement and not a line since reworded; and the
+	// floor line is held to its words by the case at a floor of zero, which must say it
 	memory := store.NewMemoryStore(store.DefaultLimits())
 	unwiredHandler, err := api.New(api.Config{
 		Store:       memory,
@@ -50,11 +50,12 @@ func TestThisBuildServesNoKindFourArmAndItsReadinessSaysWhy(t *testing.T) {
 
 	for name, current := range map[string]struct {
 		floorMs int64
+		served  bool
 		says    []string
 		silent  []string
 	}{
-		"at the default floor of zero": {0, []string{verifiers, floor}, []string{unwired}},
-		"at a floor of 25 ms":          {25, []string{verifiers}, []string{unwired, floor}},
+		"at the default floor of zero": {0, false, []string{floor}, []string{unwired}},
+		"at a floor of 25 ms":          {25, true, nil, []string{unwired, floor}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			loaded := defaultConfiguration()
@@ -76,13 +77,16 @@ func TestThisBuildServesNoKindFourArmAndItsReadinessSaysWhy(t *testing.T) {
 				t.Fatal("newServer built no handler, so nothing below would be asked of one")
 			}
 
-			if built.handler.RendezvousServed() {
-				t.Fatal("the handler newServer built says it serves the rendezvous arms, and this build pins no verifier for them")
+			if served := built.handler.RendezvousServed(); served != current.served {
+				t.Fatalf("the handler newServer built serves the rendezvous arms: %v, want %v", served, current.served)
 			}
 			advertised := built.capabilities()
-			if advertised.GetRendezvousKinds() != 0 || len(advertised.GetRendezvousDepositSizes()) != 0 {
-				t.Fatalf("Capabilities advertises rendezvous kinds %b and deposit sizes %v from a server that serves no kind-4 arm",
-					advertised.GetRendezvousKinds(), advertised.GetRendezvousDepositSizes())
+			kinds, sizes := advertised.GetRendezvousKinds(), advertised.GetRendezvousDepositSizes()
+			if current.served && (kinds != 1<<store.LinkBoxKind || !slices.Equal(sizes, []uint32{store.LinkDepositBytes})) {
+				t.Fatalf("a server that serves kind 4 advertises rendezvous kinds %b and deposit sizes %v, want 10000 and [%d]", kinds, sizes, store.LinkDepositBytes)
+			}
+			if !current.served && (kinds != 0 || len(sizes) != 0) {
+				t.Fatalf("Capabilities advertises rendezvous kinds %b and deposit sizes %v from a server that serves no kind-4 arm", kinds, sizes)
 			}
 			lines := built.notBuilt()
 			for _, what := range current.says {

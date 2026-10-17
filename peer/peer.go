@@ -927,8 +927,8 @@ func (self *Peer) buildRoutes() map[protoreflect.FullName]route {
 			},
 		},
 	}
-	// §4.3.11's five arms, routed only when the handler serves them: a link box store, the
-	// library's verifiers and a reject floor above zero (api.Handler.RendezvousServed). An arm
+	// §4.3.11's five arms, routed only when the handler serves them: a link box store and a
+	// reject floor above zero (api.Handler.RendezvousServed). An arm
 	// left out is one [Peer.unservedArms] derives and answers REASON_INTERNAL, which is how
 	// Spec B §4.3.11 says a server that does not serve kind 4 answers it
 	if self.handler.RendezvousServed() {

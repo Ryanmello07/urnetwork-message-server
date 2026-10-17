@@ -79,6 +79,16 @@ func TestTheSecondImplementationGateFlagsTheControlFixture(t *testing.T) {
 	}
 }
 
+// The record layer's decisions this package makes through it beside its Verify* surface, each
+// with its reason. A row is a function this package must reach rather than decide itself; it is
+// not an exemption from the ban above, which still bars everything the function is made of.
+var recordLayerDecisionsBeyondItsVerifiers = map[string]string{
+	"RendezvousKeyIsAcceptable": "the rendezvous's small-order key rule (LRI R72, R73): every rendezvous verifier applies " +
+		"it before any signature, and Register's check 3 applies it so that no box is stored under a key nobody " +
+		"could use. It compares encodings in constant time, with crypto/subtle, which is in the class, so this " +
+		"package could not compute it itself. It is an export beyond A-1's block",
+}
+
 // The other direction: the authenticator decisions this package makes are calls into
 // the record layer's verifiers, and not comparisons of its own.
 //
@@ -93,7 +103,7 @@ func TestThisPackageDecidesEveryAuthenticatorThroughConnectMessage(t *testing.T)
 	}
 
 	fileSet, files := parseGoDir(t, ".", false)
-	reached := map[string]bool{}
+	reached, delegatedReached := map[string]bool{}, map[string]bool{}
 	for _, file := range files {
 		local := localNames(file, recordLayerImportPath(t))
 		ast.Inspect(file, func(node ast.Node) bool {
@@ -109,6 +119,9 @@ func TestThisPackageDecidesEveryAuthenticatorThroughConnectMessage(t *testing.T)
 			if !isIdent || !local[qualifier.Name] {
 				return true
 			}
+			if _, delegated := recordLayerDecisionsBeyondItsVerifiers[selector.Sel.Name]; delegated {
+				delegatedReached[selector.Sel.Name] = true
+			}
 			if slices.Contains(verifiers, selector.Sel.Name) {
 				reached[selector.Sel.Name] = true
 				t.Logf("%s at %s", selector.Sel.Name, fileSet.Position(call.Pos()))
@@ -119,6 +132,25 @@ func TestThisPackageDecidesEveryAuthenticatorThroughConnectMessage(t *testing.T)
 	if len(reached) < 2 {
 		t.Fatalf("this package reaches %d of the record layer's verifiers (%v), and §5.1 has two authenticated paths: write_auth on submit and req_auth on read",
 			len(reached), reached)
+	}
+
+	// each delegated decision is one the record layer exports, and one this package reaches
+	_, libraryFiles := parseGoDir(t, recordLayerDir(t), false)
+	exported := map[string]bool{}
+	for _, file := range libraryFiles {
+		for _, decl := range file.Decls {
+			if function, isFunction := decl.(*ast.FuncDecl); isFunction && function.Recv == nil && function.Name.IsExported() {
+				exported[function.Name.Name] = true
+			}
+		}
+	}
+	for name, why := range recordLayerDecisionsBeyondItsVerifiers {
+		if !exported[name] {
+			t.Fatalf("recordLayerDecisionsBeyondItsVerifiers has a row for %s, and the record layer no longer exports it: %s", name, why)
+		}
+		if !delegatedReached[name] {
+			t.Fatalf("this package never reaches the record layer's %s, and its row says this package decides through it: %s", name, why)
+		}
 	}
 }
 

@@ -1,16 +1,11 @@
 package api
 
 import (
-	"bytes"
 	"context"
-	"errors"
-	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"io/fs"
-	"log"
-	"log/slog"
 	"reflect"
 	"slices"
 	"strings"
@@ -19,92 +14,30 @@ import (
 	"time"
 
 	"github.com/urnetwork/message-server/store"
+	"github.com/urnetwork/message/message"
 	"github.com/urnetwork/message/protocol"
 )
 
-// §4.3.11's kind 4 on the five arms, the identity plan's Task 19: its Properties 1 to 6, the shape
-// R70's addendum gives an unserved arm, the push, and the holder gate over [store.LinkBoxes].
+// §4.3.11's kind 4 on the five arms, the identity plan's Task 19: what this package can test of it
+// without a signature.
 //
-// WHAT THESE TESTS RUN WITHOUT, AND HOW. §5.1.2's check 7 is not in this build (rendezvous.go; LRI
-// R70), so no arm is served in any wiring. A test here sets the handler's verifiersPinned to run
-// every other check of the arms; the cases that need a signature, the unauthorized box of
-// Property 2 and the collect under another key of Property 3, are subtests that say so and skip,
-// and the commit that pins the library's verifiers fills them in, with MR6.
+// WHERE THE REST IS. Every behaviour past §5.1.2's check 7 needs a request its holder signed, and
+// this package's tests cannot sign: Spec A §12.1's A-1 surface gives api the five verifiers and no
+// signer, and TestNothingThisPackageCanReachHoldsASecondImplementation holds this package's tests to
+// that surface as it holds its code. The arms' properties, signed and unsigned, are therefore
+// cmd/message-server's linkbox_test.go, where every package of the module may be reached. What stays
+// here is what needs no signature: the predicate the arms are served on (R70's addendum), check 3's
+// shape, and the gates over this package's own source, which hold every write to its arm and behind
+// its arm's verifier.
 
 // The reject floor these tests serve on: §10.2's "25 [a] as the api tests use".
 const rendezvousFloor = 25 * time.Millisecond
 
-// A clock a test moves, so that a box can pass its expiry without a test that sleeps.
-type rendezvousClock struct {
-	mutex sync.Mutex
-	at    time.Time
-}
-
-func (self *rendezvousClock) now() time.Time {
-	self.mutex.Lock()
-	defer self.mutex.Unlock()
-	return self.at
-}
-
-func (self *rendezvousClock) advance(by time.Duration) {
-	self.mutex.Lock()
-	defer self.mutex.Unlock()
-	self.at = self.at.Add(by)
-}
-
-// A pusher that keeps every push, for the push's test and its control.
-type recordingPusher struct {
-	mutex  sync.Mutex
-	pushes []*protocol.MessageServerPush
-	signal chan struct{}
-}
-
-func (self *recordingPusher) Push(clientId []byte, serverNonce []byte, push *protocol.MessageServerPush) bool {
-	self.mutex.Lock()
-	self.pushes = append(self.pushes, push)
-	self.mutex.Unlock()
-	select {
-	case self.signal <- struct{}{}:
-	default:
-	}
-	return true
-}
-
-// The rendezvous pushes received so far, waiting at most a second for `want` of them.
-func (self *recordingPusher) rendezvousPushes(t *testing.T, want int) []*protocol.RendezvousPush {
-	t.Helper()
-	deadline := time.After(time.Second)
-	for {
-		self.mutex.Lock()
-		found := []*protocol.RendezvousPush{}
-		for _, push := range self.pushes {
-			if rendezvous := push.GetRendezvous(); rendezvous != nil {
-				found = append(found, rendezvous)
-			}
-		}
-		self.mutex.Unlock()
-		if len(found) >= want {
-			return found
-		}
-		select {
-		case <-self.signal:
-		case <-deadline:
-			return found
-		}
-	}
-}
-
-// Everything one rendezvous test needs: a handler that serves the arms but for check 7, its store,
-// a connection, its clock, the pads it slept and the pushes it sent.
+// Everything one test here needs: a handler, its store and a connection.
 type rendezvousFixture struct {
 	handler *Handler
 	boxes   *store.MemoryStore
 	conn    *Connection
-	clock   *rendezvousClock
-	pusher  *recordingPusher
-
-	// what New set verifiersPinned to, before this fixture set it
-	pinnedAsBuilt bool
 
 	mutex  sync.Mutex
 	sleeps []time.Duration
@@ -113,23 +46,16 @@ type rendezvousFixture struct {
 func newRendezvousFixture(t *testing.T, configure func(*Config)) *rendezvousFixture {
 	t.Helper()
 	current := &rendezvousFixture{
-		boxes:  store.NewMemoryStore(store.DefaultLimits()),
-		conn:   &Connection{ServerNonce: nonce(0x5E), ClientId: []byte("a client id the platform authenticated")},
-		clock:  &rendezvousClock{at: time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)},
-		pusher: &recordingPusher{signal: make(chan struct{}, 16)},
+		boxes: store.NewMemoryStore(store.DefaultLimits()),
+		conn:  &Connection{ServerNonce: nonce(0x5E), ClientId: []byte("a client id the platform authenticated")},
 	}
-	subscriptions := NewSubscriptions()
-	subscriptions.SetPusher(current.pusher)
-	t.Cleanup(subscriptions.Close)
 	config := Config{
-		Store:         current.boxes,
-		KnownGroups:   NewMemoryKnownGroups(),
-		Front:         ChecksNotImplemented{},
-		LinkBoxes:     current.boxes,
-		RejectFloor:   rendezvousFloor,
-		Now:           current.clock.now,
-		Sleep:         current.sleep,
-		Subscriptions: subscriptions,
+		Store:       current.boxes,
+		KnownGroups: NewMemoryKnownGroups(),
+		Front:       ChecksNotImplemented{},
+		LinkBoxes:   current.boxes,
+		RejectFloor: rendezvousFloor,
+		Sleep:       current.sleep,
 	}
 	if configure != nil {
 		configure(&config)
@@ -138,9 +64,6 @@ func newRendezvousFixture(t *testing.T, configure func(*Config)) *rendezvousFixt
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	// every check of the arms but check 7, which lands with the library's verifiers (LRI R70)
-	current.pinnedAsBuilt = handler.verifiersPinned
-	handler.verifiersPinned = true
 	current.handler = handler
 	return current
 }
@@ -151,28 +74,15 @@ func (self *rendezvousFixture) sleep(remaining time.Duration) {
 	self.sleeps = append(self.sleeps, remaining)
 }
 
-// The pads slept since the last call, and the slate cleared.
-func (self *rendezvousFixture) pads() []time.Duration {
-	self.mutex.Lock()
-	defer self.mutex.Unlock()
-	slept := self.sleeps
-	self.sleeps = nil
-	return slept
-}
-
 func linkBytes(length int, seed byte) []byte {
-	return strideBytes(length, seed, 1)
-}
-
-func strideBytes(length int, seed byte, stride byte) []byte {
 	value := make([]byte, length)
 	for index := range value {
-		value[index] = seed + byte(index)*stride
+		value[index] = seed + byte(index)
 	}
 	return value
 }
 
-// A kind-4 registration whose values are distinct from every other seed's.
+// A kind-4 registration in check 3's shape, unsigned.
 func linkRegister(seed byte) *protocol.RendezvousRegisterRequest {
 	return &protocol.RendezvousRegisterRequest{
 		RendezvousId:     linkBytes(store.RendezvousIdBytes, seed),
@@ -184,439 +94,76 @@ func linkRegister(seed byte) *protocol.RendezvousRegisterRequest {
 	}
 }
 
-func (self *rendezvousFixture) register(t *testing.T, request *protocol.RendezvousRegisterRequest) (protocol.Reason, *protocol.RendezvousRegisterResponse) {
-	t.Helper()
-	reason, response, err := self.handler.RendezvousRegister(context.Background(), self.conn, request)
-	if err != nil {
-		t.Fatalf("RendezvousRegister: %v", err)
-	}
-	return reason, response
-}
+// ── check 3 ──────────────────────────────────────────────────────────────────────────────────
 
-func (self *rendezvousFixture) mustRegister(t *testing.T, seed byte) []byte {
-	t.Helper()
-	request := linkRegister(seed)
-	if reason, _ := self.register(t, request); reason != protocol.Reason_REASON_OK {
-		t.Fatalf("registering a fresh kind-4 box answered %v", reason)
+// CHECK 3 HOLDS A REGISTRATION TO KIND 4's SHAPE (§5.1.2; §4.3.11): the kind is 4, the card's X-Wing
+// key is absent, the alg_id is 0x0014 compared as the u32 the request carries, every length is an
+// equality, and neither key is of small order. Each case changes one field of a registration in
+// that shape, and the control is the shape itself. MR11, the kind check dropped, is killed here:
+// the library's register verifier refuses every kind but 4 as well, so the arms' own test cannot
+// see the server's check go. So is a check that truncates the alg_id to the preimage's u16 rather
+// than refusing it above 0xFFFF, and so is Register's small-order call dropped.
+func TestCheck3HoldsARegistrationToKindFoursShape(t *testing.T) {
+	if !linkBoxRegistrationShaped(linkRegister(0x10)) {
+		t.Fatal("the control, a registration in kind 4's shape, is refused by check 3")
 	}
-	self.pads()
-	return request.GetRendezvousId()
-}
-
-func (self *rendezvousFixture) deposit(t *testing.T, rendezvousId []byte, depositCt []byte) (protocol.Reason, *protocol.RendezvousDepositResponse) {
-	t.Helper()
-	reason, response, err := self.handler.RendezvousDeposit(context.Background(), self.conn,
-		&protocol.RendezvousDepositRequest{RendezvousId: rendezvousId, DepositCt: depositCt})
-	if err != nil {
-		t.Fatalf("RendezvousDeposit: %v", err)
-	}
-	return reason, response
-}
-
-// One answer from each of the four arms after Register, for a box: what it answered, the body it
-// carried, and the pads it slept.
-type rendezvousAnswer struct {
-	reason protocol.Reason
-	body   bool
-	pads   []time.Duration
-}
-
-func (self *rendezvousFixture) answers(t *testing.T, rendezvousId []byte) map[string]rendezvousAnswer {
-	t.Helper()
-	ctx := context.Background()
-	answers := map[string]rendezvousAnswer{}
-	self.pads()
-	{
-		reason, response, err := self.handler.RendezvousOpen(ctx, self.conn, &protocol.RendezvousOpenRequest{RendezvousId: rendezvousId})
-		if err != nil {
-			t.Fatalf("RendezvousOpen: %v", err)
-		}
-		answers["Open"] = rendezvousAnswer{reason, response != nil, self.pads()}
-	}
-	{
-		reason, response, err := self.handler.RendezvousDeposit(ctx, self.conn, &protocol.RendezvousDepositRequest{
-			RendezvousId: rendezvousId, DepositCt: linkBytes(store.LinkDepositBytes, 0x77)})
-		if err != nil {
-			t.Fatalf("RendezvousDeposit: %v", err)
-		}
-		answers["Deposit"] = rendezvousAnswer{reason, response != nil, self.pads()}
-	}
-	{
-		reason, response, err := self.handler.RendezvousCollect(ctx, self.conn, &protocol.RendezvousCollectRequest{
-			RendezvousId: rendezvousId, AckThroughDepositId: 9})
-		if err != nil {
-			t.Fatalf("RendezvousCollect: %v", err)
-		}
-		answers["Collect"] = rendezvousAnswer{reason, response != nil, self.pads()}
-	}
-	{
-		reason, response, err := self.handler.RendezvousRetire(ctx, self.conn, &protocol.RendezvousRetireRequest{RendezvousId: rendezvousId})
-		if err != nil {
-			t.Fatalf("RendezvousRetire: %v", err)
-		}
-		answers["Retire"] = rendezvousAnswer{reason, response != nil, self.pads()}
-	}
-	return answers
-}
-
-// ── Property 1 ───────────────────────────────────────────────────────────────────────────────
-
-// A LINK BOX DEPOSIT IS EXACTLY ITS SIZE (Spec B §13's test 45). A deposit one octet short, one
-// long, empty or doubled is refused, as an equality refuses it; so is a card one octet off 4,124.
-// Each refusal is padded to the floor and leaves nothing behind. MR4, a range check, is killed here.
-func TestALinkBoxDepositIsExactlyItsSize(t *testing.T) {
-	fixture := newRendezvousFixture(t, nil)
-	id := fixture.mustRegister(t, 0x10)
-
-	for _, length := range []int{store.LinkDepositBytes - 1, store.LinkDepositBytes + 1, 0, 2 * store.LinkDepositBytes} {
-		reason, response := fixture.deposit(t, id, linkBytes(length, 0x20))
-		if reason != protocol.Reason_REASON_REJECTED || response != nil {
-			t.Fatalf("a deposit of %d octets was answered %v with a body %v; §5.1.2 check 3 refuses every length but %d",
-				length, reason, response != nil, store.LinkDepositBytes)
-		}
-		if pads := fixture.pads(); !slices.Equal(pads, []time.Duration{rendezvousFloor}) {
-			t.Fatalf("the refusal of a %d-octet deposit slept %v, want one pad to the floor", length, pads)
-		}
-	}
-	if box, err := fixture.boxes.LinkBox(context.Background(), id); err != nil || box.DepositsTaken != 0 {
-		t.Fatalf("after four refused deposits the box reads %+v (%v), want none taken", box, err)
-	}
-	reason, response := fixture.deposit(t, id, linkBytes(store.LinkDepositBytes, 0x20))
-	if reason != protocol.Reason_REASON_OK || response.GetDepositId() != 1 || len(response.GetDepositHash()) != 32 {
-		t.Fatalf("a deposit of exactly %d octets was answered %v and %+v, want REASON_OK, deposit 1 and its 32-octet hash",
-			store.LinkDepositBytes, reason, response)
-	}
-
-	for _, length := range []int{store.LinkCardBytes - 1, store.LinkCardBytes + 1} {
-		request := linkRegister(0x40)
-		request.PublicCt = linkBytes(length, 0x41)
-		if reason, response := fixture.register(t, request); reason != protocol.Reason_REASON_REJECTED || response != nil {
-			t.Fatalf("a card of %d octets was answered %v, want REASON_REJECTED with no body", length, reason)
-		}
-		if _, err := fixture.boxes.LinkBox(context.Background(), request.GetRendezvousId()); !errors.Is(err, store.ErrLinkBoxUnknown) {
-			t.Fatalf("a refused registration of a %d-octet card left a row: %v", length, err)
-		}
-	}
-}
-
-// ── Property 2 ───────────────────────────────────────────────────────────────────────────────
-
-// AN UNKNOWN, A RETIRED AND AN UNAUTHORIZED BOX ANSWER ALIKE (Spec B §13's test 46), on Open,
-// Deposit, Collect and Retire: the same code, no body, one pad to the same floor; and a box past
-// its expiry answers so too, decided by its expiry and not by the sweep. None of the four arms
-// changes the expired box. MR5, an unknown id answered REASON_REJECTED, is killed here.
-func TestAnUnknownARetiredAndAnUnauthorizedBoxAnswerAlike(t *testing.T) {
-	fixture := newRendezvousFixture(t, nil)
-	retired := fixture.mustRegister(t, 0x20)
-	if reason, _, err := fixture.handler.RendezvousRetire(context.Background(), fixture.conn, &protocol.RendezvousRetireRequest{RendezvousId: retired}); err != nil || reason != protocol.Reason_REASON_OK {
-		t.Fatalf("retiring a live box answered %v (%v)", reason, err)
-	}
-	expired := fixture.mustRegister(t, 0x30)
-	if reason, _ := fixture.deposit(t, expired, linkBytes(store.LinkDepositBytes, 0x31)); reason != protocol.Reason_REASON_OK {
-		t.Fatalf("a deposit into a live box answered %v", reason)
-	}
-	fixture.clock.advance(DefaultLinkBoxTtl)
-	before, err := fixture.boxes.LinkBox(context.Background(), expired)
-	if err != nil {
-		t.Fatalf("LinkBox: %v", err)
-	}
-
-	want := rendezvousAnswer{reason: protocol.Reason_REASON_CARD_RETIRED, body: false, pads: []time.Duration{rendezvousFloor}}
-	for name, id := range map[string][]byte{
-		"an unknown id":         linkBytes(store.RendezvousIdBytes, 0xEE),
-		"a retired box":         retired,
-		"a box past its expiry": expired,
-	} {
-		for arm, answer := range fixture.answers(t, id) {
-			if !reflect.DeepEqual(answer, want) {
-				t.Fatalf("%s on %s was answered %v with a body %v after pads %v; §4.3.11 gives every box no arm may use one answer: %v, no body, one pad to %v",
-					arm, name, answer.reason, answer.body, answer.pads, want.reason, rendezvousFloor)
-			}
-		}
-	}
-	if after, err := fixture.boxes.LinkBox(context.Background(), expired); err != nil || !reflect.DeepEqual(after, before) {
-		t.Fatalf("the four arms answered a box past its expiry and changed it: %+v, then %+v (%v)", before, after, err)
-	}
-
-	t.Run("AnUnauthorizedBox", func(t *testing.T) {
-		t.Skip("§5.1.2 check 7 is not in this build: a signature that does not verify answers alike once the library's verifiers are pinned (LRI R70), and MR6 is killed then")
-	})
-}
-
-// ── Property 3 ───────────────────────────────────────────────────────────────────────────────
-
-// A LIVE BOX KEEPS THE KEY IT WAS REGISTERED UNDER (Spec B §13's test 47). A registration at its id
-// under another collect key, another deposit key or another card is refused, as is one at a box
-// past its expiry, while the same three values answer REASON_OK and change nothing, the expiry
-// included. MR7, a registration that replaces the pinned key, is killed here.
-func TestALiveBoxKeepsTheKeyItWasRegisteredUnder(t *testing.T) {
-	fixture := newRendezvousFixture(t, nil)
-	original := linkRegister(0x50)
-	reason, first := fixture.register(t, original)
-	if reason != protocol.Reason_REASON_OK {
-		t.Fatalf("a fresh registration answered %v", reason)
-	}
-	id := original.GetRendezvousId()
-	pinned, _ := fixture.boxes.LinkBox(context.Background(), id)
-	fixture.pads()
-
 	for name, change := range map[string]func(*protocol.RendezvousRegisterRequest){
-		"another collect key": func(request *protocol.RendezvousRegisterRequest) { request.CollectVerifyPub = linkBytes(32, 0xA0) },
-		"another deposit key": func(request *protocol.RendezvousRegisterRequest) { request.DepositVerifyPub = linkBytes(32, 0xA1) },
-		"another card": func(request *protocol.RendezvousRegisterRequest) {
-			request.PublicCt = linkBytes(store.LinkCardBytes, 0xA2)
-		},
+		"kind 0, the card's":              func(request *protocol.RendezvousRegisterRequest) { request.Kind = 0 },
+		"kind 1":                          func(request *protocol.RendezvousRegisterRequest) { request.Kind = 1 },
+		"kind 2":                          func(request *protocol.RendezvousRegisterRequest) { request.Kind = 2 },
+		"kind 3":                          func(request *protocol.RendezvousRegisterRequest) { request.Kind = 3 },
+		"kind 5":                          func(request *protocol.RendezvousRegisterRequest) { request.Kind = 5 },
+		"a card X-Wing key":               func(request *protocol.RendezvousRegisterRequest) { request.CardXwingPub = linkBytes(1216, 0x70) },
+		"alg_id 0x0013":                   func(request *protocol.RendezvousRegisterRequest) { request.AlgId = 0x0013 },
+		"alg_id 0x10014, 0x0014 as a u16": func(request *protocol.RendezvousRegisterRequest) { request.AlgId = 0x00010014 },
+		"alg_id 0xFFFF0014":               func(request *protocol.RendezvousRegisterRequest) { request.AlgId = 0xFFFF0014 },
+		"an id of 31 octets":              func(request *protocol.RendezvousRegisterRequest) { request.RendezvousId = linkBytes(31, 0x71) },
+		"an id of 33 octets":              func(request *protocol.RendezvousRegisterRequest) { request.RendezvousId = linkBytes(33, 0x71) },
+		"a deposit key of 31 octets":      func(request *protocol.RendezvousRegisterRequest) { request.DepositVerifyPub = linkBytes(31, 0x72) },
+		"a collect key of 33 octets":      func(request *protocol.RendezvousRegisterRequest) { request.CollectVerifyPub = linkBytes(33, 0x73) },
+		"a card of 4,123 octets":          func(request *protocol.RendezvousRegisterRequest) { request.PublicCt = linkBytes(4123, 0x74) },
+		"a card of 4,125 octets":          func(request *protocol.RendezvousRegisterRequest) { request.PublicCt = linkBytes(4125, 0x74) },
 	} {
-		other := linkRegister(0x50)
-		change(other)
-		if reason, response := fixture.register(t, other); reason != protocol.Reason_REASON_REJECTED || response != nil {
-			t.Fatalf("a registration with %s at a live box's id answered %v, want REASON_REJECTED with no body", name, reason)
-		}
-		if pads := fixture.pads(); !slices.Equal(pads, []time.Duration{rendezvousFloor}) {
-			t.Fatalf("the refused registration with %s slept %v, want one pad to the floor", name, pads)
-		}
-		if box, _ := fixture.boxes.LinkBox(context.Background(), id); !reflect.DeepEqual(box, pinned) {
-			t.Fatalf("a refused registration with %s changed the box from %+v to %+v", name, pinned, box)
+		request := linkRegister(0x10)
+		change(request)
+		if linkBoxRegistrationShaped(request) {
+			t.Fatalf("check 3 takes a registration with %s", name)
 		}
 	}
 
-	fixture.clock.advance(time.Minute)
-	reason, again := fixture.register(t, linkRegister(0x50))
-	if reason != protocol.Reason_REASON_OK || again.GetExpireTimeMs() != first.GetExpireTimeMs() {
-		t.Fatalf("the same registration a minute on answered %v with expiry %d, want REASON_OK and the first expiry %d: a link box is not kept alive",
-			reason, again.GetExpireTimeMs(), first.GetExpireTimeMs())
+	// THE KEYS: a deposit key or a collect key of small order is refused by the library's rule
+	// (LRI R72, R73), whose list is the library's own and held to the curve there. Three of the
+	// seven encodings, the identity among them, and one with its sign bit set, which the rule
+	// clears before it compares
+	smallOrder := map[string][]byte{
+		"y = 0":                      make([]byte, 32),
+		"the identity, y = 1":        append([]byte{0x01}, make([]byte, 31)...),
+		"y = p - 1":                  append(append([]byte{0xec}, bytesOf(30, 0xff)...), 0x7f),
+		"the identity, sign bit set": append(append([]byte{0x01}, make([]byte, 30)...), 0x80),
 	}
-
-	fixture.clock.advance(DefaultLinkBoxTtl)
-	if reason, _ := fixture.register(t, linkRegister(0x50)); reason != protocol.Reason_REASON_REJECTED {
-		t.Fatalf("the same registration past the box's expiry answered %v, want REASON_REJECTED", reason)
-	}
-
-	t.Run("ACollectUnderAnotherKey", func(t *testing.T) {
-		t.Skip("§5.1.2 check 7 is not in this build: a collect_auth under any key but the pinned one answers REASON_CARD_RETIRED once the library's verifiers are pinned (LRI R70)")
-	})
-}
-
-// ── Property 4 ───────────────────────────────────────────────────────────────────────────────
-
-// LinkBoxes whose live count cannot be read.
-type unreadableLiveCount struct {
-	store.LinkBoxes
-}
-
-var errTheCountIsNotThere = errors.New("api_test: the live count did not answer")
-
-func (self *unreadableLiveCount) LiveLinkBoxes(ctx context.Context, now time.Time) (uint64, error) {
-	return 0, errTheCountIsNotThere
-}
-
-// THE LIVE BOX CAP FAILS CLOSED (Spec B §13's test 48). A registration is refused when the live
-// boxes are at the cap, and when their count cannot be read; a retired or an expired box does not
-// count; and Register's one rule comes before the cap, so a retry of a live box's own registration
-// is answered at a full cap. MR8, an unreadable count taken as room, is killed here.
-func TestTheLiveBoxCapFailsClosed(t *testing.T) {
-	fixture := newRendezvousFixture(t, func(config *Config) { config.LinkBoxLiveCap = 2 })
-	first := fixture.mustRegister(t, 0x60)
-	fixture.mustRegister(t, 0x61)
-
-	third := linkRegister(0x62)
-	if reason, response := fixture.register(t, third); reason != protocol.Reason_REASON_CARD_RATE_LIMITED || response != nil {
-		t.Fatalf("a registration at a full cap answered %v, want REASON_CARD_RATE_LIMITED with no body", reason)
-	}
-	if pads := fixture.pads(); !slices.Equal(pads, []time.Duration{rendezvousFloor}) {
-		t.Fatalf("the refusal at a full cap slept %v, want one pad to the floor", pads)
-	}
-	if _, err := fixture.boxes.LinkBox(context.Background(), third.GetRendezvousId()); !errors.Is(err, store.ErrLinkBoxUnknown) {
-		t.Fatalf("a registration refused at the cap left a row: %v", err)
-	}
-	if reason, _ := fixture.register(t, linkRegister(0x60)); reason != protocol.Reason_REASON_OK {
-		t.Fatalf("a live box's own registration, repeated at a full cap, answered %v; the one rule comes before the cap", reason)
-	}
-	if reason, _, err := fixture.handler.RendezvousRetire(context.Background(), fixture.conn, &protocol.RendezvousRetireRequest{RendezvousId: first}); err != nil || reason != protocol.Reason_REASON_OK {
-		t.Fatalf("Retire: %v (%v)", reason, err)
-	}
-	if reason, _ := fixture.register(t, third); reason != protocol.Reason_REASON_OK {
-		t.Fatalf("with one of two boxes retired, a registration answered %v; a retired box does not count", reason)
-	}
-
-	t.Run("AnUnreadableCount", func(t *testing.T) {
-		broken := newRendezvousFixture(t, func(config *Config) {
-			config.LinkBoxes = &unreadableLiveCount{LinkBoxes: config.LinkBoxes}
-		})
-		request := linkRegister(0x70)
-		if reason, response := broken.register(t, request); reason != protocol.Reason_REASON_CARD_RATE_LIMITED || response != nil {
-			t.Fatalf("a registration whose live count could not be read answered %v, want REASON_CARD_RATE_LIMITED: the cap fails closed", reason)
-		}
-		if _, err := broken.boxes.LinkBox(context.Background(), request.GetRendezvousId()); !errors.Is(err, store.ErrLinkBoxUnknown) {
-			t.Fatalf("a registration refused on an unreadable count left a row: %v", err)
-		}
-		// the control: the same request, on a store whose count answers
-		if reason, _ := newRendezvousFixture(t, nil).register(t, linkRegister(0x70)); reason != protocol.Reason_REASON_OK {
-			t.Fatalf("the control, the same registration with a count that answers, was answered %v", reason)
-		}
-	})
-}
-
-// ── Property 5 ───────────────────────────────────────────────────────────────────────────────
-
-// LinkBoxes that fail every call, for the error paths of the logging gate.
-type failingLinkBoxes struct{}
-
-var errTheStoreFailed = errors.New("api_test: the link box store failed")
-
-func (failingLinkBoxes) RegisterLinkBox(context.Context, *store.LinkBoxRegistration, time.Time, time.Duration) (*store.LinkBoxRegistered, error) {
-	return nil, errTheStoreFailed
-}
-func (failingLinkBoxes) LinkBox(context.Context, []byte) (*store.LinkBox, error) {
-	return nil, errTheStoreFailed
-}
-func (failingLinkBoxes) DepositLinkBox(context.Context, []byte, []byte, time.Time) (*store.LinkBoxDeposited, error) {
-	return nil, errTheStoreFailed
-}
-func (failingLinkBoxes) CollectLinkBox(context.Context, *store.LinkBoxCollectRequest, time.Time) (*store.LinkBoxCollected, error) {
-	return nil, errTheStoreFailed
-}
-func (failingLinkBoxes) RetireLinkBox(context.Context, []byte, time.Time) (*store.LinkBoxRetired, error) {
-	return nil, errTheStoreFailed
-}
-func (failingLinkBoxes) LiveLinkBoxes(context.Context, time.Time) (uint64, error) {
-	return 0, errTheStoreFailed
-}
-
-// NOTHING NAMES A BOX (Spec B §13's test 49; §11.1): no log line, metric label or error this
-// package writes carries a rendezvous id, a deposit hash or a key. Every arm is run on its served
-// path, on its refusals and on a store that fails, with planted values, while the process's slog
-// default and the standard logger write into this test; then every line written, every error
-// answered and every NotBuilt line is searched for each planted value raw, in lower hex and in
-// upper hex. The control plants one line and must find it. This package keeps no metric with a
-// label, and [Subscriptions.Stats] answers counts. MR9, a handler that logs the id, is killed here.
-func TestNoLogLineMetricLabelOrErrorCarriesARendezvousIdADepositHashOrAKey(t *testing.T) {
-	captured := &bytes.Buffer{}
-	var capturedMutex sync.Mutex
-	writer := lockedWriter{buffer: captured, mutex: &capturedMutex}
-	previous := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(writer, &slog.HandlerOptions{Level: slog.LevelDebug})))
-	previousOutput := log.Writer()
-	log.SetOutput(writer)
-	defer func() {
-		slog.SetDefault(previous)
-		log.SetOutput(previousOutput)
-	}()
-
-	ctx := context.Background()
-	errorsAnswered := []string{}
-	keep := func(err error) {
-		if err != nil {
-			errorsAnswered = append(errorsAnswered, err.Error())
-		}
-	}
-	// each planted value on a stride of its own, so that no one of them is a run inside another:
-	// the search must tell them apart, and the self-check below holds it to that
-	planted := linkRegister(0xB0)
-	planted.RendezvousId = strideBytes(store.RendezvousIdBytes, 0x13, 1)
-	planted.DepositVerifyPub = strideBytes(store.VerifyPubBytes, 0x29, 3)
-	planted.CollectVerifyPub = strideBytes(store.VerifyPubBytes, 0x47, 5)
-	planted.PublicCt = strideBytes(store.LinkCardBytes, 0x61, 7)
-	plantedCt := strideBytes(store.LinkDepositBytes, 0x83, 11)
-	var plantedHash []byte
-
-	for name, fixture := range map[string]*rendezvousFixture{
-		"served":             newRendezvousFixture(t, nil),
-		"a store that fails": newRendezvousFixture(t, func(config *Config) { config.LinkBoxes = failingLinkBoxes{} }),
-	} {
-		_, _, err := fixture.handler.RendezvousRegister(ctx, fixture.conn, planted)
-		keep(err)
-		_, deposited, err := fixture.handler.RendezvousDeposit(ctx, fixture.conn, &protocol.RendezvousDepositRequest{RendezvousId: planted.GetRendezvousId(), DepositCt: plantedCt})
-		keep(err)
-		if deposited != nil {
-			plantedHash = deposited.GetDepositHash()
-		}
-		_, _, err = fixture.handler.RendezvousOpen(ctx, fixture.conn, &protocol.RendezvousOpenRequest{RendezvousId: planted.GetRendezvousId()})
-		keep(err)
-		_, _, err = fixture.handler.RendezvousCollect(ctx, fixture.conn, &protocol.RendezvousCollectRequest{RendezvousId: planted.GetRendezvousId(), Subscribe: true})
-		keep(err)
-		_, _, err = fixture.handler.RendezvousRetire(ctx, fixture.conn, &protocol.RendezvousRetireRequest{RendezvousId: planted.GetRendezvousId()})
-		keep(err)
-		// and every refusal once more on the served store, the box now retired; the failing store
-		// answered every arm above with its error already
-		if name == "served" {
-			fixture.answers(t, planted.GetRendezvousId())
-		}
-		for _, line := range fixture.handler.NotBuilt() {
-			errorsAnswered = append(errorsAnswered, line.String())
-		}
-		t.Logf("%s: the arms ran", name)
-	}
-	if len(plantedHash) != 32 {
-		t.Fatalf("the served deposit answered no 32-octet hash, so the gate would search for nothing")
-	}
-
-	forms := func(value []byte) []string {
-		return []string{string(value), fmt.Sprintf("%x", value), fmt.Sprintf("%X", value)}
-	}
-	values := map[string][]byte{
-		"the rendezvous id":       planted.GetRendezvousId(),
-		"the deposit key":         planted.GetDepositVerifyPub(),
-		"the collect key":         planted.GetCollectVerifyPub(),
-		"the deposit hash":        plantedHash,
-		"the card's first octets": planted.GetPublicCt()[:16],
-	}
-	search := func(haystack string) []string {
-		found := []string{}
-		for name, value := range values {
-			for _, form := range forms(value) {
-				if strings.Contains(haystack, form) {
-					found = append(found, name)
-					break
-				}
-			}
-		}
-		slices.Sort(found)
-		return found
-	}
-	// the self-check: each planted value is found in its own forms and in no other's
-	for name, value := range values {
-		for _, form := range forms(value) {
-			if found := search(form); !slices.Equal(found, []string{name}) {
-				t.Fatalf("the planted values overlap: a form of %s is found as %v, so a hit could not say what it found", name, found)
+	for name, key := range smallOrder {
+		for field, change := range map[string]func(*protocol.RendezvousRegisterRequest){
+			"deposit key": func(request *protocol.RendezvousRegisterRequest) { request.DepositVerifyPub = key },
+			"collect key": func(request *protocol.RendezvousRegisterRequest) { request.CollectVerifyPub = key },
+		} {
+			request := linkRegister(0x10)
+			change(request)
+			if linkBoxRegistrationShaped(request) {
+				t.Fatalf("check 3 takes a registration whose %s is the small-order encoding of %s", field, name)
 			}
 		}
 	}
-
-	capturedMutex.Lock()
-	written := captured.String()
-	capturedMutex.Unlock()
-	if found := search(written); len(found) != 0 {
-		t.Fatalf("a log line names %v:\n%s", found, written)
-	}
-	if found := search(strings.Join(errorsAnswered, "\n")); len(found) != 0 {
-		t.Fatalf("an error or a NotBuilt line names %v:\n%s", found, strings.Join(errorsAnswered, "\n"))
-	}
-	t.Logf("%d octets of log and %d errors and NotBuilt lines searched for five planted values, three forms each", len(written), len(errorsAnswered))
-
-	// THE CONTROL, in the same capture: one planted line, which the search must find, by the
-	// value it plants and by no other
-	slog.Info("control", "rendezvous_id", fmt.Sprintf("%x", planted.GetRendezvousId()))
-	capturedMutex.Lock()
-	written = captured.String()
-	capturedMutex.Unlock()
-	if found := search(written); !slices.Equal(found, []string{"the rendezvous id"}) {
-		t.Fatalf("the control planted the rendezvous id in one log line and the search found %v", found)
-	}
 }
 
-type lockedWriter struct {
-	buffer *bytes.Buffer
-	mutex  *sync.Mutex
+func bytesOf(length int, value byte) []byte {
+	octets := make([]byte, length)
+	for index := range octets {
+		octets[index] = value
+	}
+	return octets
 }
 
-func (self lockedWriter) Write(data []byte) (int, error) {
-	self.mutex.Lock()
-	defer self.mutex.Unlock()
-	return self.buffer.Write(data)
-}
-
-// ── Property 6 ───────────────────────────────────────────────────────────────────────────────
+// ── R70's addendum: one predicate, one unserved answer ───────────────────────────────────────
 
 // LinkBoxes that count every call, so that "no store call" is a measurement.
 type countingLinkBoxes struct {
@@ -655,7 +202,7 @@ func (self *countingLinkBoxes) LiveLinkBoxes(ctx context.Context, now time.Time)
 	return self.LinkBoxes.LiveLinkBoxes(ctx, now)
 }
 
-// Every arm, with a well-formed request for the box at `seed`, and what each answered.
+// Every arm, with a well-formed and unsigned request for the box at `seed`, and what each answered.
 func (self *rendezvousFixture) everyArm(t *testing.T, seed byte) map[string]protocol.Reason {
 	t.Helper()
 	ctx := context.Background()
@@ -687,77 +234,20 @@ func keepNil(t *testing.T, err error) {
 	}
 }
 
-// ONLY KIND FOUR IS SERVED, AND NOTHING WITH A ZERO FLOOR (Spec B §13's test 51; LRI R66). A
-// registration of kind 0, the proto's default and the card's, or of any kind but 4, is refused; and
-// a handler whose reject floor is zero serves no kind-4 arm: every arm answers as an unserved arm,
-// no call reaches the store, Capabilities 26 and 29 leave kind 4 out, and NotBuilt says why. MR11,
-// the kind check dropped, and MR12, the arms served at a zero floor, are killed here.
-func TestOnlyKindFourIsServedAndNothingWithAZeroFloor(t *testing.T) {
-	served := newRendezvousFixture(t, nil)
-	for _, kind := range []uint32{0, 1, 2, 3, 5, 255} {
-		request := linkRegister(byte(0x10 + kind))
-		request.Kind = kind
-		if reason, response := served.register(t, request); reason != protocol.Reason_REASON_REJECTED || response != nil {
-			t.Fatalf("a registration of kind %d answered %v, want REASON_REJECTED: no build of I1 serves any kind but 4", kind, reason)
-		}
-	}
-	if reason, _ := served.register(t, linkRegister(0x90)); reason != protocol.Reason_REASON_OK {
-		t.Fatalf("the control, a registration of kind 4, answered %v", reason)
-	}
-	if kinds, sizes := served.handler.RendezvousKinds(), served.handler.RendezvousDepositSizes(); kinds != 16 || !slices.Equal(sizes, []uint32{store.LinkDepositBytes}) {
-		t.Fatalf("a served handler advertises kinds %b and deposit sizes %v, want 10000 and [%d]", kinds, sizes, store.LinkDepositBytes)
-	}
-
-	counting := &countingLinkBoxes{}
-	unpadded := newRendezvousFixture(t, func(config *Config) {
-		counting.LinkBoxes = config.LinkBoxes
-		config.LinkBoxes = counting
-		config.RejectFloor = 0
-	})
-	if unpadded.handler.RendezvousServed() {
-		t.Fatal("a handler whose reject floor is zero says it serves the rendezvous arms")
-	}
-	for arm, reason := range unpadded.everyArm(t, 0xA0) {
-		if reason != protocol.Reason_REASON_INTERNAL {
-			t.Fatalf("%s at a zero floor answered %v, want REASON_INTERNAL, as an unserved arm is answered", arm, reason)
-		}
-	}
-	if counting.calls != 0 {
-		t.Fatalf("the arms of a handler with a zero floor reached the store %d times", counting.calls)
-	}
-	if kinds, sizes := unpadded.handler.RendezvousKinds(), unpadded.handler.RendezvousDepositSizes(); kinds != 0 || sizes != nil {
-		t.Fatalf("a handler with a zero floor advertises kinds %b and deposit sizes %v, want none", kinds, sizes)
-	}
-	if !slices.Contains(unpadded.handler.NotBuilt(), rendezvousWithoutFloor) {
-		t.Fatalf("a handler with a zero floor does not say why it serves no kind-4 arm: %v", unpadded.handler.NotBuilt())
-	}
-}
-
-// ── R70's addendum: one predicate, one unserved answer ───────────────────────────────────────
-
-// THE ARMS ARE SERVED ON THREE THINGS, AND A HANDLER MISSING ANY ONE ANSWERS EVERY ARM AS UNSERVED.
-// For each of the three, every arm answers REASON_INTERNAL with no call to the store, Capabilities 26
-// and 29 leave kind 4 out, and NotBuilt names exactly what is missing. The control is the same
-// request against a served handler whose store holds no box: REASON_CARD_RETIRED, after one call.
-func TestARendezvousArmIsUnservedWhenAnyOfItsThreeIsMissing(t *testing.T) {
+// THE ARMS ARE SERVED ON TWO THINGS, AND A HANDLER MISSING EITHER ANSWERS EVERY ARM AS UNSERVED (R70's
+// addendum; the library's verifiers are pinned since Task 7b). For each, every arm answers
+// REASON_INTERNAL with no call to the store, Capabilities 26 and 29 leave kind 4 out, and NotBuilt
+// names exactly what is missing. The control is the same request against a served handler whose
+// store holds no box: REASON_CARD_RETIRED, after one call, at check 6. MR12, the arms served at a
+// zero floor, is killed here.
+func TestARendezvousArmIsUnservedWhenEitherOfItsTwoIsMissing(t *testing.T) {
 	for name, current := range map[string]struct {
 		configure func(*Config, *countingLinkBoxes)
-		pinned    bool // ignored when asBuilt
-		asBuilt   bool // the flag as New set it, and no test's
 		missing   NotBuilt
 	}{
 		"no link box store": {
 			configure: func(config *Config, counting *countingLinkBoxes) { config.LinkBoxes = nil },
-			pinned:    true,
 			missing:   rendezvousWithoutLinkBoxes,
-		},
-		"no verifiers, as in every wiring of this build": {
-			configure: func(config *Config, counting *countingLinkBoxes) {
-				counting.LinkBoxes = config.LinkBoxes
-				config.LinkBoxes = counting
-			},
-			asBuilt: true,
-			missing: rendezvousWithoutVerifiers,
 		},
 		"a zero reject floor": {
 			configure: func(config *Config, counting *countingLinkBoxes) {
@@ -765,17 +255,12 @@ func TestARendezvousArmIsUnservedWhenAnyOfItsThreeIsMissing(t *testing.T) {
 				config.LinkBoxes = counting
 				config.RejectFloor = 0
 			},
-			pinned:  true,
 			missing: rendezvousWithoutFloor,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			counting := &countingLinkBoxes{}
 			fixture := newRendezvousFixture(t, func(config *Config) { current.configure(config, counting) })
-			fixture.handler.verifiersPinned = current.pinned
-			if current.asBuilt {
-				fixture.handler.verifiersPinned = fixture.pinnedAsBuilt
-			}
 			for arm, reason := range fixture.everyArm(t, 0xC0) {
 				if reason != protocol.Reason_REASON_INTERNAL {
 					t.Fatalf("%s with %s answered %v, want REASON_INTERNAL", arm, name, reason)
@@ -802,6 +287,9 @@ func TestARendezvousArmIsUnservedWhenAnyOfItsThreeIsMissing(t *testing.T) {
 			counting.LinkBoxes = config.LinkBoxes
 			config.LinkBoxes = counting
 		})
+		if !fixture.handler.RendezvousServed() || fixture.handler.RendezvousKinds() != 16 {
+			t.Fatal("a handler with a link box store and a floor does not serve kind 4")
+		}
 		reason, response, err := fixture.handler.RendezvousOpen(context.Background(), fixture.conn,
 			&protocol.RendezvousOpenRequest{RendezvousId: linkRegister(0xC0).GetRendezvousId()})
 		if err != nil || reason != protocol.Reason_REASON_CARD_RETIRED || response != nil || counting.calls != 1 {
@@ -811,77 +299,7 @@ func TestARendezvousArmIsUnservedWhenAnyOfItsThreeIsMissing(t *testing.T) {
 	})
 }
 
-// ── the push ─────────────────────────────────────────────────────────────────────────────────
-
-// A DEPOSIT IS PUSHED TO A COLLECTOR THAT SUBSCRIBED (§4.3.11), with the box's id and the count
-// waiting and nothing else; a retire ends the subscription. The control is a collect that did not
-// subscribe, after which a deposit pushes nothing.
-func TestADepositIsPushedToACollectorThatSubscribed(t *testing.T) {
-	ctx := context.Background()
-	fixture := newRendezvousFixture(t, nil)
-	quiet := fixture.mustRegister(t, 0xD0)
-	if reason, _, err := fixture.handler.RendezvousCollect(ctx, fixture.conn, &protocol.RendezvousCollectRequest{RendezvousId: quiet}); err != nil || reason != protocol.Reason_REASON_OK {
-		t.Fatalf("Collect: %v (%v)", reason, err)
-	}
-	if reason, _ := fixture.deposit(t, quiet, linkBytes(store.LinkDepositBytes, 0xD1)); reason != protocol.Reason_REASON_OK {
-		t.Fatalf("Deposit: %v", reason)
-	}
-
-	id := fixture.mustRegister(t, 0xE0)
-	if reason, _, err := fixture.handler.RendezvousCollect(ctx, fixture.conn, &protocol.RendezvousCollectRequest{RendezvousId: id, Subscribe: true}); err != nil || reason != protocol.Reason_REASON_OK {
-		t.Fatalf("Collect with subscribe: %v (%v)", reason, err)
-	}
-	for index, want := range []uint32{1, 2} {
-		if reason, _ := fixture.deposit(t, id, linkBytes(store.LinkDepositBytes, byte(0xE1+index))); reason != protocol.Reason_REASON_OK {
-			t.Fatalf("Deposit %d: %v", index+1, reason)
-		}
-		pushes := fixture.pusher.rendezvousPushes(t, index+1)
-		if len(pushes) != index+1 {
-			t.Fatalf("after %d deposits into a box with a subscribed collector, %d pushes arrived", index+1, len(pushes))
-		}
-		latest := pushes[len(pushes)-1]
-		if !bytes.Equal(latest.GetRendezvousId(), id) || latest.GetPendingCount() != want {
-			t.Fatalf("push %d named box %x with %d pending, want box %x with %d", index+1, latest.GetRendezvousId(), latest.GetPendingCount(), id, want)
-		}
-	}
-	if reason, _, err := fixture.handler.RendezvousRetire(ctx, fixture.conn, &protocol.RendezvousRetireRequest{RendezvousId: id}); err != nil || reason != protocol.Reason_REASON_OK {
-		t.Fatalf("Retire: %v (%v)", reason, err)
-	}
-	if held := fixture.handler.subscriptions.RendezvousSubscriptions(); held != 0 {
-		t.Fatalf("a retired box keeps %d subscriptions", held)
-	}
-	for _, push := range fixture.pusher.rendezvousPushes(t, 2) {
-		if bytes.Equal(push.GetRendezvousId(), quiet) {
-			t.Fatal("a deposit into a box whose collector did not subscribe was pushed")
-		}
-	}
-
-	// A subscription ends with its box's expiry as well: past it, the next subscription this
-	// registry is told of drops it. The control is the count while the box is live.
-	lapsing := fixture.mustRegister(t, 0xF0)
-	if reason, _, err := fixture.handler.RendezvousCollect(ctx, fixture.conn, &protocol.RendezvousCollectRequest{RendezvousId: lapsing, Subscribe: true}); err != nil || reason != protocol.Reason_REASON_OK {
-		t.Fatalf("Collect with subscribe: %v (%v)", reason, err)
-	}
-	if held := fixture.handler.subscriptions.RendezvousSubscriptions(); held != 1 {
-		t.Fatalf("the control: a live box with a subscribed collector holds %d subscriptions, want 1", held)
-	}
-	fixture.clock.advance(DefaultLinkBoxTtl)
-	later := fixture.mustRegister(t, 0xF8)
-	if reason, _, err := fixture.handler.RendezvousCollect(ctx, fixture.conn, &protocol.RendezvousCollectRequest{RendezvousId: later, Subscribe: true}); err != nil || reason != protocol.Reason_REASON_OK {
-		t.Fatalf("Collect with subscribe: %v (%v)", reason, err)
-	}
-	fixture.handler.subscriptions.mutex.Lock()
-	held := []string{}
-	for key := range fixture.handler.subscriptions.rendezvous {
-		held = append(held, fmt.Sprintf("%x", key.box))
-	}
-	fixture.handler.subscriptions.mutex.Unlock()
-	if !slices.Equal(held, []string{fmt.Sprintf("%x", later)}) {
-		t.Fatalf("past one box's expiry and after a subscription to another, the registry holds %v, want only the live box %x", held, later)
-	}
-}
-
-// ── the holder gate, LinkBoxes as Store is held ──────────────────────────────────────────────
+// ── the gates over this package's source ─────────────────────────────────────────────────────
 
 // The [store.LinkBoxes] methods that change a row, and the ones that do not. Written down with its
 // reason, as storeMethodMutates is; what is derived is its completeness.
@@ -902,28 +320,9 @@ var linkBoxWriteArm = map[string]string{
 	"RetireLinkBox":   "RendezvousRetire",
 }
 
-// EVERY LINK BOX WRITE THIS PACKAGE CAN MAKE IS MADE BY ITS OWN ARM, held as
-// TestEveryWriteThisPackageCanMakeGoesThroughSection61sEpochGate holds [store.Store]. Both halves
-// are derived: the holders are every struct field of type store.LinkBoxes, and the method set comes
-// off the interface by reflection, so a method added to it fails here unclassified. A write is
-// permitted in the one arm that owns it and nowhere else, and the methods this package never calls
-// are printed. When check 7 lands, the gate the commit adds is that each of these calls follows it.
-func TestEveryLinkBoxWriteThisPackageCanMakeIsMadeByItsOwnArm(t *testing.T) {
-	interfaceType := reflect.TypeOf((*store.LinkBoxes)(nil)).Elem()
-	declared := []string{}
-	for index := range interfaceType.NumMethod() {
-		name := interfaceType.Method(index).Name
-		declared = append(declared, name)
-		if _, classified := linkBoxMethodMutates[name]; !classified {
-			t.Fatalf("store.LinkBoxes declares %s and linkBoxMethodMutates does not say whether it writes", name)
-		}
-	}
-	for name := range linkBoxMethodMutates {
-		if !slices.Contains(declared, name) {
-			t.Fatalf("linkBoxMethodMutates classifies %s and store.LinkBoxes no longer declares it", name)
-		}
-	}
-
+// The package's own source, without its tests.
+func parseThisPackage(t *testing.T) (*token.FileSet, *ast.Package) {
+	t.Helper()
 	files := token.NewFileSet()
 	parsed, err := parser.ParseDir(files, ".", func(info fs.FileInfo) bool {
 		return !strings.HasSuffix(info.Name(), "_test.go")
@@ -935,6 +334,12 @@ func TestEveryLinkBoxWriteThisPackageCanMakeIsMadeByItsOwnArm(t *testing.T) {
 	if !found {
 		t.Fatalf("this package did not parse as api")
 	}
+	return files, pkg
+}
+
+// Every struct field and parameter of type store.LinkBoxes in this package, by name.
+func linkBoxHolders(t *testing.T, pkg *ast.Package) map[string]bool {
+	t.Helper()
 	holders := map[string]bool{}
 	for _, file := range pkg.Files {
 		ast.Inspect(file, func(node ast.Node) bool {
@@ -956,8 +361,36 @@ func TestEveryLinkBoxWriteThisPackageCanMakeIsMadeByItsOwnArm(t *testing.T) {
 		})
 	}
 	if len(holders) == 0 {
-		t.Fatal("no field of type store.LinkBoxes was found in this package, so the walk below inspects nothing")
+		t.Fatal("no field of type store.LinkBoxes was found in this package, so the walk inspects nothing")
 	}
+	return holders
+}
+
+// EVERY LINK BOX WRITE THIS PACKAGE CAN MAKE IS MADE BY ITS OWN ARM, held as
+// TestEveryWriteThisPackageCanMakeGoesThroughSection61sEpochGate holds [store.Store]. Both halves
+// are derived: the holders are every struct field of type store.LinkBoxes, and the method set comes
+// off the interface by reflection, so a method added to it fails here unclassified. A write is
+// permitted in the one arm that owns it and nowhere else, and the methods this package never calls
+// are printed. TestEveryRendezvousArmVerifiesThroughTheLibraryBeforeItWrites holds each of these
+// writes behind its arm's verifier.
+func TestEveryLinkBoxWriteThisPackageCanMakeIsMadeByItsOwnArm(t *testing.T) {
+	interfaceType := reflect.TypeOf((*store.LinkBoxes)(nil)).Elem()
+	declared := []string{}
+	for index := range interfaceType.NumMethod() {
+		name := interfaceType.Method(index).Name
+		declared = append(declared, name)
+		if _, classified := linkBoxMethodMutates[name]; !classified {
+			t.Fatalf("store.LinkBoxes declares %s and linkBoxMethodMutates does not say whether it writes", name)
+		}
+	}
+	for name := range linkBoxMethodMutates {
+		if !slices.Contains(declared, name) {
+			t.Fatalf("linkBoxMethodMutates classifies %s and store.LinkBoxes no longer declares it", name)
+		}
+	}
+
+	_, pkg := parseThisPackage(t)
+	holders := linkBoxHolders(t, pkg)
 
 	// THE TWO HOLDER TESTS PARTITION THE STORE'S HOLDERS. Every struct field in this package whose
 	// type comes from package store is a store.Store, held by
@@ -1056,66 +489,203 @@ func TestEveryLinkBoxWriteThisPackageCanMakeIsMadeByItsOwnArm(t *testing.T) {
 	}
 }
 
-// ── Task 20: a box past its expiry, before the sweep and after it ───────────────────────────
+// THE LIBRARY'S RENDEZVOUS SURFACE, AND WHAT OF IT THIS PACKAGE MAY CALL: an allowlist, one row per
+// exported function of the record layer's rendezvous file, with its reason. The rows are held to
+// that file in both directions, so a function the library adds fails here until it has a row, and
+// a row the library dropped fails as stale. A row with no callers is one no function here may call.
+var rendezvousSurface = map[string]struct {
+	callers []string
+	why     string
+}{
+	"VerifyRendezvousRegister": {[]string{"RendezvousRegister"}, "§5.1.2 check 7 on Register: register_auth under the collect key the request carries"},
+	"VerifyRendezvousOpen":     {[]string{"RendezvousOpen"}, "check 7 on Open: open_auth under the pinned deposit key"},
+	"VerifyRendezvousDeposit":  {[]string{"RendezvousDeposit"}, "check 7 on Deposit: deposit_auth under the pinned deposit key, over H(deposit_ct)"},
+	"VerifyRendezvousCollect":  {[]string{"RendezvousCollect"}, "check 7 on Collect: collect_auth under the pinned collect key"},
+	"VerifyRendezvousRetire":   {[]string{"RendezvousRetire"}, "check 7 on Retire: retire_auth under the pinned collect key"},
+	"RendezvousKeyIsAcceptable": {[]string{"linkBoxRegistrationShaped"},
+		"Register's check 3: the library's small-order rule, which every verifier applies first, so that no box is stored under a key nobody could use (LRI R72, R73); a new export beyond A-1's block"},
+	"RendezvousRegisterPreimage": {nil, "the client's half, signed over; it panics on what it refuses, and the server builds no preimage"},
+	"RendezvousOpenPreimage":     {nil, "the client's half"},
+	"RendezvousDepositPreimage":  {nil, "the client's half"},
+	"RendezvousCollectPreimage":  {nil, "the client's half"},
+	"RendezvousRetirePreimage":   {nil, "the client's half"},
+	"RendezvousId":               {nil, "the link code's derivation; the server holds no code and is handed the id"},
+	"DepositVerifyKey":           {nil, "the link code's derivation; the server is handed the key at registration"},
+	"LinkCardBytes":              {nil, "held equal to store.LinkCardBytes by TestTheLinkBoxSizesAreTheLibrarys"},
+	"LinkDepositBytes":           {nil, "held equal to store.LinkDepositBytes by TestTheLinkBoxSizesAreTheLibrarys"},
+}
 
-// A BOX PAST ITS TTL OPENS, DEPOSITS AND COLLECTS AS AN UNKNOWN ONE WOULD, WHETHER OR NOT THE SWEEP
-// HAS RUN (the identity plan's Task 20, Property 1; §4.3.11, §7.4). A box is registered, takes a
-// deposit, and the clock moves to its expiry. Before the sweep its row still stands, and Open,
-// Deposit, Collect and Retire answer it exactly as they answer an id never registered; then Q19
-// runs at the same instant and reclaims it, and they answer it so again. Register is the one arm the
-// sweep's timing reaches (§4.3.11): it refuses the id while the expired row stands, and registers a
-// new box there once the sweep has reclaimed it. The control is the box while it is live, which
-// Open answers with its card. MR10, expiry decided by the sweep alone, is killed by the case before
-// the sweep.
-func TestABoxPastItsTtlAnswersAsAnUnknownOneBeforeTheSweepAndAfterIt(t *testing.T) {
-	ctx := context.Background()
-	fixture := newRendezvousFixture(t, nil)
-	expiring := fixture.mustRegister(t, 0x10)
-	if reason, _ := fixture.deposit(t, expiring, linkBytes(store.LinkDepositBytes, 0x11)); reason != protocol.Reason_REASON_OK {
-		t.Fatalf("a deposit into a live box answered %v", reason)
+// Each arm, and the one verifier of the library's it answers to.
+var rendezvousArmVerifier = map[string]string{
+	"RendezvousRegister": "VerifyRendezvousRegister",
+	"RendezvousOpen":     "VerifyRendezvousOpen",
+	"RendezvousDeposit":  "VerifyRendezvousDeposit",
+	"RendezvousCollect":  "VerifyRendezvousCollect",
+	"RendezvousRetire":   "VerifyRendezvousRetire",
+}
+
+// The exported functions of the record layer's rendezvous file: the file that declares the
+// register verifier, read out of the library rather than named here.
+func recordLayerRendezvousSurface(t *testing.T) map[string]bool {
+	t.Helper()
+	fileSet, libraryFiles := parseGoDir(t, recordLayerDir(t), false)
+	surface := map[string]bool{}
+	for _, file := range libraryFiles {
+		declared, ours := []string{}, false
+		for _, declaration := range file.Decls {
+			function, ok := declaration.(*ast.FuncDecl)
+			if !ok || function.Recv != nil || !function.Name.IsExported() {
+				continue
+			}
+			declared = append(declared, function.Name.Name)
+			if function.Name.Name == "VerifyRendezvousRegister" {
+				ours = true
+			}
+		}
+		if ours {
+			if len(surface) != 0 {
+				t.Fatalf("two files of the record layer declare VerifyRendezvousRegister; the second is %s", fileSet.File(file.Pos()).Name())
+			}
+			for _, name := range declared {
+				surface[name] = true
+			}
+		}
 	}
-	unknown := linkBytes(store.RendezvousIdBytes, 0xEE)
-
-	// THE CONTROL: live, the box is not answered as an unknown id is
-	if reason, response, err := fixture.handler.RendezvousOpen(ctx, fixture.conn, &protocol.RendezvousOpenRequest{RendezvousId: expiring}); err != nil || reason != protocol.Reason_REASON_OK || response == nil {
-		t.Fatalf("the control: Open on the live box answered %v (%v), want its card", reason, err)
+	if len(surface) == 0 {
+		t.Fatal("no file of the record layer declares VerifyRendezvousRegister, so this gate read no rendezvous surface")
 	}
-	fixture.pads()
+	return surface
+}
 
-	// to the microsecond of its expiry, which is past it: a box is live strictly before expire_time
-	fixture.clock.advance(DefaultLinkBoxTtl)
+// EVERY RENDEZVOUS ARM VERIFIES ITS SIGNATURE THROUGH THE LIBRARY BEFORE IT WRITES (§5.1.2: "no
+// transaction is opened and no row is allocated before check 7 has passed"; Spec A §12.1's A-1),
+// and nothing here calls the library's rendezvous surface outside the allowlist above. Each arm
+// calls its own verifier once and no other's, as the whole condition of an if that returns on its
+// false answer, and every link box write in it stands after that call in the source. Every call
+// into the surface is made by a function its row names, and the calls found, by caller, are
+// printed. MR6, Open without open_auth, fails here as well as in the arms' own test, whether its
+// call is removed or kept and made to decide nothing, and so does Register's small-order call
+// dropped.
+func TestEveryRendezvousArmVerifiesThroughTheLibraryBeforeItWrites(t *testing.T) {
+	surface := recordLayerRendezvousSurface(t)
+	for name := range surface {
+		if _, listed := rendezvousSurface[name]; !listed {
+			t.Fatalf("the record layer's rendezvous file exports %s, and rendezvousSurface has no row saying whether this package may call it", name)
+		}
+	}
+	for name := range rendezvousSurface {
+		if !surface[name] {
+			t.Fatalf("rendezvousSurface has a row for %s, and the record layer's rendezvous file no longer exports it", name)
+		}
+	}
+	for arm, verifier := range rendezvousArmVerifier {
+		if row := rendezvousSurface[verifier]; !slices.Equal(row.callers, []string{arm}) {
+			t.Fatalf("%s answers to %s, and that verifier's row names %v", arm, verifier, row.callers)
+		}
+	}
 
-	for _, stage := range []string{"before the sweep", "after the sweep"} {
-		if stage == "after the sweep" {
-			swept, err := fixture.boxes.SweepLinkBoxes(ctx, fixture.clock.now(), store.LinkBoxSweepBounds{})
-			if err != nil || *swept != (store.LinkBoxesSwept{Deposits: 1, Boxes: 1}) {
-				t.Fatalf("the sweep at the box's expiry answered %+v (%v), want its one deposit and the box", swept, err)
+	recordLayer := recordLayerImportPath(t)
+	files, pkg := parseThisPackage(t)
+	holders := linkBoxHolders(t, pkg)
+	type call struct {
+		name string
+		at   token.Pos
+	}
+	reached, writes, decides := map[string][]call{}, map[string][]call{}, map[string][]token.Pos{}
+	for _, file := range pkg.Files {
+		names := localNames(file, recordLayer)
+		for _, declaration := range file.Decls {
+			function, ok := declaration.(*ast.FuncDecl)
+			if !ok || function.Body == nil {
+				continue
 			}
-			if _, err := fixture.boxes.LinkBox(ctx, expiring); !errors.Is(err, store.ErrLinkBoxUnknown) {
-				t.Fatalf("after the sweep the box's row still stands: %v", err)
-			}
-		} else if _, err := fixture.boxes.LinkBox(ctx, expiring); err != nil {
-			t.Fatalf("before the sweep the expired box's row must stand, or this case measures nothing: %v", err)
+			ast.Inspect(function.Body, func(node ast.Node) bool {
+				// a verifier that decides: the whole condition of an if is its negation, and the if
+				// returns, so that a false answer ends the arm. A call that a condition merely
+				// contains, `false && !…` among them, decides nothing
+				if statement, ok := node.(*ast.IfStmt); ok {
+					negation, ok := statement.Cond.(*ast.UnaryExpr)
+					if !ok || negation.Op != token.NOT {
+						return true
+					}
+					expression, ok := negation.X.(*ast.CallExpr)
+					if !ok || len(statement.Body.List) == 0 {
+						return true
+					}
+					if _, returns := statement.Body.List[len(statement.Body.List)-1].(*ast.ReturnStmt); returns {
+						decides[function.Name.Name] = append(decides[function.Name.Name], expression.Pos())
+					}
+					return true
+				}
+				expression, ok := node.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				selector, ok := expression.Fun.(*ast.SelectorExpr)
+				if !ok {
+					return true
+				}
+				switch receiver := selector.X.(type) {
+				case *ast.Ident:
+					if names[receiver.Name] && surface[selector.Sel.Name] {
+						reached[function.Name.Name] = append(reached[function.Name.Name], call{selector.Sel.Name, expression.Pos()})
+					}
+				case *ast.SelectorExpr:
+					if holders[receiver.Sel.Name] && linkBoxMethodMutates[selector.Sel.Name] {
+						writes[function.Name.Name] = append(writes[function.Name.Name], call{selector.Sel.Name, expression.Pos()})
+					}
+				}
+				return true
+			})
 		}
+	}
+	t.Logf("calls into the library's rendezvous surface, by caller: %v", reached)
 
-		expired, never := fixture.answers(t, expiring), fixture.answers(t, unknown)
-		if !reflect.DeepEqual(expired, never) {
-			t.Fatalf("%s, a box past its expiry was answered %v, and an id never registered %v", stage, expired, never)
-		}
-		for arm, answer := range expired {
-			if answer.reason != protocol.Reason_REASON_CARD_RETIRED || answer.body {
-				t.Fatalf("%s, %s on a box past its expiry answered %v with a body %v, want REASON_CARD_RETIRED and none", stage, arm, answer.reason, answer.body)
+	called := map[string]bool{}
+	for caller, calls := range reached {
+		for _, current := range calls {
+			called[current.name] = true
+			if !slices.Contains(rendezvousSurface[current.name].callers, caller) {
+				t.Fatalf("%s calls the library's %s at %s, and its row allows %v: %s",
+					caller, current.name, files.Position(current.at), rendezvousSurface[current.name].callers, rendezvousSurface[current.name].why)
 			}
 		}
+	}
+	for name, row := range rendezvousSurface {
+		if len(row.callers) != 0 && !called[name] {
+			t.Fatalf("%s's row names %v as its callers, and nothing here calls it: %s", name, row.callers, row.why)
+		}
+	}
+	for arm, verifier := range rendezvousArmVerifier {
+		verified := []call{}
+		for _, current := range reached[arm] {
+			if strings.HasPrefix(current.name, "VerifyRendezvous") {
+				verified = append(verified, current)
+			}
+		}
+		if len(verified) != 1 || verified[0].name != verifier {
+			t.Fatalf("%s calls the rendezvous verifiers %v, want %s once and no other", arm, verified, verifier)
+		}
+		if !slices.Contains(decides[arm], verified[0].at) {
+			t.Fatalf("%s calls %s at %s, and not as the whole condition of an if that returns on its false answer: a call that decides nothing is no check 7",
+				arm, verifier, files.Position(verified[0].at))
+		}
+		for _, write := range writes[arm] {
+			if write.at < verified[0].at {
+				t.Fatalf("%s calls %s at %s, before its verifier %s at %s: a row written before check 7 has passed",
+					arm, write.name, files.Position(write.at), verifier, files.Position(verified[0].at))
+			}
+		}
+		t.Logf("%s: %s, then %d link box write(s)", arm, verifier, len(writes[arm]))
+	}
+}
 
-		reason, _ := fixture.register(t, linkRegister(0x10))
-		fixture.pads()
-		want := protocol.Reason_REASON_REJECTED
-		if stage == "after the sweep" {
-			want = protocol.Reason_REASON_OK
-		}
-		if reason != want {
-			t.Fatalf("%s, a registration at the expired box's id answered %v, want %v: Register is the one arm the sweep's timing reaches", stage, reason, want)
-		}
+// THE LINK BOX'S SIZES ARE THE LIBRARY'S (Spec A §5.14, frozen by ledger item 300): the card and the
+// deposit lengths 013 and 014 CHECK, and check 3 asserts as equalities, are the ones the library
+// publishes, so that the two cannot drift apart a byte at a time.
+func TestTheLinkBoxSizesAreTheLibrarys(t *testing.T) {
+	if store.LinkCardBytes != message.LinkCardBytes() || store.LinkDepositBytes != message.LinkDepositBytes() {
+		t.Fatalf("the store holds a card to %d octets and a deposit to %d, and the library publishes %d and %d",
+			store.LinkCardBytes, store.LinkDepositBytes, message.LinkCardBytes(), message.LinkDepositBytes())
 	}
 }
