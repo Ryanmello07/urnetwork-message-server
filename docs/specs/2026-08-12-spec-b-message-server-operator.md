@@ -770,6 +770,21 @@ box's expiry, and either retry is harmless. It also says that the gauges, the co
 as Spec A's A-38 adds it, with a note, and row A-18 gains its note. No wire field, reason code,
 table, query or migration changes.
 
+**Revision 28 — 2026-10-18 — the reject floor's pad holds no worker while fewer than 1,024 answers
+wait, the link box sweep logs an error's class and never its text, and four rules of kind 4 as built
+are stated** (the lead's rulings R75 and R77, on the slice review of the identity plan's Tasks 18 to
+20 and its fix round; R74's ruling on `RendezvousDepositBytes`). §4.5 says that, while fewer than
+1,024 padded answers wait, a padded refusal holds no worker: the handler returns at once with the
+rest of the floor, and the answer is sent from a timer off the worker pool. §11.1 says that the
+sweep logs a failed pass by its error class and the pass's totals only. §4.3.11 says that a
+connection holds at most 32 rendezvous subscriptions, and that a Collect with `subscribe` that would
+add one past them answers `REASON_CARD_RATE_LIMITED` before its write, as §4.5's comment on that
+code now says too; that a replayed Deposit pushes nothing; and, with §5.1.2, that Deposit, Collect
+and Retire each hand their write the key check 7 verified, so that a row pinned under another key by
+then answers `REASON_CARD_RETIRED`. §3.3's Q20 says that the cap is also checked inside the insert.
+§12.1's A-1 block marks `RendezvousDepositBytes` as exported when kind 0 is served, as Spec A's A-39
+marks its copy, with a note. No wire field, reason code, table or migration changes.
+
 ---
 
 ## 1. Scope
@@ -1418,7 +1433,7 @@ Trust-on-first-use, **scoped to one group**: the server records `verify_pub` on 
 | Q17 | `SELECT deposit_verify_pub, collect_verify_pub, card_xwing_pub, deposit_count, retired_time FROM message_rendezvous WHERE rendezvous_id = $1` | Every rendezvous operation | PK lookup, served from an in-process LRU | `PRIMARY KEY (rendezvous_id)` *(Revision 25: it reads `kind`, `public_ct` and `expire_time` too.)* |
 | Q18 | `SELECT deposit_id, deposit_ct FROM message_rendezvous_deposit WHERE rendezvous_id = $1 AND deposit_id > $2 ORDER BY deposit_id LIMIT $3` | Every collect | PK range scan, bounded by depth 16 | `PRIMARY KEY (rendezvous_id, deposit_id)` *(Revision 25: kind 4's is bounded by its two deposits.)* |
 | Q19 | `DELETE FROM message_rendezvous_deposit WHERE prune_after <= now()` and `DELETE FROM message_rendezvous WHERE reclaim_after <= now()`, both `LIMIT`ed | Sweep, every 5 min | Index scan over outstanding work; deleted rows leave the index, so it holds the backlog and not the corpus | `message_rendezvous_deposit_prune`, `message_rendezvous_reclaim` |
-| Q20 | `SELECT count(*) FROM message_rendezvous WHERE retired_time IS NULL AND expire_time > now()` *(Revision 25)* | Every kind-4 Register that inserts | Bitmap scan of the partial index over outstanding rows; the count and the insert are two steps, so registrations in flight together may pass the cap by their number | `message_rendezvous_live` |
+| Q20 | `SELECT count(*) FROM message_rendezvous WHERE retired_time IS NULL AND expire_time > now()` *(Revision 25)* | Every kind-4 Register that inserts | Bitmap scan of the partial index over outstanding rows; the count and the insert are two steps, so registrations in flight together may pass the cap by their number *(Revision 28: the count is now also made in the insert's own statement, and the row goes in only while the live boxes are below the cap, so that no insert passes a full cap, not even one made after the sweep reclaimed the row Q17 had read. The read before it stays, so that a count that cannot be read refuses. Registrations in flight together can still each count room before any of them commits, and so pass the cap by their number.)* | `message_rendezvous_live` |
 
 Two properties of `message_record_prune` are load-bearing and easy to lose in a refactor:
 
@@ -2389,9 +2404,16 @@ its card and its deposit are Spec A §5.14's: the server holds no code and deriv
 - **Deposit** verifies `deposit_auth`, asserts `octet_length(deposit_ct) = 17526` as an equality,
   and takes at most two deposits over the box's life, a number 013 holds; a third answers
   `REASON_CARD_RATE_LIMITED`. It is idempotent on `deposit_hash`, which it returns, and it pushes to
-  a collector subscribed on the box.
+  a collector subscribed on the box. *(Revision 28: a replay, the octets of a deposit already
+  standing, answers that deposit and pushes nothing, since it is not a new deposit.)*
 - **Collect** verifies `collect_auth` and deletes through the acknowledgement; with `subscribe` it
-  pushes on the next deposit. It refreshes nothing.
+  pushes on the next deposit. It refreshes nothing. *(Revision 28: a connection holds at most 32
+  rendezvous subscriptions. A Collect with `subscribe` set that would add one past that bound
+  answers `REASON_CARD_RATE_LIMITED`, the code this section gives a limit, though this limit is
+  the connection's and not the card's. It is padded, and answered before the write, so that
+  nothing is deleted through its acknowledgement and `refused_count` is not zeroed. No
+  subscription is evicted to make room, and a box the connection already holds is the same
+  subscription again, and is not refused at the bound.)*
 - **Retire** verifies `retire_auth`, deletes every deposit, and keeps the row as a tombstone until
   `reclaim_after`.
 - **One answer on Open, Deposit, Collect and Retire for every box the caller may not use.** On
@@ -2402,7 +2424,11 @@ its card and its deposit are Spec A §5.14's: the server holds no code and deriv
   server is deployed. A server whose `reject_floor_ms` is zero serves no kind-4 arm: it answers
   them as every unserved arm is answered, leaves kind 4 out of Capabilities 26 and 29, and names
   the reason among what its readiness lists as not built. Every arm decides expiry by
-  `expire_time`, whether or not the sweep has run (§7.4).
+  `expire_time`, whether or not the sweep has run (§7.4). *(Revision 28: Deposit, Collect and
+  Retire each hand their write the key check 7 verified, the one Q17 read off the row. The write
+  re-reads the row under its lock, and a row pinned under any other key by then, such as another
+  box registered at the id after the sweep reclaimed the one verified, answers
+  `REASON_CARD_RETIRED`, padded, and changes nothing; §5.1.2.)*
 - **What it does not stop** (MASTER §9.8; SCOPE E2). The endpoint authenticates no client, so one
   client can fill the cap and stop all linking, and keep it full for as long as it keeps
   registering; each box it holds lapses 10 minutes [a] after its registration. Register tells a
@@ -2458,6 +2484,8 @@ enum Reason {
                                            // box and a failed signature, on Open, Deposit, Collect
                                            // and Retire; CARD_RATE_LIMITED is also the cap of live
                                            // boxes on Register, and a box's third deposit.
+                                           // Revision 28: and a Collect with subscribe that would
+                                           // take its connection past 32 rendezvous subscriptions.
 }
 ```
 
@@ -2491,7 +2519,7 @@ field number is `u8(op)` inside the `req_auth` preimage (§4.3.8), so it is a pr
 cannot be changed at all. A response field has to be checked against the signed lists rather than
 assumed innocent.
 
-**`REASON_REJECTED` deliberately merges "unknown group", "write_auth did not verify", and "epoch key unknown".** Distinguishing them would turn the submit path into an oracle for group existence: a party who holds no `write_key` could enumerate `group_id`s and learn which exist. The reject is the same code, the same response size, and the same timing envelope (the handler pads its response latency to a fixed floor on the reject path). A failed `req_auth` on the read path returns the same code with the same envelope (§5.1.1).
+**`REASON_REJECTED` deliberately merges "unknown group", "write_auth did not verify", and "epoch key unknown".** Distinguishing them would turn the submit path into an oracle for group existence: a party who holds no `write_key` could enumerate `group_id`s and learn which exist. The reject is the same code, the same response size, and the same timing envelope (the handler pads its response latency to a fixed floor on the reject path). A failed `req_auth` on the read path returns the same code with the same envelope (§5.1.1). *(Revision 28: while fewer than 1,024 padded answers wait, the pad holds no worker. The handler returns at once with the rest of the floor, and the answer is sent when that rest has passed, from a timer off the worker pool, so that a refusal does not hold a worker for the floor: one that did, with §5.1's check 4 not built, let one client sending as many refusals as there are workers stall every request. Past 1,024 waiting answers, a worker waits for one to be sent before it defers another, and no answer is sent before its floor (the lead's rulings R75 and R77).)*
 
 `REASON_CARD_RETIRED` merges "this rendezvous was retired" with "this rendezvous does not exist" for the same reason `REASON_REJECTED` merges its three: distinguishing them would let a party with a list of guessed tokens learn which are real. It is a *distinct* code from `REASON_REJECTED` because the owner deliberately wants a holder of a rotated link told that the link is dead, which is the whole point of rotation being a remedy.
 
@@ -2604,7 +2632,7 @@ Before this, `FetchRequest` and `SubscribeRequest` carried no authenticator at a
 
 #### 5.1.2 The rendezvous path
 
-§4.3.11's five operations are the only ones a party with no group key may issue, so the check order matters more here than anywhere else. Checks 1, 2 and 4 apply unchanged. Check 3 becomes a static shape check on the operation's own fields — 32-byte id, 32-byte public keys, 1216-byte `card_xwing_pub`, and `octet_length(deposit_ct)` **exactly** `rendezvous_deposit_bytes`. *(Revision 25: in I1 every `deposit_ct` is exactly 17,526 octets, since kind 4 is the one kind served, and a Register of kind 4 carries no `card_xwing_pub` and a `public_ct` of exactly 4,124.)* *(Revision 27: at Register, the `alg_id` is held to 0x0014 as the u32 the request carries, and neither public key may be one that `RendezvousKeyIsAcceptable` rejects; §4.3.11.)* Check 5 becomes a **known-rendezvous cuckoo filter**, refreshed and inserted into by the same Redis channel and 60-second backstop timer as the known-group filter, so a deposit against a guessed id is refused with no database read at all. Check 6 becomes the `message_rendezvous` row lookup of Q17, served from an in-process LRU with negative results cached 5 s with jitter. Check 7 becomes the Ed25519 verification named for that operation. **No transaction is opened and no row is allocated before check 7 has passed**, and a party who holds no token can therefore force neither a row lock nor a WAL byte, which is the same property §5.1 gives the submit path.
+§4.3.11's five operations are the only ones a party with no group key may issue, so the check order matters more here than anywhere else. Checks 1, 2 and 4 apply unchanged. Check 3 becomes a static shape check on the operation's own fields — 32-byte id, 32-byte public keys, 1216-byte `card_xwing_pub`, and `octet_length(deposit_ct)` **exactly** `rendezvous_deposit_bytes`. *(Revision 25: in I1 every `deposit_ct` is exactly 17,526 octets, since kind 4 is the one kind served, and a Register of kind 4 carries no `card_xwing_pub` and a `public_ct` of exactly 4,124.)* *(Revision 27: at Register, the `alg_id` is held to 0x0014 as the u32 the request carries, and neither public key may be one that `RendezvousKeyIsAcceptable` rejects; §4.3.11.)* Check 5 becomes a **known-rendezvous cuckoo filter**, refreshed and inserted into by the same Redis channel and 60-second backstop timer as the known-group filter, so a deposit against a guessed id is refused with no database read at all. Check 6 becomes the `message_rendezvous` row lookup of Q17, served from an in-process LRU with negative results cached 5 s with jitter. Check 7 becomes the Ed25519 verification named for that operation. *(Revision 28: on Deposit, Collect and Retire, the write that follows is handed the key check 7 verified under, and answers `REASON_CARD_RETIRED`, changing nothing, if the row it locks is pinned under any other key; §4.3.11.)* **No transaction is opened and no row is allocated before check 7 has passed**, and a party who holds no token can therefore force neither a row lock nor a WAL byte, which is the same property §5.1 gives the submit path.
 
 Registration is the one operation whose signature is verified against a key in the request rather than a key the server holds, and it is therefore the one operation an unauthenticated party can make the server act on. What bounds it is the 20/day per-`client_id` limit and the fact that the id is the hash of a 16-byte CSPRNG value that has not been published, exactly as `CreateGroup` is bounded. *(Revision 25: a link box's id is the hash of a 60-bit code. Where check 4 is built and a `client_id` names a platform client, that limit and §4.3.11's cap on live boxes bound its registrations; at the server's own endpoint, where a `client_id` names one TLS session, the cap alone does.)* That is written here rather than left to be inferred.
 
@@ -4090,6 +4118,8 @@ Made operational:
 
 **MAY appear:** process lifecycle events; migration start/finish and version; aggregate counters and histograms; error *classes* without identifiers; panic type and stack frames. **Go's runtime always prints argument words in a traceback** — `GOTRACEBACK=single` reduces which goroutines print, not what each frame shows, and only `GOTRACEBACK=none` suppresses stacks, at the cost of all crash diagnostics. The mitigation is structural: the §11.2 redact types are opaque structs, so only a pointer and a length appear in registers.
 
+*(Revision 28: the link box sweep (§7.4) logs a failed pass by its error class and the pass's totals, its batches, boxes and deposits, and never by the error's text, which for a failure to connect names the database's user and name and the address and host dialled. The class is the SQLSTATE of a PostgreSQL error, a connection the server refused among them, or `server` for one without such a code; `connect` for any other failure to connect; `canceled` for a context that ended; and `other` for anything else. A pass ended by the job's close, or by its own context, logs nothing (the lead's rulings R75 and R77).)*
+
 ### 11.2 Enforcement, in descending order of reliability
 
 1. **Structural (decision B11).** `GroupId`, `SenderHandle`, `BlobId`, `RecoveryHandle`, `ClientId`, `RendezvousId`, `DepositId` (and, since Revision 25, `DepositHash` and a link box's card and two pinned keys) in `redact/` are **opaque structs wrapping an unexported `[]byte`** — never a named slice type and never a named array type — whose `String()`, `Format(fmt.State, rune)`, `LogValue()`, `MarshalJSON()`, and `MarshalText()` all return `"<redacted>"`. Access to the bytes is through an explicit `.Unwrap()` used only by the store and crypto layers. **An accidental `%v` cannot leak, because there is nothing to print.**
@@ -4306,7 +4336,7 @@ func VerifyRendezvousCollect(collectVerifyPub []byte, serverNonce []byte,
 func VerifyRendezvousRetire(collectVerifyPub []byte, serverNonce []byte,
                             rendezvousId []byte, sig []byte) bool
 func RendezvousKeyIsAcceptable(pub []byte) bool                                // A-38
-func RendezvousDepositBytes() int                                              // 5238, exactly
+func RendezvousDepositBytes() int                                              // 5238, exactly. A-39: exported when kind 0 is served
 func LinkCardBytes() int                                                       // 4124, exactly
 func LinkDepositBytes() int                                                    // 17526, exactly
 // A-36: the two sizes above are the link box's, kind 4. RendezvousRegistration gains Kind and
@@ -4388,6 +4418,10 @@ A-9's rule, as it leaves Spec A's copy in A-37.)*
 
 *(Revision 27: `RendezvousKeyIsAcceptable` and its comment are added to the block above as Spec
 A's A-38 adds them to its copy, each copy citing the sections in its own terms.)*
+
+*(Revision 28: `RendezvousDepositBytes` is marked in the block above as exported when kind 0 is
+served, as Spec A's A-39 marks its copy: the library leaves it out while no build serves kind 0,
+the card's kind (the lead's rulings R72 and R74).)*
 
 The server may use **only** this surface. It gets no decryption function, no key-schedule function, and no MLS type. The rendezvous group is **verifiers only**: no signer and no function that opens a deposit, because a sealing or opening function on this surface would be a decryption capability in the process that holds the mailbox. A test in the message-server repo asserts the allowlist.
 

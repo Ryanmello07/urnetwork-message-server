@@ -119,6 +119,7 @@ Append-only. Newest last. One entry per commit that changes this spec. Every cha
 | 2026-10-16 | A-36 | **The identity layer's first phase, I1: MASTER's Revision 10 brought into this spec** (ledger item 300; the identity plan's Task 4; the lead's ruling R63). §3.1 gains the rows of `urmessage_identity` (0xF005) and `urmessage_group_purpose` (0xF006). §3.4 gains the required capabilities, which A-33's 0xF004 had already left short, and the identity extensions: their field sets, the binding check's order, the list's version and the chain's check. §5.14 gains the link box, kind 4: the code's derivations, the sealed card, the 17,526-octet deposit, the registration's `kind` and card in its preimage, and what a server that finds the code can do. §6 gains four methods, so the interface is 8 engine and 37 handle methods, which the block takes when the code lands. §7.2 and §7.5 gain the identity calls, the phrase change's and the device calls as they ship, and say which designed calls they overtake; four overtaken sentences elsewhere, in §7.2's reasons, §7.2.1, §8.6 and §12.2's C11, gain notes. §7.3 states the erase authorities, with (a)L, (a)E, (f), (f)P, (g) and (i) new. §8.1 gains store kinds 11 to 13 and their names; a new §9.3a lists the exports that ship for I1; §12.1 gains the link box's two sizes and the registration's two fields. The parent pin and the baseline row move to revision 10. |
 | 2026-10-16 | A-37 | **Two notes owed since Spec B's revision 25; ruling 27's stale comments corrected; and the phrase's fold and its in-memory residual stated** (ledger item 301's Open; Task 5's review, its F9 and F10; this edit's review, its F2, F4 and F6; the lead's rulings R66 and R68, R68's from the review of the identity plan's Tasks 8 to 10, its findings L1-2, L1-5, L3-6 and L3-7). §12.1's A-1 block takes ruling 27's names, which Spec B's copy carries and this copy never took, and the block's lead line and a note after it say that the two copies now differ only where each cites a section. Two of ruling 27's comments, stale since 2026-09-23, are corrected in both copies, and `ErrEpochKeysDigestPresence`, which no function on this surface returns, leaves both under A-9's rule. §5.11's paragraph on the two doors says that check 3's serves all six kinds, and its measurement of the stale-peer split is dated. The out-table's row A-18 gains the link box's note, as Spec B's row A-18 has. §7.2 names the phrase's fold, NFKD at Unicode 17.0.0 with white space as Unicode's White_Space property gives it, as MASTER §5.1 now does, and a new §8.4a states what an erase of the phrase's secrets does not reach, measured, which MASTER §5.2 now points to. |
 | 2026-10-16 | A-38 | **The rendezvous's small-order key rule, `RendezvousKeyIsAcceptable`** (the lead's rulings R72 and R73; the identity plan's Task 19, its verify step). Under a public key of small order, `crypto/ed25519` accepts signatures that need no secret, so the library's five rendezvous verifiers refuse such a key, and a key of any width but 32 octets, before any signature, and the library publishes the rule. §5.14 gains the paragraph that says so, and that the server's Register calls it at check 3 on both keys, so that no box is stored under a key no holder could use. §12.1's A-1 block gains `RendezvousKeyIsAcceptable` with its comment, in both copies alike, with a note after the block and one in its lead line, and row A-18 gains its note. No wire byte, record, label or other section of this spec changes. |
+| 2026-10-18 | A-39 | **§2 counts the rendezvous functions as §12.1's A-1 block lists them, and `RendezvousDepositBytes` is marked as exported when kind 0 is served** (the lead's ruling R74, its F14 and its ruling on `RendezvousDepositBytes`; R77). §2's line for `rendezvous.go` said that it holds "§12.1's nine published rendezvous functions", where the block has listed twelve since A-38; it now names the file's five preimages and the block's twelve, the register preimage among both. In both copies of the block, `RendezvousDepositBytes`, the size of kind 0's deposit, is marked as exported when kind 0 is served, since the library leaves it out while no build serves kind 0 (R72), and a note after the block says so; the block's rendezvous section and the library's commit for R72, `48204f2b`, then agree. No wire byte, record, label, rule or other section of this spec changes. |
 
 ---
 
@@ -203,9 +204,13 @@ connect/                                   (existing; never imports its own chil
     recovery.go                            Ed25519 recovery proof and its verifier (§5.7) — here
                                            and not in messagegroup because §12.1 publishes both
     attachment.go                          server_attachment encoding (§5.11)
-    rendezvous.go                          §12.1's nine published rendezvous functions: the
-                                           preimages, the five verifiers, RendezvousId,
-                                           DepositVerifyKey, RendezvousDepositBytes (§5.14)
+    rendezvous.go                          the five preimages, and §12.1's twelve published
+                                           rendezvous functions: the register preimage, which
+                                           is one of the five, the five verifiers,
+                                           RendezvousId, DepositVerifyKey,
+                                           RendezvousKeyIsAcceptable and the three sizes, of
+                                           which RendezvousDepositBytes is exported when
+                                           kind 0 is served (§5.14; A-39)
     pad.go                                 size buckets. COVER records and the body padder are
                                            messagegroup's: the ladder is authenticated and the
                                            padding is done under a record key
@@ -6466,7 +6471,7 @@ func VerifyRendezvousCollect(collectVerifyPub []byte, serverNonce []byte,
 func VerifyRendezvousRetire(collectVerifyPub []byte, serverNonce []byte,
                             rendezvousId []byte, sig []byte) bool
 func RendezvousKeyIsAcceptable(pub []byte) bool                                // A-38
-func RendezvousDepositBytes() int                                              // 5238, exactly
+func RendezvousDepositBytes() int                                              // 5238, exactly. A-39: exported when kind 0 is served
 func LinkCardBytes() int                                                       // 4124, exactly
 func LinkDepositBytes() int                                                    // 17526, exactly
 // A-36: the two sizes above are the link box's, kind 4. RendezvousRegistration gains Kind and
@@ -6549,6 +6554,12 @@ library's commit for the lead's ruling R72, which declares it so; its comment ci
 Spec B §4.3.11 here, and the same sections in Spec B's own terms there. So the two copies now
 differ in four section cites, in three places: the rendezvous header's, this comment's two, and
 §5.9's.)*
+
+*(A-39: `RendezvousDepositBytes`, the size of kind 0's deposit, is marked in both copies alike as
+exported when kind 0 is served. No build serves kind 0 yet, and the library leaves the function
+out until one does (the lead's rulings R72 and R74), so the block's rendezvous section and the
+library's commit for R72, `48204f2b`, now agree. The mark cites no section, so the two copies
+still differ only in the four section cites A-38's note names.)*
 
 The server gets verifiers and no signers, and no function that opens a deposit — a sealing or
 opening function on this surface would be a decryption capability in the process that holds the
