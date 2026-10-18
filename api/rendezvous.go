@@ -401,16 +401,17 @@ func (self *Handler) RendezvousCollect(ctx context.Context, conn *Connection, re
 	// the subscription before the write (LRI R75, S-1): a connection at its bound is refused before
 	// anything is deleted through the acknowledgement or the refusal count is zeroed, since a refusal
 	// after the write would lose that count. It is the box Q17 read and check 7 verified, until its
-	// fixed expiry, and it is undone below if the write does not take
-	subscribed := false
+	// fixed expiry, and this Collect's claim on it is settled below once the write has answered,
+	// which undoes it if the write did not take and no other Collect holds it (LRI R78, N2)
+	var claimed *rendezvousSubscription
 	if request.GetSubscribe() && self.subscriptions != nil {
-		added, err := self.subscriptions.subscribeRendezvous(conn.ClientId, conn.ServerNonce, request.GetRendezvousId(), box.ExpireTime, now)
+		subscription, _, err := self.subscriptions.subscribeRendezvous(conn.ClientId, conn.ServerNonce, request.GetRendezvousId(), box.ExpireTime, now)
 		if err != nil {
 			// a limit on the connection, which §4.3.11 folds into the code it gives every limit
 			self.pad(ctx, started)
 			return protocol.Reason_REASON_CARD_RATE_LIMITED, nil, nil
 		}
-		subscribed = added
+		claimed = subscription
 	}
 
 	collected, err := self.linkBoxes.CollectLinkBox(ctx, &store.LinkBoxCollectRequest{
@@ -420,8 +421,9 @@ func (self *Handler) RendezvousCollect(ctx context.Context, conn *Connection, re
 		Limit:               request.GetLimit(),
 		VerifiedPub:         box.CollectVerifyPub,
 	}, now)
-	if subscribed && (err != nil || collected.Reason != protocol.Reason_REASON_OK) {
-		self.subscriptions.unsubscribeRendezvous(conn.ClientId, conn.ServerNonce, request.GetRendezvousId())
+	if claimed != nil {
+		self.subscriptions.settleRendezvous(conn.ClientId, conn.ServerNonce, request.GetRendezvousId(), claimed,
+			err == nil && collected.Reason == protocol.Reason_REASON_OK)
 	}
 	if err != nil {
 		return protocol.Reason_REASON_INTERNAL, nil, err

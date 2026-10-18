@@ -613,10 +613,38 @@ func (self *server) listen() error {
 	go func() {
 		defer close(self.closed)
 		if err := self.health.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			self.log.Error("the health listener stopped", "error", err.Error())
+			// the class and never the text, which names the address the listener is bound to (LRI
+			// R78, N6; §11.1: "any IP address")
+			self.log.Error("the health listener stopped", "class", listenerErrorClass(err))
 		}
 	}()
 	return nil
+}
+
+// What kind of failure ended a listener, in words that name nothing: §11.1's "error classes without
+// identifiers". A listener's error text names the address it is bound to ("accept tcp
+// 127.0.0.1:9099: …"), and §11.1 forbids "any IP address" in a log line, so a caller that logs the
+// failure logs this, and never the text:
+//   - "closed", for a listener closed beneath its Serve;
+//   - "timeout", for an error that says it is one;
+//   - the failed operation's name, such as "accept", for any other network error;
+//   - "other", for anything else, whose text is not looked at.
+func listenerErrorClass(err error) string {
+	if err == nil {
+		return ""
+	}
+	if errors.Is(err, net.ErrClosed) {
+		return "closed"
+	}
+	var timeout interface{ Timeout() bool }
+	if errors.As(err, &timeout) && timeout.Timeout() {
+		return "timeout"
+	}
+	var operation *net.OpError
+	if errors.As(err, &operation) && operation.Op != "" {
+		return operation.Op
+	}
+	return "other"
 }
 
 // A failed bind, with the value §11.1 forbids taken out of it.

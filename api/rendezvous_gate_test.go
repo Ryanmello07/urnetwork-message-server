@@ -206,6 +206,12 @@ func (self effect) String() string {
 	return self.kind + " " + self.name + " via " + self.via
 }
 
+// THE SUBSCRIPTION REGISTRY'S TWO FILES (LRI R78, N4). Its methods are declared in these and nowhere
+// else, which newEffectReader holds in both directions, and a selection of one of its fields made in
+// any other file is a change to it made around its methods: FIELD-REGISTRY-2 ended a box's
+// subscriptions before check 7 through the fields alone, keeping its counts, and called no method.
+var subscriptionFiles = []string{"subscribe.go", "rendezvous_push.go"}
+
 // Reads every function of this package for its effects, its own and those of every function of
 // this package it calls, each placed at the call.
 type effectReader struct {
@@ -214,6 +220,11 @@ type effectReader struct {
 	subscriptions types.Type
 	memo          map[*types.Func][]effect
 	visiting      map[*types.Func]bool
+	// each package-level variable initialised to a function literal, and the literal: a call through
+	// the variable is a call of the literal, and its effects are placed at the call (LRI R78, N4)
+	literals        map[*types.Var]*ast.FuncLit
+	literalMemo     map[*types.Var][]effect
+	literalVisiting map[*types.Var]bool
 }
 
 func newEffectReader(t *testing.T, checked *checkedPackage) *effectReader {
@@ -227,13 +238,112 @@ func newEffectReader(t *testing.T, checked *checkedPackage) *effectReader {
 	if subscriptions == nil {
 		t.Fatal("this package declares no Subscriptions")
 	}
-	return &effectReader{
-		checked:       checked,
-		linkBoxes:     linkBoxes,
-		subscriptions: subscriptions.Type(),
-		memo:          map[*types.Func][]effect{},
-		visiting:      map[*types.Func]bool{},
+	reader := &effectReader{
+		checked:         checked,
+		linkBoxes:       linkBoxes,
+		subscriptions:   subscriptions.Type(),
+		memo:            map[*types.Func][]effect{},
+		visiting:        map[*types.Func]bool{},
+		literals:        map[*types.Var]*ast.FuncLit{},
+		literalMemo:     map[*types.Var][]effect{},
+		literalVisiting: map[*types.Var]bool{},
 	}
+	for _, file := range checked.syntax {
+		for _, declaration := range file.Decls {
+			general, ok := declaration.(*ast.GenDecl)
+			if !ok || general.Tok != token.VAR {
+				continue
+			}
+			for _, spec := range general.Specs {
+				values := spec.(*ast.ValueSpec)
+				for index, name := range values.Names {
+					if index >= len(values.Values) {
+						continue
+					}
+					literal, isLiteral := ast.Unparen(values.Values[index]).(*ast.FuncLit)
+					variable, isVar := checked.info.Defs[name].(*types.Var)
+					if isLiteral && isVar {
+						reader.literals[variable] = literal
+					}
+				}
+			}
+		}
+	}
+
+	// the registry's files, held to its methods in both directions
+	methodFiles := map[string]bool{}
+	methods := types.NewMethodSet(types.NewPointer(subscriptions.Type()))
+	for index := range methods.Len() {
+		method, ok := methods.At(index).Obj().(*types.Func)
+		if !ok || checked.decls[method] == nil {
+			continue
+		}
+		file := filepath.Base(checked.files.Position(method.Pos()).Filename)
+		if !slices.Contains(subscriptionFiles, file) {
+			t.Fatalf("Subscriptions.%s is declared in %s, outside the registry's files %v: a field selection there would read as a change made around its methods", method.Name(), file, subscriptionFiles)
+		}
+		methodFiles[file] = true
+	}
+	for _, file := range subscriptionFiles {
+		if !methodFiles[file] {
+			t.Fatalf("subscriptionFiles names %s, and no method of Subscriptions is declared in it", file)
+		}
+	}
+	return reader
+}
+
+// Whether a position is in one of the registry's own files.
+func (self *effectReader) inRegistryFile(position token.Pos) bool {
+	return slices.Contains(subscriptionFiles, filepath.Base(self.checked.files.Position(position).Filename))
+}
+
+// Whether a value of this type, put in a composite literal of it, stays where these gates read it: a
+// named type this package declares, whose fields the holder tests enumerate and whose methods these
+// gates read. A literal of any other type, another package's above all, takes the store where they
+// cannot follow it (STRUCT-HANDOFF).
+func (self *effectReader) declaredHere(of types.Type) bool {
+	if pointer, ok := of.(*types.Pointer); ok {
+		of = pointer.Elem()
+	}
+	named, ok := of.(*types.Named)
+	return ok && named.Obj().Pkg() == self.checked.types
+}
+
+// Whether the target of an assignment keeps a store where these gates read it: a variable local to a
+// function, the blank identifier, or a field of a type this package declares. A package-level
+// variable, an element of a map or a slice, or anything reached through a pointer, is not
+// (PKGVAR-COLLECT).
+func (self *effectReader) keepsItHere(target ast.Expr) bool {
+	info := self.checked.info
+	switch target := ast.Unparen(target).(type) {
+	case *ast.Ident:
+		if target.Name == "_" {
+			return true
+		}
+		variable, ok := info.ObjectOf(target).(*types.Var)
+		return ok && variable.Parent() != self.checked.types.Scope()
+	case *ast.SelectorExpr:
+		selection := info.Selections[target]
+		return selection != nil && selection.Kind() == types.FieldVal && selection.Obj().Pkg() == self.checked.types
+	}
+	return false
+}
+
+// The effects of the function literal a package-level variable holds, each at the place in it where
+// it happens.
+func (self *effectReader) ofLiteral(variable *types.Var) []effect {
+	if found, done := self.literalMemo[variable]; done {
+		return found
+	}
+	literal := self.literals[variable]
+	if literal == nil || self.literalVisiting[variable] {
+		return nil
+	}
+	self.literalVisiting[variable] = true
+	defer delete(self.literalVisiting, variable)
+	found := self.within(literal.Body)
+	self.literalMemo[variable] = found
+	return found
 }
 
 // Whether a value of this type is a link box store: the interface itself, or anything that
@@ -303,7 +413,16 @@ func (self *effectReader) within(node ast.Node) []effect {
 		switch node := node.(type) {
 		case *ast.SelectorExpr:
 			selection := info.Selections[node]
-			if selection == nil || selection.Kind() == types.FieldVal {
+			if selection == nil {
+				return true
+			}
+			if selection.Kind() == types.FieldVal {
+				// a field of the subscription registry selected outside its own files: a change to
+				// it made around its methods (LRI R78, N4; FIELD-REGISTRY-2)
+				if self.isSubscriptions(selection.Recv()) && !self.inRegistryFile(node.Pos()) {
+					found = append(found, effect{kind: "registry", name: "the field " + selection.Obj().Name(), at: node.Pos(),
+						via: types.ExprString(node.X) + " (" + types.TypeString(selection.Recv(), types.RelativeTo(self.checked.types)) + ")"})
+				}
 				return true
 			}
 			method, ok := selection.Obj().(*types.Func)
@@ -327,13 +446,21 @@ func (self *effectReader) within(node ast.Node) []effect {
 				}
 			}
 		case *ast.Ident:
-			// a function of this package, called or taken as a value
-			function, ok := info.Uses[node].(*types.Func)
-			if !ok || !self.ours(function) || function.Type().(*types.Signature).Recv() != nil {
-				return true
-			}
-			for _, inner := range self.of(function) {
-				found = append(found, effect{kind: inner.kind, name: inner.name, at: node.Pos(), via: function.Name() + " → " + inner.via})
+			switch object := info.Uses[node].(type) {
+			case *types.Func:
+				// a function of this package, called or taken as a value
+				if !self.ours(object) || object.Type().(*types.Signature).Recv() != nil {
+					return true
+				}
+				for _, inner := range self.of(object) {
+					found = append(found, effect{kind: inner.kind, name: inner.name, at: node.Pos(), via: object.Name() + " → " + inner.via})
+				}
+			case *types.Var:
+				// a package-level variable holding a function literal, called or taken as a value:
+				// the literal's effects, where it is used (LRI R78, N4; PKGVAR-COLLECT)
+				for _, inner := range self.ofLiteral(object) {
+					found = append(found, effect{kind: inner.kind, name: inner.name, at: node.Pos(), via: object.Name() + " → " + inner.via})
+				}
 			}
 		case *ast.CallExpr:
 			// a link box store handed to what these gates cannot read: a function of another
@@ -347,6 +474,46 @@ func (self *effectReader) within(node ast.Node) []effect {
 				if self.isLinkBoxes(info.TypeOf(argument)) {
 					found = append(found, effect{kind: "opaque", name: types.ExprString(node.Fun), at: node.Pos(), via: types.ExprString(argument)})
 				}
+			}
+		// THE STORE HANDED OFF OTHERWISE THAN AS AN ARGUMENT (LRI R78, N4): put in a composite literal
+		// of a type this package does not declare (STRUCT-HANDOFF), assigned to anything but a local
+		// variable or a field of a type it does (PKGVAR-COLLECT), given to a package-level variable
+		// as its value, or sent on a channel. Each takes it where these gates cannot follow it.
+		case *ast.CompositeLit:
+			if self.declaredHere(info.TypeOf(node)) {
+				return true
+			}
+			for _, element := range node.Elts {
+				value := element
+				if pair, ok := element.(*ast.KeyValueExpr); ok {
+					value = pair.Value
+				}
+				if self.isLinkBoxes(info.TypeOf(value)) {
+					found = append(found, effect{kind: "opaque", name: "a composite literal of " + types.TypeString(info.TypeOf(node), types.RelativeTo(self.checked.types)),
+						at: value.Pos(), via: types.ExprString(value)})
+				}
+			}
+		case *ast.AssignStmt:
+			if len(node.Lhs) != len(node.Rhs) {
+				return true
+			}
+			for index, value := range node.Rhs {
+				if self.isLinkBoxes(info.TypeOf(value)) && !self.keepsItHere(node.Lhs[index]) {
+					found = append(found, effect{kind: "opaque", name: "an assignment to " + types.ExprString(node.Lhs[index]), at: node.Pos(), via: types.ExprString(value)})
+				}
+			}
+		case *ast.ValueSpec:
+			for index, value := range node.Values {
+				if index >= len(node.Names) || !self.isLinkBoxes(info.TypeOf(value)) {
+					continue
+				}
+				if variable, ok := info.Defs[node.Names[index]].(*types.Var); ok && variable.Parent() == self.checked.types.Scope() {
+					found = append(found, effect{kind: "opaque", name: "the package-level variable " + variable.Name(), at: value.Pos(), via: types.ExprString(value)})
+				}
+			}
+		case *ast.SendStmt:
+			if self.isLinkBoxes(info.TypeOf(node.Value)) {
+				found = append(found, effect{kind: "opaque", name: "a send on " + types.ExprString(node.Chan), at: node.Pos(), via: types.ExprString(node.Value)})
 			}
 		}
 		return true
@@ -451,6 +618,35 @@ func TestEveryLinkBoxWriteThisPackageCanMakeIsMadeByItsOwnArm(t *testing.T) {
 			}
 		}
 	}
+	// AND OUTSIDE EVERY FUNCTION (LRI R78, N4): a function literal in a package-level declaration is
+	// code of no arm, so a write there is a write outside every arm, and a store handed off there is
+	// handed where these gates cannot follow it (PKGVAR-COLLECT)
+	outside := 0
+	for _, file := range checked.syntax {
+		for _, declaration := range file.Decls {
+			if _, isFunction := declaration.(*ast.FuncDecl); isFunction {
+				continue
+			}
+			for _, found := range reader.within(declaration) {
+				if strings.Contains(found.via, " → ") {
+					continue
+				}
+				outside++
+				switch found.kind {
+				case "opaque":
+					t.Fatalf("a package-level declaration hands the link box store %s to %s at %s, which these gates cannot read",
+						found.via, found.name, checked.at(found.at))
+				case "write":
+					t.Fatalf("store.LinkBoxes.%s is called in a package-level declaration at %s through %s, outside every arm, and a link box write belongs to %s alone",
+						found.name, checked.at(found.at), found.via, linkBoxWriteArm[found.name])
+				case "read":
+					calls[found.name] = append(calls[found.name], "a package-level declaration")
+					receivers[found.via] = true
+				}
+			}
+		}
+	}
+	t.Logf("effects of package-level declarations, of their own: %d", outside)
 	unused := []string{}
 	for _, name := range declared {
 		if len(calls[name]) == 0 {
@@ -551,7 +747,10 @@ func recordLayerRendezvousSurface(t *testing.T) map[string]bool {
 // MR6, Open without open_auth, fails here as well as in the arms' own test, whether its call is
 // removed or kept and made to decide nothing, and so does Register's small-order call dropped;
 // BRANCH-COLLECT, ALIAS-COLLECT and PARAM-COLLECT fail here and in cmd/message-server's behavioural
-// test of every unauthorized request.
+// test of every unauthorized request. So do the delta review's three (LRI R78, N4): PKGVAR-COLLECT,
+// a store put in a package-level variable and written through a package-level function literal;
+// STRUCT-HANDOFF, a store handed to another package inside a composite literal; and FIELD-REGISTRY-2,
+// a box's subscriptions ended through the registry's fields, keeping its counts.
 func TestEveryRendezvousArmVerifiesThroughTheLibraryBeforeItWrites(t *testing.T) {
 	surface := recordLayerRendezvousSurface(t)
 	for name := range surface {

@@ -97,23 +97,30 @@ func unsigned[R any](request R) R {
 // all of them the box, its deposits, its refusal count, the subscription registry and the pushes are
 // as they were; and then the holder's own Collect returns both deposits and the refusal count.
 //
+// THE HOLDER STAYS SUBSCRIBED (LRI R78, N4). A second box, whose holder has subscribed by its own
+// Collect, takes the same requests. Its subscription outlasts them, and the deposit made after them is
+// pushed to its holder: a change to the subscription registry made before check 7 would have ended
+// it, and nothing in the box would show that it had.
+//
 // BRANCH-COLLECT, which verified collect_auth only when subscribe was false, is killed by the Collects
 // with subscribe set; ALIAS-COLLECT and PARAM-COLLECT, which deleted through the acknowledgement
 // before check 7 through an alias of the store and through a helper, are killed by what the holder's
-// own Collect finds left.
+// own Collect finds left; and FIELD-REGISTRY-2, which ended a box's subscriptions through the
+// registry's fields before check 7, keeping its counts, by the holder's push.
 func TestEveryUnauthorizedRequestOnEveryArmChangesNothing(t *testing.T) {
 	ctx := context.Background()
 	fixture := newLinkFixture(t, nil)
 	box := fixture.mustRegister(t, 0x60)
 	taken := fixture.fillBox(t, box, 0x61)
 	before := fixture.stored(t, box)
+	watched := fixture.mustRegister(t, 0x68)
+	if reason, _ := fixture.collect(t, fixture.collectOf(watched, 0, 0, true)); reason != protocol.Reason_REASON_OK {
+		t.Fatalf("the holder's Collect with subscribe on the second box answered %v", reason)
+	}
+	fixture.pads()
 	pushes := len(fixture.pusher.rendezvousPushes(0))
 
-	stranger := newLinkBox(0x60)
-	stranger.deposit = ed25519.NewKeyFromSeed(linkOctets(ed25519.SeedSize, 0xA1))
-	stranger.collect = ed25519.NewKeyFromSeed(linkOctets(ed25519.SeedSize, 0xA2))
 	elsewhere := &linkFixture{conn: &api.Connection{ServerNonce: bytes.Repeat([]byte{0x6F}, 16), ClientId: fixture.conn.ClientId}}
-	swapped := &linkBox{id: box.id, deposit: box.collect, collect: box.deposit, card: box.card}
 	depositCt := linkOctets(store.LinkDepositBytes, 0x78)
 
 	type requests struct {
@@ -123,59 +130,73 @@ func TestEveryUnauthorizedRequestOnEveryArmChangesNothing(t *testing.T) {
 		collect  func(subscribe bool) *protocol.RendezvousCollectRequest
 		retire   *protocol.RendezvousRetireRequest
 	}
-	signedBy := func(signer *linkFixture, keys *linkBox) requests {
-		registration := signer.registration(keys)
-		// at the live box's own id and with its own card and keys, so that only the signature is wrong
-		registration.RendezvousId = box.id
-		registration.DepositVerifyPub = publicOf(box.deposit)
-		registration.CollectVerifyPub = publicOf(box.collect)
-		registration.PublicCt = box.card
-		signRegister(registration, keys.collect, signer.conn.ServerNonce)
-		return requests{
-			register: registration,
-			open:     signer.open(keys),
-			deposit:  signer.depositOf(keys, depositCt),
-			collect: func(subscribe bool) *protocol.RendezvousCollectRequest {
-				return signer.collectOf(keys, 0, 9, subscribe)
-			},
-			retire: signer.retireOf(keys),
+	// the requests at `target` whose signature does not hold, of each kind
+	unauthorized := func(target *linkBox) map[string]requests {
+		stranger := &linkBox{
+			id:      target.id,
+			deposit: ed25519.NewKeyFromSeed(linkOctets(ed25519.SeedSize, 0xA1)),
+			collect: ed25519.NewKeyFromSeed(linkOctets(ed25519.SeedSize, 0xA2)),
+			card:    target.card,
 		}
-	}
-	// a stranger's registration signed by its own key is self-certified and is Register's one rule's
-	// to refuse; the one here keeps the box's collect key and is signed by another, which check 7 refuses
-	kinds := map[string]requests{
-		"signed under keys the box never pinned": signedBy(fixture, stranger),
-		"signed over another connection's nonce": signedBy(elsewhere, box),
-		"with the box's two keys swapped":        signedBy(fixture, swapped),
-	}
-	bare := signedBy(fixture, box)
-	kinds["unsigned"] = requests{
-		register: unsigned(bare.register),
-		open:     unsigned(bare.open),
-		deposit:  unsigned(bare.deposit),
-		collect: func(subscribe bool) *protocol.RendezvousCollectRequest {
-			return unsigned(fixture.collectOf(box, 0, 9, subscribe))
-		},
-		retire: unsigned(bare.retire),
+		swapped := &linkBox{id: target.id, deposit: target.collect, collect: target.deposit, card: target.card}
+		signedBy := func(signer *linkFixture, keys *linkBox) requests {
+			registration := signer.registration(keys)
+			// at the live box's own id and with its own card and keys, so that only the signature is wrong
+			registration.RendezvousId = target.id
+			registration.DepositVerifyPub = publicOf(target.deposit)
+			registration.CollectVerifyPub = publicOf(target.collect)
+			registration.PublicCt = target.card
+			signRegister(registration, keys.collect, signer.conn.ServerNonce)
+			return requests{
+				register: registration,
+				open:     signer.open(keys),
+				deposit:  signer.depositOf(keys, depositCt),
+				collect: func(subscribe bool) *protocol.RendezvousCollectRequest {
+					return signer.collectOf(keys, 0, 9, subscribe)
+				},
+				retire: signer.retireOf(keys),
+			}
+		}
+		// a stranger's registration signed by its own key is self-certified and is Register's one
+		// rule's to refuse; the one here keeps the box's collect key and is signed by another, which
+		// check 7 refuses
+		kinds := map[string]requests{
+			"signed under keys the box never pinned": signedBy(fixture, stranger),
+			"signed over another connection's nonce": signedBy(elsewhere, target),
+			"with the box's two keys swapped":        signedBy(fixture, swapped),
+		}
+		bare := signedBy(fixture, target)
+		kinds["unsigned"] = requests{
+			register: unsigned(bare.register),
+			open:     unsigned(bare.open),
+			deposit:  unsigned(bare.deposit),
+			collect: func(subscribe bool) *protocol.RendezvousCollectRequest {
+				return unsigned(fixture.collectOf(target, 0, 9, subscribe))
+			},
+			retire: unsigned(bare.retire),
+		}
+		return kinds
 	}
 
 	oneRejected := linkAnswer{reason: protocol.Reason_REASON_REJECTED, body: false, pads: []time.Duration{linkFloor}}
-	for name, current := range kinds {
-		fixture.pads()
-		reason, response, err := fixture.handler.RendezvousRegister(ctx, fixture.conn, current.register)
-		if err != nil {
-			t.Fatalf("RendezvousRegister: %v", err)
-		}
-		if answer := (linkAnswer{reason, response != nil, fixture.pads()}); !reflect.DeepEqual(answer, oneRejected) {
-			t.Fatalf("Register at the live box's id, %s, was answered %v with a body %v after pads %v; want REASON_REJECTED, no body, one pad",
-				name, answer.reason, answer.body, answer.pads)
-		}
-		for _, subscribe := range []bool{false, true} {
-			answers := fixture.answers(t, current.open, current.deposit, current.collect(subscribe), current.retire)
-			for arm, answer := range answers {
-				if !reflect.DeepEqual(answer, oneAnswer) {
-					t.Fatalf("%s on a live box, %s, Collect's subscribe %v, was answered %v with a body %v after pads %v; want §4.3.11's one answer",
-						arm, name, subscribe, answer.reason, answer.body, answer.pads)
+	for _, target := range []*linkBox{box, watched} {
+		for name, current := range unauthorized(target) {
+			fixture.pads()
+			reason, response, err := fixture.handler.RendezvousRegister(ctx, fixture.conn, current.register)
+			if err != nil {
+				t.Fatalf("RendezvousRegister: %v", err)
+			}
+			if answer := (linkAnswer{reason, response != nil, fixture.pads()}); !reflect.DeepEqual(answer, oneRejected) {
+				t.Fatalf("Register at the live box's id, %s, was answered %v with a body %v after pads %v; want REASON_REJECTED, no body, one pad",
+					name, answer.reason, answer.body, answer.pads)
+			}
+			for _, subscribe := range []bool{false, true} {
+				answers := fixture.answers(t, current.open, current.deposit, current.collect(subscribe), current.retire)
+				for arm, answer := range answers {
+					if !reflect.DeepEqual(answer, oneAnswer) {
+						t.Fatalf("%s on a live box, %s, Collect's subscribe %v, was answered %v with a body %v after pads %v; want §4.3.11's one answer",
+							arm, name, subscribe, answer.reason, answer.body, answer.pads)
+					}
 				}
 			}
 		}
@@ -184,11 +205,20 @@ func TestEveryUnauthorizedRequestOnEveryArmChangesNothing(t *testing.T) {
 	if after := fixture.stored(t, box); !reflect.DeepEqual(after, before) {
 		t.Fatalf("unauthorized requests changed the box from %+v to %+v", before, after)
 	}
-	if held := fixture.subscriptions.RendezvousSubscriptions(); held != 0 {
-		t.Fatalf("unauthorized Collects left %d subscriptions", held)
+	if held := fixture.subscriptions.RendezvousSubscriptions(); held != 1 {
+		t.Fatalf("after the unauthorized requests the registry holds %d subscriptions, want the holder's one", held)
 	}
 	if now := len(fixture.pusher.rendezvousPushes(0)); now != pushes {
 		t.Fatalf("unauthorized requests sent %d pushes", now-pushes)
+	}
+
+	// THE HOLDER'S SUBSCRIPTION stands: a deposit into the second box is pushed to it
+	if reason, _ := fixture.deposit(t, fixture.depositOf(watched, linkOctets(store.LinkDepositBytes, 0x69))); reason != protocol.Reason_REASON_OK {
+		t.Fatalf("a deposit into the second box answered %v", reason)
+	}
+	pushed := fixture.pusher.rendezvousPushes(pushes + 1)
+	if len(pushed) != pushes+1 || !bytes.Equal(pushed[len(pushed)-1].GetRendezvousId(), watched.id) || pushed[len(pushed)-1].GetPendingCount() != 1 {
+		t.Fatalf("a deposit into the second box after the unauthorized requests sent %d pushes, want one to its holder of 1 pending: the requests ended the holder's subscription", len(pushed)-pushes)
 	}
 
 	// THE HOLDER'S OWN COLLECT still finds both deposits and the refusal
@@ -610,4 +640,267 @@ func (self *linkFixture) mustRegisterAt(t *testing.T, seed byte, at time.Time) *
 	self.clock.at = was
 	self.clock.mutex.Unlock()
 	return box
+}
+
+// ── a Collect's subscription, and its undo (LRI R78, N2 and N3) ───────────────────────────────
+
+// LinkBoxes whose Collects each take the next gate, in the order they are made. A gate holds its
+// Collect inside the write until it is released, and then fails it, as a store's transient failure
+// would, if it says so. A Collect with no gate left goes straight through.
+type gatedCollects struct {
+	store.LinkBoxes
+	mutex sync.Mutex
+	gates []*collectGate
+}
+
+type collectGate struct {
+	entered chan struct{}
+	release chan struct{}
+	fail    bool
+}
+
+func newCollectGate(fail bool) *collectGate {
+	return &collectGate{entered: make(chan struct{}), release: make(chan struct{}), fail: fail}
+}
+
+var errCollectGateFailed = errors.New("a store failure, made by the test, in a Collect's write")
+
+func (self *gatedCollects) CollectLinkBox(ctx context.Context, request *store.LinkBoxCollectRequest, now time.Time) (*store.LinkBoxCollected, error) {
+	self.mutex.Lock()
+	var gate *collectGate
+	if len(self.gates) != 0 {
+		gate, self.gates = self.gates[0], self.gates[1:]
+	}
+	self.mutex.Unlock()
+	if gate != nil {
+		close(gate.entered)
+		<-gate.release
+		if gate.fail {
+			return nil, errCollectGateFailed
+		}
+	}
+	return self.LinkBoxes.CollectLinkBox(ctx, request, now)
+}
+
+// A fixture whose Collects take `gates`, in order.
+func newGatedLinkFixture(t *testing.T, gates ...*collectGate) *linkFixture {
+	t.Helper()
+	gated := &gatedCollects{gates: gates}
+	return newLinkFixture(t, func(config *api.Config) {
+		gated.LinkBoxes = config.LinkBoxes
+		config.LinkBoxes = gated
+	})
+}
+
+// The holder's Collect with subscribe on `box`, acknowledging nothing, on a goroutine of its own, its
+// answer on the channel.
+func (self *linkFixture) collectAsync(box *linkBox) chan protocol.Reason {
+	answered := make(chan protocol.Reason, 1)
+	go func() {
+		reason, _, _ := self.handler.RendezvousCollect(context.Background(), self.conn, self.collectOf(box, 0, 0, true))
+		answered <- reason
+	}()
+	return answered
+}
+
+// A deposit into `box`, and how many pushes it sent, waited for a second at most.
+func (self *linkFixture) depositPushes(t *testing.T, box *linkBox, seed byte) int {
+	t.Helper()
+	before := len(self.pusher.rendezvousPushes(0))
+	if reason, _ := self.deposit(t, self.depositOf(box, linkOctets(store.LinkDepositBytes, seed))); reason != protocol.Reason_REASON_OK {
+		t.Fatalf("a deposit into the box answered %v", reason)
+	}
+	return len(self.pusher.rendezvousPushes(before+1)) - before
+}
+
+// A COLLECT WHOSE WRITE FAILS LEAVES NO SUBSCRIPTION (LRI R78, N2). A Collect with subscribe makes its
+// subscription before its write, so that a connection at its bound is refused before any deposit is
+// deleted, and undoes it when the write does not take. Here the write fails, as a store's transient
+// failure would: the Collect answers REASON_INTERNAL, the registry holds nothing, and a deposit after it
+// is pushed to nobody. UNDO-DROPPED, which never undoes, is killed here. The control is the same Collect
+// with a write that takes, which holds its subscription and is pushed the deposit.
+func TestACollectWhoseWriteFailsLeavesNoSubscription(t *testing.T) {
+	for _, fail := range []bool{true, false} {
+		gate := newCollectGate(fail)
+		close(gate.release)
+		fixture := newGatedLinkFixture(t, gate)
+		box := fixture.mustRegister(t, 0x50)
+		reason, _, err := fixture.handler.RendezvousCollect(context.Background(), fixture.conn, fixture.collectOf(box, 0, 0, true))
+		held := fixture.subscriptions.RendezvousSubscriptions()
+		pushes := fixture.depositPushes(t, box, 0x51)
+		if fail && (reason != protocol.Reason_REASON_INTERNAL || !errors.Is(err, errCollectGateFailed) || held != 0 || pushes != 0) {
+			t.Fatalf("a Collect with subscribe whose write failed answered %v (%v), left %d subscriptions, and a deposit after it sent %d pushes; want REASON_INTERNAL with the store's error, none and none",
+				reason, err, held, pushes)
+		}
+		if !fail && (reason != protocol.Reason_REASON_OK || err != nil || held != 1 || pushes != 1) {
+			t.Fatalf("the control: a Collect with subscribe whose write took answered %v (%v), left %d subscriptions, and a deposit after it sent %d pushes; want REASON_OK, one and one",
+				reason, err, held, pushes)
+		}
+	}
+}
+
+// A SUBSCRIPTION A COLLECT WAS TOLD IT HOLDS OUTLASTS ANOTHER COLLECT'S FAILED WRITE (LRI R78, N2; the
+// delta review's probe). Of two Collects with subscribe on one connection and one box, the first makes
+// the subscription and is held inside its write; the second finds it made, is answered REASON_OK, and
+// so is told it holds it; then the first's write fails. The first undoes only what it made, and what it
+// made is now held by a Collect that took: the subscription stands, and a deposit is pushed to it.
+// UNDO-IGNORES-CLAIMS, which undoes whatever the failing Collect made, is killed here. The control is the
+// same two Collects with the first's write taking.
+func TestASubscriptionACollectWasToldItHoldsOutlastsAnotherCollectsFailedWrite(t *testing.T) {
+	for _, fail := range []bool{true, false} {
+		first := newCollectGate(fail)
+		fixture := newGatedLinkFixture(t, first)
+		box := fixture.mustRegister(t, 0x52)
+		firstAnswer := fixture.collectAsync(box)
+		<-first.entered
+		second, _ := fixture.collect(t, fixture.collectOf(box, 0, 0, true))
+		close(first.release)
+		firstReason := <-firstAnswer
+		held := fixture.subscriptions.RendezvousSubscriptions()
+		pushes := fixture.depositPushes(t, box, 0x53)
+		want := protocol.Reason_REASON_OK
+		if fail {
+			want = protocol.Reason_REASON_INTERNAL
+		}
+		if firstReason != want || second != protocol.Reason_REASON_OK || held != 1 || pushes != 1 {
+			t.Fatalf("with the first write failing %v: the first Collect answered %v and the second %v, and after them the registry holds %d subscriptions and a deposit sent %d pushes; want %v, REASON_OK, one and one: the second was told it holds the subscription",
+				fail, firstReason, second, held, pushes, want)
+		}
+	}
+}
+
+// A COLLECT'S FAILED WRITE LEAVES A SUBSCRIPTION ANOTHER MADE SINCE (LRI R78, N2: compared by pointer,
+// as deliverRendezvous compares). The first Collect with subscribe makes the subscription and is held
+// inside its write. A deposit's push to it is refused, as one to a connection that has gone is, and that
+// ends it. A second Collect on the same connection then makes a subscription of its own, and is held
+// inside its write in turn. The first's write fails: the subscription standing is not the one it made,
+// and its undo leaves it. The second's write takes, and the next deposit is pushed to it.
+// UNDO-NOT-BY-POINTER, an undo of whatever subscription the connection holds on the box, is killed here.
+func TestACollectsFailedWriteLeavesASubscriptionAnotherMadeSince(t *testing.T) {
+	first, second := newCollectGate(true), newCollectGate(false)
+	fixture := newGatedLinkFixture(t, first, second)
+	box := fixture.mustRegister(t, 0x54)
+	firstAnswer := fixture.collectAsync(box)
+	<-first.entered
+	if held := fixture.subscriptions.RendezvousSubscriptions(); held != 1 {
+		t.Fatalf("the first Collect, inside its write, holds %d subscriptions, want the one it made", held)
+	}
+
+	// the deposit's push is refused, and that ends the first Collect's subscription
+	fixture.pusher.refuseNext(1)
+	if reason, _ := fixture.deposit(t, fixture.depositOf(box, linkOctets(store.LinkDepositBytes, 0x55))); reason != protocol.Reason_REASON_OK {
+		t.Fatalf("Deposit: %v", reason)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for fixture.pusher.refusedCount() != 1 || fixture.subscriptions.RendezvousSubscriptions() != 0 {
+		if time.Now().After(deadline) {
+			t.Fatalf("the refused push did not end the first Collect's subscription in 5 s: %d pushes refused, %d subscriptions held",
+				fixture.pusher.refusedCount(), fixture.subscriptions.RendezvousSubscriptions())
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+
+	secondAnswer := fixture.collectAsync(box)
+	<-second.entered
+	if held := fixture.subscriptions.RendezvousSubscriptions(); held != 1 {
+		t.Fatalf("the second Collect, inside its write, holds %d subscriptions, want the one it made", held)
+	}
+	close(first.release)
+	if reason := <-firstAnswer; reason != protocol.Reason_REASON_INTERNAL {
+		t.Fatalf("the first Collect, whose write failed, answered %v, want REASON_INTERNAL", reason)
+	}
+	close(second.release)
+	if reason := <-secondAnswer; reason != protocol.Reason_REASON_OK {
+		t.Fatalf("the second Collect answered %v, want REASON_OK", reason)
+	}
+	if held := fixture.subscriptions.RendezvousSubscriptions(); held != 1 {
+		t.Fatalf("after the first Collect's failed write and the second's, the registry holds %d subscriptions, want the second's: the first undid a subscription it did not make", held)
+	}
+	if pushes := fixture.depositPushes(t, box, 0x56); pushes != 1 {
+		t.Fatalf("a deposit after both Collects sent %d pushes, want one, to the second's subscription", pushes)
+	}
+}
+
+// One run of [TestAStaleCollectLeavesTheSubscriptionsOfTheBoxAtItsIdNow]: what the second box's
+// collector and the stale Collect were answered, the subscriptions held after both, and the pushes of a
+// deposit into the second box after them.
+func staleCollectRun(t *testing.T, stale bool) (protocol.Reason, protocol.Reason, int, int) {
+	t.Helper()
+	ctx := context.Background()
+	swapping := &swappingLinkBoxes{}
+	fixture := newLinkFixture(t, func(config *api.Config) {
+		swapping.MemoryStore = config.LinkBoxes.(*store.MemoryStore)
+		config.LinkBoxes = swapping
+	})
+	firstExpiry := fixture.clock.now().Add(api.DefaultLinkBoxTtl)
+	// the arms' clock stays before the first box's expiry, at which the second box reads as live
+	fixture.clock.advance(time.Minute)
+	first := fixture.mustRegisterAt(t, 0x40, firstExpiry.Add(-api.DefaultLinkBoxTtl))
+	second := newLinkBox(0x40)
+	second.deposit = ed25519.NewKeyFromSeed(linkOctets(ed25519.SeedSize, 0xC1))
+	second.collect = ed25519.NewKeyFromSeed(linkOctets(ed25519.SeedSize, 0xD1))
+	second.card = linkOctets(store.LinkCardBytes, 0xE1)
+	holder := &linkFixture{conn: &api.Connection{ServerNonce: bytes.Repeat([]byte{0x7A}, 16), ClientId: []byte("the second box's collector")}}
+
+	// the first box is swept at its expiry, the second registered at its id, and the second's own
+	// collector subscribes, signed under its key over its own nonce
+	var holderReason protocol.Reason
+	swap := func() {
+		if _, err := swapping.MemoryStore.SweepLinkBoxes(ctx, firstExpiry, store.LinkBoxSweepBounds{}); err != nil {
+			t.Errorf("the sweep at the first box's expiry: %v", err)
+			return
+		}
+		registration := fixture.registration(second)
+		registered, err := swapping.MemoryStore.RegisterLinkBox(ctx, &store.LinkBoxRegistration{
+			RendezvousId:     registration.GetRendezvousId(),
+			DepositVerifyPub: registration.GetDepositVerifyPub(),
+			CollectVerifyPub: registration.GetCollectVerifyPub(),
+			PublicCt:         registration.GetPublicCt(),
+		}, firstExpiry.Add(time.Second), api.DefaultLinkBoxTtl, api.DefaultLinkBoxLiveCap)
+		if err != nil || registered.Reason != protocol.Reason_REASON_OK {
+			t.Errorf("registering the second box answered %+v (%v)", registered, err)
+			return
+		}
+		reason, _, err := fixture.handler.RendezvousCollect(ctx, holder.conn, holder.collectOf(second, 0, 0, true))
+		if err != nil {
+			t.Errorf("the second box's collector's Collect: %v", err)
+		}
+		holderReason = reason
+	}
+	var staleReason protocol.Reason
+	if stale {
+		// inside the stale Collect's Q17
+		swapping.mutex.Lock()
+		swapping.swap = swap
+		swapping.mutex.Unlock()
+		staleReason, _ = fixture.collect(t, fixture.collectOf(first, 0, 0, true))
+	} else {
+		swap()
+	}
+	held := fixture.subscriptions.RendezvousSubscriptions()
+	before := len(fixture.pusher.rendezvousPushes(0))
+	reason, _, err := fixture.handler.RendezvousDeposit(ctx, holder.conn, holder.depositOf(second, linkOctets(store.LinkDepositBytes, 0x5C)))
+	if err != nil || reason != protocol.Reason_REASON_OK {
+		t.Fatalf("a deposit into the second box answered %v (%v)", reason, err)
+	}
+	pushes := len(fixture.pusher.rendezvousPushes(before+1)) - before
+	return holderReason, staleReason, held, pushes
+}
+
+// A STALE COLLECT LEAVES THE SUBSCRIPTIONS OF THE BOX AT ITS ID NOW (LRI R78, N3; the delta review's
+// probe). A Collect is verified against a box that, between its Q17 read and its subscription, passed
+// its expiry, was swept, and had another box registered at its id, whose own collector has subscribed.
+// The box standing at the id expires later than the one the Collect read, so the Collect's own box is
+// gone: it subscribes nothing and ends nothing, and its write answers REASON_CARD_RETIRED. The second
+// box's collector keeps its subscription, and a deposit after is pushed to it. STALE-REPLACES, the
+// registry replacing a standing box whatever its expiry, ends that subscription and is killed here. The
+// control is the same second box and collector, with no stale Collect.
+func TestAStaleCollectLeavesTheSubscriptionsOfTheBoxAtItsIdNow(t *testing.T) {
+	for _, stale := range []bool{true, false} {
+		holder, staleReason, held, pushes := staleCollectRun(t, stale)
+		if holder != protocol.Reason_REASON_OK || held != 1 || pushes != 1 || (stale && staleReason != protocol.Reason_REASON_CARD_RETIRED) {
+			t.Fatalf("with a stale Collect %v: the second box's collector was answered %v and the stale Collect %v, and after them the registry holds %d subscriptions and a deposit into the second box sent %d pushes; want REASON_OK, REASON_CARD_RETIRED, one and one",
+				stale, holder, staleReason, held, pushes)
+		}
+	}
 }

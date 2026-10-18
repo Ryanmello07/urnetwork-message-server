@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/urnetwork/message-server/peer"
 	"github.com/urnetwork/message-server/store"
 	"github.com/urnetwork/message/protocol"
+	"google.golang.org/protobuf/proto"
 )
 
 // §4.5's reject floor, as the peer serves it (LRI R75, T3).
@@ -20,6 +22,12 @@ import (
 
 // A stack over a handler that serves the rendezvous arms at `floor`, with the peer's default workers.
 func newPaddedStack(t *testing.T, floor time.Duration) *stack {
+	t.Helper()
+	return newPaddedStackTuned(t, floor, nil)
+}
+
+// [newPaddedStack], with the peer's configuration handed to `tune` first.
+func newPaddedStackTuned(t *testing.T, floor time.Duration, tune func(*peer.Config)) *stack {
 	t.Helper()
 	memory := store.NewMemoryStore(store.DefaultLimits())
 	connections, err := peer.NewConnections(rand.Reader, time.Now, time.Hour)
@@ -46,7 +54,7 @@ func newPaddedStack(t *testing.T, floor time.Duration) *stack {
 	if !handler.RendezvousServed() {
 		t.Fatal("a handler with a link box store and a floor does not serve the rendezvous arms")
 	}
-	return newStackOver(t, memory, connections, checks, handler)
+	return newStackOverTuned(t, memory, connections, checks, handler, tune)
 }
 
 // Once the peer has received `frames` frames, or a failure.
@@ -167,4 +175,103 @@ func TestAPeerClosesWithoutWaitingOutADeferredAnswer(t *testing.T) {
 			})
 		}
 	}
+}
+
+// `refusals` Opens at ids no box has, sent at once to a peer that lets `slots` answers wait out their
+// floor at a time, and how long each took, in the order the answers came.
+//
+// Each is answered REASON_CARD_RETIRED no sooner than the floor after it was sent. And past the bound,
+// a worker waits for a waiting answer to be sent before it defers another, which then waits out its
+// own rest from there: so the answers come `slots` at a time, a floor apart, and the k-th no sooner
+// than ceil(k / slots) floors after it was sent. That is held with half a floor of slack, which an
+// answer let past the bound early does not meet, and neither does one that never met a bound.
+func (self *stack) refusalsWaitOutTheBound(t *testing.T, floor time.Duration, refusals int, slots int) []time.Duration {
+	t.Helper()
+	// every answer is due within refusals ÷ slots floors; this is many times that, and a refusal not
+	// answered by it is one that waits for room that never comes
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	answers := self.refusedOpens(ctx, refusals)
+	took := []time.Duration{}
+	for range refusals {
+		answer := <-answers
+		if answer.err != nil || answer.reason != protocol.Reason_REASON_CARD_RETIRED {
+			t.Fatalf("a refused Open answered %v (%v), want REASON_CARD_RETIRED", answer.reason, answer.err)
+		}
+		took = append(took, answer.took)
+	}
+	slices.Sort(took)
+	for index, after := range took {
+		if after < floor {
+			t.Fatalf("a refused Open was answered %v after it was sent, before the floor of %v; the answers took %v", after, floor, took)
+		}
+		waves := (index + slots) / slots
+		if least := time.Duration(waves)*floor - floor/2; 1 < waves && after < least {
+			t.Fatalf("answer %d of %d came %v after it was sent, where a bound of %d waiting at once makes it wait %d floors of %v: more answers waited at once than the bound lets wait; the answers took %v",
+				index+1, refusals, after, slots, waves, floor, took)
+		}
+	}
+	return took
+}
+
+// THE BOUND ON WAITING ANSWERS KEEPS THE FLOOR (LRI R78, N1). Past MaxDeferredAnswers a worker waits
+// for a waiting answer to be sent before it defers another, and no answer is sent before its floor:
+// eight refusals sent at once to a peer that lets two answers wait are each answered no sooner than the
+// floor, two at a time, a floor apart, and all eight are counted deferred. BOUND-CUTS-FLOOR, which sends
+// an answer past the bound at once, is killed by the floor; UNBOUNDED, which takes no slot at all, by
+// the waves.
+func TestRefusalsPastTheBoundOnWaitingAnswersKeepTheirFloor(t *testing.T) {
+	const (
+		floor    = 300 * time.Millisecond
+		refusals = 8
+		slots    = 2
+	)
+	current := newPaddedStackTuned(t, floor, func(config *peer.Config) { config.MaxDeferredAnswers = slots })
+	current.hello(t)
+	took := current.refusalsWaitOutTheBound(t, floor, refusals, slots)
+	if deferred := current.peer.Stats().AnswersDeferred; deferred != refusals {
+		t.Fatalf("the peer deferred %d answers, want the %d refusals'", deferred, refusals)
+	}
+	t.Logf("%d refusals at once, %d answers let wait at a time, at a floor of %v: answered after %v", refusals, slots, floor, took)
+}
+
+// THE BYTES OF WAITING ANSWERS ARE BOUNDED TOO, AND KEEP THE FLOOR (LRI R78, N5). Past MaxDeferredBytes,
+// as past MaxDeferredAnswers, a worker waits for waiting answers to be sent before it defers another,
+// and no answer is sent before its floor. A refused Open's answer is a request_id and a reason, a few
+// octets; the peer here lets as many wait as fit in twice the size of one with a two-octet request_id,
+// and one octet more, which is two of them and not three, whatever their request ids. Eight refusals
+// sent at once, with the count left at its default, are then answered no sooner than the floor, two at
+// a time, a floor apart. BYTES-CUTS-FLOOR, which sends an answer past the budget at once, is killed by
+// the floor; BYTES-UNBOUNDED, which counts no bytes, by the waves.
+func TestRefusalsPastTheByteBudgetOfWaitingAnswersKeepTheirFloor(t *testing.T) {
+	const (
+		floor    = 300 * time.Millisecond
+		refusals = 8
+		slots    = 2
+	)
+	one := proto.Size(&protocol.MessageServerResponse{RequestId: 1<<14 - 1, Reason: protocol.Reason_REASON_CARD_RETIRED})
+	current := newPaddedStackTuned(t, floor, func(config *peer.Config) { config.MaxDeferredBytes = slots*one + 1 })
+	current.hello(t)
+	took := current.refusalsWaitOutTheBound(t, floor, refusals, slots)
+	if deferred := current.peer.Stats().AnswersDeferred; deferred != refusals {
+		t.Fatalf("the peer deferred %d answers, want the %d refusals'", deferred, refusals)
+	}
+	t.Logf("%d refusals at once, %d octets of answers let wait at a time, an answer at most %d, at a floor of %v: answered after %v", refusals, slots*one+1, one, floor, took)
+}
+
+// AN ANSWER LARGER THAN THE WHOLE BYTE BUDGET IS STILL SENT, ALONE (LRI R78, N5). An answer is counted
+// at no more than the whole budget, so that one larger than it waits for the others to be sent and is
+// then sent itself, rather than waiting for room that can never be made. A peer whose budget is one
+// octet, smaller than any answer, answers four refusals sent at once one at a time, a floor apart, each
+// no sooner than the floor. BYTES-UNCAPPED, which counts such an answer whole, is killed here: its
+// answers wait for ever.
+func TestAnAnswerLargerThanTheWholeByteBudgetIsStillSentAlone(t *testing.T) {
+	const (
+		floor    = 200 * time.Millisecond
+		refusals = 4
+	)
+	current := newPaddedStackTuned(t, floor, func(config *peer.Config) { config.MaxDeferredBytes = 1 })
+	current.hello(t)
+	took := current.refusalsWaitOutTheBound(t, floor, refusals, 1)
+	t.Logf("%d refusals at once, a byte budget of one octet, at a floor of %v: answered after %v", refusals, floor, took)
 }

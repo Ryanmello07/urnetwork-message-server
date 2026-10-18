@@ -129,10 +129,13 @@ kind 4 out, and `/readyz` says why. So adding a device needs it set.
 - **What it costs.** A padded answer waits out its floor on a timer, not on one of the eight
   workers that serve requests, so refusals do not hold up other clients' requests. At most 1,024
   answers wait at once (`peer.DefaultMaxDeferredAnswers`): at a floor of F that is 1,024 ÷ F
-  refusals a second, 40,960 at 25 ms, before a worker waits for one to be sent. A client that sends
-  requests and reads nothing holds a waiting answer's slot for up to the 30-second send timeout,
-  as it would hold a worker. §5.1 check 4, the rate limits that would bound one client, is not
-  built.
+  refusals a second, 40,960 at 25 ms, before a worker waits for one to be sent. They hold at most
+  8 MiB between them as well (`peer.DefaultMaxDeferredBytes`), each counted at its encoded size:
+  a refusal's answer is a few octets, but a Submit's can carry a winning commit of about 64 KiB, and
+  1,024 of those would hold about 67 MB. Past either bound, a worker waits for room. A client that
+  sends requests and reads nothing holds a waiting answer's room for up to the 30-second send
+  timeout, as it would hold a worker. §5.1 check 4, the rate limits that would bound one client, is
+  not built.
 - **Its range.** A negative value, or one too large to be a duration, is refused at load.
 
 ### `pg.yml` — the database (vault; secret)

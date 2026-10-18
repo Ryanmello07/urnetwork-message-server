@@ -12,6 +12,7 @@ import (
 	connectprotocol "github.com/urnetwork/connect/protocol"
 	"github.com/urnetwork/message-server/api"
 	messageprotocol "github.com/urnetwork/message/protocol"
+	"golang.org/x/sync/semaphore"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
@@ -54,9 +55,23 @@ var _ Handler = (*api.Handler)(nil)
 
 // The padded refusals that may wait out their floor at once, by default (LRI R75, T3). At a floor F
 // that is 1024 ÷ F refusals a second before a worker waits, against the 8 ÷ F that held every worker
-// when the pad slept on one: 40,960 a second at 25 ms, where it was 320. Each waiting answer is a
-// goroutine, a timer and a response that carries a reason and a request_id.
+// when the pad slept on one: 40,960 a second at 25 ms, where it was 320.
+//
+// Each waiting answer is a goroutine, a timer and the response it will send, and the response is not
+// always a reason and a request_id (LRI R78, N5). A Submit whose envelope is REASON_OK pads its
+// per-record refusals, and its response carries the winning commit with each REASON_COMMIT_LOST:
+// about 64 KiB for one, and up to max_response_bytes in all. By this count alone, 1,024 of them would
+// hold about 67 MB, and up to a GiB, for clients that read nothing. [DefaultMaxDeferredBytes] bounds
+// the same answers by their bytes.
 const DefaultMaxDeferredAnswers = 1024
+
+// The bytes the answers waiting out their floor may hold at once, by default (LRI R78, N5). Each is
+// counted at its encoded size: an answer past max_response_bytes at the size of the REASON_OVERSIZE it
+// is sent as, and one larger than the whole budget at the budget. Past it a worker waits for waiting
+// answers to be sent before it defers another, exactly as past [DefaultMaxDeferredAnswers], and the
+// floor is not cut short. 8 MiB holds 1,024 refusals' answers many times over, and 128 that each carry
+// a 64 KiB winning commit.
+const DefaultMaxDeferredBytes = 8 << 20
 
 // How long a worker waits for connect's send path to take a response frame.
 //
@@ -138,6 +153,11 @@ type Config struct {
 	// and the wait is the backpressure the queue already applies.
 	MaxDeferredAnswers int
 
+	// How many bytes those waiting answers may hold at once, each counted at its encoded size. Zero
+	// takes [DefaultMaxDeferredBytes]. Past it, as past MaxDeferredAnswers, a worker waits for
+	// waiting answers to be sent before it defers another (LRI R78, N5).
+	MaxDeferredBytes int
+
 	// The idle bound of §4.6's reassembly state, and the one [Connections] has no section for.
 	// Zero on the first takes §4.6's 30 seconds; zero on the second disables the connection
 	// sweep, which [Peer.NotBuilt] then declares.
@@ -209,10 +229,12 @@ type Peer struct {
 	unsubscribe func()
 	jobs        chan job
 	refusals    chan refusal
-	// a slot for each padded refusal waiting out its floor: [Peer.answerLater]
-	deferred chan struct{}
-	workers  sync.WaitGroup
-	closed   sync.Once
+	// a slot for each padded refusal waiting out its floor, and the bytes they hold: [Peer.answerLater]
+	deferred         chan struct{}
+	deferredBytes    *semaphore.Weighted
+	maxDeferredBytes int64
+	workers          sync.WaitGroup
+	closed           sync.Once
 
 	stats stats
 }
@@ -377,6 +399,11 @@ func New(config Config) (*Peer, error) {
 		maxDeferred = DefaultMaxDeferredAnswers
 	}
 	self.deferred = make(chan struct{}, maxDeferred)
+	self.maxDeferredBytes = int64(config.MaxDeferredBytes)
+	if self.maxDeferredBytes <= 0 {
+		self.maxDeferredBytes = DefaultMaxDeferredBytes
+	}
+	self.deferredBytes = semaphore.NewWeighted(self.maxDeferredBytes)
 	self.ctx, self.cancel = context.WithCancel(config.Client.Ctx())
 	for range workers {
 		self.workers.Add(1)
@@ -798,20 +825,29 @@ func (self *Peer) work() {
 // The handler returns at once with what its floor still asks for (api.Deferral), and the worker
 // goes back to the queue: a refusal no longer holds one of [Config.Workers] for the floor, which
 // held every worker at eight refusals in flight, and with §5.1 check 4 not built let one client
-// sending eight a floor stall every request on the server. The not-before time is this process's
-// clock at the handler's return plus that rest, so the answer goes at least the floor after the
-// handler started, and never before.
+// sending eight a floor stall every request on the server. The answer waits that rest from the moment
+// it is deferred, so it goes at least the floor after the handler started, and never before; one that
+// first waited for room, below, waits its whole rest from when it got it, and so goes later still.
 //
-// Each waiting answer holds one of [Config.MaxDeferredAnswers] slots until its send is done, and
-// that is what bounds them: past that many, a worker waits here for one, which is the queue's own
-// backpressure, and the floor is still not cut short. The send is [Peer.send], bounded by
-// [Config.SendTimeout] as a worker's is, so a client that reads nothing holds a slot rather than a
-// worker for it. [Peer.Close] ends every wait, and an answer still waiting then is not sent, as a
-// worker's sleeping one could not have been.
+// Each waiting answer holds one of [Config.MaxDeferredAnswers] slots, and as many of
+// [Config.MaxDeferredBytes] bytes as its encoded size, until its send is done, and that is what
+// bounds them: past either, a worker waits here for room, which is the queue's own backpressure, and
+// the floor is still not cut short. The bytes are the response's, after the one change [Peer.send]
+// would make to it, an answer past max_response_bytes becoming its REASON_OVERSIZE; an answer larger
+// than the whole budget is counted at the budget, so that it waits for the others rather than for
+// ever (LRI R78, N5). The send is [Peer.send], bounded by [Config.SendTimeout] as a worker's is, so a
+// client that reads nothing holds its room rather than a worker for it. [Peer.Close] ends every wait,
+// and an answer still waiting then is not sent, as a worker's sleeping one could not have been.
 func (self *Peer) answerLater(clientId connect.Id, response *messageprotocol.MessageServerResponse, wait time.Duration) {
 	select {
 	case self.deferred <- struct{}{}:
 	case <-self.ctx.Done():
+		return
+	}
+	response = self.bounded(response)
+	held := min(int64(proto.Size(response)), self.maxDeferredBytes)
+	if err := self.deferredBytes.Acquire(self.ctx, held); err != nil {
+		<-self.deferred
 		return
 	}
 	self.stats.answersDeferred.Add(1)
@@ -820,6 +856,7 @@ func (self *Peer) answerLater(clientId connect.Id, response *messageprotocol.Mes
 	go func() {
 		defer self.workers.Done()
 		defer func() { <-self.deferred }()
+		defer self.deferredBytes.Release(held)
 		timer := time.NewTimer(wait)
 		defer timer.Stop()
 		select {
@@ -1127,16 +1164,9 @@ var _ api.Pusher = (*Peer)(nil)
 
 // One response, on its way back to the client that asked.
 //
-// §4.3.1's `max_response_bytes` binds here: a response past it is replaced by the refusal
-// REASON_OVERSIZE carrying the same `request_id`, because a response the transport will not
-// carry is a request the client never hears about at all.
+// §4.3.1's `max_response_bytes` binds here ([Peer.bounded]).
 func (self *Peer) send(clientId connect.Id, response *messageprotocol.MessageServerResponse) {
-	if self.maxResponseBytes < proto.Size(response) {
-		response = &messageprotocol.MessageServerResponse{
-			RequestId: response.GetRequestId(),
-			Reason:    messageprotocol.Reason_REASON_OVERSIZE,
-		}
-	}
+	response = self.bounded(response)
 	frames, err := responseFrames(response, self.fragmentPartBytes)
 	if err != nil {
 		self.stats.responsesFailed.Add(1)
@@ -1167,6 +1197,20 @@ func (self *Peer) acked(err error) {
 	if err != nil {
 		self.stats.responsesFailed.Add(1)
 	}
+}
+
+// A response as it may travel. A response past §4.3.1's `max_response_bytes` is replaced by the
+// refusal REASON_OVERSIZE carrying the same `request_id`, because a response the transport will not
+// carry is a request the client never hears about at all. [Peer.answerLater] makes the change before
+// an answer waits, so that a waiting answer holds no more than it will send.
+func (self *Peer) bounded(response *messageprotocol.MessageServerResponse) *messageprotocol.MessageServerResponse {
+	if self.maxResponseBytes < proto.Size(response) {
+		return &messageprotocol.MessageServerResponse{
+			RequestId: response.GetRequestId(),
+			Reason:    messageprotocol.Reason_REASON_OVERSIZE,
+		}
+	}
+	return response
 }
 
 // ── the descriptor, read rather than written down ────────────────────────────────────────

@@ -118,6 +118,13 @@ func newStackWith(t *testing.T, records store.Store, process *server) *stack {
 // handler of a particular configuration.
 func newStackOver(t *testing.T, records store.Store, connections *peer.Connections, checks *peer.Checks, handler *api.Handler) *stack {
 	t.Helper()
+	return newStackOverTuned(t, records, connections, checks, handler, nil)
+}
+
+// [newStackOver], with the peer's configuration handed to `tune` before the peer is built: for the
+// tests that are about one of the peer's own bounds.
+func newStackOverTuned(t *testing.T, records store.Store, connections *peer.Connections, checks *peer.Checks, handler *api.Handler, tune func(*peer.Config)) *stack {
+	t.Helper()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	settings := connect.DefaultClientSettings()
@@ -134,7 +141,7 @@ func newStackOver(t *testing.T, records store.Store, connections *peer.Connectio
 	serverClient.RouteManager().UpdateTransport(connect.NewReceiveGatewayTransport(), []connect.Route{toServer})
 	serverClient.ContractManager().AddNoContractPeer(clientClient.ClientId())
 
-	served, err := peer.New(peer.Config{
+	config := peer.Config{
 		Client:          serverClient,
 		Handler:         handler,
 		Connections:     connections,
@@ -142,7 +149,11 @@ func newStackOver(t *testing.T, records store.Store, connections *peer.Connectio
 		Capabilities:    &protocol.Capabilities{MaxRequestBytes: peer.DefaultMaxRequestBytes},
 		ProtocolVersion: stackProtocolVersion,
 		ServerId:        bytes.Repeat([]byte{0x5A}, 16),
-	})
+	}
+	if tune != nil {
+		tune(&config)
+	}
+	served, err := peer.New(config)
 	if err != nil {
 		t.Fatalf("peer.New: %v", err)
 	}

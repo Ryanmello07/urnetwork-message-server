@@ -47,6 +47,14 @@ type rendezvousSubscription struct {
 	rendezvousId []byte
 	// the count the next push carries
 	pending uint32
+	// THE COLLECTS THAT HOLD IT (LRI R78, N2). A Collect with subscribe makes the subscription, or finds
+	// it made, before its write, and settles its claim once the write has answered
+	// ([Subscriptions.settleRendezvous]): `claims` counts the Collects that have not settled yet, and
+	// `kept` is whether one of them was answered REASON_OK. It is ended for a Collect whose write did
+	// not take only when no Collect kept it and none is still to settle, so that a Collect that was
+	// told it holds it does not lose it to another's failed write.
+	claims int
+	kept   bool
 }
 
 // One box's subscribers, by connection, and the box's expiry, fixed at its registration, after which
@@ -80,51 +88,84 @@ func (self *rendezvousExpiry) Pop() any {
 }
 
 // subscribeRendezvous registers one connection for pushes on one box until the box's expiry, and
-// answers whether this call added the subscription: a second Collect with subscribe set on the same
-// connection is the same subscription, and adds nothing. A connection already holding its bound is
-// refused, [ErrRendezvousSubscriptionsFull], and nothing is evicted. It visits no other
-// subscription.
-func (self *Subscriptions) subscribeRendezvous(clientId []byte, serverNonce []byte, rendezvousId []byte, expireTime time.Time, now time.Time) (bool, error) {
+// answers the subscription, with a claim on it taken for the caller to settle
+// ([Subscriptions.settleRendezvous]), and whether this call added it: a second Collect with subscribe
+// set on the same connection is the same subscription, and adds nothing. A connection already
+// holding its bound is refused, [ErrRendezvousSubscriptionsFull], and nothing is evicted. It visits
+// no other subscription.
+//
+// A BOX IS ITS ID AND ITS EXPIRY (LRI R78, N3). A record standing at the id under an earlier expiry
+// is a box that has gone, which a live box's Collect cannot be subscribing to, and it is ended here
+// rather than joined. One standing under a LATER expiry is a box registered at the id after the box
+// this call was verified against had gone: that box is the one gone, and this call subscribes
+// nothing and ends nothing, answering no subscription and no error. Its write then finds the later
+// box, pinned under keys it was not verified against, and answers REASON_CARD_RETIRED.
+func (self *Subscriptions) subscribeRendezvous(clientId []byte, serverNonce []byte, rendezvousId []byte, expireTime time.Time, now time.Time) (*rendezvousSubscription, bool, error) {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 	self.pruneRendezvous(now)
 	connection := connectionKeyOf(clientId, serverNonce)
 	box := self.rendezvousBoxes[string(rendezvousId)]
-	if box != nil && !box.expireTime.Equal(expireTime) {
-		// a box is its id and its expiry: one standing under another expiry is a box that has gone,
-		// which a live box's Collect cannot be subscribing to, and is ended here rather than joined
+	if box != nil && expireTime.Before(box.expireTime) {
+		return nil, false, nil
+	}
+	if box != nil && box.expireTime.Before(expireTime) {
 		self.dropRendezvousBox(string(rendezvousId))
 		box = nil
 	}
 	if box != nil {
-		if _, present := box.subscribers[connection]; present {
-			return false, nil
+		if present := box.subscribers[connection]; present != nil {
+			present.claims++
+			return present, false, nil
 		}
 	}
 	if self.maxRendezvousPerConnection <= self.rendezvousHeld[connection] {
-		return false, ErrRendezvousSubscriptionsFull
+		return nil, false, ErrRendezvousSubscriptionsFull
 	}
 	if box == nil {
 		box = &rendezvousBox{expireTime: expireTime, subscribers: map[string]*rendezvousSubscription{}}
 		self.rendezvousBoxes[string(rendezvousId)] = box
 		heap.Push(&self.rendezvousExpiry, rendezvousExpiryEntry{expireTime: expireTime, box: string(rendezvousId)})
 	}
-	box.subscribers[connection] = &rendezvousSubscription{
+	made := &rendezvousSubscription{
 		clientId:     bytes.Clone(clientId),
 		serverNonce:  bytes.Clone(serverNonce),
 		rendezvousId: bytes.Clone(rendezvousId),
+		claims:       1,
 	}
+	box.subscribers[connection] = made
 	self.rendezvousHeld[connection]++
 	self.rendezvousCount++
-	return true, nil
+	return made, true, nil
 }
 
-// unsubscribeRendezvous undoes a subscription a Collect added when the Collect it was added for did
-// not take: the box its write found was not the one it verified, or the write failed.
-func (self *Subscriptions) unsubscribeRendezvous(clientId []byte, serverNonce []byte, rendezvousId []byte) {
+// settleRendezvous settles the claim a Collect took on a subscription with
+// [Subscriptions.subscribeRendezvous], once its write has answered: `taken` is whether it answered
+// REASON_OK.
+//
+// THE UNDO IS OF WHAT THE CALL CLAIMED, COMPARED BY POINTER, as deliverRendezvous compares (LRI R78,
+// N2). If the subscription standing for the connection on the box now is not the one claimed, a
+// refused push, a retire, the box's expiry or another box at the id has ended that one since, and what
+// stands is another Collect's: nothing is settled. Otherwise the claim ends. A Collect that took keeps
+// the subscription; one that did not ends it only when no Collect kept it and none is still to settle,
+// so that the subscription is undone when every Collect that made or found it failed, and never under
+// a Collect that was told it holds it.
+func (self *Subscriptions) settleRendezvous(clientId []byte, serverNonce []byte, rendezvousId []byte, claimed *rendezvousSubscription, taken bool) {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
-	self.removeRendezvous(string(rendezvousId), connectionKeyOf(clientId, serverNonce))
+	connection := connectionKeyOf(clientId, serverNonce)
+	box := self.rendezvousBoxes[string(rendezvousId)]
+	if box == nil || box.subscribers[connection] != claimed {
+		return
+	}
+	claimed.claims--
+	if taken {
+		claimed.kept = true
+		return
+	}
+	if !claimed.kept && claimed.claims == 0 {
+		self.removeRendezvous(string(rendezvousId), connection)
+	}
 }
 
 // removeRendezvous ends one connection's subscription to one box. The caller holds the mutex.

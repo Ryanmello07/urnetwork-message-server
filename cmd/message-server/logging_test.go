@@ -188,3 +188,47 @@ func TestTheSweepsFailureLineNamesNothingOfTheDatabase(t *testing.T) {
 		}
 	}
 }
+
+// THE HEALTH LISTENER'S FAILURE LINE NAMES NO ADDRESS (LRI R78, N6; Spec B §11.1: "any IP address").
+// The health listener, bound on 127.0.0.1, is closed beneath its Serve, as an accept error would end
+// it. The line that says it stopped carries the error's class, `closed`, and not the error's text,
+// which names the address the listener was bound to: "accept tcp 127.0.0.1:…: use of closed network
+// connection". HEALTH-ERRTEXT, the text logged as it was, is killed here. The control is the same
+// search over a line planted with the address, which finds it.
+func TestTheHealthListenersFailureLineNamesNoAddress(t *testing.T) {
+	written := &bytes.Buffer{}
+	var mutex sync.Mutex
+	log := slog.New(slog.NewTextHandler(lockedWriter{buffer: written, mutex: &mutex}, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	read := func() string {
+		mutex.Lock()
+		defer mutex.Unlock()
+		return written.String()
+	}
+	current := &server{deploy: deployment{healthAddress: "127.0.0.1:0"}, log: log, closed: make(chan struct{}), ready: &readiness{}}
+	if err := current.listen(); err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	address := current.listener.Addr().String()
+	current.listener.Close()
+	select {
+	case <-current.closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the health listener's Serve did not return once its listener was closed")
+	}
+
+	line := strings.TrimSpace(read())
+	if !strings.Contains(line, `msg="the health listener stopped"`) || !strings.Contains(line, "class=closed") {
+		t.Fatalf("the health listener's failure line is not the one with its class, class=closed: %s", line)
+	}
+	search := func(haystack string) bool {
+		return strings.Contains(haystack, address) || strings.Contains(haystack, "127.0.0.1")
+	}
+	if search(line) {
+		t.Fatalf("the health listener's failure line names the address it was bound to, %s: %s", address, line)
+	}
+	// THE CONTROL: the same search finds the address in a line that plants it
+	if !search("level=ERROR msg=control address=" + address) {
+		t.Fatalf("the control planted %s and the search did not find it", address)
+	}
+	t.Logf("bound on %s; logged: %s", address, line)
+}

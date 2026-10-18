@@ -53,15 +53,24 @@ func (self *linkClock) advance(by time.Duration) {
 	self.at = self.at.Add(by)
 }
 
-// A pusher that keeps every push.
+// A pusher that keeps every push, but for the next `refuse` it is told to refuse, which it refuses as
+// a push to a connection that has gone is refused, and keeps nothing of.
 type linkPusher struct {
-	mutex  sync.Mutex
-	pushes []*protocol.MessageServerPush
-	signal chan struct{}
+	mutex   sync.Mutex
+	pushes  []*protocol.MessageServerPush
+	refuse  int
+	refused int
+	signal  chan struct{}
 }
 
 func (self *linkPusher) Push(clientId []byte, serverNonce []byte, push *protocol.MessageServerPush) bool {
 	self.mutex.Lock()
+	if 0 < self.refuse {
+		self.refuse--
+		self.refused++
+		self.mutex.Unlock()
+		return false
+	}
 	self.pushes = append(self.pushes, push)
 	self.mutex.Unlock()
 	select {
@@ -69,6 +78,20 @@ func (self *linkPusher) Push(clientId []byte, serverNonce []byte, push *protocol
 	default:
 	}
 	return true
+}
+
+// Refuse the next `count` pushes.
+func (self *linkPusher) refuseNext(count int) {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	self.refuse += count
+}
+
+// How many pushes it has refused.
+func (self *linkPusher) refusedCount() int {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	return self.refused
 }
 
 // The rendezvous pushes received so far, waiting at most a second for `want` of them.
