@@ -3,10 +3,13 @@ package sweep
 import (
 	"context"
 	"errors"
+	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/urnetwork/message-server/store"
 )
 
@@ -256,11 +259,11 @@ func TestTheJobReclaimsAnExpiredBoxAndNothingLive(t *testing.T) {
 			DepositVerifyPub: bytesOf(store.VerifyPubBytes, seed+1),
 			CollectVerifyPub: bytesOf(store.VerifyPubBytes, seed+2),
 			PublicCt:         bytesOf(store.LinkCardBytes, seed+3),
-		}, at, 600*time.Second)
+		}, at, 600*time.Second, 10000)
 		if err != nil {
 			t.Fatalf("RegisterLinkBox: %v", err)
 		}
-		if _, err := boxes.DepositLinkBox(ctx, id, bytesOf(store.LinkDepositBytes, seed+4), at); err != nil || answered == nil {
+		if _, err := boxes.DepositLinkBox(ctx, id, bytesOf(store.VerifyPubBytes, seed+1), bytesOf(store.LinkDepositBytes, seed+4), at); err != nil || answered == nil {
 			t.Fatalf("DepositLinkBox: %v", err)
 		}
 		return id
@@ -291,4 +294,136 @@ func bytesOf(length int, seed byte) []byte {
 		value[index] = seed + byte(index)
 	}
 	return value
+}
+
+// A sweeper that answers its first batch from a script and then fails, for the totals a failed
+// pass logs; or that waits for its context, for a pass the job is closed under.
+type failingSweeper struct {
+	first   *store.LinkBoxesSwept
+	err     error
+	waits   bool
+	entered chan struct{}
+	calls   int
+}
+
+func (self *failingSweeper) SweepLinkBoxes(ctx context.Context, now time.Time, bounds store.LinkBoxSweepBounds) (*store.LinkBoxesSwept, error) {
+	self.calls++
+	if self.waits {
+		close(self.entered)
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	if self.calls == 1 && self.first != nil {
+		return self.first, nil
+	}
+	return nil, self.err
+}
+
+// A FAILED SWEEP LOGS AN ERROR CLASS AND ITS TOTALS, AND NO IDENTIFIER (LRI R75, D1; Spec B §11.1:
+// no log line carries "any IP address", and what one may carry is "error classes without
+// identifiers"). The failure line used to carry err.Error(), and for a failure to connect pgx writes
+// the database's user, its name, and the address and host it dialled into that text. It now carries
+// the class [store.ErrorClass] gives the error, the SQLSTATE, `connect`, `canceled` or `other`, and
+// the batches, boxes and deposits the pass had reclaimed, and nothing of the error's text; and a pass
+// the job is closed under logs no failure at all, since the job's own Close is what ended it.
+//
+// Four failures, each with planted identifiers: a server error whose message and detail name a value;
+// a real failure to connect, through store.NewPgxPool, as a user and to a database whose names are
+// planted, at an address nothing listens on; an error of no class this package knows; and a pass the
+// job is closed under. The control is a planted line in the same capture, which the search finds by
+// the value it planted.
+func TestAFailedSweepLogsAnErrorClassAndItsTotalsAndNoIdentifier(t *testing.T) {
+	needles := []string{"planted-user", "planted-db", "127.0.0.1:1", "planted-detail", "10.11.12.13"}
+	search := func(written string) []string {
+		found := []string{}
+		for _, needle := range needles {
+			if strings.Contains(written, needle) {
+				found = append(found, needle)
+			}
+		}
+		return found
+	}
+	run := func(t *testing.T, sweeper store.LinkBoxSweeper) string {
+		t.Helper()
+		written := &strings.Builder{}
+		var mutex sync.Mutex
+		fixture := newJobFixture(t, sweeper, func(config *Config) {
+			config.Bounds = store.LinkBoxSweepBounds{Deposits: 2, Boxes: 2}
+			config.Log = slog.New(slog.NewTextHandler(lockedBuilder{builder: written, mutex: &mutex}, &slog.HandlerOptions{Level: slog.LevelDebug}))
+		})
+		if _, err := fixture.job.Pass(context.Background()); err == nil {
+			t.Fatal("the pass over a failing sweeper answered no error")
+		}
+		mutex.Lock()
+		defer mutex.Unlock()
+		return written.String()
+	}
+
+	connectPool, err := store.NewPgxPool(context.Background(), "postgres://planted-user@127.0.0.1:1/planted-db?sslmode=disable&connect_timeout=2")
+	if err != nil {
+		t.Fatalf("NewPgxPool: %v", err)
+	}
+	t.Cleanup(connectPool.Close)
+
+	for name, current := range map[string]struct {
+		sweeper store.LinkBoxSweeper
+		class   string
+		totals  string
+	}{
+		"a server error naming a value": {&failingSweeper{
+			first: &store.LinkBoxesSwept{Deposits: 2, Boxes: 1},
+			err:   &pgconn.PgError{Code: "40P01", Message: "deadlock detected at planted-detail", Detail: "Key (rendezvous_id)=(planted-detail)"},
+		}, "40P01", "batches=1 boxes=1 deposits=2"},
+		"a failure to connect": {store.NewPgxStore(connectPool, store.DefaultLimits(), nil), "connect", "batches=0 boxes=0 deposits=0"},
+		"an error of no known class": {&failingSweeper{err: errors.New("dial tcp 10.11.12.13:5432 as planted-user")},
+			"other", "batches=0 boxes=0 deposits=0"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			written := run(t, current.sweeper)
+			if !strings.Contains(written, `msg="the link box sweep failed"`) || !strings.Contains(written, "class="+current.class+" ") ||
+				!strings.Contains(written, current.totals) {
+				t.Fatalf("the failure line does not carry class=%s and %s:\n%s", current.class, current.totals, written)
+			}
+			if found := search(written); len(found) != 0 {
+				t.Fatalf("the failure line names %v:\n%s", found, written)
+			}
+			t.Logf("%s", strings.TrimSpace(written))
+		})
+	}
+
+	t.Run("APassTheJobIsClosedUnder", func(t *testing.T) {
+		written := &strings.Builder{}
+		var mutex sync.Mutex
+		sweeper := &failingSweeper{waits: true, entered: make(chan struct{})}
+		fixture := newJobFixture(t, sweeper, func(config *Config) {
+			config.Log = slog.New(slog.NewTextHandler(lockedBuilder{builder: written, mutex: &mutex}, &slog.HandlerOptions{Level: slog.LevelDebug}))
+		})
+		fixture.job.Start()
+		fixture.ticks <- fixture.now()
+		<-sweeper.entered
+		fixture.job.Close()
+		mutex.Lock()
+		defer mutex.Unlock()
+		if written.Len() != 0 {
+			t.Fatalf("a pass ended by the job's own Close logged:\n%s", written.String())
+		}
+	})
+
+	// THE CONTROL: the same search, over a line that plants each value, finds each
+	for _, needle := range needles {
+		if found := search("level=WARN msg=control value=" + needle); len(found) != 1 || found[0] != needle {
+			t.Fatalf("the control planted %s and the search found %v", needle, found)
+		}
+	}
+}
+
+type lockedBuilder struct {
+	builder *strings.Builder
+	mutex   *sync.Mutex
+}
+
+func (self lockedBuilder) Write(data []byte) (int, error) {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	return self.builder.Write(data)
 }

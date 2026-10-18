@@ -837,6 +837,9 @@ type LinkBoxDeposited struct {
 	DepositId    uint64
 	DepositHash  []byte
 	PendingCount uint32
+	// The octets were a deposit already standing, and this answer is that deposit's: §4.3.11's
+	// idempotent replay, which changed nothing, so that there is nothing new to push.
+	Replayed bool
 }
 
 // §4.3.11's Collect, as the store takes it.
@@ -845,6 +848,9 @@ type LinkBoxCollectRequest struct {
 	SinceDepositId      uint64 // exclusive; 0 is "from the first"
 	AckThroughDepositId uint64 // every deposit through this id is deleted; 0 deletes none
 	Limit               uint32 // 0 = every deposit after SinceDepositId
+	// The collect key the api layer verified collect_auth under: the box's pinned key, as Q17 read
+	// it. A row at the id pinned under any other key is not the box that was verified against.
+	VerifiedPub []byte
 }
 
 // One deposit, as Collect returns it.
@@ -889,42 +895,59 @@ type LinkBoxRetired struct {
 // store that compared at the nanosecond would answer a `now` differently from the row it wrote.
 //
 // What the api layer does, and this interface leaves to it: the shape checks of §5.1.2, the
-// signatures, the reject floor, the one answer for every box a caller may not use, and the cap on
-// live boxes, which it reads through [LinkBoxes.LiveLinkBoxes] and enforces before it registers.
-// The count and the insert are two steps, so registrations in flight together may pass the cap by
-// their number (§3.3, Q20).
+// signatures, the reject floor, and the one answer for every box a caller may not use.
+//
+// THE CAP ON LIVE BOXES IS CHECKED ON EVERY INSERT. The api layer reads the live count through
+// [LinkBoxes.LiveLinkBoxes] before it registers, so that a count that cannot be read refuses (§3.3,
+// Q20: the cap fails closed); and [LinkBoxes.RegisterLinkBox] inserts only while the live boxes are
+// below the cap it is handed, in the insert's own statement, so that no path to an insert passes a
+// full cap, the one through a row the sweep reclaimed between Q17 and the insert among them.
+// Registrations in flight together can still each count room before any of them has inserted, so
+// the cap may be passed by their number, as Q20 says.
+//
+// WHAT CHECK 7 VERIFIED IS HANDED TO EVERY WRITE. Deposit, Collect and Retire each take the key the
+// api layer verified the request's signature under, which is the key Q17 read off the row. Each
+// re-reads the row under its lock, and a row pinned under any other key answers
+// REASON_CARD_RETIRED and changes nothing: whatever stands at the id now, it is not the box the
+// signature was verified against (a box past its expiry, swept, and another registered at its id
+// between the read and the write).
 //
 // Every method is safe for concurrent use.
 type LinkBoxes interface {
 	// §4.3.11's Register, after `register_auth` has verified. An id with no row is inserted, with
-	// `expire_time = reclaim_after = now + ttl`. A live box at the id with the same three values
-	// answers REASON_OK and changes nothing, since a link box is not kept alive. Any other row at
-	// the id answers REASON_REJECTED: another key or another card, a retired box, or one past its
-	// expiry that the sweep has not reclaimed.
-	RegisterLinkBox(ctx context.Context, registration *LinkBoxRegistration, now time.Time, ttl time.Duration) (*LinkBoxRegistered, error)
+	// `expire_time = reclaim_after = now + ttl`, while fewer than `liveCap` boxes are live at `now`;
+	// at a full cap it answers REASON_CARD_RATE_LIMITED and inserts nothing. A live box at the id
+	// with the same three values answers REASON_OK and changes nothing, since a link box is not kept
+	// alive, and it does so at a full cap too: Register's one rule comes before the cap. Any other
+	// row at the id answers REASON_REJECTED: another key or another card, a retired box, or one
+	// past its expiry that the sweep has not reclaimed. A `liveCap` of zero is a caller's error.
+	RegisterLinkBox(ctx context.Context, registration *LinkBoxRegistration, now time.Time, ttl time.Duration, liveCap uint64) (*LinkBoxRegistered, error)
 
 	// §3.3's Q17: the row at the id, retired or past its expiry or not, for the api layer to verify
 	// a signature against and to decide [LinkBox.Live] on. Open returns its card. A rendezvous id
 	// with no row answers [ErrLinkBoxUnknown].
 	LinkBox(ctx context.Context, rendezvousId []byte) (*LinkBox, error)
 
-	// §4.3.11's Deposit, after `deposit_auth` has verified. Idempotent on `deposit_hash`, which the
-	// store computes from the octets, SHA-256, as it computes `head_hash` (§6.3): the same octets
-	// again answer the deposit already standing, and are one deposit. A third deposit over the
-	// box's life answers REASON_CARD_RATE_LIMITED and counts in `refused_count`. A box that is
-	// unknown, retired or past its expiry answers REASON_CARD_RETIRED and changes nothing.
-	DepositLinkBox(ctx context.Context, rendezvousId []byte, depositCt []byte, now time.Time) (*LinkBoxDeposited, error)
+	// §4.3.11's Deposit, after `deposit_auth` has verified under `verifiedPub`. Idempotent on
+	// `deposit_hash`, which the store computes from the octets, SHA-256, as it computes `head_hash`
+	// (§6.3): the same octets again answer the deposit already standing, Replayed, and are one
+	// deposit. A third deposit over the box's life answers REASON_CARD_RATE_LIMITED and counts in
+	// `refused_count`. A box that is unknown, retired, past its expiry or pinned under another
+	// deposit key answers REASON_CARD_RETIRED and changes nothing.
+	DepositLinkBox(ctx context.Context, rendezvousId []byte, verifiedPub []byte, depositCt []byte, now time.Time) (*LinkBoxDeposited, error)
 
-	// §4.3.11's Collect, after `collect_auth` has verified: delete exactly through the
-	// acknowledgement, then return the deposits after `SinceDepositId`, the count still waiting,
-	// and `refused_count`, which it zeroes. It refreshes nothing. A box that is unknown, retired
-	// or past its expiry answers REASON_CARD_RETIRED and changes nothing.
+	// §4.3.11's Collect, after `collect_auth` has verified under `request.VerifiedPub`: delete
+	// exactly through the acknowledgement, then return the deposits after `SinceDepositId`, the
+	// count still waiting, and `refused_count`, which it zeroes. It refreshes nothing. A box that
+	// is unknown, retired, past its expiry or pinned under another collect key answers
+	// REASON_CARD_RETIRED and changes nothing.
 	CollectLinkBox(ctx context.Context, request *LinkBoxCollectRequest, now time.Time) (*LinkBoxCollected, error)
 
-	// §4.3.11's Retire, after `retire_auth` has verified: delete every deposit, stamp
-	// `retired_time`, and keep the row as a tombstone until `reclaim_after`. A box that is unknown,
-	// already retired or past its expiry answers REASON_CARD_RETIRED and changes nothing.
-	RetireLinkBox(ctx context.Context, rendezvousId []byte, now time.Time) (*LinkBoxRetired, error)
+	// §4.3.11's Retire, after `retire_auth` has verified under `verifiedPub`: delete every deposit,
+	// stamp `retired_time`, and keep the row as a tombstone until `reclaim_after`. A box that is
+	// unknown, already retired, past its expiry or pinned under another collect key answers
+	// REASON_CARD_RETIRED and changes nothing.
+	RetireLinkBox(ctx context.Context, rendezvousId []byte, verifiedPub []byte, now time.Time) (*LinkBoxRetired, error)
 
 	// §3.3's Q20: the live boxes, those not retired and not past their expiry at `now`, which the
 	// cap counts. An error is the count unreadable, and the api layer refuses on it: the cap fails
@@ -1007,6 +1030,10 @@ var (
 	// Q17 found no row at that rendezvous id. Only [LinkBoxes.LinkBox] answers it; every other
 	// method answers an unknown box with REASON_CARD_RETIRED, as it answers a retired one.
 	ErrLinkBoxUnknown = errors.New("store: no link box at that rendezvous id")
+
+	// A registration handed no cap on live boxes. Not taken as "no cap": a caller that forgot the
+	// number would otherwise register past every cap there is (`link_box_live_cap`, §10.2).
+	ErrLinkBoxLiveCap = errors.New("store: a link box registration names no cap on live boxes")
 )
 
 // Every time a [LinkBoxes] method reads or writes: UTC, at the microsecond a `timestamp` holds.
@@ -1015,7 +1042,7 @@ func linkBoxTime(now time.Time) time.Time {
 }
 
 // The shape checks every [LinkBoxes] method makes before it reads anything.
-func validateLinkBoxRegistration(registration *LinkBoxRegistration, ttl time.Duration) error {
+func validateLinkBoxRegistration(registration *LinkBoxRegistration, ttl time.Duration, liveCap uint64) error {
 	if registration == nil {
 		return ErrIdentifierShape
 	}
@@ -1034,17 +1061,31 @@ func validateLinkBoxRegistration(registration *LinkBoxRegistration, ttl time.Dur
 	if ttl <= 0 {
 		return ErrLinkBoxTtl
 	}
+	if liveCap == 0 {
+		return ErrLinkBoxLiveCap
+	}
 	return nil
 }
 
-func validateLinkBoxDeposit(rendezvousId []byte, depositCt []byte) error {
+func validateLinkBoxDeposit(rendezvousId []byte, verifiedPub []byte, depositCt []byte) error {
 	if err := checkLength(rendezvousId, RendezvousIdBytes); err != nil {
+		return err
+	}
+	if err := checkLength(verifiedPub, VerifyPubBytes); err != nil {
 		return err
 	}
 	if len(depositCt) != LinkDepositBytes {
 		return ErrLinkBoxShape
 	}
 	return nil
+}
+
+// Collect's and Retire's: the id and the key the caller verified the request under.
+func validateLinkBoxAct(rendezvousId []byte, verifiedPub []byte) error {
+	if err := checkLength(rendezvousId, RendezvousIdBytes); err != nil {
+		return err
+	}
+	return checkLength(verifiedPub, VerifyPubBytes)
 }
 
 // H(deposit_ct), 014's `deposit_hash` and the idempotency key: SHA-256, as §3.2 gives it, computed

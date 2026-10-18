@@ -86,7 +86,7 @@ var recordLayerDecisionsBeyondItsVerifiers = map[string]string{
 	"RendezvousKeyIsAcceptable": "the rendezvous's small-order key rule (LRI R72, R73): every rendezvous verifier applies " +
 		"it before any signature, and Register's check 3 applies it so that no box is stored under a key nobody " +
 		"could use. It compares encodings in constant time, with crypto/subtle, which is in the class, so this " +
-		"package could not compute it itself. It is an export beyond A-1's block",
+		"package could not compute it itself. It is in A-1's block since A-38",
 }
 
 // The other direction: the authenticator decisions this package makes are calls into

@@ -106,6 +106,18 @@ var (
 	errNoServerId = errors.New("no server_id is configured, and §4.3.1 advertises one in every HelloResponse")
 )
 
+// What a test may put in place of the clock-driven parts of [newServer]'s wiring, and nothing
+// else: the zero value is production, and main passes none.
+//
+// A seam rather than a setting, for the reason peer's ticker is one ([peer.Config.NewTicker]). The
+// sweep's five minutes are a cadence no test can wait for, so without this nothing could see that
+// the server STARTS its job, or that Close stops it before the pool, and a server built without
+// either passed every test (LRI R75, D2 and T9).
+type serverSeams struct {
+	// the sweep job's ticks ([sweep.Config.Ticks]); nil takes the job's own five-minute ticker
+	sweepTicks func(every time.Duration) (<-chan time.Time, func())
+}
+
 // Build every collaborator this process serves with, in dependency order.
 //
 // A failure here is a failure to start. What is NOT a failure to start is a collaborator that is
@@ -114,6 +126,11 @@ var (
 // between the two is: this process cannot serve without a database, and it can run without
 // anything else for long enough to tell somebody why.
 func newServer(ctx context.Context, deploy deployment, loaded configuration, log *slog.Logger) (*server, error) {
+	return buildServer(ctx, deploy, loaded, log, serverSeams{})
+}
+
+// [newServer], with what a test puts in place of its clocks.
+func buildServer(ctx context.Context, deploy deployment, loaded configuration, log *slog.Logger, seams serverSeams) (*server, error) {
 	// A SERVER CONFIGURED NOT TO ATTACH MUST HAVE AN ENDPOINT, or it receives nothing at all: the
 	// platform is the only other carrier there is. Refused at startup and before the pool opens,
 	// because no readiness answer can make that deployment right (spec B Revision 23).
@@ -149,7 +166,7 @@ func newServer(ctx context.Context, deploy deployment, loaded configuration, log
 
 	self.clockSlack = clockSlack
 	self.records = store.NewPgxStore(pool, limitsOf(loaded), keys)
-	self.sweep, err = sweep.New(sweep.Config{LinkBoxes: self.records, Log: log})
+	self.sweep, err = sweep.New(sweep.Config{LinkBoxes: self.records, Log: log, Ticks: seams.sweepTicks})
 	if err != nil {
 		pool.Close()
 		return nil, err

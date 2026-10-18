@@ -716,19 +716,19 @@ type failingLinkBoxes struct{}
 
 var errTheStoreFailed = errors.New("linkbox_test: the link box store failed")
 
-func (failingLinkBoxes) RegisterLinkBox(context.Context, *store.LinkBoxRegistration, time.Time, time.Duration) (*store.LinkBoxRegistered, error) {
+func (failingLinkBoxes) RegisterLinkBox(context.Context, *store.LinkBoxRegistration, time.Time, time.Duration, uint64) (*store.LinkBoxRegistered, error) {
 	return nil, errTheStoreFailed
 }
 func (failingLinkBoxes) LinkBox(context.Context, []byte) (*store.LinkBox, error) {
 	return nil, errTheStoreFailed
 }
-func (failingLinkBoxes) DepositLinkBox(context.Context, []byte, []byte, time.Time) (*store.LinkBoxDeposited, error) {
+func (failingLinkBoxes) DepositLinkBox(context.Context, []byte, []byte, []byte, time.Time) (*store.LinkBoxDeposited, error) {
 	return nil, errTheStoreFailed
 }
 func (failingLinkBoxes) CollectLinkBox(context.Context, *store.LinkBoxCollectRequest, time.Time) (*store.LinkBoxCollected, error) {
 	return nil, errTheStoreFailed
 }
-func (failingLinkBoxes) RetireLinkBox(context.Context, []byte, time.Time) (*store.LinkBoxRetired, error) {
+func (failingLinkBoxes) RetireLinkBox(context.Context, []byte, []byte, time.Time) (*store.LinkBoxRetired, error) {
 	return nil, errTheStoreFailed
 }
 func (failingLinkBoxes) LiveLinkBoxes(context.Context, time.Time) (uint64, error) {
@@ -885,25 +885,25 @@ func (self *countingLinkBoxes) count() {
 	defer self.mutex.Unlock()
 	self.calls++
 }
-func (self *countingLinkBoxes) RegisterLinkBox(ctx context.Context, registration *store.LinkBoxRegistration, now time.Time, ttl time.Duration) (*store.LinkBoxRegistered, error) {
+func (self *countingLinkBoxes) RegisterLinkBox(ctx context.Context, registration *store.LinkBoxRegistration, now time.Time, ttl time.Duration, liveCap uint64) (*store.LinkBoxRegistered, error) {
 	self.count()
-	return self.LinkBoxes.RegisterLinkBox(ctx, registration, now, ttl)
+	return self.LinkBoxes.RegisterLinkBox(ctx, registration, now, ttl, liveCap)
 }
 func (self *countingLinkBoxes) LinkBox(ctx context.Context, rendezvousId []byte) (*store.LinkBox, error) {
 	self.count()
 	return self.LinkBoxes.LinkBox(ctx, rendezvousId)
 }
-func (self *countingLinkBoxes) DepositLinkBox(ctx context.Context, rendezvousId []byte, depositCt []byte, now time.Time) (*store.LinkBoxDeposited, error) {
+func (self *countingLinkBoxes) DepositLinkBox(ctx context.Context, rendezvousId []byte, verifiedPub []byte, depositCt []byte, now time.Time) (*store.LinkBoxDeposited, error) {
 	self.count()
-	return self.LinkBoxes.DepositLinkBox(ctx, rendezvousId, depositCt, now)
+	return self.LinkBoxes.DepositLinkBox(ctx, rendezvousId, verifiedPub, depositCt, now)
 }
 func (self *countingLinkBoxes) CollectLinkBox(ctx context.Context, request *store.LinkBoxCollectRequest, now time.Time) (*store.LinkBoxCollected, error) {
 	self.count()
 	return self.LinkBoxes.CollectLinkBox(ctx, request, now)
 }
-func (self *countingLinkBoxes) RetireLinkBox(ctx context.Context, rendezvousId []byte, now time.Time) (*store.LinkBoxRetired, error) {
+func (self *countingLinkBoxes) RetireLinkBox(ctx context.Context, rendezvousId []byte, verifiedPub []byte, now time.Time) (*store.LinkBoxRetired, error) {
 	self.count()
-	return self.LinkBoxes.RetireLinkBox(ctx, rendezvousId, now)
+	return self.LinkBoxes.RetireLinkBox(ctx, rendezvousId, verifiedPub, now)
 }
 func (self *countingLinkBoxes) LiveLinkBoxes(ctx context.Context, now time.Time) (uint64, error) {
 	self.count()

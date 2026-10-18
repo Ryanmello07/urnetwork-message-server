@@ -22,6 +22,14 @@ import (
 // is verified before the Q17 read, and Register's one rule comes ahead of the cap on live boxes,
 // which fails closed. A deposit is pushed to a collector that subscribed.
 //
+// AS THE SLICE REVIEW LEFT THEM (LRI R75). What check 7 verified is what the write is handed: the
+// pinned key it verified under, so that a row registered at the id since Q17 read it is not acted
+// on. The store checks the cap on live boxes in the insert itself. A replayed deposit pushes
+// nothing. A connection holds a bounded number of rendezvous subscriptions, and Collect takes its
+// subscription before its write, so that one past the bound is refused before anything is
+// deleted or zeroed. Every refusal is padded through [Handler.pad], which a caller that answers
+// later, the peer, takes as a rest to wait out off its worker pool rather than as a sleep.
+//
 // ONE PREDICATE DECIDES WHETHER THE ARMS ARE SERVED (R70's addendum): a link box store and a reject
 // floor above zero. A server missing either answers every rendezvous arm as an unserved arm is
 // answered, as Spec B §4.3.11 says a zero-floor server does, leaves kind 4 out of Capabilities 26
@@ -79,7 +87,7 @@ func (self *Handler) unservedRendezvous() []NotBuilt {
 	if self.linkBoxes == nil {
 		missing = append(missing, rendezvousWithoutLinkBoxes)
 	}
-	if self.rejectFloor == 0 {
+	if self.rejectFloor <= 0 {
 		missing = append(missing, rendezvousWithoutFloor)
 	}
 	return missing
@@ -174,14 +182,14 @@ func (self *Handler) RendezvousRegister(ctx context.Context, conn *Connection, r
 		return protocol.Reason_REASON_INTERNAL, nil, err
 	}
 	if reason := self.frontChecks(ctx, conn, op); reason != protocol.Reason_REASON_OK {
-		self.pad(started)
+		self.pad(ctx, started)
 		return reason, nil, nil
 	}
 	if !self.RendezvousServed() {
 		return protocol.Reason_REASON_INTERNAL, nil, nil
 	}
 	if !linkBoxRegistrationShaped(request) {
-		self.pad(started)
+		self.pad(ctx, started)
 		return protocol.Reason_REASON_REJECTED, nil, nil
 	}
 
@@ -197,7 +205,7 @@ func (self *Handler) RendezvousRegister(ctx context.Context, conn *Connection, r
 		PublicCt:         request.GetPublicCt(),
 	}
 	if !message.VerifyRendezvousRegister(registration, conn.ServerNonce, request.GetRegisterAuth()) {
-		self.pad(started)
+		self.pad(ctx, started)
 		return protocol.Reason_REASON_REJECTED, nil, nil
 	}
 
@@ -211,7 +219,7 @@ func (self *Handler) RendezvousRegister(ctx context.Context, conn *Connection, r
 		// the cap fails closed: a count that cannot be read is a full cap (§3.3, Q20)
 		live, err := self.linkBoxes.LiveLinkBoxes(ctx, now)
 		if err != nil || self.linkBoxLiveCap <= live {
-			self.pad(started)
+			self.pad(ctx, started)
 			return protocol.Reason_REASON_CARD_RATE_LIMITED, nil, nil
 		}
 	default:
@@ -222,12 +230,12 @@ func (self *Handler) RendezvousRegister(ctx context.Context, conn *Connection, r
 		DepositVerifyPub: request.GetDepositVerifyPub(),
 		CollectVerifyPub: request.GetCollectVerifyPub(),
 		PublicCt:         request.GetPublicCt(),
-	}, now, self.linkBoxTtl)
+	}, now, self.linkBoxTtl, self.linkBoxLiveCap)
 	if err != nil {
 		return protocol.Reason_REASON_INTERNAL, nil, err
 	}
 	if registered.Reason != protocol.Reason_REASON_OK {
-		self.pad(started)
+		self.pad(ctx, started)
 		return registered.Reason, nil, nil
 	}
 	return protocol.Reason_REASON_OK, &protocol.RendezvousRegisterResponse{
@@ -250,14 +258,14 @@ func (self *Handler) RendezvousOpen(ctx context.Context, conn *Connection, reque
 		return protocol.Reason_REASON_INTERNAL, nil, err
 	}
 	if reason := self.frontChecks(ctx, conn, op); reason != protocol.Reason_REASON_OK {
-		self.pad(started)
+		self.pad(ctx, started)
 		return reason, nil, nil
 	}
 	if !self.RendezvousServed() {
 		return protocol.Reason_REASON_INTERNAL, nil, nil
 	}
 	if len(request.GetRendezvousId()) != store.RendezvousIdBytes {
-		self.pad(started)
+		self.pad(ctx, started)
 		return protocol.Reason_REASON_REJECTED, nil, nil
 	}
 	box, reason, err := self.liveLinkBox(ctx, request.GetRendezvousId(), self.now())
@@ -265,14 +273,14 @@ func (self *Handler) RendezvousOpen(ctx context.Context, conn *Connection, reque
 		return protocol.Reason_REASON_INTERNAL, nil, err
 	}
 	if reason != protocol.Reason_REASON_OK {
-		self.pad(started)
+		self.pad(ctx, started)
 		return reason, nil, nil
 	}
 	// §5.1.2 check 7: open_auth, under the box's pinned deposit_verify_pub. Without it Open would be
 	// an existence oracle over guessed ids (Spec B §4.3.11), so a signature that does not verify is
 	// answered as an unknown box is
 	if !message.VerifyRendezvousOpen(box.DepositVerifyPub, conn.ServerNonce, request.GetRendezvousId(), request.GetOpenAuth()) {
-		self.pad(started)
+		self.pad(ctx, started)
 		return protocol.Reason_REASON_CARD_RETIRED, nil, nil
 	}
 	return protocol.Reason_REASON_OK, &protocol.RendezvousOpenResponse{
@@ -297,7 +305,7 @@ func (self *Handler) RendezvousDeposit(ctx context.Context, conn *Connection, re
 		return protocol.Reason_REASON_INTERNAL, nil, err
 	}
 	if reason := self.frontChecks(ctx, conn, op); reason != protocol.Reason_REASON_OK {
-		self.pad(started)
+		self.pad(ctx, started)
 		return reason, nil, nil
 	}
 	if !self.RendezvousServed() {
@@ -306,7 +314,7 @@ func (self *Handler) RendezvousDeposit(ctx context.Context, conn *Connection, re
 	// the length is an EQUALITY, for §5.1 check 3's reason: a range would admit an unpadded
 	// deposit, and its length would then say something about what is inside it
 	if len(request.GetRendezvousId()) != store.RendezvousIdBytes || len(request.GetDepositCt()) != store.LinkDepositBytes {
-		self.pad(started)
+		self.pad(ctx, started)
 		return protocol.Reason_REASON_REJECTED, nil, nil
 	}
 	now := self.now()
@@ -315,25 +323,27 @@ func (self *Handler) RendezvousDeposit(ctx context.Context, conn *Connection, re
 		return protocol.Reason_REASON_INTERNAL, nil, err
 	}
 	if reason != protocol.Reason_REASON_OK {
-		self.pad(started)
+		self.pad(ctx, started)
 		return reason, nil, nil
 	}
 	// §5.1.2 check 7: deposit_auth, under the box's pinned deposit_verify_pub, over the rendezvous id
 	// and H(deposit_ct)
 	if !message.VerifyRendezvousDeposit(box.DepositVerifyPub, conn.ServerNonce, request.GetRendezvousId(), request.GetDepositCt(), request.GetDepositAuth()) {
-		self.pad(started)
+		self.pad(ctx, started)
 		return protocol.Reason_REASON_CARD_RETIRED, nil, nil
 	}
 
-	deposited, err := self.linkBoxes.DepositLinkBox(ctx, request.GetRendezvousId(), request.GetDepositCt(), now)
+	deposited, err := self.linkBoxes.DepositLinkBox(ctx, request.GetRendezvousId(), box.DepositVerifyPub, request.GetDepositCt(), now)
 	if err != nil {
 		return protocol.Reason_REASON_INTERNAL, nil, err
 	}
 	if deposited.Reason != protocol.Reason_REASON_OK {
-		self.pad(started)
+		self.pad(ctx, started)
 		return deposited.Reason, nil, nil
 	}
-	if self.subscriptions != nil {
+	// a replay of a deposit standing is not a deposit, and pushes nothing (LRI R75, S-2): a holder of
+	// the code replaying its own deposit in a loop would otherwise wake the collector for nothing
+	if self.subscriptions != nil && !deposited.Replayed {
 		self.subscriptions.depositedRendezvous(request.GetRendezvousId(), deposited.PendingCount, now)
 	}
 	return protocol.Reason_REASON_OK, &protocol.RendezvousDepositResponse{
@@ -356,14 +366,14 @@ func (self *Handler) RendezvousCollect(ctx context.Context, conn *Connection, re
 		return protocol.Reason_REASON_INTERNAL, nil, err
 	}
 	if reason := self.frontChecks(ctx, conn, op); reason != protocol.Reason_REASON_OK {
-		self.pad(started)
+		self.pad(ctx, started)
 		return reason, nil, nil
 	}
 	if !self.RendezvousServed() {
 		return protocol.Reason_REASON_INTERNAL, nil, nil
 	}
 	if len(request.GetRendezvousId()) != store.RendezvousIdBytes {
-		self.pad(started)
+		self.pad(ctx, started)
 		return protocol.Reason_REASON_REJECTED, nil, nil
 	}
 	now := self.now()
@@ -372,7 +382,7 @@ func (self *Handler) RendezvousCollect(ctx context.Context, conn *Connection, re
 		return protocol.Reason_REASON_INTERNAL, nil, err
 	}
 	if reason != protocol.Reason_REASON_OK {
-		self.pad(started)
+		self.pad(ctx, started)
 		return reason, nil, nil
 	}
 	// §5.1.2 check 7: collect_auth, under the box's pinned collect_verify_pub, over the rendezvous
@@ -384,8 +394,23 @@ func (self *Handler) RendezvousCollect(ctx context.Context, conn *Connection, re
 		Limit:               request.GetLimit(),
 		Subscribe:           request.GetSubscribe(),
 	}, request.GetCollectAuth()) {
-		self.pad(started)
+		self.pad(ctx, started)
 		return protocol.Reason_REASON_CARD_RETIRED, nil, nil
+	}
+
+	// the subscription before the write (LRI R75, S-1): a connection at its bound is refused before
+	// anything is deleted through the acknowledgement or the refusal count is zeroed, since a refusal
+	// after the write would lose that count. It is the box Q17 read and check 7 verified, until its
+	// fixed expiry, and it is undone below if the write does not take
+	subscribed := false
+	if request.GetSubscribe() && self.subscriptions != nil {
+		added, err := self.subscriptions.subscribeRendezvous(conn.ClientId, conn.ServerNonce, request.GetRendezvousId(), box.ExpireTime, now)
+		if err != nil {
+			// a limit on the connection, which §4.3.11 folds into the code it gives every limit
+			self.pad(ctx, started)
+			return protocol.Reason_REASON_CARD_RATE_LIMITED, nil, nil
+		}
+		subscribed = added
 	}
 
 	collected, err := self.linkBoxes.CollectLinkBox(ctx, &store.LinkBoxCollectRequest{
@@ -393,16 +418,17 @@ func (self *Handler) RendezvousCollect(ctx context.Context, conn *Connection, re
 		SinceDepositId:      request.GetSinceDepositId(),
 		AckThroughDepositId: request.GetAckThroughDepositId(),
 		Limit:               request.GetLimit(),
+		VerifiedPub:         box.CollectVerifyPub,
 	}, now)
+	if subscribed && (err != nil || collected.Reason != protocol.Reason_REASON_OK) {
+		self.subscriptions.unsubscribeRendezvous(conn.ClientId, conn.ServerNonce, request.GetRendezvousId())
+	}
 	if err != nil {
 		return protocol.Reason_REASON_INTERNAL, nil, err
 	}
 	if collected.Reason != protocol.Reason_REASON_OK {
-		self.pad(started)
+		self.pad(ctx, started)
 		return collected.Reason, nil, nil
-	}
-	if request.GetSubscribe() && self.subscriptions != nil {
-		self.subscriptions.subscribeRendezvous(conn.ClientId, conn.ServerNonce, request.GetRendezvousId(), collected.ExpireTime, now)
 	}
 	response := &protocol.RendezvousCollectResponse{
 		PendingCount: collected.PendingCount,
@@ -434,14 +460,14 @@ func (self *Handler) RendezvousRetire(ctx context.Context, conn *Connection, req
 		return protocol.Reason_REASON_INTERNAL, nil, err
 	}
 	if reason := self.frontChecks(ctx, conn, op); reason != protocol.Reason_REASON_OK {
-		self.pad(started)
+		self.pad(ctx, started)
 		return reason, nil, nil
 	}
 	if !self.RendezvousServed() {
 		return protocol.Reason_REASON_INTERNAL, nil, nil
 	}
 	if len(request.GetRendezvousId()) != store.RendezvousIdBytes {
-		self.pad(started)
+		self.pad(ctx, started)
 		return protocol.Reason_REASON_REJECTED, nil, nil
 	}
 	now := self.now()
@@ -450,21 +476,21 @@ func (self *Handler) RendezvousRetire(ctx context.Context, conn *Connection, req
 		return protocol.Reason_REASON_INTERNAL, nil, err
 	}
 	if reason != protocol.Reason_REASON_OK {
-		self.pad(started)
+		self.pad(ctx, started)
 		return reason, nil, nil
 	}
 	// §5.1.2 check 7: retire_auth, under the box's pinned collect_verify_pub
 	if !message.VerifyRendezvousRetire(box.CollectVerifyPub, conn.ServerNonce, request.GetRendezvousId(), request.GetRetireAuth()) {
-		self.pad(started)
+		self.pad(ctx, started)
 		return protocol.Reason_REASON_CARD_RETIRED, nil, nil
 	}
 
-	retired, err := self.linkBoxes.RetireLinkBox(ctx, request.GetRendezvousId(), now)
+	retired, err := self.linkBoxes.RetireLinkBox(ctx, request.GetRendezvousId(), box.CollectVerifyPub, now)
 	if err != nil {
 		return protocol.Reason_REASON_INTERNAL, nil, err
 	}
 	if retired.Reason != protocol.Reason_REASON_OK {
-		self.pad(started)
+		self.pad(ctx, started)
 		return retired.Reason, nil, nil
 	}
 	if self.subscriptions != nil {

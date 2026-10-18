@@ -52,6 +52,12 @@ type Handler interface {
 
 var _ Handler = (*api.Handler)(nil)
 
+// The padded refusals that may wait out their floor at once, by default (LRI R75, T3). At a floor F
+// that is 1024 ÷ F refusals a second before a worker waits, against the 8 ÷ F that held every worker
+// when the pad slept on one: 40,960 a second at 25 ms, where it was 320. Each waiting answer is a
+// goroutine, a timer and a response that carries a reason and a request_id.
+const DefaultMaxDeferredAnswers = 1024
+
 // How long a worker waits for connect's send path to take a response frame.
 //
 // No section names it: §4.6 bounds the reassembly buffer and §4.3.1 bounds the response, and
@@ -126,6 +132,12 @@ type Config struct {
 	Workers    int
 	QueueDepth int
 
+	// How many padded refusals may wait out the rest of their floor at once, each on a timer of its
+	// own and off the worker pool ([Peer.answerLater]). Zero takes [DefaultMaxDeferredAnswers]. Past
+	// it, a worker waits for one to be sent before it defers another: the floor is never cut short,
+	// and the wait is the backpressure the queue already applies.
+	MaxDeferredAnswers int
+
 	// The idle bound of §4.6's reassembly state, and the one [Connections] has no section for.
 	// Zero on the first takes §4.6's 30 seconds; zero on the second disables the connection
 	// sweep, which [Peer.NotBuilt] then declares.
@@ -197,8 +209,10 @@ type Peer struct {
 	unsubscribe func()
 	jobs        chan job
 	refusals    chan refusal
-	workers     sync.WaitGroup
-	closed      sync.Once
+	// a slot for each padded refusal waiting out its floor: [Peer.answerLater]
+	deferred chan struct{}
+	workers  sync.WaitGroup
+	closed   sync.Once
 
 	stats stats
 }
@@ -243,6 +257,7 @@ type stats struct {
 	refusalsDropped atomic.Uint64
 	pushesSent      atomic.Uint64
 	pushesRefused   atomic.Uint64
+	answersDeferred atomic.Uint64
 }
 
 // The aggregate counters of §11.3's shape: no identifier, no label, nothing a client chose.
@@ -262,6 +277,9 @@ type Stats struct {
 	// been replaced, which drops the subscription that asked for them.
 	PushesSent    uint64
 	PushesRefused uint64
+
+	// The padded refusals whose answers waited out their floor off the worker pool.
+	AnswersDeferred uint64
 }
 
 func New(config Config) (*Peer, error) {
@@ -354,6 +372,11 @@ func New(config Config) (*Peer, error) {
 	}
 	self.jobs = make(chan job, queueDepth)
 	self.refusals = make(chan refusal, queueDepth)
+	maxDeferred := config.MaxDeferredAnswers
+	if maxDeferred <= 0 {
+		maxDeferred = DefaultMaxDeferredAnswers
+	}
+	self.deferred = make(chan struct{}, maxDeferred)
 	self.ctx, self.cancel = context.WithCancel(config.Client.Ctx())
 	for range workers {
 		self.workers.Add(1)
@@ -396,6 +419,7 @@ func (self *Peer) Stats() Stats {
 		RefusalsDropped: self.stats.refusalsDropped.Load(),
 		PushesSent:      self.stats.pushesSent.Load(),
 		PushesRefused:   self.stats.pushesRefused.Load(),
+		AnswersDeferred: self.stats.answersDeferred.Load(),
 	}
 }
 
@@ -755,9 +779,55 @@ func (self *Peer) work() {
 			return
 		case current := <-self.jobs:
 			self.stats.requestsServed.Add(1)
-			self.send(current.arrived.clientId, self.answer(self.ctx, current.arrived, current.request))
+			// a handler that pads a refusal leaves the rest of its floor here rather than sleeping
+			// it on this worker (api.Deferral)
+			deferral := &api.Deferral{}
+			response := self.answer(api.WithDeferral(self.ctx, deferral), current.arrived, current.request)
+			if wait, deferred := deferral.Remaining(); deferred && 0 < wait {
+				self.answerLater(current.arrived.clientId, response, wait)
+				continue
+			}
+			self.send(current.arrived.clientId, response)
 		}
 	}
+}
+
+// A padded refusal's answer, sent once the rest of its floor has passed, from a goroutine of its
+// own rather than from the worker that decided it (§4.5; LRI R75, T3).
+//
+// The handler returns at once with what its floor still asks for (api.Deferral), and the worker
+// goes back to the queue: a refusal no longer holds one of [Config.Workers] for the floor, which
+// held every worker at eight refusals in flight, and with §5.1 check 4 not built let one client
+// sending eight a floor stall every request on the server. The not-before time is this process's
+// clock at the handler's return plus that rest, so the answer goes at least the floor after the
+// handler started, and never before.
+//
+// Each waiting answer holds one of [Config.MaxDeferredAnswers] slots until its send is done, and
+// that is what bounds them: past that many, a worker waits here for one, which is the queue's own
+// backpressure, and the floor is still not cut short. The send is [Peer.send], bounded by
+// [Config.SendTimeout] as a worker's is, so a client that reads nothing holds a slot rather than a
+// worker for it. [Peer.Close] ends every wait, and an answer still waiting then is not sent, as a
+// worker's sleeping one could not have been.
+func (self *Peer) answerLater(clientId connect.Id, response *messageprotocol.MessageServerResponse, wait time.Duration) {
+	select {
+	case self.deferred <- struct{}{}:
+	case <-self.ctx.Done():
+		return
+	}
+	self.stats.answersDeferred.Add(1)
+	// the worker that calls this is counted, so the count is above zero and Close's Wait may run
+	self.workers.Add(1)
+	go func() {
+		defer self.workers.Done()
+		defer func() { <-self.deferred }()
+		timer := time.NewTimer(wait)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+			self.send(clientId, response)
+		case <-self.ctx.Done():
+		}
+	}()
 }
 
 // ── the dispatch ─────────────────────────────────────────────────────────────────────────

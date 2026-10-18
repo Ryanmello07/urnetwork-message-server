@@ -3,11 +3,14 @@ package main
 import (
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // §10.2's `message.yml`, as the property it has to hold: **a value written in the file is the
@@ -318,3 +321,68 @@ func distinctFrom(value string) string {
 
 // An environment that holds nothing, for the tests that are about the file.
 func noEnvironment(string) (string, bool) { return "", false }
+
+// The setting by its name, or a failure naming it.
+func settingNamed(t *testing.T, name string) setting {
+	t.Helper()
+	for _, item := range settings() {
+		if item.name == name {
+			return item
+		}
+	}
+	t.Fatalf("no §10.2 setting is named %s", name)
+	return setting{}
+}
+
+// A DURATION A SETTING HOLDS FITS A DURATION (LRI R75, T8). reject_floor_ms and link_box_ttl_seconds
+// are counts read into a time.Duration where they are used, and a count past the largest a Duration
+// holds overflowed there to a negative length: a reject_floor_ms of 9,223,372,036,855 or more served
+// kind 4 with no envelope at all, under a predicate that asked only whether the floor was zero. Each
+// is refused at load from one past the largest count it can hold; the review's own number is refused;
+// and the control is the largest count itself, which is taken and converts to a positive length, so
+// that the refusal is the bound's and not a parse error's.
+func TestADurationSettingRefusesACountPastWhatADurationHolds(t *testing.T) {
+	for name, unit := range map[string]time.Duration{"reject_floor_ms": time.Millisecond, "link_box_ttl_seconds": time.Second} {
+		t.Run(name, func(t *testing.T) {
+			item := settingNamed(t, name)
+			largest := math.MaxInt64 / int64(unit)
+			for _, past := range []int64{largest + 1, math.MaxInt64} {
+				var target configuration
+				if err := item.read(&target, strconv.FormatInt(past, 10)); err == nil {
+					t.Fatalf("%s took %d, which a Duration of its unit cannot hold: it converts to %v", name, past, time.Duration(past)*unit)
+				}
+			}
+			var target configuration
+			if err := item.read(&target, strconv.FormatInt(largest, 10)); err != nil {
+				t.Fatalf("the control: %s refused %d, the largest count a Duration of its unit holds: %v", name, largest, err)
+			}
+			read, err := strconv.ParseInt(item.print(&target), 10, 64)
+			if err != nil || read != largest || time.Duration(read)*unit <= 0 {
+				t.Fatalf("the control: %s took %d and holds %q, which converts to %v", name, largest, item.print(&target), time.Duration(read)*unit)
+			}
+		})
+	}
+	var target configuration
+	if err := settingNamed(t, "reject_floor_ms").read(&target, "9223372036855"); err == nil {
+		t.Fatal("reject_floor_ms took 9,223,372,036,855, the review's own number, which overflows to a negative floor")
+	}
+}
+
+// THE READINESS SAYS WHOSE card_tombstone_seconds IS (LRI R75, T11). It is the contact card's, kind 0,
+// which no build of I1 serves, and nothing reads it; a retired link box keeps its tombstone until its
+// own expiry. The line said "nothing tombstones a retired id", which a retired link box disproves.
+func TestTheReadinessLineOnCardTombstoneSecondsSaysWhoseItIs(t *testing.T) {
+	found := ""
+	for _, line := range configurationNotWired {
+		if strings.Contains(line.What, "card_tombstone_seconds") {
+			found = line.What
+		}
+	}
+	if found == "" {
+		t.Fatal("no readiness line names card_tombstone_seconds")
+	}
+	if strings.Contains(found, "nothing tombstones a retired id") || !strings.Contains(found, "kind 0") ||
+		!strings.Contains(found, "a retired link box keeps its tombstone until its own expiry") {
+		t.Fatalf("the readiness line on card_tombstone_seconds reads %q: it is the contact card's, kind 0, and a retired link box keeps its tombstone until its own expiry", found)
+	}
+}

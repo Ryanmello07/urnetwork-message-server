@@ -121,7 +121,7 @@ func (self *Handler) Submit(ctx context.Context, conn *Connection, request *prot
 		return protocol.Reason_REASON_INTERNAL, nil, err
 	}
 	if reason := self.frontChecks(ctx, conn, op); reason != protocol.Reason_REASON_OK {
-		self.pad(started)
+		self.pad(ctx, started)
 		return reason, nil, nil
 	}
 
@@ -134,7 +134,7 @@ func (self *Handler) Submit(ctx context.Context, conn *Connection, request *prot
 		if refused.reason == protocol.Reason_REASON_OK {
 			continue
 		}
-		self.pad(started)
+		self.pad(ctx, started)
 		if len(pass.records) == 0 {
 			// nothing to align a result with, so the refusal has only the envelope to travel on
 			return refused.reason, nil, nil
@@ -147,7 +147,7 @@ func (self *Handler) Submit(ctx context.Context, conn *Connection, request *prot
 		return protocol.Reason_REASON_INTERNAL, nil, ErrNoStore
 	}
 	if !everyResultAccepted(pass.response) {
-		self.pad(started)
+		self.pad(ctx, started)
 	}
 	// §4.3.5: every subscriber of this group is owed a push for what was just stored. It marks and
 	// returns; nothing here waits on a connection
@@ -176,14 +176,14 @@ func (self *Handler) CreateGroup(ctx context.Context, conn *Connection, request 
 		return protocol.Reason_REASON_INTERNAL, nil, err
 	}
 	if reason := self.frontChecks(ctx, conn, op); reason != protocol.Reason_REASON_OK {
-		self.pad(started)
+		self.pad(ctx, started)
 		return reason, nil, nil
 	}
 
 	pass := &recordPass{projection: request.GetInitialCommit()}
 	groupId := request.GetGroupId()
 	reject := func() (protocol.Reason, *protocol.CreateGroupResponse, error) {
-		self.pad(started)
+		self.pad(ctx, started)
 		return protocol.Reason_REASON_REJECTED, nil, nil
 	}
 
@@ -194,7 +194,7 @@ func (self *Handler) CreateGroup(ctx context.Context, conn *Connection, request 
 		return reject()
 	}
 	if reason := self.staticShape(groupId, pass); reason != protocol.Reason_REASON_OK {
-		self.pad(started)
+		self.pad(ctx, started)
 		return reason, nil, nil
 	}
 	if !pass.parsed.Header.IsCommit || pass.parsed.Header.Epoch != 0 {
@@ -235,7 +235,7 @@ func (self *Handler) CreateGroup(ctx context.Context, conn *Connection, request 
 	}
 	// check 8
 	if reason := self.bodyHash(pass); reason != protocol.Reason_REASON_OK {
-		self.pad(started)
+		self.pad(ctx, started)
 		return reason, nil, nil
 	}
 	if reason := self.recordKindIsBuilt(pass); reason != protocol.Reason_REASON_OK {
@@ -260,7 +260,7 @@ func (self *Handler) CreateGroup(ctx context.Context, conn *Connection, request 
 	if !acceptance(result.Reason) {
 		// §4.3.2: an existing group_id answers exactly what a bad MAC answers, and the creator
 		// retries with a fresh one
-		self.pad(started)
+		self.pad(ctx, started)
 		return result.Reason, nil, nil
 	}
 

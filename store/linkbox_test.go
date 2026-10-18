@@ -387,7 +387,7 @@ func TestASweepBatchSkipsWhileAnotherSweeperHoldsTheLock(t *testing.T) {
 	store := pgxTestStore(t, DefaultLimits())
 	ctx := context.Background()
 	registration := linkBoxRegistration(0x10)
-	if registered, err := store.RegisterLinkBox(ctx, registration, linkBoxAt(0), linkBoxTtl); err != nil || registered.Reason != protocol.Reason_REASON_OK {
+	if registered, err := store.RegisterLinkBox(ctx, registration, linkBoxAt(0), linkBoxTtl, linkBoxLiveCap); err != nil || registered.Reason != protocol.Reason_REASON_OK {
 		t.Fatalf("RegisterLinkBox: %v (%v)", registered, err)
 	}
 

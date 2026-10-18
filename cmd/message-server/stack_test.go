@@ -83,22 +83,6 @@ func newStack(t *testing.T) *stack {
 // go green against a server whose own wiring was wrong.
 func newStackWith(t *testing.T, records store.Store, process *server) *stack {
 	t.Helper()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	settings := connect.DefaultClientSettings()
-	serverClient := connect.NewClient(ctx, connect.NewId(), connect.NewNoContractClientOob(), settings)
-	clientClient := connect.NewClient(ctx, connect.NewId(), connect.NewNoContractClientOob(), settings)
-
-	toServer := make(connect.Route)
-	toClient := make(connect.Route)
-	clientClient.RouteManager().UpdateTransport(connect.NewSendGatewayTransport(), []connect.Route{toServer})
-	clientClient.RouteManager().UpdateTransport(connect.NewReceiveGatewayTransport(), []connect.Route{toClient})
-	clientClient.ContractManager().AddNoContractPeer(serverClient.ClientId())
-	serverClient.RouteManager().UpdateTransport(
-		connect.NewSendClientTransport(connect.DestinationId(clientClient.ClientId())), []connect.Route{toClient})
-	serverClient.RouteManager().UpdateTransport(connect.NewReceiveGatewayTransport(), []connect.Route{toServer})
-	serverClient.ContractManager().AddNoContractPeer(clientClient.ClientId())
-
 	var connections *peer.Connections
 	var checks *peer.Checks
 	var handler *api.Handler
@@ -126,6 +110,30 @@ func newStackWith(t *testing.T, records store.Store, process *server) *stack {
 			t.Fatalf("api.New: %v", err)
 		}
 	}
+	return newStackOver(t, records, connections, checks, handler)
+}
+
+// The two connect clients and a peer over the handler, connection table and front checks given:
+// [newStackWith]'s, or a test's own handler, for the tests that are about how the peer serves a
+// handler of a particular configuration.
+func newStackOver(t *testing.T, records store.Store, connections *peer.Connections, checks *peer.Checks, handler *api.Handler) *stack {
+	t.Helper()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	settings := connect.DefaultClientSettings()
+	serverClient := connect.NewClient(ctx, connect.NewId(), connect.NewNoContractClientOob(), settings)
+	clientClient := connect.NewClient(ctx, connect.NewId(), connect.NewNoContractClientOob(), settings)
+
+	toServer := make(connect.Route)
+	toClient := make(connect.Route)
+	clientClient.RouteManager().UpdateTransport(connect.NewSendGatewayTransport(), []connect.Route{toServer})
+	clientClient.RouteManager().UpdateTransport(connect.NewReceiveGatewayTransport(), []connect.Route{toClient})
+	clientClient.ContractManager().AddNoContractPeer(serverClient.ClientId())
+	serverClient.RouteManager().UpdateTransport(
+		connect.NewSendClientTransport(connect.DestinationId(clientClient.ClientId())), []connect.Route{toClient})
+	serverClient.RouteManager().UpdateTransport(connect.NewReceiveGatewayTransport(), []connect.Route{toServer})
+	serverClient.ContractManager().AddNoContractPeer(clientClient.ClientId())
+
 	served, err := peer.New(peer.Config{
 		Client:          serverClient,
 		Handler:         handler,

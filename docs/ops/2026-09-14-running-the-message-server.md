@@ -91,15 +91,49 @@ rendezvous_deposit_ttl_seconds: 604800
 rendezvous_mailbox_depth: 16
 card_tombstone_seconds: 7776000
 diagnostic_session_max_minutes: 60
+
+# §4.3.11's kind 4, the link box, through which a device is added to an account. None of the
+# three is advertised. 0 for either of the first two takes its default.
+link_box_ttl_seconds: 600
+link_box_live_cap: 10000
+# §4.5's reject floor, in milliseconds. 0, the default, serves no kind-4 arm: see below.
+reject_floor_ms: 0
 ```
 
 Each key is overridable as `URMESSAGE_` + the key in upper case, e.g.
 `URMESSAGE_HOSTING_JURISDICTION=DE`.
 
-Only two of these ten do anything in this build: `durable_ttl_default_seconds` and
-`durable_ttl_max_seconds` reach §7.3's clamp in the store. The other eight are loaded, printed, and
-consumed by nothing — `/readyz` prints that list under `not-built`, so you can see it rather than
-discover it.
+Five of these thirteen do anything in this build. `durable_ttl_default_seconds` and
+`durable_ttl_max_seconds` reach §7.3's clamp in the store, and the last three set the link box and
+the reject floor. The
+other eight are loaded, printed, and consumed by nothing — `/readyz` prints that list under
+`not-built`, so you can see it rather than discover it. (`read_key_window_seconds` is advertised to
+clients as well, and nothing retires a key on it.) The sample leaves out revision 23's endpoint
+keys and `platform_attachment`; `--print-config` lists every key there is.
+
+#### The reject floor, and what it costs
+
+`reject_floor_ms` is §4.5's floor on the reject path: a refusal that merges several causes, an
+unknown group and a bad MAC say, is answered no sooner than this long after it arrived, so that
+how long it took does not say which cause it was. **A server whose floor is 0 serves no kind-4
+arm**: the five rendezvous arms are answered as arms this build does not serve, Capabilities leaves
+kind 4 out, and `/readyz` says why. So adding a device needs it set.
+- **What to set it to.** At least the slowest refusal path on the five arms, as measured on the
+  box you deploy to: an unknown id's index miss and a real box's read and signature check must
+  both finish inside it. The api tests use 25. A path that outlasts the floor is answered when it
+  ends, and nothing counts that yet (`/readyz` names it).
+- **What it pads.** Every merged refusal that Submit, CreateGroup, Fetch, Subscribe and the five
+  rendezvous arms answer after their front checks. Unsubscribe's refusals, every
+  `REASON_INTERNAL`, and the refusals the frame dispatcher makes before any handler are not
+  padded.
+- **What it costs.** A padded answer waits out its floor on a timer, not on one of the eight
+  workers that serve requests, so refusals do not hold up other clients' requests. At most 1,024
+  answers wait at once (`peer.DefaultMaxDeferredAnswers`): at a floor of F that is 1,024 ÷ F
+  refusals a second, 40,960 at 25 ms, before a worker waits for one to be sent. A client that sends
+  requests and reads nothing holds a waiting answer's slot for up to the 30-second send timeout,
+  as it would hold a worker. §5.1 check 4, the rate limits that would bound one client, is not
+  built.
+- **Its range.** A negative value, or one too large to be a duration, is refused at load.
 
 ### `pg.yml` — the database (vault; secret)
 
@@ -350,13 +384,23 @@ listed here so a deployment plan is made with them in view rather than around th
 - **§2.4's Redis.** Not opened. Subscribe fan-out, presence and the distributed token buckets are
   absent, so a second replica shares nothing but Postgres.
 - **§8's blob plane.** No object store, no `blobd`, no grant tokens.
-- **§7.4's sweep.** Nothing prunes. `read_key_window_seconds`, `card_tombstone_seconds` and the TTLs
-  are loaded and no job reads them; records accumulate.
+- **§7.4's sweep, but for the link box.** One job runs, every five minutes on each replica, under
+  an advisory lock so that one replica sweeps at a time: it deletes link boxes past their expiry,
+  their deposits first, in batches of at most 1,000 deposits and 500 boxes, at most 50 batches or
+  20 seconds a pass. Nothing else prunes: `read_key_window_seconds`, `card_tombstone_seconds` and
+  the record TTLs are loaded and no job reads them, and records accumulate. A failed pass logs
+  one line with the error's class, a SQLSTATE, `connect`, `canceled` or `other`, and what it had
+  reclaimed, never the error's text, which can name the database's address and user. Its gauges
+  and counter, and `messagectl sweep-now`, are not built.
 - **§4.3.1's `ServerKey` chain.** `HelloResponse` carries no signing key, because §9.1 decision B13
   keeps every signing key off every replica and there is no signing sidecar here. No
   `FetchAttestation` is signed.
-- **§4.3.11's rendezvous**, **§4.3.5's subscribe**, **§9.3's discovery publication**, **§9.4's KT
-  gossip.** Absent.
+- **§4.3.11's contact card, kind 0.** Not served; a registration of any kind but 4 is refused.
+  Kind 4, the link box, is served when `reject_floor_ms` is above 0 (above). Its known-rendezvous
+  filter and its read cache are not built, so a request naming a guessed id costs a database read.
+- **§4.3.5's subscribe** is a notification of the new high water, not a record stream; §4.4's
+  buffered backfill is not built.
+- **§9.3's discovery publication**, **§9.4's KT gossip.** Absent.
 - **§10.2's reload.** `message.yml` is read once at startup and is not watched. There is no
   `capability_version` and no `CapabilityChange`, so changing an advertised value **does** require a
   restart — which is exactly what §10.2 says it must not.

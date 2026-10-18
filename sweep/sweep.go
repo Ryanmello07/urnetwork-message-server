@@ -48,7 +48,7 @@ type Config struct {
 	Sleep func(time.Duration)
 	Ticks func(every time.Duration) (ticks <-chan time.Time, stop func())
 
-	// Where a pass is reported, in counts and nothing else (§11.1). Nil discards.
+	// Where a pass is reported, in counts and error classes and nothing else (§11.1). Nil discards.
 	Log *slog.Logger
 }
 
@@ -191,7 +191,14 @@ func (self *Job) Pass(ctx context.Context) (Totals, error) {
 		}
 		swept, err := self.linkBoxes.SweepLinkBoxes(ctx, self.now(), self.bounds)
 		if err != nil {
-			self.log.Warn("the link box sweep failed", "batches", totals.Batches, "error", err.Error())
+			// §11.1: the error's class and the pass's totals, never its text, which for a failure to
+			// connect names the database's user, its name, and the address and host dialled (LRI
+			// R75, D1). A pass ended because the job was closed under it is no failure, and logs
+			// nothing
+			if self.context.Err() == nil && ctx.Err() == nil {
+				self.log.Warn("the link box sweep failed", "class", store.ErrorClass(err),
+					"batches", totals.Batches, "boxes", totals.Boxes, "deposits", totals.Deposits)
+			}
 			return totals, err
 		}
 		if swept.Skipped {

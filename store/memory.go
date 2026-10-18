@@ -1246,20 +1246,26 @@ func (self *memoryLinkBoxRow) linkBox() *LinkBox {
 	return box
 }
 
-// The row at a rendezvous id, if it stands and is live at `now`. Called with boxMutex held.
-func (self *MemoryStore) liveLinkBox(rendezvousId []byte, now time.Time) (*memoryLinkBoxRow, bool) {
+// The row at a rendezvous id, if it stands, is live at `now`, and is pinned under the key the
+// caller verified its request against, which `pinned` reads off the row: the deposit key or the
+// collect key. Any other row at the id is not the box that was verified, and answers as though
+// none stood there (LRI R75, D3). Called with boxMutex held.
+func (self *MemoryStore) liveLinkBox(rendezvousId []byte, now time.Time, verifiedPub []byte, pinned func(*memoryLinkBoxRow) []byte) (*memoryLinkBoxRow, bool) {
 	row, found := self.boxes[string(rendezvousId)]
-	if !found || !row.linkBox().Live(now) {
+	if !found || !row.linkBox().Live(now) || !bytes.Equal(pinned(row), verifiedPub) {
 		return nil, false
 	}
 	return row, true
 }
 
-func (self *MemoryStore) RegisterLinkBox(ctx context.Context, registration *LinkBoxRegistration, now time.Time, ttl time.Duration) (*LinkBoxRegistered, error) {
+func depositKeyOf(row *memoryLinkBoxRow) []byte { return row.DepositVerifyPub }
+func collectKeyOf(row *memoryLinkBoxRow) []byte { return row.CollectVerifyPub }
+
+func (self *MemoryStore) RegisterLinkBox(ctx context.Context, registration *LinkBoxRegistration, now time.Time, ttl time.Duration, liveCap uint64) (*LinkBoxRegistered, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := validateLinkBoxRegistration(registration, ttl); err != nil {
+	if err := validateLinkBoxRegistration(registration, ttl, liveCap); err != nil {
 		return nil, err
 	}
 	now = linkBoxTime(now)
@@ -1272,6 +1278,16 @@ func (self *MemoryStore) RegisterLinkBox(ctx context.Context, registration *Link
 			return &LinkBoxRegistered{Reason: protocol.Reason_REASON_OK, ExpireTime: box.ExpireTime, MailboxDepth: box.DepositCount}, nil
 		}
 		return &LinkBoxRegistered{Reason: protocol.Reason_REASON_REJECTED}, nil
+	}
+	// the cap, counted under the same mutex the insert is made under: no insert past a full cap
+	live := uint64(0)
+	for _, row := range self.boxes {
+		if row.linkBox().Live(now) {
+			live++
+		}
+	}
+	if liveCap <= live {
+		return &LinkBoxRegistered{Reason: protocol.Reason_REASON_CARD_RATE_LIMITED}, nil
 	}
 	expire := linkBoxTime(now.Add(ttl))
 	self.boxes[string(registration.RendezvousId)] = &memoryLinkBoxRow{
@@ -1306,11 +1322,11 @@ func (self *MemoryStore) LinkBox(ctx context.Context, rendezvousId []byte) (*Lin
 	return row.linkBox(), nil
 }
 
-func (self *MemoryStore) DepositLinkBox(ctx context.Context, rendezvousId []byte, depositCt []byte, now time.Time) (*LinkBoxDeposited, error) {
+func (self *MemoryStore) DepositLinkBox(ctx context.Context, rendezvousId []byte, verifiedPub []byte, depositCt []byte, now time.Time) (*LinkBoxDeposited, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := validateLinkBoxDeposit(rendezvousId, depositCt); err != nil {
+	if err := validateLinkBoxDeposit(rendezvousId, verifiedPub, depositCt); err != nil {
 		return nil, err
 	}
 	depositHash := linkBoxDepositHash(depositCt)
@@ -1318,7 +1334,7 @@ func (self *MemoryStore) DepositLinkBox(ctx context.Context, rendezvousId []byte
 	self.boxMutex.Lock()
 	defer self.boxMutex.Unlock()
 
-	row, live := self.liveLinkBox(rendezvousId, now)
+	row, live := self.liveLinkBox(rendezvousId, now, verifiedPub, depositKeyOf)
 	if !live {
 		return &LinkBoxDeposited{Reason: protocol.Reason_REASON_CARD_RETIRED}, nil
 	}
@@ -1326,7 +1342,7 @@ func (self *MemoryStore) DepositLinkBox(ctx context.Context, rendezvousId []byte
 	for _, deposit := range self.deposits[key] {
 		if bytes.Equal(deposit.DepositHash, depositHash) {
 			return &LinkBoxDeposited{Reason: protocol.Reason_REASON_OK, DepositId: uint64(deposit.DepositId),
-				DepositHash: bytes.Clone(deposit.DepositHash), PendingCount: uint32(row.DepositCount)}, nil
+				DepositHash: bytes.Clone(deposit.DepositHash), PendingCount: uint32(row.DepositCount), Replayed: true}, nil
 		}
 	}
 	if uint64(row.NextDepositId-1) >= LinkBoxDeposits {
@@ -1355,14 +1371,14 @@ func (self *MemoryStore) CollectLinkBox(ctx context.Context, request *LinkBoxCol
 	if request == nil {
 		return nil, ErrIdentifierShape
 	}
-	if err := checkLength(request.RendezvousId, RendezvousIdBytes); err != nil {
+	if err := validateLinkBoxAct(request.RendezvousId, request.VerifiedPub); err != nil {
 		return nil, err
 	}
 	now = linkBoxTime(now)
 	self.boxMutex.Lock()
 	defer self.boxMutex.Unlock()
 
-	row, live := self.liveLinkBox(request.RendezvousId, now)
+	row, live := self.liveLinkBox(request.RendezvousId, now, request.VerifiedPub, collectKeyOf)
 	if !live {
 		return &LinkBoxCollected{Reason: protocol.Reason_REASON_CARD_RETIRED}, nil
 	}
@@ -1392,18 +1408,18 @@ func (self *MemoryStore) CollectLinkBox(ctx context.Context, request *LinkBoxCol
 	}, nil
 }
 
-func (self *MemoryStore) RetireLinkBox(ctx context.Context, rendezvousId []byte, now time.Time) (*LinkBoxRetired, error) {
+func (self *MemoryStore) RetireLinkBox(ctx context.Context, rendezvousId []byte, verifiedPub []byte, now time.Time) (*LinkBoxRetired, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := checkLength(rendezvousId, RendezvousIdBytes); err != nil {
+	if err := validateLinkBoxAct(rendezvousId, verifiedPub); err != nil {
 		return nil, err
 	}
 	now = linkBoxTime(now)
 	self.boxMutex.Lock()
 	defer self.boxMutex.Unlock()
 
-	row, live := self.liveLinkBox(rendezvousId, now)
+	row, live := self.liveLinkBox(rendezvousId, now, verifiedPub, collectKeyOf)
 	if !live {
 		return &LinkBoxRetired{Reason: protocol.Reason_REASON_CARD_RETIRED}, nil
 	}

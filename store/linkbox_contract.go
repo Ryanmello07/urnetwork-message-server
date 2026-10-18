@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -20,11 +21,12 @@ import (
 // WHAT THIS FILE DOES NOT TEST, and it is the larger half of the arms. It does not verify a
 // signature: `register_auth`, `open_auth`, `deposit_auth`, `collect_auth` and `retire_auth` are the
 // api layer's, checked against the keys [LinkBoxes.LinkBox] reads before any method here is
-// called. It does not pad a refusal to the reject floor, and it does not enforce the cap on live
-// boxes, which the api layer reads through [LinkBoxes.LiveLinkBoxes]. Those are the identity
-// plan's Task 19 (Spec B §13's tests 45 to 51). What IS this package's is what the rows hold and
-// what each arm answers once its signature has passed: Task 18's three properties, and the
-// answers Task 19's handlers are built over.
+// called. It does not pad a refusal to the reject floor. Those are the identity plan's Task 19
+// (Spec B §13's tests 45 to 51). What IS this package's is what the rows hold and what each arm
+// answers once its signature has passed: Task 18's three properties, the answers Task 19's
+// handlers are built over, and the two the slice review added (LRI R75): a write acts only on the
+// box pinned under the key its caller verified against, and an insert is held to the cap on live
+// boxes in its own statement.
 
 // The link boxes of the store the contract was handed. Both implementations keep them and
 // RunContract holds each to them, so a Store that keeps none fails here by name: skipping it would
@@ -45,6 +47,10 @@ var linkBoxEpoch = time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
 // Spec B §10.2's `link_box_ttl_seconds` default, 600 seconds.
 const linkBoxTtl = 600 * time.Second
 
+// Spec B §10.2's `link_box_live_cap` default, which every registration here is handed but the
+// ones about the cap.
+const linkBoxLiveCap = 10000
+
 func linkBoxAt(seconds int) time.Time {
 	return linkBoxEpoch.Add(time.Duration(seconds) * time.Second)
 }
@@ -59,6 +65,19 @@ func linkBoxRegistration(seed byte) *LinkBoxRegistration {
 	}
 }
 
+// The two keys a box this contract registers is pinned under, which are the keys a caller hands
+// each arm as the ones its check 7 verified under: every box here is registered by
+// [linkBoxRegistration], whose keys follow from the seed its id begins with, and an id no
+// registration made is handed the keys its seed would have had. The scenario that is about a
+// key other than the pinned one, [contractLinkBoxVerifiedKey], hands the store its keys itself.
+func linkBoxKeysOf(rendezvousId []byte) ([]byte, []byte) {
+	if len(rendezvousId) == 0 {
+		return testBytes(VerifyPubBytes, 0), testBytes(VerifyPubBytes, 0)
+	}
+	registration := linkBoxRegistration(rendezvousId[0])
+	return registration.DepositVerifyPub, registration.CollectVerifyPub
+}
+
 // A deposit, and the hash the store is to compute for it: SHA-256 of the octets, computed here
 // independently of [linkBoxDepositHash], so that the two can disagree.
 func linkBoxDeposit(seed byte) ([]byte, []byte) {
@@ -69,7 +88,7 @@ func linkBoxDeposit(seed byte) ([]byte, []byte) {
 
 func registerLinkBox(t *testing.T, boxes LinkBoxes, seen *recorder, registration *LinkBoxRegistration, now time.Time) *LinkBoxRegistered {
 	t.Helper()
-	registered, err := boxes.RegisterLinkBox(context.Background(), registration, now, linkBoxTtl)
+	registered, err := boxes.RegisterLinkBox(context.Background(), registration, now, linkBoxTtl, linkBoxLiveCap)
 	if err != nil {
 		t.Fatalf("RegisterLinkBox: %v", err)
 	}
@@ -80,7 +99,8 @@ func registerLinkBox(t *testing.T, boxes LinkBoxes, seen *recorder, registration
 func depositLinkBox(t *testing.T, boxes LinkBoxes, seen *recorder, rendezvousId []byte, seed byte, now time.Time) *LinkBoxDeposited {
 	t.Helper()
 	depositCt, depositHash := linkBoxDeposit(seed)
-	deposited, err := boxes.DepositLinkBox(context.Background(), rendezvousId, depositCt, now)
+	verified, _ := linkBoxKeysOf(rendezvousId)
+	deposited, err := boxes.DepositLinkBox(context.Background(), rendezvousId, verified, depositCt, now)
 	if err != nil {
 		t.Fatalf("DepositLinkBox: %v", err)
 	}
@@ -97,6 +117,9 @@ func depositLinkBox(t *testing.T, boxes LinkBoxes, seen *recorder, rendezvousId 
 
 func collectLinkBox(t *testing.T, boxes LinkBoxes, seen *recorder, request *LinkBoxCollectRequest, now time.Time) *LinkBoxCollected {
 	t.Helper()
+	if request.VerifiedPub == nil {
+		_, request.VerifiedPub = linkBoxKeysOf(request.RendezvousId)
+	}
 	collected, err := boxes.CollectLinkBox(context.Background(), request, now)
 	if err != nil {
 		t.Fatalf("CollectLinkBox: %v", err)
@@ -107,7 +130,8 @@ func collectLinkBox(t *testing.T, boxes LinkBoxes, seen *recorder, request *Link
 
 func retireLinkBox(t *testing.T, boxes LinkBoxes, seen *recorder, rendezvousId []byte, now time.Time) *LinkBoxRetired {
 	t.Helper()
-	retired, err := boxes.RetireLinkBox(context.Background(), rendezvousId, now)
+	_, verified := linkBoxKeysOf(rendezvousId)
+	retired, err := boxes.RetireLinkBox(context.Background(), rendezvousId, verified, now)
 	if err != nil {
 		t.Fatalf("RetireLinkBox: %v", err)
 	}
@@ -247,9 +271,10 @@ func contractLinkBoxDeposits(t *testing.T, newStore func(Limits) Store, seen *re
 			box.DepositsTaken, box.DepositCount, box.RefusedCount)
 	}
 
-	// a replay of the first deposit's octets is that deposit, even though the box takes no more
+	// a replay of the first deposit's octets is that deposit, even though the box takes no more, and
+	// it says it is a replay, which is what keeps it from being pushed as a deposit (LRI R75, S-2)
 	replay := depositLinkBox(t, boxes, seen, id, 0x61, linkBoxAt(20))
-	if want := (&LinkBoxDeposited{Reason: protocol.Reason_REASON_OK, DepositId: 1, DepositHash: firstHash, PendingCount: 2}); !reflect.DeepEqual(replay, want) {
+	if want := (&LinkBoxDeposited{Reason: protocol.Reason_REASON_OK, DepositId: 1, DepositHash: firstHash, PendingCount: 2, Replayed: true}); !reflect.DeepEqual(replay, want) {
 		t.Fatalf("a replay of deposit 1's octets answered %+v, want %+v", replay, want)
 	}
 	if after := lookUpLinkBox(t, boxes, id); !reflect.DeepEqual(after, box) {
@@ -331,10 +356,12 @@ func contractLinkBoxCollectAndRetire(t *testing.T, newStore func(Limits) Store, 
 			depositIdsOf(kept), kept.PendingCount)
 	}
 
-	// the same octets again are the deposit already standing, and one deposit
+	// the same octets again are the deposit already standing, Replayed, and one deposit: here the box
+	// has taken one fewer than it may, so the replay is told from a new deposit by the insert's own
+	// ON CONFLICT (rendezvous_id, deposit_hash) DO NOTHING, which §4.3.11 prints
 	replay := depositLinkBox(t, boxes, seen, id, 0x22, linkBoxAt(50))
 	_, secondHash := linkBoxDeposit(0x22)
-	if want := (&LinkBoxDeposited{Reason: protocol.Reason_REASON_OK, DepositId: 2, DepositHash: secondHash, PendingCount: 1}); !reflect.DeepEqual(replay, want) {
+	if want := (&LinkBoxDeposited{Reason: protocol.Reason_REASON_OK, DepositId: 2, DepositHash: secondHash, PendingCount: 1, Replayed: true}); !reflect.DeepEqual(replay, want) {
 		t.Fatalf("a deposit retried with the same octets answered %+v, want %+v", replay, want)
 	}
 	if once := collectLinkBox(t, boxes, seen, &LinkBoxCollectRequest{RendezvousId: id}, linkBoxAt(51)); !slices.Equal(depositIdsOf(once), []uint64{2}) || once.PendingCount != 1 {
@@ -490,7 +517,8 @@ func contractLinkBoxDefensiveCopy(t *testing.T, newStore func(Limits) Store, see
 	}
 
 	depositCt, _ := linkBoxDeposit(0x68)
-	deposited, err := boxes.DepositLinkBox(ctx, id, depositCt, linkBoxAt(10))
+	verified, _ := linkBoxKeysOf(id)
+	deposited, err := boxes.DepositLinkBox(ctx, id, verified, depositCt, linkBoxAt(10))
 	if err != nil {
 		t.Fatalf("DepositLinkBox: %v", err)
 	}
@@ -529,7 +557,7 @@ func contractLinkBoxConcurrency(t *testing.T, newStore func(Limits) Store, seen 
 			defer group.Done()
 			mine := linkBoxRegistration(0x70)
 			mine.CollectVerifyPub = testBytes(VerifyPubBytes, byte(0xC0+index))
-			answer, err := boxes.RegisterLinkBox(ctx, mine, linkBoxEpoch, linkBoxTtl)
+			answer, err := boxes.RegisterLinkBox(ctx, mine, linkBoxEpoch, linkBoxTtl, linkBoxLiveCap)
 			if err != nil {
 				t.Errorf("RegisterLinkBox: %v", err)
 				return
@@ -562,18 +590,20 @@ func contractLinkBoxConcurrency(t *testing.T, newStore func(Limits) Store, seen 
 	registerLinkBox(t, boxes, seen, same, linkBoxEpoch)
 	const depositors = 8
 	ids := make([]uint64, depositors)
+	replayed := make([]bool, depositors)
 	for index := range depositors {
 		group.Add(1)
 		go func() {
 			defer group.Done()
 			depositCt, _ := linkBoxDeposit(0x75)
-			deposited, err := boxes.DepositLinkBox(ctx, same.RendezvousId, depositCt, linkBoxAt(10))
+			deposited, err := boxes.DepositLinkBox(ctx, same.RendezvousId, same.DepositVerifyPub, depositCt, linkBoxAt(10))
 			if err != nil {
 				t.Errorf("DepositLinkBox: %v", err)
 				return
 			}
 			seen.observe(deposited.Reason)
 			ids[index] = deposited.DepositId
+			replayed[index] = deposited.Replayed
 		}()
 	}
 	group.Wait()
@@ -581,6 +611,9 @@ func contractLinkBoxConcurrency(t *testing.T, newStore func(Limits) Store, seen 
 		if id != 1 {
 			t.Fatalf("concurrent deposits of the same octets answered ids %v, want every one 1", ids)
 		}
+	}
+	if fresh := slices.Index(replayed, false); fresh < 0 || slices.Contains(replayed[fresh+1:], false) {
+		t.Fatalf("concurrent deposits of the same octets answered Replayed %v, want exactly one false: one of them is the deposit and every other its replay", replayed)
 	}
 	if collected := collectLinkBox(t, boxes, seen, &LinkBoxCollectRequest{RendezvousId: same.RendezvousId}, linkBoxAt(20)); !slices.Equal(depositIdsOf(collected), []uint64{1}) {
 		t.Fatalf("after concurrent deposits of the same octets the box holds deposits %v, want [1]", depositIdsOf(collected))
@@ -595,7 +628,7 @@ func contractLinkBoxConcurrency(t *testing.T, newStore func(Limits) Store, seen 
 		go func() {
 			defer group.Done()
 			depositCt, _ := linkBoxDeposit(byte(0xD0 + index))
-			deposited, err := boxes.DepositLinkBox(ctx, full.RendezvousId, depositCt, linkBoxAt(10))
+			deposited, err := boxes.DepositLinkBox(ctx, full.RendezvousId, full.DepositVerifyPub, depositCt, linkBoxAt(10))
 			if err != nil {
 				t.Errorf("DepositLinkBox: %v", err)
 				return
@@ -636,7 +669,7 @@ func linkBoxShapeScenarios(newStore func(Limits) Store, seen *recorder) map[stri
 		t.Helper()
 		registration := linkBoxRegistration(0x30)
 		damage(registration)
-		registered, err := boxes.RegisterLinkBox(ctx, registration, linkBoxEpoch, ttl)
+		registered, err := boxes.RegisterLinkBox(ctx, registration, linkBoxEpoch, ttl, linkBoxLiveCap)
 		wantError(t, seen, err, want)
 		if registered != nil {
 			t.Fatal("RegisterLinkBox answered an error and a result")
@@ -649,7 +682,7 @@ func linkBoxShapeScenarios(newStore func(Limits) Store, seen *recorder) map[stri
 		t.Helper()
 		registration := linkBoxRegistration(0x30)
 		registerLinkBox(t, boxes, seen, registration, linkBoxEpoch)
-		deposited, err := boxes.DepositLinkBox(ctx, registration.RendezvousId, depositCt, linkBoxAt(10))
+		deposited, err := boxes.DepositLinkBox(ctx, registration.RendezvousId, registration.DepositVerifyPub, depositCt, linkBoxAt(10))
 		wantError(t, seen, err, want)
 		if deposited != nil {
 			t.Fatal("DepositLinkBox answered an error and a result")
@@ -664,12 +697,13 @@ func linkBoxShapeScenarios(newStore func(Limits) Store, seen *recorder) map[stri
 			registerRefused(t, boxes, func(r *LinkBoxRegistration) { r.RendezvousId = testBytes(RendezvousIdBytes-1, 0x30) }, linkBoxTtl, ErrIdentifierShape)
 			_, err := boxes.LinkBox(ctx, testBytes(RendezvousIdBytes+1, 0x30))
 			wantError(t, seen, err, ErrIdentifierShape)
-			_, err = boxes.CollectLinkBox(ctx, &LinkBoxCollectRequest{RendezvousId: testBytes(RendezvousIdBytes-1, 0x30)}, linkBoxEpoch)
+			depositKey, collectKey := linkBoxKeysOf(testBytes(RendezvousIdBytes, 0x30))
+			_, err = boxes.CollectLinkBox(ctx, &LinkBoxCollectRequest{RendezvousId: testBytes(RendezvousIdBytes-1, 0x30), VerifiedPub: collectKey}, linkBoxEpoch)
 			wantError(t, seen, err, ErrIdentifierShape)
-			_, err = boxes.RetireLinkBox(ctx, nil, linkBoxEpoch)
+			_, err = boxes.RetireLinkBox(ctx, nil, collectKey, linkBoxEpoch)
 			wantError(t, seen, err, ErrIdentifierShape)
 			depositCt, _ := linkBoxDeposit(0x30)
-			_, err = boxes.DepositLinkBox(ctx, testBytes(RendezvousIdBytes-1, 0x30), depositCt, linkBoxEpoch)
+			_, err = boxes.DepositLinkBox(ctx, testBytes(RendezvousIdBytes-1, 0x30), depositKey, depositCt, linkBoxEpoch)
 			wantError(t, seen, err, ErrIdentifierShape)
 			_, err = boxes.CollectLinkBox(ctx, nil, linkBoxEpoch)
 			wantError(t, seen, err, ErrIdentifierShape)
@@ -678,6 +712,43 @@ func linkBoxShapeScenarios(newStore func(Limits) Store, seen *recorder) map[stri
 			boxes := linkBoxesOf(t, newStore(DefaultLimits()))
 			registerRefused(t, boxes, func(r *LinkBoxRegistration) { r.CollectVerifyPub = testBytes(VerifyPubBytes-1, 0x32) }, linkBoxTtl, ErrIdentifierShape)
 			registerRefused(t, boxes, func(r *LinkBoxRegistration) { r.DepositVerifyPub = testBytes(VerifyPubBytes+1, 0x31) }, linkBoxTtl, ErrIdentifierShape)
+		},
+		// the key a caller hands a write as the one its check 7 verified under (LRI R75, D3), one octet
+		// short on each arm that takes one, against a live box holding a deposit, which none of them
+		// changes
+		"AVerifiedKeyOfTheWrongLength": func(t *testing.T) {
+			boxes := linkBoxesOf(t, newStore(DefaultLimits()))
+			registration := linkBoxRegistration(0x30)
+			registerLinkBox(t, boxes, seen, registration, linkBoxEpoch)
+			depositLinkBox(t, boxes, seen, registration.RendezvousId, 0x35, linkBoxAt(5))
+			before := lookUpLinkBox(t, boxes, registration.RendezvousId)
+			short := testBytes(VerifyPubBytes-1, 0x36)
+			depositCt, _ := linkBoxDeposit(0x37)
+			deposited, err := boxes.DepositLinkBox(ctx, registration.RendezvousId, short, depositCt, linkBoxAt(10))
+			wantError(t, seen, err, ErrIdentifierShape)
+			collected, err := boxes.CollectLinkBox(ctx, &LinkBoxCollectRequest{RendezvousId: registration.RendezvousId, AckThroughDepositId: 9, VerifiedPub: short}, linkBoxAt(10))
+			wantError(t, seen, err, ErrIdentifierShape)
+			retired, err := boxes.RetireLinkBox(ctx, registration.RendezvousId, short, linkBoxAt(10))
+			wantError(t, seen, err, ErrIdentifierShape)
+			if deposited != nil || collected != nil || retired != nil {
+				t.Fatal("an arm answered an error and a result")
+			}
+			if after := lookUpLinkBox(t, boxes, registration.RendezvousId); !reflect.DeepEqual(after, before) {
+				t.Fatalf("an arm handed a key of the wrong length changed the box from %s to %s", describeLinkBox(before), describeLinkBox(after))
+			}
+		},
+		// a registration handed no cap is the caller's error, and stores nothing
+		"ALinkBoxRegistrationHandedNoLiveCap": func(t *testing.T) {
+			boxes := linkBoxesOf(t, newStore(DefaultLimits()))
+			registration := linkBoxRegistration(0x30)
+			registered, err := boxes.RegisterLinkBox(ctx, registration, linkBoxEpoch, linkBoxTtl, 0)
+			wantError(t, seen, err, ErrLinkBoxLiveCap)
+			if registered != nil {
+				t.Fatal("RegisterLinkBox answered an error and a result")
+			}
+			if _, err := boxes.LinkBox(ctx, registration.RendezvousId); !errors.Is(err, ErrLinkBoxUnknown) {
+				t.Fatalf("a registration handed no cap left a row: %v", err)
+			}
 		},
 		"ALinkCardOfTheWrongLength": func(t *testing.T) {
 			boxes := linkBoxesOf(t, newStore(DefaultLimits()))
@@ -694,6 +765,202 @@ func linkBoxShapeScenarios(newStore func(Limits) Store, seen *recorder) map[stri
 			registerRefused(t, boxes, func(*LinkBoxRegistration) {}, 0, ErrLinkBoxTtl)
 			registerRefused(t, boxes, func(*LinkBoxRegistration) {}, -time.Second, ErrLinkBoxTtl)
 		},
+	}
+}
+
+// ── what check 7 verified, handed to the write (LRI R75, D3) ─────────────────────────────────
+
+// A WRITE ACTS ONLY ON THE BOX ITS CALLER VERIFIED THE REQUEST AGAINST. Deposit, Collect and Retire
+// are each handed the key the api layer's check 7 verified under, and a row pinned under any other
+// key answers REASON_CARD_RETIRED, as an unknown box does, and changes nothing. Two cases: a live box
+// handed keys it was never pinned under, and its own two keys swapped; and the case the slice review
+// found, a box past its expiry, swept, and another registered at its id under other keys, with a
+// request verified against the first at a time before the first's expiry, which acts on neither.
+// The controls are the same writes handed the pinned keys, which act.
+func contractLinkBoxVerifiedKey(t *testing.T, newStore func(Limits) Store, seen *recorder) {
+	t.Parallel()
+	ctx := context.Background()
+	store := newStore(DefaultLimits())
+	boxes, sweeper := linkBoxesOf(t, store), linkBoxSweeperOf(t, store)
+	refused := []any{
+		&LinkBoxDeposited{Reason: protocol.Reason_REASON_CARD_RETIRED},
+		&LinkBoxCollected{Reason: protocol.Reason_REASON_CARD_RETIRED},
+		&LinkBoxRetired{Reason: protocol.Reason_REASON_CARD_RETIRED},
+	}
+	// the three writes at `id`, each handed `deposit` or `collect` as the key its check 7 verified
+	// under: a new deposit, a collect acknowledging everything, and a retire
+	writes := func(id []byte, deposit []byte, collect []byte, now time.Time) []any {
+		t.Helper()
+		depositCt, _ := linkBoxDeposit(0x5D)
+		deposited, err := boxes.DepositLinkBox(ctx, id, deposit, depositCt, now)
+		if err != nil {
+			t.Fatalf("DepositLinkBox: %v", err)
+		}
+		seen.observe(deposited.Reason)
+		collected, err := boxes.CollectLinkBox(ctx, &LinkBoxCollectRequest{RendezvousId: id, AckThroughDepositId: 9, VerifiedPub: collect}, now)
+		if err != nil {
+			t.Fatalf("CollectLinkBox: %v", err)
+		}
+		seen.observe(collected.Reason)
+		retired, err := boxes.RetireLinkBox(ctx, id, collect, now)
+		if err != nil {
+			t.Fatalf("RetireLinkBox: %v", err)
+		}
+		seen.observe(retired.Reason)
+		return []any{deposited, collected, retired}
+	}
+	// the three answers, each as its fields rather than as a pointer
+	describe := func(answers []any) string {
+		described := []string{}
+		for _, answer := range answers {
+			described = append(described, fmt.Sprintf("%+v", reflect.ValueOf(answer).Elem().Interface()))
+		}
+		return "[" + strings.Join(described, "; ") + "]"
+	}
+
+	// A LIVE BOX holding a deposit, handed keys other than its own: each case on a box of its own
+	for name, current := range map[string]struct {
+		seed byte
+		keys func(*LinkBoxRegistration) ([]byte, []byte)
+	}{
+		"keys the box was never pinned under": {0x80, func(*LinkBoxRegistration) ([]byte, []byte) {
+			return testBytes(VerifyPubBytes, 0xE1), testBytes(VerifyPubBytes, 0xE2)
+		}},
+		"the box's own two keys, swapped": {0x84, func(box *LinkBoxRegistration) ([]byte, []byte) {
+			return box.CollectVerifyPub, box.DepositVerifyPub
+		}},
+	} {
+		box := linkBoxRegistration(current.seed)
+		registerLinkBox(t, boxes, seen, box, linkBoxEpoch)
+		depositLinkBox(t, boxes, seen, box.RendezvousId, current.seed+1, linkBoxAt(5))
+		before := lookUpLinkBox(t, boxes, box.RendezvousId)
+		deposit, collect := current.keys(box)
+		if answers := writes(box.RendezvousId, deposit, collect, linkBoxAt(10)); !reflect.DeepEqual(answers, refused) {
+			t.Fatalf("Deposit, Collect and Retire on a live box handed %s answered %s, want %s: a row pinned under another key is not the box the signature was verified against",
+				name, describe(answers), describe(refused))
+		}
+		if after := lookUpLinkBox(t, boxes, box.RendezvousId); !reflect.DeepEqual(after, before) {
+			t.Fatalf("writes handed %s changed the box from %s to %s", name, describeLinkBox(before), describeLinkBox(after))
+		}
+		// the control: the pinned key acts
+		collected := collectLinkBox(t, boxes, seen, &LinkBoxCollectRequest{RendezvousId: box.RendezvousId}, linkBoxAt(11))
+		if collected.Reason != protocol.Reason_REASON_OK || !slices.Equal(depositIdsOf(collected), []uint64{1}) {
+			t.Fatalf("the control after %s, a collect handed the pinned key, answered %s, want the box's deposit", name, describeCollected(collected))
+		}
+	}
+
+	// A BOX SWEPT AND ANOTHER REGISTERED AT ITS ID. The first, registered at 0, takes a deposit and is
+	// swept at its expiry; the second is registered at the same id at 600 under other keys and takes a
+	// deposit of its own
+	first := linkBoxRegistration(0x90)
+	registerLinkBox(t, boxes, seen, first, linkBoxEpoch)
+	depositLinkBox(t, boxes, seen, first.RendezvousId, 0x91, linkBoxAt(10))
+	if swept := sweepLinkBoxes(t, sweeper, linkBoxAt(600), LinkBoxSweepBounds{}); swept.Boxes == 0 {
+		t.Fatalf("the sweep at the first box's expiry answered %+v, so no second box could stand at its id", swept)
+	}
+	second := linkBoxRegistration(0x90)
+	second.DepositVerifyPub = testBytes(VerifyPubBytes, 0xF1)
+	second.CollectVerifyPub = testBytes(VerifyPubBytes, 0xF2)
+	second.PublicCt = testBytes(LinkCardBytes, 0xF3)
+	if registered := registerLinkBox(t, boxes, seen, second, linkBoxAt(600)); registered.Reason != protocol.Reason_REASON_OK {
+		t.Fatalf("registering the second box at the swept id answered %v", registered.Reason)
+	}
+	secondCt, _ := linkBoxDeposit(0x92)
+	if deposited, err := boxes.DepositLinkBox(ctx, second.RendezvousId, second.DepositVerifyPub, secondCt, linkBoxAt(610)); err != nil || deposited.Reason != protocol.Reason_REASON_OK {
+		t.Fatalf("a deposit into the second box under its own key answered %+v (%v)", deposited, err)
+	}
+	standing := lookUpLinkBox(t, boxes, second.RendezvousId)
+	// a request verified against the FIRST box, at a time before the first box's expiry, at which the
+	// second box reads as live
+	if !standing.Live(linkBoxAt(599)) {
+		t.Fatal("the second box does not read as live at 599 s, so the stale request below would be refused for that and not for its key")
+	}
+	if answers := writes(first.RendezvousId, first.DepositVerifyPub, first.CollectVerifyPub, linkBoxAt(599)); !reflect.DeepEqual(answers, refused) {
+		t.Fatalf("writes verified against a swept box answered %s at the box registered at its id since, want %s", describe(answers), describe(refused))
+	}
+	if after := lookUpLinkBox(t, boxes, second.RendezvousId); !reflect.DeepEqual(after, standing) {
+		t.Fatalf("writes verified against a swept box changed the box registered at its id since, from %s to %s",
+			describeLinkBox(standing), describeLinkBox(after))
+	}
+	// the control: the second box's own key acts on it
+	collected, err := boxes.CollectLinkBox(ctx, &LinkBoxCollectRequest{RendezvousId: second.RendezvousId, VerifiedPub: second.CollectVerifyPub}, linkBoxAt(620))
+	if err != nil || collected.Reason != protocol.Reason_REASON_OK || !slices.Equal(depositIdsOf(collected), []uint64{1}) {
+		t.Fatalf("the control, a collect at the second box under its own key, answered %+v (%v), want its deposit", collected, err)
+	}
+	seen.observe(collected.Reason)
+}
+
+// ── the cap, on every insert (LRI R75, S-3 and D4) ───────────────────────────────────────────
+
+// THE CAP ON LIVE BOXES IS CHECKED ON EVERY INSERT. A registration at an id with no row is inserted
+// only while the live boxes are below the cap it is handed, in the insert's own statement: a new id
+// at a full cap answers REASON_CARD_RATE_LIMITED and inserts nothing, and so does the id of an
+// expired box the sweep has reclaimed, which is the path the slice review found past the api
+// layer's count, skipped there because its read found the expired row. Register's one rule comes
+// first, so a live box's own registration is answered REASON_OK at a full cap, and a retired box and
+// an expired one do not count. The control for each refusal is the same registration once the cap
+// has room.
+func contractLinkBoxCapOnInsert(t *testing.T, newStore func(Limits) Store, seen *recorder) {
+	t.Parallel()
+	ctx := context.Background()
+	store := newStore(DefaultLimits())
+	boxes, sweeper := linkBoxesOf(t, store), linkBoxSweeperOf(t, store)
+	const liveCap = 2
+	register := func(registration *LinkBoxRegistration, at int) *LinkBoxRegistered {
+		t.Helper()
+		registered, err := boxes.RegisterLinkBox(ctx, registration, linkBoxAt(at), linkBoxTtl, liveCap)
+		if err != nil {
+			t.Fatalf("RegisterLinkBox: %v", err)
+		}
+		seen.observe(registered.Reason)
+		return registered
+	}
+	limited := &LinkBoxRegistered{Reason: protocol.Reason_REASON_CARD_RATE_LIMITED}
+
+	early, later := linkBoxRegistration(0x11), linkBoxRegistration(0x21)
+	if register(early, 0).Reason != protocol.Reason_REASON_OK || register(later, 300).Reason != protocol.Reason_REASON_OK {
+		t.Fatal("two registrations under a cap of two were not both taken")
+	}
+	// at 300 the cap is full: a new id is refused, and nothing is inserted
+	third := linkBoxRegistration(0x31)
+	if got := register(third, 300); !reflect.DeepEqual(got, limited) {
+		t.Fatalf("a registration at a new id with the cap full answered %+v, want %+v", got, limited)
+	}
+	if _, err := boxes.LinkBox(ctx, third.RendezvousId); !errors.Is(err, ErrLinkBoxUnknown) {
+		t.Fatalf("a registration refused at a full cap left a row: %v", err)
+	}
+	// Register's one rule comes before the cap
+	if got := register(linkBoxRegistration(0x11), 310); got.Reason != protocol.Reason_REASON_OK {
+		t.Fatalf("a live box's own registration, repeated at a full cap, answered %v; the one rule comes before the cap", got.Reason)
+	}
+	// at 650 the first box has expired, so the live boxes are the second alone: the control, the third
+	// is taken
+	if got := register(third, 650); got.Reason != protocol.Reason_REASON_OK {
+		t.Fatalf("the control, the refused registration once an expiry made room, answered %v", got.Reason)
+	}
+	// the cap is full again. The first box's row still stands, expired, as it stood when Register's read
+	// found it on the path the review found; the sweep reclaims it
+	if swept := sweepLinkBoxes(t, sweeper, linkBoxAt(650), LinkBoxSweepBounds{}); swept.Boxes != 1 {
+		t.Fatalf("the sweep at 650 s answered %+v, want the expired box", swept)
+	}
+	// and a registration at its id now finds no row, at a full cap: the insert itself refuses it
+	replacement := linkBoxRegistration(0x11)
+	replacement.CollectVerifyPub = testBytes(VerifyPubBytes, 0x6E)
+	if got := register(replacement, 650); !reflect.DeepEqual(got, limited) {
+		t.Fatalf("a registration at a reclaimed id with the cap full answered %+v, want %+v: the cap is checked on every insert", got, limited)
+	}
+	if _, err := boxes.LinkBox(ctx, replacement.RendezvousId); !errors.Is(err, ErrLinkBoxUnknown) {
+		t.Fatalf("a registration refused at a full cap left a row at a reclaimed id: %v", err)
+	}
+	// a retired box does not count: the control, the same registration once the second is retired
+	if retired, err := boxes.RetireLinkBox(ctx, later.RendezvousId, later.CollectVerifyPub, linkBoxAt(660)); err != nil || retired.Reason != protocol.Reason_REASON_OK {
+		t.Fatalf("Retire: %+v (%v)", retired, err)
+	}
+	if got := register(replacement, 660); got.Reason != protocol.Reason_REASON_OK {
+		t.Fatalf("with one of the two live boxes retired, a registration answered %v, want REASON_OK: a retired box does not count", got.Reason)
+	}
+	if count := liveLinkBoxes(t, boxes, linkBoxAt(660)); count != liveCap {
+		t.Fatalf("the store counts %d live boxes, want %d", count, liveCap)
 	}
 }
 

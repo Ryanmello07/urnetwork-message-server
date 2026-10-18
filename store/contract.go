@@ -99,6 +99,9 @@ func RunContract(t *testing.T, newStore func(Limits) Store) {
 	t.Run("ALinkBoxIsCopiedAtTheStoreBoundary", func(t *testing.T) { contractLinkBoxDefensiveCopy(t, newStore, seen) })
 	t.Run("ConcurrentArmsAtOneLinkBox", func(t *testing.T) { contractLinkBoxConcurrency(t, newStore, seen) })
 	t.Run("TheSweepReclaimsWhatHasExpiredAndNothingElse", func(t *testing.T) { contractLinkBoxSweep(t, newStore, seen) })
+	// the slice review of Tasks 18 to 20 (LRI R75): D3, and S-3 with D4
+	t.Run("AWriteActsOnlyOnTheBoxItsCallerVerifiedAgainst", func(t *testing.T) { contractLinkBoxVerifiedKey(t, newStore, seen) })
+	t.Run("TheCapOnLiveBoxesIsCheckedOnEveryInsert", func(t *testing.T) { contractLinkBoxCapOnInsert(t, newStore, seen) })
 	t.Run("AnErrorIsForTheCallerAndNeverForTheClient", func(t *testing.T) { contractCallerErrors(t, newStore, seen) })
 }
 

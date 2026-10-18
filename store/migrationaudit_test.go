@@ -136,3 +136,61 @@ func migrationAuditFindings(list []auditedMigration) []string {
 	}
 	return findings
 }
+
+// 013 AND 014 ARE §3.2's TEXT UNTIL THEY LAND (LRI R75, D6). [landedMigrations] holds a landed
+// migration to its SQL as it landed, and 013 and 014 have not landed: their SQL may still change,
+// and until now nothing held it to Spec B §3.2's text for it. Nor can any other test reach what it
+// declares that matters most, its CHECKs and 014's cascade, since both stores refuse every length
+// and a third deposit before they write, and the sweep deletes a box's deposits before the box.
+//
+// So each is held here to the SHA-256 of §3.2's block for it, from `CREATE TABLE` to the block's
+// end with its trailing newlines made one, as Spec B revision 27 prints it (specs/identity-phase1
+// at 4b055342, lines 1336-1370 and 1373-1389); the migration's SQL, its leading newlines stripped,
+// must be that text octet for octet. A migration edited away from §3.2 fails here, and the edit to
+// make is the spec's first and this table's after it. When the two land they join
+// [landedMigrations], with the digests of their SQL as it landed, and leave this table. The
+// control is the same comparison shown each migration with one octet changed, which must fail.
+var appendedMigrationsAsSpecified = map[string]string{
+	"013 message_rendezvous":         "3b1fc42d44778a3a19e0afb7b5aea29f22593a416c847a3ffa4f5b6e64a6fb93",
+	"014 message_rendezvous_deposit": "b6c77dd06ffbffef9e3b593b4366b703c4ed5bbd1b7b5a2c95598a96fc1fd0c2",
+}
+
+func TestTheAppendedMigrationsAreSection32sTextUntilTheyLand(t *testing.T) {
+	// both ways: every appended migration is held to a text, and every text held is an appended one
+	for _, name := range appendedMigrations {
+		if _, held := appendedMigrationsAsSpecified[name]; !held {
+			t.Fatalf("%s is appended and not landed, and appendedMigrationsAsSpecified holds it to no text of §3.2's", name)
+		}
+	}
+	for name := range appendedMigrationsAsSpecified {
+		if !slices.Contains(appendedMigrations, name) {
+			t.Fatalf("appendedMigrationsAsSpecified holds %s to §3.2's text, and it is not an appended migration: it has landed, or it is gone", name)
+		}
+	}
+	digestOf := func(text string) string {
+		digest := sha256.Sum256([]byte(text))
+		return hex.EncodeToString(digest[:])
+	}
+	held := 0
+	for _, current := range migrations {
+		want, ours := appendedMigrationsAsSpecified[current.name]
+		if !ours {
+			continue
+		}
+		held++
+		text := strings.TrimLeft(current.sql, "\n")
+		if got := digestOf(text); got != want {
+			t.Fatalf("%s's SQL is not Spec B §3.2's text for it: SHA-256 %s over %d octets, want %s", current.name, got, len(text), want)
+		}
+		// THE CONTROL: one octet changed, in the middle of the text
+		changed := []byte(text)
+		changed[len(changed)/2] ^= 0x01
+		if digestOf(string(changed)) == want {
+			t.Fatalf("the control: %s with one octet changed still matched §3.2's digest, so the comparison above could not tell", current.name)
+		}
+		t.Logf("%s: %d octets, SHA-256 %s, §3.2's own", current.name, len(text), want)
+	}
+	if held != len(appendedMigrationsAsSpecified) {
+		t.Fatalf("the migration list holds %d of the %d migrations appendedMigrationsAsSpecified names", held, len(appendedMigrationsAsSpecified))
+	}
+}
