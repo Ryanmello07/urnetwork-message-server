@@ -14175,7 +14175,8 @@ repo and therefore the critical path — not this repository:
     to R73 are filed, R70 with its addendum, and the sentences of R70 to R73 are below.)* *(And by
     the R77 commit, after the R73 commit: R48 to R77 are filed, and the sentences of R74 to R77 are
     below.)* *(And by the R80 commit, after the R77 commit: R48 to R80 are filed, R73 as R78
-    corrected it, and the sentences of R78 to R80 are below.)*
+    corrected it, and the sentences of R78 to R80 are below.)* *(And by the R87 commit, after
+    the R80 commit: R48 to R87 are filed, and the sentences of R81 to R87 are below.)*
     - **What the plan is.** The implementation plan of the identity layer's first phase, written
       by the lead's planning round and revised in place three times: by its finalizer, for the red
       team dated 2026-10-15; by its reviser, for the owner's answer that the phrase change is built
@@ -14192,7 +14193,11 @@ repo and therefore the critical path — not this repository:
       library's, its rendezvous preimages and verifiers, with MI122 and MI123; Task 18's store
       computes `deposit_hash`; Task 19 consumes Task 7b's commit before its verify step; and the
       counts move to 46 tasks and 145 mutants.)* *(The R77 commit refiles it as R74 revised it:
-      Task 31 produces R72's stored-seed signer, and Task 33 builds it if Task 31 has not.)*
+      Task 31 produces R72's stored-seed signer, and Task 33 builds it if Task 31 has not.)* *(The
+      R87 commit refiles it as R81, R84, R86 and R87 revised it: Task 15 drops `-entropy`, each
+      tool making its identity as a person does; Task 23 carries slice 1's review's L-2 and L-3;
+      and the authorities gain (j), with its row in the authority table, the setup mark its
+      premise.)*
       - **The owner's order** is the identity layer, then IDs and requests (the plan calls that
         build R), then finding people by their URnetwork name (OWN:485, quoted below).
       - **What I1 builds:** a 25-word recovery phrase and the identity key made from it; a key and
@@ -14275,7 +14280,8 @@ repo and therefore the critical path — not this repository:
       sentence *(the heading read "R48 to R61", and R62's sentence is added by its refiling)*
       *(and R63's by the E1 and E4 refile, and R64's by the R64 refile)* *(and R65's by the R65
       refile)* *(and R66's to R69's by the R66 commit)* *(and R70's to R73's by the R73
-      commit)* *(and R74's to R77's by the R77 commit)* *(and R78's to R80's by the R80 commit)*:
+      commit)* *(and R74's to R77's by the R77 commit)* *(and R78's to R80's by the R80 commit)*
+      *(and R81's to R87's by the R87 commit)*:
       - **R48.** The bases: this repository's `main` is `37dd710f`, which carries T1's ledger close;
         the library's is `c7949cfd`; the app's is `badf2e2c` until urnetwork/message-windows#7
         merges, then `main`; and the S3 branch is the lead's dispatch to the app's one writer. The
@@ -14524,6 +14530,56 @@ repo and therefore the critical path — not this repository:
         server's slice-2 work, Tasks 18 to 20, is then complete, its pull request opening after the
         library's slice-1 pull request has merged, once a commit has moved the pin back to urnetwork
         and deleted the review source (R69).
+      - **R81.** Task 15's `-entropy`, dropped *(added by the R87 commit)*: the library takes no
+        caller entropy for the phrase, as MASTER §5.1 says, so each tool makes its identity as a
+        person does, typing back the words it was shown and keeping them in memory only; the
+        transcript check gains every party's words as needles, with a planted word as a control that
+        fires; and the plan's slice table reads "an identity made as a person makes one".
+      - **R82.** The server's last R80 commits *(added by the R87 commit)*: `00ffac01` on
+        `identity/i1-srv` corrects store/errorclass.go's comment, checked first against a real
+        PostgreSQL, and `3ba70ad4` on this branch, Spec B's revision 29 with LRI refiled through
+        R80, joins #14, both green; two NIT comments in the server's `api/rendezvous_push.go` are
+        carried to the server branch's re-pin commit, before its pull request; LRI's "Read with"
+        line now counts 46 tasks; and the server is complete for slices 0 to 2, its writer idle
+        until the library's slice-1 pull request merges, or Task 40.
+      - **R83.** R81's word needle, made measurable *(added by the R87 commit)*: one word of a
+        phrase fires on 99.76% of honest three-party runs, since the word list and the probes'
+        output are both English, so the needle is any two consecutive words of a party's phrase,
+        with up to four non-letters between them, or half the phrase's words as tokens; the controls
+        plant the whole phrase and a two-word run, and a single planted word does not fire, by
+        design; MI37 is held to this needle; Task 15 resumes on its writer's design, in 17 steps;
+        and Task 14 is accepted, pending its fork-ci and its fresh-clone run.
+      - **R84.** On slice 1's review *(added by the R87 commit)*: four lenses, each with an
+        adversarial verifier, found no BLOCKER and three MAJOR findings, X-APP-1, L-1 and G-4, and
+        every finding above NIT was confirmed; the library's round makes the identity record the
+        commit point, written last, counts every frame where nothing may reach the server, has R9's
+        link-group half compare the current identity key, and carries L-2 and L-3 into the plan's
+        Task 23; the app's round has each box hold exactly one word before Check, skips the capture
+        affinity in a remote session, and overwrites every buffer of the words or narrows its claim
+        to what is true; this repository's next specs commit gives Spec A the code's sentence for
+        the words, which it said were answered "once" (G-8); the lead's own text narrows R79's item
+        6 (L-8), and the plan's gate table is updated at the next refile (G-5); and one delta review
+        of both rounds follows.
+      - **R85.** On both R84 rounds *(added by the R87 commit)*: every item of both is fixed, the
+        library's with 24 mutants killed, and the app's with its live rig passing 59 of 59; the
+        app's per-box word check, beyond the letter, is confirmed, since NFKD can fold one box's
+        word into two tokens; the app re-checks the capture affinity when the session changes; L-1's
+        leftovers are swept at start under a named authority, (j), with its own row in the erase
+        table; and one delta review of both rounds is Task 17's second and last pass.
+      - **R86.** The setup orphans' sweep rests on a mark *(added by the R87 commit)*: R85's sweep
+        erased on an absence, so an identity record moved away while the app started, by a
+        quarantine, had a live identity's heads and phrase key swept; so setup writes a setup mark
+        first and removes it only after the identity record stands, the start's sweep erases only
+        where the mark stands and no identity record does, and with no mark nothing is erased;
+        authority (j) reads so, and the plan's authority table gains its row; and a mutant that
+        sweeps without the mark dies by the quarantine test.
+      - **R87.** R86's mark, built *(added by the R87 commit)*: the setup mark is store kind 14, at
+        "identity-setup", written first and removed only after the identity record stands, and (j)
+        sweeps only on it; the kill test runs at all seven writes, the quarantine test passes, and
+        11 mutants are killed; the commit is accepted, with a double fault as its residual, a stop
+        between the identity record and the mark's removal and then the record moved away; Spec A
+        §8.1 gains the mark, with R84's G-8 sentence, and the plan's authority table (j)'s row, at
+        the next filings; and Task 17's second pass, the delta review of both rounds, follows.
     - **The rows X1 to X14,** SCOPE's departures from M5's identity step, the owner's decisions
       and the first design, as ruled:
       - **X1,** taken: no security delay in I1, so a removal acts at once, with the delay to come
@@ -32460,3 +32516,187 @@ It made 8 findings: 0 BLOCKER, 0 MAJOR, 3 MINOR and 5 NIT. All are taken in this
   deleted with the pin's return.
 
 It cites no run of itself: the pull request's body cites the runs on its head.
+
+### 2026-10-18 — The lead's R84, R86 and R87: Spec A's A-40, and the plan and LRI refiled through R87
+
+**Change:** Spec A gains its row A-40, directed by the lead's rulings R84, R86 and R87. §8.1's table
+gains the setup mark, store kind 14, at `state/identity-setup`, and §7.3's list of the erase
+authorities gains (j), a setup's orphans, which erases only on that mark. `Device.CreateIdentity`
+and `urnet_message_device_create_identity` answer the same words until the identity is made, and new
+ones after a restart, where this spec said they answer them "once" (R84's G-8). Two of the six files
+item 298 filed are refiled from the lead's sources: the plan, as R81, R84, R86 and R87 revised it,
+with (j)'s bullet and its row in the authority table; and `LEAD-RULINGS-I1.md`, through R87. The
+other four are unchanged, byte for byte. Item 298 is annotated where it stands. No code changes.
+
+#### 1. Why
+
+- **R84**, on slice 1's review, sends its G-8 to this repository's next specs commit. Spec A says
+  that the words are answered "once", where the code answers the same words until `ConfirmWords`,
+  and new ones after a restart, as the plan's Task 12 requires. The spec takes the code's sentence.
+- **R85** has the library sweep, at start, what an identity's making that stopped part way leaves:
+  erase authority (j), a setup's orphans.
+- **R86** finds that sweep resting on an absence: an identity record moved away while the app
+  starts, by a quarantine, gets a live identity's heads and phrase key swept. It rules the mark:
+  setup writes a setup mark first and removes it only after the identity record stands, and the
+  sweep erases only where the mark stands and no identity record does.
+- **R87** accepts the library's commit for R86, `c6b186cf`: the mark is store kind 14, at
+  "identity-setup". It sends §8.1's row, with G-8's sentence, to the next specs commit, and (j)'s
+  row to the plan's authority table at the next refile.
+- **The lead's directive for this commit:** those lines of Spec A; the refile of the plan and LRI at
+  their hashes, LRI through R87 and the plan with (j)'s row; and this entry. §7.3 says that every
+  erase of one of the identity's records names an authority, and the library erases the heads and
+  the phrase key under (j). So §7.3's list gains (j), and so do the heads' and the phrase key's
+  rows, which would otherwise say "never" and "(f), (f)P, (g) or (i) only" where the code erases
+  them under (j).
+
+#### 2. The spec
+
+- **Spec A, A-40.**
+  - **§7.3's erase authorities** gain a bullet, (j): the heads and the phrase key record, erased at
+    a start only where the setup mark stands, reads as the store's own, and no identity record does.
+    `ConfirmWords`, as it makes the identity, writes the mark first and removes it only after it has
+    written the identity record, last. Neither removal of the mark itself is an erase under an
+    authority: it is the store's note about its own writes, and with it gone (j) erases nothing. The
+    bullet states the double fault R87 accepts. The list's lead line notes a fourth authority.
+  - **§7.2's `Device.CreateIdentity()`** answers the 25 words, and makes nothing. It answers the
+    same words at every call until `ConfirmWords` makes the identity, so that Back shows them again,
+    and new ones after a restart, since the words are held in memory only. It read "answers the 25
+    words once".
+  - **§8.1's table** gains the setup mark's row, at `state/identity-setup`, holding the identity key
+    it names. `ConfirmWords` removes it once the identity record stands; otherwise a start's sweep
+    takes it, when it reads as the store's own: alone, beside an identity record that stands, or
+    last, after the heads and the phrase key, where none stands. The heads' row, "never", and the
+    phrase key's row, "(f), (f)P, (g) or (i) only", each gain (j) in a note, and the note under the
+    table names the mark as a fourth record the store keeps there.
+  - **§9.3a's `urnet_message_device_create_identity`** answers the same words until
+    `urnet_message_device_confirm_words` makes the identity, and new ones after a restart. It read
+    "which answers the words once".
+  - **The change table** gains row A-40.
+
+  The library declares it so at `c6b186cf`: `stateKindSetupMark` is 14 and `stateRootSetupMarkName`
+  is "identity-setup", beside the heads' and the phrase key's names; `putIdentityRecords`, which
+  `ConfirmWords` reaches, calls `PutSetupMark` first and `ClearSetupMark` after the identity record;
+  `SweepIdentityOrphans` erases nothing with no mark; the erase gate lists the mark's own two
+  removals as not a group's file, and not under (j); and `CreateIdentity` answers the words it
+  holds, `offered`, until the identity exists.
+- Spec B, Spec C and MASTER do not change.
+
+#### 3. The sources, and the refiling
+
+- **The sources,** as the lead's scratch folder held them at 19:50 UTC, when this refile copied
+  them:
+  - the plan `2b5d5a23…`, of 1,573 lines, where the R80 commit's source, `f56165d3…`, had 1,570;
+  - LRI `e52d1b08…`, of 966 lines, through R87, where `e7ca896a…` had 814.
+
+  SCOPE, FOR-OWNER, REDTEAM and REDTEAM-TASK2 are unchanged, and are not refiled.
+- **What changed in them.**
+  - **In the plan:**
+    - R81's: Task 15 makes no `-entropy`, each tool making its identity as a person does, and the
+      probe steps, the slice table, a run's step and the sessions' setup say so;
+    - R84's: Task 23 gains a line after the plan's line 779, the self group surviving a restart and
+      Restore's re-founding firing only on the device that made the identity;
+    - R86's and R87's: the authorities gain (j)'s bullet after line 140, and the authority table its
+      row after line 151.
+  - **In LRI:** R81 to R87 are appended, and its "Read with" line, line 5, counts the plan's tasks
+    at 46, as R82 says, where it said 45. Its other 813 lines are unchanged.
+- **The refiling.** The same edit list, with two legends brought up to date: 7 edits in all.
+  - **The plan's legend** names R81, R84, R86 and R87 beside R61, R62, R65, R66, R68, R70 and R72,
+    since the text now cites each.
+  - **LRI's legend** names the plan as R87 left it, of 1,573 lines. R65's `PLAN:148` is line 149,
+    and line 151 of the filed copy, since R86 and R87 added a line after line 140. R66's addendum's
+    `:1395` and `:1488` are lines 1,417 and 1,510, since R84 added a line after line 779 and R86 and
+    R87 two after lines 140 and 151, and lines 1,419 and 1,512 of the filed copy. Each line claim
+    was checked against the source. The legend also names
+    `identity-phase1/review-slice1/FINDINGS.md`, which R84 cites, as a findings file in the lead's
+    scratch folder, not filed.
+  - **The local paths:** the sources hold the same six as before, four in the plan and two in LRI,
+    and the edits remove them. R81 to R87 name none.
+
+  The filed copies: the plan `55c9b432…`, of 1,575 lines, where it was `3f980a1c…`, of 1,572; LRI
+  `0c2e4151…`, of 968, where it was `e19d416e…`, of 816.
+- **The proof.** Each of the two, reversed through its recorded edits, gives its source byte for
+  byte, and a line diff of source and filed copy touches only the lines the edits name. The proof's
+  three controls each fail it. Neither filed file holds a local path, by a search of each whole file
+  whose planted control fired in the same run. The lines this commit adds hold no local path, user
+  profile, address, key or token, by a second search whose controls fired.
+
+#### 4. The plan linter
+
+The plan changes, and on this commit's tree the linter's nine counts are still the R80 commit's: the
+property class 496, the plan-supplied-test class 227, the class-deriving property class 74, the
+task-reference class 3,812, the open-item-reference class 955, the plan-reference class 2,220, the
+ledger-reference class 269, the Consumes-entry class 366 and the qualified-consumed-name class 15.
+None of the changed lines adds a property, a test, a task reference or a Consumes entry. All seven
+of the linter's tests pass, and no line of its output names the plan.
+
+#### 5. The ledger
+
+- **Item 298, annotated where it stands:**
+  - its heading's notes;
+  - "What the plan is", with the revisions of R81, R84, R86 and R87;
+  - its rulings' bullet's notes;
+  - the sentences of R81 to R87.
+
+  Its size does not move: the plan still counts 46 tasks and 145 mutants.
+
+#### 6. The gates
+
+Run on the committed history of this entry, under go1.27.2, beside the four siblings at their pins,
+before the push:
+- `go test ./ -count=1 -run 'TestTheEditLogGate|TestThePlanLinter' -v`: the edit-log gate's six
+  tests and the linter's seven pass, and none fails. The gate reads Spec A's newest entry as row
+  A-40, and Spec B's as revision 29 still. Its ledger arm prints 79 of 102, where the R80 commit
+  left 78 of 101, since this commit changes a spec and two files the gate counts as plans, and
+  appends this entry.
+- `go test ./ -count=1`, the whole root package: `ok`.
+
+#### 7. What this does not do
+
+- It changes no code, and no word of the lead's text but by the recorded edits. The setup mark is
+  the library's, at `c6b186cf` on its fork.
+- No wire byte or derivation label changes. The setup mark is a record of the device's own store,
+  which no other party reads.
+- §7.2's `Device.ChangePhrase` and §9.3a's `urnet_message_device_change_phrase` still answer the new
+  words "once": G-8 is about the first phrase's words, and the change's are not asked about here.
+- **R84's G-5 is still owed.** The plan's gate table is to be updated at its next refile, and this
+  refile's source changes no gate-table row. Two lines of the filed plan now also read short of (j),
+  which this commit files in the same plan: line 133, "I1 adds three erase authorities, (f), (g) and
+  (i)", and the gate table's erase row, line 1,451, "new sites under (a), (f), (f)P, (g) and (i)".
+  Both are in the lead's text, and are the lead's to correct, with the plan's other leftovers of
+  R81: "the entropy's digest", "their entropy" and "the words and the entropy", at lines 600, 1,252
+  and 1,320 of the filed copy (this commit's review, its F3 and F12).
+- It does not open a pull request: urnetwork/message-server#14 merged this branch at `3ba70ad4`, as
+  its merge commit `f67e3a14` on main shows, at 09:42 UTC, and the lead opens the next one.
+
+**Reviewed by:** one subagent reviewer, read-only, on the change uncommitted and by its sha256 at
+its start and at its end, which were the same. It checked:
+- the spec against the library at `c6b186cf`, read from its fork;
+- the refile, by re-applying the edit list, and every legend line claim;
+- every claim of this entry;
+- the two gates, in one run;
+- the added lines for local paths and secrets, with planted controls.
+
+It made 14 findings: 0 BLOCKER, 1 MAJOR, 2 MINOR and 11 NIT. Those in this commit's own text are
+taken; those in the lead's text or the library's are recorded:
+- **F1, MAJOR:** the setup mark's own removals were credited to (j), whose premise is false beside a
+  standing identity record. The library lists both removals as not a group's file. §8.1's row and
+  §7.3's bullet now say that neither is an erase under an authority, and that the sweep takes only a
+  mark that reads as the store's own.
+- **F2, MINOR:** §7.3's bullet now states R87's double fault, and says that a mark with no identity
+  record is read as a stopped making.
+- **F3, MINOR:** G-5 is still owed, in the lead's text; §7 above records it, and R84's sentence now
+  keeps G-5 and L-8.
+- **F4:** the note under §8.1's table names the mark as a fourth record the store keeps there.
+- **F5:** row A-40 says "derivation label", and names the four sections it changes.
+- **F6:** "the making" is now `ConfirmWords`, as it makes the identity.
+- **F7:** `putIdentityRecords` sets the order, not `PutSetupMark`, and this entry says so.
+- **F8:** the phrase change's export is §9.3a's, and this entry says so.
+- **F9:** this entry cites #14's merge commit.
+- **F10:** R84's sentence allows the app's narrowed claim, and R83's keeps MI37.
+- **F11 and F12:** in the lead's text: the (j) row's "R:" cell, which the table's legend does not
+  define, and R81's leftovers; recorded above and for the lead.
+- **F13:** in the library: two comments of `sdk/urmessage/identity.go` still say "once"; for its
+  writer.
+- **F14:** §1 now says why §7.3 and the two rows gain (j).
+
+It cites no run of itself: the next pull request's body cites the runs on its head.

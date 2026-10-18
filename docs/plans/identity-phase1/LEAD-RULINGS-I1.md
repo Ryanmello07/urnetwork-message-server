@@ -1,10 +1,10 @@
 # Lead rulings: identity phase 1 (I1), and its interface to IDs and requests (R)
 
-**Filed copy.** These rulings are filed in `urnetwork/message-server` as `docs/plans/identity-phase1/LEAD-RULINGS-I1.md`, in the folder beside the plan, and the ledger entry that files them lists every change made in filing them. `identity-phase1/PLAN.md` and `PLAN.md` are the plan, filed as `docs/plans/2026-10-16-identity-layer-one-account.md`: the plan as R74 left it, of 1,570 lines, where R61 read 1,545, R68 left 1,552 and R70 1,569, with two lines of legend added at its top. A `PLAN:` line here is of the plan its ruling read, without that legend. R65's `PLAN:148` is line 148 of the plan as filed, and line 150 of the filed copy. R66's addendum's `:1395` and `:1488` are of the plan as R66 left it; R68 added a line after its line 493, R70 seventeen after its line 339, and R74 one after its line 968, so they are lines 1,414 and 1,507 of the plan as filed, and 1,416 and 1,509 of the filed copy. `identity-phase1/review-t8-t10/FINDINGS.md`, which R68 cites, and `identity-phase1/review-srv-t18-t20/FINDINGS.md`, which R75 cites, are the findings files of the library's review and of the server's slice review, and `identity-phase1/review-srv-delta/`, which R78 cites, is the folder of the server's delta review; all three are in the lead's scratch folder and not filed. `SCOPE.md`, `FOR-OWNER.md`, `REDTEAM.md` and `REDTEAM-TASK2.md` are filed in this folder. A local path is replaced by a label: `srv@<sha>` is `urnetwork/message-server` at that commit. The lead's scratch folder is in no repository: it holds every `scratchpad/...` path, and the designs and rulings named here by a relative path or a short name, such as D2 and LR.
+**Filed copy.** These rulings are filed in `urnetwork/message-server` as `docs/plans/identity-phase1/LEAD-RULINGS-I1.md`, in the folder beside the plan, and the ledger entry that files them lists every change made in filing them. `identity-phase1/PLAN.md` and `PLAN.md` are the plan, filed as `docs/plans/2026-10-16-identity-layer-one-account.md`: the plan as R87 left it, of 1,573 lines, where R61 read 1,545, R68 left 1,552, R70 1,569, R74 1,570 and R84 1,571, with two lines of legend added at its top. A `PLAN:` line here is of the plan its ruling read, without that legend. R65's `PLAN:148` is line 149 of the plan as filed, and line 151 of the filed copy, since R86 and R87 added a line after its line 140. R66's addendum's `:1395` and `:1488` are of the plan as R66 left it; R68 added a line after its line 493, R70 seventeen after its line 339, R74 one after its line 968, R84 one after its line 779, and R86 and R87 two, after its lines 140 and 151, so they are lines 1,417 and 1,510 of the plan as filed, and 1,419 and 1,512 of the filed copy. `identity-phase1/review-t8-t10/FINDINGS.md`, which R68 cites, `identity-phase1/review-srv-t18-t20/FINDINGS.md`, which R75 cites, and `identity-phase1/review-slice1/FINDINGS.md`, which R84 cites, are the findings files of the library's review, of the server's slice review and of slice 1's review, and `identity-phase1/review-srv-delta/`, which R78 cites, is the folder of the server's delta review; all four are in the lead's scratch folder and not filed. `SCOPE.md`, `FOR-OWNER.md`, `REDTEAM.md` and `REDTEAM-TASK2.md` are filed in this folder. A local path is replaced by a label: `srv@<sha>` is `urnetwork/message-server` at that commit. The lead's scratch folder is in no repository: it holds every `scratchpad/...` path, and the designs and rulings named here by a relative path or a short name, such as D2 and LR.
 
 **Date:** 2026-10-16 (UTC). **Writer:** the lead. These rulings continue LR's numbering (`scratchpad/hardening-plans/LEAD-RULINGS-2026-10-15.md`, R34 to R47; R33 is in `LEAD-RULINGS-2026-10-14.md`).
 
-**Read with:** `identity-phase1/PLAN.md` (45 tasks) and `SCOPE.md`; `accounts-requests/DESIGN-v2.md` (D2). PLAN's Task 1 files this file in `message-server` beside the plan. Every writer reads it before starting a task, and again before finishing one.
+**Read with:** `identity-phase1/PLAN.md` (46 tasks since R70) and `SCOPE.md`; `accounts-requests/DESIGN-v2.md` (D2). PLAN's Task 1 files this file in `message-server` beside the plan. Every writer reads it before starting a task, and again before finishing one.
 
 **Owner's questions.** The rulings below marked **owner** wait on the owner's answer. The rest stand now.
 
@@ -814,3 +814,155 @@ Then Task 15. Slice 1's library review runs after Task 15.
 - Its PR opens only after the library's slice-1 PR has merged.
 - Before it opens, a commit moves the pin back to urnetwork at the merged commit and deletes the review source (R69).
 - W-srv is idle until then, or until Task 40 in slice 4.
+
+## R81. Task 15's `-entropy`: dropped (2026-10-18)
+
+**Read:** W-lib's question. PLAN Task 15 asks for `-entropy <file>`, but the library takes no caller entropy for the phrase.
+- MASTER §5.1 says "no call takes entropy from its caller", and R68 item 6's gate holds messagegroup's process-entropy draws to NewRecoveryPhrase alone.
+- DeviceConfig.Random feeds the device's keys, the salt and the self group's id, never the phrase.
+
+**Ruled (a).** `-entropy` is dropped from Task 15.
+- Each tool makes its identity as a person does: it types back the words it was shown, and keeps them in memory only.
+- (c) would open a door MASTER §5.1 closes on purpose.
+- (b) would seed the keys only and repeat them across runs, for little gain.
+- The transcript check gains every party's words AS NEEDLES. No word of any party may appear in anything either tool prints, logs or writes, and a planted word is a control that fires.
+- The slice table's "an identity from test entropy" now reads "an identity made as a person makes one". PLAN carries this at the next refile.
+
+## R82. The server's last R80 commits (2026-10-18)
+
+**Read:** W-srv's report.
+- On identity/i1-srv, `00ffac01` corrects errorclass.go's comment: a refused connection is classed by its SQLSTATE. It was checked against a real PostgreSQL 17.6 first. CI is green: 832 passed, FULL RUN 2 of 2.
+- On specs/identity-phase1, `3ba70ad4` is Spec B revision 29, plus LRI refiled through R80. It joins #14, whose body the lead updated. CI is green.
+
+**Carried to the server branch's re-pin commit,** which comes before its PR (R69): two NIT comments in api/rendezvous_push.go.
+- `kept` means the write answered REASON_OK, not that the Collect did.
+- The stale-write sentence holds only when the later box is pinned under other keys. A client that re-registers the same code with the same keys after a sweep is acted on. Say so.
+
+**Fixed here:** LRI's "Read with" line now says 46 tasks (since R70).
+
+**The server is complete for slices 0 to 2, and W-srv is idle** until the library's slice-1 PR merges (the re-pin), or Task 40.
+
+## R83. R81's word needle, made measurable (2026-10-18)
+
+**Read:** W-lib's measurement (scratchpad/t15/needle_rates.out, 100,000 random phrases against the live probe's own transcript). A single-word needle fires on 99.76% of honest three-party runs, because the word list is English and so is the probes' output.
+
+**Ruled, as W-lib proposed:**
+- The needle is any TWO CONSECUTIVE words of a party's phrase, with up to 4 non-letters between them (0.24% per honest run), or half the phrase's words (13 of 25) as tokens (at most 0.003% per run).
+- The controls plant the whole phrase, and a two-word run, and both must fire.
+- A single planted word does not fire, by design, and the check's comment says why.
+- MI37 is held to this needle.
+
+**Task 15 resumes on this,** with W-lib's design as reported:
+- identities made after Connect;
+- the stranger seam-bound;
+- C's second leaf bound from C's words;
+- livepeer's roster grouped by identity;
+- digests only;
+- 17 steps.
+
+**Task 14 (`dd25d3f`) is accepted,** pending its fork-ci 39108202409, where the windows leg is the only run of the C consumer, and its alt-2 fresh-clone run in /root/t14f.
+
+## R84. On slice 1's review (Task 17 step 2; lib `ff712506`, app `418e3e6a`; workflow wf_81be49c1-7dd, 2026-10-18)
+
+**Read:** four lenses, each with an adversarial verifier. Every finding above NIT was CONFIRMED, and none was refuted. The full text is in `identity-phase1/review-slice1/FINDINGS.md`.
+- **No BLOCKER.** Every Task 11 and Task 7b known answer was recomputed independently, and they match. No forged or stale binding was admitted, and no refused commit was published, on any road the reviewers tried. The R68 fixes hold.
+- **MAJOR:** X-APP-1, L-1 and G-4.
+- **MINOR:** X-LIB-1 to X-LIB-3, X-APP-2, C-1, C-2 (with G-3), L-2, L-3, G-1 and G-2.
+- **NIT:** the rest.
+
+This is the first of Task 17's two fix rounds. One delta review follows.
+
+**W-lib's round (library), tests first, each with its mutant:**
+1. **L-1 (MAJOR): the identity record is the commit point.** Write the heads and the phrase key FIRST and the identity record LAST, each atomically. A stop before the identity record leaves no identity, so setup can run again. A stop after it leaves a whole identity. The test kills the process between every pair of writes, and every restart then works. The mutant puts the old order back.
+2. **G-4 (MAJOR):** the "nothing reached the server" assertion counts EVERY frame, fragments included. The reviewer's surviving mutant of the rejected order must die.
+3. **X-LIB-1:** confirm_words' result starts as FAILED, so a recovered panic answers FAILED, never OK. Every export with a kind result gets the same treatment, and a test panics inside each.
+4. **X-LIB-2:** the positions are capped at the caller's capacity, with the full count returned or a "more" flag. The header promise is corrected.
+5. **X-LIB-3:** liveprobe prints refusals by error class or digest, never an identity key in hex. Its transcript needle gains every identity key.
+6. **X-LIB-7 and X-LIB-5:** test failure messages print digests, never the words. Fix the "zoo" one-in-2,048 flake, as the sibling test does.
+7. **C-1:** R8-EQ compares every pair of one root's lists at one version, not only against the running newest. The reviewer's leaf-order probe becomes the test, and must pass in every order.
+8. **C-2 and G-3: R9's link-group half compares the CURRENT identity key,** the chain's end, with 0xF006's identity_root, as MASTER §5.3 and §5.4 and Spec A §3.4 and §7.5 say. The self group keeps the root. The test runs over a chain of one step.
+9. **G-1:** livepeer's protobuf allowance becomes a testFiles allowance.
+10. **G-2:** a census row, or test, holds sdk/cgo's handling of the words: no copy outlives the call, beyond the stated string residual.
+11. **L-4:** Connect's rebind moves the self group's sessions too.
+12. **L-5:** the device signing key is erased on NewDevice's refusal exits.
+13. **The NITs, taken:**
+    - X-LIB-4 and L-9: say the string copy is §8.4a's residual;
+    - X-LIB-6: the control's text;
+    - L-6: names matched exactly where the filesystem is case-sensitive, or the reason stated;
+    - L-7: the read buffer cleared after decoding;
+    - G-7: a gate that every registry entry prints a RED-report row;
+    - G-6: the row keyed by body, with "branches on typed letters, which are local input" stated.
+14. **Forward to Task 23, into PLAN now (L-2 and L-3):**
+    - the self group must survive a restart before its first add: persist what AddMember needs, or found it in a way a restart can resume;
+    - the re-founding at start fires only on the device that MADE the identity, never on a linked device waiting for its self-group join.
+
+**W-app's round (app), tests first, each with its mutant:**
+1. **X-APP-1 (MAJOR): each box holds exactly one word before Check.**
+   - An empty box is named by the app itself ("Word 7 is empty"), and so is a box with two words ("Word 7 holds two words"). The app knows which box, without knowing the words.
+   - Only then are the 25 tokens joined and sent, so the library's positions are the boxes' positions.
+   - The test includes an empty box and a doubled box.
+2. **X-APP-5 (Spec C §6.2):** in a remote session (SM_REMOTESESSION), the words screens SKIP the capture affinity, because it would black the window for the only person who can read it, and show the inline warning instead. The capture tests split by session kind.
+3. **X-APP-2:** every buffer holding the words or the typed phrase is overwritten before it is freed, or the claim in LiveIdentity.h is narrowed to what is true. Prefer the overwrite.
+4. **X-APP-3:** the Unreadable sentence is drawn.
+5. **X-APP-4:** the view reads FieldPolicy, so the mx-copy mutant changes what is drawn and dies there.
+6. **X-APP-6:** the READ-ME names local_names.json among what this build still reads, or the build stops reading it. Say which.
+7. **X-APP-7:** while a live session is up, the strip reads connected during setup and Account; the plain-launch rule applies only before a live world. Use a test and a shot.
+
+**Specs (W-srv, the next specs commit):** G-8. Spec A says the words are answered "once", where the code answers the same words until ConfirmWords, and new ones after a restart, as PLAN Task 12 and M5:405 require. The spec gets the code's sentence.
+
+**The lead's own text:**
+- L-8: R79 item 6 is narrowed. No production file uses FIELD-REACHING reflection or unsafe. sdk/cgo's unsafe.Slice at the C boundary is the stated exception.
+- G-5: PLAN's gate table is updated at the next refile.
+
+**Then:** one delta review of both rounds, then Task 17's step 3, the alpha. The lead tells the owner before the database is wiped.
+
+## R85. On both R84 rounds (lib `02504d51`, app `2da43e47`, 2026-10-18)
+
+**Read:** both writers' reports.
+- **Library:** every R84 item is fixed, and 24 mutants are killed. alt-2's fresh-clone test.sh is green, and fork-ci 39147572571 is green on all four legs, with the C consumer passing on windows.
+- **App:** every R84 item is fixed. The live rig passed 59 of 59, 16 diag mutants are killed, and the zip smoke passes on both images.
+
+**Rulings:**
+- **The app's per-box check_word, beyond the letter: CONFIRMED.** NFKD folds U+00A8 into two tokens, so a box can be one word to the app and two to the library.
+- **The app adds a re-check on WM_WTSSESSION_CHANGE.** The capture affinity follows the session kind while a words screen is up, with a mutant.
+- **The library's commit-verb panic tests** are held by gen's source gate. A real one belongs to the loopback harness, later.
+- **L-1's leftovers are SWEPT.** At start, a device with no identity record erases any heads record and phrase-key record. This is a named authority, with its own erase-table row. The kill test is extended, and the mutant drops the sweep.
+- **L-5's second half:** makeIdentity zeroizes the engine it replaces.
+- **The app pins the library's next small commit,** which carries those two items.
+- **Then one delta review of both rounds:** lib ff712506 → its final head, and app 418e3e6a → its final head. That is Task 17's second and last pass.
+
+## R86. The setup orphans' sweep rests on a mark, not on an absence (2026-10-18)
+
+**Read:** W-lib's R85 report, at `329244fb`. W-lib reproduced, with a probe, a case where R85's sweep is not true:
+- an identity record moved away while the app starts (for example, quarantined by an antivirus) gets a live identity's heads and phrase key swept;
+- once the record is put back, every start is refused.
+
+The sweep rested on an ABSENCE, the class R33 rejected for group files. The erase gate's own principle is that an erase rests on "a fact it wrote itself".
+
+**Ruled: the mark, which is the (c) pattern.**
+- Setup writes a setup mark FIRST, before the heads. It removes the mark only AFTER the identity record stands.
+- The start's sweep erases the heads and the phrase key ONLY where the mark stands and no identity record does.
+- With no mark, nothing is erased, whatever is missing. The quarantine case then comes back whole once the record returns.
+- The authority keeps the letter (j), "a setup's orphans", now reading "a setup mark that stands with no identity record". PLAN's authority table gains (j)'s row at the next refile.
+- **Tests:**
+  - the kill test at every write, mark included;
+  - the quarantine probe becomes a test: the record moved away, a start, the record put back, and the start whole;
+  - a mutant that sweeps without the mark must die, by the quarantine test.
+- Then W-app pins that commit, and the delta review runs.
+
+## R87. R86's mark, built (`c6b186cf`, 2026-10-18)
+
+**Read:** W-lib's report.
+- The setup mark is store kind 14, at "identity-setup". It is written first and removed only after the identity record stands.
+- (j) sweeps only on the mark.
+- The kill test runs at all 7 writes, and the quarantine test passes.
+- 11 mutants are killed, MSM ("an absence alone decided an erase") among them.
+- alt-2's fresh-clone test.sh and fork-ci 39157812390 are green, with the checkout proven.
+
+**Accepted.** The residual is a double fault: a stop between the identity record and the mark's removal, AND the record then moved away before the next start. It is stated in the commit, and is accepted for I1.
+
+**Specs and PLAN, at the next filings:**
+- Spec A §8.1 gains "identity-setup", kind 14 (W-srv), together with R84's G-8 sentence.
+- PLAN's authority table gains (j)'s row, with the mark as its premise.
+
+W-app re-pins to c6b186cf. Then the delta review (Task 17's second pass): lib ff712506..c6b186cf, and app 418e3e6a..its re-pinned head.

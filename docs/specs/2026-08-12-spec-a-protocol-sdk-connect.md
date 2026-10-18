@@ -120,6 +120,7 @@ Append-only. Newest last. One entry per commit that changes this spec. Every cha
 | 2026-10-16 | A-37 | **Two notes owed since Spec B's revision 25; ruling 27's stale comments corrected; and the phrase's fold and its in-memory residual stated** (ledger item 301's Open; Task 5's review, its F9 and F10; this edit's review, its F2, F4 and F6; the lead's rulings R66 and R68, R68's from the review of the identity plan's Tasks 8 to 10, its findings L1-2, L1-5, L3-6 and L3-7). §12.1's A-1 block takes ruling 27's names, which Spec B's copy carries and this copy never took, and the block's lead line and a note after it say that the two copies now differ only where each cites a section. Two of ruling 27's comments, stale since 2026-09-23, are corrected in both copies, and `ErrEpochKeysDigestPresence`, which no function on this surface returns, leaves both under A-9's rule. §5.11's paragraph on the two doors says that check 3's serves all six kinds, and its measurement of the stale-peer split is dated. The out-table's row A-18 gains the link box's note, as Spec B's row A-18 has. §7.2 names the phrase's fold, NFKD at Unicode 17.0.0 with white space as Unicode's White_Space property gives it, as MASTER §5.1 now does, and a new §8.4a states what an erase of the phrase's secrets does not reach, measured, which MASTER §5.2 now points to. |
 | 2026-10-16 | A-38 | **The rendezvous's small-order key rule, `RendezvousKeyIsAcceptable`** (the lead's rulings R72 and R73; the identity plan's Task 19, its verify step). Under a public key of small order, `crypto/ed25519` accepts signatures that need no secret, so the library's five rendezvous verifiers refuse such a key, and a key of any width but 32 octets, before any signature, and the library publishes the rule. §5.14 gains the paragraph that says so, and that the server's Register calls it at check 3 on both keys, so that no box is stored under a key no holder could use. §12.1's A-1 block gains `RendezvousKeyIsAcceptable` with its comment, in both copies alike, with a note after the block and one in its lead line, and row A-18 gains its note. No wire byte, record, label or other section of this spec changes. |
 | 2026-10-18 | A-39 | **§2 counts the rendezvous functions as §12.1's A-1 block lists them, and `RendezvousDepositBytes` is marked as exported when kind 0 is served** (the lead's ruling R74, its F14 and its ruling on `RendezvousDepositBytes`; R77). §2's line for `rendezvous.go` said that it holds "§12.1's nine published rendezvous functions", where the block has listed twelve since A-38; it now names the file's five preimages and the block's twelve, the register preimage among both. In both copies of the block, `RendezvousDepositBytes`, the size of kind 0's deposit, is marked as exported when kind 0 is served, since the library leaves it out while no build serves kind 0 (R72), and a note after the block says so; the block's rendezvous section and the library's commit for R72, `48204f2b`, then agree. No wire byte, record, label, rule or other section of this spec changes. |
+| 2026-10-18 | A-40 | **The setup mark in §8.1, with erase authority (j) in §7.3, and the words answered until they are confirmed** (the lead's rulings R84, its G-8, R86 and R87). §8.1's table gains the setup mark, store kind 14, at `state/identity-setup`. `ConfirmWords`, as it makes the identity, writes it first, before the heads and the phrase key, and removes it only after it has written the identity record, last; so the start's sweep, authority (j), erases the heads and the phrase key only where the mark stands and no identity record does, and with no mark erases nothing. The heads' and the phrase key's rows gain (j), and §7.3's list of the erase authorities gains it, with the double fault it leaves, as the library's commit for R86, `c6b186cf`, builds it. §7.2's `Device.CreateIdentity` and §9.3a's `urnet_message_device_create_identity` were said to answer the words "once": they answer the same words until the identity is made, so that Back shows them again, and new ones after a restart, as the library does. No wire byte or derivation label changes, and no section of this spec but §7.2, §7.3, §8.1 and §9.3a. |
 
 ---
 
@@ -3888,7 +3889,10 @@ over nothing.
   stored and so never revealed, and no device restores from it in I1. `IdentitySafetyDigits` and
   `IdentityShortFingerprint` come with IDs and requests (MASTER §15). `RemoveIdentity` is
   `Device.EndIdentity` (§7.5).
-- **`Device.CreateIdentity()`** answers the 25 words once, and makes nothing.
+- **`Device.CreateIdentity()`** answers the 25 words, and makes nothing. It answers the same words
+  at every call until `ConfirmWords` makes the identity, so that Back shows them again, and new ones
+  after a restart, since the words are held in memory only *(A-40, the lead's ruling R84, its G-8;
+  this read "answers the 25 words once")*.
 - **`Device.ConfirmWords(words)`,** with all 25 typed back, makes the identity: key number 1, the
   first base naming this device as a phrase device, the account ID's salt, and the self group,
   founded with 0xF006 `{1, root}`. It stores the identity record, the heads and the phrase key
@@ -4407,7 +4411,7 @@ surface that stands over them.
   erasing what it wrote itself; **(e)** the epoch window. I1 adds callers of (a): **(a)L**, a link
   group, left when its session ends, and **(a)E**, each conversation and the self group, left when
   the person ends the identity on an only device. It adds three authorities, (f), (g) and (i), and a
-  second premise of (f), (f)P:
+  second premise of (f), (f)P *(A-40: and a fourth, (j), below)*:
   - **(f),** the phrase key record, erased when this device holds a verified certificate for a key
     number higher than the record's own; a lock-out's target does it before it shows itself
     removed;
@@ -4419,6 +4423,17 @@ surface that stands over them.
     has succeeded;
   - **(i),** a phrase change's own new key record, erased when the change is void before anything of
     it was sent.
+  - **(j)** *(A-40)*, a setup's orphans: the heads and the phrase key record, erased at a start only
+    where the setup mark (§8.1) stands, and reads as the store's own, and no identity record does.
+    `ConfirmWords`, as it makes the identity, writes the mark first, and removes it only after it
+    has written the identity record, last. So a mark with no identity record is read as a making
+    that stopped before it wrote the identity record; and with no mark nothing is erased, whatever
+    is missing, so that an identity record moved away and put back finds its heads and its phrase
+    key where they were. Neither removal of the mark itself is an erase under an authority: the mark
+    is the store's note about its own writes, and with it gone (j) erases nothing. One double fault
+    is left, and accepted for I1: a stop between the identity record and the mark's removal, or a
+    removal of the mark that fails, then the identity record moved away before the next start, which
+    then sweeps a live identity's heads and phrase key (the lead's rulings R86 and R87).
 
   So no device leaves its account holding a phrase secret. The library's erase gate lists every
   site under its label, and the authority table holds each label against every adversary's move.
@@ -5688,8 +5703,9 @@ Redemption is rate-limited at the operator; `"rate_limited"` carries a retry hin
 | **Server-advertised limits, pin state, `capability_version`** | SQLite `server_info` | no (public data), integrity-MAC'd | never; refreshed on `CapabilityChange` |
 | `server_nonce` | memory only | — | reconnect |
 | **The identity record**, store kind 11 (A-36): the root, the chain, the current identity key and the account ID's salt, and its ended mark | `state/identity` | under file permissions only in alpha builds (MASTER **I2**, Revision 10) | never: an ended identity keeps it, marked, and the app opens a fresh folder |
-| **The heads**, store kind 12: for every root seen, the newest list; this device's own-signature log; the remembered phrase-device marks | `state/identity-heads` | as above | never |
-| **The phrase key**, store kind 13: `isk_seed[g]`, naming its identity key and its key number, on a phrase device only | `state/phrase-key` | as above | under authority (f), (f)P, (g) or (i) only (§7.3) |
+| **The heads**, store kind 12: for every root seen, the newest list; this device's own-signature log; the remembered phrase-device marks | `state/identity-heads` | as above | never *(A-40: but under authority (j), where the setup mark stands with no identity record (§7.3))* |
+| **The phrase key**, store kind 13: `isk_seed[g]`, naming its identity key and its key number, on a phrase device only | `state/phrase-key` | as above | under authority (f), (f)P, (g) or (i) only (§7.3) *(A-40: or (j))* |
+| **The setup mark**, store kind 14 (A-40): the identity key it names. `ConfirmWords`, as it makes the identity, writes it first, before the heads and the phrase key, and removes it only after it has written the identity record, last | `state/identity-setup` | as above | by `ConfirmWords`, once the identity record stands; else at a start, by the sweep that carries (j), when it reads as the store's own: alone, beside an identity record that stands, or last, after the heads and the phrase key, where none stands. Neither removal is an erase under an authority: the mark is the store's note about its own writes, and with it gone (j) erases nothing (§7.3) |
 
 *(A-36.)* The built store keeps the three records in its data directory, `state/`, beside `device`,
 `priv/`, `kp/` and `group/`, under the names in the table, each defined once (the identity plan's
@@ -5697,7 +5713,9 @@ Task 12, which asks for names and leaves them to this spec). In I1 the
 first three rows of the table are overtaken and kept as designed: the phrase is never stored, so
 there is no entropy and no `phrase_confirmed_at`; no `master_key` child is kept but `isk_seed[g]`, in
 the phrase key's row; and `recovery_root` and `recovery_sig_seed` are not derived (MASTER §5.2,
-Revision 10).
+Revision 10). *(A-40: the store keeps a fourth record there, the setup mark, under its name in the
+table, as the library's commit for the lead's ruling R86, `c6b186cf`, defines it; the lead's
+rulings R86 and R87.)*
 
 Path layout under `MessageClientSettings.StorageDir`:
 
@@ -6085,9 +6103,10 @@ bool     urmsg_client_identity_public_key(uint64_t client, uint8_t* out, int32_t
 `urnet_message_*` exports over `sdk/urmessage` (§7.2, §7.5), and I1 adds 21:
 - **The identity:** `urnet_message_device_identity`, whose JSON holds the account ID, the device
   ID, the devices with their marks, the phrase mark, the notices, the alarm, the number of phrase
-  changes and the removed state; `urnet_message_device_create_identity`, which answers the words
-  once; `urnet_message_device_confirm_words`; and `urnet_message_device_check_word`, which answers
-  whether one typed word is in the list.
+  changes and the removed state; `urnet_message_device_create_identity`, which answers the same
+  words until `urnet_message_device_confirm_words` makes the identity, and new ones after a restart
+  *(A-40; it read "which answers the words once")*; `urnet_message_device_confirm_words`; and
+  `urnet_message_device_check_word`, which answers whether one typed word is in the list.
 - **The link:** `urnet_message_link_offer`, on the new device; `urnet_message_link_enter_code`, on
   the existing one; `urnet_message_link_state`, `urnet_message_link_emoji`,
   `urnet_message_link_confirm` and `urnet_message_link_cancel`.
