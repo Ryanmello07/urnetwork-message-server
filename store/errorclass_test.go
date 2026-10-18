@@ -12,10 +12,13 @@ import (
 
 // AN ERROR'S CLASS NAMES NOTHING OF THE ERROR (LRI R75, D1; Spec B §11.1's "error classes without
 // identifiers"). Each kind of failure answers its class, wrapped or not: a server error its SQLSTATE,
-// and "server" when its code is not one; a failure to connect "connect"; an ended context
-// "canceled"; anything else "other". No class carries any of the error's own text, which is planted
-// here in every field it could come from; sweep's and cmd/message-server's tests hold the log lines
-// built from it, a real failure to connect among them.
+// and "server" when its code is not one; a failure to connect that carries no server error
+// "connect"; an ended context "canceled"; anything else "other". No class carries any of the error's
+// own text, which is planted here in every field it could come from; sweep's and
+// cmd/message-server's tests hold the log lines built from it, a real failure to connect among them.
+// A connection the server refused carries the server's error inside pgconn's ConnectError, and
+// answers its SQLSTATE (LRI R80). This table cannot build one: the error a ConnectError wraps is
+// pgconn's own to set.
 func TestAnErrorClassNamesNothingOfTheError(t *testing.T) {
 	const planted = "planted-10.11.12.13-planted-user"
 	for _, current := range []struct {

@@ -17,8 +17,11 @@ import (
 // caller that logs a failure logs this instead, and never the text:
 //   - a server error, by its SQLSTATE, the five characters PostgreSQL defines for it (40P01 a
 //     deadlock, 57014 a statement canceled, 08006 a connection lost), and "server" for one that is
-//     not five such characters;
-//   - "connect", for a failure to connect;
+//     not five such characters. A connection the server refused is one of these: pgconn carries
+//     the server's answer to the startup, a wrong password's 28P01 or an unknown database's 3D000,
+//     inside its ConnectError, and the server error is read first (LRI R80);
+//   - "connect", for a failure to connect that carries no server error, such as a dial that no
+//     server answered;
 //   - "canceled", for a context that ended, by a cancel or a deadline;
 //   - "other", for anything else, whose text is not looked at.
 func ErrorClass(err error) string {
