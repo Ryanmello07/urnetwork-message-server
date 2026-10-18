@@ -1,6 +1,6 @@
 # Lead rulings: identity phase 1 (I1), and its interface to IDs and requests (R)
 
-**Filed copy.** These rulings are filed in `urnetwork/message-server` as `docs/plans/identity-phase1/LEAD-RULINGS-I1.md`, in the folder beside the plan, and the ledger entry that files them lists every change made in filing them. `identity-phase1/PLAN.md` and `PLAN.md` are the plan, filed as `docs/plans/2026-10-16-identity-layer-one-account.md`: the plan as R70 left it, of 1,569 lines, where R61 read 1,545 and R68 left 1,552, with two lines of legend added at its top. A `PLAN:` line here is of the plan its ruling read, without that legend. R65's `PLAN:148` is line 148 of the plan as filed, and line 150 of the filed copy. R66's addendum's `:1395` and `:1488` are of the plan as R66 left it; R68 added a line after its line 493, and R70 seventeen after its line 339, so they are lines 1,413 and 1,506 of the plan as filed, and 1,415 and 1,508 of the filed copy. `identity-phase1/review-t8-t10/FINDINGS.md`, which R68 cites, is the findings file of the library's review, in the lead's scratch folder and not filed. `SCOPE.md`, `FOR-OWNER.md`, `REDTEAM.md` and `REDTEAM-TASK2.md` are filed in this folder. A local path is replaced by a label: `srv@<sha>` is `urnetwork/message-server` at that commit. The lead's scratch folder is in no repository: it holds every `scratchpad/...` path, and the designs and rulings named here by a relative path or a short name, such as D2 and LR.
+**Filed copy.** These rulings are filed in `urnetwork/message-server` as `docs/plans/identity-phase1/LEAD-RULINGS-I1.md`, in the folder beside the plan, and the ledger entry that files them lists every change made in filing them. `identity-phase1/PLAN.md` and `PLAN.md` are the plan, filed as `docs/plans/2026-10-16-identity-layer-one-account.md`: the plan as R74 left it, of 1,570 lines, where R61 read 1,545, R68 left 1,552 and R70 1,569, with two lines of legend added at its top. A `PLAN:` line here is of the plan its ruling read, without that legend. R65's `PLAN:148` is line 148 of the plan as filed, and line 150 of the filed copy. R66's addendum's `:1395` and `:1488` are of the plan as R66 left it; R68 added a line after its line 493, R70 seventeen after its line 339, and R74 one after its line 968, so they are lines 1,414 and 1,507 of the plan as filed, and 1,416 and 1,509 of the filed copy. `identity-phase1/review-t8-t10/FINDINGS.md`, which R68 cites, and `identity-phase1/review-srv-t18-t20/FINDINGS.md`, which R75 cites, are the findings files of the library's review and of the server's slice review, and `identity-phase1/review-srv-delta/`, which R78 cites, is the folder of the server's delta review; all three are in the lead's scratch folder and not filed. `SCOPE.md`, `FOR-OWNER.md`, `REDTEAM.md` and `REDTEAM-TASK2.md` are filed in this folder. A local path is replaced by a label: `srv@<sha>` is `urnetwork/message-server` at that commit. The lead's scratch folder is in no repository: it holds every `scratchpad/...` path, and the designs and rulings named here by a relative path or a short name, such as D2 and LR.
 
 **Date:** 2026-10-16 (UTC). **Writer:** the lead. These rulings continue LR's numbering (`scratchpad/hardening-plans/LEAD-RULINGS-2026-10-15.md`, R34 to R47; R33 is in `LEAD-RULINGS-2026-10-14.md`).
 
@@ -604,7 +604,7 @@ Every planned mutant was killed. R68's census mutation table kills every row exc
   - The migrations are 013 and 014. The alpha's database is wiped, then `messagectl migrate` runs.
   - `reject_floor_ms` is set from the slowest refusal path, measured on the box.
   - What changes beyond the link box, and the owner hears all of it:
-    - every refusal on every arm is padded to the floor;
+    - every merged refusal of Submit, CreateGroup, Fetch, Subscribe and the five arms is padded to the floor (corrected by R78: Unsubscribe, REASON_INTERNAL and the peer's own refusals are not);
     - the sweep job runs;
     - there are two new keys with defaults;
     - Capabilities and readiness gain kind 4.
@@ -618,3 +618,199 @@ Every planned mutant was killed. R68's census mutation table kills every row exc
 
   Then the lead runs the server's slice review of Tasks 18 to 20.
 - **Memory:** WindowsTerminal held about 61.5 GB of committed memory while the writers ran, and two parallel suites failed to allocate. The writers run one package at a time while that lasts. The lead tells the owner.
+
+## R74. On the specs commit `4b055342` (Spec A A-38, Spec B revision 27, the refile; 2026-10-17)
+
+**Read:** W-srv's report. gates.yml 38988379780 and fork-ci 38988380132 are green, with the checkout proven. Its review found 15: 0 BLOCKER, 1 MAJOR, 7 MINOR and 7 NIT. All were taken but F1, F14 and F15.
+
+- **F1 (MAJOR, in the lead's text):** R72's stored-seed signer was not in PLAN. It now is, in Task 31's Produces, and Task 33 builds it if Task 31 has not. The next refile carries it.
+- **F6: CONFIRMED.** Spec B §7.4's departure names "a Collect or a Retire". Both lock the box and then delete its deposits, which is the reverse of the sweep's order.
+- **F14:** Spec A §2's "nine" functions in rendezvous.go, where A-1 lists twelve, is fixed at the next specs-branch commit.
+- **RendezvousDepositBytes:** both A-1 blocks list it, but the library leaves it out while kind 0 is not served (R72, decision 2). The next specs-branch commit marks it in both blocks as "exported when kind 0 is served". The block and the library then agree.
+- **F15:** api/second_implementation_test.go's "an export beyond A-1's block" is stale since A-38. It is a one-line fix in identity/i1-srv's next commit, which is the slice review's fix round.
+
+## R75. On the server's slice review of Tasks 18 to 20 (`e57ab8ff..0864540c`; workflow wf_f2e98edb-32d, 2026-10-17)
+
+**Read:** three read-only lenses (security and protocol; storage and sweep; tests, gates and wiring), each with an adversarial verifier. Every finding above NIT was CONFIRMED. The full text is in `identity-phase1/review-srv-t18-t20/FINDINGS.md`.
+
+**No BLOCKER.**
+- No forged or unauthorized act succeeds, no box can be enumerated, and nothing leaks through the arms.
+- 013 and 014 are byte-identical to §3.2.
+- The two stores agree on every edge case.
+- Every CI run checked out its commit, with FULL RUN 2 of 2.
+- MR6 and the dropped small-order call die for their stated reasons, and compile.
+
+**The fix round, before the server PR.** W-srv, on identity/i1-srv. Tests first, each seen failing for its reason, with a mutant where one is named.
+
+**MAJOR:**
+1. **T1 and T2: Collect's check 7 must be impossible to skip, and seen to be.**
+   - Behavioural cases: every unauthorized request on every arm, with Collect sent both with and without subscribe, against a live box that holds a deposit and a refused third. Each must give the one answer and change nothing; then the holder's own Collect still returns the deposit and the refusal count.
+   - The static gate: each arm's verifier `if` is a top-level statement of its body, before any store call, and store receivers are resolved by type (go/types), so that an alias or a parameter is still a write.
+   - Mutants: BRANCH-COLLECT and ALIAS-COLLECT, the reviewer's own. Both must die.
+2. **T3: the pad holds no worker.**
+   - A padded refusal returns at once with a not-before time, and the peer sends its answer from a timer, off the worker pool.
+   - A test: eight or more concurrent padded refusals must not delay an unrelated request beyond a stated bound. The mutant that sleeps on the worker must die.
+   - Spec B §4.5 says so at the next specs commit.
+   - Until this lands, the deploy note states the cost: 8 ÷ floor refusals per second occupy every worker, and check 4 is not built.
+
+**MINOR:**
+- **S-1:** rendezvous subscriptions are capped per connection, refused rather than evicted, and indexed by box, so that a deposit or a retire touches only its box's subscribers.
+- **D1:** the sweep logs an error class (the SQLSTATE, `connect` or `canceled`) and the totals, never `err.Error()`. The sweep's logger joins the logging gate, with a control.
+- **D2 and T9:** newServer gets a seam for the sweep's interval or ticks. A test sees an expired box reclaimed by a tick, without calling Pass, and sees Close stop the job before the pool.
+- **T4:** the time envelope. A clock advanced inside Q17 shows each refusal sleeping exactly floor − d, in cmd's tests and in api's.
+- **T5:** a round trip through the arms asserts every response field: Collect's deposits, pending and complete; Open's alg_id, deposit_bytes and deposit_sizes; Register's mailbox_depth; and Retire's discarded_deposits.
+- **T6:** link_box_ttl_seconds and link_box_live_cap are held to the handler newServer builds, set to values other than the defaults.
+
+**NIT, all taken:**
+- S-2: a replayed deposit pushes nothing.
+- S-3 and D4: the cap is checked on every insert, with a conditional insert.
+- S-4: ON CONFLICT on the deposit insert, per §11.2 item 4.
+- S-5: pad overruns are named in NotBuilt until metrics exist.
+- D3: what check 7 verified is passed to the write, and a differing locked row answers CARD_RETIRED.
+- D6: a test holds 013 and 014 to §3.2's text, with a one-octet control, until they land.
+- T8: `<= 0` in the three predicates, and a negative floor refused at load and in api.New.
+- T10: the ops guide gains the three keys, the floor's role and cost, and the sweep.
+- T11: the readiness line is reworded.
+- T7: the deploy note says exactly which refusals are padded. Every merged refusal of Submit, CreateGroup, Fetch, Subscribe and the five arms is padded. Unsubscribe, REASON_INTERNAL and the peer's own refusals are not.
+- F15: the stale "beyond A-1's block" comment.
+
+D5 is already done (R74, F6).
+
+**Then:**
+- gates.yml and fork-ci, with the checkout proven;
+- the mutants, two-phase;
+- a report.
+- One delta review of the fix round, by the lead.
+
+**After that, one specs-branch commit carries:**
+- R74's two items: the "nine" count, and RendezvousDepositBytes marked;
+- §4.5's worker-free pad;
+- §11.1's logging of the sweep's error class.
+
+## R76. On Task 12 (`4f6af691`, `f496242`, `0fcc6ee` on identity/i1, 2026-10-18)
+
+**Read:** W-lib's report. The head is `0fcc6ee`.
+- alt-2's test.sh and vulncheck are green, and fork-ci 39092700178 is green on all four legs, with the checkout proven.
+- 22 mutants are KILLED, among them MH1 and MH2, which survived the suite at 4f6af691 until W-lib's own extra test.
+- R64's seam methods are transcribed, and R68's three additions and R62's forward costs are in.
+- The red windows leg of the first two runs was a missing C declaration, fixed in 0fcc6ee.
+
+**The ten decisions:**
+1. ConfirmWords needs a connection: CONFIRMED.
+2. No re-founding of a missing self group: OVERRULED, fixed now.
+   - A device that dies between writing its identity records and founding its self group must not stay broken. The owner's session 1 includes a restart.
+   - At start, a device whose identity records exist and whose self group record does not founds the self group again. That needs the device key and the root, not the words.
+   - A test stops the setup between the records and the founding, and checks a restart repairs it. Its mutant drops the repair.
+3. The self group's record is written at founding with Opened=false: CONFIRMED.
+4. Device holds its signing key, erased at Close: CONFIRMED.
+5. The unbound CreateGroup door requires 0xF005: CONFIRMED.
+6. PutDeviceIdentity refuses to mint a device key beside existing identity records: CONFIRMED.
+7. Gate rows: to slice 1's library review.
+8. The loopback-only export: CONFIRMED until Task 14, which removes it, with a gate that it is gone.
+9. The seam member's next base, an empty PrevHash, and the stranger bound now: CONFIRMED.
+10. Test time: test identities use the seam's fast stretch.
+    - The exceptions are the tests that hold the frozen parameters (the known answers and the production-path gate).
+    - The gate that production reads only the frozen parameters stays, and is checked to still fire.
+    - Each Argon2id at 256 MiB costs time, and memory this machine lacks.
+
+**Order:**
+- one small commit for items 2 and 10, with alt-2 and fork-ci;
+- then Task 13.
+
+## R77. On the R75 fix round (`9feb19dc` on identity/i1-srv, 2026-10-18)
+
+**Read:** W-srv's report. gates.yml 39098638413 and fork-ci 39098641667 are green at 9feb19dc, with FULL RUN 2 of 2.
+- Every R75 finding is answered.
+- T3's pad now holds no worker: an Api Deferral, sent by the peer's timer, with at most 1,024 waiting.
+- 35 mutants are killed, among them BRANCH-COLLECT, ALIAS-COLLECT and SLEEP-ON-WORKER.
+
+One delta review of 0864540c..9feb19dc runs now, as a single read-only agent. Ultracode is off.
+
+**The specs-branch commit carries:**
+- R74's two items;
+- §4.5's worker-free pad;
+- §11.1's sweep logging of the error class only;
+- the four lines W-srv found outside R75's list:
+  - Collect's bound of 32 subscriptions, and its CARD_RATE_LIMITED answer;
+  - a replayed deposit pushes nothing;
+  - Q20's cap checked inside the insert;
+  - the write is handed the key that check 7 verified.
+
+**Residuals, seen and not changed, to a later server phase:**
+- epochstale_test.go's Store holder gate still matches by name;
+- the group path's published() scans every subscription;
+- a re-Hello's old rendezvous subscriptions last until their box expires.
+
+## R78. On the delta review of the R75 round (`0864540c..9feb19dc`, 2026-10-18)
+
+**Read:** one read-only reviewer.
+- It found no BLOCKER and no MAJOR, and all 22 earlier findings and F15 are FIXED.
+- BRANCH-COLLECT, ALIAS-COLLECT and SLEEP-ON-WORKER build, and each dies for its stated reason.
+- Every package reproduced its counts locally, store and cmd included, against PostgreSQL.
+- Its six new findings are in `identity-phase1/review-srv-delta/`.
+
+**One last small commit on identity/i1-srv, all six taken:**
+- **N1 (MINOR):** a cmd test over a peer with a small MaxDeferredAnswers. More concurrent padded refusals than slots, each answered no sooner than the floor. BOUND-CUTS-FLOOR and UNBOUNDED must die.
+- **N2:** Collect's undo removes only the subscription that call added, compared by pointer as deliverRendezvous does. Test it with a failing write, with UNDO-DROPPED as the mutant.
+- **N3:** a standing subscription record is replaced only when its expiry is earlier than the request's box. A later expiry means the request's own box is gone, so nothing is subscribed. Add the test from the reviewer's probe.
+- **N4:** the gates widen:
+  - function literals in package-level declarations count as outside every arm;
+  - any link box value handed off outside a receiver counts (composite literals, package variables, sends);
+  - a \*Subscriptions field selection outside its two files counts as a registry change.
+
+  The behavioural test keeps the holder subscribed, and asserts its push. PKGVAR-COLLECT, STRUCT-HANDOFF and FIELD-REGISTRY-2 must die.
+- **N5:** parked answers are bounded by BYTES as well as by count. Past the byte budget, a worker waits, exactly as past 1,024. The comment is corrected. The beta must not hold ~67 MB for clients that read nothing.
+- **N6:** the health listener logs an error class, not the error text with its address, and logging_test.go holds the line.
+
+Then CI with the checkout proven, and the mutants two-phase. The lead checks the result from the CI evidence and the mutant logs, and runs no further full review.
+
+The server PR still opens only beside the library's slice-1 PR (R69).
+
+## R79. On the R76 commit and Task 13 (`09b645a` and `e2fa865` on identity/i1, 2026-10-18)
+
+**Read:** W-lib's report. Both commits are on the fork, each with alt-2's test.sh and vulncheck green and fork-ci green with the checkout proven (39096381969 and 39103062463).
+- **R76:** a missing self group is founded again at start (MD1 and MD2 killed). Test identities use the fast stretch, and the production gates still fire (MF1 to MF6 killed). sdk/urmessage is back from about 190 s to 67 s.
+- **Task 13:** R6e, R6c-sig, R8-EQ, R8-CUR and R9, with their sentinels; the doors; the heads; the send side's post-commit leaf.
+  - The three scenarios are registered closed, and I1-unbound-key-package-admitted flips. Each was RED on 09b645a with 0 production lines changed.
+  - 18 mutants are killed. MI31 survived once, because its control hid the rollback; the control was moved and MI31 now dies for its reason.
+
+**The eight decisions are CONFIRMED,** with notes:
+1. A profile-1 leaf is F1's shape.
+2. The Add door's order is confirmed, with the relabelled refusal.
+3. The Join door's two extra acts, and Restore reading a tree as the Join door does, are confirmed. The two new refusals are permanent.
+4. The heads rise at restore, at join and at epoch entry.
+5. The 11th leaf is refused by R6e.
+6. The cp3b harness's reflection and unsafe are confirmed for TESTS ONLY, as liveGroupOf already does, and slice 1's review holds that no production file uses them. The forking-server hook and the siblings' base numbers are confirmed.
+7. Tests first was not shown against a stub. The mutants and the 09b645a red runs stand in for it, and are accepted. Tests first holds again from Task 14.
+8. The cost is about 31% of urmessage's CPU in Ed25519, with F1's cache by body hash not built. It is ACCEPTED for I1, and carried as a residual to build before the beta: the cache, keyed by the 0xF005 body's hash, with a test that a cached verdict is never trusted across a different body.
+
+**Task 14 starts now,** as PLAN says, with:
+- R76 item 8: the loopback-only export `urnet_message_loopback_device_identify` is REMOVED, and a gate holds that it is gone;
+- R68's L3-10: the single-word check, which `_check_word` exports.
+
+Then Task 15. Slice 1's library review runs after Task 15.
+
+## R80. On the specs commit `e105acb0` and the R78 commit `88602b48` (2026-10-18)
+
+**Read:** W-srv's report. Both are green on gates.yml and fork-ci, with the checkout proven.
+- **The specs commit** (Spec A A-39, Spec B revision 28, the refile through R77) came after #13 merged at 4b055342. The lead opened it as **urnetwork/message-server#14**.
+- **The R78 commit:**
+  - N1 to N6 are fixed;
+  - 15 new mutants are killed in cmd;
+  - R75's mutant sets were re-run and still die;
+  - 832 tests and subtests pass in fork-ci.
+
+**Rulings:**
+- **N2, beyond the letter, CONFIRMED.** A pointer check alone does not fix the review's probe, because the second Collect shares the first's subscription. So a failed write removes the subscription only when no Collect kept it with REASON_OK, and no other claim on it is unsettled. An api test holds every settle order.
+- **N5's budget of 8 MiB is CONFIRMED.** So is golang.org/x/sync as a direct requirement, since it was already allowed.
+- **The last spec lines and one comment** form one small commit on specs/identity-phase1, which joins #14 while it is open:
+  - §4.5: the 8 MiB byte budget;
+  - §4.3.11: Collect's settle rule (N2) and the earlier-expiry rule (N3);
+  - the enum's claim that CARD_RATE_LIMITED carries retry_after_ms, corrected to what the code sends.
+
+  On identity/i1-srv, store/errorclass.go's comment is fixed: a refused connection logs its SQLSTATE.
+
+**The server's slice-2 work, Tasks 18 to 20, is then COMPLETE.**
+- Its PR opens only after the library's slice-1 PR has merged.
+- Before it opens, a commit moves the pin back to urnetwork at the merged commit and deletes the review source (R69).
+- W-srv is idle until then, or until Task 40 in slice 4.

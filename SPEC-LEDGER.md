@@ -14172,7 +14172,10 @@ repo and therefore the critical path — not this repository:
     refile, after Task 5's commit: R48 to R65 are filed, and R65's sentence is below.)* *(And
     by the R66 commit, after the R65 refile: R48 to R69 are filed, R66 with its addendum, and
     the sentences of R66 to R69 are below.)* *(And by the R73 commit, after the R66 commit: R48
-    to R73 are filed, R70 with its addendum, and the sentences of R70 to R73 are below.)*
+    to R73 are filed, R70 with its addendum, and the sentences of R70 to R73 are below.)* *(And by
+    the R77 commit, after the R73 commit: R48 to R77 are filed, and the sentences of R74 to R77 are
+    below.)* *(And by the R80 commit, after the R77 commit: R48 to R80 are filed, R73 as R78
+    corrected it, and the sentences of R78 to R80 are below.)*
     - **What the plan is.** The implementation plan of the identity layer's first phase, written
       by the lead's planning round and revised in place three times: by its finalizer, for the red
       team dated 2026-10-15; by its reviser, for the owner's answer that the phrase change is built
@@ -14188,7 +14191,8 @@ repo and therefore the critical path — not this repository:
       gate and promise tables.)* *(The R73 commit refiles it as R70 revised it: Task 7b, the
       library's, its rendezvous preimages and verifiers, with MI122 and MI123; Task 18's store
       computes `deposit_hash`; Task 19 consumes Task 7b's commit before its verify step; and the
-      counts move to 46 tasks and 145 mutants.)*
+      counts move to 46 tasks and 145 mutants.)* *(The R77 commit refiles it as R74 revised it:
+      Task 31 produces R72's stored-seed signer, and Task 33 builds it if Task 31 has not.)*
       - **The owner's order** is the identity layer, then IDs and requests (the plan calls that
         build R), then finding people by their URnetwork name (OWN:485, quoted below).
       - **What I1 builds:** a 25-word recovery phrase and the identity key made from it; a key and
@@ -14271,7 +14275,7 @@ repo and therefore the critical path — not this repository:
       sentence *(the heading read "R48 to R61", and R62's sentence is added by its refiling)*
       *(and R63's by the E1 and E4 refile, and R64's by the R64 refile)* *(and R65's by the R65
       refile)* *(and R66's to R69's by the R66 commit)* *(and R70's to R73's by the R73
-      commit)*:
+      commit)* *(and R74's to R77's by the R77 commit)* *(and R78's to R80's by the R80 commit)*:
       - **R48.** The bases: this repository's `main` is `37dd710f`, which carries T1's ledger close;
         the library's is `c7949cfd`; the app's is `badf2e2c` until urnetwork/message-windows#7
         merges, then `main`; and the S3 branch is the lead's dispatch to the app's one writer. The
@@ -14447,6 +14451,79 @@ repo and therefore the critical path — not this repository:
         residual for the server's later phases, not I1's; the deploy note is received and nothing is
         deployed, the lead telling the owner first; and the writers run one package at a time while
         memory is short.
+      - **R74.** On this branch's commit `4b055342` *(added by the R77 commit)*: gates.yml and
+        fork-ci are green, with the checkout proven; of its review's fifteen findings, all are taken
+        but F1, F14 and F15; F1, R72's stored-seed signer missing from the plan, was in the lead's
+        text, and the plan now has Task 31 produce it and Task 33 build it if Task 31 has not; F6,
+        that a Retire takes a Collect's lock order, is confirmed; F14, Spec A §2's count of nine
+        rendezvous functions where the A-1 block lists twelve, is fixed at this branch's next
+        commit, which also marks `RendezvousDepositBytes` in both blocks as exported when kind 0 is
+        served, since the library leaves it out while kind 0 is not served; and F15, a comment of
+        the server's that A-38 made stale, is fixed in the server's next commit.
+      - **R75.** On the server's slice review of Tasks 18 to 20 *(added by the R77 commit)*: three
+        read-only lenses, each with an adversarial verifier, found no BLOCKER, and every finding
+        above NIT was confirmed; this repository's writer fixes them on `identity/i1-srv` before the
+        server's pull request, tests first: Collect's check 7 made impossible to skip and seen to
+        be, by behavioural cases on every arm, a static gate that resolves store receivers by type,
+        and the reviewer's two mutants; the pad made to hold no worker, a padded refusal returning
+        at once and its answer sent from a timer off the worker pool, with a test and a mutant; and
+        the MINOR and NIT findings, among them rendezvous subscriptions capped per connection and
+        indexed by box, the sweep logging an error's class and never its text, the cap checked on
+        every insert, and the key check 7 verified handed to the write; then one delta review by the
+        lead, and one commit on this branch with R74's two items, §4.5's worker-free pad and §11.1's
+        logging of the sweep's error class.
+      - **R76.** On the library's Task 12 *(added by the R77 commit)*: it is green, with its
+        checkout proven, and 22 mutants are killed; of its ten decisions, seven are confirmed, one
+        goes to slice 1's library review, one is overruled, so that a device that dies between
+        writing its identity records and founding its self group founds it again at its next start,
+        with a test and a mutant, and the tenth is ruled: test identities use the seam's fast
+        stretch, but in the tests that hold the frozen parameters, and the gate that production
+        reads only the frozen parameters stays, checked to still fire; and Task 13 follows one small
+        commit for those two.
+      - **R77.** On this repository's R75 fix round *(added by the R77 commit)*: gates.yml and
+        fork-ci are green at `9feb19dc`, with FULL RUN 2 of 2; every R75 finding is answered, and 35
+        mutants are killed, among them the reviewer's two and the one that sleeps on a worker; one
+        read-only delta review of the round runs; this commit carries R74's two items, §4.5's
+        worker-free pad, §11.1's sweep logging the error class only, and four lines its writer found
+        outside R75's list: Collect's bound of 32 subscriptions with its `REASON_CARD_RATE_LIMITED`,
+        a replayed deposit that pushes nothing, Q20's cap checked inside the insert, and the write
+        handed the key check 7 verified; and three residuals go to a later server phase: a gate that
+        still matches the store's holder by name, the group path's publish, which scans every
+        subscription, and a re-Hello's old rendezvous subscriptions, which last until their box
+        expires.
+      - **R78.** On the delta review of the R75 round *(added by the R80 commit)*: one read-only
+        reviewer found no BLOCKER and no MAJOR, every earlier finding and F15 fixed, and the round's
+        three named mutants dying for their reasons; one last commit on `identity/i1-srv` takes its
+        six findings: N1, a test of padded refusals past a small bound on waiting answers; N2,
+        Collect's undo of only the subscription it added; N3, a standing subscription replaced only
+        by a box expiring later; N4, the gates widened to package-level function literals, a store
+        handed off other than as an argument, and the registry's fields; N5, waiting answers bounded
+        by bytes as well as by count; and N6, the health listener logging an error class; the lead
+        checks that commit from its CI evidence and its mutant logs, and runs no further full
+        review; R73's line on what the floor pads is corrected, to every merged refusal of Submit,
+        CreateGroup, Fetch, Subscribe and the five arms, and not Unsubscribe's, REASON_INTERNAL or
+        the peer's own; and the server's pull request still opens only beside the library's slice-1
+        pull request.
+      - **R79.** On the library's R76 commit and Task 13 *(added by the R80 commit)*: both are green
+        with their checkout proven; a missing self group is founded again at start, and test
+        identities use the fast stretch while the production gates still fire; Task 13's refusals,
+        doors and heads land with 18 mutants killed and its three scenarios registered closed; its
+        eight decisions are confirmed, among them the cp3b harness's reflection and unsafe for tests
+        only, the mutants and the red runs standing in for tests first, which holds again from Task
+        14, and the Ed25519 cost, about 31% of urmessage's CPU, accepted for I1 with F1's cache to
+        be built before the beta; and Task 14 starts, removing the loopback-only export with a gate
+        that it is gone, then Task 15, then slice 1's library review.
+      - **R80.** On this branch's commit `e105acb0` and the server's R78 commit `88602b48` *(added
+        by the R80 commit)*: both are green with their checkout proven, and the lead opened the
+        first as urnetwork/message-server#14, since #13 had merged; N2's settle, beyond R78's
+        letter, is confirmed, since a pointer check alone leaves the review's probe failing, and so
+        are N5's 8 MiB and golang.org/x/sync as a direct requirement; this commit carries the last
+        spec lines, §4.5's byte budget, §4.3.11's rules of the undo and of a box gone, and the
+        enum's claim that CARD_RATE_LIMITED carries retry_after_ms, corrected to what the code
+        sends, and a commit on `identity/i1-srv` corrects store/errorclass.go's comment; and the
+        server's slice-2 work, Tasks 18 to 20, is then complete, its pull request opening after the
+        library's slice-1 pull request has merged, once a commit has moved the pin back to urnetwork
+        and deleted the review source (R69).
     - **The rows X1 to X14,** SCOPE's departures from M5's identity step, the owner's decisions
       and the first design, as ruled:
       - **X1,** taken: no security delay in I1, so a removal acts at once, with the delay to come
@@ -32037,5 +32114,349 @@ F14 and F15, which are recorded above:
 - **F11:** R71's and R73's sentences keep their qualifiers.
 - **F12:** "before any signature", not "first".
 - **F13:** a search of each whole filed file, with its planted control, now backs §3's claim.
+
+It cites no run of itself: the pull request's body cites the runs on its head.
+
+### 2026-10-18 — The lead's R74, R75 and R77: Spec A's A-39, Spec B's revision 28, and the plan and LRI refiled
+
+**Change:** Spec A gains its row A-39 and Spec B its revision 28, directed by the lead's rulings
+R74, R75 and R77. Spec A §2 counts the rendezvous functions as §12.1's A-1 block lists them, and
+both copies of the block mark `RendezvousDepositBytes` as exported when kind 0 is served. Spec B
+states what the server's fix round for R75 built: §4.5's pad holds no worker while fewer than
+1,024 padded answers wait, §11.1's sweep logs an error's class and its totals only, and four rules
+of kind 4, in §3.3, §4.3.11 and §5.1.2. Two of the six files item 298 filed are refiled from the
+lead's sources: the plan, as R74 revised it, and `LEAD-RULINGS-I1.md` through R77. The other four
+are unchanged, byte for byte. Item 298 is annotated where it stands. No code changes.
+
+#### 1. Why
+
+- **R74**, on this branch's last commit, `4b055342`, takes its review's findings but three:
+  - F1 was in the lead's text: R72's stored-seed signer was not in the plan. The plan now has it.
+  - F14: Spec A §2 said that `rendezvous.go` holds §12.1's nine rendezvous functions, where A-1
+    lists twelve. R74 has it fixed at this branch's next commit.
+  - F15 is the server's, on `identity/i1-srv`.
+
+  R74 also rules that the same commit marks `RendezvousDepositBytes` in both A-1 blocks as
+  "exported when kind 0 is served". The library leaves it out while kind 0 is not served (R72), so
+  the block's rendezvous section and the library then agree.
+- **R75**, on the server's slice review of Tasks 18 to 20, asks this branch's next commit, after
+  the fix round, for §4.5's worker-free pad and §11.1's logging of the sweep's error class.
+- **R77** reads the fix round, at `9feb19dc` on `identity/i1-srv`: every R75 finding is answered.
+  It adds four lines that the writer found outside R75's list: Collect's bound of 32
+  subscriptions, and its `REASON_CARD_RATE_LIMITED`; a replayed deposit pushes nothing; Q20's cap
+  is checked inside the insert; and the write is handed the key that check 7 verified.
+- **The lead's directive for this commit:** the items above; the refile of the plan and LRI at
+  their hashes, LRI through R77; and this entry.
+
+#### 2. The specs
+
+- **Spec A, A-39.**
+  - **§2's layout** for the record layer's `rendezvous.go` said "§12.1's nine published rendezvous
+    functions: the preimages, the five verifiers, RendezvousId, DepositVerifyKey,
+    RendezvousDepositBytes". It now names the five preimages, and §12.1's twelve: the register
+    preimage, which is one of the five, the five verifiers, `RendezvousId`, `DepositVerifyKey`,
+    `RendezvousKeyIsAcceptable` and the three sizes, of which `RendezvousDepositBytes` is exported
+    when kind 0 is served. `message/rendezvous.go` at `48204f2b` declares the five preimages and
+    every name of the twelve but that one.
+  - **§12.1's A-1 block** marks `RendezvousDepositBytes`'s line "5238, exactly. A-39: exported when
+    kind 0 is served". A note after the block says why, and that the mark cites no section.
+  - **The change table** gains row A-39.
+- **Spec B, revision 28.**
+  - **§4.5:** a note on the merged refusals' timing envelope. While fewer than 1,024 padded answers
+    wait, the pad holds no worker: the handler returns at once with the rest of the floor, and the
+    answer is sent when that rest has passed, from a timer off the worker pool. Past 1,024, a worker
+    waits for one to be sent before it defers another, and no answer is sent before its floor.
+    `api.Deferral` and `peer`'s `answerLater` build it, with `DefaultMaxDeferredAnswers` at 1,024.
+    The enum's comment on `REASON_CARD_RATE_LIMITED` gains Collect's new use of the code.
+  - **§11.1:** a paragraph after the MAY list. The link box sweep logs a failed pass by its error
+    class and the pass's totals, and never by the error's text. The classes are those of
+    `store.ErrorClass`: a PostgreSQL error's SQLSTATE, a connection the server refused among them,
+    or `server`; `connect`, for any other failure to connect; `canceled`; and `other`. A pass ended
+    by the job's close, or by its own context, logs nothing.
+  - **§3.3's Q20:** a note. The count is also made in the insert's own statement, so that no insert
+    passes a full cap. The read before it stays, so that a count that cannot be read refuses.
+    Registrations in flight together may still pass the cap by their number.
+  - **§4.3.11's kind 4:**
+    - Deposit: a replay pushes nothing;
+    - Collect: a connection holds at most 32 rendezvous subscriptions, and a Collect with
+      `subscribe` set that would add one past them answers `REASON_CARD_RATE_LIMITED`, padded,
+      before its write. The code is the one the section gives a limit, though this limit is the
+      connection's. Nothing is evicted, and a box the connection already holds is not refused;
+    - the bullet on the one answer: Deposit, Collect and Retire each hand their write the key that
+      check 7 verified, and a row pinned under another key by then answers `REASON_CARD_RETIRED`,
+      padded, and changes nothing.
+  - **§5.1.2:** the same, at check 7.
+  - **§12.1's copy of the A-1 block:** the same mark, with a note.
+  - **The edit log** gains revision 28.
+- **The two blocks, compared.** The mark is the same line in both, and cites no section. The copies
+  still differ only in four section cites, in three places, as A-38 left them.
+
+#### 3. The sources, and the refiling
+
+- **The sources,** as the lead's scratch folder held them at 05:07 UTC, when this refile copied
+  them:
+  - the plan `f56165d3…`, of 1,570 lines, where the R73 commit's source, `1b3875d8…`, had 1,569;
+  - LRI `5b005918…`, of 740 lines, through R77, where `103d62fb…` had 618.
+
+  SCOPE, FOR-OWNER, REDTEAM and REDTEAM-TASK2 are unchanged, and are not refiled.
+- **What changed in them.**
+  - **In the plan,** R74's F1: Task 31 gains a line after the plan's line 968, "Also produces (LRI
+    R72): the stored-seed signer", and Task 33's Produces line gains "the stored-seed signer, if
+    Task 31 has not built it (LRI R72)".
+  - **In LRI,** R74, R75, R76 and R77 are appended. Its first 618 lines are unchanged.
+- **The refiling.** The same edit list, with two legends brought up to date: 7 edits in all.
+  - **The plan's legend** names R72 beside R61, R62, R65, R66, R68 and R70, since the text now
+    cites it.
+  - **LRI's legend** names the plan as R74 left it, of 1,570 lines. R65's `PLAN:148` is still line
+    148, and line 150 of the filed copy. R66's addendum's `:1395` and `:1488` are lines 1,414 and
+    1,507, since R74 added a line after line 968, and 1,416 and 1,509 of the filed copy. Each line
+    claim was checked against the source. The legend also names
+    `identity-phase1/review-srv-t18-t20/FINDINGS.md`, which R75 cites, as a findings file in the
+    lead's scratch folder, not filed.
+  - **The local paths:** the sources hold the same six as before, four in the plan and two in LRI,
+    and the edits remove them. R74 to R77 name none.
+
+  The filed copies: the plan `3f980a1c…`, of 1,572 lines, where it was `78324dee…`, of 1,571; LRI
+  `abc69b5f…`, of 742, where it was `74873221…`, of 620.
+- **The proof.** Each of the two, reversed through its recorded edits, gives its source byte for
+  byte, and a line diff of source and filed copy touches only the lines the edits name. The proof's
+  three controls each fail it. Neither filed file holds a local path, by a search of each whole
+  file whose planted control fired in the same run. The lines this commit adds hold no local path,
+  user profile, address, key or token, by a second search whose controls fired.
+
+#### 4. The plan linter
+
+The plan changes, so the linter's counts may move. On this commit's tree the task-reference class
+reads 3,812, where the R73 commit's read 3,809: the three new references to Tasks 31 and 33. The
+other eight counts do not move. All seven of the linter's tests pass, and no line of its output
+names the plan.
+
+#### 5. The ledger
+
+- **Item 298, annotated where it stands:**
+  - its heading's notes;
+  - "What the plan is", with R74's revision;
+  - its rulings' bullet's notes;
+  - the sentences of R74, R75, R76 and R77.
+
+  Its size does not move: the plan still counts 46 tasks and 145 mutants.
+
+#### 6. The gates
+
+Run on the committed history of this entry, under go1.27.2, beside the four siblings at their pins,
+before the push:
+- `go test ./ -count=1 -run 'TestTheEditLogGate|TestThePlanLinter' -v`: the edit-log gate's six
+  tests and the linter's seven pass, and none fails. The gate reads Spec A's newest entry as row
+  A-39 and Spec B's as revision 28. Its ledger arm prints 77 of 100, where the R73 commit left 76 of
+  99, since this commit changes two specs and two plans and appends this entry.
+- `go test ./ -count=1`, the whole root package: `ok`.
+
+#### 7. What this does not do
+
+- It changes no code, and no word of the lead's text but by the recorded edits.
+- No wire byte, reason code, record, label, table or migration changes. What revision 28 states is
+  what `identity/i1-srv` built at `9feb19dc`:
+  - the pad's deferral, in `api/api.go` and `peer/peer.go`;
+  - the sweep's log lines, in `sweep/sweep.go`, through `store/errorclass.go`;
+  - the cap in the insert's own statement in `store/pgx.go`, and under the insert's mutex in
+    `store/memory.go`;
+  - the subscriptions' bound: 32 in `api/subscribe.go`, held in `api/rendezvous_push.go`, and
+    Collect's refusal before its write in `api/rendezvous.go`;
+  - the replay and the verified key, in `api/rendezvous.go` and the two stores.
+
+  The lead's delta review of that round has since read it, and the lead's R78 orders one more
+  commit on that branch. A change it makes to what these notes state comes to this branch's next
+  commit.
+- LRI is filed through R77, as the lead directed this commit. The lead's file has since gained
+  R78, and R78's correction to R73's line on what the floor pads; the next refile carries both.
+- `RendezvousDepositBytes` stays in both blocks, marked, and in §2's line. The library does not
+  export it, and no build serves kind 0.
+- §4.5 does not list which refusals are padded. The ops guide at `9feb19dc` does, under "What it
+  pads".
+- §4.5's enum still says that `REASON_CARD_RATE_LIMITED` carries `retry_after_ms`, which no code at
+  `9feb19dc` sets. It is older than this commit, and is left as it stands (the review's F3).
+- It does not open a pull request. urnetwork/message-server#13 merged this branch at `4b055342`,
+  and the lead opens the next one.
+- It does not touch `identity/i1-srv`.
+
+**Reviewed by:** one subagent reviewer, read-only, on the change uncommitted and by its sha256 at
+its start and at its end, which were the same. It checked:
+- the specs against the library at `48204f2b` and the server at `9feb19dc`;
+- the two blocks, line by line;
+- the refile, by re-applying the edit list, and every legend line claim;
+- every claim of this entry;
+- the two gates, in one run;
+- the added lines for local paths and secrets, with planted controls.
+
+It made 12 findings: 0 BLOCKER, 0 MAJOR, 5 MINOR and 7 NIT. All are taken in this commit:
+- **F1, MINOR:** §4.5's note said that a refusal never holds a worker, but past 1,024 waiting
+  answers a worker waits. The note, revision 28 and this entry now say "while fewer than 1,024
+  padded answers wait".
+- **F2, MINOR:** a Collect that repeats a box the connection already holds is not refused at the
+  bound. The Collect note says so.
+- **F3, MINOR:** §4.5's enum comment now lists Collect's use of `REASON_CARD_RATE_LIMITED`, and the
+  Collect note says that the limit is the connection's, not the card's.
+- **F4, MINOR:** the A-1 block also lists `RecoveryProof` and `VerifyRecoveryProof`, which the
+  library does not declare yet (row A-10 still owes them). So the A-39 note, row A-39 and this entry
+  scope their agreement to the block's rendezvous section.
+- **F5, MINOR:** R77's sentence gives R77's own evidence, FULL RUN 2 of 2, and says that every R75
+  finding is answered, in R77's words, where it said "accepted". R76's sentence drops "accepted"
+  too.
+- **F6:** §2's line says that the register preimage is one of the five.
+- **F7:** the Q20 note says "in the insert's own statement", and its clause on the sweep is
+  rewritten.
+- **F8:** a connection the server refuses logs its SQLSTATE, since `store.ErrorClass` reads a
+  PostgreSQL error first, so `connect` is for any other failure to connect.
+- **F9:** this entry's list names `api/subscribe.go` and Collect's refusal in `api/rendezvous.go`.
+- **F10:** a line of this entry over 100 columns is rewrapped.
+- **F11:** R76's sentence keeps the gate that production reads only the frozen parameters, and
+  R74's sentence keeps its green runs.
+- **F12:** the padded refusals are listed in the ops guide at `9feb19dc`, which this entry now
+  cites, and not in a deploy note this repository holds.
+
+It cites no run of itself: the next pull request's body cites the runs on its head.
+
+### 2026-10-18 — The lead's R78 and R80: Spec B's revision 29, and LRI refiled through R80
+
+**Change:** Spec B gains its revision 29, directed by the lead's rulings R78 and R80: §4.5's byte
+budget of the answers waiting out their floor; §4.3.11's rules of a Collect's undo and of a Collect
+whose box has gone; and what `REASON_CARD_RATE_LIMITED` is sent with. `LEAD-RULINGS-I1.md` is
+refiled from the lead's source through R80, with R73's line on what the floor pads as R78 corrected
+it. The plan's source is unchanged, and its filed copy is the same, byte for byte. Item 298 is
+annotated where it stands. No code changes.
+
+#### 1. Why
+
+- **R78**, on the delta review of the R75 round, has one more commit on `identity/i1-srv`,
+  `88602b48`, take six findings. Three of them reach Spec B: N2, which Collect undoes a
+  subscription; N3, a Collect whose box has gone; and N5, the waiting answers bounded by bytes as
+  well as by count. R78 also corrects R73's line on what the floor pads.
+- **R80** accepts that commit, and confirms N2's settle, which goes beyond R78's letter, and N5's
+  8 MiB. It has this branch's next commit carry:
+  - §4.5's byte budget;
+  - §4.3.11's settle and earlier-expiry rules;
+  - the enum's claim that `REASON_CARD_RATE_LIMITED` carries `retry_after_ms`, corrected to what
+    the code sends.
+- **The lead's directive for this commit:** the items above; the refile of LRI through R80; and this
+  entry.
+
+#### 2. The spec
+
+- **Spec B, revision 29.**
+  - **§4.5:** a note after revision 28's, on the merged refusals' timing envelope. The waiting
+    answers are bounded by their bytes as well: at most 8 MiB between them, each counted at its
+    encoded size, an answer past `max_response_bytes` at the size of the `REASON_OVERSIZE` it is
+    sent as, and one larger than the whole budget at the budget. Past it, as past 1,024, a worker
+    waits for room, so the pad holds no worker only while fewer than 1,024 answers wait and the
+    budget has room for the next. `peer.DefaultMaxDeferredBytes` and `answerLater` build it.
+  - **§4.5's enum:** the comment on `REASON_CARD_RATE_LIMITED` gains a sentence, of three lines. As
+    built, the server sets `retry_after_ms` on no path, so every `REASON_CARD_RATE_LIMITED` it sends
+    carries it at zero: no code of `identity/i1-srv` at `00ffac01` sets the field.
+  - **§4.3.11's Collect:** a note after revision 28's.
+    - A Collect whose write does not take undoes a subscription only when the write of no Collect
+      that made or found it has answered `REASON_OK` and no other such write is still to answer, and
+      it undoes only the subscription it made or found, never one made since by another.
+    - When the subscriptions standing at a box's id are of a box that expires later than the
+      Collect's, the Collect was verified against a box that has gone: it subscribes nothing and
+      ends nothing. When they are of a box that expires earlier, it ends them, since theirs is the
+      box gone.
+
+    `subscribeRendezvous` and `settleRendezvous` in `api/rendezvous_push.go` build both.
+  - **The edit log** gains revision 29.
+- Spec A does not change.
+
+#### 3. The sources, and the refiling
+
+- **The sources,** as the lead's scratch folder held them at 07:02 UTC, when this refile copied
+  them:
+  - LRI `e7ca896a…`, of 814 lines, through R80, where the R77 commit's source, `5b005918…`, had
+    740;
+  - the plan `f56165d3…`, of 1,570 lines, unchanged.
+
+  SCOPE, FOR-OWNER, REDTEAM and REDTEAM-TASK2 are unchanged, and are not refiled.
+- **What changed in LRI.** R78, R79 and R80 are appended. And R78 corrected, in place, R73's line on
+  what the floor pads, its line 605: "every refusal on every arm is padded to the floor" now reads
+  "every merged refusal of Submit, CreateGroup, Fetch, Subscribe and the five arms is padded to the
+  floor (corrected by R78: Unsubscribe, REASON_INTERNAL and the peer's own refusals are not)". Its
+  other 739 lines are unchanged.
+- **The refiling.** The same edit list, with LRI's legend naming
+  `identity-phase1/review-srv-delta/`, which R78 cites, as the folder of the server's delta review,
+  in the lead's scratch folder and not filed: 7 edits in all. The sources hold the same six local
+  paths, four in the plan and two in LRI, and the edits remove them. R78 to R80 name none.
+
+  The filed copies: LRI `e19d416e…`, of 816 lines, where it was `abc69b5f…`, of 742; the plan
+  `3f980a1c…`, of 1,572 lines, as it was.
+- **The proof.** Each of the two, reversed through its recorded edits, gives its source byte for
+  byte, and a line diff of source and filed copy touches only the lines the edits name. The proof's
+  three controls each fail it. Neither filed file holds a local path, by a search of each whole
+  file whose planted control fired in the same run. The lines this commit adds hold no local path,
+  user profile, address, key or token, by a second search whose controls fired.
+
+#### 4. The plan linter
+
+The plan does not change, and on this commit's tree the linter's nine counts are the R77 commit's:
+the property class 496, the plan-supplied-test class 227, the class-deriving property class 74, the
+task-reference class 3,812, the open-item-reference class 955, the plan-reference class 2,220, the
+ledger-reference class 269, the Consumes-entry class 366 and the qualified-consumed-name class 15.
+All seven of the linter's tests pass, and no line of its output names the plan.
+
+#### 5. The ledger
+
+- **Item 298, annotated where it stands:**
+  - its heading's notes;
+  - its rulings' bullet's notes;
+  - the sentences of R78, R79 and R80.
+
+  "What the plan is" and its size do not move.
+
+#### 6. The gates
+
+Run on the committed history of this entry, under go1.27.2, beside the four siblings at their pins,
+before the push:
+- `go test ./ -count=1 -run 'TestTheEditLogGate|TestThePlanLinter' -v`: the edit-log gate's six
+  tests and the linter's seven pass, and none fails. The gate reads Spec B's newest entry as
+  revision 29, and Spec A's as row A-39 still. Its ledger arm prints 78 of 101, where the R77 commit
+  left 77 of 100, since this commit changes a spec, and LRI, which the gate counts as a plan, and
+  appends this entry.
+- `go test ./ -count=1`, the whole root package: `ok`.
+
+#### 7. What this does not do
+
+- It changes no code, and no word of the lead's text but by the recorded edits. The comment R80
+  asks for in `store/errorclass.go`, that a connection the server refused logs its SQLSTATE, is on
+  `identity/i1-srv`, at `00ffac01`; §11.1 has said so since revision 28.
+- No wire field, reason code, record, label, table or migration changes.
+- `REASON_RATE_LIMITED`'s note that it carries `retry_after_ms` is left as it stands: no build sends
+  that code, since §4.7's limits and §6.4's lock timeout are not built.
+- LRI's "Read with" line, its line 5 and line 7 of the filed copy, still counts the plan's tasks at
+  45, where the plan has had 46 since R70's Task 7b. It is in the lead's text, and is the lead's to
+  correct; this commit files it as it stands (this commit's review).
+- It does not open a pull request: urnetwork/message-server#14 is open from this branch, and this
+  commit joins it.
+
+**Reviewed by:** one subagent reviewer, read-only, on the change uncommitted and by its sha256 at
+its start and at its end, which were the same. It checked:
+- the spec against the code at `00ffac01` on `identity/i1-srv`;
+- the refile, by re-applying the edit list, and every legend line claim;
+- every claim of this entry;
+- the two gates, in one run;
+- the added lines for local paths and secrets, with planted controls.
+
+It made 8 findings: 0 BLOCKER, 0 MAJOR, 3 MINOR and 5 NIT. All are taken in this commit:
+- **F1, MINOR:** §4.3.11's note, revision 29 and this entry said "none is still to answer", where
+  the code settles a claim when the write answers, before the Collect's own answer is sent. They
+  now say that the write of no Collect has answered `REASON_OK` and no other such write is still to
+  answer.
+- **F2, MINOR:** `88602b48` is not the server's last commit of slice 2: `00ffac01` followed it, and
+  the pin's return will. This entry now says "one more commit".
+- **F3, MINOR:** R80 does not direct the refile. This entry now gives it to the lead's directive.
+- **F4:** §4.5's note says that the pad holds no worker only while fewer than 1,024 answers wait and
+  the budget has room for the next.
+- **F5:** §4.3.11's sentence on a box gone is reworded so that it reads one way only.
+- **F6:** the gate counts LRI as a plan, and this entry now says so.
+- **F7:** the enum's comment gains a sentence of three lines, not one line.
+- **F8:** the sentences of R78, R79 and R80 keep R78's ruling that the lead runs no further full
+  review, R79's that tests first holds again from Task 14, and R80's that the review source is
+  deleted with the pin's return.
 
 It cites no run of itself: the pull request's body cites the runs on its head.
