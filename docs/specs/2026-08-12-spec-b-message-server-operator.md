@@ -785,6 +785,17 @@ then answers `REASON_CARD_RETIRED`. §3.3's Q20 says that the cap is also checke
 §12.1's A-1 block marks `RendezvousDepositBytes` as exported when kind 0 is served, as Spec A's A-39
 marks its copy, with a note. No wire field, reason code, table or migration changes.
 
+**Revision 29 — 2026-10-18 — the byte budget of the answers waiting out their floor, which Collect
+undoes a subscription, a Collect whose box has gone, and what CARD_RATE_LIMITED is sent with** (the
+lead's rulings R78 and R80, on the delta review of the R75 round and the commit that answered it).
+§4.5 says that the padded answers waiting out their floor hold at most 8 MiB between them as well as
+being at most 1,024, and its enum comment says that this server sends `REASON_CARD_RATE_LIMITED`
+with `retry_after_ms` at zero. §4.3.11 says that a Collect whose write does not take undoes a
+subscription only when the write of no Collect that made or found it has answered `REASON_OK` and no
+other such write is still to answer, and only the subscription it made or found; and that a Collect
+verified against a box that has gone, which a box expiring later has replaced at its id, subscribes
+nothing and ends nothing. No wire field, reason code, table or migration changes.
+
 ---
 
 ## 1. Scope
@@ -2413,7 +2424,15 @@ its card and its deposit are Spec A §5.14's: the server holds no code and deriv
   the connection's and not the card's. It is padded, and answered before the write, so that
   nothing is deleted through its acknowledgement and `refused_count` is not zeroed. No
   subscription is evicted to make room, and a box the connection already holds is the same
-  subscription again, and is not refused at the bound.)*
+  subscription again, and is not refused at the bound.)* *(Revision 29: the subscription is made
+  before the write and undone if the write does not take, but only when the write of no Collect that
+  made or found it has answered `REASON_OK` and no other such write is still to answer, so that a
+  Collect told it holds the subscription keeps it whatever another's write does; and a Collect
+  undoes only the subscription it made or found, never one made since by another. A subscription is
+  of a box, its id and its expiry. When the subscriptions standing at the id are of a box that
+  expires later than the Collect's, the Collect was verified against a box that has gone, and
+  subscribes nothing and ends nothing; when they are of a box that expires earlier, it ends them,
+  since theirs is the box gone (the lead's rulings R78 and R80).)*
 - **Retire** verifies `retire_auth`, deletes every deposit, and keeps the row as a tombstone until
   `reclaim_after`.
 - **One answer on Open, Deposit, Collect and Retire for every box the caller may not use.** On
@@ -2486,6 +2505,9 @@ enum Reason {
                                            // boxes on Register, and a box's third deposit.
                                            // Revision 28: and a Collect with subscribe that would
                                            // take its connection past 32 rendezvous subscriptions.
+                                           // Revision 29: as built, the server sets retry_after_ms
+                                           // on no path, so every CARD_RATE_LIMITED it sends
+                                           // carries it at zero.
 }
 ```
 
@@ -2519,7 +2541,7 @@ field number is `u8(op)` inside the `req_auth` preimage (§4.3.8), so it is a pr
 cannot be changed at all. A response field has to be checked against the signed lists rather than
 assumed innocent.
 
-**`REASON_REJECTED` deliberately merges "unknown group", "write_auth did not verify", and "epoch key unknown".** Distinguishing them would turn the submit path into an oracle for group existence: a party who holds no `write_key` could enumerate `group_id`s and learn which exist. The reject is the same code, the same response size, and the same timing envelope (the handler pads its response latency to a fixed floor on the reject path). A failed `req_auth` on the read path returns the same code with the same envelope (§5.1.1). *(Revision 28: while fewer than 1,024 padded answers wait, the pad holds no worker. The handler returns at once with the rest of the floor, and the answer is sent when that rest has passed, from a timer off the worker pool, so that a refusal does not hold a worker for the floor: one that did, with §5.1's check 4 not built, let one client sending as many refusals as there are workers stall every request. Past 1,024 waiting answers, a worker waits for one to be sent before it defers another, and no answer is sent before its floor (the lead's rulings R75 and R77).)*
+**`REASON_REJECTED` deliberately merges "unknown group", "write_auth did not verify", and "epoch key unknown".** Distinguishing them would turn the submit path into an oracle for group existence: a party who holds no `write_key` could enumerate `group_id`s and learn which exist. The reject is the same code, the same response size, and the same timing envelope (the handler pads its response latency to a fixed floor on the reject path). A failed `req_auth` on the read path returns the same code with the same envelope (§5.1.1). *(Revision 28: while fewer than 1,024 padded answers wait, the pad holds no worker. The handler returns at once with the rest of the floor, and the answer is sent when that rest has passed, from a timer off the worker pool, so that a refusal does not hold a worker for the floor: one that did, with §5.1's check 4 not built, let one client sending as many refusals as there are workers stall every request. Past 1,024 waiting answers, a worker waits for one to be sent before it defers another, and no answer is sent before its floor (the lead's rulings R75 and R77).)* *(Revision 29: the waiting answers are bounded by their bytes as well, at most 8 MiB between them, each counted at its encoded size: an answer past `max_response_bytes` at the size of the `REASON_OVERSIZE` it is sent as, and one larger than the whole budget at the budget. Past it, as past 1,024, a worker waits for room, so the pad holds no worker only while fewer than 1,024 answers wait and the budget has room for the next. A refusal's answer is a few octets, but a Submit's can carry a winning commit of about 64 KiB, and 1,024 of those would hold about 67 MB (the lead's rulings R78 and R80).)*
 
 `REASON_CARD_RETIRED` merges "this rendezvous was retired" with "this rendezvous does not exist" for the same reason `REASON_REJECTED` merges its three: distinguishing them would let a party with a list of guessed tokens learn which are real. It is a *distinct* code from `REASON_REJECTED` because the owner deliberately wants a holder of a rotated link told that the link is dead, which is the whole point of rotation being a remedy.
 
