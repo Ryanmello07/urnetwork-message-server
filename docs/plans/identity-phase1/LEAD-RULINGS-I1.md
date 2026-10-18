@@ -1,6 +1,6 @@
 # Lead rulings: identity phase 1 (I1), and its interface to IDs and requests (R)
 
-**Filed copy.** These rulings are filed in `urnetwork/message-server` as `docs/plans/identity-phase1/LEAD-RULINGS-I1.md`, in the folder beside the plan, and the ledger entry that files them lists every change made in filing them. `identity-phase1/PLAN.md` and `PLAN.md` are the plan, filed as `docs/plans/2026-10-16-identity-layer-one-account.md`: the plan as R62 left it, of 1,548 lines where R61 read 1,545, with two lines of legend added at its top. `SCOPE.md`, `FOR-OWNER.md`, `REDTEAM.md` and `REDTEAM-TASK2.md` are filed in this folder. A local path is replaced by a label: `srv@<sha>` is `urnetwork/message-server` at that commit. The lead's scratch folder is in no repository: it holds every `scratchpad/...` path, and the designs and rulings named here by a relative path or a short name, such as D2 and LR.
+**Filed copy.** These rulings are filed in `urnetwork/message-server` as `docs/plans/identity-phase1/LEAD-RULINGS-I1.md`, in the folder beside the plan, and the ledger entry that files them lists every change made in filing them. `identity-phase1/PLAN.md` and `PLAN.md` are the plan, filed as `docs/plans/2026-10-16-identity-layer-one-account.md`: the plan as R70 left it, of 1,569 lines, where R61 read 1,545 and R68 left 1,552, with two lines of legend added at its top. A `PLAN:` line here is of the plan its ruling read, without that legend. R65's `PLAN:148` is line 148 of the plan as filed, and line 150 of the filed copy. R66's addendum's `:1395` and `:1488` are of the plan as R66 left it; R68 added a line after its line 493, and R70 seventeen after its line 339, so they are lines 1,413 and 1,506 of the plan as filed, and 1,415 and 1,508 of the filed copy. `identity-phase1/review-t8-t10/FINDINGS.md`, which R68 cites, is the findings file of the library's review, in the lead's scratch folder and not filed. `SCOPE.md`, `FOR-OWNER.md`, `REDTEAM.md` and `REDTEAM-TASK2.md` are filed in this folder. A local path is replaced by a label: `srv@<sha>` is `urnetwork/message-server` at that commit. The lead's scratch folder is in no repository: it holds every `scratchpad/...` path, and the designs and rulings named here by a relative path or a short name, such as D2 and LR.
 
 **Date:** 2026-10-16 (UTC). **Writer:** the lead. These rulings continue LR's numbering (`scratchpad/hardening-plans/LEAD-RULINGS-2026-10-15.md`, R34 to R47; R33 is in `LEAD-RULINGS-2026-10-14.md`).
 
@@ -267,3 +267,354 @@
   - It commits only once Task 3's registry is pushed and its constants match the registry.
   - Task 10 starts when the registry is pushed, as P8 says.
 - **The lead** opens the plan's PR after the second commit.
+
+**Addendum, after the second filing (abb09c62).** Its review left two findings in the lead's text, and both are now fixed in the sources:
+- **E1:** REDTEAM-TASK2's Subject line (:5) still read R33-R47 with no note. The patch matched only :134's form. It now carries the same lead's note.
+- **E4:** PLAN's T2-H2 row quoted the owner's copy as "your devices refuse the old paper". The owner's copy says "your computers", and the slice-4 report says "your devices". The row now quotes each as it reads.
+
+The plan's PR opens at abb09c62. W-srv refiles PLAN, REDTEAM-TASK2 and this file on specs/identity-phase1, as one small commit after Task 3's, with its edit-log entry.
+
+## R63. On Task 3's registry (ledger item 299, `7741c70a` on specs/identity-phase1, 2026-10-16)
+
+**Read:** W-srv's Task 3 report. The review found 26: 0 BLOCKER, 4 MAJOR, 13 MINOR and 9 NIT, all taken. MASTER grows from 3,682 to 4,021 lines, in 20 edits. The registry's values are as PLAN and D2 have them, with two changes from the review: kind 11 no longer holds the key number, and R's block of content kinds is now 0x38 to 0x3F. The commit touches MASTER and SPEC-LEDGER.md only [m].
+
+**Revision 10, not an amendment to revision 9.** I1 changes rules that a revision-9 member cannot follow:
+- every leaf carries 0xF005, and every group requires it;
+- a device is added through the link box;
+- what the server checks changes.
+
+So MASTER's revision number says so.
+- Tasks 4, 5 and 40 move their parent pins and baseline rows to revision 10. They edit those specs anyway.
+- This answers item 141's question from here on. An edit that changes a rule is a new revision: a wire format, what a member or the server checks, or a guarantee that a user reads. An edit that only brings text into line with rules already in force is an amendment.
+- The amendments already made stand as written.
+
+**F15, R's block, stays 8 kinds, at 0x38 to 0x3F.**
+- Round 4's numbers 0x2F, 0x30 and 0x33 to 0x36 stay unassigned. They are held for the phases that build their features: the server's delay, QR linking and history transfer.
+- Each of those phases assigns or releases them in its own registry edit. Nothing else takes them meanwhile.
+- If R's plan needs more than 8 kinds, it asks the lead, with D2 v2.1's count. That is before W-lib's Task 24.
+
+**Start now:** W-lib checks Task 9's constants against item 299, commits Task 9, and starts Task 10. W-srv goes on to CI, then the E1 and E4 refile, then Tasks 4 and 5.
+
+## R64. On Task 4 (Spec A A-36, ledger item 300, `c2b598a0`, 2026-10-16)
+
+**Read:** W-srv's Task 4 report. The resumed reviewer found 28: 0 BLOCKER, 3 MAJOR, 7 MINOR and 18 NIT, all taken. The E1/E4 refile `7596be1d` holds.
+
+- **SCOPE E2 is corrected (the review's F3).** It said that the server never reads the deposit. That is false of a server that finds the 60-bit link code.
+  - Such a server holds card_key, answers Open with a card of its own, and is deposited to. It then reads that device's leaf before the emoji differ.
+  - E2 now says this, and that the link grants nothing, since the emoji differ (E3).
+  - MASTER §9.8 was corrected the same way in Task 4's commit, and Spec B states it in Task 5.
+  - W-srv refiles SCOPE as a small commit with its edit-log entry. Task 5's review covers it.
+- **Spec A §6 designs the seam's four methods ahead of the code:** NewBoundKeyPackage, CreateBoundGroup, CommitOwnLeaf (with patch, removeLeaves and contextExtensions) and LeafAt.
+  - W-lib's Tasks 12, 13 and 42 transcribe them as §6 has them.
+  - If code needs a different shape, the task amends §6 first, with a ledger entry, and never diverges silently.
+- **Item 300 freezes, beyond item 299:**
+  - the list's fourth label, URmessage/v1/device-amendment;
+  - the link box's labels and sizes: a card of 4,124 octets and a deposit of 17,526;
+  - the emoji label, URmessage/v1/link-sas-emoji;
+  - the store's names: state/identity, state/identity-heads and state/phrase-key;
+  - the 21 export names.
+
+  The library's tasks read these from item 300.
+
+## R65. On Tasks 9 and 10 (`d9ffec64` and `41699987` on identity/i1, 2026-10-16)
+
+**Read:** W-lib's report.
+- **Task 9:**
+  - its constants match registry item 299;
+  - alt-2 is green;
+  - fork-ci 38920058374 is green on 4 legs, with the checkout proven;
+  - MI2 to MI5 are killed, and the credential-follow probe sees its mechanism.
+- **Task 10:**
+  - alt-2 is green;
+  - fork-ci 38932900121 is green on 4 legs;
+  - MI6 to MI12 are killed;
+  - the known answers were computed outside Go, with each outside primitive first reproducing its RFC vectors.
+
+**The seven choices:**
+1. **NFKD as a generated fold table, without golang.org/x/text: ACCEPTED in principle.** The generator is committed, so that the repository can rebuild the table.
+   - It goes under `messagegroup/testdata/nfkdgen/`, with a go.mod of its own, which leaves the root module and its gates untouched.
+   - The table's header names the generator's path and the Unicode version.
+   - The independent review checks the table against a second NFKD, and names any code point where Unicode versions differ.
+2. **The draw through `mls.NewCryptoProvider`: ACCEPTED.**
+3. **The positions as a second result: ACCEPTED.**
+4. **`WithPhraseKeys` erases IRK's seed before the ceremony runs: HELD for the review.**
+   - IskCert(g) is signed by IRK (PLAN:148), and the phrase change's form-1 step needs a signature too.
+   - W-lib answers, in its Task 11 report, how Tasks 12, 31, 32, 42 and 43 get those signatures under this contract: inside WithPhraseKeys before the erase, or by an argument.
+   - The review holds that answer against Spec A A-36 §6 to §8 (`c2b598a0`). If the contract cannot serve those tasks, it changes now, before Task 12.
+5. **The census in messagegroup: ACCEPTED.** PLAN's gate table is corrected at the next plan refile.
+6. **The gate rows go to the review, row by row:** subject and scope, reason, control.
+7. **The spellings the gates forced. The RULE from here on: no code is spelled around a gate.**
+   - Where a gate's subject is not the code's subject, the code keeps its natural spelling. The gate gets a scoped exemption row with its reason and a control, as item 6's rows do.
+   - `%16` for the UUIDv8 octets goes back to `& 0x0F`, with a row in record_test.go's reserved-spellings gate scoped to the UUID function.
+   - The tokenizer's tables stay only if they are the better design, and the gate's comment says so. Otherwise they get the same treatment.
+   - `.gitattributes`: ACCEPTED.
+   - This retrofit comes with the review's fix commit. Task 11 follows the rule from its start.
+
+**Task 11 starts now.** Its normative sources for formats and labels are items 299 and 300 and Spec A A-36 (`c2b598a0`), with R64's note on §6's seam methods. The review of Tasks 8 to 10 runs alongside it, read-only, in its own clones.
+
+## R66. On Task 5 and the server's open items (`ee92954e` on specs/identity-phase1, 2026-10-16)
+
+**Read:** W-srv's report on Tasks 3 to 5 and the three refiles. There are six commits, `7741c70a` to `ee92954e`, and every one has gates.yml and fork-ci green, with the checkout proven. The reviews found:
+- Task 3: 26;
+- Task 4: 28;
+- Task 5: 24 (0 BLOCKER, 3 MAJOR, 9 MINOR, 12 NIT);
+- the R65 refile: 3 NIT.
+
+All of them were taken, with no BLOCKER anywhere.
+
+**PLAN is amended, each change marked R66:**
+- **Task 19 gains Property 6:** no rendezvous kind but 4 is served, and no kind-4 arm is served while the reject floor is zero. This is Spec B's test 51, which W-srv wrote in Task 5. Its mutants are MR11 and MR12, and its test is `TestOnlyKindFourIsServedAndNothingWithAZeroFloor`. Slice 2 now holds 40 mutants, and the plan 143.
+- **Task 20's deploy note** says that the deploy sets `reject_floor_ms`, since its default of 0 serves no kind-4 arm.
+- **The gate table** puts the phrase-secret census in `messagegroup` (R65 item 5). A task that holds a phrase secret in `sdk/urmessage` adds that package's row.
+
+**W-srv's small commit now, on specs/identity-phase1, before the specs PR opens:**
+- Spec A's two owed notes, from Task 5's review F9 and F10: the kind-4 note on §12.1's out-table row A-18, and ruling 27's seven names in its A-1 block.
+- Spec B's line 25 named a local user folder, from its first revision. It is neutralized in the current text. The history stays as it is, with no rewrite.
+- The filed SCOPE's legend: it names R64 among the rulings that came after.
+- The refile of PLAN and LRI at their hashes when committed.
+
+**Left where it belongs:** the wrong section cite, §4.3.7 where it should be §4.3.11, at `cmd/message-server/config.go:282`, and in the setting notes at :176 and :179 (the R66 review's L1). Task 19 edits those lines.
+
+**Order:**
+- W-lib does Task 7, the proto, right after Task 11's commit, and before Task 12. Task 18 consumes Task 7's commit once it is pushed.
+- W-srv may start Task 18's storage now, tests first, but commits the pin first, the day Task 7 is pushed.
+- The specs PR opens once message-server#12 merges.
+
+**Addendum, on W-srv's note.**
+- Two count lines still gave the server 10 mutants. They now say 12, and the plan 143 (PLAN:1395 and :1488).
+- MR11 now drops the kind check itself, so kind 0 (the proto's default, the likeliest slip) is served as well as kinds 1 to 3. This matches item 301's Open and Spec B's test 51.
+
+## R67. The list's live run, restated, and where livepeer runs (2026-10-16)
+
+**Read:** W-app's checkpoint. Task 6b is complete except its live run (`feat/conversation-list` at `50f17eac`). It asked for a ruling on holding two client JWTs as fork Actions secrets.
+
+- **No.** No JWT goes into GitHub, as a secret or otherwise (R59, R60). Nothing in this run needs one.
+- **Both parties run on the runner, by the DIRECT route, with no account.**
+  - The app, as R60 says: the placeholder credential file, `URMESSAGE_ROUTE=direct`, and no CI endpoint patch. It dials the compiled-in alpha endpoint with its pin.
+  - livepeer, built from the library at the app's own pin, with `-route direct -endpoint wss://74.50.11.53/urmessage/v1 -pin <the app's compiled pin>`. It has a state folder of its own on the runner.
+  - The rig relays the join codes and invitations between the two on the runner, both roads: livepeer founds and the app joins; the app founds and livepeer `-join`s.
+  - Nothing runs on the box, and nothing is staged there. This replaces R60's "livepeer runs on the box on user3, started by the lead", which would have needed the lead to relay codes by hand.
+- **The alpha's build:**
+  - The alpha runs message-server `20c035a1`, the T1 protocol. liveprobe at `c7501a19` (T1's tree, `c7949cfd`) held there on 2026-10-16.
+  - The app's pin must be T1's tree, or a descendant whose protocol packages are unchanged. The rig checks this before the run and prints it.
+- **Load and privacy:** the alpha is semi-exposed by the owner's word and is wiped before beta. The run's groups are throwaway. The rig's logs print digests, never codes or invitations in full.
+- **Then, inside the list:**
+  - each conversation draws its own receive errors;
+  - a removed conversation's bubble and roster controls say it was removed, not "no live session".
+- **The list still lands with R (P11).** Its PR is not opened now, and no I1 build carries it.
+
+## R68. On the independent review of Tasks 8 to 10 (`41699987`; workflow wf_74eb03fb-ece, 2026-10-16)
+
+**Read:** three read-only lenses (crypto and known answers; gates, tests and mutants; spec fidelity and the forward API), each with an adversarial verifier. Every finding above NIT was CONFIRMED, and none was refuted.
+
+- **No BLOCKER.**
+  - All 56 known answers were recomputed from the sources' text, with an implementation independent of the writer's: an Argon2id written from RFC 9106, an HKDF over crypto/hmac, and crypto/ed25519. Each reproduces its RFC vectors.
+  - The word list is canonical BIP-39 English.
+  - The NFKD fold agrees with a second NFKD over the whole parse pipeline, except U+A7F1. Unicode 17.0 added that code point, and the table is at 17.0.0.
+- **Findings:**
+  - **MAJOR:** L3-1, L1-1, L2-01 and L2-02.
+  - **MINOR:** L1-2 (with L3-6), L1-3 (with L3-2), L1-4, L2-03 to L2-12, L3-4 and L3-5.
+  - **NIT:** L1-5, L1-6, L2-13 to L2-15, L3-3 and L3-7 to L3-10.
+  - The full text is in `identity-phase1/review-t8-t10/FINDINGS.md`.
+- **A note on process.** The lead checked out `ee92954e` in the review's local clone of `urnetwork/message-server` during the review, to read Spec B's line 25. Lens 1 saw the move, and re-verified every server-side claim against `c2b598a0` with git show. Nothing was affected. From now on, review clones are not touched while a review runs.
+
+**R65 item 4 is answered: the contract serves every task, once messagegroup signs.**
+- R65's premise was wrong. IRK's whole private key is present inside `keys.irk` for the length of the ceremony. Only a separate seed buffer is erased before it.
+- What is missing is a way to sign without handing a private half out. So messagegroup gains signing methods on `*PhraseKeys`:
+  - IRK over a labelled IskCert preimage;
+  - IRK over the form-1 step's preimage;
+  - ISK_g over a base;
+  - D2 IL8's derivation.
+- Each takes and returns public values only, with its known answer. No private half leaves the package.
+- `WithPhraseKeys` takes the SET of key numbers it derives in one stretch, so a lock-out costs one Argon2id stretch, not two (L3-3).
+
+**W-lib's fix round, before Task 12.** One or more commits, each with its tests and controls:
+1. **L3-1 (MAJOR).** `CreateCommit` validates the committer's own path leaf before staging, at least whenever `OwnLeafPatch` is set. It uses the effective context after the proposals, as the inbound path does. A patched leaf that every receiver refuses is refused at home, with nothing staged. The test carries the reviewer's three refusal cases.
+2. **The census (L1-1, L2-01, L2-02, L2-05, L2-06).**
+   - The walk follows tainted arguments into package-local callees.
+   - A sink holds its occurrences, not only its key and the union of what it carries, asserted both ways.
+   - A map key and a keyed literal's key are carried values.
+   - `phraseFoldOf` and `phrasePublicHalf` are walked.
+   - The census's mutation table exists: the pq census's mechanism rows, driven at the phrase's secrets, plus the reviewers' mutants. Each row names its failure text.
+   - The engine is one engine. The pq census in `sdk/urmessage` gets the same fixes, and a test holds the two copies identical, apart from their two named renames.
+3. **The signing methods and the key-number set,** as above.
+4. **L1-4.** `*RecoveryPhrase` and `*PhraseKeys` format as a fixed redaction under `%v`, `%+v`, `%#v` and `%s`, with a test that no octet of a secret is printed.
+5. **L2-03.** The frozen stretch parameters are unwritable by construction: a function returning the literal, or typed constants.
+6. **R65 item 7, applied (L2-07, L2-08, L2-09).**
+   - The UUID's `& 0x0F` comes back, with a reviewed-context row in `message/record_test.go` scoped to `accountIdOfHash`, matched by its whole AST. The hex uses the natural spelling, or `encoding/hex` with its import row.
+   - The tokenizer and the list pin use their natural spellings, with a row scoped to `phrase.go`'s functions in `mls/framing_guard_test.go`, with the gate's own reason. The tables buy no constant time.
+   - The crypto/rand ban's reason names its one exception, `NewRecoveryPhrase`. A gate holds messagegroup's process-entropy draws to exactly that one.
+7. **The NFKD table (R65 item 1, L2-10).** The generator is committed under `messagegroup/testdata/nfkdgen/`, with a go.mod of its own. A step in test.sh and fork-ci regenerates the table and diffs it, or the table's SHA-256 sits in its header and is checked.
+8. **The smaller items:**
+   - L2-04: the ladder gate's comment says what it holds.
+   - L2-11: the Update fixture is out of type order, and M4 is recorded.
+   - L1-6: "clear", not "drop", and the callers clear.
+   - L2-13, L2-14 and L2-15: the notes.
+   - L3-10: an exported single-word check over the same fold, which Task 14 consumes.
+9. **Then:** alt-2's full test.sh and fork-ci, with the checkout proven.
+
+**PLAN is amended, marked R68:**
+- Task 10's Property 1 says "refused exactly when the checksum fails, about 255 times in 256" (L3-9).
+- Task 12 gains three duties:
+  - the mls accessor for a staged leaf's signature key and extensions (L3-5);
+  - the engine's capabilities naming 0xF005 and 0xF006 before any bound key package (L3-8);
+  - the phrase-secret census of `sdk/urmessage`, whose net is `PhraseKeySeed`, `RecoveryPhrase`, the ceremonies and the kind-13 record (L3-4).
+- Task 14 consumes the single-word check (L3-10).
+- Task 26's scene links pc2 through the link box and brings it in by fan-out (L2-12).
+- The gate table and the promise table follow.
+
+**W-srv's spec amendment on specs/identity-phase1** (L1-2, L3-6, L1-5, L3-7):
+- Spec A §8 states the in-memory residual of phrase secrets with its measured scope. The words, S, master_key, isk_root and IRK's private half can survive in freed heap, in Argon2id's working memory and in hash and HMAC states, even after GC.
+- MASTER §5.2's unqualified "erased" points to that statement.
+- MASTER §5.1 and Spec A §7.2 name the fold as NFKD at Unicode 17.0.0, held to the toolchain's `unicode.Version`, with white space as Unicode's White_Space property.
+
+**F2 of the R66 commit's review, ruled during that commit (recorded here for the ledger to cite).**
+- The stale A-1 comments are fixed in R66's commit, in both copies together, against the library code the server pins. They are not carried.
+- ErrEpochKeysDigestPresence LEAVES both blocks, by the block's own rule A-9: only the unpublished NewEpochDigestAttachment returns it (attachment.go:485-489).
+- The same correction reaches Spec A §5.11's door sentence (:2376), with a note saying what it read. The stale-peer paragraphs, Spec A §5.11 (:2363-2372) and Spec B §5.4 (:2849-2856), keep their text and gain a dating note with the test's current name.
+- `api/epochkeys.go:18-25`'s comment is carried to Task 19, the next commit that touches api/.
+
+## R69. The server pins the library's fork through siblings.sh's own exception (2026-10-16)
+
+**Read:** W-srv's note on Task 18's pin.
+- Task 7's commit, `e8eaad66`, exists only on Ryanmello07/urmessage.
+- `scripts/siblings.sh` refuses every fetch source outside urnetwork, except forks listed by exact URL in its `review_sources`. It lists none today, and its self-test asserts that the urmessage fork is refused.
+
+**Ruled: use the script's documented procedure ("To use the list again", siblings.sh:38-53).** This is the gate's own designed exception, not a spelling around it (R65 item 7). The pin commit:
+1. adds exactly `https://github.com/Ryanmello07/urmessage.git` to `review_sources`, so that every mode prints FORK beside that pin;
+2. moves the self-test's urmessage case from "refused" to "listed". The listed loop then holds that exact URL accepted, and its spelling without `.git` refused. Every other variant stays refused: the connect fork, other owners, path tricks and http;
+3. sets siblings.txt's message line to that URL at `e8eaad66`, with its comment.
+
+**Conditions:**
+- The server branch's PR may open while the pin is a fork. It says, in its first line, that it merges only after I1's library PR has merged.
+- Before it is ready, a commit moves the line back to urnetwork at the merged commit and deletes the review source, as the script says.
+- No other source is ever added this way without a ruling.
+
+## R70. The rendezvous verifiers: a gap no task filled (2026-10-16)
+
+**Read:** W-srv's blocker on Task 19, checked by grep and by the fork's contents listing.
+- Spec A §12.1 and Spec B §12.1 name the A-1 rendezvous surface: the registration and collect types, the preimages, the five verifiers, `RendezvousId`, `DepositVerifyKey` and the two sizes.
+- None of it exists in `message`, at `e8eaad66` or on main.
+- Task 7 is the proto only, and Task 21 is the client. A-1 forbids the server building a preimage, and `api` may not reach crypto or encoding, so it cannot hash either.
+
+**Ruled:**
+- **(a) Task 7b is NEW (W-lib):** `message`'s rendezvous preimages and verifiers, exactly the A-1 surface in kind 4's form.
+  - It has two properties, and mutants MI122 and MI123.
+  - It runs after W-lib's R68 fix round, and before Task 12. It is small, and the server's verify step waits on it. Slice 1's own path does not.
+  - PLAN gains the task, and the counts move to 46 tasks and 145 mutants.
+- **(b) W-srv builds everything in Tasks 19 and 20 that does not verify:**
+  - the config keys;
+  - Capabilities 26 and 29, leaving kind 4 out while it is unserved;
+  - the LinkBoxes field, with its holder tests, and a nil LinkBoxes failing closed;
+  - the cap, failing closed; the kind check; the floor; the one answer; the logging gate;
+  - the five routes, with every arm answered as unserved until the verifiers are pinned, and the readiness naming why;
+  - the cites and the stale comment;
+  - Task 20's sweep.
+
+  The verify step lands in a commit of its own once Task 7b is pinned, with MR6, Open without `open_auth`, killed then.
+- **(c) Task 18 is adjusted:** the store computes `deposit_hash` from `deposit_ct` as Spec A §5.14 defines it, and returns it. The Deposit response carries it.
+- **The fork pin moves** to Task 7b's commit, by R69's procedure, in a commit of its own.
+
+**Addendum: the shape of an unserved link box (W-srv's proposal, taken).**
+- The arms are served only when LinkBoxes is wired, the verifier is wired and `reject_floor_ms` is above zero.
+- If any of the three is missing:
+  - the peer does not route the five arms, which `peer.unservedArms` then derives and answers with REASON_INTERNAL;
+  - a handler method called directly answers REASON_INTERNAL with no store call;
+  - `api.NotBuilt` names what is missing;
+  - Capabilities 26 and 29 leave kind 4 out.
+- This replaces the lead's first idea, which was "answer as an unknown box". That idea fights Spec B §4.3.11 ("as every unserved arm is answered") and the nil-Subscriptions precedent. It would also hide the gap from /readyz, and a server with no store would look alive and empty.
+- **Control:** the same request answers REASON_INTERNAL with nil LinkBoxes and no store call, and CARD_RETIRED with an empty LinkBoxes.
+- The cap's fail-closed case stays as planned: CARD_RATE_LIMITED on a read error (MR8).
+- §5.14's H is SHA-256 (Spec A:8, MASTER:11), so (c) holds.
+
+## R71. On the list's live run, and W-app's next work while #8 and #9 wait (2026-10-16)
+
+**Read:** W-app's report. The R67 live run, with both parties on one runner, the DIRECT route and no account, passed twice with 106 checks and 0 failures (38949957455 at `50f17eac`; 38955292704 at `cba38d14`). The library pin was checked and printed as T1's `c7949cfd`. Codes and invitations went through files, and the logs printed digests only. Proven, with shots:
+- the founder road and the join road;
+- a join beside open conversations;
+- sending in every conversation, both ways;
+- two live conversations beside a notice row;
+- a leave;
+- a restart that restores both.
+
+livepeer cannot remove a member, so the removed conversation is proven by the hermetic legs only. The two R67 fixes are in (`4fa5e91b`, `cba38d14`), with their diagnose lines, mutants and the new listerr leg, whose control fails exactly the fix checks.
+
+**Rulings:**
+- **The receive report drawn in a conversation** keeps the library's own sentence. It never draws an absolute path under the user's profile: the drawn text shows the store's root as "the app's data folder", and the log keeps the full sentence. This comes with its diagnose line and a control, as one small commit on the list.
+- **One livepeer at a time** was more caution than the rule asks. With no account in the run, there is nothing to collide, so several peers may run at once on the runner, each with its own state folder. No re-run is needed.
+- **The owner's leave refused** (ErrOwnerMustTransfer) is the library's rule, and is correct. A test of the owner's road waits for a transfer, which belongs to R.
+- **While #8 and #9 wait, W-app ports urnetwork/windows#12 to message-windows:** the icon font falls back to Segoe MDL2 Assets wherever the app names Segoe Fluent Icons. Today the app names Segoe Fluent Icons alone (App.xaml's `UrIconFontFamily`, and four sources), so every icon is an empty box on Windows 10 and on Server 2022, as the runners' shots show.
+  - It is a small PR from main: `fix/icon-fallback`.
+  - It gets a diagnose line naming every glyph code point the app uses and the family it resolves to.
+  - Its shots on windows-2022 (no Fluent font) show icons drawn, and windows-2025's are unchanged.
+  - The lead opens it after one read-only review.
+
+## R72. On W-lib's Tasks 11, 7 and 7b and the R68 fix round (head `9cac060b`, 2026-10-16)
+
+**Read:** W-lib's final report. Every commit was pushed to the fork, with alt-2's test.sh and fork-ci green and the checkout proven:
+- Task 11 `db348392` (fork-ci 38945873384);
+- Task 7 `e8eaad66` (38946856356);
+- the R68 round: `73f09fcd`, `32555865`, `51815a7b`, `51bc1a0c` (38962389303) and `a6ea6f3e`;
+- Task 7b `9cac060b` (38977073547).
+
+Every planned mutant was killed. R68's census mutation table kills every row except V5b, which survives by design and is killed by four known-answer tests. The two census engines are held identical by a test.
+
+**R65 item 4 is closed.** messagegroup signs, and no private half leaves it. The methods are SignIskCert, SignIdentityStep, SignBase and SignBaseAuthor, DeriveIdentityKeyed, PhraseKey, PhraseKeySeed and KeyNumbers. WithPhraseKeys takes the set of key numbers.
+
+**Task 7b's five decisions:**
+1. Only kind 4's form is built: CONFIRMED.
+2. RendezvousDepositBytes is left out: CONFIRMED, since kind 0 is not served.
+3. The sizes, alg_id and card_xwing_pub are the server's checks (Spec B §4.3.11): CONFIRMED. W-srv is told.
+4. AlgId is a u16, and the server refuses any alg_id above 0xFFFF and never truncates: CONFIRMED. W-srv is told, with a mutant.
+5. **Small-order keys are REFUSED.** The five rendezvous verifiers refuse a small-order public key, as identityVerify already does.
+   - Without the check, Go accepts R = identity, S = 0 under such a key, so a box registered with one could be collected or retired by anyone.
+   - Only the registrant chooses that key, but the library's own rule already refuses these keys, and the check costs one call.
+   - It is a small commit before Task 12, with mutant MI124 (the check dropped, killed by a verifier test with an identity-point key).
+   - W-srv pins that commit rather than 9cac060b.
+   - Spec A §5.14 gains the sentence at the next specs-branch commit.
+
+**Also ruled:**
+- **vulncheck's rows:** a test holds every go.mod in the repository to a row in scripts/vulncheck.sh, with a control. test.sh then catches what alt-2 caught (a6ea6f3e). It goes in the same small commit.
+- **Tasks 31 and 33** add the stored-seed signer that a phrase device without its words needs: ISK_g from the kind-13 record's PhraseKeySeed(g), inside messagegroup, with no private half out. PLAN's Tasks 31 and 33 carry this at the next refile.
+- **The R68 commits get no separate delta review.** They are reviewed with slice 1's library review, after Task 14, and their mutation evidence stands until then.
+- **Task 12 starts after the small commit,** with R64 (Spec A §6's seam methods, transcribed) and R68's three additions: the mls staged-leaf accessor, the engine's capabilities naming 0xF005 and 0xF006, and the sdk/urmessage phrase-secret census.
+- **Memory pressure:** the machine reaped an ssh session and crashed one compile while three writers ran heavy builds. W-lib's mutants now run two at a time. Each writer keeps its parallel jobs modest.
+
+## R73. On Tasks 19 and 20 without the verify step (`85abf77c` and `1bff5904` on identity/i1-srv, 2026-10-16)
+
+**Read:** W-srv's report. Both commits are on the fork, with gates.yml and fork-ci green and the checkout proven (38978403508 and 38978406044; 38980524727 and 38980525514).
+- MR4, MR5, MR7 to MR12 and MR10 are killed, plus guards beside them. MR6 waits for the verify step.
+- R70's unserved shape is built, with its control.
+- The store computes deposit_hash.
+- W-srv stopped at the pin as R72 asked, and reverted its uncommitted pin of 9cac060b.
+
+**Rulings:**
+- **Tests first was skipped** in both tasks. The code came first, then the tests were shown failing against stubbed arms (Task 19), or not at all (Task 20). The mutant kills are evidence that the tests bite, so both commits are ACCEPTED. The plan's order stands for the verify step and after: tests first, seen failing for their stated reasons.
+- **Small-order keys at Register (W-srv's question): REFUSED.** W-lib exports the library's small-order predicate in its R72 commit. Check 3 calls it, so a small-order collect key or deposit key is refused at Register (REJECTED), and no unusable box is stored. A mutant drops the call.
+- **The sweep's three departures from Spec B §7.4 are ACCEPTED:**
+  - the advisory lock is the two-key form, scoped to the schema, so that two deployments in one database, or the suite's parallel schemas, do not skip each other;
+  - `now` comes from the caller, like every LinkBoxes method;
+  - PostgreSQL may abort one of a recount and a Collect still running at a box's expiry, and either retry is harmless.
+
+  Spec B §7.4 states all three at the next specs-branch commit.
+- **Not built and not planned:** §7.4's gauges and counter, since the metrics package has no code, and `messagectl sweep-now`. They are carried as a residual to the server's later phases, and are not in I1.
+- **The deploy note is RECEIVED, and nothing is deployed.**
+  - The deploy goes with slice 2's owner session, and the lead tells the owner first (R55).
+  - It is message-server and messagectl from the verify commit: Go 1.27.2, linux/amd64, CGO_ENABLED=0.
+  - The migrations are 013 and 014. The alpha's database is wiped, then `messagectl migrate` runs.
+  - `reject_floor_ms` is set from the slowest refusal path, measured on the box.
+  - What changes beyond the link box, and the owner hears all of it:
+    - every refusal on every arm is padded to the floor;
+    - the sweep job runs;
+    - there are two new keys with defaults;
+    - Capabilities and readiness gain kind 4.
+- **The verify step** waits for W-lib's R72 commit:
+  - check 7 on all five arms through the library's verifiers only;
+  - alg_id held to 0x0014 as the u32;
+  - the small-order check at Register;
+  - the signed tests in cmd/message-server/linkbox_test.go, since api's second-implementation gate bars signing in api;
+  - a static gate: each arm calls its own verifier once, before any write, and never a preimage builder;
+  - MR6 killed.
+
+  Then the lead runs the server's slice review of Tasks 18 to 20.
+- **Memory:** WindowsTerminal held about 61.5 GB of committed memory while the writers ran, and two parallel suites failed to allocate. The writers run one package at a time while that lasts. The lead tells the owner.

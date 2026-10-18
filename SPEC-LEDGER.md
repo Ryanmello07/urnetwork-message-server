@@ -10,7 +10,9 @@ document; this ledger is the map, the reasoning, and the audit trail.
 
 ## 1. Current state
 
-**Protocol design at revision 9**, with errata E1–E3 fixed and **ten** dated amendments on top of it
+**Protocol design at revision 10** *(was "at revision 9" until item 299 of 2026-10-16, whose
+Revision 10 is the identity layer's first phase)*, made on revision 9 with errata E1–E3 fixed and
+**ten** dated amendments on top of it
 (*was "nine"; the tenth is 2026-09-17's `aad_mls` v2 — the first amendment since §8's `eph_window` to
 change a PREIMAGE, and the first to do it at zero wire cost. Query, published beside the number:
 `grep -c "^\*\*Amendment to revision 9" docs/specs/2026-08-12-urmessage-protocol-design.md` → **10**
@@ -31,7 +33,7 @@ code at all**, which is the gap every external leg in the m1 plan points at.
 
 | Item | State |
 |---|---|
-| MASTER protocol design | Revision 9, **ten** amendments — **3,341 lines** *(re-measured 2026-09-17, the pass that added the **tenth** section-0 amendment block, replaced §8.4.2 with `aad_mls` **v2**, added §8.4.6 and §8.4.7, and CORRECTED §8.4.4's overhead step function, which had four steps and published three. The query for both numbers is printed above this table. **v2 is the first preimage change since `eph_window` and it costs ZERO wire octets**: `aad_mls` is a 32-octet digest at both versions, so `octet_length(ct_body)` is unchanged at every rung and no `format_version`, schema, `CHECK`, reason code or Spec B line moves.)* *(Was "nine — 2,868"; re-measured 2026-09-15, the pass that added the **ninth** section-0 amendment block and §8.4. **The word "nine" became TRUE here rather than staying true, and the ordinals below it are therefore one out.** The query is `grep -c "^\*\*Amendment to revision 9" docs/specs/2026-08-12-urmessage-protocol-design.md`; it answers **8** at `64f5fe9` and **9** at this commit. So this cell claimed nine while the document carried eight, and the sentence further down that reads *"The ninth is 2026-09-13"* is describing the **eighth** — kept as written, per the rule that a corrected ordinal keeps its old wording beside it, and annotated here rather than silently renumbered. **2026-09-15 is the ninth**, and it is the first amendment whose larger half REMOVES A DIVERGENCE rather than changing a rule: `ct_body` becomes the MLS `PrivateMessage` payload MASTER §8 has said it was since revision 4, and `message_id` is defined. The count is published with its query from here on rather than as a number somebody increments.)* *(Was "nine — 2,577".)* *(was "nine — 2,475"; re-measured 2026-09-13, second pass of that date, which added no amendment: it is the ninth's own review and is carried as a SECOND PASS block inside it, plus the §8.1 narrowing and the §8.2 refusal)*. *(Was "eight — 2,329".)* **The ninth is 2026-09-13 and it is the first that REVERSES a ruling rather than amending a statement**: `ct_head` is keyed under the record's own class key, and `record_bytes` gains `eph_window`, which reopens a section §14 froze. *(Was "six — 2,249 lines"; re-measured 2026-09-11.)* The seventh and eighth are both **2026-09-11** and are the only two that open by saying a rule in this document changes: §8's record listing and §8.1's ratchet paragraph carry Spec A §5.3's `EPH` carve-out in MASTER's own voice, `ct_head` first and then the `body_hash` line six above it |
+| MASTER protocol design | Revision **10** of 2026-10-16 (item 299), made on revision 9 and its **ten** amendments — **4,021 lines**, re-measured at item 299's commit with `grep -c "" docs/specs/2026-08-12-urmessage-protocol-design.md` *(was "Revision 9, **ten** amendments — **3,341 lines**", whose notes follow; it had 3,682 lines at the commit before item 299's)* *(re-measured 2026-09-17, the pass that added the **tenth** section-0 amendment block, replaced §8.4.2 with `aad_mls` **v2**, added §8.4.6 and §8.4.7, and CORRECTED §8.4.4's overhead step function, which had four steps and published three. The query for both numbers is printed above this table. **v2 is the first preimage change since `eph_window` and it costs ZERO wire octets**: `aad_mls` is a 32-octet digest at both versions, so `octet_length(ct_body)` is unchanged at every rung and no `format_version`, schema, `CHECK`, reason code or Spec B line moves.)* *(Was "nine — 2,868"; re-measured 2026-09-15, the pass that added the **ninth** section-0 amendment block and §8.4. **The word "nine" became TRUE here rather than staying true, and the ordinals below it are therefore one out.** The query is `grep -c "^\*\*Amendment to revision 9" docs/specs/2026-08-12-urmessage-protocol-design.md`; it answers **8** at `64f5fe9` and **9** at this commit. So this cell claimed nine while the document carried eight, and the sentence further down that reads *"The ninth is 2026-09-13"* is describing the **eighth** — kept as written, per the rule that a corrected ordinal keeps its old wording beside it, and annotated here rather than silently renumbered. **2026-09-15 is the ninth**, and it is the first amendment whose larger half REMOVES A DIVERGENCE rather than changing a rule: `ct_body` becomes the MLS `PrivateMessage` payload MASTER §8 has said it was since revision 4, and `message_id` is defined. The count is published with its query from here on rather than as a number somebody increments.)* *(Was "nine — 2,577".)* *(was "nine — 2,475"; re-measured 2026-09-13, second pass of that date, which added no amendment: it is the ninth's own review and is carried as a SECOND PASS block inside it, plus the §8.1 narrowing and the §8.2 refusal)*. *(Was "eight — 2,329".)* **The ninth is 2026-09-13 and it is the first that REVERSES a ruling rather than amending a statement**: `ct_head` is keyed under the record's own class key, and `record_bytes` gains `eph_window`, which reopens a section §14 froze. *(Was "six — 2,249 lines"; re-measured 2026-09-11.)* The seventh and eighth are both **2026-09-11** and are the only two that open by saying a rule in this document changes: §8's record listing and §8.1's ratchet paragraph carry Spec A §5.3's `EPH` carve-out in MASTER's own voice, `ct_head` first and then the `body_hash` line six above it |
 | Spec A — protocol / sdk / connect | Revision **A-28** — **5,986 lines**, re-measured 2026-09-17 (`grep -c "" docs/specs/2026-08-12-spec-a-protocol-sdk-connect.md`). **A-28 carries `aad_mls` v2 in six places and NOT the preimage**: §8.2's `mls.Group` and `GroupHandle` blocks gain `ProtectBound` and a generation on the peek and on `Unprotect`, §5.2's construction order gains the framed-length refusal and `head_commit`, the *"signatures are UNCHANGED"* bullet is corrected to say the seam is BUILT rather than wired, the open path's **verbatim copy of R2's v1 preimage is DELETED rather than updated** — which is ledger item **207**'s own recommendation applied to the one new place it would have recurred — and §5.2's *"it does not make a working call stop working"* is corrected in place with its old wording kept beside it (MG-4, item **214**). *(Was "A-27 — 5,915 lines", re-measured 2026-09-15 (`grep -c "" docs/specs/2026-08-12-spec-a-protocol-sdk-connect.md`). **A-27 carries the two rulings of 2026-09-15**: §5.1 gains `message_id` and the rule for what `ct_body` carries, §5.2 gains one stage at the front of the construction order with both published signatures UNCHANGED, §5.3 gains `MessageId`, §7.1 the hex spelling, §8.3a the width `LP(message_id)` takes. *(Was "A-26 — 5,796 lines", re-measured 2026-09-13, second pass of that date.)* **A-26 is A-25's review**: §5.1 receives the bucket-0 sentinel it was the only one of three documents to miss, §5.3's rule sentence and precondition (1) gain the device-wrap carve-out, §5.11 refuses to publish the `eph_root` wrap until ledger **185** is ruled, §3.5 and §8.1's storage row are corrected off ledger **186**, and §7.4 names the second producer of `"malformed"`. *(Was "A-25 — 5,722 lines".)* A-25 carries both 2026-09-13 rulings: §5.3's rule reversed, §5.1's `RecordHeader` gains `EphWindow`, §5.7's preimage gains the term, §5.11 (3)'s snapshot parenthesis corrected, the `EPH` seal refusal lifted **in full**, and new server-conformance row **S19**. *(Was "A-24 — 5,631 lines".)* *(Was "A-22 — 5,618"; re-measured 2026-09-11.)* A-23 names the inversion of A-20; A-24 amends server-conformance row **S10** and §5.1's two Go struct comments |
 | Spec B — message-server / operator | Revision **21** — **3,742 lines**, re-measured 2026-09-13, second pass of that date. **Revision 21 changes no schema, no check, no reason code and no wire field**: §3.1's sentinel paragraph is brought to one text with MASTER §8 and Spec A §5.1, §10.4's backup argument drops a clause ledger **186** makes false, §5.1 check 3 and §7.1 note that they carry no wrap carve-out (ledger **185**), and item 181's two anchors are re-stated. *(Was "20 — 3,704 lines".)* **Revision 20 is the first SCHEMA change in nine revisions**: `eph_window bigint NOT NULL DEFAULT 0` with two `CHECK`s, protobuf projection field 14, a §5.1 check-3 clause and §7.1's ±1-window refusal. §7.2's table is unedited. *(Was "19 — 3,627 lines".)* *(Was "18 — 3,587"; re-measured 2026-09-11.)* Revision 19 changes no SQL statement: §3.2's `body_hash` DDL comment and §7.2's verbatim quote of MASTER. **The document's own "Current state" row still reads "Revision 6"** — seen, not repaired, and named in the edit log |
 | Spec C — Windows client UI | Revision 6 — **1,895 lines**, re-measured 2026-09-13, second pass of that date. **No revision and no string changed**: §8.1 gains a note that `msg_disappearing_explainer`'s *"destroyed on every device"* half has no schedule anywhere (ledger **186**), placed outside every quoted value so §16.3 lint 1 is unaffected. *(Was "1,893".)* |
@@ -96,7 +98,7 @@ Each was chosen explicitly by the project owner. Changing one requires a ledger 
 
 | # | Decision | Reasoning |
 |---|---|---|
-| I1 | URmessage generates its **own** BIP39 seedphrase on-device, never transmitted | The existing URnetwork seedphrase is a **password** — `auth_model.go:168-169` sends it plaintext to the operator on every login. Reusing it would hand the operator every private key. |
+| I1 | URmessage generates its **own** BIP39 seedphrase on-device, never transmitted *(item 299, MASTER's Revision 10: a 25-word recovery phrase over BIP-39's English list, with its own checksum and one Argon2id stretch, where the BIP39 mnemonic was; it is still URmessage's own, made on-device and never transmitted)* | The existing URnetwork seedphrase is a **password** — `auth_model.go:168-169` sends it plaintext to the operator on every login. Reusing it would hand the operator every private key. |
 | I2 | A URnetwork account **is** required | `CreateContract` needs a `ByJwt`. Only the *SSO link* is optional, not the account. |
 | I3 | Operator authorizes and routes; never reads, **never stores** message records | Enforced by grammar: no MLS proposal or commit is valid on an operator signature. |
 | I4 | Verification is **SSH-style local TOFU**; nobody verified by default, no badge | Warn loudly only when a key changes from one already pinned. A badge without a warning would be worse than Signal's silence. |
@@ -2218,7 +2220,12 @@ exists — sourced from the reviews in `docs/reviews/`, not from §0:
      owner ruled them on 2026-09-13 and when M-15 was adopted, and MASTER was the last of four
      documents to be told. Whether that warrants **revision 10** is **not decided here**: a bump moves
      the parent pin and the baseline row of both Spec A and Spec B, and no ruling covers that. **Filed
-     for the owner.**
+     for the owner.** *(Answered 2026-10-16 by the lead's ruling R63, as item 299 records: an edit
+     that changes a rule, whether a wire format, what a member or the server checks, or a guarantee
+     that a user reads, is a new revision, and one that only brings text into line with rules
+     already in force is an amendment. MASTER's Revision 10, item 299's, is the first the rule
+     confirms (it read "the first made under it" until Task 4's review, its E1: Revision 10 was
+     made before R63 ruled), and the amendments already made stand as written.)*
 
      *The item as filed, kept, because an item that vanishes is an item somebody files again:*
 
@@ -14157,14 +14164,31 @@ repo and therefore the critical path — not this repository:
     THE TRACK'S CODE. THIS ITEM RECORDS THE OWNER'S WORDS AND THE LEAD'S RULINGS IT RESTS ON.**
     Times are UTC, on 2026-10-16 unless a date is given. *(Amended in place by the second commit
     on this branch, which refiles R62's corrections. The heading read "R48 TO R61", and each
-    other amendment carries its own note.)*
+    other amendment carries its own note.)* *(Annotated where it stands by the E1 and E4
+    refile, the commit after Task 3's on `specs/identity-phase1`, which files R62's addendum and
+    R63 as well: R48 to R63 are filed, R63's sentence is below, and each annotation says it is
+    the refile's.)* *(Annotated again by the R64 refile, after Task 4's commit: it files R64 and
+    SCOPE's corrected E2, so R48 to R64 are filed, and R64's sentence is below.)* *(And by the R65
+    refile, after Task 5's commit: R48 to R65 are filed, and R65's sentence is below.)* *(And
+    by the R66 commit, after the R65 refile: R48 to R69 are filed, R66 with its addendum, and
+    the sentences of R66 to R69 are below.)* *(And by the R73 commit, after the R66 commit: R48
+    to R73 are filed, R70 with its addendum, and the sentences of R70 to R73 are below.)*
     - **What the plan is.** The implementation plan of the identity layer's first phase, written
       by the lead's planning round and revised in place three times: by its finalizer, for the red
       team dated 2026-10-15; by its reviser, for the owner's answer that the phrase change is built
       in phase 1; and by Task 2's finalizer, for Task 2's red team. The lead then corrected its
       slice-4 report and the note to the owner (R61), and then four findings of Task 1's review in
       it, in LRI and in REDTEAM-TASK2, with SCOPE's store kinds and Task 8's forward costs in the
-      plan's Tasks 12, 13 and 26 (R62). *(The last clause is added by R62's refiling.)*
+      plan's Tasks 12, 13 and 26 (R62). *(The last clause is added by R62's refiling.)* *(The
+      R66 commit refiles it as R66, its addendum and R68 revised it. From R66: Task 19 gains
+      Property 6, Spec B's test 51, with its mutants MR11 and MR12; Task 20's deploy note names
+      `reject_floor_ms`; the gate table puts the phrase-secret census in `messagegroup`; and the
+      counts move to 143 mutants. From R68, the review of the library's Tasks 8 to 10: Task 10's
+      Property 1, Task 12's three duties, Task 14's single-word check, Task 26's scene, and the
+      gate and promise tables.)* *(The R73 commit refiles it as R70 revised it: Task 7b, the
+      library's, its rendezvous preimages and verifiers, with MI122 and MI123; Task 18's store
+      computes `deposit_hash`; Task 19 consumes Task 7b's commit before its verify step; and the
+      counts move to 46 tasks and 145 mutants.)*
       - **The owner's order** is the identity layer, then IDs and requests (the plan calls that
         build R), then finding people by their URnetwork name (OWN:485, quoted below).
       - **What I1 builds:** a 25-word recovery phrase and the identity key made from it; a key and
@@ -14177,7 +14201,10 @@ repo and therefore the critical path — not this repository:
       - **Its size, as its Counts give it:** 45 tasks, with ids 1 to 45, 6b and 38b, of which 35
         and 37 are retired; 26 commits to `urnetwork/message`, 10 to this repository and 5 to
         `urnetwork/message-windows`; 17 adversary scenarios; and 141 mutants, 116 of the library,
-        10 of the server and 15 of the app.
+        10 of the server and 15 of the app. *(143 since R66, which gives the server MR11 and
+        MR12: 116, 12 and 15. Annotated by the R66 commit.)* *(46 tasks and 145 mutants since
+        R70, whose Task 7b, with MI122 and MI123, gives the library 27 commits and 118 mutants:
+        118, 12 and 15. Annotated by the R73 commit.)*
       - **Five slices:** 0, an optional preview of the screens with made-up data; then 1 to 4, each
         ending in a session with the owner: 1, "Your ID" on one device; 2, a second device by code
         and emoji; 3, remove, lock out and make a phrase device; 4, the phrase change. The plan
@@ -14241,7 +14268,10 @@ repo and therefore the critical path — not this repository:
         it, off by default (Recommended)"**. Both shape R, not I1.
     - **The lead's rulings R48 to R62,** in `docs/plans/identity-phase1/LEAD-RULINGS-I1.md`, filed
       beside the plan. They continue the series whose R33 to R47 items 295 to 297 cite. Each, in a
-      sentence *(the heading read "R48 to R61", and R62's sentence is added by its refiling)*:
+      sentence *(the heading read "R48 to R61", and R62's sentence is added by its refiling)*
+      *(and R63's by the E1 and E4 refile, and R64's by the R64 refile)* *(and R65's by the R65
+      refile)* *(and R66's to R69's by the R66 commit)* *(and R70's to R73's by the R73
+      commit)*:
       - **R48.** The bases: this repository's `main` is `37dd710f`, which carries T1's ledger close;
         the library's is `c7949cfd`; the app's is `badf2e2c` until urnetwork/message-windows#7
         merges, then `main`; and the S3 branch is the lead's dispatch to the app's one writer. The
@@ -14311,7 +14341,112 @@ repo and therefore the critical path — not this repository:
         to match; Task 8 is accepted as reported, with its forward costs written into the plan's
         Tasks 12, 13 and 26; and this repository's writer files the second commit, then pushes
         and reports Task 3 at once, then does Tasks 4 and 5 on a branch cut from this branch's
-        head, their pull request after the plan's.
+        head, their pull request after the plan's. *(R62's addendum, filed by the E1 and E4
+        refile, fixes in the sources the two findings of the second commit's review that were in
+        the lead's text, E1 and E4.)*
+      - **R63.** On Task 3's registry *(added by the E1 and E4 refile)*: MASTER's revision is 10,
+        not an amendment to revision 9, since I1 changes rules a revision-9 member cannot follow,
+        and Tasks 4, 5 and 40 move their specs' parent pins and baseline rows to it; an edit that
+        changes a rule is a new revision, and one that only brings text into line with rules in
+        force is an amendment, which answers item 141's question from here on (item 299); and R's
+        block of content kinds stays at 0x38 to 0x3F, with round 4's 0x2F, 0x30 and 0x33 to 0x36
+        held for the phases that build their features.
+      - **R64.** On Task 4 *(added by the R64 refile)*: Task 4 is accepted; SCOPE E2 is corrected
+        for Task 4's review, its F3, as MASTER §9.8 was in Task 4's commit and as Spec B states it
+        in Task 5; the library's Tasks 12, 13 and 42 transcribe Spec A §6's four seam methods, or
+        amend §6 first with a ledger entry; and the library's tasks read item 300's values from
+        item 300.
+      - **R65.** On the library's Tasks 9 and 10 *(added by the R65 refile)*: both are read as
+        reported; of Task 10's seven choices, a generated NFKD table is accepted in principle,
+        the draw through the crypto provider, the positions as a second result and the census
+        are accepted, the erase of the identity key's seed inside `WithPhraseKeys` is held for
+        the review, the gates' rows go to the review row by row, and from here on no code is
+        spelled around a gate; and Task 11 starts, with items 299 and 300 and Spec A's A-36 as
+        its normative sources for formats and labels.
+      - **R66.** On Task 5 and the server's open items *(added by the R66 commit)*: it reads
+        the six commits of Tasks 3 to 5 and the three refiles, each green with its checkout
+        proven and every review finding taken; the plan's Task 19 gains Property 6, Spec B's
+        test 51, that no rendezvous kind but 4 is served, and no arm while the reject floor is
+        zero (the plan's Property 6 says "no kind-4 arm", from the R66 commit's review, its
+        L2), with MR11 and MR12, so that slice 2 holds 40 mutants and the plan 143; Task 20's
+        deploy note says that the deploy sets `reject_floor_ms`; the gate table puts the
+        phrase-secret census in `messagegroup`; this repository's writer makes one small commit
+        before the specs' pull request, with Spec A's two owed notes, Spec B's line 25
+        neutralized, SCOPE's legend and the refile of the plan and LRI, and leaves the wrong
+        section cite at `config.go:282`, and at :176 and :179, to Task 19, which edits those
+        lines; the library does Task 7 right after its Task 11, and the server's Task 18 may
+        start its storage now, tests first, and commits the pin first, the day Task 7 is
+        pushed; and the specs' pull request opens once message-server#12 merges. Its addendum,
+        on this writer's note, makes the plan's two count lines give the server 12 mutants, and
+        widens MR11 to drop the kind check, so that kind 0, the proto's default, is served as
+        well as kinds 1 to 3.
+      - **R67.** The conversation list's live run, restated *(added by the R66 commit)*: no JWT
+        goes into GitHub, as a secret or otherwise; the app and livepeer both run on the
+        runner by the direct route, with no account, the rig relaying the codes and the
+        invitations between them both ways, and nothing runs or is staged on the alpha's box;
+        the app's pin is T1's tree or a descendant whose protocol packages are unchanged, which
+        the rig checks and prints; the rig's logs print digests, never a code or an invitation
+        whole; and the list still lands with R.
+      - **R68.** On the independent review of the library's Tasks 8 to 10 *(added by the R66
+        commit)*: no BLOCKER, with every known answer recomputed by an implementation
+        independent of the writer's, and four MAJOR findings among the rest; R65's item 4 is
+        answered, since `messagegroup` gains signing methods on `*PhraseKeys`, so that no
+        private half leaves the package, and `WithPhraseKeys` takes a set of key numbers;
+        W-lib's fix round comes before Task 12; the plan's Tasks 10, 12, 14 and 26 and its gate
+        and promise tables are amended; this repository's writer amends Spec A §7.2 and §8 and
+        MASTER §5.1 and §5.2, naming the phrase's fold and stating what an erase of its secrets
+        does not reach; and the stale A-1 comments that the R66 commit's review found, its F2,
+        are corrected in that commit, in both specs, with `ErrEpochKeysDigestPresence` off both
+        blocks, and `api/epochkeys.go`'s comment carried to Task 19.
+      - **R69.** The server pins the library's fork through `scripts/siblings.sh`'s own
+        exception *(added by the R66 commit)*: Task 7's commit exists only on the fork
+        `Ryanmello07/urmessage`, so Task 18's pin commit lists that exact URL as a review
+        source, moves the self-test's case for it from refused to listed, and pins `message`
+        there at `e8eaad66`; the server's pull request may open while the pin is a fork,
+        saying in its first line that it merges only after I1's library pull request has;
+        before it is ready, a commit moves the line back to `urnetwork` at the merged commit
+        and deletes the review source; and no other source is added this way without a ruling.
+      - **R70.** The rendezvous verifiers, a gap no task filled *(added by the R73 commit)*: the A-1
+        rendezvous surface Spec A §12.1 and Spec B §12.1 name existed nowhere in `message`, so a new
+        Task 7b gives the library's writer its preimages and five verifiers in kind 4's form, with
+        MI122 and MI123, after R68's fix round and before Task 12, and the plan moves to 46 tasks
+        and 145 mutants; this repository's writer builds all of Tasks 19 and 20 that verifies
+        nothing, every arm answered as unserved and the readiness naming why until the verifiers are
+        pinned, and lands the verify step in a commit of its own, with MR6; the store computes
+        `deposit_hash`; the pin moves to Task 7b by R69's procedure; and its addendum takes the
+        writer's shape for an unserved box: the arms routed only with a link box store, the
+        verifiers and a floor above zero, and otherwise answered REASON_INTERNAL with no store call,
+        kind 4 left out of Capabilities and NotBuilt naming what is missing.
+      - **R71.** The conversation list's live run, and the app's next work *(added by the R73
+        commit)*: the R67 run passed twice, both parties on one runner by the direct route with no
+        account; a receive report drawn in a conversation names the store's root as the app's data
+        folder, never an absolute path; several livepeers may run at once, since no account is in
+        the run, each with its own state folder; the owner's refused leave is the library's rule,
+        and its road waits for R's transfer; and while message-windows#8 and #9 wait, the app's
+        writer ports the icon font's fallback to Segoe MDL2 Assets in a small pull request of its
+        own.
+      - **R72.** On the library's Tasks 11, 7 and 7b and R68's fix round *(added by the R73
+        commit)*: every commit is green with its checkout proven and every planned mutant killed;
+        R65's item 4 is closed, since `messagegroup` signs and no private half leaves it; four of
+        Task 7b's five decisions are confirmed, so only kind 4's form is built,
+        `RendezvousDepositBytes` is left out, the sizes, the `alg_id` and `card_xwing_pub` are the
+        server's checks, and an `alg_id` above 0xFFFF is refused and never truncated; the fifth is
+        ruled the other way, so the five verifiers refuse a key of small order, in a small commit
+        the server pins instead of `9cac060b`, with Spec A §5.14 gaining the sentence; a test holds
+        every go.mod in the library to a row of its vulnerability check; the plan's Tasks 31 and 33
+        are to carry, at its next refile, the stored-seed signer that a phrase device without its
+        words needs; R68's commits are reviewed with slice 1's library review; and the library's
+        mutants run two at a time while memory is short.
+      - **R73.** On Tasks 19 and 20 without the verify step *(added by the R73 commit)*: both are
+        accepted, since their mutant kills show the tests bite, though tests first was skipped, and
+        the plan's order stands from the verify step on; Register's check 3 refuses a collect key or
+        a deposit key of small order through the library's predicate, with a mutant that drops the
+        call; the sweep's three departures from Spec B §7.4, the two-key lock scoped to the schema,
+        `now` from the caller, and a recount and a Collect of which PostgreSQL may abort one, are
+        accepted, and §7.4 states them; §7.4's gauges and counter, and `messagectl sweep-now`, are a
+        residual for the server's later phases, not I1's; the deploy note is received and nothing is
+        deployed, the lead telling the owner first; and the writers run one package at a time while
+        memory is short.
     - **The rows X1 to X14,** SCOPE's departures from M5's identity step, the owner's decisions
       and the first design, as ruled:
       - **X1,** taken: no security delay in I1, so a removal acts at once, with the delay to come
@@ -14413,13 +14548,15 @@ repo and therefore the critical path — not this repository:
       - *(R62's refiling takes off this list the four findings it named for the lead in the plan's
         and the rulings' own text, D1, D2, D15 and D16. R62 fixed each in the sources, D15 at
         LRI's head and at REDTEAM-TASK2's §4, and the second commit refiles them; §7's second
-        entry gives each.)*
+        entry gives each.)* *(D15 is done: R62's addendum gives REDTEAM-TASK2's Subject line the
+        same lead's note, E1, and the E1 and E4 refile files it. That refile's entry gives it.)*
       - **Two findings of the second commit's review in the lead's text, for the lead** (§7's
         second entry, its E1 and E4). REDTEAM-TASK2's Subject line still gives LR as R33 to R47,
         with no lead's note, since R62's note landed on its §4 line only. And the plan's T2-H2 row
         quotes the owner's copy as "your devices refuse the old paper", where FOR-OWNER says "your
         computers". This filing changes no word of either. *(This bullet is added by R62's
-        refiling.)*
+        refiling.)* *(Neither is open now: the lead fixed both in the sources, in R62's addendum,
+        and the E1 and E4 refile files them; its entry gives each.)*
       - **The pull request:** the lead opens it.
       - **Next:** Tasks 3, 4 and 5, MASTER, Spec A and Spec B for I1, one commit each, each after
         its own diff review, on a branch of their own cut from this branch's head after R62's
@@ -14428,6 +14565,337 @@ repo and therefore the critical path — not this repository:
         before the library writes their known answers (P8), and the store kinds as R62 has them.
         *(It read "Next on this branch", before R62.)*
       - **The program plan's status table** has no row for this track, so nothing in it moves.
+
+299. **MASTER GAINS REVISION 10, THE IDENTITY LAYER'S FIRST PHASE: A 25-WORD PHRASE, ONE ACCOUNT
+    ID AND AN ID FOR EACH DEVICE, A DEVICE LIST IN EVERY LEAF, A DEVICE ADDED BY A CODE AND SEVEN
+    EMOJI, THE LOCK-OUT AND THE PHRASE CHANGE. THIS ITEM CARRIES ITS REGISTRY, FROZEN BEFORE THE
+    LIBRARY WRITES ANY KNOWN ANSWER.** It is the plan's Task 3 (item 298), of 2026-10-16.
+    - **What MASTER says now,** section by section, all under its new Revision 10, which its header
+      names and its §0 records:
+      - **§3:** invariant **I2** keeps its text, with a note of the owner's ruling for alpha builds:
+        keys under file permissions only, until the second phase.
+      - **§5.1:** the recovery phrase, 25 words of the BIP-39 English list holding 267 random bits
+        and an 8-bit checksum; typed back in full, never stored, never repaired: a wrong word is
+        named and nothing is corrected. It replaces the 24-word mnemonic. *(The amendment to
+        revision 10, in the R66 commit, names the input's fold: NFKD at Unicode 17.0.0, held to
+        the toolchain's `unicode` package, with white space as Unicode's White_Space property
+        gives it (R68).)*
+      - **§5.2:** one Argon2id stretch, then `master_key`, the identity key IRK, `isk_root` and the
+        phrase's key ISK_g for each key number g; only `isk_seed[g]` is kept, on phrase devices
+        only; the account ID and the device ID, over the root; neither the recovery keys nor
+        `card_root` derived in I1; and the tree as it read before, kept whole beneath the new one,
+        so that every sentence citing `rk_xwing`, the KT log or the seed keeps its referent.
+        *(The same amendment qualifies the erase of the words, `S`, `master_key`, `isk_root`
+        and IRK's private half as the best the language allows, and points to Spec A §8.4a,
+        which states what it does not reach, measured (R68).)*
+      - **§5.3:** `urmessage_identity` (0xF005) on every leaf but a link group's profile-1 leaf,
+        carrying the certificate, the device list and the chain; `urmessage_group_purpose` (0xF006)
+        in a system group's context, naming the root in a self group and the current key in a link
+        group; the device key's two signature domains, which never meet; and no `RECOVERY_PUB` in
+        I1.
+      - **§5.4:** a device added by a code the server carries and seven emoji. The card holds a
+        fresh X-Wing key, to which the invitation is sealed again; the new device reveals its nonce
+        only after it has read the other's, and the existing device checks it against the
+        commitment; the grant comes only after the self group's commit. No history and no seed-only
+        restore in I1. The QR handshake's four steps are kept beneath, quoted as they read.
+      - **§5.5:** Start over, the lock-out by a new key number, the phrase change made with the old
+        phrase, their races, the rank rule, and the words check; the operator reset is kept as
+        designed, and the v1 sentence on self-signed rotations is amended where it stands.
+      - **§6:** the credential is the current identity key; 0xF005 and 0xF006; one mode.
+      - **§11:** the binding rules R6s (in place), R6e, R6c-sig, R8-EQ, R8-CUR, R8-SIB and R9, the
+        rank rule and one successor per key, on the sending side as on the receiving side; and the
+        devices' own fan-out.
+      - **§9.8:** the link box, a fourth kind of rendezvous, and what it does not stop. *(Its
+        sentence on a server that finds a code is corrected by item 300, after Task 4's review.)*
+      - **§13:** "On the identity layer", with SCOPE's risks R1 to R17: the four that no phase ends
+        (R8, R10, R11 and R12) and the thirteen that hold in I1; and notes on three sentences I1
+        overtakes: "Better than Signal"'s history, the master-key sentence, and "On verification"'s
+        warnings.
+      - **§15:** item 11, what I1 leaves to IDs and requests, to the second phase, to the server
+        part and to the change without the old phrase.
+    - **The registry.** Each value is frozen from this commit: changing one is a spec change with
+      its own ledger entry, and the library's constants must match it before its commit lands
+      (R62).
+
+      | What | Frozen value | From |
+      |---|---|---|
+      | Leaf extension `urmessage_identity` | 0xF005, version 1 | F1's code points; SCOPE C4 |
+      | Group-context extension `urmessage_group_purpose` | 0xF006, version 1: `{version, purpose, identity_root}`; purpose 1 a self group, 2 a link group | F1; SCOPE D1 |
+      | Required capabilities | every group 0xF004 and 0xF005; a system group 0xF006 as well | plan Task 12 |
+      | Store kind 11 | the identity record: the root, the chain, the current key and the salt, and its ended mark | R62; plan Tasks 12 and 30 |
+      | Store kind 12 | the heads, one record in each device's store: for every root seen, the newest list; this device's own-signature log; and the remembered marks | R62; SCOPE C7; plan Tasks 31 and 34 |
+      | Store kind 13 | the phrase key record, naming its identity key and its key number | R62; P3 |
+      | The account ID | D2's ID1, verbatim: the block below | P8 |
+      | The device ID | D2's DID1, verbatim: the line below | P8 |
+      | The step | form 1 only: `Ed25519(old key, LP("URmessage/v1/identity-succession") ‖ LP(next key))` | V4 F.0 |
+      | The chain's bound | at most 4 steps | X12 |
+      | The leaf's bound | 0xF005 at most 6,144 octets | M5 TR12 |
+      | The list's bounds | 1 to 10 devices; at most 16 amendments on one base | X5; M5 TR12 |
+      | The list's signature labels | `URmessage/v1/isk-cert` (IRK), `URmessage/v1/device-list` (ISK_g), `URmessage/v1/device-list-author` (the device key) | V4 F.0 |
+      | The phrase | 267 bits; `P34`, the bits as 34 octets with the five high bits zero; the checksum, the top 8 bits of `SHA-256("URmessage/v1/phrase-checksum" ‖ P34)`; 25 words of the BIP-39 English list | MASTER §5.1 |
+      | The stretch | Argon2id, salt `URmessage/v1/phrase-stretch`, 32 octets; `master_key = HKDF-Extract("URmessage/v1", S)`; `identity/v1`, `isk/v1` and `iskgen/v1 ‖ u32(g)` | MASTER §5.2; F1; F3 |
+      | The link box | rendezvous kind 4 | REDTEAM M10 |
+      | The link deposit | exactly 17,526 octets | P4 |
+      | Content kinds, self group | 0x20 a key-package offer; 0x21 a key-package claim; 0x22 a sibling's invite, in parts of at most 60 KB; 0x24 device names; 0x26 a notice | this item; plan Task 24 |
+      | Content kinds, link group | 0x28 E's reveal; 0x29 N's reveal; 0x2C the grant; 0x2D N's bound key package; 0x2E the self group's invite | this item; plan Tasks 22 and 23 |
+      | Content kinds left unassigned | 0x23, 0x25, 0x2A and 0x2B, F1's IDENTITY_REVOKE, IDENTITY_LEAVE, LINK_HEAD and LINK_PROPOSE; and 0x2F, 0x30 and 0x33 to 0x36, round 4's IDENTITY_DELAY, LINK_QR_ACK and HISTORY_TRANSFER_KEY, _HDR, _CHUNK and _ACK, which a later phase may take with those meanings. I1 uses none of them, so that no number takes another meaning. 0x27, 0x31, 0x32 and 0x37, which round 4 freed, are free | this item; F1; V4:1087 |
+      | Content kinds kept for R | 0x38 to 0x3F, which no design has assigned, for the self-group records of IDs and requests | this item; SCOPE D3 |
+      | Task 7's proto fields | `RendezvousRegisterRequest`: `kind = 6`, `public_ct = 7`; `RendezvousOpenResponse`: `public_ct = 4`, `deposit_sizes = 5`; `RendezvousDepositResponse`: `deposit_hash = 2`; `Capabilities`: `rendezvous_deposit_sizes = 26`, `rendezvous_kinds = 29` | plan Task 7 |
+      | Two adversary entries that now name R | `S3-mg1-join-code-substitution` and `S7g-removed-group-second-founder`, each `closed_by: "R"` in `sdk/cp3b/testdata/advsim/known-gaps.json`, at the library writer's Task 8 commit `aacda6ea` on the owner's fork, since T2's work moves to R (X4) | plan Task 8 Step 3 |
+
+      The account ID, D2's ID1, verbatim:
+
+      ```
+      LP(x)    = u32be(len(x)) ‖ x                                                  (T1's LP)
+      id_hash  = SHA-256("URmessage/v1/id" ‖ u16(id_version = 1) ‖ LP(root_pub) ‖ LP(salt))     // root_pub: IL1
+      id       = id_hash[0..16) with octet 6 = (id_hash[6] & 0x0F) | 0x80 and octet 8 = (id_hash[8] & 0x3F) | 0x80
+                 // UUID version 8, RFC 9562 §5.8 (https://www.rfc-editor.org/rfc/rfc9562.html#section-5.8): 122 hash bits
+      text     = 8-4-4-4-12 lowercase hex, 36 characters;   salt = 16 random octets, made with the ID
+      ```
+
+      The device ID, D2's DID1, verbatim:
+
+      ```
+      `device_id = SHA-256("URmessage/v1/device-id" ‖ LP(root_pub) ‖ LP(device_pub))[0..8)`, shown as four groups of four lowercase hex characters (19 in all), so that nobody takes it for an account ID [c].
+      ```
+    - **What this revision fixes that the plan assumed** [a]: the phrase's 34-octet encoding, with
+      its five high bits zero, under both the checksum and the stretch; the checksum's label; the
+      stretch's salt, F3's; and `master_key` as the stretch's HKDF-Extract under `"URmessage/v1"`,
+      the step MASTER already had, with F1's labels below it. **Not frozen:** the stretch's
+      parameters, t = 3, m = 262,144 KiB and p = 4 (M5 H.3), until they are measured on the owner's
+      computers (SCOPE §10). The known answers are Spec A's, written by the plan's Task 40 from the
+      library's.
+    - **Why a revision, and the lines it moves.** The 2026-08-25 entries kept MASTER's changes as
+      amendments to revision 9 because no rule changed, and item 141 filed for the owner whether a
+      change that does change rules warrants revision 10, since a revision moves each child spec's
+      parent pin and baseline row. This one changes the format of every leaf and what the server
+      stores and checks, as revision 9's rendezvous did, so it is Revision 10, as the lead's ruling
+      R63 confirms *(it read "Revision 10 (Open)" until the E1 and E4 refile)*. R63's rule
+      answers item 141's question from here on, and item 141 carries a note of it *("by the
+      ledger's own rules" stood after "from here on" until Task 4's review, its E2, since R63 does
+      not say it)*: an edit that changes a rule, whether a wire format, what a member or the server
+      checks, or a guarantee that a user reads, is a new revision, and one that only brings text
+      into line with rules already in force is an amendment; the amendments already made stand
+      as written. These lines name MASTER's revision 9, and each says truly which revision its
+      document follows until it moves:
+      - Spec A's normative parent, its :8, and its baseline row, :25, which Task 4's commit moves;
+      - Spec B's normative parent, its :4, and its baseline row, :18, which Task 5's commit moves;
+      - Spec C's parent, its :7, and its baseline row, :17, which Task 40 moves when it writes Spec
+        C from the app as shipped;
+      - this ledger's §1 state paragraph and MASTER row, and the locked decision I1's "BIP39
+        seedphrase" in §3, each annotated in this commit, with its old text kept.
+    - **What it does not do.** No code, and no other spec: Spec A and Spec B for I1 are the plan's
+      Tasks 4 and 5, each its own commit after this one. It does not rewrite MASTER's contact card,
+      its recovery wraps or its operator reset: each stays as designed, over the tree as it read
+      before Revision 10, which §5.2 keeps whole, and a note says that I1 builds none of them. This
+      ledger's §4 table of revisions, which stops at revision 5, is not extended.
+    - **Open.**
+      - **The library waits on this registry** (R62; P8): its Task 9 commits only once this is
+        pushed and its constants match the table above, and its Task 10 starts then.
+      - *(Two questions for the lead stood here, and the lead's ruling R63 answers both, so the E1
+        and E4 refile takes them off this list. **Revision 10, or an amendment to revision 9**
+        (item 141; Task 3's review, F17): Revision 10 stands, by R63's rule, which the bullet on
+        why it is a revision now states. **R's block of content kinds** (Task 3's review, F15): it
+        stays at the eight kinds 0x38 to 0x3F; round 4's 0x2F, 0x30 and 0x33 to 0x36 stay
+        unassigned, held for the phases that build the server's delay, QR linking and history
+        transfer, each of which assigns or releases them in a registry edit of its own; and if
+        R's plan needs more than eight kinds, it asks the lead, with D2 v2.1's count, before the
+        library's Task 24.)*
+      - **The pull request** opens once the owner has merged the plan's (R62).
+
+300. **SPEC A GAINS THE IDENTITY LAYER'S FIRST PHASE, AS REVISION A-36: THE TWO EXTENSIONS AND THE
+    BINDING CHECK, THE LINK BOX, THE SEAM'S FOUR NEW METHODS, THE IDENTITY, DEVICE AND PHRASE-CHANGE
+    CALLS AS THEY SHIP, THE ERASE AUTHORITIES, STORE KINDS 11 TO 13 AND THE EXPORTS. ITS PARENT PIN
+    MOVES TO MASTER'S REVISION 10.** It is the plan's Task 4 (item 298), of 2026-10-16, after
+    MASTER's Revision 10 (item 299), and by the lead's ruling R63 it moves Spec A's parent pin and
+    baseline row to revision 10.
+    - **What Spec A says now,** section by section, each under A-36, which its §0.6 log records:
+      - **The header and §0.1:** the normative parent is MASTER's revision 10, and its baseline row
+        says so, each keeping what it read.
+      - **§3.1:** the rows of `urmessage_identity` (0xF005), a leaf extension refused in a group
+        context, and `urmessage_group_purpose` (0xF006), a group-context extension refused in a
+        leaf.
+      - **§3.4:** the required capabilities, 0xF001, 0xF002, 0xF004 and 0xF005 for a conversation
+        and 0xF006 as well for a system group, where it read 0xF001 and 0xF002 only; and the
+        identity extensions: what each holds, their field sets, the four list labels and the step,
+        the binding check's seven steps in order, the chain's check, the list's version and its
+        order, and the refusals the move in place, a second successor and R8-SIB answer.
+      - **§5.14:** the link box, kind 4: the code and its derivations, the sealed card, the
+        deposit, the registration's preimage with `kind` and the card appended, the sessions, and
+        what a server that finds the code can do.
+      - **§6:** four methods, designed ahead of the code: `NewBoundKeyPackage` and
+        `CreateBoundGroup` on the engine, and `CommitOwnLeaf`, which carries the context extensions
+        a move needs, and `LeafAt` on the handle; `OwnLeafPatch` and `LeafView`; and
+        `ProcessedMember`'s two new fields. The interface is then 8 engine and 37 handle methods,
+        which the block takes when the code lands.
+      - **§7.2 and §7.5:** the identity calls, the phrase change's and the device calls as
+        `sdk/urmessage` ships them, and the designed calls they overtake, each kept; and notes on
+        four overtaken sentences elsewhere, in §7.2's reasons, §7.2.1, §8.6 and §12.2's C11.
+      - **§7.3:** the erase authorities: (a) to (e), as the library's erase gate names them; I1's
+        callers of (a), (a)L and (a)E; its three authorities, (f), (g) and (i); and (f)'s second
+        premise, (f)P.
+      - **§8.1:** store kinds 11 to 13 and their names in the store's data directory; the first
+        three rows, the entropy, the `master_key` children and `phrase_confirmed_at`, overtaken and
+        kept.
+      - **§9.3a, new:** the 21 exports that ship for I1, and the JSON's new fields.
+      - **§12.1:** the link box's two sizes, and the registration's `Kind` and `PublicCt`.
+    - **What this item freezes beyond item 299's registry.** Each is frozen from this commit, as
+      item 299's are, and changing one is a spec change with its own entry. Where the From column
+      says "this item", the choice is this item's, made within the bound its source sets.
+
+      | What | Frozen value | From |
+      |---|---|---|
+      | The list's fourth signature label | `URmessage/v1/device-amendment`, by an amendment's author. Item 299's row named the other three, and an amendment is signed too | F1 of round 4, its line 617; V4 F.0's Amendment |
+      | A device entry | the device key and two flags, *phrase device* and *being removed*; no `device_id`, which its derivation replaces | SCOPE C1, X6 |
+      | The first base under a key number | base 1, and each later base the one before plus one | this item, within open item MG-16, which accepts a first number that is not random |
+      | The link code | 60 bits from crypto/rand, written as 12 characters of Crockford's base32 | this item, within MASTER §9.8's "about 60 bits" and the plan's Task 21's "about 12 characters" [a] |
+      | The link box's derivations | `ikm_l = HKDF-Extract("URmessage/v1/link", code_octets)`; `rendezvous_id = H("URmessage/v1/link" ‖ code_octets)`; `depsig/v1` and `cardkey/v1` under `ikm_l` | this item, after the box of the design for IDs and requests; the plan's Task 21 |
+      | The card | 4,124 octets: a 12-octet nonce, then 4,096 octets of plaintext and a 16-octet tag, under `card_key` with the aad label `URmessage/v1/aad/linkcard` | this item; the plan's Task 21 |
+      | The deposit | 17,526 octets, the bucket-M form, under `URmessage/v1/linkdeposit` and the aad label `URmessage/v1/aad/linkdeposit` | P4; the design for IDs and requests, its §2.5; this item for the labels |
+      | The registration | `register_auth` appends `u32(kind) ‖ LP(public_ct)`; kind 4's `card_xwing_pub` is empty; every `alg_id` of the link box is 0x0014; a kind of 0 is the card's form, served by no build of I1 | this item |
+      | The link's commitment and emoji | `commit_n` as F1 §2.2 has it; the exporter label `URmessage/v1/link-sas-emoji` over F1 §2.2's SAS input; seven of the `m.sas.v1` list's 64 emoji from the first 42 bits, most significant first | F1 §2.2; F1 of round 4, its emoji derivation; SCOPE E4 |
+      | The seam | the four methods and two types of §6, with `CommitOwnLeaf`'s context extensions; 8 engine and 37 handle methods | this item |
+      | The store's names | `state/identity` (kind 11), `state/identity-heads` (kind 12), `state/phrase-key` (kind 13) | this item; the plan's Task 12 asks for names and gives none |
+      | The exports | the 21 `urnet_message_*` names of §9.3a | the plan's Tasks 14, 27, 36 and 44 |
+
+    - **Choices the plan left open, made here.**
+      - **The entry carries no `device_id`.** The plan's Task 11 consumes "H.2's 50-octet entry",
+        which counts M5's 16-octet `device_id`; SCOPE's X6, which the lead took (P8), replaces the
+        field with its derivation. The entry is therefore the device key and its flags, and no
+        16-octet device id stands in an amendment either.
+      - **The exports' names.** The plan writes `_create_identity`, `_confirm_words` and
+        `_check_word` beside `urnet_message_device_identity`; they are named as the device's,
+        `urnet_message_device_create_identity` and so on, as the library's exports over `Device`
+        are. The six link exports keep the plan's `link_` names, since four of them act on a link
+        session and the two that start one belong with them.
+      - **The seam's shape.** The plan says "the seam's new methods, by count" and names none. The
+        four are the fewest that carry what the library's Tasks 9, 13 and 42 need across it: leaf
+        extensions on key packages and foundings; an own-leaf patch, with the removals and the
+        context extensions a list change or a move commits beside it; and a leaf's signature key
+        and extensions.
+      - **And the values the table marks as this item's:** the first base's number, the code's
+        alphabet, the link box's labels, the card's layout, the kind-0 refusal and the store's
+        names. Each sits inside the bound its source sets.
+    - **What Task 4's review changed outside Spec A,** in the same commit. MASTER §9.8 said that a
+      server that finds a code reads the card "though never the deposit". It can answer Open with a
+      card of its own, and so be deposited to, join the link group, and read the existing device's
+      leaf before the emoji differ. The sentence is corrected where it stands, with a note of what
+      it read, since Revision 10 has not landed. Item 299 is amended where it stands, and item 141
+      annotated, each at the place the review found (its E1 and E2).
+    - **What it does not do.** No code. It does not fix the octets of 0xF005 and 0xF006, which the
+      library's Task 11 fixes with known answers and Task 40 brings to Spec A, in §5.14 and §8.
+      It does not touch Spec B, which is the plan's Task 5: that commit restates §12.1's change, as
+      A-1 requires, and states kind 4's server checks, among them the refusal of a kind-0
+      registration and what a server that finds a code can do. Nor Spec C, whose parent pin moves
+      with Task 40. Spec A's header, which has named revision A-6 since A-6, and its §0.1 row for
+      this spec, which names A-27, are left as they stand.
+    - **Open.**
+      - **The seam's four methods** are designed ahead of the code. The library's Tasks 12, 13 and
+        42 transcribe them, or amend §6 first, with its own log row.
+      - *(For the lead until R64: SCOPE E2's "The server never reads the deposit" was false of a
+        server that finds the code, as MASTER §9.8's sentence was (Task 4's review, its F3). The
+        lead corrected it in the source, by R64, and the R64 refile, the next commit, files it.)*
+      - **The pull request** opens once the owner has merged the plan's (R62).
+      - **Next:** Task 5, Spec B for I1, which consumes this §5.14.
+
+301. **SPEC B GAINS THE IDENTITY LAYER'S FIRST PHASE, AS ITS REVISION 25: THE LINK BOX, KIND 4,
+    SERVED ON THE FIVE RENDEZVOUS ARMS, AND ITS TWO TABLES AS APPENDED MIGRATIONS. ITS PARENT PIN
+    MOVES TO MASTER'S REVISION 10.** It is the plan's Task 5 (item 298), of 2026-10-16, after Spec
+    A's A-36 (item 300), whose §5.14 it consumes, and by the lead's ruling R63 it moves Spec B's
+    parent pin and baseline row to revision 10.
+    - **What Spec B says now,** section by section, each under its revision 25, which its edit log
+      records:
+      - **The header and the state table:** the normative parent is MASTER's revision 10, and its
+        baseline row says so, each keeping what it read.
+      - **§3.2 and §3.3:** the designed migration 011, which never landed, kept as the design with
+        a note; the two tables as they land, the appended migrations 013 and 014, with `kind` and
+        `public_ct`, named checks for kind 4, and a partial index over the live boxes; Q17 reading
+        the new columns, a note on Q18, and Q20, the count of live boxes.
+      - **§4.3.1:** Capabilities 26, `rendezvous_deposit_sizes`, and 29, `rendezvous_kinds`, with
+        27 and 28 kept for R's; and the four card values, which no build of I1 serves.
+      - **§4.3.11:** the identity plan's Task 7 fields in the proto, with notes where kind 4 changes
+        a comment; and kind 4: Register's one rule, Open, Deposit, Collect and Retire as kind 4 has
+        them, one answer on the four arms after Register for every box the caller may not use, and
+        what kind 4 does not stop, in MASTER §9.8's and SCOPE E2's terms.
+      - **§4.5, §4.7, §5.1.2 and §7.4:** notes on the two codes kind 4 widens; the rendezvous limits
+        bind kind 4 where §5.1's check 4 is built, and the cap alone binds at the server's own
+        endpoint; the shape check takes kind 4's sizes; and the sweep reclaims kind 4's rows, which
+        every arm already answers as unknown ones.
+      - **§10.2:** the link box's two keys, and `reject_floor_ms`.
+      - **§11.1, §11.2 and decision B11:** `deposit_hash`, a link box's card and its two pinned
+        keys, never logged, and unprintable types for them.
+      - **§12.1:** a note on row A-18, and the A-1 surface restating Spec A's A-36 lines.
+      - **§13:** tests 42 to 51, the acceptance tests of the plan's Tasks 18 to 20; and a note on
+        open item 10's sizing.
+    - **What this item freezes beyond items 299 and 300.** Each is frozen from this commit, and
+      changing one is a spec change with its own entry. Where the From column says "this item",
+      the choice is this item's, made within the bound its source sets.
+
+      | What | Frozen value | From |
+      |---|---|---|
+      | The migrations | 013 `message_rendezvous` and 014 `message_rendezvous_deposit`, appended after 012, with `kind` and `public_ct`; the designed 011 never lands | the plan's Tasks 5 and 18; `store/migrations.go` |
+      | Kind 4's named checks | `message_rendezvous_kind` (kind 4); `message_rendezvous_link_box` (no `card_xwing_pub`, a card present and of 4,124 octets, `alg_id` 0x0014); `message_rendezvous_link_box_deposits` (at most two over a box's life); `message_rendezvous_deposit_size` (17,526 octets); `message_rendezvous_deposit_id` (deposit ids at most 2) | this item, so that R widens each by a migration of its own |
+      | Capabilities 26 and 29 | `rendezvous_deposit_sizes`, in I1 `[17526]`; `rendezvous_kinds`, a bit per kind, in I1 16, the link box alone; both leave kind 4 out while it is not served; 27 and 28 kept for R's | the plan's Task 7; the design for IDs and requests numbers them |
+      | The link box's limits | a TTL of 600 seconds, never refreshed; at most 2 deposits over its life, a number 013 holds; a cap on live boxes, 10,000 [a], that fails closed, counted by Q20, which registrations in flight together may pass | the plan's Task 5 [a]; SCOPE S1's depth of 2, taken over a box's life; this item for the cap's number |
+      | Its answers | Register: the same key and card, `REASON_OK`, changing nothing; any other row at the id, `REASON_REJECTED`; no row and the cap full or its count unreadable, `REASON_CARD_RATE_LIMITED`; any kind but 4, `REASON_REJECTED`. Open, Deposit, Collect and Retire: an unknown, retired, expired or unauthorized box, `REASON_CARD_RETIRED`, one size, padded to the floor; a third deposit, `REASON_CARD_RATE_LIMITED` | the plan's Tasks 5 and 19; this item for the codes |
+      | The configuration | `link_box_ttl_seconds` and `link_box_live_cap`; `reject_floor_ms`, 0 by default, which serves no kind-4 arm, and where kind 4 is served at least its slowest refusal path as measured, 25 ms [a] as the api tests use | this item, within the plan's "behind a non-zero reject floor" |
+      | The acceptance tests | §13's 42 to 51 | the plan's Tasks 18 to 20; this item for test 51 |
+
+    - **Choices the plan left open, made here.**
+      - **A link box is not kept alive.** The card's registration refreshes on a repeat and on
+        every collect; a link box's TTL is fixed at registration, so that a box lives 10 minutes,
+        as the plan has it, and no client can hold one open.
+      - **Register has one rule of its own,** checked before the cap, and it answers a holder of the
+        id whether a box stands there. Only a holder of the code has the id, and Open already
+        answers that holder, so §4.3.11 states it among what kind 4 does not stop.
+      - **An unauthorized request answers as an unknown box does,** on the four arms after Register.
+        The card's design answered a failed signature with §4.5's merged `REASON_REJECTED` and an
+        unknown id with `REASON_CARD_RETIRED`, which would tell a prober that an id exists, and the
+        design for IDs and requests keeps that for its kinds. Kind 4 answers all four alike, as the
+        plan's Task 19 Property 2 states; R, which extends these handlers, keeps this for kind 4 or
+        changes it with an entry of its own.
+      - **Two deposits over a box's life, not two waiting.** SCOPE S1 says a depth of 2, and the
+        plan's Task 19 counts against the box's depth. A box serves one addition, so two deposits
+        leave one retry, and nothing needs a third. The count is a number 013 holds, not a key.
+      - **The tombstone lasts until the box's expiry,** not the card's tombstone time: every offer
+        makes a new code, so no device asks for a link box's id again.
+      - **The floor's key and its rule.** The server has `api.Config.RejectFloor` and no key that
+        sets it, so it pads nothing today. `reject_floor_ms` is that key. It defaults to 0, which
+        serves no kind-4 arm, and where kind 4 is served it must cover the slowest of the refusals
+        it pads; test 51 holds the first half.
+      - **The checks are named,** and the live boxes have a partial index, so that R widens the
+        checks and counts the boxes without editing 013.
+    - **What it does not do.** No code: the plan's Tasks 18 to 20 build it, on this writer's branch
+      of the server, after the library's Task 7 lands the proto. Spec A and Spec C are untouched
+      here. No build of I1 serves the contact card, kind 0, or R's kinds 1 to 3. Spec B's header,
+      which names its revision 6, and its state row for this spec, which names revision 6 too, are
+      left as they stand, as every revision since 6 has left them.
+    - **Open.**
+      - **The library's Task 7** starts the day Tasks 4 and 5 have landed, and the server's Task 18
+        consumes its commit (the plan). *(R66 orders it: right after the library's Task 11 and
+        before its Task 12. Annotated by the R66 commit, as are the five notes below.)*
+      - **The deploy sets `reject_floor_ms`,** at least the slowest refusal path it measures, and
+        Task 20's deploy note says so; until it does, no kind-4 arm is served. *(R66 writes it
+        into Task 20's Step 4.)*
+      - **Test 51 is this item's, not the plan's.** The plan's Task 19 gains its property and two
+        mutants: a kind-0 registration accepted, and kind 4 served at a zero floor. *(R66 and its
+        addendum give it to Task 19 as Property 6, with MR11, the kind check dropped, so that
+        kind 0 or kinds 1 to 3 are served as kind 4 is, and MR12, the arms served at a zero
+        floor, both killed by `TestOnlyKindFourIsServedAndNothingWithAZeroFloor`.)*
+      - **Owed to Spec A, by a later edit of its own:** its out-table row A-18 says nothing of kind
+        4, which Spec B's A-18 now notes; and its A-1 block lacks ruling 27's seven names, which
+        Spec B's block has, against A-1's "restated character-for-character" (Task 5's review, its
+        F9 and F10). Neither is this commit's, which changes Spec B alone. *(Both are paid by
+        Spec A's A-37, in the R66 commit: row A-18 gains the link box's note, and the A-1 block
+        takes ruling 27's names, so that it differs from Spec B's copy only where each cites a
+        section. Two of ruling 27's comments, stale since 2026-09-23, are corrected in both
+        copies there, and `ErrEpochKeysDigestPresence` leaves both, by the lead's ruling on that
+        commit's review, its F2 (R68).)*
+      - **The filed SCOPE's legend** still says that R61 and R62 came after the rulings its Inputs
+        name, while its E2 now cites R64. The next refile of SCOPE corrects the legend (Task 5's
+        review, its E2). *(Corrected by the R66 commit, which names R64 there.)*
+      - **The pull request** opens once the owner has merged the plan's (R62). *(That is
+        message-server#12, R66 says.)*
 
 ## 6. Change process
 
@@ -30552,5 +31020,1022 @@ not at its Subject line. The store kinds agree everywhere. It made 8 findings: n
 
 The two gates this ledger answers to pass on the finished text: TestTheEditLogGate, 6 tests, and
 TestThePlanLinter, 7 tests, and so does the rest of the root package (§5).
+
+It cites no run of itself: the pull request's body cites the runs on its head.
+
+### 2026-10-16 — Item 299: MASTER's Revision 10, the identity layer's first phase, with its registry
+
+**Change:** MASTER, `docs/specs/2026-08-12-urmessage-protocol-design.md`, takes Revision 10 in
+twenty places. This ledger gains item 299 and this entry, and notes at three places that name
+MASTER's revision 9: §1's state paragraph and its MASTER row, and the locked decision I1 in §3. No
+other spec, no plan and no code changes.
+
+#### 1. What it was made on
+
+- **The branch** `specs/identity-phase1`, cut from `plans/identity-phase1`'s head `abb09c62`, the
+  refiling of R62's corrections (the previous entry), as the lead's brief directs. MASTER there is
+  MASTER at this repository's `main` `37dd710f`: neither plan commit touched it.
+- **The siblings,** each at the commit `scripts/siblings.txt` pins, and clean: `message`
+  `0bb2128f`, `connect` `847460bb`, `glog` `80a11b43` and `gvisor` `c0783dba`.
+- **The host:** a Windows machine, with `GOWORK=off`, `GOTOOLCHAIN=go1.27.2` and `GOPROXY=off`, at
+  below-normal priority.
+
+#### 2. The twenty edits to MASTER
+
+Made by a script of this entry's own, each old text asserted to occur exactly once. Nothing else of
+MASTER changes: the script, applied to the branch head's MASTER, gives this commit's file byte for
+byte. MASTER grows from 3,682 lines to 4,021. Each addition says it is Revision 10's. Every other
+sentence it overtakes is kept and annotated where it stands, and the old texts of §5.2's tree and
+§5.4's steps are kept whole beneath the new ones. The header line is replaced, as revision 9's
+commit replaced revision 8's, and §0 records the revision.
+- **The header:** Revision 10's line.
+- **§0:** Revision 10's paragraph, after the last amendment to revision 9, saying why it is a
+  revision and that "I1" in it names the phase, never §3's invariant.
+- **§3:** a note on **I2**: keys under file permissions only, in alpha builds, until the second
+  phase.
+- **§5.1:** the recovery phrase and its format, where the 24-word mnemonic was.
+- **§5.2, two places:** the tree from the stretch, what is kept, the two IDs, and what I1 does not
+  derive, with the old tree kept whole; and a note on the device keys' sealing.
+- **§5.3:** `urmessage_identity` and `urmessage_group_purpose`, and no `RECOVERY_PUB` in I1.
+- **§5.4:** the code, the link box, the seven emoji and the grant, with the QR handshake's four
+  steps quoted whole beneath; no history and no seed-only restore in I1.
+- **§5.5, two places:** I1's three acts, their races, the rank rule and the words check, before the
+  operator reset; and a note on the v1 sentence that a self-signed rotation is never emitted.
+- **§6, two places:** the credential in I1; the two new extensions and the one mode.
+- **§9.8:** the link box.
+- **§11, two places:** the binding rules, with the devices' own fan-out; and a note on
+  self-service device management.
+- **§13, four places:** notes on "Better than Signal", the master-key sentence and "On
+  verification"; and "On the identity layer", with SCOPE's R1 to R17.
+- **§15:** item 11, what I1 leaves to later phases.
+
+#### 3. The registry's sources, checked
+
+- **ID1 and DID1, verbatim.** D2's lines 171 to 175, the ID1 block whose `id_hash` line is its
+  :172, stand as one block in MASTER §5.2 and in item 299; D2's DID1, from its :189, stands in both,
+  the formula in MASTER and the whole sentence in item 299. A script of this entry's own holds it in
+  both, and each of its four controls fails it: ID1 with `id_version = 2`, and DID1 with `[0..9)`,
+  each against MASTER and against item 299.
+- **The content kinds are free.** At the library's `main` `c7949cfd`, `sdk/urmessage/kind.go`
+  assigns 0x01 to 0x09 of the stored range 0x01 to 0x3F, so every kind the registry assigns is
+  free, as the plan's Task 24 states. **No number takes another meaning:** the kinds I1 assigns keep
+  F1's numbers with F1's meanings, or take 0x26, which round 4 freed; every number to which F1 or
+  round 4 gave a meaning that I1 does not use is left unassigned; and R's block, 0x38 to 0x3F, is
+  the one run that no design has assigned.
+- **The two adversary entries** name R as their closer at the library writer's Task 8 commit
+  `aacda6ea` on the owner's fork, as the registry says.
+
+#### 4. The gates
+
+Run on the committed history of this entry, under go1.27.2, beside the four siblings at their pins,
+before the push:
+- `go test ./ -count=1 -run 'TestTheEditLogGate|TestThePlanLinter' -v`: the edit-log gate's six
+  tests and the linter's seven pass, and none fails. No plan changes, so the linter prints the
+  previous entry's counts. No finding of it is against MASTER or this ledger; its fixed check-3a
+  note names this ledger, as it does on every run.
+- `go test ./ -count=1`, the whole root package: `ok`.
+- **What the edit-log gate holds here.** It holds a commit to a §7 entry when it changes a plan or
+  Spec A, B or C; MASTER keeps no log of its own, and its commits are not among the gate's
+  triggers. So this entry is the ledger's own rule, §7's "one entry per commit that changes a spec
+  or plan", and the gate's ledger arm prints 69 of 92 here, as at the previous commit.
+
+#### 5. What this does not do
+
+- It changes no code, and no other spec: Spec A and Spec B for I1 are the plan's Tasks 4 and 5,
+  each its own commit on this branch after this one. Item 299 names the lines in them, and in Spec
+  C, that name MASTER's revision 9, and the task that moves each.
+- It does not rewrite MASTER's contact card, its recovery wraps or its operator reset: each stays
+  as designed, over the tree as it read before Revision 10, and a note says that I1 builds none of
+  them.
+- It does not open the pull request, which the lead opens once the owner has merged the plan's.
+
+**Reviewed by:** an independent subagent's diff review of 2026-10-16 of this commit, made before
+it, as the plan's Task 3 Step 3 directs. It was read-only, by a reviewer that wrote none of these
+files or this entry. It covered MASTER's diff, item 299 and this entry, uncommitted, by their
+sha256 at its start and at its end, which were the same: MASTER `ef91ed00…` and this ledger
+`c9ab6986…`, the state before its findings were taken. It read the whole diff; the plan's Task 3
+and the tasks it cites; SCOPE and LRI whole; REDTEAM's M10; and, at the lines cited, M5, F1, V4,
+F3, D2 and round 3's and round 4's kind rows. It fetched `kind.go` and `message.proto` at the
+library's `c7949cfd`, and `known-gaps.json` at `aacda6ea`, read-only; ran the verbatim script and
+a check of its own; and ran the edit-log gate and the linter.
+
+**Its verdict.** Step 1's seven items were all present, and two incomplete; 22 of the registry's 23
+rows were true; ID1 and DID1 were verbatim. It made 26 findings: no BLOCKER, 4 MAJOR, 13 MINOR and
+9 NIT. **All 26 are taken in this commit, each where it stands:**
+- **MAJOR F1:** §13 said "a change cannot undo a leaked phrase, and only starting over can", which
+  R61 ruled false; it now says what SCOPE R3 and R61 say.
+- **MAJOR F2:** §13 states each of SCOPE's R1 to R17, where five were absent and three partial.
+- **MAJOR F3:** §5.5 gains SCOPE K8, the races.
+- **MAJOR F4:** the old texts of §5.2's tree and §5.4's steps, which the edits had dropped, are kept
+  whole, so `rk_xwing`, the KT log and **I4**'s sentence keep the referents that §5.3, §7, §8.1 and
+  §8.2 cite; the four sentences of item 299 and this entry that said so are now true.
+- **MINOR F5:** §13 splits what holds in every phase from what holds in I1.
+- **MINOR F6:** "no field and no state" is said of the device ID only: the account ID's salt is
+  state.
+- **MINOR F7:** R5's cause is the missing screen-lock prompt, and R4's file permissions are a risk
+  of their own.
+- **MINOR F8:** the header names Revision 10.
+- **MINOR F9:** §0 says that "I1" in this revision names the phase, never the invariant.
+- **MINOR F10:** §5.4 says that E checks `n_N` against `commit_n`.
+- **MINOR F11:** §5.5's phrase change gains K2's resume with no words and K6's two sentences.
+- **MINOR F12:** "Better than Signal" and "On verification" carry notes.
+- **MINOR F13:** **I2** and §5.2's device keys carry the owner's ruling for alpha builds (LRI
+  R56.2).
+- **MINOR F14:** store kinds 11 and 12 hold what the plan's Tasks 12, 30, 31 and 34 and SCOPE C7 put
+  in them.
+- **MINOR F15, which the review gave to the lead:** R's block is 0x38 to 0x3F, and round 4's 0x2F,
+  0x30 and 0x33 to 0x36 are left unassigned. Item 299's Open asks the lead.
+- **MINOR F16:** §4 above says that no finding of the linter is against MASTER or this ledger,
+  and that its fixed note names this ledger on every run.
+- **MINOR F17:** item 299 names the lines that name revision 9 and the task that moves each, and
+  this commit annotates the three in this ledger. Item 299's Open asks the lead whether this is a
+  revision or an amendment, as item 141 left that question.
+- **NIT N1 to N9:** the hunk count gives way to the byte-for-byte check of §2; "Times are UTC",
+  with no time, is gone; the verbatim script controls item 299 as well as MASTER; the stretch's
+  measuring cites SCOPE §10; §5.3 names the link group's profile-1 exception, and what
+  `identity_root` is in each kind of system group; §5.4's card holds the X-Wing key the invitation
+  is sealed to; §0's sentence has the plan building the code; and §15 no longer says that each item
+  is stated where it applies.
+
+The two gates this ledger answers to pass on the finished text: TestTheEditLogGate, 6 tests, and
+TestThePlanLinter, 7 tests, and so does the rest of the root package (§4).
+
+It cites no run of itself: the pull request's body cites the runs on its head.
+
+### 2026-10-16 — Item 298's E1 and E4, fixed by the lead, refiled with R62's addendum and R63
+
+**Change:** three of the six files item 298 filed are refiled from the lead's sources: the plan,
+and `REDTEAM-TASK2.md` and `LEAD-RULINGS-I1.md` in `docs/plans/identity-phase1/`. `SCOPE.md`,
+`FOR-OWNER.md` and `REDTEAM.md` are unchanged, byte for byte. Item 298 and item 141 are annotated
+where they stand, and item 299 is amended in place, each change with a note. No spec and no code
+changes.
+
+#### 1. Why
+
+- **E1 and E4.** The review of the second commit on `plans/identity-phase1`, `abb09c62` (item
+  298's second entry), left two findings in the lead's text. E1: REDTEAM-TASK2's Subject line still
+  gave LR as R33 to R47, with no lead's note, so D15 was fixed in part. E4: the plan's T2-H2 row
+  quoted the owner's copy as "your devices refuse the old paper", where FOR-OWNER says "your
+  computers". After the plan's pull request opened at `abb09c62`, the lead fixed both in the
+  sources, in an addendum to R62, and directed this refile, one small commit after Task 3's.
+- **R63.** The lead then ruled on the two questions Task 3 left (item 299), in a ruling appended to
+  LRI: MASTER's Revision 10 stands, which answers item 141's question from here on, and R's block
+  of content kinds stays at 0x38 to 0x3F. The lead directs that this commit files LRI at that hash.
+
+#### 2. The sources, and the refiling
+
+- **The sources,** as the lead's scratch folder held them at 14:56, each checked against the prefix
+  the lead gave: the plan `90d090e7…`, REDTEAM-TASK2 `a30bee9d…` and LRI `604a658a…`. SCOPE
+  `26e7ebc0…`, FOR-OWNER `526ddd86…` and REDTEAM `b265796d…` are as the second commit filed them.
+- **What changed in them.** The plan's T2-H2 row now quotes each as it reads: "The slice-4 report
+  says "your devices refuse the old paper", and the owner's copy "your computers refuse the old
+  paper"; since LRI R61 both also say where…". REDTEAM-TASK2's Subject line now reads "`LR`
+  R33-R47 [lead, LRI R62: LR is R34 to R47]". LRI gains R62's addendum, of six lines, and R63, of
+  21, and grows from 267 lines to 294.
+- **The refiling.** Each file takes the same 21 edits as before, by the same edit list, and no
+  legend changes: the plan is still of 1,548 lines, and LRI's legend, "the plan as R62 left it",
+  holds, since E4 is in R62's addendum and moves no line. E1's line, REDTEAM-TASK2's :5, also
+  carries one of the path edits, on another part of the line, which still applies exactly once.
+  The filed copies: the plan `07803171…`, of 1,550 lines; REDTEAM-TASK2 `48818a89…`, of 139; and
+  LRI `748461c3…`, of 296.
+- **The proof.** Each of the six filed files, reversed through its recorded edits, gives its source
+  byte for byte, and a line diff of source and filed copy touches only the lines the edits name;
+  the proof's three controls each fail it. No filed file holds a local path, by a search whose
+  planted control fired in the same run.
+
+#### 3. The ledger
+
+- **Item 298, annotated where it stands:** its heading; its rulings' bullet, which gains R63's
+  sentence; R62's sentence, which gains its addendum; the note that R62 fixed D15 at two of its
+  places, which now says D15 is done; and its Open bullet for E1 and E4, which now says both are
+  fixed and filed here.
+- **Item 299, amended in place,** since it has not landed: its bullet on why it is a revision, which
+  now records R63's rule, and its Open list, from which the two questions for the lead come off,
+  each with R63's answer.
+- **Item 141, annotated where it stands:** its residual "Filed for the owner." gains a note that
+  R63 answers it, as item 299 records, so that a reader of the question finds its answer there.
+
+#### 4. The gates
+
+Run on the committed history of this entry, under go1.27.2, beside the four siblings at their pins,
+before the push:
+- `go test ./ -count=1 -run 'TestTheEditLogGate|TestThePlanLinter' -v`: the edit-log gate's six
+  tests and the linter's seven pass, and none fails. The linter prints the previous entry's counts,
+  since no change here adds or removes a reference, and no finding of it is against a file this
+  commit touches. The gate's ledger arm prints 70 of 93, where Task 3's commit left 69 of 92: this
+  commit changes a plan and appends this entry.
+- `go test ./ -count=1`, the whole root package: `ok`.
+
+#### 5. What this does not do
+
+- It changes no spec and no code, and no word of the lead's text but by the recorded edits.
+- It does not open a pull request: this branch's opens once the plan's has merged.
+
+**Reviewed by:** pending, by the lead's direction. Task 4's subagent diff review covers this commit
+as well as Task 4's, and Task 4's entry, for item 300, records what it finds here.
+
+It cites no run of itself: the pull request's body cites the runs on its head.
+
+### 2026-10-16 — Item 300: Spec A's A-36, the identity layer's first phase
+
+**Change:** Spec A, `docs/specs/2026-08-12-spec-a-protocol-sdk-connect.md`, takes revision A-36
+in eighteen places, its §0.6 log row among them. MASTER's §9.8 has one sentence corrected, which
+Task 4's review found. This ledger gains item 300 and this entry, item 299 is amended in place and
+item 141 annotated where it stands. No other spec, no plan and no code changes.
+
+#### 1. What it was made on
+
+- **The branch** `specs/identity-phase1`, at `7596be1d`, the refile of E1 and E4 (the previous
+  entry), after Task 3's `7741c70a`. Spec A there is Spec A at this repository's `main`
+  `37dd710f`: no commit of either branch has touched it.
+- **The sources:** the plan's Tasks 4, 7, 9 to 14, 21 to 27, 30 to 36 and 40 to 44, and its
+  authority table; SCOPE §2 and §3; LRI R62 and R63; MASTER's Revision 10; the design for IDs and
+  requests, §2.4, §2.5 and §3.1, and its first version's §3.1; F1 §2.2; F1 of round 4, for the
+  amendment's label and the emoji; V4 F.0; M5 C.0, C.1 and H.2; and, read-only, the library's
+  `erasegate_test.go`, `statestore_durable.go`, `engine.go` and `exports_message.go` at `main`
+  `c7949cfd`, and the library writer's Task 9 commit `d9ffec64`, whose `OwnLeafPatch` and
+  `GroupConfig.LeafExtensions` the seam's new methods carry.
+- **The siblings,** each at the commit `scripts/siblings.txt` pins, and clean; **the host,** as
+  the previous entries.
+
+#### 2. The eighteen edits, and MASTER's one
+
+Made by scripts of this entry's own, each old text asserted to occur exactly once, or a line found
+by a prefix that occurs once, and nothing else of either file changes: the scripts, applied to the
+branch head's Spec A and MASTER, give this commit's files byte for byte. Spec A grows from 6,358
+lines to 6,697, and MASTER from 4,021 to 4,025. Each addition says it is A-36's, and each
+overtaken sentence is kept, with a note.
+- **The parent pin, and §0.1's baseline row:** revision 10, by R63.
+- **§0.6:** the log row A-36.
+- **§3.1:** two rows, for 0xF005 and 0xF006.
+- **§3.4, two places:** the required capabilities; and the identity extensions.
+- **§5.14:** the link box, kind 4.
+- **§6:** the seam's four new methods, and the counts.
+- **§7.2:** the identity calls and the phrase change's, as they ship.
+- **§7.3:** the erase authorities, with I1's.
+- **§7.5:** the device calls, as they ship.
+- **§8.1:** store kinds 11 to 13, and the three overtaken rows.
+- **§9.3a, new:** the exports that ship for I1.
+- **§12.1:** the link box's two sizes, and the registration's two fields.
+- **Four notes,** where an overtaken sentence stood without one: §7.2's reason
+  `phrase_not_confirmed`, §7.2.1's seedphrase custody, §8.6's "the seedphrase still restores from
+  the server", and §12.2's C11.
+- **MASTER §9.8:** the sentence on a server that finds a code, corrected in place with a note of
+  what it read (Task 4's review, its F3).
+
+#### 3. The gates
+
+Run on the committed history of this entry, under go1.27.2, beside the four siblings at their pins,
+before the push:
+- `go test ./ -count=1 -run 'TestTheEditLogGate|TestThePlanLinter' -v`: the edit-log gate's six
+  tests and the linter's seven pass, and none fails. No plan changes, so the linter prints the
+  previous entry's counts. The gate's ledger arm prints 71 of 94, where the previous commit left
+  70 of 93, since this commit changes Spec A and appends this entry; and Spec A's own log holds a
+  row for it, A-36.
+- `go test ./ -count=1`, the whole root package: `ok`.
+
+#### 4. What this does not do
+
+- It changes no code, and no other spec: Spec B is the plan's Task 5, the next commit on this
+  branch, and Spec C's parent pin moves with Task 40.
+- It fixes no octet of 0xF005 or 0xF006: the library's Task 11 does, with known answers.
+- It changes no word of the lead's text: SCOPE E2's sentence that the server never reads the
+  deposit is left for the lead (item 300's Open).
+- It does not open the pull request, which the lead opens once the owner has merged the plan's.
+
+**Reviewed by:** an independent subagent's diff review of 2026-10-16, made before this commit, as
+the plan's Task 4 Step 2 directs. By the lead's direction the same review covered the E1 and E4
+refile, `7596be1d`, which the previous entry left pending. It was read-only, by a reviewer that
+wrote none of these files or entries. The session's usage limit stopped it midway; it was resumed
+with its notes intact, and it reported that nothing it ran left a file in any tree. It covered this
+commit's change uncommitted, by its sha256 at its start and at its end, which were the same: Spec A
+`46604d08…` and this ledger `7a67b5af…`, the state before its findings were taken. It read the
+diff and every section it touches, the plan, SCOPE, LRI R62 and R63, MASTER's Revision 10, the
+design files at the lines cited, and the library's files at `c7949cfd` and `d9ffec64`. It replayed
+the Spec A script byte for byte, checked the refile forward from the lead's sources, ran the gates
+and the root package, and searched the added lines of both changes for local paths and secrets,
+with a control that fired.
+
+**Its verdict.** All eight items of Task 4's Step 1 are present, and the refile holds. It made 28
+findings: no BLOCKER, 3 MAJOR, 7 MINOR and 18 NIT. **All 28 are taken in this commit, each where it
+stands:**
+- **MAJOR F1:** `CommitOwnLeaf` carried no context extensions, so it could not commit the move in
+  place, whose commit re-encodes the policy (the plan's Task 42). It now takes them, as
+  `CommitRemoveWithExtensions` does.
+- **MAJOR F2:** the field sets named V4's formats, which carry fields I1 removed or replaced. They
+  now name the plan's Task 11's, and say what I1 leaves out.
+- **MAJOR F3:** a server that finds the code can answer Open with its own card, be deposited to,
+  and read the existing device's leaf before the emoji differ. §5.14 now says so, and MASTER
+  §9.8's "though never the deposit" is corrected. SCOPE E2's sentence is the lead's.
+- **MINOR F4:** the emoji take round 4's label, `URmessage/v1/link-sas-emoji`, most significant bit
+  first.
+- **MINOR F5:** §6's block stays the code's, at 6 and 35, and the interface is 8 and 37 with the
+  four; the block takes them when the code lands.
+- **MINOR F6:** the values the plan bounds and this item chooses say "this item".
+- **MINOR F7:** the six link exports keep the plan's `link_` names, and item 300 says why.
+- **MINOR F8:** the phrase change's first base names this device the only phrase device.
+- **MINOR F9:** `ConfirmWords` stores the identity's records before it founds the self group.
+- **MINOR F10:** four overtaken sentences elsewhere gain notes.
+- **NIT F11 to F26:** the succession refusals are named apart from the owner succession's, and the
+  second-successor refusal apart from the move's; an empty chain verifies only from the root to
+  itself; the code's secrets live in both link sessions; the deposit's aad label is
+  `URmessage/v1/aad/linkdeposit`; the link box's `alg_id` is 0x0014; `CreateBoundGroup` says what
+  it requires; only calls that need an identity answer `ErrNoIdentity`; (a)E leaves the self group
+  too; a lock-out "may name no target"; the grant adds the new device to the self group and the
+  approver's conversations at once; this entry's sources name round 4's F1; I1 adds three
+  authorities and a second premise; the card's row counts its tag; §8.1 names one base directory;
+  Task 40's known answers go to §5.14 and §8; and the §3.1 rows name `engine.go`'s capability
+  lists.
+- **The refile's two, NIT E1 and E2:** item 141's annotation says Revision 10 is the first the rule
+  confirms, since it was made before R63; and item 299 no longer says "by the ledger's own rules",
+  which R63 does not say. Each is amended where it stands, with a note.
+
+The reviewer disclosed two reads of the other worktree of this repository: one `rev-parse` after
+it was told to leave that tree alone, and a `git worktree list` and a config read before. Both were
+read-only, and nothing was written there.
+
+The two gates this ledger answers to pass on the finished text: TestTheEditLogGate, 6 tests, and
+TestThePlanLinter, 7 tests, and so does the rest of the root package (§3).
+
+It cites no run of itself: the pull request's body cites the runs on its head.
+
+### 2026-10-16 — The lead's R64: SCOPE's E2 corrected, refiled with LRI's R64
+
+**Change:** two of the six files item 298 filed are refiled from the lead's sources: `SCOPE.md`
+and `LEAD-RULINGS-I1.md` in `docs/plans/identity-phase1/`. The plan, `FOR-OWNER.md`, `REDTEAM.md`
+and `REDTEAM-TASK2.md` are unchanged, byte for byte. Item 298 is annotated where it stands, and item
+300 is amended in place, each change with a note. No spec and no code changes.
+
+#### 1. Why
+
+- **SCOPE E2.** Task 4's review (item 300, its F3) found that SCOPE E2's "The server never reads
+  the deposit" is false of a server that finds the 60-bit link code. Such a server holds
+  `card_key`, can answer Open with a card of its own, is deposited to, and reads the existing
+  device's leaf before the emoji differ. Task 4's commit corrected MASTER §9.8's matching sentence.
+  SCOPE is the lead's text, and the lead corrected it in the source, by its ruling R64.
+- **R64.** The lead's ruling on Task 4, appended to LRI. Task 4 is accepted, and SCOPE E2 is
+  corrected. The library's Tasks 12, 13 and 42 transcribe Spec A §6's four seam methods, or amend
+  §6 first with a ledger entry, and the library's tasks read item 300's values from item 300. The
+  lead directs this refile, with its own entry, and that Task 5's review cover it.
+
+#### 2. The sources, and the refiling
+
+- **The sources,** as the lead's scratch folder held them at 16:33, each checked against the
+  prefix the lead gave: SCOPE `7f5ce2bf…` and LRI `b2c9e87f…`. The plan `90d090e7…`, REDTEAM-TASK2
+  `a30bee9d…`, FOR-OWNER `526ddd86…` and REDTEAM `b265796d…` are as the previous refile filed them,
+  and the lead's copies from before R64 equal that refile's sources.
+- **What changed in them.** SCOPE's E2 row now reads: "The server reads neither the card nor the
+  deposit unless it finds the code, by a search of about 60 bits [a] or a leak. A server that finds
+  it can answer Open with a card of its own, so that the deposit is made to it and it reads that
+  device's leaf; the emoji still differ then, so the link grants nothing (E3) [c; REDTEAM L2; Task
+  4's review F3, LRI R64]." SCOPE keeps its 361 lines. LRI gains R64, of 21 lines, and grows from
+  294 lines to 315.
+- **The refiling.** Each file takes the same 21 edits as before, by the same edit list, and no
+  legend changes. The filed copies: SCOPE `1907dd6d…`, of 363 lines, and LRI `8ac45baf…`, of 317.
+- **The proof.** Each of the six filed files, reversed through its recorded edits, gives its source
+  byte for byte, and a line diff of source and filed copy touches only the lines the edits name;
+  the proof's three controls each fail it. No filed file holds a local path, by a search whose
+  planted control fired in the same run.
+
+#### 3. The ledger
+
+- **Item 298, annotated where it stands:** its heading's note, and its rulings' bullet, which gains
+  R64's sentence.
+- **Item 300, amended in place,** since it has not landed: its Open bullet for the lead now says
+  that the lead corrected SCOPE E2, by R64, and that this commit files it.
+
+#### 4. The gates
+
+Run on the committed history of this entry, under go1.27.2, beside the four siblings at their pins,
+before the push:
+- `go test ./ -count=1 -run 'TestTheEditLogGate|TestThePlanLinter' -v`: the edit-log gate's six
+  tests and the linter's seven pass, and none fails. The linter reads only `docs/plans/*.md`, so it
+  prints the previous entry's counts. The gate's ledger arm prints 72 of 95, where Task 4's commit
+  left 71 of 94, since this commit changes two files under `docs/plans/` and appends this entry.
+- `go test ./ -count=1`, the whole root package: `ok`.
+
+#### 5. What this does not do
+
+- It changes no spec and no code, and no word of the lead's text but by the recorded edits.
+- It does not open a pull request: this branch's opens once the plan's has merged.
+
+**Reviewed by:** pending, by the lead's direction. Task 5's subagent diff review covers this commit
+as well as Task 5's, and Task 5's entry, for item 301, records what it finds here.
+
+It cites no run of itself: the pull request's body cites the runs on its head.
+
+### 2026-10-16 — Item 301: Spec B's revision 25, the link box
+
+**Change:** Spec B, `docs/specs/2026-08-12-spec-b-message-server-operator.md`, takes its revision
+25 in thirty-one places, its edit log's entry among them. This ledger gains item 301 and this
+entry. No other spec, no plan and no code changes.
+
+#### 1. What it was made on
+
+- **The branch** `specs/identity-phase1`, at `dd2d1c5a`, the R64 refile (the previous entry), after
+  Task 4's `c2b598a0`. Spec B there is Spec B at this repository's `main` `37dd710f`: no commit of
+  either branch has touched it.
+- **The sources:** the plan's Tasks 5, 7 and 18 to 21; SCOPE's E1 to E7 and S1; LRI R63 and R64;
+  MASTER's Revision 10, §5.4 and §9.8; Spec A's A-36, §5.14 and §12.1; the design for IDs and
+  requests, its §2.4, §2.5 and §3.1, and its first version's §3.1; and this repository's own
+  `store/migrations.go`, `api/api.go`, `endpoint/endpoint.go` and `cmd/message-server/config.go`.
+- **The siblings,** each at the commit `scripts/siblings.txt` pins, and clean; **the host,** as
+  the previous entries.
+
+#### 2. The thirty-one edits
+
+Made by a script of this entry's own, each old text asserted to occur exactly once, or a line found
+by a prefix that occurs once, and nothing else of Spec B changes: the script, applied to the branch
+head's Spec B, gives this commit's file byte for byte. Spec B grows from 4,260 lines to 4,442. Each
+addition says it is revision 25's, except the A-1 lines of §12.1, which restate Spec A's and so say
+A-36; and each overtaken sentence is kept, with a note.
+- **The parent pin, and the state table's baseline row:** revision 10, by R63.
+- **The edit log:** revision 25's entry.
+- **Decision B11, and open item 10:** notes, on the unprintable types and on kind 4's sizing.
+- **§3.2, two places:** a note on the designed migration 011; and the tables as they land, 013
+  and 014.
+- **§3.3, three places:** Q17 and Q18 notes, and the new Q20, the count of live boxes.
+- **§4.3.1, two places:** Capabilities 26 and 29; and a note on the card's four values.
+- **§4.3.11, eight places:** Task 7's fields in the registration, in Open's answer and in Deposit's;
+  notes where kind 4 changes the comments of the registration and its answer, of Open's answer, of
+  the deposit and of Collect and its answer; and kind 4, the link box.
+- **§4.5:** a note on the two codes kind 4 widens.
+- **§4.7:** the rendezvous limits and kind 4.
+- **§5.1.2, two places:** kind 4's shape; and what bounds its registrations.
+- **§7.4:** the sweep and kind 4.
+- **§10.2:** the link box's keys, and `reject_floor_ms`.
+- **§11.1 and §11.2, two places:** `deposit_hash`, the card and the box's keys, never logged, and
+  unprintable.
+- **§12.1, two places:** a note on row A-18; and the A-1 surface, restating Spec A's A-36 lines.
+- **§13:** tests 42 to 51.
+
+#### 3. The gates
+
+Run on the committed history of this entry, under go1.27.2, beside the four siblings at their pins,
+before the push:
+- `go test ./ -count=1 -run 'TestTheEditLogGate|TestThePlanLinter' -v`: the edit-log gate's six
+  tests and the linter's seven pass, and none fails. No plan changes, so the linter prints the
+  previous entry's counts. The gate's ledger arm prints 73 of 96, where the previous commit left
+  72 of 95, since this commit changes Spec B and appends this entry; and Spec B's own log holds an
+  entry for it, revision 25.
+- `go test ./ -count=1`, the whole root package: `ok`.
+
+#### 4. What this does not do
+
+- It changes no code: the plan's Tasks 18 to 20 build the link box at the server.
+- It changes no other spec. What Spec A owes, its out-table's A-18 and ruling 27's names in its A-1
+  block, is item 301's Open.
+- It does not open the pull request, which the lead opens once the owner has merged the plan's.
+
+**Reviewed by:** an independent subagent's diff review of 2026-10-16, made before this commit, as
+the plan's Task 5 Step 2 directs. By the lead's direction (R64) the same review covered the R64
+refile, `dd2d1c5a`, which the previous entry left pending. It was read-only on every repository, by
+a reviewer that wrote none of these files or entries, and it worked on the change uncommitted, by
+its sha256 at its start and at its end, which were the same: Spec B `b44acd26…` and this ledger
+`15a7fcb4…`, the state before its findings were taken. It read the plan, SCOPE, LRI R62 to R64,
+Spec B's every touched section, Spec A's §5.14 and §12.1, MASTER §5.4 and §9.8, items 298 to 301,
+the design for IDs and requests at §3.1, and the server code the text cites. It replayed the Spec B
+script byte for byte, checked the refile forward from the lead's sources with controls, ran the
+gates and the root package, and searched both changes' added lines for local paths and secrets,
+with controls that fired. It applied the landed migrations and 013 and 014 to a throwaway
+PostgreSQL cluster it made in its own notes folder, probed each check, then stopped the cluster
+and deleted it. It disclosed that it read a memory note holding a local connection string, and did
+not use, copy or print it.
+
+**Its verdict.** All ten of Task 5's Step 1 items are present, and the R64 refile holds. It made 24
+findings: no BLOCKER, 3 MAJOR, 9 MINOR and 12 NIT. **All 22 of Part 1 are taken in this commit,
+each where it stands; of Part 2's two, E1 needs no fix and E2 is carried to the next refile:**
+- **MAJOR F1:** 013's link-box check let a box with no card in, since a check passes on NULL, as its
+  probe showed. The check now requires the card.
+- **MAJOR F2:** Register now has one rule of its own, checked before the cap, and the single answer
+  is scoped to Open, Deposit, Collect and Retire. What Register tells a holder of the id is stated,
+  and tests 46 and 47 follow.
+- **MAJOR F3:** the cap holds all linking for as long as a client keeps registering, not for ten
+  minutes; and since §5.1's check 4 is not built, and the server's own endpoint mints a `client_id`
+  per TLS session, the cap alone binds registrations there. §4.3.11, §4.7 and §5.1.2 say so.
+- **MINOR F4:** the server-finds-the-code case names what the leaf gives and the emoji's odds, as
+  MASTER §9.8 and Spec A §5.14 do.
+- **MINOR F5:** the floor must cover the slowest refusal path, defaults to 0, which serves no kind-4
+  arm, and has a deploy value; Capabilities 26 and 29 leave kind 4 out while it is unserved.
+- **MINOR F6:** notes where kind 4 changes the card's proto comments, Q18 and §4.5's two codes.
+- **MINOR F7:** two deposits over a box's life, and a tombstone until its expiry, are recorded as
+  choices; a third deposit's answer is stated; the count is a number 013 holds, not a key.
+- **MINOR F8:** "live" is defined, Q20 counts the live boxes, and a cap passed by registrations in
+  flight is stated.
+- **MINOR F9 and F10:** Spec A's out-table row and ruling 27's names in its A-1 block are owed by
+  Spec A, in item 301's Open; Spec B's A-19 row is folded into a note on A-18.
+- **MINOR F11:** B11 and §11.2 add `DepositHash` and the box's card and keys to the unprintable
+  types.
+- **MINOR F12:** test 51 is item 301's, and item 301's Open gives the plan's Task 19 its property
+  and two mutants.
+- **NIT F13 to F22:** the card is stored external; the prose says the card's KEM key is absent, as
+  NULL; deposit ids are held to 2; the shape check's sizes are I1's, not a kind's; the wording of
+  "as unknown ones" and of the registration's bound is fixed; this entry says the A-1 lines say
+  A-36; the A-1 comment is Spec A's, character for character; the registration's fields 8 to 10
+  and Collect's 6 are kept for R; open item 10 gains kind 4's sizing; and item 301 says its
+  unauthorized answer departs from the design's.
+- **Part 2, NIT E1:** "Task 4 is accepted" is the lead's word, in its message on R64; no fix.
+  **NIT E2:** the filed SCOPE's legend predates R64's citation in its E2; carried to the next
+  refile of SCOPE, in item 301's Open.
+
+Two things it found outside this change, which this commit leaves as they stand: Spec B's line 25
+names a local folder, as it has since its first revision; and `cmd/message-server/config.go` cites
+§4.3.7 for the rendezvous keys, which are §4.3.11's.
+
+The two gates this ledger answers to pass on the finished text: TestTheEditLogGate, 6 tests, and
+TestThePlanLinter, 7 tests, and so does the rest of the root package (§3).
+
+It cites no run of itself: the pull request's body cites the runs on its head.
+
+### 2026-10-16 — The lead's R65, refiled in LRI
+
+**Change:** one of the six files item 298 filed is refiled from the lead's source:
+`LEAD-RULINGS-I1.md` in `docs/plans/identity-phase1/`, which gains R65. The other five are
+unchanged, byte for byte. Item 298 is annotated where it stands, with R65's sentence. No spec and
+no code changes.
+
+#### 1. Why
+
+The lead appended R65, its ruling on the library's Tasks 9 and 10, to LRI after the R64 refile had
+been made. The lead directs that LRI be refiled at whatever its hash is when the commit is made,
+and that the hash be recorded here, since its rulings keep appending.
+
+#### 2. The source, and the refiling
+
+- **The source,** as the lead's scratch folder held it at 17:29: LRI `ad74213c…`, of 351 lines,
+  where the R64 refile's source had 315. The other five are the R64 refile's sources, each at the
+  prefix the lead gave: the plan `90d090e7…`, SCOPE `7f5ce2bf…`, FOR-OWNER `526ddd86…`, REDTEAM
+  `b265796d…` and REDTEAM-TASK2 `a30bee9d…`.
+- **What changed in it:** R65 is appended, of 36 lines, and nothing else changes.
+- **The refiling.** Each file takes the same 21 edits as before, LRI its two, by the same edit list,
+  and no legend changes. The filed copy of LRI: `59e5ec8c…`, of 353 lines.
+- **The proof.** Each of the six filed files, reversed through its recorded edits, gives its source
+  byte for byte, and a line diff of source and filed copy touches only the lines the edits name;
+  the proof's three controls each fail it. LRI holds no local path, by a search whose planted
+  control fired in the same run.
+
+#### 3. The ledger
+
+- **Item 298, annotated where it stands:** its heading's note; its rulings' bullet's note, which
+  gains a note for R65 beside the one for R63 and R64; and R65's sentence.
+
+#### 4. The gates
+
+Run on the committed history of this entry, under go1.27.2, beside the four siblings at their pins,
+before the push:
+- `go test ./ -count=1 -run 'TestTheEditLogGate|TestThePlanLinter' -v`: the edit-log gate's six
+  tests and the linter's seven pass, and none fails. The linter reads only `docs/plans/*.md`, so it
+  prints the previous entry's counts. The gate's ledger arm prints 74 of 97, where Task 5's commit
+  left 73 of 96, since this commit changes a file under `docs/plans/` and appends this entry.
+- `go test ./ -count=1`, the whole root package: `ok`.
+
+#### 5. What this does not do
+
+- It changes no spec and no code, and no word of the lead's text but by the recorded edits.
+- It does not open a pull request: this branch's opens once the plan's has merged.
+
+**Reviewed by:** Task 5's subagent reviewer, resumed for this change and made before this commit,
+read-only, on the change uncommitted, by its sha256 at its start and at its end, which were the
+same: LRI `59e5ec8c…` and this ledger `e2604b89…`, the state before its findings were taken. It
+checked the filed LRI forward from the lead's source, with controls; that R65 is the source's only
+change; the ledger's diff; the two gates and the root package; and the added lines for local paths
+and secrets, with controls that fired. The refile holds. It made 3 findings, all NIT, and **all
+three are taken in this commit:** the rulings' bullet's note for R63 and R64 is kept as it read,
+with R65's beside it; R65's sentence says that the NFKD table is accepted in principle, and that
+items 299 and 300 and A-36 are Task 11's normative sources for formats and labels; and §2 above
+says that 315 lines were the R64 refile's source.
+
+It cites no run of itself: the pull request's body cites the runs on its head.
+
+### 2026-10-16 — The lead's R66 and R68: Spec A's A-37, Spec B's revision 26, MASTER's amendment, and three files refiled
+
+**Change:** Spec A gains its row A-37, Spec B its revision 26, and MASTER an amendment to revision
+10, each directed by the lead's rulings R66 and R68 before this branch's pull request opens. Three of
+the six files item 298 filed are refiled from the lead's sources: the plan, as R66, its addendum and
+R68 revised it; `LEAD-RULINGS-I1.md`, which gains R66 with its addendum, R67, R68 and R69; and
+`SCOPE.md`, whose source is unchanged and whose legend now names R64. The other three are unchanged,
+byte for byte. Items 298, 299 and 301 are annotated where they stand. No code changes.
+
+#### 1. Why
+
+R66 reads Task 5 and the three refiles before it, and directs one small commit on this branch:
+- Spec A's two notes owed since Spec B's revision 25, which item 301's Open records from Task 5's
+  review, its F9 and F10: its out-table's row A-18 says nothing of kind 4, and its A-1 block lacks
+  ruling 27's names, which Spec B's copy has, against A-1's "restated character-for-character";
+- Spec B's line 25, which has named a local user folder since the spec's first revision,
+  neutralized in the current text, with no rewrite of history;
+- the filed SCOPE's legend, which named R61 and R62 alone among the rulings after its Inputs,
+  while its E2 cites R64 (item 301's Open; Task 5's review, its E2);
+- and the refile of the plan and LRI at whatever their hashes are when the commit is made.
+
+Two more came while it was made. This commit's own review found ruling 27's comments in both A-1
+blocks stale against the code, its F2, and the lead ruled them corrected here, in both copies
+together, and not carried; R68's closing section records that ruling. And R68, on the independent
+review of the library's Tasks 8 to 10, directs a spec amendment from that review's findings L1-2,
+L1-5, L3-6 and L3-7, which the lead put in this same commit: the phrase's fold named in MASTER §5.1
+and Spec A §7.2, and what an erase of the phrase's secrets does not reach stated in Spec A §8, with
+MASTER §5.2 pointing to it.
+
+#### 2. The specs
+
+- **Spec A, A-37.**
+  - **§12.1's A-1 block takes ruling 27's names** from Spec B §12.1's copy, where the door, the
+    constant and the errors are marked as added on 2026-09-22 under ruling 27: `ParseEpochDigestAttachment`
+    and `CheckEpochKeysDigest`, after the comment on the sixth kind's door; the type
+    `EpochDigestAttachment`, among the exported types; the constant `AttachmentEpochDigest`, after
+    five lines on the sixth kind; and the errors `ErrServerAttachmentKindNotServed` and
+    `ErrEpochKeysDigestMismatch`, with their comment, at the block's end.
+  - **Ruling 27's stale comments, corrected in both copies.** They are staleness from before I1.
+    Ruling 33, of 2026-09-22, put the epoch keys on the request, and on 2026-09-23 the record layer
+    widened check 3's door, `ParseServerAttachment`, to kind `0x0005`: it serves that kind with the
+    other five (`message/errors.go:124-130` and `message/attachment.go:252-262`, at
+    `urnetwork/message` `0bb2128f`, the commit `scripts/siblings.txt` pins).
+    - The door's comment said that check 3's door refuses `0x0005` by name. It now says that the
+      door serves it, and that the sixth kind's door serves `0x0005` alone.
+    - The errors' comment gave the first of its three, `ErrServerAttachmentKindNotServed`, as check
+      3's refusal. The code's one refusal is `ErrEpochKeysDigestMismatch` (`errors.go:181-200`),
+      and the comment now names it.
+    - `ErrEpochKeysDigestPresence` is returned only by `NewEpochDigestAttachment`
+      (`attachment.go:485-489`), a committer's constructor that neither block holds. A-9's rule
+      gives a line to a sentinel a published function can return, and none to one that no
+      published function returns, so it leaves both blocks.
+  - **The two copies, compared.** One script copies Spec B's lines into the same places, and the
+    next two apply the corrections to both copies and compare them line by line. They are 135
+    lines of Go each, and differ in two lines alone, where each cites a section in its own terms:
+    the rendezvous header's `(§5.14)` against `(§4.3.11, Spec A §5.14)`, and `§5.9` against
+    `Spec A §5.9`. `message/attachment.go` and `message/errors.go` declare each name in the block
+    so. The block's lead line, which says the copies are character for character, gains a note
+    that says this, and a note after the block says what it took and what it corrected.
+  - **§5.11.** Its paragraph on the two doors said that check 3's serves "the five kinds above". It
+    now says all six, with a note keeping what it read. Its measurement of the stale-peer split keeps
+    its text, and gains a note dating it before the widening and naming the test as it is now,
+    `TestARecordCarriesAKindADoorRefusesByName` (`message/attachment_test.go:3093`).
+  - **§7.2 names the phrase's fold** (R68; L1-5 and L3-7): NFKD at Unicode 17.0.0, held to the
+    toolchain's `unicode.Version`, with white space as Unicode's White_Space property gives it.
+    That is the header of `messagegroup/phrase_nfkd.go` on the library at `41699987`, made
+    normative. `messagegroup/phrase_test.go:352` holds the table's edition to `unicode.Version`.
+  - **A new §8.4a states what an erase of the phrase's secrets does not reach** (R68; L1-2 and
+    L3-6). These are the copies the runtime and the primitives make, measured by that review on the
+    library at `41699987`, and all of them survive `runtime.GC()` and `debug.FreeOSMemory()`; the
+    scan's control is a key number never derived. It also says what the library's own erase and its
+    census are to cover once R68's fix round lands, since the same review found the census blind
+    inside package-local callees, its L1-1, and the words' slice the caller's to clear, its L1-6.
+    The census, `messagegroup/phrasesecretgate_test.go`, and the plan's promise table already cited
+    "Spec A §8" for this residual, which §8 did not state.
+  - The out-table's row A-18 gains the link box's note, in the words of Spec B's row A-18, and the
+    log gains row A-37.
+- **Spec B, revision 26.**
+  - Line 25 named the folder on the writer's machine that held the three trees the spec was
+    verified against. It now names the trees, `server`, `connect` and `sdk`, as local clones, which
+    the paths below it begin with, and a note says what it named. The repository's history keeps
+    the old line, and nothing rewrites it.
+  - §5.1 check 3's sentence on the two doors is corrected, with a note keeping what it read. §5.4's
+    measurement of the stale-peer split gains the dating note. §12.1's A-1 block takes the same
+    corrections as Spec A's, and a note after it says so.
+  - §12.1's row A-18 had revision 25's note in its third column, which says why the item must come
+    from Spec A. The note moves, unchanged, to the second, which names the item (this commit's
+    review, its F7).
+  - The edit log gains revision 26.
+- **MASTER, an amendment to revision 10.** §5.1's normalization names the fold, as Spec A §7.2
+  does. §5.2's "erased at its end" is qualified, and points to Spec A §8.4a. §0 records the
+  amendment. It is not a new revision, by R63's rule: no format, code point or key changes, and the
+  fold named is the one the library's single implementation already makes.
+- **The search.** None of the three specs holds a local path, by a search whose planted control
+  fired in the same run. The same search over Spec B as this branch's head has it finds line 25 and
+  no other line.
+
+#### 3. The sources, and the refiling
+
+- **The sources,** as the lead's scratch folder held them at 18:49:
+  - the plan `135d7a67…`, of 1,552 lines, where the R65 refile's source, `90d090e7…`, had 1,548;
+  - LRI `d872223a…`, of 489 lines, where `ad74213c…` had 351;
+  - SCOPE `7f5ce2bf…`, FOR-OWNER `526ddd86…`, REDTEAM `b265796d…` and REDTEAM-TASK2 `a30bee9d…`, the
+    R65 refile's sources.
+- **What changed in them.**
+  - **In the plan,** R66's edits, each marked R66: Task 19's Property 6, the test in its Step 1, and
+    its mutants MR11 and MR12; Task 20's deploy note on `reject_floor_ms`; the mutation table's Task
+    19 row; the gate table's census row; the count table's slice-2 and total mutants, 40 and 143; and
+    the counts' paragraph.
+  - Then the addendum's: the Size line's server mutants, 12, and the counts' paragraph's breakdown
+    of 143; and MR11, widened to drop the kind check, so that kind 0 is served as well as kinds 1
+    to 3.
+  - Then the lead's corrections on this commit's review: Property 6 says "no kind-4 arm", its L2;
+    and Task 2's "What else" line notes the 143, its L3.
+  - Then R68's, each marked R68: the promise table's residual; Task 10's Property 1; Task 12's three
+    duties; Task 14's single-word check; Task 26's scene; and the gate table's census row.
+  - **In LRI,** R66 with its addendum, R67, R68 and R69 are appended, and nothing before them
+    changes. R66 names all three `config.go` lines for Task 19, which is this commit's review's L1.
+- **The refiling.** Each file takes the same edits as before, by the same edit list, but for three
+  legends and one path edit more, 22 edits in all:
+  - the plan's legend names R65, R66 and R68 beside R61 and R62, the rulings after its Inputs that
+    its text cites;
+  - SCOPE's names R64 beside R61 and R62;
+  - LRI's names the plan as R68 left it, of 1,552 lines where R61 read 1,545. It says that a `PLAN:`
+    line in LRI is of the plan its ruling read, without the legend. So R65's `:148` is line 148 of
+    the plan as filed. R66's addendum's `:1395` and `:1488` are lines 1,396 and 1,489, since R68
+    added a line after line 493. Each is two lines further down in the filed copy. It also says that
+    `identity-phase1/review-t8-t10/FINDINGS.md`, which R68 cites, is in the lead's scratch folder and
+    not filed. Each line claim was checked against the source and the filed copy.
+  - R68 names a local clone's path, which takes the filing's label: "the review's local clone of
+    `urnetwork/message-server`". The edits remove 17 local paths where they removed 16. R69 names
+    none.
+
+  The filed copies: the plan `ff7a1080…`, of 1,554 lines, where it was `07803171…`, of 1,550;
+  SCOPE `e5f3247f…`, of 363, where it was `1907dd6d…`; and LRI `082de056…`, of 491, where it was
+  `59e5ec8c…`, of 353.
+- **The proof.** Each of the six filed files, reversed through its recorded edits, gives its source
+  byte for byte, and a line diff of source and filed copy touches only the lines the edits name;
+  the proof's three controls each fail it. None of the six holds a local path, by a search whose
+  planted control fired in the same run.
+
+#### 4. The plan linter
+
+The plan changes, so the linter's counts move. On this commit's tree the property class reads 494,
+where the R65 refile's read 493: Property 6 is the new one. The task-reference class reads 3,801,
+where it read 3,790. The other seven counts do not move. All seven of the linter's tests pass, and
+no line of its output names the plan.
+
+#### 5. The ledger
+
+- **Item 298, annotated where it stands:**
+  - its heading's notes;
+  - "What the plan is", with the revisions of R66, its addendum and R68;
+  - its size, with 143 mutants, 12 of them the server's;
+  - its rulings' bullet's notes;
+  - and the sentences of R66, R67, R68 and R69.
+- **Item 299, annotated where it stands:** its §5.1 and §5.2 bullets, with the amendment to
+  revision 10.
+- **Item 301, annotated where it stands,** at six bullets of its Open:
+  - Task 7's order;
+  - the deploy's floor, now in Task 20's note;
+  - test 51, now Task 19's Property 6;
+  - the two notes owed to Spec A, paid by A-37;
+  - SCOPE's legend, corrected here;
+  - and the pull request, which follows #12's.
+
+#### 6. The gates
+
+Run on the committed history of this entry, under go1.27.2, beside the four siblings at their pins,
+before the push:
+- `go test ./ -count=1 -run 'TestTheEditLogGate|TestThePlanLinter' -v`: the edit-log gate's six
+  tests and the linter's seven pass, and none fails. The gate reads Spec A's newest entry as row
+  A-37 and Spec B's as revision 26. Its ledger arm prints 75 of 98, where the R65 refile left 74
+  of 97, since this commit changes two specs and a plan and appends this entry. MASTER is not a
+  document the gate holds, so its amendment moves no count.
+- `go test ./ -count=1`, the whole root package: `ok`.
+
+#### 7. What this does not do
+
+- It changes no code, and no word of the lead's text but by the recorded edits.
+- No rule, format or code point changes in any spec. The corrections bring text into line with the
+  code, and the fold and the residual are stated as the library has them.
+- It does not rewrite history: Spec B's old line 25 stays in this repository's history, as R66
+  directs.
+- It leaves two things to the plan's Task 19, the next commit that touches them (R66; R68):
+  - `cmd/message-server/config.go`'s wrong section cite, `§4.3.7` where §4.3.11 is meant, at :176,
+    :179 and :282;
+  - `api/epochkeys.go:18-25`'s comment, which says the same stale thing of check 3's door.
+- It does not open a pull request: this branch's opens once message-server#12 merges (R66).
+
+**Reviewed by:** Task 5's subagent reviewer, resumed for this change, in two passes before this
+commit. Both were read-only, each on the change uncommitted and by its sha256 at its start and at
+its end, which were the same each time.
+- **The first pass,** on six files (the ledger at `bd566fce…`), checked Spec A's A-1 block against
+  Spec B's, line by line and with a control, and against the library at `0bb2128f`; Spec B's line
+  25; the refile, forward from the lead's sources, with controls; every claim of the ledger; the two
+  gates and the root package; and the added lines for local paths and secrets, with a planted
+  control. It made 7 findings, 0 BLOCKER, 0 MAJOR, 2 MINOR and 5 NIT, and 3 NIT in the lead's
+  text, and all are taken:
+  - F1, this paragraph and the closing line;
+  - F2, ruling 27's comments stale against the code in both blocks, which the lead ruled corrected
+    in this commit (R68), and which it corrects;
+  - F3, F4 and F6, in this entry and in Spec A's lead line and note;
+  - F5, the three `config.go` lines, in §7 above;
+  - F7, Spec B's row A-18, in revision 26;
+  - L1 to L3, the lead's, which the lead fixed in the sources before this refile.
+- **The second pass,** on seven files (the ledger at `f55294c5…`), checked the F2 corrections against
+  the code at `0bb2128f`, the R68 amendment against `messagegroup` at `41699987`, the refile from
+  LRI `0989c0d2…`, and the rest again. It made 6 findings, 0 BLOCKER, 1 MAJOR, 1 MINOR and 4 NIT,
+  and all are taken in this commit:
+  - F8, MAJOR: LRI moved during the pass, when the lead appended R69, so it is refiled here at
+    `d872223a…`, and item 298 is brought to R69;
+  - F9: §8.4a stated the library's erase and its census as they will be after R68's fix round, and
+    now says so;
+  - F10: ruling 33 is of 2026-09-22, and the record layer widened its door on 2026-09-23, which
+    every note and both blocks now say;
+  - F11, the A-37 note's claim of the code; F12, revision 26's citation of R68; and F13, item 298's
+    quotation of R66.
+
+  Its three notes on the lead's text are the lead's: LRI's R66 still says "no arm" where the plan
+  now says "no kind-4 arm"; R67 files the alpha's address a third time, as R59 and R60 already
+  have; and R69 came after the pass's snapshot.
+
+It cites no run of itself: the pull request's body cites the runs on its head.
+
+### 2026-10-16 — The lead's R72 and R73: Spec A's A-38, Spec B's revision 27, and the plan and LRI refiled
+
+**Change:** Spec A gains its row A-38 and Spec B its revision 27, each directed by the lead's
+rulings R72 and R73. Both specs gain the rendezvous's small-order key rule, which the library's
+five verifiers apply and the server's Register calls at check 3. Spec B also gains the `alg_id`
+held as a u32, and the sweep's three accepted departures from §7.4. Two of the six files item 298
+filed are refiled from the lead's sources: the plan, as R70 revised it, and `LEAD-RULINGS-I1.md`,
+which gains R70 with its addendum, R71, R72 and R73, and R66's sentence as the lead corrected it.
+The other four are unchanged, byte for byte. Item 298 is annotated where it stands. No code
+changes.
+
+#### 1. Why
+
+- **R72**, on the library's Tasks 11, 7 and 7b, confirms four of Task 7b's five decisions and rules
+  the fifth the other way. Two of its rulings reach the specs:
+  - the server refuses an `alg_id` above 0xFFFF, and never truncates it to the preimage's u16;
+  - the five rendezvous verifiers refuse a key of small order. Under such a key `crypto/ed25519`
+    accepts signatures that need no secret, so a box registered under one could be collected or
+    retired by anyone.
+
+  The library's commit for R72, `48204f2b` on its fork, makes the verifiers refuse the seven
+  small-order encodings first, and publishes the rule as `RendezvousKeyIsAcceptable`. R72 has Spec A
+  §5.14 gain the sentence at this branch's next commit.
+- **R73**, on the server's Tasks 19 and 20:
+  - Register's check 3 refuses a collect key or a deposit key of small order through that
+    predicate, so that no unusable box is stored;
+  - the sweep's three departures from Spec B §7.4 are accepted, and §7.4 is to state them.
+- **The lead's directive for this commit:** Spec A §5.14 and §12.1; Spec B's copy of the block,
+  which mirrors A-1's; Spec B §7.4; Spec B §4.3.11's check 3 and its `alg_id`; and the refile of the
+  plan and LRI at their hashes when the commit is made.
+
+#### 2. The specs
+
+- **Spec A, A-38.**
+  - **§5.14** gains a paragraph after the one on the four preimages that keep the card's forms. It
+    says:
+    - why a key of small order verifies nothing. Under the neutral point, R = the neutral point
+      and S = 0 verify for every message, and under the other points of small order for some
+      messages;
+    - that the five verifiers refuse a public key that is not 32 octets, or whose encoding, with
+      its sign bit cleared, is one of the seven of small order, before any signature. The seven are
+      the ones `messagegroup` refuses for the identity layer;
+    - that the rule is published as `RendezvousKeyIsAcceptable`;
+    - that the server's Register calls it at check 3 on both keys (Spec B §4.3.11).
+  - **§12.1's A-1 block** gains `func RendezvousKeyIsAcceptable(pub []byte) bool` after the five
+    verifiers, and a four-line comment after the A-36 comment. `message/rendezvous.go` at
+    `48204f2b` declares it so. It is true only for a key of 32 octets whose encoding, sign bit
+    cleared, is none of the seven small-order encodings, each compared in constant time. Any other
+    width answers false, and nothing in it panics.
+  - **Notes.** The block's lead line gains a note: A-38's comment adds two section cites to A-37's
+    two. A note after the block says that the name and its comment are added to both copies alike,
+    each citing the sections in its own terms, so the copies now differ in four cites, in three
+    places. Row A-18 gains its note, and the change table gains row A-38.
+- **Spec B, revision 27.**
+  - **§4.3.11's Register** gains two of check 3's rules:
+    - the `alg_id` is compared with 0x0014 as the u32 the request carries, so that a value above
+      0xFFFF is refused and never truncated to the preimage's u16, where 0x10014 would verify as
+      0x0014;
+    - neither key may be one that `RendezvousKeyIsAcceptable` rejects.
+
+    A registration that fails either is answered `REASON_REJECTED`, padded, and stores nothing.
+  - **§5.1.2's check 3** gains the same, in a note.
+  - **§7.4** gains a paragraph after its revision-25 note on kind 4's rows. The reclaim as built
+    (the plan's Task 20) departs from §7.4's text in three ways, each accepted by R73:
+    - **The lock** is `pg_try_advisory_xact_lock`'s two-key form, a constant and the hash of the
+      current schema, held for the batch's transaction. Two replicas of one deployment take one
+      lock, and two deployments in one database, or a suite's parallel schemas, do not skip each
+      other.
+    - **`now` is the caller's**, as for every link box method, which `/readyz` holds to the
+      database's (§3.1).
+    - **The recount can meet an arm.** The recount of `deposit_count` takes the boxes' row locks
+      after the deposit delete has taken the deposits'. A Collect or a Retire takes its box's lock
+      first, then its deposits'. So one still running at its box's expiry can meet the recount in
+      a lock-order inversion, and PostgreSQL aborts one of the two. Either retry is harmless. R73
+      names a Collect; the paragraph names the Retire too, which takes the same order (this
+      commit's review, its F6).
+
+    The paragraph also says that §7.4's gauges and counter, and `messagectl sweep-now`, are not
+    built in I1 (R73).
+  - **§12.1's copy of the A-1 block** gains the same line and comment, citing the sections in Spec
+    B's terms, with a note. Row A-18 gains its note.
+  - **The edit log** gains revision 27.
+- **The two blocks, compared.** Their rendezvous sections differ, line for line, in their headers'
+  cites and in the two cites of the A-38 comment, and in nothing else. With §5.9's, which was
+  already there, the copies differ in four cites in three places, as Spec A's lead line and its
+  A-38 note now say.
+
+#### 3. The sources, and the refiling
+
+- **The sources,** as the lead's scratch folder held them when this commit was made:
+  - the plan `1b3875d8…`, of 1,569 lines, where the R66 commit's source, `135d7a67…`, had 1,552;
+  - LRI `103d62fb…`, of 618 lines, where `d872223a…` had 489.
+
+  SCOPE, FOR-OWNER, REDTEAM and REDTEAM-TASK2 are the R66 commit's sources, unchanged, and are not
+  refiled.
+- **What changed in them.**
+  - **In the plan,** R70's edits:
+    - the Tasks row, 46 tasks, with 7b;
+    - Task 7b itself, seventeen lines after the plan's line 339;
+    - Task 18's `deposit_hash`;
+    - Task 19's Consumes, with Task 7b's commit;
+    - the Size line, the mutation table's Task 7 row, with MI122 and MI123, and the count table and
+      its paragraph: 46 tasks, 27 library commits and 145 mutants;
+    - and the "What else" line's note.
+  - **In LRI,** R70 with its addendum, R71, R72 and R73 are appended. R66's sentence on Property 6
+    now says "no kind-4 arm", where it said "no arm", which the R66 commit's second review noted.
+- **The refiling.** Each file takes the same edits as before, by the same edit list, with two
+  legends brought up to the plan as R70 left it: 7 edits in all.
+  - **The plan's legend** names R70 beside R61, R62, R65, R66 and R68.
+  - **LRI's legend** names the plan as R70 left it, of 1,569 lines, where R61 read 1,545 and R68
+    left 1,552. R65's `PLAN:148` is still line 148, and line 150 of the filed copy. R66's
+    addendum's `:1395` and `:1488` became lines 1,396 and 1,489 when R68 added a line after its line
+    493. They are lines 1,413 and 1,506 since R70 added seventeen after its line 339, and 1,415 and
+    1,508 of the filed copy. Each line claim was checked against the source and the filed copy.
+  - **The local paths:** the sources hold the same six as before, four in the plan and two in LRI,
+    and the edits remove them. R70 to R73 name none.
+
+  The filed copies: the plan `78324dee…`, of 1,571 lines, where it was `ff7a1080…`, of 1,554; LRI
+  `74873221…`, of 620, where it was `082de056…`, of 491.
+- **The proof.** Each of the two, reversed through its recorded edits, gives its source byte for
+  byte, and a line diff of source and filed copy touches only the lines the edits name. The proof's
+  three controls each fail it. Neither filed file holds a local path, by a search of each whole
+  file whose planted control fired in the same run. The lines this commit adds hold no local path,
+  user profile, address, key or token, by a second search whose controls fired.
+
+#### 4. The plan linter
+
+The plan changes, so the linter's counts move. On this commit's tree the property class reads 496,
+where the R66 commit's read 494: Task 7b's two properties are the new ones. The task-reference
+class reads 3,809, where it read 3,801, and the Consumes-entry class 366, where it read 365. The
+other six counts do not move. All seven of the linter's tests pass, and no line of its output
+names the plan.
+
+#### 5. The ledger
+
+- **Item 298, annotated where it stands:**
+  - its heading's notes;
+  - "What the plan is", with R70's revisions;
+  - its size, with 46 tasks and 145 mutants, 118 of them the library's;
+  - its rulings' bullet's notes;
+  - the sentences of R70, R71, R72 and R73.
+
+#### 6. The gates
+
+Run on the committed history of this entry, under go1.27.2, beside the four siblings at their pins,
+before the push:
+- `go test ./ -count=1 -run 'TestTheEditLogGate|TestThePlanLinter' -v`: the edit-log gate's six
+  tests and the linter's seven pass, and none fails. The gate reads Spec A's newest entry as row
+  A-38 and Spec B's as revision 27. Its ledger arm prints 76 of 99, where the R66 commit left 75 of
+  98, since this commit changes two specs and two plans and appends this entry.
+- `go test ./ -count=1`, the whole root package: `ok`.
+
+#### 7. What this does not do
+
+- It changes no code, and no word of the lead's text but by the recorded edits.
+- No wire byte, reason code, record, label, table, query or migration changes. The small-order rule
+  is the library's, at `48204f2b`. The server's verify step on `identity/i1-srv`, at `0864540c`,
+  calls it at check 3, and compares the `alg_id` as a u32 there. §7.4's departures are what the
+  plan's Task 20 built on that branch, at `1bff5904`.
+- **The plan does not yet carry R72's change to its Tasks 31 and 33**, the stored-seed signer that a
+  phrase device without its words needs. R72 says the plan carries it at its next refile, which
+  this is, and the lead's source, `1b3875d8…`, has no word of it. The plan is filed as the source
+  stands, since this commit changes none of the lead's words; the source is the lead's to amend,
+  and the refile after that carries it (this commit's review, its F1).
+- §12.1's two blocks still name `RendezvousDepositBytes`, the card's deposit size. R72 leaves it out
+  of the library, since kind 0 is not served. The blocks publish the designed surface, kind 0's
+  included, and this commit leaves that line as it stands.
+- Spec A §2's layout still says that `rendezvous.go` holds §12.1's nine rendezvous functions. The
+  A-1 section listed eleven before this commit and lists twelve now. The count is older than this
+  commit, and it is left as it stands (the review's F14).
+- On `identity/i1-srv`, at `0864540c`, the server's second-implementation gate calls
+  `RendezvousKeyIsAcceptable` "an export beyond A-1's block". A-38 makes that stale. The next
+  commit on that branch corrects it (the review's F15).
+- §7.4's gauges and counter, and `messagectl sweep-now`, are not built in I1 (R73). §7.4 now says
+  so, and this commit builds neither.
+- It does not open a pull request: this branch's opens once message-server#12 merges (R66).
+
+**Reviewed by:** one subagent reviewer, read-only, on the change uncommitted and by its sha256 at
+its start and at its end, which were the same. It checked:
+- the specs against the library at `48204f2b` and the server at `0864540c` and `1bff5904`;
+- the two blocks line by line;
+- the refile, by re-applying the edit list, and every legend line claim;
+- every claim of this entry;
+- the two gates, in one run;
+- the added lines for local paths and secrets, with a planted control.
+
+It made 15 findings: 0 BLOCKER, 1 MAJOR, 7 MINOR and 7 NIT. All are taken in this commit, but F1,
+F14 and F15, which are recorded above:
+- **F1, MAJOR:** R72's change to the plan's Tasks 31 and 33 is not in the lead's source. It is
+  recorded above, and the lead decides. Item 298's R72 sentence no longer says the plan gains it,
+  but that the plan is to carry it at its next refile.
+- **F2:** a small-order key's forgery holds for every message only under the neutral point, so
+  §5.14, row A-38 and this entry now say so.
+- **F3:** Spec A's lead line on the block and the A-38 note now count the cites.
+- **F4:** §7.4's three departures are prose, so that no list absorbs `messagectl sweep-now`. The
+  paragraph says that the gauges, the counter and that command are not built in I1.
+- **F5:** the clock check is §3.1's, not §10.1's.
+- **F6:** the Retire takes the Collect's lock order, so §7.4 names both.
+- **F7:** R72 confirms four decisions and rules the fifth the other way.
+- **F8:** the `alg_id` comparison is the server's, not the library's.
+- **F9:** the comment is four lines.
+- **F10:** the specs cite the lead's rulings by name, not as LRI.
+- **F11:** R71's and R73's sentences keep their qualifiers.
+- **F12:** "before any signature", not "first".
+- **F13:** a search of each whole filed file, with its planted control, now backs §3's claim.
 
 It cites no run of itself: the pull request's body cites the runs on its head.

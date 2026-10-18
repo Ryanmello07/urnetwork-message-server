@@ -1,11 +1,10 @@
 # URmessage — Protocol Design
 
 **Date:** 2026-08-12
-**Revision:** 9 — the out-of-band contact card gets the transport it was specified without: a
-group-less contact rendezvous with its own asymmetric authenticators, a per-card capability
-generation derived from the seedphrase, and a bounded, short-lived deposit the server cannot read
-(§5.2, §9.8, §10.1, §11, §14); the metadata cost of first contact is stated where the other costs
-are (§9.5, §9.7, §13); rotation is named as the v1 substitute for blocking (§13, §15)
+**Revision:** 10 — the identity layer's first phase: a 25-word recovery phrase stretched once, one
+account ID and an ID for each device, a device list in every leaf that every member checks, a device
+added by a code the server carries and seven emoji, the lock-out by a new key number, and the phrase
+change made with the old phrase (§0, §5, §6, §9.8, §11, §13, §15)
 **Status:** Design, pending approval
 
 Notation: `LP(x)` = 32-bit **big-endian** length prefix then `x`; `u8/u16/u32/u64` = big-endian
@@ -536,6 +535,44 @@ digest is the published one is the adder's assertion. *(4)* §7.3's window: a re
 cannot be put back says the join code is spent. Ledger item **296** records the review; Spec A
 revision A-34 is the same commit.
 
+**Revision 10 — 2026-10-16 — the identity layer's first phase (I1): one ID for a whole account,
+and an ID for each device.** It is made ahead of the library code it is the authority for, which
+the plan `docs/plans/2026-10-16-identity-layer-one-account.md` builds, and the alpha is reset for
+it: no group, store or key of an earlier build is read. It is a revision, where the amendments
+above are not, because it changes what the server stores and checks, as revision 9's rendezvous
+did, and the format of every leaf. In this revision "I1" names the phase, never §3's invariant
+**I1**, which the revision does not cite. *(1)* **§5.1 and §5.2.** The 24-word BIP39 mnemonic and
+its PBKDF2 tree give way to a 25-word recovery phrase of 267 random bits and an 8-bit checksum,
+stretched once by Argon2id. From the stretch come the identity key and the phrase's key for each
+key number; device keys are unchanged, and neither the recovery keys nor `card_root` are derived in
+I1. The account ID and the device ID are taken over the identity's first key, so a phrase change
+moves neither. *(2)* **§5.3.** Every leaf carries `urmessage_identity` (0xF005): the identity's
+certificate, its device list and the chain of steps from its first key. A system group carries
+`urmessage_group_purpose` (0xF006) in its group context. `RECOVERY_PUB` is not published in I1.
+*(3)* **§5.4.** A device is added by a short code the server carries and seven emoji, in place of
+the QR handshake, and the person's own devices then bring it into their conversations. *(4)*
+**§5.5.** Start over, the lock-out by a new key number, the phrase change made with the old
+phrase, and their races. *(5)* **§6 and §11.** One mode: every group requires the identity
+extension, the credential is the identity key, and the binding rules run on every commit, on the
+side that sends it as on every side that receives it. *(6)* **§9.8.** The link box, a fourth kind
+of rendezvous. *(7)* **§13 and §15.** What I1 discloses and does not close, and what it leaves to
+later phases. The header names this revision. Every other sentence that I1 overtakes is kept, with
+a note where it stands, and the old texts of §5.2's tree and §5.4's steps are kept whole beneath
+the new ones. Ledger item **299** records the revision and its registry; Spec A and Spec B follow
+in commits of their own.
+
+**Amendment to revision 10 — 2026-10-16 — §5.1 and §5.2: the phrase's fold named, and the erase's
+residual pointed to.** Not a new revision: no format, code point or key changes, and the fold
+named is the one the library's single implementation already makes and its tests already hold.
+*(1)* **§5.1** names the normalization exactly: NFKD at Unicode 17.0.0, the edition of the pinned
+toolchain's `unicode` package, with white space as Unicode's White_Space property gives it. Its
+text named neither, so a second implementation could read exotic input differently, though no
+phrase the library makes is affected, since every word is `a` to `z`. *(2)* **§5.2**'s "erased at
+its end" is qualified: the erase is the best the language allows, and what it does not reach,
+measured, is stated in Spec A §8.4a. Both come from the review of the identity plan's Tasks 8 to
+10, its findings L1-2, L1-5, L3-6 and L3-7, and the lead's ruling R68. Spec A's A-37 is the same
+commit, and the ledger's §7 entry for it records both.
+
 ## 1. Purpose and product target
 
 URmessage is a private messenger built on the URnetwork mesh. It reuses URnetwork's transport and
@@ -591,7 +628,10 @@ exception.
   proposal or commit is valid on an operator signature.
 - **I2.** No device-held group secret is derivable from the seedphrase. Device keys are generated
   on-device from a local CSPRNG and sealed to the platform keystore. A device that could derive its
-  keys from the seed would hold the seed, and revocation would mean nothing.
+  keys from the seed would hold the seed, and revocation would mean nothing. *(Revision 10: in alpha
+  test builds only, until the identity layer's second phase, device keys are protected by file
+  permissions only, as the owner ruled on 2026-10-16; they are sealed before any build that is not
+  an alpha (§13, §15).)*
 - **I3.** `recovery_root` (§5.2) is the **only** master-derived group-usable secret.
 - **I4.** Ephemeral-class key material is never wrapped to a recovery key, never included in a
   provisioning bundle, and never derivable from any durable secret.
@@ -693,12 +733,77 @@ URnetwork already has a seedphrase (`sdk/api.go:2284`). **It must not be reused.
 plaintext phrase from the request body into `LoginWithSeedphrase`, so the operator receives it on
 every login. Deriving message keys from it would hand the operator every private key.
 
-URmessage generates its own BIP39 24-word mnemonic on-device, never transmitted. The two secrets are
-never derivable from each other.
+URmessage generates its own **recovery phrase** on-device, never transmitted. The two secrets are
+never derivable from each other. *(Revision 10. It read "its own BIP39 24-word mnemonic".)*
+
+```
+P      = 267 bits from crypto/rand, the ONLY source; no call takes entropy from its caller
+P34    = P as 34 octets, its 5 high bits zero
+CS8    = the top 8 bits of SHA-256("URmessage/v1/phrase-checksum" ‖ P34)
+phrase = the 275 bits P ‖ CS8, as 25 × 11-bit indices, most significant bit first,
+         into the BIP-39 English list (vendored, and pinned by its SHA-256)
+```
+
+The phrase is shown once when it is made, typed back in full, and **never stored**. Input is
+normalized: NFKD at Unicode 17.0.0, the edition of the pinned toolchain's `unicode` package, which
+the library's tests hold its fold to; lowercase; and white space, as Unicode's White_Space property
+gives it, collapsed *(amendment of 2026-10-16: this read "NFKD, lowercase, whitespace
+collapsed")*. A word not in the list is named by its position,
+and a checksum that fails says that one or more words are wrong. **Nothing is ever corrected:** there
+is no search for a likely word, so a wrong word is never guessed into a right one. About one
+single-word slip in 256 passes the checksum, and the words check of §5.5 refuses it before it
+changes anything.
 
 ### 5.2 What the seed derives — and what it does not
 
-Per **I2** and **I3**:
+Per **I2** and **I3**, as Revision 10 makes it:
+
+```
+S            = Argon2id(password = P34 (§5.1), salt = "URmessage/v1/phrase-stretch",
+                        t = 3, m = 262,144 KiB, p = 4, len = 32)                           [32 B]
+master_key   = HKDF-Extract(salt = "URmessage/v1", ikm = S)                                [32 B]
+
+master_key
+├─ identity  = HKDF-Expand(master_key, "identity/v1", 32)  → Ed25519: the identity key, IRK
+│                (the MLS credential subject, §6; it signs IskCert and the step, §5.3, §5.5)
+└─ isk_root  = HKDF-Expand(master_key, "isk/v1", 32)
+     └─ isk_seed[g] = HKDF-Expand(isk_root, "iskgen/v1" ‖ u32(g), 32)
+                      → Ed25519: ISK_g, the phrase's key for key number g, which signs a base (§5.3)
+```
+
+**Only `isk_seed[g]` is ever kept**, and only on a **phrase device**, for the current identity key
+and key number g. The words, `S`, `master_key`, `isk_root` and IRK's private half exist only while a
+ceremony runs, and are erased at its end, as far as the language allows: what an erase does not
+reach, with its measured scope, is stated in Spec A §8.4a *(amendment of 2026-10-16)*. A phrase
+device that removes itself, or ends its identity,
+erases `isk_seed[g]` first, and does neither while that erase fails (§5.5). No device keeps
+`isk_root`, so a device that holds `isk_seed[g]` cannot mint key number g+1. IRK and ISK_g open no
+group, decrypt nothing and appear in no wrap, so they are not group-usable secrets, and **I3** holds.
+The stretch's parameters are not frozen until they are measured on the owner's computers; the known
+answers are Spec A's.
+
+**The two IDs** are taken over the identity's **root**, the identity key of its first phrase, so a
+phrase change moves neither (§5.5). The account ID, which the app shows as "Your ID":
+
+```
+LP(x)    = u32be(len(x)) ‖ x                                                  (T1's LP)
+id_hash  = SHA-256("URmessage/v1/id" ‖ u16(id_version = 1) ‖ LP(root_pub) ‖ LP(salt))     // root_pub: IL1
+id       = id_hash[0..16) with octet 6 = (id_hash[6] & 0x0F) | 0x80 and octet 8 = (id_hash[8] & 0x3F) | 0x80
+           // UUID version 8, RFC 9562 §5.8 (https://www.rfc-editor.org/rfc/rfc9562.html#section-5.8): 122 hash bits
+text     = 8-4-4-4-12 lowercase hex, 36 characters;   salt = 16 random octets, made with the ID
+```
+
+`root_pub` is the root: the design for IDs and requests names it IL1. The device ID is
+`device_id = SHA-256("URmessage/v1/device-id" ‖ LP(root_pub) ‖ LP(device_pub))[0..8)`, shown as four
+groups of four lowercase hex characters (19 in all), so that nobody takes it for an account ID. In
+I1 only Start over (§5.5) changes the account ID; a device ID changes only with a new device key or
+a new root. The device ID needs no field and no state. The account ID's salt is made with the ID,
+kept in the identity's record and carried to each new device in the grant (§5.4).
+
+**Not derived in I1:** `recovery_root` and every key below it, and `card_root`. The backup and the
+contact card place them again when they ship (§15). Until then every sentence of this design that
+names them describes them as designed, over the tree as it read before Revision 10, which is kept
+here whole; I1 builds none of them. *(Revision 10. Before it, the tree read:)*
 
 ```
 BIP39 24-word mnemonic  →  PBKDF2-HMAC-SHA512, 2048 rounds  →  64-byte seed
@@ -758,6 +863,10 @@ device_sig      Ed25519    the MLS leaf signature key
 device_xwing    X-Wing     hybrid KEM wrap target (X25519 + ML-KEM-768)
 ```
 
+*(Revision 10: in alpha test builds only, until the identity layer's second phase, these keys and a
+phrase device's `isk_seed[g]` are protected by file permissions only, as the owner ruled on
+2026-10-16; they are sealed before any build that is not an alpha (§13, §15).)*
+
 There is no `pq_root`. A seed-derived per-device key would violate I2 and make `Remove` meaningless.
 
 ### 5.3 Publishing device and recovery public keys
@@ -774,6 +883,39 @@ extension urmessage_leaf_keys {
 ```
 
 Listed in `required_capabilities.extension_types`.
+
+**Every leaf also carries `urmessage_identity` (0xF005)** (Revision 10), which binds the leaf to its
+person; the one exception is the profile-1 leaf a link group holds while a device is added (§5.4).
+It is a leaf extension, covered like the one above by the LeafNode signature and the tree hash, and
+never a group-context one. Every group this design founds lists it, with 0xF004, in
+`required_capabilities`. Its version 1 carries three things:
+
+- **the certificate,** `IskCert(g)`: the identity key certifies ISK_g for key number g, over
+  `LP("URmessage/v1/isk-cert")`, with no timestamp, so every phrase holder mints the same octets;
+- **the device list:** a **base**, signed by ISK_g over `LP("URmessage/v1/device-list")` and by the
+  device that made it over `LP("URmessage/v1/device-list-author")`, then at most 16
+  **amendments**, each an addition or a self-removal, signed by a listed device's key. A list names
+  1 to 10 devices by their keys, each with two flags, *phrase device* and *being removed*; the
+  second is reserved and never set in I1. A list's version is `(step, g, base, count)`: the chain's
+  length, the key number, the base's number and the amendments on it, compared in that order;
+- **the chain:** the steps from the root to the leaf's identity key, at most 4, each of form 1,
+  `Ed25519(old key, LP("URmessage/v1/identity-succession") ‖ LP(next key))`. It is empty until a
+  phrase change (§5.5).
+
+The extension is at most 6,144 octets. Every preimage a key of the list signs begins
+`LP(label)`, so its first octet is 0x00, and an MLS `SignContent` never begins with 0x00: the device
+key signs in two domains that never meet. The encodings, and the order of the binding check, are
+Spec A's.
+
+**A system group carries `urmessage_group_purpose` (0xF006)** in its group context:
+`{version = 1, purpose, identity_root}`, where purpose 1 is a **self group**, an identity's own
+devices, in which its list changes travel, and purpose 2 a **link group**, the short group in which
+a device is added (§5.4). `identity_root` is the identity's root in a self group, and its current
+identity key, IRK, in a link group. A system group requires 0xF004, 0xF005 and 0xF006, carries
+only records of the kinds kept for system groups, holds no conversation and is never listed as one.
+
+**`RECOVERY_PUB` is not published in I1** (Revision 10): I1 derives no recovery key (§5.2). The rest
+of this section describes it as designed.
 
 Recovery public keys are **member**-scoped, not device-scoped, so they cannot live in a leaf. A
 member publishes them once at join and again on any identity change:
@@ -797,12 +939,47 @@ and is described in Spec B §5.4.
 
 ### 5.4 Device provisioning
 
-1. Existing device shows a QR with an ephemeral X25519 public key and a nonce.
-2. New device performs an authenticated handshake over connect; both users compare a short
-   authentication string.
-3. Existing device sends the group list and **durable-class** archive material. Ephemeral-class
-   material is never included (**I4**).
-4. Existing device issues an MLS `Add` for the new device's leaf and commits it.
+A device is added by a **short code the server carries and seven emoji** (Revision 10), in place of
+the QR handshake. No camera is assumed: the emoji always run, after a typed code.
+
+1. **The new device (N)** shows "Set up this device" and a code of about 12 characters, valid for
+   10 minutes. It has registered a **link box** for it at the server (§9.8), whose card, sealed
+   under a key the code derives, holds N's one profile-1 key package, a commitment `commit_n` to
+   N's nonce, N's name and a fresh X-Wing public key. N's other choice, "This is my first device",
+   makes a new identity (§5.5).
+2. **On an existing device (E)** the person types the code. E opens the card, and starts nothing
+   unless its list has a place: 10 devices, 16 waiting changes. It founds a link group with
+   `urmessage_group_purpose` `{2, IRK}`, adds N, deposits the invitation, sealed as every invitation
+   is (§7.3) and sealed again to the X-Wing key inside the card, and reveals its nonce `n_E` at the
+   link group's epoch 1.
+3. **N joins, reads `n_E`, and only then reveals `n_N`.** `commit_n` bound N's nonce before E
+   revealed, and E's was out before N revealed, so neither side chooses its nonce after seeing the
+   other's. E checks `n_N` against `commit_n`, and refuses one that does not match. Both devices
+   show **seven emoji** of 64, 42 bits from the link group's exporter at epoch 1 over the group id,
+   the epoch, N's key-package reference and both nonces, and ask "They match" or "They don't match"
+   on both. Three mismatches burn the session; E opens at most five sessions an hour; a commit at
+   epoch 1 or later ends it.
+4. **After both matches** E signs an addition naming N's key, or a base if E is a phrase device, and
+   commits it to the self group. Only then does it post the **grant** in the link group: the
+   certificate, the list, the chain, the self group, the salt and the device names, and no phrase
+   secret. N takes it only after its own "They match", and only if the list names N's key under the
+   certificate. N rebuilds its engine with the identity key as its credential, and E adds it to the
+   self group and to E's own conversations at once. Each other device of the person adds N to the
+   conversations it is in the next time it runs (§11). Both sides then leave the link group.
+
+**A new device starts with no history** in I1: what was sent before it joined shows as one line, no
+archive material is sent to it, and ephemeral-class material never is (**I4**). *(Revision 10.
+Before it, this section's steps read:)*
+
+> 1. Existing device shows a QR with an ephemeral X25519 public key and a nonce.
+> 2. New device performs an authenticated handshake over connect; both users compare a short
+>    authentication string.
+> 3. Existing device sends the group list and **durable-class** archive material. Ephemeral-class
+>    material is never included (**I4**).
+> 4. Existing device issues an MLS `Add` for the new device's leaf and commits it.
+
+**Seed-only restore** is not served in I1 (Revision 10): a person who loses every device starts over
+(§5.5). The paragraph below describes it as designed, for the backup that ships it (§15).
 
 **Seed-only restore** is the documented last resort: a bare seed derives `recovery_handle`, proves
 possession of `recovery_root` with the §5.2 `recovery_proof`, and asks the server for the archive
@@ -811,6 +988,51 @@ participates in — and in a single-server v1 it already knows the user's full g
 nothing it did not have. Disclosed in §13.
 
 ### 5.5 Identity reset after seedphrase loss
+
+**In I1 (Revision 10) three acts change an identity's keys, and none involves the operator.**
+
+- **Start over.** On a person's only device, "Remove this device" warns "This ends this identity".
+  The device then erases its phrase key, if it holds one, and does nothing else while that erase
+  fails; marks the identity ended; and leaves each conversation and its self group. Setting up
+  again, "This is my first device", makes a new identity with a new root and so a new account ID,
+  and contacts add the person again. Nothing else of the old folder is wiped.
+- **The lock-out, by a new key number.** Removing a device takes the phrase as its second factor:
+  a phrase device removes another without the words, and any other device asks for them and becomes
+  a phrase device. A device key removes only itself. Removing a **phrase device** from another
+  device is always a **lock-out**: the words are checked; this device mints key number g+1, stores
+  its seed and its certificate before anything is sent, and signs the first base under g+1, naming
+  the devices the person keeps, with itself as the phrase device. A device that sees a verified
+  certificate for a higher number erases its own phrase key, and the other phrase devices type the
+  words again. The lock-out's target erases its key before it shows itself removed. A lock-out may
+  name no device: it is the one offered when a phrase device removes itself, so that a copy of its
+  key, taken before, signs nothing anyone follows. With no security delay in I1, a removal acts at
+  once.
+- **The phrase change, made with the old phrase.** On a device the newest list names: the old words
+  are checked; the new phrase is made, shown once and typed back (§5.1); and before anything is sent
+  this device stores the move: a new identity key, from the new phrase; the **step**,
+  `Ed25519(old key, LP("URmessage/v1/identity-succession") ‖ LP(new key))`; `IskCert(1)` under the
+  new key; and the new key's first base, naming every device as it stood, with this device the only
+  phrase device. A crash after that store resumes the change with no words. **A phrase change
+  removes no device.** Every other device of the person takes the change only from its self group;
+  one that held a phrase key of the old key erases it, and needs the new words to be a phrase device
+  again. Each device then moves its own leaf in place, with the same device key, first in its self
+  group and then in every conversation, the next time it runs (§11). The root does not change, so
+  the account ID and every device ID stay, and contacts are asked nothing and shown no line.
+- **The races.** The self group's commit order decides. A change that a lock-out, a removal or a
+  self-removal overtook is rebuilt on the newest list. One that another change overtook, or whose
+  device was removed, is void: nothing of it is sent, and its new key is erased. An act that took
+  the old words and lost says so, and asks for the new ones.
+- **The rank rule.** In a tree that holds a step, a leaf under the old key is judged by the new key's
+  list, and no list of the old key is taken. Two successors of one key are a conflict that no tree
+  takes: the first into a tree shuts the other out. Where none of the person's devices has run since
+  a key was replaced, that key still counts, for good, the first phrase's included (§13).
+- **The words check.** Every act that takes the words first derives the identity key and the
+  phrase's key from them, and compares them with the identity's current key and its certificate.
+  Words of another identity, or with a slipped word, change nothing; words of a key the chain has
+  retired are named as a phrase this account no longer uses.
+
+The operator reset below is not built in I1, which has no key-transparency log and no account tie.
+The paragraphs that follow describe it as designed.
 
 Seed-only restore (§5.4) covers a user who still holds the mnemonic. A user who has **lost** it has no
 recovery path for their existing identity — by design, since `identity` derives from the seed and
@@ -833,6 +1055,9 @@ Consequences, all mandatory:
   than from any directory (§10.1). **In v1 the identity key changes only by this path**: `identity` is derived from the
   seedphrase and nothing else, so a reinstall or a new computer from the same phrase produces the same
   key and raises no warning at all. A self-signed rotation is a V2 mechanism and is never emitted in v1.
+  *(Revision 10: in I1 a phrase change made with the old phrase changes the identity key, by a step
+  the old key signs, which is a self-signed rotation. Every ID stays, since IDs are taken over the
+  root (§5.2), and no contact is warned, since I1 ships no key-change warnings (§15).)*
 - The reset is written to the key-transparency log (§10.1), so it is publicly auditable and cannot be
   performed quietly.
 
@@ -871,12 +1096,19 @@ migrating a live group are different problems, and only the first is v1.
 **Credential:** `BasicCredential` carrying the member's `identity` public key. RFC 9420 §7.3 does
 **not** verify that a credential corresponds to any external identity — it validates signature and
 capability consistency only. Binding `identity` to a human is entirely our job, and is done by the KT
-log plus local pinning (§10). The spec must not assume MLS checks this.
+log plus local pinning (§10). The spec must not assume MLS checks this. **In I1 (Revision 10) the
+credential is the identity key of the person's current phrase**, the same on every device of the
+person, and each leaf's signature key is its device key, which the person's device list must name
+(§5.3, §11). The one exception is the profile-1 leaf a link group holds while a device is added
+(§5.4), whose credential is its device key.
 
 **Extensions:** `required_capabilities`; `urmessage_leaf_keys` (§5.3); a group-context extension
 carrying `{roles, retention_policy, disappearing_buckets, server_id}`; and a second group-context
 extension carrying the owner-succession nomination of §11 — so all of those are covered by the
-transcript hash and no server can alter them.
+transcript hash and no server can alter them. **Revision 10 adds two:** `urmessage_identity`
+(0xF005), on every leaf, and `urmessage_group_purpose` (0xF006), in a system group's context (§5.3).
+**There is one mode:** every group requires 0xF004 and 0xF005, a system group 0xF006 as well, and no
+group of an earlier build is joined or restored.
 
 **Test vectors:** slice 1 MUST pass the RFC 9420 vectors for tree-math, crypto-basics, secret-tree,
 key-schedule, psk_secret, transcript-hashes, welcome, tree-validation, treekem, message-protection,
@@ -3134,6 +3366,30 @@ The mailbox is bounded rather than throttled: sixteen uncollected deposits per r
 days each, one exact size. A card that is being sprayed fills up for a week; it does not grow a
 spool. What the server learns from all of this is §9.5.
 
+**The link box (Revision 10)** is a fourth kind of rendezvous, on the same five arms, beside the
+inbox, the join box and the reply box of the design for IDs and requests, kinds 1 to 3, which I1
+does not serve. It carries one device's addition (§5.4), and it is the only kind I1 serves.
+
+- The new device **registers** a box under a fresh collect key, with a **card** of fixed size,
+  sealed under a key its code derives. The code also derives the box's id and the deposit's key,
+  each under a label of its own.
+- The existing device **opens** the box, proving the code, and gets the sealed card. It
+  **deposits** one ciphertext of exactly 17,526 octets, sealed to the X-Wing key inside the card,
+  never to anything the server returns beside it.
+- The new device **collects**, with a push on the deposit, and **retires** the box.
+
+A box lives 10 minutes and takes at most 2 deposits, and a global cap on live boxes fails closed.
+An unknown and a retired box are answered alike. **What it does not stop** is stated rather than
+implied: the endpoint authenticates no client, so one client can fill the cap and stop all linking
+until boxes expire; and a server that finds a code, by a search of its about 60 bits or by a leak,
+reads that box's card, which holds a device name. It can also answer Open with a card of its own:
+the existing device then deposits to it, and the server joins the link group and reads that
+device's leaf, with the identity's keys and devices, before the emoji differ and nothing is
+granted. *(Corrected by Spec A's A-36 review, ledger item 300: it read "reads that box's card,
+which holds a device name, though never the deposit, and the emoji still hold then".)* The wire
+messages and the server's checks are Spec B §4.3.11; the derivations and the
+encodings are Spec A §5.14.
+
 ## 10. Identity verification
 
 ### 10.1 Key transparency
@@ -3243,11 +3499,48 @@ commit that breaks any rule here is refused before it is built and rejected by e
 validation; because the server has already advanced the epoch by then, honest receivers stop at the
 epoch before it — a hostile committer can halt a group and cannot take it.
 
+**The binding rules (Revision 10).** Every commit is also judged by these, in one mode, on the
+sending side over the would-be tree as on every receiving side, so no device publishes a commit its
+own rules refuse. Validity reads only the trees, so two members who hold different lists still
+decide every commit alike. The first refusal is the answer, and each rule names its own refusal.
+
+- **The move in place (R6s), computed before the others.** The committer's own leaf may go from
+  identity key A to B, with the same signature key, only when its post-commit leaf carries a chain
+  from the root through A to B, every step signed by the key before it, and B's list names that
+  signature key; at most one per commit. A→B is then applied to every member's identity, the
+  committer's and the policy's roles, so a move keeps every role, and a policy that names two keys
+  of one chain is refused. It is the one exception to the rule above that a leaf's identity does not
+  change across the committer's own path.
+- **The binding (R6e).** Every leaf a commit adds or updates, and the committer's own post-commit
+  leaf, carries 0xF005 that verifies. A profile-1 leaf, which carries none, stands only in a link
+  group.
+- **The signature key (R6c-sig).** Every leaf that survives a commit, the committer's included,
+  keeps its signature key.
+- **No fork (R8-EQ).** Two lists of one identity at one version are byte-identical, or neither is
+  taken.
+- **Current devices only (R8-CUR).** A leaf the newest list in the tree does not name is removed in
+  the commit that brings that list, or the commit is refused.
+- **No sibling eviction (R8-SIB).** A leaf of the committer's own identity, other than the
+  committer's, is removed only once the newest list no longer names it, so a stolen device cannot
+  evict its owner's others.
+- **System groups (R9).** A self group admits leaves of its own identity only, read through the
+  chain, so it moves in place at a phrase change. A link group holds at most one leaf of each
+  profile, only the identity's leaf commits, and no commit is taken at epoch 1 or later.
+- **The rank rule, and one successor per key** (§5.5). A leaf under a key that a verified chain
+  retires is judged as the chain's newest key's, and no tree holds two successors of one key.
+
+A device of the person adds a device its list names to the conversations it is in, and removes a
+leaf the list no longer names, the next time it runs; its lowest leaf acts first, and the others
+after ten minutes. None re-adds a device that a commit of another identity removed, and a device
+that left a conversation keeps its leaf there, so it is never re-added either.
+
 **Self-service device management.** A member may add or remove **their own** device leaves and commit
 that change. Otherwise revoking a stolen laptop would block on an admin. An identity may hold at
 most **ten device leaves**, and a group at most **500 members** (§6). Both caps are enforced by the
 committing client and by every receiving client on validation, and both are shown in the UI before
-they are hit.
+they are hit. *(Revision 10: which devices are a person's is decided by the person's device list
+(§5.3), and removing another of one's own devices is §5.5's act, not a commit any of them may make
+alone, by R8-SIB above.)*
 
 **A DM's policy is jointly controlled.** A DM is a two-member group and uses no second code path,
 but the member who created it does not get to decide alone how long the other's messages survive.
@@ -3485,7 +3778,7 @@ Never say "gone forever" for the durable class.
 **Better than Signal.** Disappearing messages are enforced by key destruction, not client cooperation
 — including against a device set up tomorrow and against a seedphrase holder. Post-quantum protection
 for stored messages, not just the connection. History follows you to a new device without it reaching
-back past the day it was added.
+back past the day it was added. *(Revision 10: in I1 a new device starts with no history, §5.4.)*
 
 **Same as Signal.** The server holds ciphertext only and cannot read anything. "Delete for
 everyone" cannot claw back what someone already read. Ours has no time limit, and the placeholder it
@@ -3507,8 +3800,11 @@ assumes it is worse than it is. **Delivery receipts tell the server when a devic
 online and decrypting**, which read receipts alone do not. **Backups outlive deletions for up to 48
 hours** (§12.3). And **the 24-word phrase is a master key: it cannot be rotated, and whoever holds
 it reads all durable history past and future in every group and can act as you.** Expired
-disappearing messages are the one thing it does not unlock. **A contact card leaves the server a
-first-contact edge:** it learns that a client sent a contact request to the owner of a card, and
+disappearing messages are the one thing it does not unlock. *(Revision 10: in I1 the phrase is 25
+words and can be changed with the old one, but the first phrase's key stays the root, and in I1 the
+phrase derives no recovery key, so it reads no history: "On the identity layer", below.)* **A
+contact card leaves the server a first-contact edge:** it learns that a client sent a contact
+request to the owner of a card, and
 when, though it learns neither party's identity from it and the record is gone in a week (§9.5).
 **And rotating a card is the only block we ship**: with per-contact blocking deferred, the way to
 stop unwanted contact requests is to mint a new card, which cuts off the person who is abusing you
@@ -3537,8 +3833,59 @@ narrows what that person learns and does not close it.
 swap it for another, and the device then joins a real group that is not the one meant (ledger item
 296).
 
+**On the identity layer (Revision 10).** These hold in every phase:
+
+- the server sees a self group whose members are one person's devices, and a short two-member link
+  group and a link box each time a device is added, so it learns when, and how often, a person adds
+  one; what the link box does not stop is §9.8's;
+- contacts see how many devices a person has, and each time one is added or removed;
+- confirming the seven emoji without comparing them, while someone intercepts your code, lets their
+  device join your account;
+- a device you removed, if its app was altered, can still act in a conversation until another device
+  of yours runs there.
+
+These hold in I1, and the plan's scope, `docs/plans/identity-phase1/SCOPE.md` §7, names what ends
+each:
+
+- whoever holds one of your phrase devices unlocked can remove your other devices at once, and
+  nothing waits for you to stop it; if they do it before you lock that device out, your phrase cannot
+  win your account back;
+- your phrase cannot bring your account back yet: if you lose every device you start over, with a
+  new ID, and your contacts add you again;
+- **after you change your phrase, every earlier one, your first included, still counts, for good, in
+  a conversation where none of your devices has run since it was replaced. Changing your phrase
+  again does not undo that: if a recovery phrase of yours leaked, start over with a new ID.** Nor can
+  a change undo a use of a replaced phrase that a device of yours reports, and starting over is the
+  answer there too. A change also removes no device: a lost device stays on your account until you
+  remove it or lock it out;
+- your keys, a phrase device's included, are protected only by file permissions, in alpha builds
+  only: a copy of a phrase device's folder can remove your devices until you lock that device out,
+  and if that device removed itself, your other devices' notice offers the lock-out;
+- anyone at your unlocked computer can add their device to your account, remove yours, or change your
+  phrase if they also hold your paper: there is no screen-lock (Windows Hello) prompt yet;
+- a device you add starts empty: it cannot read anything sent before it joined;
+- if no device of yours is left in a conversation, nothing brings you back: someone in it must invite
+  you again;
+- nothing yet lets you check that a contact is who they say: there are no safety numbers and no
+  labels;
+- a device removed while it is switched off learns it only when it next runs, and until another
+  device of yours runs, its leaves stay in your conversations, which a server that withholds can
+  stretch;
+- names you give contacts stay on the device where you gave them, and an earlier build's plaintext
+  folder stays on disk until you delete it;
+- ten devices at most;
+- a conversation that holds a leaf made from a key package more than 90 days old refuses every new
+  joiner, since a joiner checks each leaf's lifetime against its clock, and a device that joins
+  leaves such a leaf until it commits; the alpha is reset at every slice of the plan, so no alpha
+  conversation reaches 90 days;
+- if another program stops URmessage from erasing your phrase's key on a device that is leaving your
+  account, nothing of that leaving is sent from it, and it says so each time it opens; the key stays
+  on its disk until you fix the folder's access or delete the folder.
+
 **On verification.** Nobody is verified by default and there is no badge. You are warned loudly when a
-contact's key changes from one you have seen before, and never silently switched.
+contact's key changes from one you have seen before, and never silently switched. *(Revision 10:
+in I1 there is no key-change warning and no safety number, which come with IDs and requests (§15),
+and a phrase change keeps every ID and shows contacts no line (§5.5).)*
 
 **On removal, and what it does not cover.** A member you remove loses every decryption key from
 that epoch forward and **stops being served the group's messages from that moment on**: the
@@ -3680,3 +4027,16 @@ lead time lands on the critical path to general availability instead of running 
 10. **A one-time X-Wing key per join code — OPEN (2026-10-14, ledger item 296).** §7.3's seal is to
     the leaf's static key (§13). A key minted for one join code and destroyed at the join would give
     the seal forward secrecy against a later seed theft, at about 1,216 more octets per join code.
+11. **What the identity layer's first phase leaves to later phases — OPEN (2026-10-16, Revision 10,
+    ledger item 299).** None of these is a defect:
+    - **IDs and requests:** the profile, the inbox and reply boxes, requests, and Change my ID; the
+      labels and safety numbers; ending every join with a rekey, which closes the 90-day leaf a
+      joiner refuses; reading the heads; and the server's stock of key packages, with one fallback
+      key per device;
+    - **the second phase:** keys sealed at rest and the screen-lock prompt, before any build that is
+      not an alpha; leaving a conversation on every device at once; history from the approving
+      device;
+    - **the server part:** the security delay and the being-removed state; typing the phrase on a new
+      device; the server's device table and its hold; contacts letting a device in; Start over as
+      its own act; the backup, and the phrase change's backup and delay steps;
+    - **the change without the old phrase,** the seven-day change, last of all.
