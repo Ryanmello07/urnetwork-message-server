@@ -2,14 +2,14 @@ module github.com/urnetwork/message-server
 
 go 1.26.5
 
-// The toolchain this module is built and tested with: go1.27.2, the release urnetwork/build
+// The toolchain this module is built and tested with: go1.27.3, the release urnetwork/build
 // requires and github.com/urnetwork/message pins. A toolchain line is a minimum. A go command older
 // than it fetches it and runs it, and a newer one builds with itself and says nothing, so the step
 // of .github/workflows/gates.yml that builds every released platform asks each binary it builds
 // which toolchain built it (scripts/toolchain.sh --artefact) and refuses any other. The go line
 // stays 1.26.5: it is the language version, and the oldest release that may build this module at
 // all, and nothing in this module or in a dependency asks for the language of 1.27.
-toolchain go1.27.2
+toolchain go1.27.3
 
 // The siblings are checked out beside this repository and built from the working tree, the
 // way every other urnetwork go module in this workspace is wired.
