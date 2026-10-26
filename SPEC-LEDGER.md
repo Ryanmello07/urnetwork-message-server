@@ -14176,7 +14176,9 @@ repo and therefore the critical path — not this repository:
     the R77 commit, after the R73 commit: R48 to R77 are filed, and the sentences of R74 to R77 are
     below.)* *(And by the R80 commit, after the R77 commit: R48 to R80 are filed, R73 as R78
     corrected it, and the sentences of R78 to R80 are below.)* *(And by the R87 commit, after
-    the R80 commit: R48 to R87 are filed, and the sentences of R81 to R87 are below.)*
+    the R80 commit: R48 to R87 are filed, and the sentences of R81 to R87 are below.)* *(And by
+    the R89 commit, after the R87 commit: R48 to R90 are filed, R87 with the lead's later sentence
+    on a failed removal, and the sentences of R88 to R90 are below.)*
     - **What the plan is.** The implementation plan of the identity layer's first phase, written
       by the lead's planning round and revised in place three times: by its finalizer, for the red
       team dated 2026-10-15; by its reviser, for the owner's answer that the phrase change is built
@@ -14197,7 +14199,11 @@ repo and therefore the critical path — not this repository:
       R87 commit refiles it as R81, R84, R86 and R87 revised it: Task 15 drops `-entropy`, each
       tool making its identity as a person does; Task 23 carries slice 1's review's L-2 and L-3;
       and the authorities gain (j), with its row in the authority table, the setup mark its
-      premise.)*
+      premise.)* *(The R89 commit refiles it as R88 and R89 revised it, byte for byte from the
+      lead's source, which now carries the filed copy's legend itself: four erase authorities, with
+      (j) in Task 4's list and in the erase gate's row; the authority table's legend defines R; the
+      gate table is brought level with slice 1; four sentences no longer name the entropy; and Task
+      23 gains D2L-5's line, N's making through `putIdentityRecords`' order.)*
       - **The owner's order** is the identity layer, then IDs and requests (the plan calls that
         build R), then finding people by their URnetwork name (OWN:485, quoted below).
       - **What I1 builds:** a 25-word recovery phrase and the identity key made from it; a key and
@@ -14281,7 +14287,7 @@ repo and therefore the critical path — not this repository:
       *(and R63's by the E1 and E4 refile, and R64's by the R64 refile)* *(and R65's by the R65
       refile)* *(and R66's to R69's by the R66 commit)* *(and R70's to R73's by the R73
       commit)* *(and R74's to R77's by the R77 commit)* *(and R78's to R80's by the R80 commit)*
-      *(and R81's to R87's by the R87 commit)*:
+      *(and R81's to R87's by the R87 commit)* *(and R88's to R90's by the R89 commit)*:
       - **R48.** The bases: this repository's `main` is `37dd710f`, which carries T1's ledger close;
         the library's is `c7949cfd`; the app's is `badf2e2c` until urnetwork/message-windows#7
         merges, then `main`; and the S3 branch is the lead's dispatch to the app's one writer. The
@@ -14580,6 +14586,29 @@ repo and therefore the critical path — not this repository:
         between the identity record and the mark's removal and then the record moved away; Spec A
         §8.1 gains the mark, with R84's G-8 sentence, and the plan's authority table (j)'s row, at
         the next filings; and Task 17's second pass, the delta review of both rounds, follows.
+        *(The R89 commit files R87 with a sentence the lead added after it: a failed removal of the
+        mark leaves the same store as that stop, and is the same residual, not a refusal; since
+        R89's item 3 it logs one line, with no key or word.)*
+      - **R88.** PLAN's text, brought level with (j), R81 and the gate table *(added by the R89
+        commit)*: the authority table's lead-in and the erase gate's row named (f), (g) and (i)
+        only, four sentences still named the entropy, the (j) row used a letter the legend did not
+        define, and the gate table said that slice 1 changed no `go.mod` and added no layering edge;
+        16 edits in PLAN's source correct them, filed at the next filing.
+      - **R89.** On the delta review, Task 17's second and last fix round *(added by the R89
+        commit)*: no BLOCKER; one MAJOR, found three times, an identity record moved away making the
+        start answer "no identity", so that setup wrote over the live identity's heads and phrase
+        key; seven MINOR and nine NIT. The library makes records that no mark explains an identity
+        that cannot be read, sweeps only records naming the mark's key, and logs a sweep and a
+        failed removal in one line each, with the gates and controls it lists; the app shows the new
+        refusal as its Unreadable step; this repository's specs make A-40 read true, state the
+        preset failure in cgo's rule 1 (G-D5), and name a failed removal in R87's residual; the lead
+        adds D2L-5 to Task 23. No review pass follows.
+      - **R90.** vulncheck's GO-2026-6809 and the toolchain pin *(added by the R89 commit)*: the
+        finding, `crypto/x509` in go1.27.2, fixed in go1.27.3, comes from R6's pin and not from
+        slice 1's code, since the base fails the same way; slice 1 does not move the toolchain, and
+        its library PR says so; the move to go1.27.3 is its own change, in the same three
+        repositories, one writer each, briefed after slice 1's PRs are open; the alpha keeps its
+        go1.27.2 build, and beta is built on the moved pin.
     - **The rows X1 to X14,** SCOPE's departures from M5's identity step, the owner's decisions
       and the first design, as ruled:
       - **X1,** taken: no security delay in I1, so a removal acts at once, with the delay to come
@@ -32700,3 +32729,120 @@ taken; those in the lead's text or the library's are recorded:
 - **F14:** §1 now says why §7.3 and the two rows gain (j).
 
 It cites no run of itself: the next pull request's body cites the runs on its head.
+
+### 2026-10-26 — The lead's R89: Spec A's A-41, and the plan and LRI refiled through R90
+
+**Change:** Spec A gains its row A-41, directed by the lead's ruling R89, its items 1 to 3 and its
+G-D5, at the library's commit for R89, `732d8c1e`. §7.3's (j) says that the heads or the phrase key
+standing with no identity record and no setup mark are an identity that cannot be read, never "no
+identity", and that the sweep takes only records that name the mark's key; its double fault names a
+failed removal of the mark. §9.5's rule 1 says that a kind-answering export presets its failure
+before it defers the guard, and names the library's gate for it. The plan and
+`LEAD-RULINGS-I1.md` are refiled byte for byte from the lead's sources, LRI through R90. Item 298 is
+annotated where it stands. No code changes.
+
+#### 1. Why
+
+- **R89** is Task 17's second and last fix round. Its MAJOR, found three times (D2L-1, L-D1, G-D1):
+  an identity record moved away made the start answer "no identity", the app offered setup, and the
+  making wrote over the live identity's heads and phrase key. A-40 promised that such a record, put
+  back, finds them where they were. Its item 1 has the library refuse instead, and its W-srv line
+  sends three things to this branch while #15 is open:
+  - A-40's promise reads true after item 1;
+  - G-D5: Spec A's cgo rule 1 states the preset failure;
+  - R87's residual names a failed removal as A-40 does (D2L-4).
+- **The lead's directive for this commit:** those lines of Spec A, each taken from the library at
+  `732d8c1e` with its file and line; the plan and LRI copied over their filed copies byte for byte;
+  the other companions left as filed; and this entry.
+- **R90** rules on vulncheck's GO-2026-6809 and is filed with LRI. It changes no line of the specs.
+
+#### 2. The spec
+
+- **Spec A, A-41.** Each line below cites the library at `732d8c1e`, on the fork's `identity/i1`.
+  - **§7.3's (j)** erases the heads and the phrase key only where they name the mark's identity key
+    (`sdk/urmessage/statestore_durable.go:3725-3770`, R89 item 2). A new paragraph says that
+    records no mark explains are an identity that cannot be read: the device starts and makes
+    nothing (`device.go:520-533`; `statestore_durable.go:3669-3697`); `Identity`, every call that
+    needs an identity, `CreateIdentity`, `ConfirmWords` and `Restore` answer
+    `ErrIdentityUnreadable` (`identity.go:113`, `:142`, `:381`, `:412`; `restore.go:212`); and
+    `PutSetupMark` refuses wherever an identity record, a heads record or a phrase key record
+    stands or cannot be proven absent (`statestore_durable.go:3633-3655`). The double fault's first
+    fault is a stop or a failed removal, which leave the same store (`identity.go:335-339`), and
+    the next start removes the mark alone (`device.go:510`; `statestore_durable.go:3745-3746`). The
+    three log lines are named (`device.go:515-519`; `identity.go:337-339`).
+  - **§7.2's `Device.Identity()`** gains the same refusal, held for as long as the device runs
+    (`device.go:251-253`).
+  - **§8.1's setup mark row** gains `PutSetupMark`'s refusal and the sweep's key rule.
+  - **§9.3a** gains `urnet_message_device_identity_state` and its four states, NONE 0, MADE 1,
+    UNREADABLE 2 and FAILED 3 (`sdk/cgo/include/urnetwork_message.h:205-221`;
+    `sdk/cgo/exports_message.go:809-849`), with the header's words on UNREADABLE: the app never
+    offers setup over it (`urnetwork_message.h:209-213`).
+  - **§9.5's rule 1:** every export defers `cgoGuard` at its top, and the guard recovers and logs
+    (sdk's `cgo/handles.go:98-106`, at `b8209d9d`). A kind-answering export names its result and
+    presets its failure before it defers the guard, so a recovered panic answers that failure, never
+    the zero value. The rule names `TestEveryKindAnsweringExportPresetsItsFailure`
+    (`sdk/cgo/gen/exportsource_test.go:252`, its table at `:117-125`, its rules at `:141-202`) in
+    place of `TestEveryExportIsGuarded`, which does not exist. It states identity_state's FAILED as
+    its preset (`exports_message.go:830-832`), and forget_group's UNKNOWN, 4, as a recovered panic's
+    answer, with out_error set (`exports_message.go:1081-1093`, `:1105-1117`). On UNKNOWN the app
+    does not treat the group as left, and reads the group list again
+    (`urnetwork_message.h:193-196`).
+  - **§7.3's `forget_group` comment** gains `_UNKNOWN`, and **§11.2's row** names the gate.
+  - **The change table** gains row A-41.
+- Spec B, Spec C and MASTER do not change.
+
+#### 3. The refiling
+
+- **The sources,** as the lead's folder `i1-lead/identity-phase1` held them at 15:11 UTC
+  on 2026-10-26, copied over the filed copies byte for byte, as the directive says:
+  - the plan, `71e6490a…`, of 1,577 lines, where the filed copy was `55c9b432…`, of 1,575;
+  - LRI, `da9e97dd…`, of 1,034 lines, where the filed copy was `0c2e4151…`, of 968.
+
+  After the copy, each filed file's sha256 equals its source's. The sources now carry the filed
+  copies' legends themselves, so the R87 commit's edit list is not applied.
+- **What changed.** In LRI, 66 lines are added and none removed: R87's sentence on a failed removal,
+  and R88 to R90. In the plan, R88's edits and R89's Task 23 line (D2L-5).
+- **The local paths:** a search of both whole files for a drive-letter path finds none, and its
+  planted control, `E:/t1/message`, fired in the same run.
+- **The other companions,** SCOPE, FOR-OWNER, REDTEAM and REDTEAM-TASK2, are byte for byte the
+  lead's sources, and are not refiled.
+- **R88's "Filed at the next filing, not in #15"** is overtaken by the lead's directive for this
+  commit, which files the plan in #15.
+
+#### 4. The plan linter
+
+The plan changes, and on this commit's tree the linter's nine counts are: the property class 496,
+the plan-supplied-test class 227, the class-deriving property class 74, the task-reference class
+3,825, the open-item-reference class 955, the plan-reference class 2,220, the ledger-reference class
+269, the Consumes-entry class 366 and the qualified-consumed-name class 15. The task-reference class
+moves from the R87 commit's 3,812, by the task references R88's and R89's text adds; the other eight
+do not move. All seven of the linter's tests pass, and no line of its output names the plan.
+
+#### 5. The ledger
+
+- **Item 298, annotated where it stands:**
+  - its heading's notes;
+  - "What the plan is", with the revisions of R88 and R89;
+  - its rulings' bullet's notes;
+  - R87's later sentence, and the sentences of R88 to R90.
+
+#### 6. The gates
+
+Run on the committed history of this entry, under go1.27.2, beside the four siblings at their pins,
+before the push:
+- `go test ./ -count=1 -run 'TestTheEditLogGate|TestThePlanLinter' -v`: the edit-log gate's six
+  tests and the linter's seven pass, and none fails. The gate reads Spec A's newest entry as row
+  A-41, and Spec B's as revision 29 still. Its ledger arm prints 80 of 103, where the R87 commit
+  left 79 of 102.
+- `go test ./ -count=1`, the whole root package: `ok`.
+
+#### 7. What this does not do
+
+- It changes no code, and no word of the lead's text. Every behaviour A-41 states is the library's,
+  at `732d8c1e` on its fork; the app's Unreadable step is W-app's, under R89's W-app item 1, and
+  this spec states only the header's words to the app.
+- No wire byte or derivation label changes.
+- It does not open a pull request: it is a commit on #15's branch, which updates #15.
+
+**Reviewed by:** no subagent. Each file and line cited above was read at `732d8c1e` in this commit's
+session.

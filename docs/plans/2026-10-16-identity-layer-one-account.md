@@ -130,7 +130,7 @@ Each row is a sentence the owner will read that promises something, with the rul
 
 ## New erases, and the authority table (LR R34 item 10, R36)
 
-I1 adds three erase authorities, (f), (g) and (i), a second premise of (f) named (f)P, and new callers of (a). Each new site joins the erase gate (`lib:sdk/urmessage/erasegate_test.go:19-60` [m]) under its label. The table holds whether each label is TRUE of everything it takes.
+I1 adds four erase authorities, (f), (g), (i) and (j), a second premise of (f) named (f)P, and new callers of (a). Each new site joins the erase gate (`lib:sdk/urmessage/erasegate_test.go:19-60` [m]) under its label. The table holds whether each label is TRUE of everything it takes.
 
 **Rows.**
 - **(a)L:** a link group, left when its session ends (Task 23). There is no owner question, since a system group has none.
@@ -152,9 +152,9 @@ I1 adds three erase authorities, (f), (g) and (i), a second premise of (f) named
 | (f)P | T: (1) the record's own identity key and key number are read at the erase, and a moved record erases nothing; (2) the step is read from the identity record's chain, and a chain that cannot be read erases nothing; (4) a stray is skipped; (5) the record and the chain come back together, and are read again. C: (3) and (6), since (f)P writes no mark and adds no file | T: an old key's record put back is erased again at the next start, before it signs anything; an older identity record put back alone is overtaken at Restore by the self group, where the move stands (TR8) | C: the step is signed by the old key, which the server cannot forge; a withheld step erases nothing | A: a stolen phrase device whose app is altered keeps the old key; every tree that holds the step refuses its lists (SCOPE R3) | A: a copy made before the change keeps it, with the same reach (SCOPE R3, R4) | T: as (f): the next start erases it, and a device removed meanwhile shows itself removed only after (P15) |
 | (g) | T: one record, by its own name, on the person's command on this device; a moved record erases nothing, and a stray is skipped | T: a record put back after the removal or the end is never read, because the app has already opened a fresh folder (Task 38) | C: the erase reads nothing from the server | A: a thief who copies the record before removing the device keeps the key; every other device's notice offers the lock-out that retires it (Task 32) | A: SCOPE R4 | T: the act is refused before anything is signed or sent; the device stays a listed phrase device, and the person acts again (Task 30; P15) |
 | (i) | T: (1) the record is read by its own name, and a moved record erases nothing, while the change then cannot be sent, since sending reads it; (2) the void is read from the self group's state at the erase, and a self group that cannot be read erases nothing; (4) a stray is skipped; (5) the record and the self group come back together, and are read again. C: (3) and (6), as for (f)P | T: a void change's record put back is erased again at the next start, before anything is sent, since sending checks the self group first | T: a withheld rival: this device sends, the server refuses its commit for its epoch, and nothing is erased until the rival is seen. A: a self group that the server forks at a change (MG-18) | C: a stolen device without the old words cannot start a change; with them, it is a phrase holder (OD:16) | A: a copy made between the store and the erase keeps a rival step and its key (MG-18) | T: the change stays void and sends nothing, and the next start erases it. If the void is this device's removal, it shows itself removed only after (Task 43; P15) |
-| (j) | T: the mark is read by its own name at the erase, under the store's lock; with no mark nothing is erased, so a moved record erases nothing (the quarantine test); a stray is skipped. R: a stop between the identity record and the mark's removal, then that record moved away, sweeps a live identity (LRI R87, accepted) | T: a record put back finds no mark standing and opens whole | C: the server is not read | C: a stolen device holds no setup in progress | R: a copy taken mid-setup sweeps only its own orphans | T: a held erase leaves the mark, and the next start finishes the sweep |
+| (j) | T: the mark is read by its own name at the erase, under the store's lock; with no mark nothing is erased, so a moved record erases nothing (the quarantine test); a stray is skipped. R: a stop between the identity record and the mark's removal, then that record moved away, sweeps a live identity (LRI R87, accepted) | T: a record put back finds no mark standing and opens whole | C: the server is not read | C: a stolen device holds no setup in progress | A: SCOPE R4, as for (f); started, a copy taken mid-setup sweeps only its own orphans | T: a held erase leaves the mark, and the next start finishes the sweep |
 
-**T** is a test with real moves, holds and denies, named in its task. **C** is a cell that cannot arise, with its reason. **A** is accepted, and filed with its sequence. Each slice's report prints the table whole, and Task 39 holds it.
+**T** is a test with real moves, holds and denies, named in its task. **C** is a cell that cannot arise, with its reason. **A** is accepted, and filed with its sequence. **R** is a residual that a lead ruling accepted, named in its cell. Each slice's report prints the table whole, and Task 39 holds it.
 
 ## How this plan is laid out
 
@@ -269,7 +269,7 @@ A reviewer who wrote neither SCOPE nor this plan answers each prompt with a repr
   - **§5.14:** the link box: the derivations from the code, the card, the deposit, and the five preimages.
   - **§6:** the seam's new methods, by count. **§7.2 and §7.5:** the identity calls, the device calls, and the phrase change's.
   - **§8.1:** store kinds 11 to 13, and the store root's own names. **§9:** the exports.
-  - The erase authorities, with (f), (f)P, (g) and (i) new.
+  - The erase authorities, with (f), (f)P, (g) and (i) new; (j), with store kind 14, followed at A-40 (LRI R86, R87).
 - [ ] **Step 2: the edit-log row and the ledger entry;** a subagent diff review; the commit.
 
 ### Task 5: Spec B for I1 (W-srv)
@@ -597,9 +597,9 @@ Nothing is renumbered or removed.
 - Consumes: Task 12; the probe's 17 steps (`lib:sdk/liveprobe/main.go:222-1387` [m]); SCOPE S3
 - Produces, in `sdk/liveprobe/main.go` and `sdk/livepeer/main.go`: no `-entropy` (dropped by LRI R81: each tool makes its identity as a person does, typing back the words it was shown and keeping them in memory only, and the transcript check holds every party's words as needles); an identity for every probe party; the probe's existing steps under bound key packages; livepeer printing the roster by identity
 
-**Behaviour.** The probe's step 11 drives a member's two devices (`main.go:863` [m]). In slice 1 it keeps the seam member's shape; Task 27 makes the second device a linked one. The transcript check (`main.go:1387` [m]) gains the words and the entropy's digest among what it must never find.
+**Behaviour.** The probe's step 11 drives a member's two devices (`main.go:863` [m]). In slice 1 it keeps the seam member's shape; Task 27 makes the second device a linked one. The transcript check (`main.go:1387` [m]) gains every party's words among what it must never find, as needles: two consecutive words, or half the words (LRI R81, R83).
 
-- **Property 1.** No run prints the words, the entropy, or anything made from them except a SHA-256 digest.
+- **Property 1.** No run prints the words, or anything made from them except a SHA-256 digest.
 
 - [ ] **Step 1: the probe's own test first** (`main_test.go`).
 - [ ] **Step 2: the code, and the README's step count.**
@@ -782,6 +782,7 @@ The owner's session 2 ends this slice (SCOPE §8 steps 4 to 7, and 11). The serv
 - Consumes: Task 22; F1:658-664; SCOPE E5
 - Produces, in `link.go` and `selfgroup.go` (new): the grant and N's identity; N's engine, rebuilt with credential = IRK (`device.go:456-457` builds it once today [m]); N in the self group; the link group, left by both sides under authority (a); the scenario `I1-grant-before-own-match`
 - Also, from slice 1's review (LRI R84, L-2 and L-3): the self group survives a restart before its first add, either because what AddMember needs is persisted, or because the founding can be resumed, with a restart test; and Restore's re-founding fires only on the device that MADE the identity, never on a linked device waiting to join its self group, with a sibling test
+- Also, from the delta review (LRI R89, D2L-5): step 4 is a second making of the identity records. N persists through `putIdentityRecords`' order: the setup mark first (kind 14, authority (j)), then the heads, the identity record last as the commit point (LRI R84, L-1), then the mark removed. The kill test runs over N's writes, and N's making refuses wherever an identity record already stands, as ConfirmWords does (`ErrIdentityUnreadable`, LRI R89 item 1)
 
 **Behaviour.**
 1. After both matches, E signs an addition naming N's key, or a base if E is a phrase device, and commits it to the self group. If a newer base overtakes the addition before that commit lands, E signs it again on that base and commits again (M5 AD2, M5:153 [m]; REDTEAM M5). A base under a later key of the chain is newer (Task 43).
@@ -1249,7 +1250,7 @@ The owner's answer, "No, in phase 1" (LRI R56.1), is this slice. The owner's ses
 2. A2 moves in place in the self group and in the conversation, and B sees one identity, with two devices, before and after.
 3. A list signed under A's old key is refused by every member, and A2 refuses the old words with the old paper's sentence.
 
-The transcript check also refuses the new words and their entropy.
+The transcript check also refuses the new words, as needles (LRI R83).
 
 - **Property 1.** The words passed to or answered by these exports, old and new, are erased before they return, on every path, and no other export or log carries them.
 
@@ -1317,7 +1318,7 @@ This task changes no code and states no property. Its one commit is W-srv's ledg
 | Slice | Steps [c] | What is new |
 |---|---|---|
 | today | 17 | — (LR R44: 17 steps, 1686 assertions, all held at `c7501a19`) |
-| 1 | 17 | every party has an identity made as a person makes one (LRI R81); every key package and group is bound; the transcript check also refuses the words and the entropy |
+| 1 | 17 | every party has an identity made as a person makes one (LRI R81); every key package and group is bound; the transcript check also refuses every party's words, as needles (LRI R83) |
 | 2 | 21 | A's second device, linked through the alpha's link box; the emoji compared in process; fan-out, with a canary; B sees one identity with two devices; step 11's device becomes a linked one |
 | 3 | 24 | A2's eviction of A1, refused by every member; a removal; a lock-out, after which the old key's list is refused |
 | 4 | 27 | A changes its phrase, and its IDs stay; A2 moves, and B sees one identity throughout; the old key's list and the old words are refused |
@@ -1446,17 +1447,18 @@ Every mutant is stated in its task, with the Property it must fail and the test 
 
 | Gate | Where | Touched by | What changes |
 |---|---|---|---|
-| Layering | lib `internal/layering` | 10, 21 | `messagegroup` imports `x/crypto/argon2`, which its row allows. No new edge |
-| The engine interface is exactly its block | lib `messagegroup` | 9, 12 | the seam's new methods, counted in Spec A §6 (Task 4) |
-| Every erase names its authority | lib `erasegate_test.go` | 23, 30, 32, 43 | new sites under (a), (f), (f)P, (g) and (i); the property's text gains identity records |
-| The store's own names | lib `storenames_test.go` | 12 | the store root's names |
-| Key-material censuses | lib `sdk/urmessage`; the phrase-secret census in lib `messagegroup` (LRI R65) | 10, 30 to 33, 43 | the phrase-secret census is new; a change adds the new words and keys to it, and from Task 12 a phrase-secret census in `sdk/urmessage` follows them there (LRI R68) |
-| Crypto imports per file | lib `sdk` | 21, 27, 36, 44 | rows for `rendezvous.go` and the probe |
+| Layering | lib `internal/layering` | 10, 12, 14, 15, 21; the R83 and R84 rounds | `messagegroup` imports `x/crypto/argon2`, which its row allows. `sdk/cp3b` (Task 12) and `sdk/liveprobe` (Task 15) gain `syntax`. A row may name one test file's own allowance, `testFiles` (LRI R83, `fdbded36`), and three rows do, each for a server double's protobuf: `sdk/cgo`'s identity exports test (Task 14), livepeer's test (LRI R84 item 9) and liveprobe's (Task 15) |
+| The engine interface is exactly its block | lib `messagegroup` | 12, 13 | the seam's new methods, counted in Spec A §6 (Task 4): `NewBoundKeyPackage`, `CreateBoundGroup` and `LeafAt` (Task 12), and `CommitOwnLeaf` (Task 13). Task 9 added none |
+| Every erase names its authority | lib `erasegate_test.go` | 23, 30, 32, 43; (j) in the R85 and R86 rounds | new sites under (a), (f), (f)P, (g), (i) and (j); the property's text gains identity records |
+| The store's own names | lib `storenames_test.go` | 12; the R84 and R86 rounds | the store root's names, and the setup mark's, `identity-setup` (kind 14, LRI R86) |
+| Key-material censuses | lib `sdk/urmessage`; the phrase-secret census in lib `messagegroup` (LRI R65) | 10, 12, 30 to 33, 43; the R68 round | the phrase-secret census is new; a change adds the new words and keys to it, and from Task 12 a phrase-secret census in `sdk/urmessage` follows them there (LRI R68). The censuses share one engine (`51bc1a0`, LRI R68). Task 12, with the R68, R76 and R84 rounds, changed the device's key-material gates: the PQ secret's, the wrapped seed's, the seed erase's and the heads' |
+| Crypto imports per file | lib `sdk/message_crypto_scope_test.go` | 12, 15, 21, 27, 36, 44 | `crypto/ed25519` joins the rows of `urmessage/device.go` and `urmessage/statestore_durable.go`, and `urmessage/identity.go` gains a row (Task 12); `crypto/sha256` joins livepeer's row and `crypto/ed25519` liveprobe's (Task 15); later, rows for `rendezvous.go` and the probe |
+| `messagegroup`'s imports and its entropy draws | lib `messagegroup/imports_test.go`, `mls/crypto_test.go`, `mls/framing_guard_test.go` | 10; the R65, R68 and R84 rounds | `messagegroup` may import `crypto/ed25519`, `embed`, `x/crypto/argon2`, `encoding/hex` and `slices`, each with its reason; its one process-entropy draw is `NewRecoveryPhrase`'s (LRI R68 item 6); the phrase's code has scoped rows, never a spelling around a gate (LRI R65) |
 | Kind bands | lib `kind_test.go` | 24 | the self-group kinds |
 | Wire golden; the append-only schema rule | lib `protocol/` | 7 | appended fields only |
 | Native exports | lib `sdk/cgo`, `scripts/native-exports.sh` | 14, 27, 36, 44 | the new exports |
 | The adversary registry | lib `sdk/cp3b` | 8, 13, 22 to 26, 30 to 34, 42, 43 | 17 entries |
-| Module census; the pinned toolchain | lib `test.sh` | none | no `go.mod` changes |
+| Module census; the pinned toolchain | lib `test.sh`, `scripts/module-census.sh`, `scripts/vulncheck.sh` | 12, 14, 15; the R65, R68 and R72 rounds | the toolchain is unchanged. `sdk/cgo/go.mod` and `sdk/cgo/loopback.go.mod` (Task 14), `sdk/livepeer/go.mod` (Task 12) and `sdk/liveprobe/go.mod` (Task 15) require protobuf directly. The NFKD generator's module, `messagegroup/testdata/nfkdgen`, is new, with its census row (LRI R65) and its vulncheck row (the R68 round); a test holds vulncheck's rows (`internal/repository/vulncheck_test.go`, LRI R72) |
 | Dependencies, the migration audit, logging, the plan linter, the edit log | srv | 1, 3 to 5, 18 to 20, 40 | as each task says |
 | `--diagnose`, the copy check, shots | app | 6, 16, 28, 38, 45 | the new screens and their copy |
 

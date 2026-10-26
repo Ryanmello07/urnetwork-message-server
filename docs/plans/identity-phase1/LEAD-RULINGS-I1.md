@@ -960,9 +960,75 @@ The sweep rested on an ABSENCE, the class R33 rejected for group files. The eras
 - alt-2's fresh-clone test.sh and fork-ci 39157812390 are green, with the checkout proven.
 
 **Accepted.** The residual is a double fault: a stop between the identity record and the mark's removal, AND the record then moved away before the next start. It is stated in the commit, and is accepted for I1.
+A failed removal of the mark leaves the same store as that stop, and is the same residual. It is not a refusal: the identity stands, and the next start removes the mark. Since R89 item 3 it logs one line, with no key or word, as A-40 says (LRI R89, D2L-4).
 
 **Specs and PLAN, at the next filings:**
 - Spec A §8.1 gains "identity-setup", kind 14 (W-srv), together with R84's G-8 sentence.
 - PLAN's authority table gains (j)'s row, with the mark as its premise.
 
 W-app re-pins to c6b186cf. Then the delta review (Task 17's second pass): lib ff712506..c6b186cf, and app 418e3e6a..its re-pinned head.
+
+## R88. PLAN's text, brought level with (j), R81 and the gate table (2026-10-18)
+
+**Read:** W-srv's notes on the filing in message-server#15 (`0ce7685d`), and review G-5 (R84).
+- The authority table's lead-in and the erase gate's row named (f), (g) and (i) only, beside a filed (j) row.
+- Four sentences still named entropy, which no tool takes since R81.
+- The (j) row used a letter, R, that the legend did not define.
+- The gate table said slice 1 changed no `go.mod` and added no layering edge. The library at `c6b186cf` (main `03192c2b..c6b186cf`, read commit by commit) says otherwise.
+
+**Done in PLAN's source** (16 edits): four erase authorities; (j) in the erase gate's row and Task 4's list; the legend defines R; the (j) row's copied-store cell reads A (SCOPE R4); the transcript check holds every party's words as needles; the gate table names what slice 1 touched, with a new row for `messagegroup`'s imports and its one entropy draw.
+
+**Filed at the next filing, not in #15.**
+
+## R89. On the delta review (Task 17's second pass; lib `c6b186cf`, app `650fdba5`; workflow wf_4be87b10-224, 2026-10-26)
+
+**Read:** three lenses, each with an adversarial verifier. The run was cut by a usage limit on 2026-10-18 and resumed on 2026-10-26; the L and X lenses ran twice, and both runs are read. No BLOCKER. Every R84 to R87 fix holds as built. No finding above NIT was refuted.
+- **MAJOR (one defect, found three times: D2L-1, L-D1, G-D1; CONFIRMED twice):** an identity record moved away makes the start answer "no identity", the app offers setup, and the making writes over the live identity's heads and phrase key. Put back, that identity never starts again. It predates the rounds, but R86 and A-40 promise this case.
+- **MINOR:** X-D2-1 (with X2-1, G-D3), X-D2-2 (with X2-4), X-D2-3, X-D2-4, X2-2, X2-3, D2L-2 (with G-D2).
+- **NIT:** D2L-3, D2L-4 (with L-D2), D2L-5, X2-5 (with X-D2-5), X2-6, X2-7, X-D2-6, G-D4, G-D5.
+
+This is Task 17's SECOND AND LAST fix round (PLAN: at most two). Tests first, each with its mutant, the mutant being the rejected design.
+
+**W-lib:**
+1. **The MAJOR: records no mark explains are an identity that cannot be read, never "no identity".** At start, a heads record or a phrase-key record that stands with no identity record and no setup mark answers a NAMED refusal (the identity cannot be read), which the app shows as its Unreadable step. ConfirmWords also refuses to write over any heads or phrase-key record it did not write. The quarantine test gains a setup attempt while the record is away; put back, the start is whole. Mutant: the making overwrites them. This is the erase-on-a-mark rule applied to writes: a record we did not write in this making is never replaced.
+2. **D2L-3:** the sweep erases only records that name the mark's key (the phrase key's IdentityKey, the heads' root). A test with a mark of another key.
+3. **D2L-4, L-D2:** a failed mark removal, and a sweep that took something, each log one line with no key or word.
+4. **D2L-2, G-D2:** tests for a held erase (the heads and mark stay, the next start finishes), a stray at the phrase key's name, an identity record whose Lstat fails, and the mark removed last. Mutants M5, M2, M3, MJM.
+5. **X-D2-1, X2-1, G-D3:** G-2's gate judges WRITES of the words, not statement kinds: copy() to a destination that is not the function's own, any channel send, any write through out_error, and any call that takes the words outside an allow-list. Controls COPY-TYPED, COPY-SHOWN, SEND-TYPED, HELPER-TYPED (the helper's body is followed or the call refused), and the out_error leak.
+6. **X-D2-2, X2-4:** the kind gate reads every hand-written export file, as gen does, and refuses any assignment to the named result but the preset and the failure/success answers its own rules allow. Control KIND-LATE-OK.
+7. **X-D2-3:** a recovered panic in forget_group must not read as "not held". Make it distinguishable without an ABI break if you can (for example out_error set), and correct the header. Tell W-app what the app must do.
+8. **X2-5, X-D2-5, X2-6:** liveprobe holds each party's key as a needle when its identity is made; livepeer prints refusals by class or digest. The alpha run uses liveprobe.
+9. **G-D4:** every registry entry prints a RED-report row, a skip included.
+10. The identity.go "once" comments (G-8, lines 20 and 108).
+
+**W-app:**
+1. The app shows the library's new refusal (item 1) as its Unreadable step, never setup, after W-lib lands it; a test.
+2. **X2-3:** wipe the automation-name buffers of the words grid (or name a cell without its word), and wipe identityTyped_ in ForgetLiveWords and on Unreadable.
+3. **X2-2, X-D2-4:** READ-ME-FIRST names the real paths (under `%LOCALAPPDATA%\URmessage\app`), says app_prefs.json is kept, and says the words screens are not kept out of capture in a remote session. The smoke check looks at the real `app\live\state`, with a control.
+4. **X2-7:** the composer's accessible names say "no group yet" while a session is up.
+5. **X-D2-6:** the stale pin comment. Item 7 of W-lib's list, as W-lib says.
+6. Then re-pin to W-lib's head, and the full rig.
+
+**W-srv (specs, a commit on #15 while it is open):** A-40's promise reads true after item 1; G-D5, Spec A's cgo rule 1 states the preset failure; R87's residual names a failed removal as A-40 does.
+
+**The lead:** PLAN Task 23 gains the commit point and the mark for N's making (D2L-5); R87's text names a failed removal.
+
+After this round there is no further review pass. The lead checks each item against its test, its mutant and CI, then Step 3, the alpha.
+
+## R90 (2026-10-26): vulncheck's GO-2026-6809 and the toolchain pin
+
+W-lib's R89 report: the fresh-clone vulncheck at 732d8c1e reports GO-2026-6809, `crypto/x509` in go1.27.2, fixed in go1.27.3. It entered with the vulnerability database of 2026-10-21. The same scan at c6b186cf, before R89, fails the same way, so the finding comes from the pin, not from slice 1's code. The pin is R6's: go1.27.2 in three repositories, the compiler urnetwork/build's all/run.sh required on 2026-10-09.
+
+**Ruling.** Slice 1 does not move the toolchain.
+- The library PR's checks section states the finding, the database date, and that the base fails the same way. It does not claim vulncheck is green.
+- The move to go1.27.3 is its own change, made the way R6 made the last one: the same three repositories, each a branch cut from its upstream main.
+  - Before it starts, read what urnetwork/build's all/run.sh requires today.
+  - One writer per repository: W-lib for the library, W-srv for message-server, W-app for the app.
+  - It is briefed after slice 1's PRs are open.
+- The alpha server keeps its go1.27.2 build through the slice-1 alpha (it is expendable until beta). Beta is built on the moved pin (project_beta_server_security).
+
+**Why.** A toolchain move touches every module and all three writers, and it is not a slice-1 defect. Putting it in slice 1 would reopen the review that R89 closed.
+
+**R89 check (lead, 2026-10-26).**
+- **Library:** identity/i1 is at 732d8c1e, 32 commits on 03192c2b, 300 files changed. Fork CI run 40339238609 is green on all four legs: linux, windows, provenance and linux-newer-go. Its logs show "HEAD is now at 732d8c1" four times.
+- **App:** identity/i1-slice1 is at e89694da. Runs 40333128906, 40336001887, 40334399565, 40333154876, 40333166171 and 40333176069 are green. Red run 40332239791 failed as a tests-first run should.
