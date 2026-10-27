@@ -50,9 +50,10 @@ type rendezvousSubscription struct {
 	// THE COLLECTS THAT HOLD IT (LRI R78, N2). A Collect with subscribe makes the subscription, or finds
 	// it made, before its write, and settles its claim once the write has answered
 	// ([Subscriptions.settleRendezvous]): `claims` counts the Collects that have not settled yet, and
-	// `kept` is whether one of them was answered REASON_OK. It is ended for a Collect whose write did
-	// not take only when no Collect kept it and none is still to settle, so that a Collect that was
-	// told it holds it does not lose it to another's failed write.
+	// `kept` is whether the write of one of them answered REASON_OK. It is the write's answer, not the
+	// Collect's: what the Collect then answers its client is not looked at here (LRI R82). It is ended
+	// for a Collect whose write did not take only when no Collect kept it and none is still to settle,
+	// so that a Collect whose write took does not lose it to another's failed write.
 	claims int
 	kept   bool
 }
@@ -99,7 +100,10 @@ func (self *rendezvousExpiry) Pop() any {
 // rather than joined. One standing under a LATER expiry is a box registered at the id after the box
 // this call was verified against had gone: that box is the one gone, and this call subscribes
 // nothing and ends nothing, answering no subscription and no error. Its write then finds the later
-// box, pinned under keys it was not verified against, and answers REASON_CARD_RETIRED.
+// box. Where that box is pinned under other keys than the ones this call was verified against, the
+// write answers REASON_CARD_RETIRED. Where a client registered the same code with the same keys
+// again after a sweep, the write is acted on, as a Collect of that box, with no subscription made
+// by this call (LRI R82).
 func (self *Subscriptions) subscribeRendezvous(clientId []byte, serverNonce []byte, rendezvousId []byte, expireTime time.Time, now time.Time) (*rendezvousSubscription, bool, error) {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
@@ -149,7 +153,7 @@ func (self *Subscriptions) subscribeRendezvous(clientId []byte, serverNonce []by
 // stands is another Collect's: nothing is settled. Otherwise the claim ends. A Collect that took keeps
 // the subscription; one that did not ends it only when no Collect kept it and none is still to settle,
 // so that the subscription is undone when every Collect that made or found it failed, and never under
-// a Collect that was told it holds it.
+// a Collect whose write took. `taken` is the write's answer, not the Collect's (LRI R82).
 func (self *Subscriptions) settleRendezvous(clientId []byte, serverNonce []byte, rendezvousId []byte, claimed *rendezvousSubscription, taken bool) {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
