@@ -15,10 +15,10 @@
 # pin in a commit of its own.
 # name  url  commit
 #
-# EVERY PIN BUT message IS FETCHED FROM https://github.com/urnetwork/, AND THE SCRIPT LISTS ONE REVIEW
-# SOURCE: the owner's fork of urnetwork/message, where the identity layer's library commits are
-# until its pull request merges (the lead's ruling R69). The message line below is the one pin
-# that uses it, and every mode prints FORK beside it.
+# EVERY PIN IS FETCHED FROM https://github.com/urnetwork/, AND THE SCRIPT LISTS NO REVIEW
+# SOURCE. From 2026-10-16 to 2026-10-27 it listed the owner's fork of urnetwork/message, where the
+# identity layer's library commits were until their pull request merged (the lead's ruling R69),
+# and the message line below was fetched from it.
 #
 # How the list was used before:
 # This module's switch to github.com/urnetwork/message was the fourth of a set that was built and
@@ -62,7 +62,14 @@
 # 48204f2b the files this module builds from differ under message/ alone: rendezvous.go is new,
 # errors.go gains its two sentinels, and doc.go says where it is. protocol/, syntax/, go.mod and
 # go.sum do not differ.
-message https://github.com/Ryanmello07/urmessage.git 48204f2b7f9817a40a630cf2d260ac38810281f1
+#
+# Moved back to urnetwork, as R69 says for a merged pin: to 252573d4, the merge commit of
+# urnetwork/message's pull request 9 on its main, which merged I1's library, the fork's identity/i1
+# at 732d8c1e, with a merge commit. Its tree is 732d8c1e's, and 48204f2b is an ancestor of it.
+# Between 48204f2b and 252573d4 the files this module builds from, under message/, syntax/ and
+# protocol/, do not differ, and neither do that repository's go.mod and go.sum. The fork left the
+# script's review sources in the same commit.
+message https://github.com/urnetwork/message.git 252573d4b2956bc97086860ae5e5e10cd241f795
 #
 # connect: the transport, from AFTER messaging left it. A connect whose protocol package still
 # registers message.proto registers it beside message/protocol's copy, and every test binary that
