@@ -120,6 +120,8 @@ Append-only. Newest last. One entry per commit that changes this spec. Every cha
 | 2026-10-16 | A-37 | **Two notes owed since Spec B's revision 25; ruling 27's stale comments corrected; and the phrase's fold and its in-memory residual stated** (ledger item 301's Open; Task 5's review, its F9 and F10; this edit's review, its F2, F4 and F6; the lead's rulings R66 and R68, R68's from the review of the identity plan's Tasks 8 to 10, its findings L1-2, L1-5, L3-6 and L3-7). §12.1's A-1 block takes ruling 27's names, which Spec B's copy carries and this copy never took, and the block's lead line and a note after it say that the two copies now differ only where each cites a section. Two of ruling 27's comments, stale since 2026-09-23, are corrected in both copies, and `ErrEpochKeysDigestPresence`, which no function on this surface returns, leaves both under A-9's rule. §5.11's paragraph on the two doors says that check 3's serves all six kinds, and its measurement of the stale-peer split is dated. The out-table's row A-18 gains the link box's note, as Spec B's row A-18 has. §7.2 names the phrase's fold, NFKD at Unicode 17.0.0 with white space as Unicode's White_Space property gives it, as MASTER §5.1 now does, and a new §8.4a states what an erase of the phrase's secrets does not reach, measured, which MASTER §5.2 now points to. |
 | 2026-10-16 | A-38 | **The rendezvous's small-order key rule, `RendezvousKeyIsAcceptable`** (the lead's rulings R72 and R73; the identity plan's Task 19, its verify step). Under a public key of small order, `crypto/ed25519` accepts signatures that need no secret, so the library's five rendezvous verifiers refuse such a key, and a key of any width but 32 octets, before any signature, and the library publishes the rule. §5.14 gains the paragraph that says so, and that the server's Register calls it at check 3 on both keys, so that no box is stored under a key no holder could use. §12.1's A-1 block gains `RendezvousKeyIsAcceptable` with its comment, in both copies alike, with a note after the block and one in its lead line, and row A-18 gains its note. No wire byte, record, label or other section of this spec changes. |
 | 2026-10-18 | A-39 | **§2 counts the rendezvous functions as §12.1's A-1 block lists them, and `RendezvousDepositBytes` is marked as exported when kind 0 is served** (the lead's ruling R74, its F14 and its ruling on `RendezvousDepositBytes`; R77). §2's line for `rendezvous.go` said that it holds "§12.1's nine published rendezvous functions", where the block has listed twelve since A-38; it now names the file's five preimages and the block's twelve, the register preimage among both. In both copies of the block, `RendezvousDepositBytes`, the size of kind 0's deposit, is marked as exported when kind 0 is served, since the library leaves it out while no build serves kind 0 (R72), and a note after the block says so; the block's rendezvous section and the library's commit for R72, `48204f2b`, then agree. No wire byte, record, label, rule or other section of this spec changes. |
+| 2026-10-18 | A-40 | **The setup mark in §8.1, with erase authority (j) in §7.3, and the words answered until they are confirmed** (the lead's rulings R84, its G-8, R86 and R87). §8.1's table gains the setup mark, store kind 14, at `state/identity-setup`. `ConfirmWords`, as it makes the identity, writes it first, before the heads and the phrase key, and removes it only after it has written the identity record, last; so the start's sweep, authority (j), erases the heads and the phrase key only where the mark stands and no identity record does, and with no mark erases nothing. The heads' and the phrase key's rows gain (j), and §7.3's list of the erase authorities gains it, with the double fault it leaves, as the library's commit for R86, `c6b186cf`, builds it. §7.2's `Device.CreateIdentity` and §9.3a's `urnet_message_device_create_identity` were said to answer the words "once": they answer the same words until the identity is made, so that Back shows them again, and new ones after a restart, as the library does. No wire byte or derivation label changes, and no section of this spec but §7.2, §7.3, §8.1 and §9.3a. |
+| 2026-10-26 | A-41 | **Records that no setup mark explains are an identity that cannot be read; cgo's rule 1 states the preset failure** (the lead's ruling R89, its items 1 to 3 and its G-D5; the library at `732d8c1e`). §7.3's (j) says that the sweep erases the heads and the phrase key only where they name the mark's key, and that the heads or the phrase key standing with no identity record and no setup mark are an identity that cannot be read, never "no identity": the device starts, `Identity`, `CreateIdentity`, `ConfirmWords` and `Restore` answer `ErrIdentityUnreadable`, and `PutSetupMark` refuses wherever an identity record stands, so a making never writes over records it did not write. Its double fault names a failed removal of the mark as leaving the same store as a stop, and the three log lines. §7.2's `Device.Identity()` and §8.1's setup mark row say so too, and §9.3a gains `urnet_message_device_identity_state` and its four states. §9.5's rule 1 says that a kind-answering export presets its failure before it defers the guard, names the library's gate `TestEveryKindAnsweringExportPresetsItsFailure` in place of `TestEveryExportIsGuarded`, which does not exist, and states `URNET_MESSAGE_IDENTITY_FAILED` and `URNET_MESSAGE_FORGET_UNKNOWN`, with what the app does on UNKNOWN; §7.3's `forget_group` comment and §11.2's row follow it. No wire byte or derivation label changes, and no section of this spec but §7.2, §7.3, §8.1, §9.3a, §9.5 and §11.2. |
 
 ---
 
@@ -3888,7 +3890,10 @@ over nothing.
   stored and so never revealed, and no device restores from it in I1. `IdentitySafetyDigits` and
   `IdentityShortFingerprint` come with IDs and requests (MASTER §15). `RemoveIdentity` is
   `Device.EndIdentity` (§7.5).
-- **`Device.CreateIdentity()`** answers the 25 words once, and makes nothing.
+- **`Device.CreateIdentity()`** answers the 25 words, and makes nothing. It answers the same words
+  at every call until `ConfirmWords` makes the identity, so that Back shows them again, and new ones
+  after a restart, since the words are held in memory only *(A-40, the lead's ruling R84, its G-8;
+  this read "answers the 25 words once")*.
 - **`Device.ConfirmWords(words)`,** with all 25 typed back, makes the identity: key number 1, the
   first base naming this device as a phrase device, the account ID's salt, and the self group,
   founded with 0xF006 `{1, root}`. It stores the identity record, the heads and the phrase key
@@ -3904,7 +3909,11 @@ over nothing.
   number of phrase changes. Until an identity exists, every call that needs one answers
   `ErrNoIdentity`, `Device.KeyPackage` among them; `CreateIdentity`, `ConfirmWords` and
   `OfferLink` do not need one. `Groups` and `Restore` answer conversations only, never a system
-  group.
+  group. *(A-41, the lead's ruling R89, its item 1.)* Where the identity's records stand and no
+  identity record or setup mark explains them (§7.3, (j)), `Identity`, every call that needs an
+  identity, `CreateIdentity`, `ConfirmWords` and `Restore` answer `ErrIdentityUnreadable`, never
+  `ErrNoIdentity`, for as long as the device runs (`sdk/urmessage/device.go:251-253`;
+  `identity.go:113`, `:142`, `:381`, `:412`; `restore.go:212`).
 - **The phrase change** (MASTER §5.5). `Device.ChangePhrase(oldWords)` checks the old words and
   answers the new ones once. `Device.ConfirmNewWords(words)`, with all 25 typed back, stores the
   move before anything is sent: the new identity key, the step, `IskCert(1)` under the new key, and
@@ -4227,8 +4236,9 @@ func (self *MessageClient) AddGroupListener(listener GroupListener) *Sub
 // sdk's (*urmessage.Device).ForgetGroup(groupId) error, refusing with
 // ErrOwnerMustTransfer with nothing changed and answering ErrForgetUnfinished for a leave
 // whose erase is owed, and cgo's urnet_message_device_forget_group, which answers
-// URNET_MESSAGE_FORGET_OK, _REFUSED (nothing changed), _UNFINISHED (left; erase owed) or
-// _FAILED (no such group held).
+// URNET_MESSAGE_FORGET_OK, _REFUSED (nothing changed), _UNFINISHED (left; erase owed),
+// _FAILED (no such group held) or (A-41) _UNKNOWN (a recovered panic: whether the group
+// is still held is not known, so the caller reads the group list again; §9.5, rule 1).
 func (self *MessageClient) TransferOwnership(groupId string, memberId string,
     callback GroupCallback) *MessageSendTicket
 
@@ -4407,7 +4417,7 @@ surface that stands over them.
   erasing what it wrote itself; **(e)** the epoch window. I1 adds callers of (a): **(a)L**, a link
   group, left when its session ends, and **(a)E**, each conversation and the self group, left when
   the person ends the identity on an only device. It adds three authorities, (f), (g) and (i), and a
-  second premise of (f), (f)P:
+  second premise of (f), (f)P *(A-40: and a fourth, (j), below)*:
   - **(f),** the phrase key record, erased when this device holds a verified certificate for a key
     number higher than the record's own; a lock-out's target does it before it shows itself
     removed;
@@ -4419,6 +4429,42 @@ surface that stands over them.
     has succeeded;
   - **(i),** a phrase change's own new key record, erased when the change is void before anything of
     it was sent.
+  - **(j)** *(A-40; A-41)*, a setup's orphans: the heads and the phrase key record, erased at a
+    start only where the setup mark (§8.1) stands, and reads as the store's own, and no identity
+    record does, and each only where it names the identity key the mark names: the phrase key
+    where its record names that key, and the heads where every row's root is that key. A record
+    that names another key, or does not read, stays (the library's
+    `sdk/urmessage/statestore_durable.go:3725-3770`, at `732d8c1e`; the lead's ruling R89, its item
+    2). `ConfirmWords`, as it makes the identity, writes the mark first, and removes it only after
+    it has written the identity record, last (`sdk/urmessage/identity.go:310-341`). So a mark with
+    no identity record is read as a making that stopped before it wrote the identity record; and
+    with no mark nothing is erased, whatever is missing.
+
+    *(A-41, the lead's ruling R89, its item 1.)* **Records that no mark explains are an identity
+    that cannot be read, never "no identity".** Where the heads or the phrase key record stands with
+    no identity record and no setup mark, or a start cannot tell whether the identity record or the
+    mark stands, the device still starts, and makes nothing (`sdk/urmessage/device.go:520-533`;
+    `statestore_durable.go:3669-3697`). `Device.Identity`, every call that needs an identity,
+    `CreateIdentity`, `ConfirmWords` and `Restore` answer `ErrIdentityUnreadable`
+    (`identity.go:113`, `:142`, `:381`, `:412`; `restore.go:212`), and cgo's
+    `urnet_message_device_identity_state` answers `URNET_MESSAGE_IDENTITY_UNREADABLE`, 2, over which
+    the app never offers setup (§9.3a). A making never writes over records it did not write:
+    `PutSetupMark`, which the making calls before it writes anything else, refuses with
+    `ErrIdentityUnreadable` wherever an identity record, a heads record or a phrase key record
+    stands, or cannot be proven absent (`statestore_durable.go:3633-3655`). So an identity record
+    moved away and put back finds its heads and its phrase key where they were, and the next start
+    opens the identity whole.
+
+    Neither removal of the mark itself is an erase under an authority: the mark is the store's note
+    about its own writes, and with it gone (j) erases nothing. One double fault is left, and
+    accepted for I1 (the lead's rulings R86, R87 and R89). Its first fault is a stop between the
+    identity record and the mark's removal, or a removal of the mark that fails, which leaves the
+    same store: the identity stands, and so does its mark (`identity.go:335-339`). The next start
+    removes the mark alone (`device.go:510`; `statestore_durable.go:3745-3746`). The second is the
+    identity record moved away before that start, which then sweeps the live identity's heads and
+    phrase key, since they name the mark's key. A sweep that took something, a sweep that failed,
+    and a failed removal of the mark each log one line, which holds no key or word
+    (`device.go:515-519`; `identity.go:337-339`; the lead's ruling R89, its item 3).
 
   So no device leaves its account holding a phrase secret. The library's erase gate lists every
   site under its label, and the authority table holds each label against every adversary's move.
@@ -5688,8 +5734,9 @@ Redemption is rate-limited at the operator; `"rate_limited"` carries a retry hin
 | **Server-advertised limits, pin state, `capability_version`** | SQLite `server_info` | no (public data), integrity-MAC'd | never; refreshed on `CapabilityChange` |
 | `server_nonce` | memory only | — | reconnect |
 | **The identity record**, store kind 11 (A-36): the root, the chain, the current identity key and the account ID's salt, and its ended mark | `state/identity` | under file permissions only in alpha builds (MASTER **I2**, Revision 10) | never: an ended identity keeps it, marked, and the app opens a fresh folder |
-| **The heads**, store kind 12: for every root seen, the newest list; this device's own-signature log; the remembered phrase-device marks | `state/identity-heads` | as above | never |
-| **The phrase key**, store kind 13: `isk_seed[g]`, naming its identity key and its key number, on a phrase device only | `state/phrase-key` | as above | under authority (f), (f)P, (g) or (i) only (§7.3) |
+| **The heads**, store kind 12: for every root seen, the newest list; this device's own-signature log; the remembered phrase-device marks | `state/identity-heads` | as above | never *(A-40: but under authority (j), where the setup mark stands with no identity record (§7.3))* |
+| **The phrase key**, store kind 13: `isk_seed[g]`, naming its identity key and its key number, on a phrase device only | `state/phrase-key` | as above | under authority (f), (f)P, (g) or (i) only (§7.3) *(A-40: or (j))* |
+| **The setup mark**, store kind 14 (A-40): the identity key it names. `ConfirmWords`, as it makes the identity, writes it first, before the heads and the phrase key, and removes it only after it has written the identity record, last | `state/identity-setup` | as above | by `ConfirmWords`, once the identity record stands; else at a start, by the sweep that carries (j), when it reads as the store's own: alone, beside an identity record that stands, or last, after the heads and the phrase key, where none stands. Neither removal is an erase under an authority: the mark is the store's note about its own writes, and with it gone (j) erases nothing (§7.3). *(A-41: `PutSetupMark` refuses, with `ErrIdentityUnreadable`, wherever an identity record, a heads record or a phrase key record stands, or cannot be proven absent, so a making never writes over records it did not write; and the sweep erases the heads and the phrase key only where they name the mark's key (§7.3; the lead's ruling R89))* |
 
 *(A-36.)* The built store keeps the three records in its data directory, `state/`, beside `device`,
 `priv/`, `kp/` and `group/`, under the names in the table, each defined once (the identity plan's
@@ -5697,7 +5744,9 @@ Task 12, which asks for names and leaves them to this spec). In I1 the
 first three rows of the table are overtaken and kept as designed: the phrase is never stored, so
 there is no entropy and no `phrase_confirmed_at`; no `master_key` child is kept but `isk_seed[g]`, in
 the phrase key's row; and `recovery_root` and `recovery_sig_seed` are not derived (MASTER §5.2,
-Revision 10).
+Revision 10). *(A-40: the store keeps a fourth record there, the setup mark, under its name in the
+table, as the library's commit for the lead's ruling R86, `c6b186cf`, defines it; the lead's
+rulings R86 and R87.)*
 
 Path layout under `MessageClientSettings.StorageDir`:
 
@@ -6085,9 +6134,18 @@ bool     urmsg_client_identity_public_key(uint64_t client, uint8_t* out, int32_t
 `urnet_message_*` exports over `sdk/urmessage` (§7.2, §7.5), and I1 adds 21:
 - **The identity:** `urnet_message_device_identity`, whose JSON holds the account ID, the device
   ID, the devices with their marks, the phrase mark, the notices, the alarm, the number of phrase
-  changes and the removed state; `urnet_message_device_create_identity`, which answers the words
-  once; `urnet_message_device_confirm_words`; and `urnet_message_device_check_word`, which answers
-  whether one typed word is in the list.
+  changes and the removed state; `urnet_message_device_create_identity`, which answers the same
+  words until `urnet_message_device_confirm_words` makes the identity, and new ones after a restart
+  *(A-40; it read "which answers the words once")*; `urnet_message_device_confirm_words`; and
+  `urnet_message_device_check_word`, which answers whether one typed word is in the list.
+  *(A-41, the lead's ruling R89, its item 1.)* The library also exports
+  `urnet_message_device_identity_state`, which a first screen asks before it offers setup. It
+  answers `URNET_MESSAGE_IDENTITY_NONE` 0, `_MADE` 1, `_UNREADABLE` 2 or `_FAILED` 3
+  (`sdk/cgo/include/urnetwork_message.h:205-221`; `sdk/cgo/exports_message.go:809-849`).
+  UNREADABLE is §7.3's identity that cannot be read, with out_error naming the records that stand:
+  the app never offers setup over it, says that the identity could not be read, and asks the person
+  to close the app and open it again (`urnetwork_message.h:209-213`). A recovered panic answers
+  FAILED (§9.5, rule 1).
 - **The link:** `urnet_message_link_offer`, on the new device; `urnet_message_link_enter_code`, on
   the existing one; `urnet_message_link_state`, `urnet_message_link_emoji`,
   `urnet_message_link_confirm` and `urnet_message_link_cancel`.
@@ -6140,9 +6198,28 @@ func (self *cAdapterMessageChanged) MessageChanged(event *sdk.MessageEvent) {
 
 Rules, each of which corresponds to a real failure mode:
 
-1. **Every exported function begins `defer cgoGuard(name)`.** A panic unwinding into C aborts the
-   host process with no stack. The guard logs and returns the zero value. `TestEveryExportIsGuarded`
-   parses `exports_*.go` and fails if any `//export` function's first statement is not the guard.
+1. **Every exported function defers `cgoGuard(name)` at its top.** A panic unwinding into C aborts
+   the host process with no stack. The guard recovers the panic and logs it (sdk's
+   `cgo/handles.go:98-106`), and the export answers what its result then holds, which for an
+   unnamed result is the zero value. *(A-41, the lead's ruling R89, its G-D5. This rule said that
+   every export's first statement is the guard, which returns the zero value, and named a
+   `TestEveryExportIsGuarded`, which does not exist.)* So **a kind-answering export**, whose int32
+   result is a state the caller acts on and whose zero value is a success, **names its result and
+   presets its failure BEFORE it defers the guard**: the preset is its first statement, the guard
+   its second, and the result is written nowhere else. Its answers are its return statements, which
+   a recovered panic never reaches, so a recovered panic answers that failure, never the zero
+   value. The library's source gate in `sdk/cgo/gen`,
+   `TestEveryKindAnsweringExportPresetsItsFailure` (`gen/exportsource_test.go:252`, its table at
+   `:117-125` and its rules at `:141-202`), holds this
+   over every hand-written export file, in which each int32 export is a kind, with its failure, or
+   a count, and nothing else. Two of the kinds answer a failure of their own:
+   `urnet_message_device_identity_state` presets `URNET_MESSAGE_IDENTITY_FAILED`, 3
+   (`exports_message.go:830-832`); and `urnet_message_device_forget_group` presets
+   `URNET_MESSAGE_FORGET_UNKNOWN`, 4, which only a recovered panic answers, with out_error set
+   (`exports_message.go:1081-1093`, `:1105-1117`). On UNKNOWN, whether the group is still held is
+   not known: the app does not treat the group as left and does not drop its handles, and it reads
+   the group list again, or restores, and acts on what that answers
+   (`include/urnetwork_message.h:193-196`).
 2. **Callbacks arrive on an arbitrary Go goroutine, never the UI thread.** Spec C must marshal to the
    dispatcher queue itself. Documented in the header, in the `.hpp` wrapper, and in Spec C §.
 3. **Callbacks may arrive re-entrantly with respect to the call that registered them.**
@@ -6316,7 +6393,7 @@ contents for anything but transport setup and billing display.
 | `TestEngineSwappable` | Gate 5 — the interface has not leaked |
 | `TestProfileIsClosed` | §3.1 — no silent capability expansion |
 | `TestValSem400_PastEpochBound` | bounded past-epoch retention, which OpenMLS does not implement |
-| `TestEveryExportIsGuarded` | no panic unwinds into C |
+| `TestEveryKindAnsweringExportPresetsItsFailure` *(A-41: this row named `TestEveryExportIsGuarded`, which does not exist)* | a recovered panic in a kind-answering export answers its failure, never its zero value (§9.5, rule 1) |
 | `TestCallbackReentrancy` | §9.5 rules 4 and 6 |
 | `TestNoForbiddenCrypto` | `GenerateSharedSecret`, `box.Precompute`, `curve25519.ScalarMult` absent |
 | `TestEntropyFileAcl` | owner-only DACL on Windows |
