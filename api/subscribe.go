@@ -68,28 +68,43 @@ type subscription struct {
 // Subscriptions is §4.3.5's state, held in this process: a single replica's registry, because
 // §2.4's Redis is not built and a second replica would share nothing.
 type Subscriptions struct {
-	maxPerConnection int
+	maxPerConnection           int
+	maxRendezvousPerConnection int
 
 	mutex        sync.Mutex
 	pusher       Pusher
 	byKey        map[subscriptionKey]*subscription
 	byConnection map[string]map[string]bool
 	ready        map[subscriptionKey]bool
-	signal       chan struct{}
-	closed       chan struct{}
-	closeOnce    sync.Once
-	pushed       uint64
-	dropped      uint64
+	// §4.3.11's subscriptions, by box (rendezvous_push.go): each box's subscribers, how many each
+	// connection holds and in all, the boxes in expiry order, and the subscriptions owed a push
+	rendezvousBoxes  map[string]*rendezvousBox
+	rendezvousHeld   map[string]int
+	rendezvousCount  int
+	rendezvousExpiry rendezvousExpiry
+	rendezvousReady  map[rendezvousKey]bool
+	// how many subscriptions the rendezvous calls have visited, which is what a test reads to see
+	// that a call touched its own box's subscribers and no others
+	rendezvousVisited uint64
+	signal            chan struct{}
+	closed            chan struct{}
+	closeOnce         sync.Once
+	pushed            uint64
+	dropped           uint64
 }
 
 func NewSubscriptions() *Subscriptions {
 	self := &Subscriptions{
-		maxPerConnection: DefaultMaxSubscriptionsPerConnection,
-		byKey:            map[subscriptionKey]*subscription{},
-		byConnection:     map[string]map[string]bool{},
-		ready:            map[subscriptionKey]bool{},
-		signal:           make(chan struct{}, 1),
-		closed:           make(chan struct{}),
+		maxPerConnection:           DefaultMaxSubscriptionsPerConnection,
+		maxRendezvousPerConnection: DefaultMaxRendezvousSubscriptionsPerConnection,
+		byKey:                      map[subscriptionKey]*subscription{},
+		byConnection:               map[string]map[string]bool{},
+		ready:                      map[subscriptionKey]bool{},
+		rendezvousBoxes:            map[string]*rendezvousBox{},
+		rendezvousHeld:             map[string]int{},
+		rendezvousReady:            map[rendezvousKey]bool{},
+		signal:                     make(chan struct{}, 1),
+		closed:                     make(chan struct{}),
 	}
 	go self.deliver()
 	return self
@@ -206,6 +221,7 @@ func (self *Subscriptions) deliver() {
 			return
 		case <-self.signal:
 		}
+		self.deliverRendezvous()
 		for {
 			self.mutex.Lock()
 			pusher := self.pusher
@@ -304,7 +320,7 @@ func (self *Handler) Subscribe(ctx context.Context, conn *Connection, request *p
 		return protocol.Reason_REASON_INTERNAL, nil, err
 	}
 	if reason := self.frontChecks(ctx, conn, op); reason != protocol.Reason_REASON_OK {
-		self.pad(started)
+		self.pad(ctx, started)
 		return reason, nil, nil
 	}
 	if self.subscriptions == nil {
@@ -312,7 +328,7 @@ func (self *Handler) Subscribe(ctx context.Context, conn *Connection, request *p
 		return protocol.Reason_REASON_INTERNAL, nil, nil
 	}
 	reject := func() (protocol.Reason, *protocol.SubscribeResponse, error) {
-		self.pad(started)
+		self.pad(ctx, started)
 		return protocol.Reason_REASON_REJECTED, nil, nil
 	}
 	// one group, because one MAC: see the file header

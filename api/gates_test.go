@@ -47,7 +47,9 @@ var secondImplementationExemptions = []struct {
 		reaches:   "crypto/sha256",
 		why: "§6.3's H(ct_head), which the idempotency claim of §6.1 step (0) stores instead of the head itself, " +
 			"because an ephemeral record's head is erased at expiry and a probe that recomputed it would start " +
-			"calling a legitimate retry REASON_STREAM_INDEX_REUSED. Keyless, like the hash above",
+			"calling a legitimate retry REASON_STREAM_INDEX_REUSED. Keyless, like the hash above. And 014's " +
+			"deposit_hash, H(deposit_ct), a link box deposit's idempotency key as Spec A §5.14 defines it, which the " +
+			"store computes so that api hashes nothing (the identity plan's Task 19, LRI R70). Keyless too",
 	},
 }
 

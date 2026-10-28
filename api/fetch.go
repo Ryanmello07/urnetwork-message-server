@@ -67,14 +67,14 @@ func (self *Handler) Fetch(ctx context.Context, conn *Connection, request *proto
 		return protocol.Reason_REASON_INTERNAL, nil, err
 	}
 	if reason := self.frontChecks(ctx, conn, op); reason != protocol.Reason_REASON_OK {
-		self.pad(started)
+		self.pad(ctx, started)
 		return reason, nil, nil
 	}
 
 	pass := &fetchPass{conn: conn, request: request, op: op}
 	for _, current := range self.fetchStages() {
 		if reason := current.run(ctx, pass); reason != protocol.Reason_REASON_OK {
-			self.pad(started)
+			self.pad(ctx, started)
 			return reason, nil, nil
 		}
 	}
@@ -99,7 +99,7 @@ func (self *Handler) Fetch(ctx context.Context, conn *Connection, request *proto
 		// the filter said the group exists and the read key resolved under it, so a store that
 		// now says otherwise is answering about a group that was closed between the two — and
 		// §7.5 makes a closed group answer exactly what an unknown one does
-		self.pad(started)
+		self.pad(ctx, started)
 		return protocol.Reason_REASON_REJECTED, nil, nil
 	}
 
