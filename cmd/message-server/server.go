@@ -18,6 +18,7 @@ import (
 	"github.com/urnetwork/message-server/endpoint"
 	"github.com/urnetwork/message-server/peer"
 	"github.com/urnetwork/message-server/store"
+	"github.com/urnetwork/message-server/sweep"
 	"github.com/urnetwork/message/message"
 	"github.com/urnetwork/message/protocol"
 )
@@ -49,6 +50,10 @@ type server struct {
 
 	// §4.3.5's subscriptions, which the handler registers and the peer pushes to.
 	subscriptions *api.Subscriptions
+
+	// §7.4's five-minute loop, as far as this build has one: the reclaim of §4.3.11's link boxes
+	// over the store above. Built with it, and started last in [newServer].
+	sweep *sweep.Job
 
 	// The server's own TLS endpoint, when message.yml configures one (ledger 268).
 	endpoint         *endpoint.Endpoint
@@ -101,6 +106,18 @@ var (
 	errNoServerId = errors.New("no server_id is configured, and §4.3.1 advertises one in every HelloResponse")
 )
 
+// What a test may put in place of the clock-driven parts of [newServer]'s wiring, and nothing
+// else: the zero value is production, and main passes none.
+//
+// A seam rather than a setting, for the reason peer's ticker is one ([peer.Config.NewTicker]). The
+// sweep's five minutes are a cadence no test can wait for, so without this nothing could see that
+// the server STARTS its job, or that Close stops it before the pool, and a server built without
+// either passed every test (LRI R75, D2 and T9).
+type serverSeams struct {
+	// the sweep job's ticks ([sweep.Config.Ticks]); nil takes the job's own five-minute ticker
+	sweepTicks func(every time.Duration) (<-chan time.Time, func())
+}
+
 // Build every collaborator this process serves with, in dependency order.
 //
 // A failure here is a failure to start. What is NOT a failure to start is a collaborator that is
@@ -109,6 +126,11 @@ var (
 // between the two is: this process cannot serve without a database, and it can run without
 // anything else for long enough to tell somebody why.
 func newServer(ctx context.Context, deploy deployment, loaded configuration, log *slog.Logger) (*server, error) {
+	return buildServer(ctx, deploy, loaded, log, serverSeams{})
+}
+
+// [newServer], with what a test puts in place of its clocks.
+func buildServer(ctx context.Context, deploy deployment, loaded configuration, log *slog.Logger, seams serverSeams) (*server, error) {
 	// A SERVER CONFIGURED NOT TO ATTACH MUST HAVE AN ENDPOINT, or it receives nothing at all: the
 	// platform is the only other carrier there is. Refused at startup and before the pool opens,
 	// because no readiness answer can make that deployment right (spec B Revision 23).
@@ -144,6 +166,11 @@ func newServer(ctx context.Context, deploy deployment, loaded configuration, log
 
 	self.clockSlack = clockSlack
 	self.records = store.NewPgxStore(pool, limitsOf(loaded), keys)
+	self.sweep, err = sweep.New(sweep.Config{LinkBoxes: self.records, Log: log, Ticks: seams.sweepTicks})
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
 
 	connections, err := peer.NewConnections(rand.Reader, time.Now, time.Hour)
 	if err != nil {
@@ -187,6 +214,12 @@ func newServer(ctx context.Context, deploy deployment, loaded configuration, log
 		KnownGroups:   api.NewStoreKnownGroups(self.records),
 		Front:         checks,
 		Subscriptions: self.subscriptions,
+		// §4.5's floor, which every refusal pads to and without which kind 4 is not served
+		RejectFloor: time.Duration(loaded.rejectFloorMs) * time.Millisecond,
+		// §4.3.11's kind 4: the same store keeps the link boxes, in 013 and 014
+		LinkBoxes:      self.records,
+		LinkBoxTtl:     time.Duration(loaded.linkBoxTtlSeconds) * time.Second,
+		LinkBoxLiveCap: uint64(loaded.linkBoxLiveCap),
 	})
 	if err != nil {
 		pool.Close()
@@ -241,6 +274,10 @@ func newServer(ctx context.Context, deploy deployment, loaded configuration, log
 			go self.serveEndpoint()
 		}
 	}
+
+	// the sweep starts last, when nothing after it can fail, so that no failed start leaves it
+	// running over a pool the failure closed
+	self.sweep.Start()
 
 	self.attached = self.attachment.attached
 	self.ready = &readiness{
@@ -309,7 +346,26 @@ func (self *server) capabilities() *protocol.Capabilities {
 		ReadKeyWindowSeconds:       uint32(self.config.readKeyWindowSeconds),
 		EphBucketSeconds:           ephBucketLadder(),
 		SizeBucketBytes:            sizeBucketLadder(),
+		RendezvousDepositSizes:     self.rendezvousDepositSizes(),
+		RendezvousKinds:            self.rendezvousKinds(),
 	}
+}
+
+// §4.3.1's `rendezvous_deposit_sizes` and `rendezvous_kinds` (Capabilities 26 and 29), read off
+// the handler, which is what decides whether kind 4 is served: none, while it is not (§4.3.11),
+// and none from a server that has no handler at all.
+func (self *server) rendezvousDepositSizes() []uint32 {
+	if self.handler == nil {
+		return nil
+	}
+	return self.handler.RendezvousDepositSizes()
+}
+
+func (self *server) rendezvousKinds() uint32 {
+	if self.handler == nil {
+		return 0
+	}
+	return self.handler.RendezvousKinds()
 }
 
 // §4.3.1's `size_bucket_bytes`, walked out of the record layer rather than written down here.
@@ -557,10 +613,38 @@ func (self *server) listen() error {
 	go func() {
 		defer close(self.closed)
 		if err := self.health.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			self.log.Error("the health listener stopped", "error", err.Error())
+			// the class and never the text, which names the address the listener is bound to (LRI
+			// R78, N6; §11.1: "any IP address")
+			self.log.Error("the health listener stopped", "class", listenerErrorClass(err))
 		}
 	}()
 	return nil
+}
+
+// What kind of failure ended a listener, in words that name nothing: §11.1's "error classes without
+// identifiers". A listener's error text names the address it is bound to ("accept tcp
+// 127.0.0.1:9099: …"), and §11.1 forbids "any IP address" in a log line, so a caller that logs the
+// failure logs this, and never the text:
+//   - "closed", for a listener closed beneath its Serve;
+//   - "timeout", for an error that says it is one;
+//   - the failed operation's name, such as "accept", for any other network error;
+//   - "other", for anything else, whose text is not looked at.
+func listenerErrorClass(err error) string {
+	if err == nil {
+		return ""
+	}
+	if errors.Is(err, net.ErrClosed) {
+		return "closed"
+	}
+	var timeout interface{ Timeout() bool }
+	if errors.As(err, &timeout) && timeout.Timeout() {
+		return "timeout"
+	}
+	var operation *net.OpError
+	if errors.As(err, &operation) && operation.Op != "" {
+		return operation.Op
+	}
+	return "other"
 }
 
 // A failed bind, with the value §11.1 forbids taken out of it.
@@ -654,6 +738,10 @@ func (self *server) Close() {
 	self.closeEndpoint()
 	if self.attachment != nil {
 		self.attachment.Close()
+	}
+	// the sweep before the pool: a batch in flight needs a connection, and Close waits for it
+	if self.sweep != nil {
+		self.sweep.Close()
 	}
 	if self.pool != nil {
 		self.pool.Close()

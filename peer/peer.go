@@ -12,6 +12,7 @@ import (
 	connectprotocol "github.com/urnetwork/connect/protocol"
 	"github.com/urnetwork/message-server/api"
 	messageprotocol "github.com/urnetwork/message/protocol"
+	"golang.org/x/sync/semaphore"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
@@ -39,10 +40,38 @@ type Handler interface {
 	Fetch(ctx context.Context, conn *api.Connection, request *messageprotocol.FetchRequest) (messageprotocol.Reason, *messageprotocol.FetchResponse, error)
 	Subscribe(ctx context.Context, conn *api.Connection, request *messageprotocol.SubscribeRequest) (messageprotocol.Reason, *messageprotocol.SubscribeResponse, error)
 	Unsubscribe(ctx context.Context, conn *api.Connection, request *messageprotocol.UnsubscribeRequest) (messageprotocol.Reason, error)
+	RendezvousRegister(ctx context.Context, conn *api.Connection, request *messageprotocol.RendezvousRegisterRequest) (messageprotocol.Reason, *messageprotocol.RendezvousRegisterResponse, error)
+	RendezvousOpen(ctx context.Context, conn *api.Connection, request *messageprotocol.RendezvousOpenRequest) (messageprotocol.Reason, *messageprotocol.RendezvousOpenResponse, error)
+	RendezvousDeposit(ctx context.Context, conn *api.Connection, request *messageprotocol.RendezvousDepositRequest) (messageprotocol.Reason, *messageprotocol.RendezvousDepositResponse, error)
+	RendezvousCollect(ctx context.Context, conn *api.Connection, request *messageprotocol.RendezvousCollectRequest) (messageprotocol.Reason, *messageprotocol.RendezvousCollectResponse, error)
+	RendezvousRetire(ctx context.Context, conn *api.Connection, request *messageprotocol.RendezvousRetireRequest) (messageprotocol.Reason, *messageprotocol.RendezvousRetireResponse, error)
+	// Whether §4.3.11's five arms are served: the route table holds them only when it answers
+	// true (see api.Handler.RendezvousServed)
+	RendezvousServed() bool
 	NotBuilt() []api.NotBuilt
 }
 
 var _ Handler = (*api.Handler)(nil)
+
+// The padded refusals that may wait out their floor at once, by default (LRI R75, T3). At a floor F
+// that is 1024 ÷ F refusals a second before a worker waits, against the 8 ÷ F that held every worker
+// when the pad slept on one: 40,960 a second at 25 ms, where it was 320.
+//
+// Each waiting answer is a goroutine, a timer and the response it will send, and the response is not
+// always a reason and a request_id (LRI R78, N5). A Submit whose envelope is REASON_OK pads its
+// per-record refusals, and its response carries the winning commit with each REASON_COMMIT_LOST:
+// about 64 KiB for one, and up to max_response_bytes in all. By this count alone, 1,024 of them would
+// hold about 67 MB, and up to a GiB, for clients that read nothing. [DefaultMaxDeferredBytes] bounds
+// the same answers by their bytes.
+const DefaultMaxDeferredAnswers = 1024
+
+// The bytes the answers waiting out their floor may hold at once, by default (LRI R78, N5). Each is
+// counted at its encoded size: an answer past max_response_bytes at the size of the REASON_OVERSIZE it
+// is sent as, and one larger than the whole budget at the budget. Past it a worker waits for waiting
+// answers to be sent before it defers another, exactly as past [DefaultMaxDeferredAnswers], and the
+// floor is not cut short. 8 MiB holds 1,024 refusals' answers many times over, and 128 that each carry
+// a 64 KiB winning commit.
+const DefaultMaxDeferredBytes = 8 << 20
 
 // How long a worker waits for connect's send path to take a response frame.
 //
@@ -118,6 +147,17 @@ type Config struct {
 	Workers    int
 	QueueDepth int
 
+	// How many padded refusals may wait out the rest of their floor at once, each on a timer of its
+	// own and off the worker pool ([Peer.answerLater]). Zero takes [DefaultMaxDeferredAnswers]. Past
+	// it, a worker waits for one to be sent before it defers another: the floor is never cut short,
+	// and the wait is the backpressure the queue already applies.
+	MaxDeferredAnswers int
+
+	// How many bytes those waiting answers may hold at once, each counted at its encoded size. Zero
+	// takes [DefaultMaxDeferredBytes]. Past it, as past MaxDeferredAnswers, a worker waits for
+	// waiting answers to be sent before it defers another (LRI R78, N5).
+	MaxDeferredBytes int
+
 	// The idle bound of §4.6's reassembly state, and the one [Connections] has no section for.
 	// Zero on the first takes §4.6's 30 seconds; zero on the second disables the connection
 	// sweep, which [Peer.NotBuilt] then declares.
@@ -189,8 +229,12 @@ type Peer struct {
 	unsubscribe func()
 	jobs        chan job
 	refusals    chan refusal
-	workers     sync.WaitGroup
-	closed      sync.Once
+	// a slot for each padded refusal waiting out its floor, and the bytes they hold: [Peer.answerLater]
+	deferred         chan struct{}
+	deferredBytes    *semaphore.Weighted
+	maxDeferredBytes int64
+	workers          sync.WaitGroup
+	closed           sync.Once
 
 	stats stats
 }
@@ -235,6 +279,7 @@ type stats struct {
 	refusalsDropped atomic.Uint64
 	pushesSent      atomic.Uint64
 	pushesRefused   atomic.Uint64
+	answersDeferred atomic.Uint64
 }
 
 // The aggregate counters of §11.3's shape: no identifier, no label, nothing a client chose.
@@ -254,6 +299,9 @@ type Stats struct {
 	// been replaced, which drops the subscription that asked for them.
 	PushesSent    uint64
 	PushesRefused uint64
+
+	// The padded refusals whose answers waited out their floor off the worker pool.
+	AnswersDeferred uint64
 }
 
 func New(config Config) (*Peer, error) {
@@ -346,6 +394,16 @@ func New(config Config) (*Peer, error) {
 	}
 	self.jobs = make(chan job, queueDepth)
 	self.refusals = make(chan refusal, queueDepth)
+	maxDeferred := config.MaxDeferredAnswers
+	if maxDeferred <= 0 {
+		maxDeferred = DefaultMaxDeferredAnswers
+	}
+	self.deferred = make(chan struct{}, maxDeferred)
+	self.maxDeferredBytes = int64(config.MaxDeferredBytes)
+	if self.maxDeferredBytes <= 0 {
+		self.maxDeferredBytes = DefaultMaxDeferredBytes
+	}
+	self.deferredBytes = semaphore.NewWeighted(self.maxDeferredBytes)
 	self.ctx, self.cancel = context.WithCancel(config.Client.Ctx())
 	for range workers {
 		self.workers.Add(1)
@@ -388,6 +446,7 @@ func (self *Peer) Stats() Stats {
 		RefusalsDropped: self.stats.refusalsDropped.Load(),
 		PushesSent:      self.stats.pushesSent.Load(),
 		PushesRefused:   self.stats.pushesRefused.Load(),
+		AnswersDeferred: self.stats.answersDeferred.Load(),
 	}
 }
 
@@ -747,9 +806,65 @@ func (self *Peer) work() {
 			return
 		case current := <-self.jobs:
 			self.stats.requestsServed.Add(1)
-			self.send(current.arrived.clientId, self.answer(self.ctx, current.arrived, current.request))
+			// a handler that pads a refusal leaves the rest of its floor here rather than sleeping
+			// it on this worker (api.Deferral)
+			deferral := &api.Deferral{}
+			response := self.answer(api.WithDeferral(self.ctx, deferral), current.arrived, current.request)
+			if wait, deferred := deferral.Remaining(); deferred && 0 < wait {
+				self.answerLater(current.arrived.clientId, response, wait)
+				continue
+			}
+			self.send(current.arrived.clientId, response)
 		}
 	}
+}
+
+// A padded refusal's answer, sent once the rest of its floor has passed, from a goroutine of its
+// own rather than from the worker that decided it (§4.5; LRI R75, T3).
+//
+// The handler returns at once with what its floor still asks for (api.Deferral), and the worker
+// goes back to the queue: a refusal no longer holds one of [Config.Workers] for the floor, which
+// held every worker at eight refusals in flight, and with §5.1 check 4 not built let one client
+// sending eight a floor stall every request on the server. The answer waits that rest from the moment
+// it is deferred, so it goes at least the floor after the handler started, and never before; one that
+// first waited for room, below, waits its whole rest from when it got it, and so goes later still.
+//
+// Each waiting answer holds one of [Config.MaxDeferredAnswers] slots, and as many of
+// [Config.MaxDeferredBytes] bytes as its encoded size, until its send is done, and that is what
+// bounds them: past either, a worker waits here for room, which is the queue's own backpressure, and
+// the floor is still not cut short. The bytes are the response's, after the one change [Peer.send]
+// would make to it, an answer past max_response_bytes becoming its REASON_OVERSIZE; an answer larger
+// than the whole budget is counted at the budget, so that it waits for the others rather than for
+// ever (LRI R78, N5). The send is [Peer.send], bounded by [Config.SendTimeout] as a worker's is, so a
+// client that reads nothing holds its room rather than a worker for it. [Peer.Close] ends every wait,
+// and an answer still waiting then is not sent, as a worker's sleeping one could not have been.
+func (self *Peer) answerLater(clientId connect.Id, response *messageprotocol.MessageServerResponse, wait time.Duration) {
+	select {
+	case self.deferred <- struct{}{}:
+	case <-self.ctx.Done():
+		return
+	}
+	response = self.bounded(response)
+	held := min(int64(proto.Size(response)), self.maxDeferredBytes)
+	if err := self.deferredBytes.Acquire(self.ctx, held); err != nil {
+		<-self.deferred
+		return
+	}
+	self.stats.answersDeferred.Add(1)
+	// the worker that calls this is counted, so the count is above zero and Close's Wait may run
+	self.workers.Add(1)
+	go func() {
+		defer self.workers.Done()
+		defer func() { <-self.deferred }()
+		defer self.deferredBytes.Release(held)
+		timer := time.NewTimer(wait)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+			self.send(clientId, response)
+		case <-self.ctx.Done():
+		}
+	}()
 }
 
 // ── the dispatch ─────────────────────────────────────────────────────────────────────────
@@ -828,7 +943,7 @@ func (self *Peer) answer(ctx context.Context, arrived *inbound, request *message
 // answer REASON_INTERNAL on both instead of quietly serving one arm's request with the other
 // arm's handler, which is a bug that reads as a passing test.
 func (self *Peer) buildRoutes() map[protoreflect.FullName]route {
-	return map[protoreflect.FullName]route{
+	routes := map[protoreflect.FullName]route{
 		nameOf(&messageprotocol.HelloRequest{}): {
 			name:     "hello",
 			pipeline: false,
@@ -919,6 +1034,97 @@ func (self *Peer) buildRoutes() map[protoreflect.FullName]route {
 			},
 		},
 	}
+	// §4.3.11's five arms, routed only when the handler serves them: a link box store and a
+	// reject floor above zero (api.Handler.RendezvousServed). An arm
+	// left out is one [Peer.unservedArms] derives and answers REASON_INTERNAL, which is how
+	// Spec B §4.3.11 says a server that does not serve kind 4 answers it
+	if self.handler.RendezvousServed() {
+		for arm, served := range self.rendezvousRoutes() {
+			routes[arm] = served
+		}
+	}
+	return routes
+}
+
+// The five rendezvous arms, each to its handler.
+func (self *Peer) rendezvousRoutes() map[protoreflect.FullName]route {
+	return map[protoreflect.FullName]route{
+		nameOf(&messageprotocol.RendezvousRegisterRequest{}): {
+			name:     "rendezvous_register",
+			pipeline: true,
+			run: func(ctx context.Context, arrived *inbound, body proto.Message) (messageprotocol.Reason, proto.Message, error) {
+				request, ok := body.(*messageprotocol.RendezvousRegisterRequest)
+				if !ok {
+					return messageprotocol.Reason_REASON_INTERNAL, nil, ErrWrongArm
+				}
+				reason, answered, err := self.handler.RendezvousRegister(ctx, arrived.connection.ApiConnection(), request)
+				if answered == nil {
+					return reason, nil, err
+				}
+				return reason, answered, err
+			},
+		},
+		nameOf(&messageprotocol.RendezvousOpenRequest{}): {
+			name:     "rendezvous_open",
+			pipeline: true,
+			run: func(ctx context.Context, arrived *inbound, body proto.Message) (messageprotocol.Reason, proto.Message, error) {
+				request, ok := body.(*messageprotocol.RendezvousOpenRequest)
+				if !ok {
+					return messageprotocol.Reason_REASON_INTERNAL, nil, ErrWrongArm
+				}
+				reason, answered, err := self.handler.RendezvousOpen(ctx, arrived.connection.ApiConnection(), request)
+				if answered == nil {
+					return reason, nil, err
+				}
+				return reason, answered, err
+			},
+		},
+		nameOf(&messageprotocol.RendezvousDepositRequest{}): {
+			name:     "rendezvous_deposit",
+			pipeline: true,
+			run: func(ctx context.Context, arrived *inbound, body proto.Message) (messageprotocol.Reason, proto.Message, error) {
+				request, ok := body.(*messageprotocol.RendezvousDepositRequest)
+				if !ok {
+					return messageprotocol.Reason_REASON_INTERNAL, nil, ErrWrongArm
+				}
+				reason, answered, err := self.handler.RendezvousDeposit(ctx, arrived.connection.ApiConnection(), request)
+				if answered == nil {
+					return reason, nil, err
+				}
+				return reason, answered, err
+			},
+		},
+		nameOf(&messageprotocol.RendezvousCollectRequest{}): {
+			name:     "rendezvous_collect",
+			pipeline: true,
+			run: func(ctx context.Context, arrived *inbound, body proto.Message) (messageprotocol.Reason, proto.Message, error) {
+				request, ok := body.(*messageprotocol.RendezvousCollectRequest)
+				if !ok {
+					return messageprotocol.Reason_REASON_INTERNAL, nil, ErrWrongArm
+				}
+				reason, answered, err := self.handler.RendezvousCollect(ctx, arrived.connection.ApiConnection(), request)
+				if answered == nil {
+					return reason, nil, err
+				}
+				return reason, answered, err
+			},
+		},
+		nameOf(&messageprotocol.RendezvousRetireRequest{}): {
+			name:     "rendezvous_retire",
+			pipeline: true,
+			run: func(ctx context.Context, arrived *inbound, body proto.Message) (messageprotocol.Reason, proto.Message, error) {
+				request, ok := body.(*messageprotocol.RendezvousRetireRequest)
+				if !ok {
+					return messageprotocol.Reason_REASON_INTERNAL, nil, ErrWrongArm
+				}
+				reason, answered, err := self.handler.RendezvousRetire(ctx, arrived.connection.ApiConnection(), request)
+				if answered == nil {
+					return reason, nil, err
+				}
+				return reason, answered, err
+			},
+		},
+	}
 }
 
 // ── the push path ────────────────────────────────────────────────────────────────────────
@@ -958,16 +1164,9 @@ var _ api.Pusher = (*Peer)(nil)
 
 // One response, on its way back to the client that asked.
 //
-// §4.3.1's `max_response_bytes` binds here: a response past it is replaced by the refusal
-// REASON_OVERSIZE carrying the same `request_id`, because a response the transport will not
-// carry is a request the client never hears about at all.
+// §4.3.1's `max_response_bytes` binds here ([Peer.bounded]).
 func (self *Peer) send(clientId connect.Id, response *messageprotocol.MessageServerResponse) {
-	if self.maxResponseBytes < proto.Size(response) {
-		response = &messageprotocol.MessageServerResponse{
-			RequestId: response.GetRequestId(),
-			Reason:    messageprotocol.Reason_REASON_OVERSIZE,
-		}
-	}
+	response = self.bounded(response)
 	frames, err := responseFrames(response, self.fragmentPartBytes)
 	if err != nil {
 		self.stats.responsesFailed.Add(1)
@@ -998,6 +1197,20 @@ func (self *Peer) acked(err error) {
 	if err != nil {
 		self.stats.responsesFailed.Add(1)
 	}
+}
+
+// A response as it may travel. A response past §4.3.1's `max_response_bytes` is replaced by the
+// refusal REASON_OVERSIZE carrying the same `request_id`, because a response the transport will not
+// carry is a request the client never hears about at all. [Peer.answerLater] makes the change before
+// an answer waits, so that a waiting answer holds no more than it will send.
+func (self *Peer) bounded(response *messageprotocol.MessageServerResponse) *messageprotocol.MessageServerResponse {
+	if self.maxResponseBytes < proto.Size(response) {
+		return &messageprotocol.MessageServerResponse{
+			RequestId: response.GetRequestId(),
+			Reason:    messageprotocol.Reason_REASON_OVERSIZE,
+		}
+	}
+	return response
 }
 
 // ── the descriptor, read rather than written down ────────────────────────────────────────

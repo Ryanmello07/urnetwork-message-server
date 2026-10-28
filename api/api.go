@@ -23,6 +23,11 @@ var (
 	ErrNoFrontChecks = errors.New("api: §5.1 checks 1, 2 and 4 have an owner or they are skipped silently; pass ChecksNotImplemented to say so out loud")
 	ErrNoConnection  = errors.New("api: §5.1 check 2 reads the server_nonce from the connection and never from the request, so there has to be a connection")
 	ErrNoOpForBody   = errors.New("api: the request body is not an arm of MessageServerRequest.body, so §4.3.8 gives it no op byte")
+
+	// §4.5's floor is a length of time, and none is below zero: a negative floor would serve the
+	// kind-4 arms with no padding at all, under a predicate that only asked whether it was zero
+	// (LRI R75, T8)
+	ErrNegativeRejectFloor = errors.New("api: the reject floor is negative, and §4.5's floor is a length of time")
 )
 
 // §5.1 check 3's head cap, which the spec names and never gives a number to (see the note in
@@ -372,7 +377,9 @@ type Config struct {
 	// §4.5's fixed latency floor on the reject path, which is the third of the three things a
 	// merged REASON_REJECTED has to keep identical — the same code, the same response size, and
 	// the same timing envelope. Zero pads nothing, which is honest about a floor nobody
-	// configured rather than a floor of zero pretending to be one.
+	// configured rather than a floor of zero pretending to be one. Below zero is refused by [New]:
+	// a length of time is not negative, and every predicate that reads the floor reads one that is
+	// as one that is zero.
 	RejectFloor time.Duration
 
 	// Injectable so that the pad is observable without a test that sleeps. Both default to the
@@ -383,6 +390,14 @@ type Config struct {
 	// §4.3.5's subscription registry (subscribe.go). Nil serves no Subscribe and pushes nothing,
 	// and [Handler.NotBuilt] says so.
 	Subscriptions *Subscriptions
+
+	// §4.3.11's kind 4, the link box (rendezvous.go). Nil serves no rendezvous arm, and
+	// [Handler.NotBuilt] says so.
+	LinkBoxes store.LinkBoxes
+
+	// §10.2's `link_box_ttl_seconds` and `link_box_live_cap`. Zero takes the defaults.
+	LinkBoxTtl     time.Duration
+	LinkBoxLiveCap uint64
 }
 
 // The request handlers of §4.3, with the check order of §5.1 in front of them.
@@ -400,6 +415,10 @@ type Handler struct {
 	sleep       func(time.Duration)
 
 	subscriptions *Subscriptions
+
+	linkBoxes      store.LinkBoxes
+	linkBoxTtl     time.Duration
+	linkBoxLiveCap uint64
 }
 
 func New(config Config) (*Handler, error) {
@@ -412,6 +431,9 @@ func New(config Config) (*Handler, error) {
 	if config.Front == nil {
 		return nil, ErrNoFrontChecks
 	}
+	if config.RejectFloor < 0 {
+		return nil, ErrNegativeRejectFloor
+	}
 	handler := &Handler{
 		store:               config.Store,
 		knownGroups:         config.KnownGroups,
@@ -423,6 +445,9 @@ func New(config Config) (*Handler, error) {
 		now:                 config.Now,
 		sleep:               config.Sleep,
 		subscriptions:       config.Subscriptions,
+		linkBoxes:           config.LinkBoxes,
+		linkBoxTtl:          config.LinkBoxTtl,
+		linkBoxLiveCap:      config.LinkBoxLiveCap,
 	}
 	if handler.maxCtHeadBytes == 0 {
 		handler.maxCtHeadBytes = DefaultMaxCtHeadBytes
@@ -432,6 +457,12 @@ func New(config Config) (*Handler, error) {
 	}
 	if handler.maxRecordsPerFetch == 0 {
 		handler.maxRecordsPerFetch = DefaultMaxRecordsPerFetch
+	}
+	if handler.linkBoxTtl == 0 {
+		handler.linkBoxTtl = DefaultLinkBoxTtl
+	}
+	if handler.linkBoxLiveCap == 0 {
+		handler.linkBoxLiveCap = DefaultLinkBoxLiveCap
 	}
 	if handler.now == nil {
 		handler.now = time.Now
@@ -461,14 +492,18 @@ func (self *Handler) NotBuilt() []NotBuilt {
 	// list that claimed to be complete.
 	notBuilt = append(notBuilt, self.knownGroups.NotBuilt()...)
 	notBuilt = append(notBuilt, unbuiltCapabilities...)
-	if self.rejectFloor == 0 {
+	if self.rejectFloor <= 0 {
 		notBuilt = append(notBuilt, unpaddedRejectPath)
+	} else {
+		notBuilt = append(notBuilt, uncountedPadOverrun)
 	}
 	if self.subscriptions == nil {
 		notBuilt = append(notBuilt, unservedSubscribe)
 	} else {
 		notBuilt = append(notBuilt, notificationOnlyPush)
 	}
+	// §4.3.11's five arms: what they are not served for, or what the served arms run without
+	notBuilt = append(notBuilt, self.rendezvousNotBuilt()...)
 	return notBuilt
 }
 
@@ -500,6 +535,20 @@ var unpaddedRejectPath = NotBuilt{
 	Section: "§4.5",
 	What:    "the reject path's fixed latency floor: Config.RejectFloor is zero, so every refusal answers as fast as its own path allows and the timing envelope of a merged REASON_REJECTED is not held",
 	Owner:   "the operator's configuration",
+}
+
+// §4.5's floor, when one is set, and what nothing in this build watches about it (LRI R75, S-5).
+//
+// The pad is the floor less the time the refusal's own path took, and a path that took longer is
+// answered when it ends: the floor then hides nothing about that path's time. §4.3.11 asks the
+// floor to be at least the slowest refusal path as measured where the server is deployed, and a
+// floor measured on an idle box is overrun on a loaded one, by the paths that read a box that
+// exists, which is the difference the floor is there to hide. Counting overruns needs the metrics
+// package, which has no code (LRI R73), so until it does the gap is named here.
+var uncountedPadOverrun = NotBuilt{
+	Section: "§4.5, §4.3.11",
+	What:    "a refusal whose own path outlasts the reject floor is answered when its path ends, so the floor no longer hides that path's time, and nothing counts or reports such an overrun: there is no metrics package to count it in",
+	Owner:   "metrics",
 }
 
 // What this layer refuses, or omits, rather than half-serving.
@@ -564,9 +613,47 @@ func opOf(body proto.Message) (uint8, error) {
 //
 // The sleep is injectable so that a test can observe that every refusing path pads, and pads to
 // the same floor, without measuring wall clock and flaking.
-func (self *Handler) pad(started time.Time) {
-	if self.rejectFloor == 0 {
+//
+// THE PAD HOLDS NONE OF ITS CALLER'S GOROUTINES WHEN THE CALLER CAN ANSWER LATER (LRI R75, T3).
+// A caller that hands the handler a [Deferral] in its context is told the rest of the floor and
+// sends the answer when it has passed; the handler returns at once. The peer is that caller, and
+// sends a deferred answer from a timer off its worker pool, so that a refusal no longer holds one
+// of its few workers for the floor: eight refusals in flight held all eight of them, and with
+// §5.1 check 4 not built one client sending eight a floor stalled every request on the server. A
+// caller that hands no Deferral, a test or anything that answers on its own goroutine, is slept
+// the same rest, so that no path answers a refusal before its floor.
+func (self *Handler) pad(ctx context.Context, started time.Time) {
+	if self.rejectFloor <= 0 {
 		return
 	}
-	self.sleep(self.rejectFloor - self.now().Sub(started))
+	remaining := self.rejectFloor - self.now().Sub(started)
+	if deferral, deferring := ctx.Value(deferralKey{}).(*Deferral); deferring && deferral != nil {
+		deferral.remaining, deferral.deferred = remaining, true
+		return
+	}
+	self.sleep(remaining)
+}
+
+// Where a padded refusal leaves the rest of its floor for a caller that answers it later: how long
+// the answer must still wait, as of the handler's return. The caller turns that into a not-before
+// time on its own clock the moment the handler returns, and sends the answer no earlier, so that
+// the answer is sent at least the floor after the handler started, whatever the clock the handler
+// measured it on. A handler answers one request at a time on the goroutine that called it, so a
+// Deferral needs no lock: it is written before the handler returns, and read after.
+type Deferral struct {
+	remaining time.Duration
+	deferred  bool
+}
+
+// How long the answer must still wait, as of the handler's return, and whether the handler padded
+// it at all. A rest at or below zero is a path that outlasted the floor, and is due at once.
+func (self *Deferral) Remaining() (time.Duration, bool) {
+	return self.remaining, self.deferred
+}
+
+type deferralKey struct{}
+
+// A context in which a padded refusal is deferred into `deferral` rather than slept.
+func WithDeferral(ctx context.Context, deferral *Deferral) context.Context {
+	return context.WithValue(ctx, deferralKey{}, deferral)
 }

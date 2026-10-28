@@ -5,7 +5,9 @@ import (
 	"context"
 	"log/slog"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 // §11.1, at the one place in this module that writes a log line.
@@ -101,4 +103,132 @@ func mustHex(t *testing.T, value string) []byte {
 		t.Fatalf("decoding the test KEK: %v", err)
 	}
 	return decoded
+}
+
+// THE SWEEP'S LOG LINES JOIN THE GATE (LRI R75, D1; Spec B §11.1: "any IP address"). The server's
+// own sweep job, built by newServer over a pool whose database cannot be reached, is ticked once
+// through newServer's seam. Its failure line, in the log newServer was handed, carries the error's
+// class, `connect`, and the pass's totals, and carries nothing of the database: not the DSN's user,
+// password or database, and no address. The line's text used to be pgx's, which names the user, the
+// database, and the address and host it dialled. The control is the same search over a line planted
+// in the same capture, which finds what it planted.
+func TestTheSweepsFailureLineNamesNothingOfTheDatabase(t *testing.T) {
+	const dsn = "postgres://planted-user:planted-password@127.0.0.1:1/planted-db?sslmode=disable&connect_timeout=2"
+	written := &bytes.Buffer{}
+	var mutex sync.Mutex
+	writer := lockedWriter{buffer: written, mutex: &mutex}
+	log := slog.New(slog.NewTextHandler(writer, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	read := func() string {
+		mutex.Lock()
+		defer mutex.Unlock()
+		return written.String()
+	}
+
+	loaded := defaultConfiguration()
+	loaded.operatorHost = "ur.network"
+	loaded.hostingJurisdiction = "US"
+	ticks := make(chan time.Time)
+	built, err := buildServer(context.Background(), deployment{
+		ordinal:       "0",
+		healthAddress: "127.0.0.1:0",
+		dsn:           dsn,
+		kek:           make([]byte, kekBytes),
+		serverId:      make([]byte, serverIdBytes),
+	}, loaded, log, serverSeams{sweepTicks: func(time.Duration) (<-chan time.Time, func()) { return ticks, func() {} }})
+	if err != nil {
+		t.Fatalf("newServer: %v", err)
+	}
+	defer built.Close()
+	select {
+	case ticks <- time.Now():
+	case <-time.After(5 * time.Second):
+		t.Fatal("the server's sweep job took no tick: newServer did not start it")
+	}
+
+	const failed = `msg="the link box sweep failed"`
+	deadline := time.Now().Add(30 * time.Second)
+	for !strings.Contains(read(), failed) {
+		if time.Now().After(deadline) {
+			t.Fatalf("the sweep logged no failure in 30 s over an unreachable database:\n%s", read())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	line := ""
+	for _, candidate := range strings.Split(read(), "\n") {
+		if strings.Contains(candidate, failed) {
+			line = candidate
+		}
+	}
+	if !strings.Contains(line, "class=connect ") || !strings.Contains(line, "batches=0 boxes=0 deposits=0") {
+		t.Fatalf("the sweep's failure line carries no class=connect and totals: %s", line)
+	}
+	needles := []string{"planted-user", "planted-password", "planted-db"}
+	search := func(haystack string) []string {
+		found := []string{}
+		for _, needle := range needles {
+			if strings.Contains(haystack, needle) {
+				found = append(found, needle)
+			}
+		}
+		return found
+	}
+	if found := search(read()); len(found) != 0 {
+		t.Fatalf("a log line names %v:\n%s", found, read())
+	}
+	// no address in the failure line: the dialled one, or any other
+	if strings.Contains(line, "127.0.0.1") || strings.Contains(line, "dial") {
+		t.Fatalf("the sweep's failure line names the address it dialled: %s", line)
+	}
+	t.Logf("%s", line)
+
+	// THE CONTROL: the same search finds each value in a line that plants it
+	for _, needle := range needles {
+		if found := search("level=WARN msg=control value=" + needle); len(found) != 1 || found[0] != needle {
+			t.Fatalf("the control planted %s and the search found %v", needle, found)
+		}
+	}
+}
+
+// THE HEALTH LISTENER'S FAILURE LINE NAMES NO ADDRESS (LRI R78, N6; Spec B §11.1: "any IP address").
+// The health listener, bound on 127.0.0.1, is closed beneath its Serve, as an accept error would end
+// it. The line that says it stopped carries the error's class, `closed`, and not the error's text,
+// which names the address the listener was bound to: "accept tcp 127.0.0.1:…: use of closed network
+// connection". HEALTH-ERRTEXT, the text logged as it was, is killed here. The control is the same
+// search over a line planted with the address, which finds it.
+func TestTheHealthListenersFailureLineNamesNoAddress(t *testing.T) {
+	written := &bytes.Buffer{}
+	var mutex sync.Mutex
+	log := slog.New(slog.NewTextHandler(lockedWriter{buffer: written, mutex: &mutex}, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	read := func() string {
+		mutex.Lock()
+		defer mutex.Unlock()
+		return written.String()
+	}
+	current := &server{deploy: deployment{healthAddress: "127.0.0.1:0"}, log: log, closed: make(chan struct{}), ready: &readiness{}}
+	if err := current.listen(); err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	address := current.listener.Addr().String()
+	current.listener.Close()
+	select {
+	case <-current.closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the health listener's Serve did not return once its listener was closed")
+	}
+
+	line := strings.TrimSpace(read())
+	if !strings.Contains(line, `msg="the health listener stopped"`) || !strings.Contains(line, "class=closed") {
+		t.Fatalf("the health listener's failure line is not the one with its class, class=closed: %s", line)
+	}
+	search := func(haystack string) bool {
+		return strings.Contains(haystack, address) || strings.Contains(haystack, "127.0.0.1")
+	}
+	if search(line) {
+		t.Fatalf("the health listener's failure line names the address it was bound to, %s: %s", address, line)
+	}
+	// THE CONTROL: the same search finds the address in a line that plants it
+	if !search("level=ERROR msg=control address=" + address) {
+		t.Fatalf("the control planted %s and the search did not find it", address)
+	}
+	t.Logf("bound on %s; logged: %s", address, line)
 }

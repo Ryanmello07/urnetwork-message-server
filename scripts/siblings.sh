@@ -42,15 +42,20 @@
 # owner, not another owner's fork of the same repository. Every mode prints FORK and the URL beside
 # such a pin, so a run against a commit the upstream repository does not hold yet says so each time.
 #
-# NONE IS LISTED TODAY. The list named the owner's forks of urnetwork/message and urnetwork/connect
-# while this module's switch to github.com/urnetwork/message was under review with the three pull
-# requests it was built and tested with: the removals from urnetwork/sdk and urnetwork/connect, and
-# the import into urnetwork/message. All four merged on 2026-10-09, each with a merge commit, so the
-# pinned heads kept their ids. scripts/siblings.txt went back to urnetwork URLs, the two forks left
-# the list, and --self-test holds that each of them is refused and says that no review source is
-# accepted. To use the list again, add the fork's URL below and pin the head; when its pull request
-# has merged (with a merge commit, so the head stays the commit it was), change the URL back and
-# delete the line.
+# NONE IS LISTED TODAY. The list was used twice, and each time the pull requests merged with merge
+# commits, so the pinned heads kept their ids:
+# - It named the owner's forks of urnetwork/message and urnetwork/connect while this module's switch
+#   to github.com/urnetwork/message was under review with the three pull requests it was built and
+#   tested with: the removals from urnetwork/sdk and urnetwork/connect, and the import into
+#   urnetwork/message. All four merged on 2026-10-09.
+# - It named the owner's fork of urnetwork/message again for the identity layer's first phase (the
+#   lead's ruling R69), whose library commits were only on that fork until urnetwork/message's pull
+#   request 9 merged them, as 252573d4.
+# Each time scripts/siblings.txt went back to urnetwork URLs and the forks left the list, and
+# --self-test holds that each of them is refused and says that no review source is accepted. To use
+# the list again, add the fork's URL below and pin the head; when its pull request has merged (with
+# a merge commit, so the head stays the commit it was), change the URL back and delete the line. No
+# source is listed this way without a ruling.
 #
 # MESSAGE_SERVER_TEST_UNPINNED, a comma-separated list of names, lets --verify accept those siblings
 # at whatever commit they are checked out at, placeholder pin or not. Each is printed as UNPINNED
@@ -156,7 +161,8 @@ self_test() {
   if [ "$listed" -eq 0 ]; then
     echo "  no review source is listed, so none is accepted: every pin is fetched from urnetwork/"
   fi
-  # The two forks this list named until their pull requests merged, on 2026-10-09. Each is refused
+  # The forks this list named until their pull requests merged: both on 2026-10-09, and the
+  # urmessage fork again until urnetwork/message's pull request 9 merged (R69). Each is refused
   # now, by the line that names it.
   for url in https://github.com/Ryanmello07/urmessage.git https://github.com/Ryanmello07/connect.git; do
     pin "one $url $fake"

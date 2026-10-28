@@ -3,9 +3,11 @@ package main
 import (
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/urnetwork/message-server/api"
 	"github.com/urnetwork/message-server/store"
@@ -39,6 +41,13 @@ type configuration struct {
 	// platform at all and is reached only at its own endpoint, which must then be configured: it
 	// is the setting that makes the message server a separate server rather than a platform client.
 	platformAttachment string
+
+	// §4.3.11's kind 4, the link box (spec B Revision 25): how long a box lives from its
+	// registration, how many may be live at once, and §4.5's reject floor, which kind 4 is not
+	// served without. None of the three is advertised.
+	linkBoxTtlSeconds int64
+	linkBoxLiveCap    int64
+	rejectFloorMs     int64
 }
 
 // The defaults of spec B §10.2, verbatim.
@@ -55,6 +64,9 @@ func defaultConfiguration() configuration {
 		cardTombstoneSeconds:        7776000,
 		diagnosticSessionMaxMinutes: 60,
 		platformAttachment:          "on",
+		linkBoxTtlSeconds:           600,
+		linkBoxLiveCap:              10000,
+		rejectFloorMs:               0,
 	}
 }
 
@@ -152,7 +164,25 @@ func numberSetting(name string, note string, field func(*configuration) *int64) 
 var (
 	errNotAnInteger = errors.New("not an integer")
 	errNegative     = errors.New("negative, and no §10.2 value is")
+	errTooLong      = errors.New("longer than a duration this process can hold")
 )
+
+// A §10.2 key whose value is a count of `unit`, read into a [time.Duration] where it is used.
+// Refused, as every number is, below zero; and refused above the largest count a Duration holds,
+// which would otherwise overflow to a negative length where it is converted (LRI R75, T8): a
+// reject_floor_ms of 9,223,372,036,855 or more did, and served kind 4 with no envelope at all.
+func durationSetting(name string, note string, unit time.Duration, field func(*configuration) *int64) setting {
+	counted := numberSetting(name, note, field)
+	read := counted.read
+	counted.read = func(target *configuration, value string) error {
+		parsed, err := strconv.ParseInt(value, 10, 64)
+		if err == nil && math.MaxInt64/int64(unit) < parsed {
+			return errTooLong
+		}
+		return read(target, value)
+	}
+	return counted
+}
 
 // Every §10.2 key, in the order §10.2 lists them.
 func settings() []setting {
@@ -173,10 +203,10 @@ func settings() []setting {
 			"0 means no fleet cap, and stores NULL rather than a clamp (§7.3)",
 			func(c *configuration) *int64 { return &c.durableTtlMaxSeconds }),
 		numberSetting("rendezvous_ttl_seconds",
-			"§4.3.7",
+			"the contact card's, kind 0 (§4.3.11)",
 			func(c *configuration) *int64 { return &c.rendezvousTtlSeconds }),
 		numberSetting("rendezvous_deposit_ttl_seconds",
-			"7 days (§4.3.7)",
+			"7 days, the contact card's, kind 0 (§4.3.11)",
 			func(c *configuration) *int64 { return &c.rendezvousDepositTtlSeconds }),
 		numberSetting("rendezvous_mailbox_depth",
 			"the 17th uncollected deposit is refused (§13.38)",
@@ -200,6 +230,15 @@ func settings() []setting {
 			"on: hold a session on operator_host's platform (§9.1). off: hold none; the server is reached only at its own endpoint, which must be configured (Revision 23)",
 			platformAttachmentValues,
 			func(c *configuration) *string { return &c.platformAttachment }),
+		durationSetting("link_box_ttl_seconds",
+			"10 minutes: a link box lives this long from its registration and is never kept alive; 0 takes the default (§4.3.11)",
+			time.Second, func(c *configuration) *int64 { return &c.linkBoxTtlSeconds }),
+		numberSetting("link_box_live_cap",
+			"live link boxes; a registration past it, or when their count cannot be read, is refused; 0 takes the default (§4.3.11, Q20)",
+			func(c *configuration) *int64 { return &c.linkBoxLiveCap }),
+		durationSetting("reject_floor_ms",
+			"§4.5's floor on the reject path; 0 pads nothing and serves no kind-4 arm, and a deploy that serves one sets at least its slowest refusal path, as measured (§4.3.11)",
+			time.Millisecond, func(c *configuration) *int64 { return &c.rejectFloorMs }),
 	}
 }
 
@@ -278,9 +317,9 @@ func limitsOf(loaded configuration) store.Limits {
 // readiness endpoint prints this list, so "I set it and nothing happened" is answered by the
 // server rather than by a bisect.
 var configurationNotWired = []api.NotBuilt{
-	{Section: "§5.3", What: "read_key_window_seconds is loaded and ADVERTISED in Capabilities, and nothing retires a key on it: there is no sweep, so the number a client is told is a promise this build does not keep", Owner: "sweep"},
-	{Section: "§4.3.7", What: "rendezvous_ttl_seconds, rendezvous_deposit_ttl_seconds and rendezvous_mailbox_depth are loaded and no rendezvous arm is served", Owner: "api"},
-	{Section: "§13.39", What: "card_tombstone_seconds is loaded and nothing tombstones a retired id", Owner: "sweep"},
+	{Section: "§5.3", What: "read_key_window_seconds is loaded and ADVERTISED in Capabilities, and nothing retires a key on it: the one sweep this build runs reclaims link boxes and nothing else (§7.4), so the number a client is told is a promise this build does not keep", Owner: "sweep"},
+	{Section: "§4.3.11", What: "rendezvous_ttl_seconds, rendezvous_deposit_ttl_seconds and rendezvous_mailbox_depth are the contact card's, kind 0, which no build of I1 serves: they are loaded and nothing reads them", Owner: "api"},
+	{Section: "§13.39", What: "card_tombstone_seconds is the contact card's, kind 0, which no build of I1 serves, and nothing reads it; a retired link box keeps its tombstone until its own expiry (§4.3.11)", Owner: "sweep"},
 	{Section: "§11.5", What: "diagnostic_session_max_minutes is loaded and no diagnostic session can be opened", Owner: "api"},
 	{Section: "§7.3", What: "the media TTL pair and durable_retention_min_seconds are not §10.2 keys, so the media clamp runs on store.DefaultLimits and cannot be configured", Owner: "store"},
 	{Section: "§10.2", What: "group_durable_override is a §10.2 key with no stated default and no consumer here; it is neither loaded nor advertised, so groups cannot raise text retention and are not told why", Owner: "store"},
